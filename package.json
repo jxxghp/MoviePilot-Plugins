@@ -134,6 +134,24 @@
         "author": "wlj",
         "level": 2
     },
+    "MediaServerMsg": {
+        "name": "媒体库服务器通知",
+        "description": "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。",
+        "version": "1.0",
+        "icon": "mediaplay.png",
+        "color": "#42A3DB",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "MediaServerRefresh": {
+        "name": "媒体库服务器刷新",
+        "description": "入库后自动刷新Emby/Jellyfin/Plex服务器海报墙。",
+        "version": "1.0",
+        "icon": "refresh2.png",
+        "color": "#347180",
+        "author": "jxxghp",
+        "level": 1
+    },
     "WebHook": {
         "name": "Webhook",
         "description": "事件发生时向第三方地址发送请求。",
