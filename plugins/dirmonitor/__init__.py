@@ -60,7 +60,7 @@ class DirMonitor(_PluginBase):
     # 主题色
     plugin_color = "#E0995E"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -490,9 +490,6 @@ class DirMonitor(_PluginBase):
                     }
                 self._medias[mediainfo.title_year + " " + file_meta.season] = media_list
 
-                # 汇总刷新媒体库
-                if settings.REFRESH_MEDIASERVER:
-                    self.chain.refresh_mediaserver(mediainfo=mediainfo, file_path=transferinfo.target_path)
                 # 广播事件
                 self.eventmanager.send_event(EventType.TransferComplete, {
                     'meta': file_meta,
