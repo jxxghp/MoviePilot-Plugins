@@ -8,4 +8,5 @@ MoviePilot官方插件市场：https://raw.githubusercontent.com/jxxghp/MoviePil
 - 插件图标可复用官方插件库中`icons`下已有图标，否则需使用http格式的图片链接（包括package.json中的icon和插件代码中的plugin_icon）。
 - 插件命名请勿与官方库插件中的插件冲突，否则会在MoviePilot版本升级时被官方插件覆盖。
 - 可在插件目录中放置`requirement.txt`文件，用于指定插件依赖的第三方库，MoviePilot会在插件安装时自动安装依赖库。
+- 插件的配置页面以及详情展示页面为通过配置化的方式组装，使用[Vuetify](https://vuetifyjs.com/)组件库，所有该组件库有的组件都可以通过Json配置使用。
 - 请不要开发用于破解MoviePilot用户认证、色情、赌博等违法违规内容的插件，共同维护健康的开发环境。
