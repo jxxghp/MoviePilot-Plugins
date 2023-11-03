@@ -54,8 +54,7 @@ class MediaServerRefresh(_PluginBase):
     def get_api(self) -> List[Dict[str, Any]]:
         pass
 
-    @staticmethod
-    def get_form() -> Tuple[List[dict], Dict[str, Any]]:
+    def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
