@@ -106,7 +106,7 @@ class BarkMsg(_PluginBase):
                                         'props': {
                                             'model': 'server',
                                             'label': '服务器',
-                                            'placeholder': 'http://xxx',
+                                            'placeholder': 'https://api.day.app',
                                         }
                                     }
                                 ]
@@ -175,7 +175,7 @@ class BarkMsg(_PluginBase):
         ], {
             "enabled": False,
             'msgtypes': [],
-            'server': '',
+            'server': 'https://api.day.app',
             'apikey': '',
             'params': ''
         }

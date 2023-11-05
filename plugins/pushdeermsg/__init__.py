@@ -104,7 +104,7 @@ class PushDeerMsg(_PluginBase):
                                         'props': {
                                             'model': 'server',
                                             'label': '服务器',
-                                            'placeholder': 'http://xxx',
+                                            'placeholder': 'https://api2.pushdeer.com',
                                         }
                                     }
                                 ]
@@ -121,7 +121,7 @@ class PushDeerMsg(_PluginBase):
                                         'props': {
                                             'model': 'apikey',
                                             'label': '密钥',
-                                            'placeholder': 'PDUUxxx',
+                                            'placeholder': 'PDUxxx',
                                         }
                                     }
                                 ]
@@ -156,7 +156,7 @@ class PushDeerMsg(_PluginBase):
         ], {
             "enabled": False,
             'msgtypes': [],
-            'server': '',
+            'server': 'https://api2.pushdeer.com',
             'apikey': ''
         }
 

@@ -22,7 +22,7 @@ class SyncDownloadFiles(_PluginBase):
     # 插件图标
     plugin_icon = "sync_file.png"
     # 主题色
-    plugin_color = "#4686E3"
+    plugin_color = "#000000"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者
