@@ -295,5 +295,32 @@
         "color": "#ff9933",
         "author": "thsrite",
         "level": 1
+    },
+    "BarkMsg": {
+        "name": "Bark消息推送",
+        "description": "Bark消息推送。",
+        "version": "1.0",
+        "icon": "bark.webp",
+        "color": "#FF3B30",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "IyuuMsg": {
+        "name": "IYUU消息推送",
+        "description": "IYUU消息推送。",
+        "version": "1.0",
+        "icon": "iyuu.png",
+        "color": "#C9221B",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "PushDeerMsg": {
+        "name": "PushDeer消息推送",
+        "description": "PushDeer消息推送。",
+        "version": "1.0",
+        "icon": "pushdeer.png",
+        "color": "#FFFFFF",
+        "author": "jxxghp",
+        "level": 1
     }
 }
