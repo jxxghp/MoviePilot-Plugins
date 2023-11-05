@@ -42,7 +42,7 @@ class IyuuMsg(_PluginBase):
             self._msgtypes = config.get("msgtypes") or []
 
     def get_state(self) -> bool:
-        return self._enabled and self._token
+        return self._enabled and (True if self._token else False)
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:

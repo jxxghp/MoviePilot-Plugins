@@ -44,7 +44,7 @@ class PushDeerMsg(_PluginBase):
             self._apikey = config.get("apikey")
 
     def get_state(self) -> bool:
-        return self._enabled and self._server and self._apikey
+        return self._enabled and (True if self._server and self._apikey else False)
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
