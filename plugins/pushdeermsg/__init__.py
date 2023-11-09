@@ -18,7 +18,7 @@ class PushDeerMsg(_PluginBase):
     # 主题色
     plugin_color = "#FFFFFF"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -175,6 +175,10 @@ class PushDeerMsg(_PluginBase):
             return
 
         msg_body = event.event_data
+        # 渠道
+        channel = msg_body.get("channel")
+        if channel:
+            return
         # 类型
         msg_type: NotificationType = msg_body.get("type")
         # 标题

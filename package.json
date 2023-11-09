@@ -299,7 +299,7 @@
     "BarkMsg": {
         "name": "Bark消息推送",
         "description": "支持使用Bark发送消息通知。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "bark.webp",
         "color": "#FF3B30",
         "author": "jxxghp",
@@ -308,7 +308,7 @@
     "IyuuMsg": {
         "name": "IYUU消息推送",
         "description": "支持使用IYUU发送消息通知。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "iyuu.png",
         "color": "#C9221B",
         "author": "jxxghp",
@@ -317,7 +317,7 @@
     "PushDeerMsg": {
         "name": "PushDeer消息推送",
         "description": "支持使用PushDeer发送消息通知。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "pushdeer.png",
         "color": "#FFFFFF",
         "author": "jxxghp",
