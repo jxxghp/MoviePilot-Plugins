@@ -8,7 +8,6 @@ import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.chain.douban import DoubanChain
 from app.chain.download import DownloadChain
 from app.chain.subscribe import SubscribeChain
 from app.core.config import settings
@@ -30,7 +29,7 @@ class DoubanRank(_PluginBase):
     # 主题色
     plugin_color = "#01B3E3"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -47,7 +46,6 @@ class DoubanRank(_PluginBase):
     # 私有属性
     downloadchain: DownloadChain = None
     subscribechain: SubscribeChain = None
-    doubanchain: DoubanChain = None
     _scheduler = None
     _douban_address = {
         'movie-ustop': 'https://rsshub.app/douban/movie/ustop',
@@ -70,7 +68,6 @@ class DoubanRank(_PluginBase):
     def init_plugin(self, config: dict = None):
         self.downloadchain = DownloadChain()
         self.subscribechain = SubscribeChain()
-        self.doubanchain = DoubanChain()
 
         if config:
             self._enabled = config.get("enabled")
@@ -479,9 +476,8 @@ class DoubanRank(_PluginBase):
                     # 识别媒体信息
                     if douban_id:
                         # 识别豆瓣信息
-                        context = self.doubanchain.recognize_by_doubanid(douban_id)
-                        mediainfo = context.media_info
-                        if not mediainfo or not mediainfo.tmdb_id:
+                        mediainfo = self.chain.recognize_media(meta=meta, doubanid=douban_id)
+                        if not mediainfo:
                             logger.warn(f'未识别到媒体信息，标题：{title}，豆瓣ID：{douban_id}')
                             continue
 
@@ -491,6 +487,10 @@ class DoubanRank(_PluginBase):
                         if not mediainfo:
                             logger.warn(f'未识别到媒体信息，标题：{title}，豆瓣ID：{douban_id}')
                             continue
+                    # 判断评分是否符合要求
+                    if self._vote and mediainfo.vote_average < self._vote:
+                        logger.info(f'{mediainfo.title_year} 评分不符合要求')
+                        continue
                     # 查询缺失的媒体信息
                     exist_flag, _ = self.downloadchain.get_no_exists_info(meta=meta, mediainfo=mediainfo)
                     if exist_flag:

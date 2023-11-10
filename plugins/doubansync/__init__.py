@@ -7,7 +7,6 @@ import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.chain.douban import DoubanChain
 from app.chain.download import DownloadChain
 from app.chain.search import SearchChain
 from app.chain.subscribe import SubscribeChain
@@ -33,7 +32,7 @@ class DoubanSync(_PluginBase):
     # 主题色
     plugin_color = "#05B711"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -53,7 +52,6 @@ class DoubanSync(_PluginBase):
     downloadchain = None
     searchchain = None
     subscribechain = None
-    doubanchain = None
 
     # 配置属性
     _enabled: bool = False
@@ -70,7 +68,6 @@ class DoubanSync(_PluginBase):
         self.downloadchain = DownloadChain()
         self.searchchain = SearchChain()
         self.subscribechain = SubscribeChain()
-        self.doubanchain = DoubanChain()
 
         # 停止现有任务
         self.stop_service()
@@ -478,9 +475,8 @@ class DoubanSync(_PluginBase):
                         continue
                     # 识别媒体信息
                     meta = MetaInfo(title=title)
-                    context = self.doubanchain.recognize_by_doubanid(douban_id)
-                    mediainfo = context.media_info
-                    if not mediainfo or not mediainfo.tmdb_id:
+                    mediainfo = self.chain.recognize_media(meta=meta, doubanid=douban_id)
+                    if not mediainfo:
                         logger.warn(f'未识别到媒体信息，标题：{title}，豆瓣ID：{douban_id}')
                         continue
                     # 查询缺失的媒体信息

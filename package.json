@@ -38,7 +38,7 @@
     "DoubanSync": {
         "name": "豆瓣想看",
         "description": "同步豆瓣想看数据，自动添加订阅。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "douban.png",
         "color": "#05B711",
         "author": "jxxghp",
@@ -65,7 +65,7 @@
     "DoubanRank": {
         "name": "豆瓣榜单订阅",
         "description": "监控豆瓣热门榜单，自动添加订阅。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "movie.jpg",
         "color": "#01B3E3",
         "author": "jxxghp",
