@@ -83,7 +83,7 @@
     "TorrentRemover": {
         "name": "自动删种",
         "description": "自动删除下载器中的下载任务。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "torrent.png",
         "color": "#02853F",
         "author": "jxxghp",

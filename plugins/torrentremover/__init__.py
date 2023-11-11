@@ -29,7 +29,7 @@ class TorrentRemover(_PluginBase):
     # 主题色
     plugin_color = "#02853F"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -491,6 +491,46 @@ class TorrentRemover(_PluginBase):
                                             'type': 'info',
                                             'variant': 'tonal',
                                             'text': '自动删种存在风险，如设置不当可能导致数据丢失！建议动作先选择暂停，确定条件正确后再改成删除。'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '任务状态（QB）字典：'
+                                                    'downloading：正在下载-传输数据，'
+                                                    'stalledDL：正在下载_未建立连接，'
+                                                    'uploading：正在上传-传输数据，'
+                                                    'stalledUP：正在上传-未建立连接，'
+                                                    'error：暂停-发生错误，'
+                                                    'pausedDL：暂停-下载未完成，'
+                                                    'pausedUP：暂停-下载完成，'
+                                                    'missingFiles：暂停-文件丢失，'
+                                                    'checkingDL：检查中-下载未完成，'
+                                                    'checkingUP：检查中-下载完成，'
+                                                    'checkingResumeData：检查中-启动时恢复数据，'
+                                                    'forcedDL：强制下载-忽略队列，'
+                                                    'queuedDL：等待下载-排队，'
+                                                    'forcedUP：强制上传-忽略队列，'
+                                                    'queuedUP：等待上传-排队，'
+                                                    'allocating：分配磁盘空间，'
+                                                    'metaDL：获取元数据，'
+                                                    'moving：移动文件，'
+                                                    'unknown：未知状态'
                                         }
                                     }
                                 ]
