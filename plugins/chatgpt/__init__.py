@@ -96,7 +96,7 @@ class ChatGPT(_PluginBase):
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'proxy',
-                                            'label': '使用代理',
+                                            'label': '使用代理服务器',
                                         }
                                     }
                                 ]

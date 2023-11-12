@@ -29,7 +29,7 @@ class DoubanRank(_PluginBase):
     # 主题色
     plugin_color = "#01B3E3"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -64,6 +64,7 @@ class DoubanRank(_PluginBase):
     _vote = 0
     _clear = False
     _clearflag = False
+    _proxy = False
 
     def init_plugin(self, config: dict = None):
         self.downloadchain = DownloadChain()
@@ -72,6 +73,7 @@ class DoubanRank(_PluginBase):
         if config:
             self._enabled = config.get("enabled")
             self._cron = config.get("cron")
+            self._proxy = config.get("proxy")
             self._onlyonce = config.get("onlyonce")
             self._vote = float(config.get("vote")) if config.get("vote") else 0
             rss_addrs = config.get("rss_addrs")
@@ -159,6 +161,22 @@ class DoubanRank(_PluginBase):
                                         'props': {
                                             'model': 'enabled',
                                             'label': '启用插件',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'proxy',
+                                            'label': '使用代理服务器',
                                         }
                                     }
                                 ]
@@ -292,6 +310,7 @@ class DoubanRank(_PluginBase):
         ], {
             "enabled": False,
             "cron": "",
+            "proxy": False,
             "onlyonce": False,
             "vote": "",
             "ranks": [],
@@ -529,13 +548,15 @@ class DoubanRank(_PluginBase):
         self._clearflag = False
         logger.info(f"所有榜单RSS刷新完成")
 
-    @staticmethod
-    def __get_rss_info(addr) -> List[dict]:
+    def __get_rss_info(self, addr) -> List[dict]:
         """
         获取RSS
         """
         try:
-            ret = RequestUtils().get_res(addr)
+            if self._proxy:
+                ret = RequestUtils(proxies=settings.PROXY).get_res(addr)
+            else:
+                ret = RequestUtils().get_res(addr)
             if not ret:
                 return []
             ret_xml = ret.text
