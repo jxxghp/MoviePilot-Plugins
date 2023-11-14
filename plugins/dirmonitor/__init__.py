@@ -8,6 +8,7 @@ from typing import List, Tuple, Dict, Any, Optional
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
@@ -60,7 +61,7 @@ class DirMonitor(_PluginBase):
     # 主题色
     plugin_color = "#E0995E"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -82,6 +83,7 @@ class DirMonitor(_PluginBase):
     _enabled = False
     _notify = False
     _onlyonce = False
+    _cron = None
     # 模式 compatibility/fast
     _mode = "fast"
     # 转移方式
@@ -116,6 +118,7 @@ class DirMonitor(_PluginBase):
             self._monitor_dirs = config.get("monitor_dirs") or ""
             self._exclude_keywords = config.get("exclude_keywords") or ""
             self._interval = config.get("interval") or 10
+            self._cron = config.get("cron")
 
         # 停止现有任务
         self.stop_service()
@@ -213,6 +216,17 @@ class DirMonitor(_PluginBase):
                 # 保存配置
                 self.__update_config()
 
+            # 全量同步定时
+            if self._enabled and self._cron:
+                try:
+                    self._scheduler.add_job(func=self.sync_all,
+                                            trigger=CronTrigger.from_crontab(self._cron),
+                                            name="目录监控全量同步")
+                except Exception as err:
+                    logger.error(f"定时任务配置错误：{str(err)}")
+                    # 推送实时消息
+                    self.systemmessage.put(f"执行周期配置错误：{str(err)}")
+
             # 启动定时服务
             if self._scheduler.get_jobs():
                 self._scheduler.print_jobs()
@@ -230,7 +244,8 @@ class DirMonitor(_PluginBase):
             "transfer_type": self._transfer_type,
             "monitor_dirs": self._monitor_dirs,
             "exclude_keywords": self._exclude_keywords,
-            "interval": self._interval
+            "interval": self._interval,
+            "cron": self._cron
         })
 
     @eventmanager.register(EventType.DirectorySync)
@@ -751,6 +766,27 @@ class DirMonitor(_PluginBase):
                                 },
                                 'content': [
                                     {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'cron',
+                                            'label': '定时全量同步周期',
+                                            'placeholder': '5位cron表达式，留空关闭'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
                                         'component': 'VTextarea',
                                         'props': {
                                             'model': 'monitor_dirs',
@@ -773,7 +809,7 @@ class DirMonitor(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12
+                                    'cols': 12,
                                 },
                                 'content': [
                                     {
@@ -820,7 +856,8 @@ class DirMonitor(_PluginBase):
             "transfer_type": settings.TRANSFER_TYPE,
             "monitor_dirs": "",
             "exclude_keywords": "",
-            "interval": 10
+            "interval": 10,
+            "cron": ""
         }
 
     def get_page(self) -> List[dict]:
