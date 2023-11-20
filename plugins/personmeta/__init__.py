@@ -41,7 +41,7 @@ class PersonMeta(_PluginBase):
     # 主题色
     plugin_color = "#E66E72"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -624,7 +624,7 @@ class PersonMeta(_PluginBase):
         # 匹配豆瓣信息
         doubaninfo = self.chain.match_doubaninfo(name=mediainfo.title,
                                                  imdbid=mediainfo.imdb_id,
-                                                 mtype=mediainfo.type.value,
+                                                 mtype=mediainfo.type,
                                                  year=mediainfo.year,
                                                  season=season)
         # 豆瓣演员

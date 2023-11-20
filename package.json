@@ -272,7 +272,7 @@
     "PersonMeta": {
         "name": "演职人员刮削",
         "description": "刮削演职人员图片以及中文名称。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "actor.png",
         "color": "#E66E72",
         "author": "jxxghp",
