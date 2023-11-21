@@ -74,7 +74,7 @@
     "LibraryScraper": {
         "name": "媒体库刮削",
         "description": "定时对媒体库进行刮削，补齐缺失元数据和图片。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "scraper.png",
         "color": "#FF7D00",
         "author": "jxxghp",
