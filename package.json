@@ -263,7 +263,7 @@
     "InvitesSignin": {
         "name": "药丸签到",
         "description": "药丸论坛签到。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "invites.png",
         "color": "#FFFFFF",
         "author": "thsrite",
