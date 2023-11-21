@@ -92,7 +92,7 @@
     "MediaSyncDel": {
         "name": "媒体文件同步删除",
         "description": "同步删除历史记录、源文件和下载任务。",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "mediasyncdel.png",
         "color": "#ff1a1a",
         "author": "thsrite",

@@ -33,7 +33,7 @@ class MediaSyncDel(_PluginBase):
     # 主题色
     plugin_color = "#ff1a1a"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -53,6 +53,7 @@ class MediaSyncDel(_PluginBase):
     _cron: str = ""
     _notify = False
     _del_source = False
+    _del_history = False
     _exclude_path = None
     _library_path = None
     _transferchain = None
@@ -79,22 +80,39 @@ class MediaSyncDel(_PluginBase):
             self._cron = config.get("cron")
             self._notify = config.get("notify")
             self._del_source = config.get("del_source")
+            self._del_history = config.get("del_history")
             self._exclude_path = config.get("exclude_path")
             self._library_path = config.get("library_path")
 
+            # 清理插件历史
+            if self._del_history:
+                self.del_data(key="history")
+                self.update_config({
+                    "enabled": self._enabled,
+                    "sync_type": self._sync_type,
+                    "cron": self._cron,
+                    "notify": self._notify,
+                    "del_source": self._del_source,
+                    "del_history": False,
+                    "exclude_path": self._exclude_path,
+                    "library_path": self._library_path
+                })
+
         if self._enabled and str(self._sync_type) == "log":
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+            # 媒体库同步删除日志方式
             if self._cron:
                 try:
                     self._scheduler.add_job(func=self.sync_del_by_log,
                                             trigger=CronTrigger.from_crontab(self._cron),
-                                            name="媒体库同步删除")
+                                            name="媒体库同步删除日志方式")
                 except Exception as err:
                     logger.error(f"定时任务配置错误：{str(err)}")
                     # 推送实时消息
                     self.systemmessage.put(f"执行周期配置错误：{str(err)}")
             else:
-                self._scheduler.add_job(self.sync_del_by_log, "interval", minutes=30, name="媒体库同步删除")
+                self._scheduler.add_job(self.sync_del_by_log, "interval", minutes=30,
+                                        name="媒体库同步删除日志方式")
 
             # 启动任务
             if self._scheduler.get_jobs():
@@ -127,7 +145,7 @@ class MediaSyncDel(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -143,7 +161,7 @@ class MediaSyncDel(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -159,7 +177,7 @@ class MediaSyncDel(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -167,6 +185,22 @@ class MediaSyncDel(_PluginBase):
                                         'props': {
                                             'model': 'del_source',
                                             'label': '删除源文件',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'del_history',
+                                            'label': '删除历史',
                                         }
                                     }
                                 ]
@@ -293,11 +327,11 @@ class MediaSyncDel(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '关于路径映射（转移后文件）：'
-                                                    'emby:/data/series/A.mp4,'
-                                                    'moviepilot:/mnt/link/series/A.mp4。'
+                                            'text': '关于路径映射（转移后文件路径）：'
+                                                    'emby:/data/A.mp4,'
+                                                    'moviepilot:/mnt/link/A.mp4。'
                                                     '路径映射填/data:/mnt/link。'
-                                                    '不正确配置会导致查询不到转移记录！'
+                                                    '不正确配置会导致查询不到转移记录！（路径一样可不填）'
                                         }
                                     }
                                 ]
@@ -324,6 +358,51 @@ class MediaSyncDel(_PluginBase):
                                 ]
                             }
                         ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': 'Scripter X配置文档：'
+                                                    'https://github.com/thsrite/'
+                                                    'MediaSyncDel/blob/main/MoviePilot/MoviePilot.md'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '路径映射配置文档：'
+                                                    'https://github.com/thsrite/MediaSyncDel/blob/main/path.md'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
                     }
                 ]
             }
@@ -331,6 +410,7 @@ class MediaSyncDel(_PluginBase):
             "enabled": False,
             "notify": True,
             "del_source": False,
+            "del_history": False,
             "library_path": "",
             "sync_type": "webhook",
             "cron": "*/30 * * * *",
@@ -518,6 +598,25 @@ class MediaSyncDel(_PluginBase):
         # 集数
         episode_num = event_data.episode_id
 
+        """
+        执行删除逻辑
+        """
+        if self._exclude_path and media_path and any(
+                os.path.abspath(media_path).startswith(os.path.abspath(path)) for path in
+                self._exclude_path.split(",")):
+            logger.info(f"媒体路径 {media_path} 已被排除，暂不处理")
+            # 发送消息通知网盘删除插件删除网盘资源
+            self.eventmanager.send_event(EventType.NetworkDiskDel,
+                                         {
+                                             "media_path": media_path,
+                                             "media_name": media_name,
+                                             "tmdb_id": tmdb_id,
+                                             "media_type": media_type,
+                                             "season_num": season_num,
+                                             "episode_num": episode_num,
+                                         })
+            return
+
         # 兼容emby webhook season删除没有发送tmdbid
         if not tmdb_id and str(media_type) != 'Season':
             logger.error(f"{media_name} 同步删除失败，未获取到TMDB ID，请检查媒体库媒体是否刮削")
@@ -578,19 +677,6 @@ class MediaSyncDel(_PluginBase):
         # 集数
         episode_num = event_data.episode_id
 
-        if not tmdb_id or not str(tmdb_id).isdigit():
-            logger.error(f"{media_name} 同步删除失败，未获取到TMDB ID，请检查媒体库媒体是否刮削")
-            return
-
-        self.__sync_del(media_type=media_type,
-                        media_name=media_name,
-                        media_path=media_path,
-                        tmdb_id=tmdb_id,
-                        season_num=season_num,
-                        episode_num=episode_num)
-
-    def __sync_del(self, media_type: str, media_name: str, media_path: str,
-                   tmdb_id: int, season_num: str, episode_num: str):
         """
         执行删除逻辑
         """
@@ -610,6 +696,19 @@ class MediaSyncDel(_PluginBase):
                                          })
             return
 
+        if not tmdb_id or not str(tmdb_id).isdigit():
+            logger.error(f"{media_name} 同步删除失败，未获取到TMDB ID，请检查媒体库媒体是否刮削")
+            return
+
+        self.__sync_del(media_type=media_type,
+                        media_name=media_name,
+                        media_path=media_path,
+                        tmdb_id=tmdb_id,
+                        season_num=season_num,
+                        episode_num=episode_num)
+
+    def __sync_del(self, media_type: str, media_name: str, media_path: str,
+                   tmdb_id: int, season_num: str, episode_num: str):
         if not media_type:
             logger.error(f"{media_name} 同步删除失败，未获取到媒体类型，请检查媒体是否刮削")
             return
@@ -656,6 +755,7 @@ class MediaSyncDel(_PluginBase):
                         try:
                             # 2、判断种子是否被删除完
                             delete_flag, success_flag, handle_torrent_hashs = self.handle_torrent(
+                                type=transferhis.type,
                                 src=transferhis.src,
                                 torrent_hash=transferhis.download_hash)
                             if not success_flag:
@@ -807,7 +907,7 @@ class MediaSyncDel(_PluginBase):
         """
         # 读取历史记录
         history = self.get_data('history') or []
-        last_time = self.get_data("last_time")
+        last_time = self.get_data("last_time") or None
         del_medias = []
 
         # 媒体服务器类型，多个以,分隔
@@ -832,7 +932,7 @@ class MediaSyncDel(_PluginBase):
         for del_media in del_medias:
             # 删除时间
             del_time = del_media.get("time")
-            last_del_time = del_time
+            last_del_time = del_time or datetime.datetime.now()
             # 媒体类型 Movie|Series|Season|Episode
             media_type = del_media.get("type")
             # 媒体名称 蜀山战纪
@@ -851,7 +951,7 @@ class MediaSyncDel(_PluginBase):
                     os.path.abspath(media_path).startswith(os.path.abspath(path)) for path in
                     self._exclude_path.split(",")):
                 logger.info(f"媒体路径 {media_path} 已被排除，暂不处理")
-                self.save_data("last_time", last_del_time or datetime.datetime.now())
+                self.save_data("last_time", last_del_time)
                 return
 
             # 处理路径映射 (处理同一媒体多分辨率的情况)
@@ -894,14 +994,14 @@ class MediaSyncDel(_PluginBase):
                     episode=media_episode,
                     dest=media_path)
             else:
-                self.save_data("last_time", last_del_time or datetime.datetime.now())
+                self.save_data("last_time", last_del_time)
                 continue
 
             logger.info(f"正在同步删除 {msg}")
 
             if not transfer_history:
                 logger.info(f"未获取到 {msg} 转移记录，请检查路径映射是否配置错误，请检查tmdbid获取是否正确")
-                self.save_data("last_time", last_del_time or datetime.datetime.now())
+                self.save_data("last_time", last_del_time)
                 continue
 
             logger.info(f"获取到删除历史记录数量 {len(transfer_history)}")
@@ -916,7 +1016,7 @@ class MediaSyncDel(_PluginBase):
                 if title not in media_name:
                     logger.warn(
                         f"当前转移记录 {transferhis.id} {title} {transferhis.tmdbid} 与删除媒体{media_name}不符，防误删，暂不自动删除")
-                    self.save_data("last_time", last_del_time or datetime.datetime.now())
+                    self.save_data("last_time", last_del_time)
                     continue
                 image = transferhis.image or image
                 # 0、删除转移记录
@@ -931,6 +1031,7 @@ class MediaSyncDel(_PluginBase):
                             try:
                                 # 2、判断种子是否被删除完
                                 delete_flag, success_flag, handle_torrent_hashs = self.handle_torrent(
+                                    type=transferhis.type,
                                     src=transferhis.src,
                                     torrent_hash=transferhis.download_hash)
                                 if not success_flag:
@@ -981,9 +1082,9 @@ class MediaSyncDel(_PluginBase):
         # 保存历史
         self.save_data("history", history)
 
-        self.save_data("last_time", last_del_time or datetime.datetime.now())
+        self.save_data("last_time", last_del_time)
 
-    def handle_torrent(self, src: str, torrent_hash: str):
+    def handle_torrent(self, type: str, src: str, torrent_hash: str):
         """
         判断种子是否局部删除
         局部删除则暂停种子
@@ -1085,17 +1186,80 @@ class MediaSyncDel(_PluginBase):
                 handle_torrent_hashs.append(download_id)
 
             # 处理辅种
-            handle_cnt = self.__del_seed(download=download,
-                                         download_id=download_id,
-                                         action_flag="del" if delete_flag else 'stop',
-                                         handle_torrent_hashs=handle_torrent_hashs)
-
-            return delete_flag, True, handle_cnt
+            handle_torrent_hashs = self.__del_seed(download=download,
+                                                   download_id=download_id,
+                                                   delete_flag=delete_flag,
+                                                   handle_torrent_hashs=handle_torrent_hashs)
+            # 处理合集
+            if str(type) == "电视剧":
+                handle_torrent_hashs = self.__del_collection(src=src,
+                                                             delete_flag=delete_flag,
+                                                             torrent_hash=torrent_hash,
+                                                             download_files=download_files,
+                                                             handle_torrent_hashs=handle_torrent_hashs)
+            return delete_flag, True, handle_torrent_hashs
         except Exception as e:
             logger.error(f"删种失败： {str(e)}")
             return False, False, 0
 
-    def __del_seed(self, download, download_id, action_flag, handle_torrent_hashs):
+    def __del_collection(self, src: str, delete_flag: bool, torrent_hash: str, download_files: list,
+                         handle_torrent_hashs: list):
+        """
+        处理合集
+        """
+        try:
+            download_file = self._downloadhis.get_file_by_fullpath(fullpath=src)
+            # src查询记录 判断download_hash是否不一致
+            if download_file and str(download_file.download_hash) != str(torrent_hash):
+                # 查询新download_hash对应files数量
+                hash_download_files = self._downloadhis.get_files_by_hash(
+                    download_hash=download_file.download_hash)
+                # 新download_hash对应files数量 > 删种download_hash对应files数量 = 合集种子
+                if hash_download_files \
+                        and len(hash_download_files) > len(download_files) \
+                        and hash_download_files[0].id > download_files[-1].id:
+                    # 查询未删除数
+                    no_del_cnt = 0
+                    for hash_download_file in hash_download_files:
+                        if hash_download_file and hash_download_file.state and int(
+                                hash_download_file.state) == 1:
+                            no_del_cnt += 1
+                    if no_del_cnt > 0:
+                        logger.info(f"合集种子 {download_file.download_hash} 文件未完全删除，执行暂停种子操作")
+                        delete_flag = False
+
+                    # 删除合集种子
+                    if delete_flag:
+                        if str(download_file.downloader) == "transmission":
+                            self.tr.delete_torrents(delete_file=True,
+                                                    ids=download_file.download_hash)
+                        else:
+                            self.qb.delete_torrents(delete_file=True,
+                                                    ids=download_file.download_hash)
+
+                        logger.info(f"删除合集种子 {download_file.downloader} {download_file.download_hash}")
+                    else:
+                        # 暂停合集种子
+                        if str(download_file.downloader) == "transmission":
+                            self.tr.stop_torrents(ids=download_file.download_hash)
+                        else:
+                            self.qb.stop_torrents(ids=download_file.download_hash)
+                        logger.info(f"暂停合集种子 {download_file.downloader} {download_file.download_hash}")
+                    # 已处理种子+1
+                    handle_torrent_hashs.append(download_file.download_hash)
+
+                    # 处理合集辅种
+                    handle_torrent_hashs = self.__del_seed(download=download_file.downloader,
+                                                           download_id=download_file.download_hash,
+                                                           delete_flag=delete_flag,
+                                                           handle_torrent_hashs=handle_torrent_hashs)
+        except Exception as e:
+            logger.error(f"处理 {torrent_hash} 合集失败")
+            print(str(e))
+
+        return handle_torrent_hashs
+
+    def __del_seed(self, download, download_id, delete_flag, handle_torrent_hashs):
         """
         删除辅种
         """
@@ -1109,8 +1273,8 @@ class MediaSyncDel(_PluginBase):
         # 有辅种记录则处理辅种
         if seed_history and isinstance(seed_history, list):
             for history in seed_history:
-                downloader = history['downloader']
-                torrents = history['torrents']
+                downloader = history.get("downloader")
+                torrents = history.get("torrents")
                 if not downloader or not torrents:
                     return
                 if not isinstance(torrents, list):
@@ -1121,28 +1285,33 @@ class MediaSyncDel(_PluginBase):
                     handle_torrent_hashs.append(torrent)
                     if str(download) == "qbittorrent":
                         # 删除辅种
-                        if action_flag == "del":
+                        if delete_flag:
                             logger.info(f"删除辅种：{downloader} - {torrent}")
                             self.qb.delete_torrents(delete_file=True,
                                                     ids=torrent)
                         # 暂停辅种
-                        if action_flag == "stop":
-                            self.qb.stop_torrents(torrent)
+                        else:
+                            self.qb.stop_torrents(ids=torrent)
                             logger.info(f"辅种：{downloader} - {torrent} 暂停")
                     else:
                         # 删除辅种
-                        if action_flag == "del":
+                        if delete_flag:
                             logger.info(f"删除辅种：{downloader} - {torrent}")
                             self.tr.delete_torrents(delete_file=True,
                                                     ids=torrent)
                         # 暂停辅种
-                        if action_flag == "stop":
-                            self.tr.stop_torrents(torrent)
+                        else:
+                            self.tr.stop_torrents(ids=torrent)
                             logger.info(f"辅种：{downloader} - {torrent} 暂停")
-                break
+
+                    # 处理辅种的辅种
+                    handle_torrent_hashs = self.__del_seed(download=downloader,
+                                                           download_id=torrent,
+                                                           delete_flag=delete_flag,
+                                                           handle_torrent_hashs=handle_torrent_hashs)
 
             # 删除辅种历史
-            if action_flag == "del":
+            if delete_flag:
                 self.del_data(key=history_key,
                               plugin_id=plugin_id)
         return handle_torrent_hashs
@@ -1153,7 +1322,7 @@ class MediaSyncDel(_PluginBase):
         获取emby日志列表、解析emby日志
         """
 
-        def __parse_log(file_name: str, del_list: list):
+        def __parse_log(file_name: str, del_list: list, last_time):
             """
             解析emby日志
             """
@@ -1246,7 +1415,9 @@ class MediaSyncDel(_PluginBase):
         del_medias = []
         log_files.reverse()
         for log_file in log_files:
-            del_medias = __parse_log(log_file, del_medias)
+            del_medias = __parse_log(file_name=log_file,
+                                     del_list=del_medias,
+                                     last_time=last_time)
 
         return del_medias
 
@@ -1256,7 +1427,7 @@ class MediaSyncDel(_PluginBase):
         获取jellyfin日志列表、解析jellyfin日志
         """
 
-        def __parse_log(file_name: str, del_list: list):
+        def __parse_log(file_name: str, del_list: list, last_time):
             """
             解析jellyfin日志
             """
@@ -1349,7 +1520,9 @@ class MediaSyncDel(_PluginBase):
         del_medias = []
         log_files.reverse()
         for log_file in log_files:
-            del_medias = __parse_log(log_file, del_medias)
+            del_medias = __parse_log(file_name=log_file,
+                                     del_list=del_medias,
+                                     last_time=last_time)
 
         return del_medias
 
@@ -1383,7 +1556,8 @@ class MediaSyncDel(_PluginBase):
         # 查询下载hash
         download_hash = self._downloadhis.get_hash_by_fullpath(src)
         if download_hash:
-            self.handle_torrent(src=src, torrent_hash=download_hash)
+            download_history = self._downloadhis.get_by_hash(download_hash)
+            self.handle_torrent(type=download_history.type, src=src, torrent_hash=download_hash)
         else:
             logger.warn(f"未查询到文件 {src} 对应的下载记录")
 
