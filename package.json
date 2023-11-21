@@ -74,7 +74,7 @@
     "LibraryScraper": {
         "name": "媒体库刮削",
         "description": "定时对媒体库进行刮削，补齐缺失元数据和图片。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "scraper.png",
         "color": "#FF7D00",
         "author": "jxxghp",
@@ -92,7 +92,7 @@
     "MediaSyncDel": {
         "name": "媒体文件同步删除",
         "description": "同步删除历史记录、源文件和下载任务。",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "mediasyncdel.png",
         "color": "#ff1a1a",
         "author": "thsrite",
@@ -137,7 +137,7 @@
     "MediaServerMsg": {
         "name": "媒体库服务器通知",
         "description": "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "mediaplay.png",
         "color": "#42A3DB",
         "author": "jxxghp",
@@ -263,7 +263,7 @@
     "InvitesSignin": {
         "name": "药丸签到",
         "description": "药丸论坛签到。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "invites.png",
         "color": "#FFFFFF",
         "author": "thsrite",
@@ -290,7 +290,7 @@
     "CloudDiskDel": {
         "name": "云盘文件删除",
         "description": "媒体库删除strm文件后同步删除云盘资源。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "clouddisk.png",
         "color": "#4285F5",
         "author": "thsrite",

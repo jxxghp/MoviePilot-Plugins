@@ -19,7 +19,7 @@ class MediaServerMsg(_PluginBase):
     # 主题色
     plugin_color = "#42A3DB"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -80,6 +80,8 @@ class MediaServerMsg(_PluginBase):
             {"title": "停止播放", "value": "playback.stop|media.stop|PlaybackStop"},
             {"title": "用户标记", "value": "item.rate"},
             {"title": "测试", "value": "system.webhooktest"},
+            {"title": "登录成功", "value": "user.authenticated"},
+            {"title": "登录失败", "value": "user.authenticationfailed"},
         ]
         return [
             {

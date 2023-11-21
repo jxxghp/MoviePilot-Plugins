@@ -1,4 +1,3 @@
-import os
 import shutil
 import time
 from pathlib import Path
@@ -23,7 +22,7 @@ class CloudDiskDel(_PluginBase):
     # 主题色
     plugin_color = "#4285F5"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -40,14 +39,28 @@ class CloudDiskDel(_PluginBase):
     # 任务执行间隔
     _paths = {}
     _notify = False
+    _del_history = False
+
+    _video_formats = ('.mp4', '.avi', '.rmvb', '.wmv', '.mov', '.mkv', '.flv', '.ts', '.webm', '.iso', '.mpg')
 
     def init_plugin(self, config: dict = None):
         if config:
             self._enabled = config.get("enabled")
             self._notify = config.get("notify")
+            self._del_history = config.get("del_history")
             for path in str(config.get("path")).split("\n"):
                 paths = path.split(":")
                 self._paths[paths[0]] = paths[1]
+
+            # 清理插件历史
+            if self._del_history:
+                self.del_data(key="history")
+                self.update_config({
+                    "enabled": self._enabled,
+                    "notify": self._notify,
+                    "path": config.get("path"),
+                    "del_history": False
+                })
 
     @eventmanager.register(EventType.NetworkDiskDel)
     def clouddisk_del(self, event: Event):
@@ -80,9 +93,19 @@ class CloudDiskDel(_PluginBase):
                     pattern = path.stem.replace('[', '?').replace(']', '?')
                     logger.info(f"开始筛选同名文件 {pattern}")
                     files = path.parent.glob(f"{pattern}.*")
+
+                    remove_flag = False
                     for file in files:
                         Path(file).unlink()
                         logger.info(f"云盘文件 {file} 已删除")
+                        remove_flag = True
+
+                    if not remove_flag:
+                        for ext in self._video_formats:
+                            file = path.stem + ext
+                            if Path(file).exists():
+                                Path(file).unlink()
+                                logger.info(f"云盘文件 {file} 已删除")
                 else:
                     # 非根目录，才删除目录
                     shutil.rmtree(path)
@@ -151,8 +174,8 @@ class CloudDiskDel(_PluginBase):
             "type": media_type.value,
             "title": media_name,
             "path": media_path,
-            "season": season_num,
-            "episode": episode_num,
+            "season": season_num if season_num and str(season_num).isdigit() else None,
+            "episode": episode_num if episode_num and str(episode_num).isdigit() else None,
             "image": poster_image,
             "del_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))
         })
@@ -185,7 +208,7 @@ class CloudDiskDel(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -201,7 +224,7 @@ class CloudDiskDel(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -209,6 +232,22 @@ class CloudDiskDel(_PluginBase):
                                         'props': {
                                             'model': 'notify',
                                             'label': '开启通知',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'del_history',
+                                            'label': '删除历史',
                                         }
                                     }
                                 ]
@@ -289,7 +328,8 @@ class CloudDiskDel(_PluginBase):
         ], {
             "enabled": False,
             "path": "",
-            "notify": False
+            "notify": False,
+            "del_history": False
         }
 
     def get_page(self) -> List[dict]:

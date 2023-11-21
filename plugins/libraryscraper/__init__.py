@@ -19,7 +19,6 @@ from app.utils.system import SystemUtils
 
 
 class LibraryScraper(_PluginBase):
-
     # 插件名称
     plugin_name = "媒体库刮削"
     # 插件描述
@@ -29,7 +28,7 @@ class LibraryScraper(_PluginBase):
     # 主题色
     plugin_color = "#FF7D00"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -54,7 +53,7 @@ class LibraryScraper(_PluginBase):
     _exclude_paths = ""
     # 退出事件
     _event = Event()
-    
+
     def init_plugin(self, config: dict = None):
         # 读取配置
         if config:
@@ -90,7 +89,7 @@ class LibraryScraper(_PluginBase):
                 logger.info(f"媒体库刮削服务，立即运行一次")
                 self._scheduler.add_job(func=self.__libraryscraper, trigger='date',
                                         run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                                        name="Cloudflare优选")
+                                        name="媒体库刮削")
                 # 关闭一次性开关
                 self._onlyonce = False
                 self.update_config({
@@ -245,6 +244,49 @@ class LibraryScraper(_PluginBase):
                                 ]
                             }
                         ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '刮削路径要配置到二级分类路径。（如果配置了LIBRARY_CATEGORY=true）'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '刮削路径后拼接#电视剧/电影，强制指定该媒体路径媒体类型。'
+                                                    '不加默认根据文件名自动识别媒体类型。'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
                     }
                 ]
             }
@@ -272,11 +314,19 @@ class LibraryScraper(_PluginBase):
         for path in paths:
             if not path:
                 continue
+            # 强制指定该路径媒体类型
+            mtype = None
+            if str(path).count("#") == 1:
+                mtype = next(
+                    (mediaType for mediaType in MediaType.__members__.values() if
+                     mediaType.value == str(str(path).split("#")[1])),
+                    None)
+                path = str(path).split("#")[0]
             scraper_path = Path(path)
             if not scraper_path.exists():
                 logger.warning(f"媒体库刮削路径不存在：{path}")
                 continue
-            logger.info(f"开始刮削媒体库：{path} ...")
+            logger.info(f"开始刮削媒体库：{path} {mtype} ...")
             # 遍历一层文件夹
             for sub_path in scraper_path.iterdir():
                 if self._event.is_set():
@@ -302,11 +352,11 @@ class LibraryScraper(_PluginBase):
                         logger.warn(f"{sub_path} 可能不是媒体目录，请检查刮削目录配置，跳过 ...")
                         continue
                     logger.info(f"开始刮削目录：{sub_path} ...")
-                    self.__scrape_dir(path=sub_path, dir_meta=dir_meta)
+                    self.__scrape_dir(path=sub_path, dir_meta=dir_meta, mtype=mtype)
                     logger.info(f"目录 {sub_path} 刮削完成")
             logger.info(f"媒体库 {path} 刮削完成")
 
-    def __scrape_dir(self, path: Path, dir_meta: MetaBase):
+    def __scrape_dir(self, path: Path, dir_meta: MetaBase, mtype: MediaType = None):
         """
         削刮一个目录，该目录必须是媒体文件目录
         """
@@ -325,6 +375,10 @@ class LibraryScraper(_PluginBase):
             meta_info = MetaInfo(file.stem)
             # 合并
             meta_info.merge(dir_meta)
+            # 强制指定类型
+            if mtype:
+                meta_info.type = mtype
+
             # 是否刮削
             scrap_metadata = settings.SCRAP_METADATA
 
