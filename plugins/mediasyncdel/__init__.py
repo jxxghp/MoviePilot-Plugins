@@ -606,7 +606,7 @@ class MediaSyncDel(_PluginBase):
                 self._exclude_path.split(",")):
             logger.info(f"媒体路径 {media_path} 已被排除，暂不处理")
             # 发送消息通知网盘删除插件删除网盘资源
-            self.eventmanager.send_event(EventType.NetworkDiskDel,
+            self.eventmanager.send_event(EventType.Pl,
                                          {
                                              "media_path": media_path,
                                              "media_name": media_name,
@@ -685,8 +685,9 @@ class MediaSyncDel(_PluginBase):
                 self._exclude_path.split(",")):
             logger.info(f"媒体路径 {media_path} 已被排除，暂不处理")
             # 发送消息通知网盘删除插件删除网盘资源
-            self.eventmanager.send_event(EventType.NetworkDiskDel,
+            self.eventmanager.send_event(EventType.PluginAction,
                                          {
+                                             "action": "networkdisk_del",
                                              "media_path": media_path,
                                              "media_name": media_name,
                                              "tmdb_id": tmdb_id,

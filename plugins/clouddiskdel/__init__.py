@@ -62,12 +62,17 @@ class CloudDiskDel(_PluginBase):
                     "del_history": False
                 })
 
-    @eventmanager.register(EventType.NetworkDiskDel)
+    @eventmanager.register(EventType.PluginAction)
     def clouddisk_del(self, event: Event):
         if not self._enabled:
             return
+        if not event:
+            return
 
         event_data = event.event_data
+        if not event_data or event_data.get("action") != "networkdisk_del":
+            return
+
         logger.info(f"获取到云盘删除请求 {event_data}")
 
         media_path = event_data.get("media_path")
@@ -188,7 +193,19 @@ class CloudDiskDel(_PluginBase):
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
-        pass
+        """
+        定义远程控制命令
+        :return: 命令关键字、事件、描述、附带数据
+        """
+        return [{
+            "cmd": "/networkdisk_del",
+            "event": EventType.PluginAction,
+            "desc": "云盘文件删除",
+            "category": "",
+            "data": {
+                "action": "networkdisk_del"
+            }
+        }]
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass

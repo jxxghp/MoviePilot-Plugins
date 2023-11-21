@@ -111,11 +111,16 @@ class CloudflareSpeedTest(_PluginBase):
                 self._scheduler.print_jobs()
                 self._scheduler.start()
 
-    @eventmanager.register(EventType.CloudFlareSpeedTest)
+    @eventmanager.register(EventType.PluginAction)
     def __cloudflareSpeedTest(self, event: Event = None):
         """
         CloudflareSpeedTest优选
         """
+        if event:
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "cloudflare_speedtest":
+                return
+
         self._cf_path = self.get_data_path()
         self._cf_ipv4 = os.path.join(self._cf_path, "ip.txt")
         self._cf_ipv6 = os.path.join(self._cf_path, "ipv6.txt")
@@ -484,9 +489,11 @@ class CloudflareSpeedTest(_PluginBase):
         """
         return [{
             "cmd": "/cloudflare_speedtest",
-            "event": EventType.CloudFlareSpeedTest,
+            "event": EventType.PluginAction,
             "desc": "Cloudflare IP优选",
-            "data": {}
+            "data": {
+                "action": "cloudflare_speedtest"
+            }
         }]
 
     def get_api(self) -> List[Dict[str, Any]]:

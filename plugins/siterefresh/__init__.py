@@ -54,16 +54,18 @@ class SiteRefresh(_PluginBase):
     def get_state(self) -> bool:
         return self._enabled
 
-    @eventmanager.register(EventType.SiteLogin)
+    @eventmanager.register(EventType.PluginAction)
     def site_login(self, event):
         """
         开始站点登录
         """
         if not self.get_state():
             return
-
+        event_data = event.event_data
+        if not event_data or event_data.get("action") != "site_login":
+            return
         # 站点id
-        site_id = event.event_data.get("site_id")
+        site_id = event_data.get("site_id")
         if not site_id:
             logger.error(f"未获取到site_id")
             return

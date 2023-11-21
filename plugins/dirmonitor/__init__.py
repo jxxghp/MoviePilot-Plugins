@@ -248,12 +248,15 @@ class DirMonitor(_PluginBase):
             "cron": self._cron
         })
 
-    @eventmanager.register(EventType.DirectorySync)
+    @eventmanager.register(EventType.PluginAction)
     def remote_sync(self, event: Event):
         """
         远程全量同步
         """
         if event:
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "directory_sync":
+                return
             self.post_message(channel=event.event_data.get("channel"),
                               title="开始同步监控目录 ...",
                               userid=event.event_data.get("user"))
@@ -610,10 +613,12 @@ class DirMonitor(_PluginBase):
         """
         return [{
             "cmd": "/directory_sync",
-            "event": EventType.DirectorySync,
+            "event": EventType.PluginAction,
             "desc": "目录监控同步",
             "category": "管理",
-            "data": {}
+            "data": {
+                "action": "directory_sync"
+            }
         }]
 
     def get_api(self) -> List[Dict[str, Any]]:

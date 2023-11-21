@@ -130,10 +130,12 @@ class DoubanSync(_PluginBase):
         """
         return [{
             "cmd": "/douban_sync",
-            "event": EventType.DoubanSync,
+            "event": EventType.PluginAction,
             "desc": "同步豆瓣想看",
             "category": "订阅",
-            "data": {}
+            "data": {
+                "action": "douban_sync"
+            }
         }]
 
     def get_api(self) -> List[Dict[str, Any]]:
@@ -540,12 +542,16 @@ class DoubanSync(_PluginBase):
         # 缓存只清理一次
         self._clearflag = False
 
-    @eventmanager.register(EventType.DoubanSync)
+    @eventmanager.register(EventType.PluginAction)
     def remote_sync(self, event: Event):
         """
         豆瓣想看同步
         """
         if event:
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "douban_sync":
+                return
+
             logger.info("收到命令，开始执行豆瓣想看同步 ...")
             self.post_message(channel=event.event_data.get("channel"),
                               title="开始同步豆瓣想看 ...",

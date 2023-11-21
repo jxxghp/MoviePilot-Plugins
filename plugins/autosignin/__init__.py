@@ -222,10 +222,12 @@ class AutoSignIn(_PluginBase):
         """
         return [{
             "cmd": "/site_signin",
-            "event": EventType.SiteSignin,
+            "event": EventType.PluginAction,
             "desc": "站点签到",
             "category": "站点",
-            "data": {}
+            "data": {
+                "action": "site_signin"
+            }
         }]
 
     def get_api(self) -> List[Dict[str, Any]]:
@@ -610,11 +612,15 @@ class AutoSignIn(_PluginBase):
             }
         ]
 
-    @eventmanager.register(EventType.SiteSignin)
+    @eventmanager.register(EventType.PluginAction)
     def sign_in(self, event: Event = None):
         """
         自动签到|模拟登陆
         """
+        if event:
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "site_signin":
+                return
         # 日期
         today = datetime.today()
         if self._start_time and self._end_time:
@@ -738,9 +744,10 @@ class AutoSignIn(_PluginBase):
                 if 'Cookie已失效' in str(s) and site_id:
                     # 触发自动登录插件登录
                     logger.info(f"触发站点 {site_name} 自动登录更新Cookie和Ua")
-                    self.eventmanager.send_event(EventType.SiteLogin,
+                    self.eventmanager.send_event(EventType.PluginAction,
                                                  {
-                                                     "site_id": site_id
+                                                     "site_id": site_id,
+                                                     "action": "site_login"
                                                  })
                 # 记录本次命中重试关键词的站点
                 if self._retry_keyword:
@@ -779,7 +786,9 @@ class AutoSignIn(_PluginBase):
 
             # 自动Cloudflare IP优选
             if self._auto_cf and int(self._auto_cf) > 0 and retry_msg and len(retry_msg) >= int(self._auto_cf):
-                self.eventmanager.send_event(EventType.CloudFlareSpeedTest, {})
+                self.eventmanager.send_event(EventType.PluginAction, {
+                    "action": "cloudflare_speedtest"
+                })
 
             # 发送通知
             if self._notify:
