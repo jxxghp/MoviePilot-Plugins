@@ -290,7 +290,7 @@
     "CloudDiskDel": {
         "name": "云盘文件删除",
         "description": "媒体库删除strm文件后同步删除云盘资源。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "clouddisk.png",
         "color": "#4285F5",
         "author": "thsrite",
