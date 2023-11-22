@@ -1210,51 +1210,54 @@ class MediaSyncDel(_PluginBase):
         处理合集
         """
         try:
-            download_file = self._downloadhis.get_file_by_fullpath(fullpath=src)
-            # src查询记录 判断download_hash是否不一致
-            if download_file and str(download_file.download_hash) != str(torrent_hash):
-                # 查询新download_hash对应files数量
-                hash_download_files = self._downloadhis.get_files_by_hash(
-                    download_hash=download_file.download_hash)
-                # 新download_hash对应files数量 > 删种download_hash对应files数量 = 合集种子
-                if hash_download_files \
-                        and len(hash_download_files) > len(download_files) \
-                        and hash_download_files[0].id > download_files[-1].id:
-                    # 查询未删除数
-                    no_del_cnt = 0
-                    for hash_download_file in hash_download_files:
-                        if hash_download_file and hash_download_file.state and int(
-                                hash_download_file.state) == 1:
-                            no_del_cnt += 1
-                    if no_del_cnt > 0:
-                        logger.info(f"合集种子 {download_file.download_hash} 文件未完全删除，执行暂停种子操作")
-                        delete_flag = False
+            src_download_files = self._downloadhis.get_files_by_fullpath(fullpath=src)
+            if src_download_files:
+                for download_file in src_download_files:
+                    # src查询记录 判断download_hash是否不一致
+                    if download_file and download_file.download_hash and str(download_file.download_hash) != str(
+                            torrent_hash):
+                        # 查询新download_hash对应files数量
+                        hash_download_files = self._downloadhis.get_files_by_hash(
+                            download_hash=download_file.download_hash)
+                        # 新download_hash对应files数量 > 删种download_hash对应files数量 = 合集种子
+                        if hash_download_files \
+                                and len(hash_download_files) > len(download_files) \
+                                and hash_download_files[0].id > download_files[-1].id:
+                            # 查询未删除数
+                            no_del_cnt = 0
+                            for hash_download_file in hash_download_files:
+                                if hash_download_file and hash_download_file.state and int(
+                                        hash_download_file.state) == 1:
+                                    no_del_cnt += 1
+                            if no_del_cnt > 0:
+                                logger.info(f"合集种子 {download_file.download_hash} 文件未完全删除，执行暂停种子操作")
+                                delete_flag = False
 
-                    # 删除合集种子
-                    if delete_flag:
-                        if str(download_file.downloader) == "transmission":
-                            self.tr.delete_torrents(delete_file=True,
-                                                    ids=download_file.download_hash)
-                        else:
-                            self.qb.delete_torrents(delete_file=True,
-                                                    ids=download_file.download_hash)
+                            # 删除合集种子
+                            if delete_flag:
+                                if str(download_file.downloader) == "transmission":
+                                    self.tr.delete_torrents(delete_file=True,
+                                                            ids=download_file.download_hash)
+                                else:
+                                    self.qb.delete_torrents(delete_file=True,
+                                                            ids=download_file.download_hash)
 
-                        logger.info(f"删除合集种子 {download_file.downloader} {download_file.download_hash}")
-                    else:
-                        # 暂停合集种子
-                        if str(download_file.downloader) == "transmission":
-                            self.tr.stop_torrents(ids=download_file.download_hash)
-                        else:
-                            self.qb.stop_torrents(ids=download_file.download_hash)
-                        logger.info(f"暂停合集种子 {download_file.downloader} {download_file.download_hash}")
-                    # 已处理种子+1
-                    handle_torrent_hashs.append(download_file.download_hash)
+                                logger.info(f"删除合集种子 {download_file.downloader} {download_file.download_hash}")
+                            else:
+                                # 暂停合集种子
+                                if str(download_file.downloader) == "transmission":
+                                    self.tr.stop_torrents(ids=download_file.download_hash)
+                                else:
+                                    self.qb.stop_torrents(ids=download_file.download_hash)
+                                logger.info(f"暂停合集种子 {download_file.downloader} {download_file.download_hash}")
+                            # 已处理种子+1
+                            handle_torrent_hashs.append(download_file.download_hash)
 
-                    # 处理合集辅种
-                    handle_torrent_hashs = self.__del_seed(download=download_file.downloader,
-                                                           download_id=download_file.download_hash,
-                                                           delete_flag=delete_flag,
-                                                           handle_torrent_hashs=handle_torrent_hashs)
+                            # 处理合集辅种
+                            handle_torrent_hashs = self.__del_seed(download=download_file.downloader,
+                                                                   download_id=download_file.download_hash,
+                                                                   delete_flag=delete_flag,
+                                                                   handle_torrent_hashs=handle_torrent_hashs)
         except Exception as e:
             logger.error(f"处理 {torrent_hash} 合集失败")
             print(str(e))
