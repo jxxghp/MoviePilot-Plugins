@@ -55,14 +55,16 @@ class SiteRefresh(_PluginBase):
         return self._enabled
 
     @eventmanager.register(EventType.PluginAction)
-    def site_login(self, event):
+    def site_refresh(self, event):
         """
-        开始站点登录
+        开始站点登录，刷新Cookie&UA
         """
         if not self.get_state():
             return
+        if not event:
+            return
         event_data = event.event_data
-        if not event_data or event_data.get("action") != "site_login":
+        if not event_data or event_data.get("action") != "site_refresh":
             return
         # 站点id
         site_id = event_data.get("site_id")
