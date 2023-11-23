@@ -1272,10 +1272,12 @@ class BrushFlow(_PluginBase):
                 if not torrents:
                     logger.info(f"站点 {siteinfo.name} 没有获取到种子")
                     continue
+                logger.info(f"从站点 {siteinfo.name} 获得种子{len(torrents)}个")
                 # 按pubdate降序排列
                 torrents.sort(key=lambda x: x.pubdate or '', reverse=True)
                 # 过滤种子
                 for torrent in torrents:
+                    logger.info(f"开始处理 {siteinfo.name} {torrent.title} {torrent.get}")
                     # 控重
                     if f"{torrent.site_name}{torrent.title}" in [
                         f"{task.get('site_name')}{task.get('title')}" for task in task_info.values()
@@ -1283,8 +1285,10 @@ class BrushFlow(_PluginBase):
                         continue
                     # 促销
                     if self._freeleech and torrent.downloadvolumefactor != 0:
+                        logger.warn(f"促销条件不符，要求 {self._freeleech}，实际 {torrent.downloadvolumefactor} ")
                         continue
                     if self._freeleech == "2xfree" and torrent.uploadvolumefactor != 2:
+                        logger.warn(f"促销条件不符，要求 {self._freeleech}，实际 {torrent.downloadvolumefactor} ")
                         continue
                     # 包含规则
                     if self._include and not re.search(r"%s" % self._include, torrent.title, re.I):
@@ -1316,9 +1320,11 @@ class BrushFlow(_PluginBase):
                             end_seeder = 0
                         if begin_seeder and not end_seeder \
                                 and torrent.seeders > int(begin_seeder):
+                            logger.warn(f"做种人数不符，实际做种人数 {torrent.seeders} ")
                             continue
                         elif begin_seeder and end_seeder \
                                 and not int(begin_seeder) <= torrent.seeders <= int(end_seeder):
+                            logger.warn(f"做种人数不符，实际做种人数 {torrent.seeders} ")
                             continue
                     # 计算发布时间，将字符串转换为时间
                     pubdate_minutes = self.__get_pubminutes(torrent.pubdate)
@@ -1333,9 +1339,11 @@ class BrushFlow(_PluginBase):
                         # 将种子发布日志转换为与当前时间的差
                         if begin_pubtime and not end_pubtime \
                                 and pubdate_minutes > int(begin_pubtime):
+                            logger.warn(f"发布时间不符，实际发布人数 {pubdate_minutes} ")
                             continue
                         elif begin_pubtime and end_pubtime \
                                 and not int(begin_pubtime) <= pubdate_minutes <= int(end_pubtime):
+                            logger.warn(f"发布时间不符，实际发布人数 {pubdate_minutes} ")
                             continue
                     # 同时下载任务数
                     downloads = self.__get_downloading_count()
