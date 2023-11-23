@@ -1278,6 +1278,26 @@ class BrushFlow(_PluginBase):
                 # 过滤种子
                 for torrent in torrents:
                     logger.info(f"开始处理 {torrent.title}")
+                    # 计算发布时间，将字符串转换为时间
+                    pubdate_minutes = self.__get_pubminutes(torrent.pubdate)
+                    # 发布时间（分钟）
+                    if self._pubtime:
+                        pubtimes = str(self._pubtime).split("-")
+                        begin_pubtime = pubtimes[0]
+                        if len(pubtimes) > 1:
+                            end_pubtime = pubtimes[-1]
+                        else:
+                            end_pubtime = 0
+                        # 将种子发布日志转换为与当前时间的差
+                        if begin_pubtime and not end_pubtime \
+                                and pubdate_minutes > int(begin_pubtime):
+                            logger.warn(f"发布时间不符，实际时间 {pubdate_minutes} 分钟")
+                            break
+                        elif begin_pubtime and end_pubtime \
+                                and not int(begin_pubtime) <= pubdate_minutes <= int(end_pubtime):
+                            logger.warn(f"发布时间不符，实际时间 {pubdate_minutes} 分钟")
+                            break
+                                    
                     # 控重
                     if f"{torrent.site_name}{torrent.title}" in [
                         f"{task.get('site_name')}{task.get('title')}" for task in task_info.values()
@@ -1326,25 +1346,7 @@ class BrushFlow(_PluginBase):
                                 and not int(begin_seeder) <= torrent.seeders <= int(end_seeder):
                             logger.warn(f"做种人数不符，实际做种人数 {torrent.seeders} ")
                             continue
-                    # 计算发布时间，将字符串转换为时间
-                    pubdate_minutes = self.__get_pubminutes(torrent.pubdate)
-                    # 发布时间（分钟）
-                    if self._pubtime:
-                        pubtimes = str(self._pubtime).split("-")
-                        begin_pubtime = pubtimes[0]
-                        if len(pubtimes) > 1:
-                            end_pubtime = pubtimes[-1]
-                        else:
-                            end_pubtime = 0
-                        # 将种子发布日志转换为与当前时间的差
-                        if begin_pubtime and not end_pubtime \
-                                and pubdate_minutes > int(begin_pubtime):
-                            logger.warn(f"发布时间不符，实际发布人数 {pubdate_minutes} ")
-                            continue
-                        elif begin_pubtime and end_pubtime \
-                                and not int(begin_pubtime) <= pubdate_minutes <= int(end_pubtime):
-                            logger.warn(f"发布时间不符，实际发布人数 {pubdate_minutes} ")
-                            continue
+                    
                     # 同时下载任务数
                     downloads = self.__get_downloading_count()
                     if self._maxdlcount and downloads >= int(self._maxdlcount):
