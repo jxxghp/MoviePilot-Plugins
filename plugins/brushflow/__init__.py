@@ -25,7 +25,7 @@ lock = threading.Lock()
 
 class BrushFlow(_PluginBase):
     # 插件名称
-    plugin_name = "站点刷流"
+    plugin_name = "站点刷流 K"
     # 插件描述
     plugin_desc = "自动托管刷流，将会提高对应站点的访问频率。"
     # 插件图标
@@ -33,7 +33,7 @@ class BrushFlow(_PluginBase):
     # 主题色
     plugin_color = "#FFD54E"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -1277,7 +1277,7 @@ class BrushFlow(_PluginBase):
                 torrents.sort(key=lambda x: x.pubdate or '', reverse=True)
                 # 过滤种子
                 for torrent in torrents:
-                    logger.info(f"开始处理 {siteinfo.name} {torrent.title} {torrent.get}")
+                    logger.info(f"开始处理 {torrent.title}")
                     # 控重
                     if f"{torrent.site_name}{torrent.title}" in [
                         f"{task.get('site_name')}{task.get('title')}" for task in task_info.values()
