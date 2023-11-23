@@ -1,5 +1,4 @@
-# MoviePilot-Plugins
-MoviePilot官方插件市场：https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/
+Fork自 MoviePilot官方插件市场：https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/
 
 ## 第三方插件库开发说明
 
