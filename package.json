@@ -233,13 +233,13 @@
         "author": "thsrite",
         "level": 1
     },
-    "BrushFlow": {
-        "name": "站点刷流",
+    "BrushFlow K": {
+        "name": "站点刷流 K",
         "description": "自动托管刷流，将会提高对应站点的访问频率。",
         "version": "1.1",
         "icon": "brush.jpg",
         "color": "#FFD54E",
-        "author": "jxxghp",
+        "author": "kieth",
         "level": 2
     },
     "DownloadingMsg": {
