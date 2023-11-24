@@ -128,11 +128,11 @@ class EventType(Enum):
     eventmanager.send_event(
         EventType.NameRecognizeResult,
         {
-            'title': title,
-            'name': response.get("title"),
-            'year': response.get("year"),
-            'season': response.get("season"),
-            'episode': response.get("episode")
+            'title': title, # 原传入标题
+            'name': str, # 识别的名称
+            'year': str, # 识别的年份
+            'season': int, # 识别的季号
+            'episode': int, # 识别的集号
         }
     )
     ```
