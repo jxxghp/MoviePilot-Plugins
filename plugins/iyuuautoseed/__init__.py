@@ -797,10 +797,12 @@ class IYUUAutoSeed(_PluginBase):
             # 加入失败缓存
             if error_msg and ('无法打开链接' in error_msg or '触发站点流控' in error_msg):
                 self._error_caches.append(seed.get("info_hash"))
+                logger.error(f"无法打开链接：{torrent_url}")
             else:
                 # 种子不存在的情况
                 self._permanent_error_caches.append(seed.get("info_hash"))
-            logger.error(f"下载种子文件失败：{torrent_url}")
+                logger.error(f"种子文件不存在：{torrent_url}")
+            
             return False
         # 添加下载，辅种任务默认暂停
         logger.info(f"添加下载任务：{torrent_url} ...")
