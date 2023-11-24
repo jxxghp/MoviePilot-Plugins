@@ -747,7 +747,7 @@ class AutoSignIn(_PluginBase):
                     self.eventmanager.send_event(EventType.PluginAction,
                                                  {
                                                      "site_id": site_id,
-                                                     "action": "site_login"
+                                                     "action": "site_refresh"
                                                  })
                 # 记录本次命中重试关键词的站点
                 if self._retry_keyword:
