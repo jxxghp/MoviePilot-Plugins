@@ -36,7 +36,7 @@ class IYUUAutoSeed(_PluginBase):
     # 主题色
     plugin_color = "#F3B70B"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -608,10 +608,10 @@ class IYUUAutoSeed(_PluginBase):
                 if not seed.get("sid") or not seed.get("info_hash"):
                     continue
                 if seed.get("info_hash") in hashs:
-                    logger.info(f"{seed.get('info_hash')} 已在下载器中，跳过 ...")
+                    # logger.info(f"{seed.get('info_hash')} 已在下载器中，跳过 ...")
                     continue
                 if seed.get("info_hash") in self._success_caches:
-                    logger.info(f"{seed.get('info_hash')} 已处理过辅种，跳过 ...")
+                    # logger.info(f"{seed.get('info_hash')} 已处理过辅种，跳过 ...")
                     continue
                 if seed.get("info_hash") in self._error_caches or seed.get("info_hash") in self._permanent_error_caches:
                     logger.info(f"种子 {seed.get('info_hash')} 辅种失败且已缓存，跳过 ...")
@@ -753,14 +753,14 @@ class IYUUAutoSeed(_PluginBase):
             logger.debug(f"没有维护种子对应的站点：{site_url}")
             return False
         if self._sites and site_info.get('id') not in self._sites:
-            logger.info("当前站点不在选择的辅种站点范围，跳过 ...")
+            logger.info(f"当前站点({site_domain})不在选择的辅种站点范围，跳过 ...")
             return False
         self.realtotal += 1
         # 查询hash值是否已经在下载器中
         downloader_obj = self.__get_downloader(downloader)
         torrent_info, _ = downloader_obj.get_torrents(ids=[seed.get("info_hash")])
         if torrent_info:
-            logger.info(f"{seed.get('info_hash')} 已在下载器中，跳过 ...")
+            # logger.info(f"{seed.get('info_hash')} 已在下载器中，跳过 ...")
             self.exist += 1
             return False
         # 站点流控
