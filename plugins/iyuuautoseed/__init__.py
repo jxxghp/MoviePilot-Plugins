@@ -36,7 +36,7 @@ class IYUUAutoSeed(_PluginBase):
     # 主题色
     plugin_color = "#F3B70B"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -467,7 +467,7 @@ class IYUUAutoSeed(_PluginBase):
                 # 获取种子hash
                 hash_str = self.__get_hash(torrent, downloader)
                 if hash_str in self._error_caches or hash_str in self._permanent_error_caches:
-                    logger.info(f"种子 {hash_str} 辅种失败且已缓存，跳过 ...")
+                    # logger.info(f"种子 {hash_str} 辅种失败且已缓存，跳过 ...")
                     continue
                 save_path = self.__get_save_path(torrent, downloader)
 
