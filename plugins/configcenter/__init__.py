@@ -23,7 +23,7 @@ class ConfigCenter(_PluginBase):
     # 插件配置项ID前缀
     plugin_config_prefix = "configcenter_"
     # 加载顺序
-    plugin_order = 1
+    plugin_order = 0
     # 可使用的用户级别
     auth_level = 1
 
