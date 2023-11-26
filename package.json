@@ -322,5 +322,14 @@
         "color": "#FFFFFF",
         "author": "jxxghp",
         "level": 1
+    },
+    "ConfigCenter": {
+        "name": "配置中心",
+        "description": "快速调整部分系统设定。",
+        "version": "1.0",
+        "icon": "setting.png",
+        "color": "#FC6220",
+        "author": "jxxghp",
+        "level": 1
     }
 }
