@@ -1,6 +1,7 @@
 from typing import Any, List, Dict, Tuple
 
 from app.core.config import settings
+from app.log import logger
 from app.plugins import _PluginBase
 
 
@@ -32,50 +33,52 @@ class ConfigCenter(_PluginBase):
     def init_plugin(self, config: dict = None):
         if config:
             self._enabled = config.get("enabled")
-            settings.GITHUB_TOKEN = config.get("GITHUB_TOKEN", settings.GITHUB_TOKEN)
-            settings.API_TOKEN = config.get("API_TOKEN", settings.API_TOKEN)
-            settings.TMDB_API_DOMAIN = config.get("TMDB_API_DOMAIN", settings.TMDB_API_DOMAIN)
-            settings.TMDB_IMAGE_DOMAIN = config.get("TMDB_IMAGE_DOMAIN", settings.TMDB_IMAGE_DOMAIN)
-            settings.WALLPAPER = config.get("WALLPAPER", settings.WALLPAPER)
-            settings.RECOGNIZE_SOURCE = config.get("RECOGNIZE_SOURCE", "")
-            settings.SCRAP_METADATA = config.get("SCRAP_METADATA", settings.SCRAP_METADATA)
-            settings.SCRAP_FOLLOW_TMDB = config.get("SCRAP_FOLLOW_TMDB", settings.SCRAP_FOLLOW_TMDB)
-            settings.LIBRARY_PATH = config.get("LIBRARY_PATH", settings.LIBRARY_PATH)
-            settings.LIBRARY_MOVIE_NAME = config.get("LIBRARY_MOVIE_NAME", settings.LIBRARY_MOVIE_NAME)
-            settings.LIBRARY_TV_NAME = config.get("LIBRARY_TV_NAME", settings.LIBRARY_TV_NAME)
-            settings.LIBRARY_ANIME_NAME = config.get("LIBRARY_ANIME_NAME", settings.LIBRARY_ANIME_NAME)
-            settings.LIBRARY_CATEGORY = config.get("LIBRARY_CATEGORY", settings.LIBRARY_CATEGORY)
-            settings.TRANSFER_TYPE = config.get("TRANSFER_TYPE", settings.TRANSFER_TYPE)
-            settings.OVERWRITE_MODE = config.get("OVERWRITE_MODE", settings.OVERWRITE_MODE)
-            settings.COOKIECLOUD_HOST = config.get("COOKIECLOUD_HOST", settings.COOKIECLOUD_HOST)
-            settings.COOKIECLOUD_KEY = config.get("COOKIECLOUD_KEY", settings.COOKIECLOUD_KEY)
-            settings.COOKIECLOUD_PASSWORD = config.get("COOKIECLOUD_PASSWORD", settings.COOKIECLOUD_PASSWORD)
-            settings.COOKIECLOUD_INTERVAL = config.get("COOKIECLOUD_INTERVAL", settings.COOKIECLOUD_INTERVAL)
-            settings.USER_AGENT = config.get("USER_AGENT", settings.USER_AGENT)
-            settings.SUBSCRIBE_MODE = config.get("SUBSCRIBE_MODE", settings.SUBSCRIBE_MODE)
-            settings.SUBSCRIBE_RSS_INTERVAL = config.get("SUBSCRIBE_RSS_INTERVAL", settings.SUBSCRIBE_RSS_INTERVAL)
-            settings.SUBSCRIBE_SEARCH = config.get("SUBSCRIBE_SEARCH", settings.SUBSCRIBE_SEARCH)
-            settings.AUTO_DOWNLOAD_USER = config.get("AUTO_DOWNLOAD_USER", settings.AUTO_DOWNLOAD_USER)
-            settings.OCR_HOST = config.get("OCR_HOST", settings.OCR_HOST)
-            messagers = config.get("MESSAGER") or []
-            if messagers:
-                settings.MESSAGER = ",".join(messagers)
-            settings.DOWNLOAD_PATH = config.get("DOWNLOAD_PATH", settings.DOWNLOAD_PATH)
-            settings.DOWNLOAD_MOVIE_PATH = config.get("DOWNLOAD_MOVIE_PATH", settings.DOWNLOAD_MOVIE_PATH)
-            settings.DOWNLOAD_TV_PATH = config.get("DOWNLOAD_TV_PATH", settings.DOWNLOAD_TV_PATH)
-            settings.DOWNLOAD_ANIME_PATH = config.get("DOWNLOAD_ANIME_PATH", settings.DOWNLOAD_ANIME_PATH)
-            settings.DOWNLOAD_CATEGORY = config.get("DOWNLOAD_CATEGORY", settings.DOWNLOAD_CATEGORY)
-            settings.DOWNLOAD_SUBTITLE = config.get("DOWNLOAD_SUBTITLE", settings.DOWNLOAD_SUBTITLE)
-            settings.DOWNLOADER = config.get("DOWNLOADER", settings.DOWNLOADER)
-            settings.DOWNLOADER_MONITOR = config.get("DOWNLOADER_MONITOR", settings.DOWNLOADER_MONITOR)
-            settings.TORRENT_TAG = config.get("TORRENT_TAG", settings.TORRENT_TAG)
-            media_servers = config.get("MEDIASERVER") or []
-            if media_servers:
-                settings.MEDIASERVER = ",".join(media_servers)
-            settings.MEDIASERVER_SYNC_INTERVAL = config.get("MEDIASERVER_SYNC_INTERVAL",
-                                                            settings.MEDIASERVER_SYNC_INTERVAL)
-            settings.MEDIASERVER_SYNC_BLACKLIST = config.get("MEDIASERVER_SYNC_BLACKLIST",
-                                                             settings.MEDIASERVER_SYNC_BLACKLIST)
+            if self._enabled:
+                logger.info(f"正在应用配置中心配置：{config}")
+                settings.GITHUB_TOKEN = config.get("GITHUB_TOKEN", settings.GITHUB_TOKEN)
+                settings.API_TOKEN = config.get("API_TOKEN", settings.API_TOKEN)
+                settings.TMDB_API_DOMAIN = config.get("TMDB_API_DOMAIN", settings.TMDB_API_DOMAIN)
+                settings.TMDB_IMAGE_DOMAIN = config.get("TMDB_IMAGE_DOMAIN", settings.TMDB_IMAGE_DOMAIN)
+                settings.WALLPAPER = config.get("WALLPAPER", settings.WALLPAPER)
+                settings.RECOGNIZE_SOURCE = config.get("RECOGNIZE_SOURCE", "")
+                settings.SCRAP_METADATA = config.get("SCRAP_METADATA", settings.SCRAP_METADATA)
+                settings.SCRAP_FOLLOW_TMDB = config.get("SCRAP_FOLLOW_TMDB", settings.SCRAP_FOLLOW_TMDB)
+                settings.LIBRARY_PATH = config.get("LIBRARY_PATH", settings.LIBRARY_PATH)
+                settings.LIBRARY_MOVIE_NAME = config.get("LIBRARY_MOVIE_NAME", settings.LIBRARY_MOVIE_NAME)
+                settings.LIBRARY_TV_NAME = config.get("LIBRARY_TV_NAME", settings.LIBRARY_TV_NAME)
+                settings.LIBRARY_ANIME_NAME = config.get("LIBRARY_ANIME_NAME", settings.LIBRARY_ANIME_NAME)
+                settings.LIBRARY_CATEGORY = config.get("LIBRARY_CATEGORY", settings.LIBRARY_CATEGORY)
+                settings.TRANSFER_TYPE = config.get("TRANSFER_TYPE", settings.TRANSFER_TYPE)
+                settings.OVERWRITE_MODE = config.get("OVERWRITE_MODE", settings.OVERWRITE_MODE)
+                settings.COOKIECLOUD_HOST = config.get("COOKIECLOUD_HOST", settings.COOKIECLOUD_HOST)
+                settings.COOKIECLOUD_KEY = config.get("COOKIECLOUD_KEY", settings.COOKIECLOUD_KEY)
+                settings.COOKIECLOUD_PASSWORD = config.get("COOKIECLOUD_PASSWORD", settings.COOKIECLOUD_PASSWORD)
+                settings.COOKIECLOUD_INTERVAL = config.get("COOKIECLOUD_INTERVAL", settings.COOKIECLOUD_INTERVAL)
+                settings.USER_AGENT = config.get("USER_AGENT", settings.USER_AGENT)
+                settings.SUBSCRIBE_MODE = config.get("SUBSCRIBE_MODE", settings.SUBSCRIBE_MODE)
+                settings.SUBSCRIBE_RSS_INTERVAL = config.get("SUBSCRIBE_RSS_INTERVAL", settings.SUBSCRIBE_RSS_INTERVAL)
+                settings.SUBSCRIBE_SEARCH = config.get("SUBSCRIBE_SEARCH", settings.SUBSCRIBE_SEARCH)
+                settings.AUTO_DOWNLOAD_USER = config.get("AUTO_DOWNLOAD_USER", settings.AUTO_DOWNLOAD_USER)
+                settings.OCR_HOST = config.get("OCR_HOST", settings.OCR_HOST)
+                messagers = config.get("MESSAGER") or []
+                if messagers:
+                    settings.MESSAGER = ",".join(messagers)
+                settings.DOWNLOAD_PATH = config.get("DOWNLOAD_PATH", settings.DOWNLOAD_PATH)
+                settings.DOWNLOAD_MOVIE_PATH = config.get("DOWNLOAD_MOVIE_PATH", settings.DOWNLOAD_MOVIE_PATH)
+                settings.DOWNLOAD_TV_PATH = config.get("DOWNLOAD_TV_PATH", settings.DOWNLOAD_TV_PATH)
+                settings.DOWNLOAD_ANIME_PATH = config.get("DOWNLOAD_ANIME_PATH", settings.DOWNLOAD_ANIME_PATH)
+                settings.DOWNLOAD_CATEGORY = config.get("DOWNLOAD_CATEGORY", settings.DOWNLOAD_CATEGORY)
+                settings.DOWNLOAD_SUBTITLE = config.get("DOWNLOAD_SUBTITLE", settings.DOWNLOAD_SUBTITLE)
+                settings.DOWNLOADER = config.get("DOWNLOADER", settings.DOWNLOADER)
+                settings.DOWNLOADER_MONITOR = config.get("DOWNLOADER_MONITOR", settings.DOWNLOADER_MONITOR)
+                settings.TORRENT_TAG = config.get("TORRENT_TAG", settings.TORRENT_TAG)
+                media_servers = config.get("MEDIASERVER") or []
+                if media_servers:
+                    settings.MEDIASERVER = ",".join(media_servers)
+                settings.MEDIASERVER_SYNC_INTERVAL = config.get("MEDIASERVER_SYNC_INTERVAL",
+                                                                settings.MEDIASERVER_SYNC_INTERVAL)
+                settings.MEDIASERVER_SYNC_BLACKLIST = config.get("MEDIASERVER_SYNC_BLACKLIST",
+                                                                 settings.MEDIASERVER_SYNC_BLACKLIST)
 
     def get_state(self) -> bool:
         return self._enabled
@@ -91,7 +94,6 @@ class ConfigCenter(_PluginBase):
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
-        request_options = ["POST", "GET"]
         return [
             {
                 "component": "VForm",
@@ -115,6 +117,11 @@ class ConfigCenter(_PluginBase):
                                     }
                                 ]
                             },
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {
                                 "component": "VCol",
                                 "props": {
@@ -174,7 +181,47 @@ class ConfigCenter(_PluginBase):
                                         "component": "VTextField",
                                         "props": {
                                             "model": "TMDB_IMAGE_DOMAIN",
-                                            "label": "TheMovieDb图片代理"
+                                            "label": "TheMovieDb图片服务器"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSelect",
+                                        "props": {
+                                            "model": "RECOGNIZE_SOURCE",
+                                            "label": "媒体信息识别来源",
+                                            "items": [
+                                                {"title": "TheMovieDb", "value": "themoviedb"},
+                                                {"title": "豆瓣", "value": "douban"}
+                                            ]
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSelect",
+                                        "props": {
+                                            "model": "SCRAP_SOURCE",
+                                            "label": "刮削元数据及图片使用的数据源",
+                                            "items": [
+                                                {"title": "TheMovieDb", "value": "themoviedb"},
+                                                {"title": "豆瓣", "value": "douban"},
+                                            ]
                                         }
                                     }
                                 ]
@@ -198,7 +245,12 @@ class ConfigCenter(_PluginBase):
                                         }
                                     }
                                 ]
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {
                                 "component": "VCol",
                                 "props": {
@@ -207,14 +259,10 @@ class ConfigCenter(_PluginBase):
                                 },
                                 "content": [
                                     {
-                                        "component": "VSelect",
+                                        "component": "VSwitch",
                                         "props": {
-                                            "model": "RECOGNIZE_SOURCE",
-                                            "label": "媒体信息识别来源",
-                                            "items": [
-                                                {"title": "themoviedb", "value": "TheMovieDb"},
-                                                {"title": "douban", "value": "豆瓣"}
-                                            ]
+                                            "model": "LIBRARY_CATEGORY",
+                                            "label": "开启媒体库二级分类"
                                         }
                                     }
                                 ]
@@ -234,43 +282,12 @@ class ConfigCenter(_PluginBase):
                                         }
                                     }
                                 ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSelect",
-                                        "props": {
-                                            "model": "SCRAP_SOURCE",
-                                            "label": "刮削元数据及图片使用的数据源",
-                                            "items": [
-                                                {"title": "themoviedb", "value": "TheMovieDb"},
-                                                {"title": "douban", "value": "豆瓣"},
-                                            ]
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "SCRAP_FOLLOW_TMDB",
-                                            "label": "新增入库跟随TMDB信息变化"
-                                        }
-                                    }
-                                ]
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {
                                 "component": "VCol",
                                 "props": {
@@ -343,22 +360,6 @@ class ConfigCenter(_PluginBase):
                                 },
                                 "content": [
                                     {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "LIBRARY_CATEGORY",
-                                            "label": "开启媒体库二级分类"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
                                         "component": "VSelect",
                                         "props": {
                                             "model": "TRANSFER_TYPE",
@@ -396,7 +397,33 @@ class ConfigCenter(_PluginBase):
                                         }
                                     }
                                 ]
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "SCRAP_FOLLOW_TMDB",
+                                            "label": "新增入库跟随TMDB信息变化"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {
                                 "component": "VCol",
                                 "props": {
@@ -464,8 +491,7 @@ class ConfigCenter(_PluginBase):
                             {
                                 "component": "VCol",
                                 "props": {
-                                    "cols": 12,
-                                    "md": 6
+                                    "cols": 12
                                 },
                                 "content": [
                                     {
@@ -476,7 +502,12 @@ class ConfigCenter(_PluginBase):
                                         }
                                     }
                                 ]
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {
                                 "component": "VCol",
                                 "props": {
@@ -512,7 +543,12 @@ class ConfigCenter(_PluginBase):
                                         }
                                     }
                                 ]
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {
                                 "component": "VCol",
                                 "props": {
@@ -524,7 +560,36 @@ class ConfigCenter(_PluginBase):
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "SUBSCRIBE_SEARCH",
-                                            "label": "开启订阅搜索"
+                                            "label": "开启订阅定时搜索"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSelect",
+                                        "props": {
+                                            "model": "MESSAGER",
+                                            "label": "消息通知渠道",
+                                            'chips': True,
+                                            'multiple': True,
+                                            "items": [
+                                                {"title": "Telegram", "value": "telegram"},
+                                                {"title": "微信", "value": "wechat"},
+                                                {"title": "Slack", "value": "slack"},
+                                                {"title": "SynologyChat", "value": "synologychat"}
+                                            ]
                                         }
                                     }
                                 ]
@@ -544,12 +609,16 @@ class ConfigCenter(_PluginBase):
                                         }
                                     }
                                 ]
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {
                                 "component": "VCol",
                                 "props": {
-                                    "cols": 12,
-                                    "md": 6
+                                    "cols": 12
                                 },
                                 "content": [
                                     {
@@ -557,28 +626,6 @@ class ConfigCenter(_PluginBase):
                                         "props": {
                                             "model": "OCR_HOST",
                                             "label": "验证码识别服务器"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSelect",
-                                        "props": {
-                                            "model": "MESSAGER",
-                                            "label": "消息通知渠道",
-                                            "items": [
-                                                {"title": "Telegram", "value": "telegram"},
-                                                {"title": "微信", "value": "wechat"},
-                                                {"title": "Slack", "value": "slack"},
-                                                {"title": "SynologyChat", "value": "synologychat"}
-                                            ]
                                         }
                                     }
                                 ]
@@ -646,6 +693,27 @@ class ConfigCenter(_PluginBase):
                                         }
                                     }
                                 ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "DOWNLOADER_MONITOR",
+                                            "label": "开启下载器监控"
+                                        }
+                                    }
+                                ]
                             },
                             {
                                 "component": "VCol",
@@ -662,23 +730,12 @@ class ConfigCenter(_PluginBase):
                                         }
                                     }
                                 ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "DOWNLOAD_SUBTITLE",
-                                            "label": "自动下载站点字幕"
-                                        }
-                                    }
-                                ]
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {
                                 "component": "VCol",
                                 "props": {
@@ -707,14 +764,19 @@ class ConfigCenter(_PluginBase):
                                 },
                                 "content": [
                                     {
-                                        "component": "VSwitch",
+                                        "component": "VTextField",
                                         "props": {
-                                            "model": "DOWNLOADER_MONITOR",
-                                            "label": "开启下载器监控"
+                                            "model": "TORRENT_TAG",
+                                            "label": "下载器种子标签"
                                         }
                                     }
                                 ]
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {
                                 "component": "VCol",
                                 "props": {
@@ -723,14 +785,19 @@ class ConfigCenter(_PluginBase):
                                 },
                                 "content": [
                                     {
-                                        "component": "VTextField",
+                                        "component": "VSwitch",
                                         "props": {
-                                            "model": "TORRENT_TAG",
-                                            "label": "下载器种子标签"
+                                            "model": "DOWNLOAD_SUBTITLE",
+                                            "label": "自动下载站点字幕"
                                         }
                                     }
                                 ]
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {
                                 "component": "VCol",
                                 "props": {
@@ -773,8 +840,7 @@ class ConfigCenter(_PluginBase):
                             {
                                 "component": "VCol",
                                 "props": {
-                                    "cols": 12,
-                                    "md": 6
+                                    "cols": 12
                                 },
                                 "content": [
                                     {
@@ -782,6 +848,27 @@ class ConfigCenter(_PluginBase):
                                         "props": {
                                             "model": "MEDIASERVER_SYNC_BLACKLIST",
                                             "label": "媒体服务器同步黑名单"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '注意：本插件只是运行时临时修改生效系统配置，并不会实际改变环境变量或app.env中的配置值。'
                                         }
                                     }
                                 ]
