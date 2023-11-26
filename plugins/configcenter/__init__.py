@@ -15,7 +15,7 @@ class ConfigCenter(_PluginBase):
     # 主题色
     plugin_color = "#FC6220"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -29,56 +29,33 @@ class ConfigCenter(_PluginBase):
 
     # 私有属性
     _enabled = False
+    settings_attributes = [
+        "GITHUB_TOKEN", "API_TOKEN", "TMDB_API_DOMAIN", "TMDB_IMAGE_DOMAIN", "WALLPAPER",
+        "RECOGNIZE_SOURCE", "SCRAP_METADATA", "SCRAP_FOLLOW_TMDB", "LIBRARY_PATH",
+        "LIBRARY_MOVIE_NAME", "LIBRARY_TV_NAME", "LIBRARY_ANIME_NAME", "LIBRARY_CATEGORY",
+        "TRANSFER_TYPE", "OVERWRITE_MODE", "COOKIECLOUD_HOST", "COOKIECLOUD_KEY",
+        "COOKIECLOUD_PASSWORD", "COOKIECLOUD_INTERVAL", "USER_AGENT", "SUBSCRIBE_MODE",
+        "SUBSCRIBE_RSS_INTERVAL", "SUBSCRIBE_SEARCH", "AUTO_DOWNLOAD_USER", "OCR_HOST",
+        "DOWNLOAD_PATH", "DOWNLOAD_MOVIE_PATH", "DOWNLOAD_TV_PATH",
+        "DOWNLOAD_ANIME_PATH", "DOWNLOAD_CATEGORY", "DOWNLOAD_SUBTITLE", "DOWNLOADER",
+        "DOWNLOADER_MONITOR", "TORRENT_TAG", "MEDIASERVER_SYNC_INTERVAL",
+        "MEDIASERVER_SYNC_BLACKLIST", "PLUGIN_MARKET", "MOVIE_RENAME_FORMAT",
+        "TV_RENAME_FORMAT"
+    ]
 
     def init_plugin(self, config: dict = None):
         if config:
             self._enabled = config.get("enabled")
             if self._enabled:
                 logger.info(f"正在应用配置中心配置：{config}")
-                settings.GITHUB_TOKEN = config.get("GITHUB_TOKEN", settings.GITHUB_TOKEN)
-                settings.API_TOKEN = config.get("API_TOKEN", settings.API_TOKEN)
-                settings.TMDB_API_DOMAIN = config.get("TMDB_API_DOMAIN", settings.TMDB_API_DOMAIN)
-                settings.TMDB_IMAGE_DOMAIN = config.get("TMDB_IMAGE_DOMAIN", settings.TMDB_IMAGE_DOMAIN)
-                settings.WALLPAPER = config.get("WALLPAPER", settings.WALLPAPER)
-                settings.RECOGNIZE_SOURCE = config.get("RECOGNIZE_SOURCE", "")
-                settings.SCRAP_METADATA = config.get("SCRAP_METADATA", settings.SCRAP_METADATA)
-                settings.SCRAP_FOLLOW_TMDB = config.get("SCRAP_FOLLOW_TMDB", settings.SCRAP_FOLLOW_TMDB)
-                settings.LIBRARY_PATH = config.get("LIBRARY_PATH", settings.LIBRARY_PATH)
-                settings.LIBRARY_MOVIE_NAME = config.get("LIBRARY_MOVIE_NAME", settings.LIBRARY_MOVIE_NAME)
-                settings.LIBRARY_TV_NAME = config.get("LIBRARY_TV_NAME", settings.LIBRARY_TV_NAME)
-                settings.LIBRARY_ANIME_NAME = config.get("LIBRARY_ANIME_NAME", settings.LIBRARY_ANIME_NAME)
-                settings.LIBRARY_CATEGORY = config.get("LIBRARY_CATEGORY", settings.LIBRARY_CATEGORY)
-                settings.TRANSFER_TYPE = config.get("TRANSFER_TYPE", settings.TRANSFER_TYPE)
-                settings.OVERWRITE_MODE = config.get("OVERWRITE_MODE", settings.OVERWRITE_MODE)
-                settings.COOKIECLOUD_HOST = config.get("COOKIECLOUD_HOST", settings.COOKIECLOUD_HOST)
-                settings.COOKIECLOUD_KEY = config.get("COOKIECLOUD_KEY", settings.COOKIECLOUD_KEY)
-                settings.COOKIECLOUD_PASSWORD = config.get("COOKIECLOUD_PASSWORD", settings.COOKIECLOUD_PASSWORD)
-                settings.COOKIECLOUD_INTERVAL = config.get("COOKIECLOUD_INTERVAL", settings.COOKIECLOUD_INTERVAL)
-                settings.USER_AGENT = config.get("USER_AGENT", settings.USER_AGENT)
-                settings.SUBSCRIBE_MODE = config.get("SUBSCRIBE_MODE", settings.SUBSCRIBE_MODE)
-                settings.SUBSCRIBE_RSS_INTERVAL = config.get("SUBSCRIBE_RSS_INTERVAL", settings.SUBSCRIBE_RSS_INTERVAL)
-                settings.SUBSCRIBE_SEARCH = config.get("SUBSCRIBE_SEARCH", settings.SUBSCRIBE_SEARCH)
-                settings.AUTO_DOWNLOAD_USER = config.get("AUTO_DOWNLOAD_USER", settings.AUTO_DOWNLOAD_USER)
-                settings.OCR_HOST = config.get("OCR_HOST", settings.OCR_HOST)
+                for attribute in self.settings_attributes:
+                    setattr(settings, attribute, config.get(attribute) or getattr(settings, attribute))
                 messagers = config.get("MESSAGER") or []
                 if messagers:
                     settings.MESSAGER = ",".join(messagers)
-                settings.DOWNLOAD_PATH = config.get("DOWNLOAD_PATH", settings.DOWNLOAD_PATH)
-                settings.DOWNLOAD_MOVIE_PATH = config.get("DOWNLOAD_MOVIE_PATH", settings.DOWNLOAD_MOVIE_PATH)
-                settings.DOWNLOAD_TV_PATH = config.get("DOWNLOAD_TV_PATH", settings.DOWNLOAD_TV_PATH)
-                settings.DOWNLOAD_ANIME_PATH = config.get("DOWNLOAD_ANIME_PATH", settings.DOWNLOAD_ANIME_PATH)
-                settings.DOWNLOAD_CATEGORY = config.get("DOWNLOAD_CATEGORY", settings.DOWNLOAD_CATEGORY)
-                settings.DOWNLOAD_SUBTITLE = config.get("DOWNLOAD_SUBTITLE", settings.DOWNLOAD_SUBTITLE)
-                settings.DOWNLOADER = config.get("DOWNLOADER", settings.DOWNLOADER)
-                settings.DOWNLOADER_MONITOR = config.get("DOWNLOADER_MONITOR", settings.DOWNLOADER_MONITOR)
-                settings.TORRENT_TAG = config.get("TORRENT_TAG", settings.TORRENT_TAG)
                 media_servers = config.get("MEDIASERVER") or []
                 if media_servers:
                     settings.MEDIASERVER = ",".join(media_servers)
-                settings.MEDIASERVER_SYNC_INTERVAL = config.get("MEDIASERVER_SYNC_INTERVAL",
-                                                                settings.MEDIASERVER_SYNC_INTERVAL)
-                settings.MEDIASERVER_SYNC_BLACKLIST = config.get("MEDIASERVER_SYNC_BLACKLIST",
-                                                                 settings.MEDIASERVER_SYNC_BLACKLIST)
 
     def get_state(self) -> bool:
         return self._enabled
@@ -94,6 +71,13 @@ class ConfigCenter(_PluginBase):
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
+        default_settings = {
+            "enabled": False,
+        }
+        for attribute in self.settings_attributes:
+            default_settings[attribute] = getattr(settings, attribute)
+        default_settings["MESSAGER"] = settings.MESSAGER.split(",")
+        default_settings["MEDIASERVER"] = settings.MEDIASERVER.split(",")
         return [
             {
                 "component": "VForm",
@@ -858,6 +842,67 @@ class ConfigCenter(_PluginBase):
                         'component': 'VRow',
                         'content': [
                             {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "MOVIE_RENAME_FORMAT",
+                                            "label": "电影重命名格式"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "TV_RENAME_FORMAT",
+                                            "label": "电视剧重命名格式"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "PLUGIN_MARKET",
+                                            "label": "插件市场",
+                                            "placeholder": "多个地址使用,分隔"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
@@ -877,48 +922,7 @@ class ConfigCenter(_PluginBase):
                     }
                 ]
             }
-        ], {
-            "enabled": False,
-            "GITHUB_TOKEN": settings.GITHUB_TOKEN,
-            "API_TOKEN": settings.API_TOKEN,
-            "TMDB_API_DOMAIN": settings.TMDB_API_DOMAIN,
-            "TMDB_IMAGE_DOMAIN": settings.TMDB_IMAGE_DOMAIN,
-            "WALLPAPER": settings.WALLPAPER,
-            "RECOGNIZE_SOURCE": settings.RECOGNIZE_SOURCE,
-            "SCRAP_METADATA": settings.SCRAP_METADATA,
-            "SCRAP_SOURCE": settings.SCRAP_SOURCE,
-            "SCRAP_FOLLOW_TMDB": settings.SCRAP_FOLLOW_TMDB,
-            "LIBRARY_PATH": settings.LIBRARY_PATH,
-            "LIBRARY_MOVIE_NAME": settings.LIBRARY_MOVIE_NAME,
-            "LIBRARY_TV_NAME": settings.LIBRARY_TV_NAME,
-            "LIBRARY_ANIME_NAME": settings.LIBRARY_ANIME_NAME,
-            "LIBRARY_CATEGORY": settings.LIBRARY_CATEGORY,
-            "TRANSFER_TYPE": settings.TRANSFER_TYPE,
-            "OVERWRITE_MODE": settings.OVERWRITE_MODE,
-            "COOKIECLOUD_HOST": settings.COOKIECLOUD_HOST,
-            "COOKIECLOUD_KEY": settings.COOKIECLOUD_KEY,
-            "COOKIECLOUD_PASSWORD": settings.COOKIECLOUD_PASSWORD,
-            "COOKIECLOUD_INTERVAL": settings.COOKIECLOUD_INTERVAL,
-            "USER_AGENT": settings.USER_AGENT,
-            "SUBSCRIBE_MODE": settings.SUBSCRIBE_MODE,
-            "SUBSCRIBE_RSS_INTERVAL": settings.SUBSCRIBE_RSS_INTERVAL,
-            "SUBSCRIBE_SEARCH": settings.SUBSCRIBE_SEARCH,
-            "AUTO_DOWNLOAD_USER": settings.AUTO_DOWNLOAD_USER,
-            "OCR_HOST": settings.OCR_HOST,
-            "MESSAGER": settings.MESSAGER.split(","),
-            "DOWNLOAD_PATH": settings.DOWNLOAD_PATH,
-            "DOWNLOAD_MOVIE_PATH": settings.DOWNLOAD_MOVIE_PATH,
-            "DOWNLOAD_TV_PATH": settings.DOWNLOAD_TV_PATH,
-            "DOWNLOAD_ANIME_PATH": settings.DOWNLOAD_ANIME_PATH,
-            "DOWNLOAD_CATEGORY": settings.DOWNLOAD_CATEGORY,
-            "DOWNLOAD_SUBTITLE": settings.DOWNLOAD_SUBTITLE,
-            "DOWNLOADER": settings.DOWNLOADER,
-            "DOWNLOADER_MONITOR": settings.DOWNLOADER_MONITOR,
-            "TORRENT_TAG": settings.TORRENT_TAG,
-            "MEDIASERVER": settings.MEDIASERVER.split(","),
-            "MEDIASERVER_SYNC_INTERVAL": settings.MEDIASERVER_SYNC_INTERVAL,
-            "MEDIASERVER_SYNC_BLACKLIST": settings.MEDIASERVER_SYNC_BLACKLIST
-        }
+        ], default_settings
 
     def get_page(self) -> List[dict]:
         pass
