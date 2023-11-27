@@ -733,7 +733,7 @@ class ConfigCenter(_PluginBase):
                                             "model": "DOWNLOADER",
                                             "label": "下载器",
                                             "items": [
-                                                {"title": "QBittorrent", "value": "qbittorrent"},
+                                                {"title": "Qbittorrent", "value": "qbittorrent"},
                                                 {"title": "Transmission", "value": "transmission"}
                                             ]
                                         }
