@@ -16,7 +16,7 @@ class IyuuMsg(_PluginBase):
     # 插件图标
     plugin_icon = "workwechat.jpg"
     # 主题色
-    plugin_color = "#C9221B"
+    plugin_color = "#34b05d"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者
