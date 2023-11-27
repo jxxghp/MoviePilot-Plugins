@@ -135,7 +135,7 @@ class WorkWechatMsg(_PluginBase):
             }
         ], {
             "enabled": False,
-            'token': '',
+            'webhookurl': '',
             'msgtypes': []
         }
 
