@@ -8,7 +8,7 @@ from typing import Any, List, Dict, Tuple
 from app.log import logger
 
 
-class IyuuMsg(_PluginBase):
+class WorkWechatMsg(_PluginBase):
     # 插件名称
     plugin_name = "企微机器人消息通知"
     # 插件描述
