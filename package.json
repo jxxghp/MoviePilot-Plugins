@@ -323,6 +323,15 @@
         "author": "jxxghp",
         "level": 1
     },
+    "WorkWechatMsg": {
+        "name": "企微机器人消息推送",
+        "description": "支持使用企业微信群聊机器人发送消息通知。",
+        "version": "1.0",
+        "icon": "workwechat.jpg",
+        "color": "#FFFFFF",
+        "author": "叮叮当",
+        "level": 1
+    },
     "ConfigCenter": {
         "name": "配置中心",
         "description": "快速调整部分系统设定。",
