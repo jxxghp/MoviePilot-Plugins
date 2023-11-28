@@ -14,7 +14,7 @@ class BarkMsg(_PluginBase):
     # 插件描述
     plugin_desc = "支持使用Bark发送消息通知。"
     # 插件图标
-    plugin_icon = "bark.webp"
+    plugin_icon = "Bark_A.png"
     # 主题色
     plugin_color = "#FF3B30"
     # 插件版本
