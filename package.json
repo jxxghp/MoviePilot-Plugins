@@ -300,7 +300,7 @@
         "name": "Bark消息推送",
         "description": "支持使用Bark发送消息通知。",
         "version": "1.1",
-        "icon": "bark.webp",
+        "icon": "Bark_A.png",
         "color": "#FF3B30",
         "author": "jxxghp",
         "level": 1
