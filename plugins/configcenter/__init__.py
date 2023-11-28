@@ -1,6 +1,7 @@
 from typing import Any, List, Dict, Tuple
 
 from app.core.config import settings
+from app.core.module import ModuleManager
 from app.log import logger
 from app.plugins import _PluginBase
 
@@ -15,7 +16,7 @@ class ConfigCenter(_PluginBase):
     # 主题色
     plugin_color = "#FC6220"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -29,6 +30,7 @@ class ConfigCenter(_PluginBase):
 
     # 私有属性
     _enabled = False
+    _params = ""
     settings_attributes = [
         "GITHUB_TOKEN", "API_TOKEN", "TMDB_API_DOMAIN", "TMDB_IMAGE_DOMAIN", "WALLPAPER",
         "RECOGNIZE_SOURCE", "SCRAP_METADATA", "SCRAP_FOLLOW_TMDB", "LIBRARY_PATH",
@@ -46,16 +48,41 @@ class ConfigCenter(_PluginBase):
     def init_plugin(self, config: dict = None):
         if config:
             self._enabled = config.get("enabled")
-            if self._enabled:
-                logger.info(f"正在应用配置中心配置：{config}")
-                for attribute in self.settings_attributes:
-                    setattr(settings, attribute, config.get(attribute) or getattr(settings, attribute))
-                messagers = config.get("MESSAGER") or []
-                if messagers:
-                    settings.MESSAGER = ",".join(messagers)
-                media_servers = config.get("MEDIASERVER") or []
-                if media_servers:
-                    settings.MEDIASERVER = ",".join(media_servers)
+            if not self._enabled:
+                return
+            logger.info(f"正在应用配置中心配置：{config}")
+            for attribute in self.settings_attributes:
+                setattr(settings, attribute, config.get(attribute) or getattr(settings, attribute))
+            # 消息渠道，以逗号分隔
+            messagers = config.get("MESSAGER") or []
+            if messagers:
+                settings.MESSAGER = ",".join(messagers)
+            # 媒体服务器，以逗号分隔
+            media_servers = config.get("MEDIASERVER") or []
+            if media_servers:
+                settings.MEDIASERVER = ",".join(media_servers)
+            # 自定义配置，以换行分隔
+            self._params = config.get("params") or ""
+            if self._params:
+                params = self._params.split("\n")
+                for param in params:
+                    if not param:
+                        continue
+                    if str(param).strip().startswith("#"):
+                        continue
+                    parts = param.split("=", 1)
+                    if len(parts) != 2:
+                        continue
+                    key = parts[0].strip()
+                    value = parts[1].strip()
+                    if not hasattr(settings, key):
+                        continue
+                    if not value:
+                        continue
+                    setattr(settings, key, value)
+            # 重新加载模块
+            ModuleManager().stop()
+            ModuleManager().load_modules()
 
     def get_state(self) -> bool:
         return self._enabled
@@ -73,6 +100,7 @@ class ConfigCenter(_PluginBase):
         """
         default_settings = {
             "enabled": False,
+            "params": "",
         }
         for attribute in self.settings_attributes:
             default_settings[attribute] = getattr(settings, attribute)
@@ -893,6 +921,27 @@ class ConfigCenter(_PluginBase):
                                             "model": "PLUGIN_MARKET",
                                             "label": "插件市场",
                                             "placeholder": "多个地址使用,分隔"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "params",
+                                            "label": "自定义配置",
+                                            "placeholder": "每行一个配置项，格式：配置项=值"
                                         }
                                     }
                                 ]
