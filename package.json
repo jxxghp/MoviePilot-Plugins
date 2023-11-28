@@ -165,7 +165,7 @@
         "name": "ChatGPT",
         "description": "消息交互支持与ChatGPT对话。",
         "version": "1.1",
-        "icon": "chatgpt.png",
+        "icon": "Chatgpt_A.png",
         "color": "#74AA9C",
         "author": "jxxghp",
         "level": 1
