@@ -6,11 +6,11 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 
 
 ### 1. 目录结构
-- 插件仓库需要保持与本项目一致的目录结构（建议fork后修改），仅支持Github仓库，`plugins`存放插件代码，一个插件一个子目录，**子目名名必须为插件类名的小写**，插件主类在`__init__.py`中编写。
+- 插件仓库需要保持与本项目一致的目录结构（建议fork后修改），仅支持Github仓库，`plugins`存放插件代码，一个插件一个子目录，**子目录名必须为插件类名的小写**，插件主类在`__init__.py`中编写。
 - `package.json`为插件仓库中所有插件概要信息，用于在MoviePilot的插件市场显示，其中版本号等需与插件代码保持一致，通过修改版本号可触发MoviePilot显示插件更新。 
 
 ### 2. 插件图标
-- 插件图标可复用官方插件库中`icons`下已有图标，否则需使用完成的http格式的url图片链接（包括package.json中的icon和插件代码中的plugin_icon）。
+- 插件图标可复用官方插件库中`icons`下已有图标，否则需使用完整的http格式的url图片链接（包括package.json中的icon和插件代码中的plugin_icon）。
 
 ### 3. 插件命名
 - 插件命名请勿与官方库插件中的插件冲突，否则会在MoviePilot版本升级时被官方插件覆盖。
