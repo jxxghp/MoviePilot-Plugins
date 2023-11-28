@@ -11,6 +11,7 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 
 ### 2. 插件图标
 - 插件图标可复用官方插件库中`icons`下已有图标，否则需使用完整的http格式的url图片链接（包括package.json中的icon和插件代码中的plugin_icon）。
+- 插件的背景颜色请提取图标中的背景色或主色调，以使插件卡片更美观。
 
 ### 3. 插件命名
 - 插件命名请勿与官方库插件中的插件冲突，否则会在MoviePilot版本升级时被官方插件覆盖。
