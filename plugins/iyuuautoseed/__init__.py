@@ -32,7 +32,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件描述
     plugin_desc = "基于IYUU官方Api实现自动辅种。"
     # 插件图标
-    plugin_icon = "iyuu.png"
+    plugin_icon = "IYUU.png"
     # 主题色
     plugin_color = "#F3B70B"
     # 插件版本

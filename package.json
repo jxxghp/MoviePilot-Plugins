@@ -201,7 +201,7 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "version": "1.0",
-        "icon": "iyuu.png",
+        "icon": "IYUU.png",
         "color": "#F3B70B",
         "author": "jxxghp",
         "level": 2
@@ -309,8 +309,8 @@
         "name": "IYUU消息推送",
         "description": "支持使用IYUU发送消息通知。",
         "version": "1.1",
-        "icon": "iyuu.png",
-        "color": "#C9221B",
+        "icon": "Iyuu_A.png",
+        "color": "#362228",
         "author": "jxxghp",
         "level": 1
     },
