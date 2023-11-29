@@ -22,7 +22,7 @@ class InvitesSignin(_PluginBase):
     # 插件图标
     plugin_icon = "invites.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -141,6 +141,13 @@ class InvitesSignin(_PluginBase):
 
         if not res or res.status_code != 200:
             logger.error("药丸签到失败")
+
+            # 发送通知
+            if self._notify:
+                self.post_message(
+                    mtype=NotificationType.SiteMessage,
+                    title="【药丸签到任务完成】",
+                    text="签到失败，请检查cookie是否失效")
             return
 
         sign_dict = json.loads(res.text)
