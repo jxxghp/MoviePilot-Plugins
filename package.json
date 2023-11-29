@@ -209,7 +209,7 @@
     "TorrentTransfer": {
         "name": "自动转移做种",
         "description": "定期转移下载器中的做种任务到另一个下载器。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "torrenttransfer.jpg",
         "color": "#272636",
         "author": "jxxghp",
