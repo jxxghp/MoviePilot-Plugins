@@ -19,7 +19,7 @@ class MessageForward(_PluginBase):
     # 插件图标
     plugin_icon = "forward.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -104,7 +104,7 @@ class MessageForward(_PluginBase):
                                         'component': 'VTextarea',
                                         'props': {
                                             'model': 'wechat',
-                                            'rows': '3',
+                                            'rows': '5',
                                             'label': '应用配置',
                                             'placeholder': 'appid:corpid:appsecret（一行一个配置）'
                                         }
@@ -126,7 +126,7 @@ class MessageForward(_PluginBase):
                                         'component': 'VTextarea',
                                         'props': {
                                             'model': 'pattern',
-                                            'rows': '3',
+                                            'rows': '6',
                                             'label': '正则配置',
                                             'placeholder': '对应上方应用配置，一行一个，一一对应'
                                         }
@@ -150,6 +150,28 @@ class MessageForward(_PluginBase):
                                             'type': 'info',
                                             'variant': 'tonal',
                                             'text': '根据正则表达式，把MoviePilot的消息转发到多个微信应用。'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '应用配置可加注释：'
+                                                    'appid:corpid:appsecret#站点通知'
                                         }
                                     }
                                 ]
@@ -209,6 +231,8 @@ class MessageForward(_PluginBase):
         # 解析配置
         wechats = self._wechat.split("\n")
         for index, wechat in enumerate(wechats):
+            # 排除注释
+            wechat = wechat.split("#")[0]
             wechat_config = wechat.split(":")
             if len(wechat_config) != 3:
                 logger.error(f"{wechat} 应用配置不正确")

@@ -182,7 +182,7 @@
     "MessageForward": {
         "name": "消息转发",
         "description": "根据正则转发通知到其他WeChat应用。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "forward.png",
         "color": "#32ABD1",
         "author": "thsrite",
@@ -263,7 +263,7 @@
     "InvitesSignin": {
         "name": "药丸签到",
         "description": "药丸论坛签到。",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "invites.png",
         "color": "#FFFFFF",
         "author": "thsrite",
