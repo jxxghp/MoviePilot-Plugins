@@ -27,7 +27,7 @@ class TorrentTransfer(_PluginBase):
     # 插件图标
     plugin_icon = "torrenttransfer.jpg"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -54,6 +54,7 @@ class TorrentTransfer(_PluginBase):
     _topath = None
     _notify = False
     _nolabels = None
+    _includelabels = None
     _nopaths = None
     _deletesource = False
     _fromtorrentpath = None
@@ -75,6 +76,7 @@ class TorrentTransfer(_PluginBase):
             self._cron = config.get("cron")
             self._notify = config.get("notify")
             self._nolabels = config.get("nolabels")
+            self._includelabels = config.get("includelabels")
             self._frompath = config.get("frompath")
             self._topath = config.get("topath")
             self._fromdownloader = config.get("fromdownloader")
@@ -123,6 +125,7 @@ class TorrentTransfer(_PluginBase):
                     "cron": self._cron,
                     "notify": self._notify,
                     "nolabels": self._nolabels,
+                    "includelabels": self._includelabels,
                     "frompath": self._frompath,
                     "topath": self._topath,
                     "fromdownloader": self._fromdownloader,
@@ -206,7 +209,7 @@ class TorrentTransfer(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -223,7 +226,7 @@ class TorrentTransfer(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -231,6 +234,21 @@ class TorrentTransfer(_PluginBase):
                                         'props': {
                                             'model': 'nolabels',
                                             'label': '不转移种子标签',
+                                        }
+                                    }
+                                ]
+                            }, {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'includelabels',
+                                            'label': '转移种子标签',
                                         }
                                     }
                                 ]
@@ -418,6 +436,7 @@ class TorrentTransfer(_PluginBase):
             "onlyonce": False,
             "cron": "",
             "nolabels": "",
+            "includelabels": "",
             "frompath": "",
             "topath": "",
             "fromdownloader": "",
@@ -522,11 +541,22 @@ class TorrentTransfer(_PluginBase):
 
             # 获取种子标签
             torrent_labels = self.__get_label(torrent, downloader)
+            # 排除含有不转移的标签
             if torrent_labels and self._nolabels:
                 is_skip = False
                 for label in self._nolabels.split(','):
                     if label in torrent_labels:
                         logger.info(f"种子 {hash_str} 含有不转移标签 {label}，跳过 ...")
+                        is_skip = True
+                        break
+                if is_skip:
+                    continue
+            # 排除不含有转移标签的种子
+            if torrent_labels and self._includelabels:
+                is_skip = False
+                for label in self._includelabels.split(','):
+                    if label not in torrent_labels:
+                        logger.info(f"种子 {hash_str} 不含有转移标签 {label}，跳过 ...")
                         is_skip = True
                         break
                 if is_skip:
