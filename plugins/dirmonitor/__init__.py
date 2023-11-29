@@ -58,8 +58,6 @@ class DirMonitor(_PluginBase):
     plugin_desc = "监控目录文件发生变化时实时整理到媒体库。"
     # 插件图标
     plugin_icon = "directory.png"
-    # 主题色
-    plugin_color = "#E0995E"
     # 插件版本
     plugin_version = "1.2"
     # 插件作者

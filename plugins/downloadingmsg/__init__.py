@@ -19,8 +19,6 @@ class DownloadingMsg(_PluginBase):
     plugin_desc = "定时推送正在下载进度。"
     # 插件图标
     plugin_icon = "downloadmsg.png"
-    # 主题色
-    plugin_color = "#3DE75D"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

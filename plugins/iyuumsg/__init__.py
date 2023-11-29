@@ -15,8 +15,6 @@ class IyuuMsg(_PluginBase):
     plugin_desc = "支持使用IYUU发送消息通知。"
     # 插件图标
     plugin_icon = "Iyuu_A.png"
-    # 主题色
-    plugin_color = "#362228"
     # 插件版本
     plugin_version = "1.1"
     # 插件作者

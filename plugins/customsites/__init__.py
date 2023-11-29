@@ -16,8 +16,6 @@ class CustomSites(_PluginBase):
     plugin_desc = "增加自定义站点为签到和统计使用。"
     # 插件图标
     plugin_icon = "world.png"
-    # 主题色
-    plugin_color = "#9AC16C"
     # 插件版本
     plugin_version = "0.1"
     # 插件作者

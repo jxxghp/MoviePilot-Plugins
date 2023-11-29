@@ -25,8 +25,6 @@ class LibraryScraper(_PluginBase):
     plugin_desc = "定时对媒体库进行刮削，补齐缺失元数据和图片。"
     # 插件图标
     plugin_icon = "scraper.png"
-    # 主题色
-    plugin_color = "#FF7D00"
     # 插件版本
     plugin_version = "1.1"
     # 插件作者

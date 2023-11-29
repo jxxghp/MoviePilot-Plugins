@@ -15,8 +15,6 @@ class ChatGPT(_PluginBase):
     plugin_desc = "消息交互支持与ChatGPT对话。"
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
-    # 主题色
-    plugin_color = "#74AA9C"
     # 插件版本
     plugin_version = "1.1"
     # 插件作者

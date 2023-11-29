@@ -16,8 +16,6 @@ class MediaServerMsg(_PluginBase):
     plugin_desc = "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。"
     # 插件图标
     plugin_icon = "mediaplay.png"
-    # 主题色
-    plugin_color = "#42A3DB"
     # 插件版本
     plugin_version = "1.1"
     # 插件作者

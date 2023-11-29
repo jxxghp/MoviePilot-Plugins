@@ -26,8 +26,6 @@ class TorrentRemover(_PluginBase):
     plugin_desc = "自动删除下载器中的下载任务。"
     # 插件图标
     plugin_icon = "torrent.png"
-    # 主题色
-    plugin_color = "#02853F"
     # 插件版本
     plugin_version = "1.1"
     # 插件作者

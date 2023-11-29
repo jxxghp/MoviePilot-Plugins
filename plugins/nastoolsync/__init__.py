@@ -19,8 +19,6 @@ class NAStoolSync(_PluginBase):
     plugin_desc = "同步NAStool历史记录、下载记录、插件记录到MoviePilot。"
     # 插件图标
     plugin_icon = "sync.png"
-    # 主题色
-    plugin_color = "#53BA47"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

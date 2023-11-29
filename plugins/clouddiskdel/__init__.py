@@ -19,8 +19,6 @@ class CloudDiskDel(_PluginBase):
     plugin_desc = "媒体库删除strm文件后同步删除云盘资源。"
     # 插件图标
     plugin_icon = "clouddisk.png"
-    # 主题色
-    plugin_color = "#4285F5"
     # 插件版本
     plugin_version = "1.1"
     # 插件作者

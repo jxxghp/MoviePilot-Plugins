@@ -20,8 +20,6 @@ class MediaServerRefresh(_PluginBase):
     plugin_desc = "入库后自动刷新Emby/Jellyfin/Plex服务器海报墙。"
     # 插件图标
     plugin_icon = "refresh2.png"
-    # 主题色
-    plugin_color = "#347180"
     # 插件版本
     plugin_version = "1.1"
     # 插件作者

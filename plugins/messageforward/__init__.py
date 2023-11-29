@@ -18,8 +18,6 @@ class MessageForward(_PluginBase):
     plugin_desc = "根据正则转发通知到其他WeChat应用。"
     # 插件图标
     plugin_icon = "forward.png"
-    # 主题色
-    plugin_color = "#32ABD1"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

@@ -26,8 +26,6 @@ class DoubanRank(_PluginBase):
     plugin_desc = "监控豆瓣热门榜单，自动添加订阅。"
     # 插件图标
     plugin_icon = "movie.jpg"
-    # 主题色
-    plugin_color = "#01B3E3"
     # 插件版本
     plugin_version = "1.2"
     # 插件作者

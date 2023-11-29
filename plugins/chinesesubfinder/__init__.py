@@ -19,8 +19,6 @@ class ChineseSubFinder(_PluginBase):
     plugin_desc = "整理入库时通知ChineseSubFinder下载字幕。"
     # 插件图标
     plugin_icon = "chinesesubfinder.png"
-    # 主题色
-    plugin_color = "#83BE39"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

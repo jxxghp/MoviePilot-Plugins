@@ -33,8 +33,6 @@ class BestFilmVersion(_PluginBase):
     plugin_desc = "Jellyfin/Emby/Plex点击收藏电影后，自动订阅洗版。"
     # 插件图标
     plugin_icon = "like.jpg"
-    # 主题色
-    plugin_color = "#E4003F"
     # 插件版本
     plugin_version = "2.0"
     # 插件作者

@@ -29,8 +29,6 @@ class DoubanSync(_PluginBase):
     plugin_desc = "同步豆瓣想看数据，自动添加订阅。"
     # 插件图标
     plugin_icon = "douban.png"
-    # 主题色
-    plugin_color = "#05B711"
     # 插件版本
     plugin_version = "1.1"
     # 插件作者

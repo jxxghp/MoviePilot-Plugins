@@ -13,8 +13,6 @@ class WebHook(_PluginBase):
     plugin_desc = "事件发生时向第三方地址发送请求。"
     # 插件图标
     plugin_icon = "webhook.png"
-    # 主题色
-    plugin_color = "#C73A63"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

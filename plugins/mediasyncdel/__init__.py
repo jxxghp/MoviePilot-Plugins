@@ -30,8 +30,6 @@ class MediaSyncDel(_PluginBase):
     plugin_desc = "同步删除历史记录、源文件和下载任务。"
     # 插件图标
     plugin_icon = "mediasyncdel.png"
-    # 主题色
-    plugin_color = "#ff1a1a"
     # 插件版本
     plugin_version = "1.2"
     # 插件作者

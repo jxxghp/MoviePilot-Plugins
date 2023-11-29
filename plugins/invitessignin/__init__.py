@@ -21,8 +21,6 @@ class InvitesSignin(_PluginBase):
     plugin_desc = "药丸论坛签到。"
     # 插件图标
     plugin_icon = "invites.png"
-    # 主题色
-    plugin_color = "#FFFFFF"
     # 插件版本
     plugin_version = "1.1"
     # 插件作者

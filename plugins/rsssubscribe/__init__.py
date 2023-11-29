@@ -29,8 +29,6 @@ class RssSubscribe(_PluginBase):
     plugin_desc = "定时刷新RSS报文，识别内容后添加订阅或直接下载。"
     # 插件图标
     plugin_icon = "rss.png"
-    # 主题色
-    plugin_color = "#F78421"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

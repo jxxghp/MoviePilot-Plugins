@@ -26,8 +26,6 @@ class AutoClean(_PluginBase):
     plugin_desc = "定时清理用户下载的种子、源文件、媒体库文件。"
     # 插件图标
     plugin_icon = "clean.png"
-    # 主题色
-    plugin_color = "#3377ed"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

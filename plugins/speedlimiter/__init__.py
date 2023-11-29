@@ -24,8 +24,6 @@ class SpeedLimiter(_PluginBase):
     plugin_desc = "外网播放媒体库视频时，自动对下载器进行限速。"
     # 插件图标
     plugin_icon = "SpeedLimiter.jpg"
-    # 主题色
-    plugin_color = "#183883"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

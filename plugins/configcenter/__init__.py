@@ -13,8 +13,6 @@ class ConfigCenter(_PluginBase):
     plugin_desc = "快速调整部分系统设定。"
     # 插件图标
     plugin_icon = "setting.png"
-    # 主题色
-    plugin_color = "#FC6220"
     # 插件版本
     plugin_version = "1.2"
     # 插件作者

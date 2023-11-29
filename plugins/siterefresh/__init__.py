@@ -16,8 +16,6 @@ class SiteRefresh(_PluginBase):
     plugin_desc = "自动登录获取站点Cookie和User-Agent。"
     # 插件图标
     plugin_icon = "login.png"
-    # 主题色
-    plugin_color = "#99b3ff"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

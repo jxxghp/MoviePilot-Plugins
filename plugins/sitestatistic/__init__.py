@@ -40,8 +40,6 @@ class SiteStatistic(_PluginBase):
     plugin_desc = "自动统计和展示站点数据。"
     # 插件图标
     plugin_icon = "statistic.png"
-    # 主题色
-    plugin_color = "#324A5E"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

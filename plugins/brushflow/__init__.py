@@ -30,8 +30,6 @@ class BrushFlow(_PluginBase):
     plugin_desc = "自动托管刷流，将会提高对应站点的访问频率。"
     # 插件图标
     plugin_icon = "brush.jpg"
-    # 主题色
-    plugin_color = "#FFD54E"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

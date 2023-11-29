@@ -31,8 +31,6 @@ class CloudflareSpeedTest(_PluginBase):
     plugin_desc = "🌩 测试 Cloudflare CDN 延迟和速度，自动优选IP。"
     # 插件图标
     plugin_icon = "cloudflare.jpg"
-    # 主题色
-    plugin_color = "#F6821F"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

@@ -24,8 +24,6 @@ class AutoBackup(_PluginBase):
     plugin_desc = "自动备份数据和配置文件。"
     # 插件图标
     plugin_icon = "backup.png"
-    # 主题色
-    plugin_color = "#4FB647"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者
