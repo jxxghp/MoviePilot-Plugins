@@ -1,4 +1,7 @@
+import copy
 from typing import Any, List, Dict, Tuple
+
+from dotenv import set_key
 
 from app.core.config import settings
 from app.core.module import ModuleManager
@@ -14,7 +17,7 @@ class ConfigCenter(_PluginBase):
     # 插件图标
     plugin_icon = "setting.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -29,6 +32,7 @@ class ConfigCenter(_PluginBase):
     # 私有属性
     _enabled = False
     _params = ""
+    _writeenv = False
     settings_attributes = [
         "GITHUB_TOKEN", "API_TOKEN", "TMDB_API_DOMAIN", "TMDB_IMAGE_DOMAIN", "WALLPAPER",
         "RECOGNIZE_SOURCE", "SCRAP_METADATA", "SCRAP_FOLLOW_TMDB", "LIBRARY_PATH",
@@ -44,43 +48,103 @@ class ConfigCenter(_PluginBase):
     ]
 
     def init_plugin(self, config: dict = None):
-        if config:
-            self._enabled = config.get("enabled")
-            if not self._enabled:
-                return
-            logger.info(f"正在应用配置中心配置：{config}")
-            for attribute in self.settings_attributes:
-                setattr(settings, attribute, config.get(attribute) or getattr(settings, attribute))
-            # 消息渠道，以逗号分隔
-            messagers = config.get("MESSAGER") or []
-            if messagers:
-                settings.MESSAGER = ",".join(messagers)
-            # 媒体服务器，以逗号分隔
-            media_servers = config.get("MEDIASERVER") or []
-            if media_servers:
-                settings.MEDIASERVER = ",".join(media_servers)
-            # 自定义配置，以换行分隔
-            self._params = config.get("params") or ""
-            if self._params:
-                params = self._params.split("\n")
-                for param in params:
-                    if not param:
-                        continue
-                    if str(param).strip().startswith("#"):
-                        continue
-                    parts = param.split("=", 1)
-                    if len(parts) != 2:
-                        continue
-                    key = parts[0].strip()
-                    value = parts[1].strip()
-                    if not hasattr(settings, key):
-                        continue
-                    if not value:
-                        continue
-                    setattr(settings, key, value)
-            # 重新加载模块
-            ModuleManager().stop()
-            ModuleManager().load_modules()
+        if not config:
+            return
+
+        self._enabled = config.get("enabled")
+        self._writeenv = config.get("writeenv")
+        if not self._enabled:
+            return
+        logger.info(f"正在应用配置中心配置：{config}")
+        for attribute in self.settings_attributes:
+            setattr(settings, attribute, config.get(attribute) or getattr(settings, attribute))
+        # 消息渠道，以逗号分隔
+        messagers = config.get("MESSAGER") or []
+        if messagers:
+            settings.MESSAGER = ",".join(messagers)
+        # 媒体服务器，以逗号分隔
+        media_servers = config.get("MEDIASERVER") or []
+        if media_servers:
+            settings.MEDIASERVER = ",".join(media_servers)
+        # 自定义配置，以换行分隔
+        self._params = config.get("params") or ""
+        for key, value in self.__parse_params(self._params):
+            if hasattr(settings, key):
+                setattr(settings, key, value)
+
+        # 重新加载模块
+        ModuleManager().stop()
+        ModuleManager().load_modules()
+
+        # 如果写入app.env文件，则关闭插件开关
+        if self._writeenv:
+            # 写入env文件
+            self.update_env(config)
+            # 自动关闭插件
+            self._enabled = False
+            logger.info("配置中心设置已写入app.env文件，插件关闭...")
+            # 保存配置
+            config.update({"enabled": False})
+            self.update_config(config)
+
+    def update_env(self, config: dict):
+        """
+        更新设置到app.env
+        """
+        if not config:
+            return
+
+        # 避免修改原值
+        conf = copy.deepcopy(config)
+
+        # 消息渠道，以逗号分隔
+        conf.update({"MESSAGER": ",".join(conf.get("MESSAGER"))})
+        # 媒体服务器，以逗号分隔
+        conf.update({"MEDIASERVER": ",".join(conf.get("MEDIASERVER"))})
+        # 自定义配置，以换行分隔
+        config_params = self.__parse_params(conf.get("params"))
+        conf.update(config_params)
+        # 去掉无效参数
+        try:
+            conf.pop("enabled")
+            conf.pop("writeenv")
+            conf.pop("params")
+        except KeyError:
+            pass
+        # 读写app.env
+        env_path = settings.CONFIG_PATH / "app.env"
+        for key, value in conf.items():
+            if not value or not key:
+                continue
+            set_key(env_path, key, str(value))
+        logger.info("app.env文件写入完成")
+        self.systemmessage.put("配置中心设置已写入app.env文件，插件关闭")
+
+    @staticmethod
+    def __parse_params(param_str: str) -> dict:
+        """
+        解析自定义配置
+        """
+        if not param_str:
+            return {}
+        result = {}
+        params = param_str.split("\n")
+        for param in params:
+            if not param:
+                continue
+            if str(param).strip().startswith("#"):
+                continue
+            parts = param.split("=", 1)
+            if len(parts) != 2:
+                continue
+            key = parts[0].strip()
+            value = parts[1].strip()
+            if not key:
+                continue
+            if not value:
+                continue
+            result[key] = value
+        return result
 
     def get_state(self) -> bool:
         return self._enabled
@@ -123,6 +187,27 @@ class ConfigCenter(_PluginBase):
                                         "props": {
                                             "model": "enabled",
                                             "label": "启用插件"
+                                        }
+                                    }
+                                ]
+                            },
+                        ]
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "writeenv",
+                                            "label": "写入app.env文件"
                                         }
                                     }
                                 ]
@@ -960,7 +1045,7 @@ class ConfigCenter(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '注意：本插件只是运行时临时修改生效系统配置，并不会实际改变环境变量或app.env中的配置值。'
+                                            'text': '注意：开启写入app.env后将直接修改配置文件，否则只是运行时修改生效对应配置（插件关闭且重启后配置失效）；有些自定义配置需要重启才能生效。'
                                         }
                                     }
                                 ]
