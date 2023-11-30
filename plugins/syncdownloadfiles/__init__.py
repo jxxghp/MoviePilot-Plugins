@@ -20,7 +20,7 @@ class SyncDownloadFiles(_PluginBase):
     # 插件描述
     plugin_desc = "同步下载器的文件信息到数据库，删除文件时联动删除下载任务。"
     # 插件图标
-    plugin_icon = "sync_file.png"
+    plugin_icon = "Youtube-dl_A.png"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者
