@@ -4,7 +4,6 @@
         "description": "自动模拟登录站点、签到。",
         "version": "1.1",
         "icon": "signin.png",
-        "color": "#4179F4",
         "author": "thsrite",
         "level": 2
     },
@@ -13,7 +12,6 @@
         "description": "增加自定义站点为签到和统计使用。",
         "version": "0.1",
         "icon": "world.png",
-        "color": "#9AC16C",
         "author": "lightolly",
         "level": 2
     },
@@ -22,7 +20,6 @@
         "description": "自动统计和展示站点数据。",
         "version": "1.0",
         "icon": "statistic.png",
-        "color": "#324A5E",
         "author": "lightolly",
         "level": 2
     },
@@ -30,8 +27,7 @@
         "name": "站点自动更新",
         "description": "自动登录获取站点Cookie和User-Agent。",
         "version": "1.0",
-        "icon": "login.png",
-        "color": "#99b3ff",
+        "icon": "Cookiecloud_A.png",
         "author": "thsrite",
         "level": 2
     },
@@ -40,7 +36,6 @@
         "description": "同步豆瓣想看数据，自动添加订阅。",
         "version": "1.1",
         "icon": "douban.png",
-        "color": "#05B711",
         "author": "jxxghp",
         "level": 2
     },
@@ -49,7 +44,6 @@
         "description": "监控目录文件发生变化时实时整理到媒体库。",
         "version": "1.2",
         "icon": "directory.png",
-        "color": "#E0995E",
         "author": "jxxghp",
         "level": 1
     },
@@ -58,7 +52,6 @@
         "description": "整理入库时通知ChineseSubFinder下载字幕。",
         "version": "1.0",
         "icon": "chinesesubfinder.png",
-        "color": "#83BE39",
         "author": "jxxghp",
         "level": 1
     },
@@ -67,7 +60,6 @@
         "description": "监控豆瓣热门榜单，自动添加订阅。",
         "version": "1.2",
         "icon": "movie.jpg",
-        "color": "#01B3E3",
         "author": "jxxghp",
         "level": 2
     },
@@ -76,7 +68,6 @@
         "description": "定时对媒体库进行刮削，补齐缺失元数据和图片。",
         "version": "1.1",
         "icon": "scraper.png",
-        "color": "#FF7D00",
         "author": "jxxghp",
         "level": 1
     },
@@ -85,7 +76,6 @@
         "description": "自动删除下载器中的下载任务。",
         "version": "1.1",
         "icon": "torrent.png",
-        "color": "#02853F",
         "author": "jxxghp",
         "level": 2
     },
@@ -94,7 +84,6 @@
         "description": "同步删除历史记录、源文件和下载任务。",
         "version": "1.2",
         "icon": "mediasyncdel.png",
-        "color": "#ff1a1a",
         "author": "thsrite",
         "level": 1
     },
@@ -103,7 +92,6 @@
         "description": "修改系统hosts文件，加速网络访问。",
         "version": "1.0",
         "icon": "hosts.png",
-        "color": "#02C4E0",
         "author": "thsrite",
         "level": 1
     },
@@ -112,7 +100,6 @@
         "description": "外网播放媒体库视频时，自动对下载器进行限速。",
         "version": "1.0",
         "icon": "SpeedLimiter.jpg",
-        "color": "#183883",
         "author": "Shurelol",
         "level": 1
     },
@@ -121,7 +108,6 @@
         "description": "🌩 测试 Cloudflare CDN 延迟和速度，自动优选IP。",
         "version": "1.0",
         "icon": "cloudflare.jpg",
-        "color": "#F6821F",
         "author": "thsrite",
         "level": 1
     },
@@ -130,7 +116,6 @@
         "description": "Jellyfin/Emby/Plex点击收藏电影后，自动订阅洗版。",
         "version": "2.0",
         "icon": "like.jpg",
-        "color": "#E4003F",
         "author": "wlj",
         "level": 2
     },
@@ -139,7 +124,6 @@
         "description": "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。",
         "version": "1.1",
         "icon": "mediaplay.png",
-        "color": "#42A3DB",
         "author": "jxxghp",
         "level": 1
     },
@@ -148,7 +132,6 @@
         "description": "入库后自动刷新Emby/Jellyfin/Plex服务器海报墙。",
         "version": "1.1",
         "icon": "refresh2.png",
-        "color": "#347180",
         "author": "jxxghp",
         "level": 1
     },
@@ -157,7 +140,6 @@
         "description": "事件发生时向第三方地址发送请求。",
         "version": "1.0",
         "icon": "webhook.png",
-        "color": "#C73A63",
         "author": "jxxghp",
         "level": 1
     },
@@ -166,7 +148,6 @@
         "description": "消息交互支持与ChatGPT对话。",
         "version": "1.1",
         "icon": "Chatgpt_A.png",
-        "color": "#74AA9C",
         "author": "jxxghp",
         "level": 1
     },
@@ -175,7 +156,6 @@
         "description": "同步NAStool历史记录、下载记录、插件记录到MoviePilot。",
         "version": "1.0",
         "icon": "sync.png",
-        "color": "#53BA47",
         "author": "thsrite",
         "level": 1
     },
@@ -184,7 +164,6 @@
         "description": "根据正则转发通知到其他WeChat应用。",
         "version": "1.1",
         "icon": "forward.png",
-        "color": "#32ABD1",
         "author": "thsrite",
         "level": 1
     },
@@ -193,7 +172,6 @@
         "description": "自动备份数据和配置文件。",
         "version": "1.0",
         "icon": "backup.png",
-        "color": "#4FB647",
         "author": "thsrite",
         "level": 1
     },
@@ -202,7 +180,6 @@
         "description": "基于IYUU官方Api实现自动辅种。",
         "version": "1.0",
         "icon": "IYUU.png",
-        "color": "#F3B70B",
         "author": "jxxghp",
         "level": 2
     },
@@ -211,7 +188,6 @@
         "description": "定期转移下载器中的做种任务到另一个下载器。",
         "version": "1.1",
         "icon": "torrenttransfer.jpg",
-        "color": "#272636",
         "author": "jxxghp",
         "level": 2
     },
@@ -220,7 +196,6 @@
         "description": "定时刷新RSS报文，识别内容后添加订阅或直接下载。",
         "version": "1.0",
         "icon": "rss.png",
-        "color": "#F78421",
         "author": "jxxghp",
         "level": 2
     },
@@ -229,7 +204,6 @@
         "description": "同步下载器的文件信息到数据库，删除文件时联动删除下载任务。",
         "version": "1.0",
         "icon": "sync_file.png",
-        "color": "#000000",
         "author": "thsrite",
         "level": 1
     },
@@ -238,7 +212,6 @@
         "description": "自动托管刷流，将会提高对应站点的访问频率。",
         "version": "1.0",
         "icon": "brush.jpg",
-        "color": "#FFD54E",
         "author": "jxxghp",
         "level": 2
     },
@@ -247,7 +220,6 @@
         "description": "定时推送正在下载进度。",
         "version": "1.0",
         "icon": "downloadmsg.png",
-        "color": "#3DE75D",
         "author": "thsrite",
         "level": 2
     },
@@ -256,7 +228,6 @@
         "description": "定时清理用户下载的种子、源文件、媒体库文件。",
         "version": "1.0",
         "icon": "clean.png",
-        "color": "#3377ed",
         "author": "thsrite",
         "level": 2
     },
@@ -265,7 +236,6 @@
         "description": "药丸论坛签到。",
         "version": "1.2",
         "icon": "invites.png",
-        "color": "#FFFFFF",
         "author": "thsrite",
         "level": 2
     },
@@ -274,7 +244,6 @@
         "description": "刮削演职人员图片以及中文名称。",
         "version": "1.1",
         "icon": "actor.png",
-        "color": "#E66E72",
         "author": "jxxghp",
         "level": 1
     },
@@ -283,7 +252,6 @@
         "description": "MoviePilot推送release更新通知、自动重启。",
         "version": "1.0",
         "icon": "update.png",
-        "color": "#4179F4",
         "author": "thsrite",
         "level": 1
     },
@@ -292,7 +260,6 @@
         "description": "媒体库删除strm文件后同步删除云盘资源。",
         "version": "1.1",
         "icon": "clouddisk.png",
-        "color": "#4285F5",
         "author": "thsrite",
         "level": 1
     },
@@ -309,7 +276,6 @@
         "description": "支持使用IYUU发送消息通知。",
         "version": "1.1",
         "icon": "Iyuu_A.png",
-        "color": "#362228",
         "author": "jxxghp",
         "level": 1
     },
@@ -318,7 +284,6 @@
         "description": "支持使用PushDeer发送消息通知。",
         "version": "1.1",
         "icon": "pushdeer.png",
-        "color": "#FFFFFF",
         "author": "jxxghp",
         "level": 1
     },
@@ -327,7 +292,6 @@
         "description": "快速调整部分系统设定。",
         "version": "1.3",
         "icon": "setting.png",
-        "color": "#FC6220",
         "author": "jxxghp",
         "level": 1
     },
@@ -336,7 +300,6 @@
         "description": "支持使用企业微信群聊机器人发送消息通知。",
         "version": "1.0",
         "icon": "Wecom_A.png",
-        "color": "#0082EF",
         "author": "叮叮当",
         "level": 1
     },
@@ -345,7 +308,6 @@
         "description": "从TMDB剧集组刮削季集的实际顺序",
         "version": "0.1",
         "icon": "Element_A.png",
-        "color": "#098663",
         "author": "叮叮当",
         "level": 1
     }
