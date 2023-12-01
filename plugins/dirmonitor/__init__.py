@@ -59,7 +59,7 @@ class DirMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "directory.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -82,6 +82,7 @@ class DirMonitor(_PluginBase):
     _notify = False
     _onlyonce = False
     _cron = None
+    _size = 0
     # 模式 compatibility/fast
     _mode = "fast"
     # 转移方式
@@ -117,6 +118,7 @@ class DirMonitor(_PluginBase):
             self._exclude_keywords = config.get("exclude_keywords") or ""
             self._interval = config.get("interval") or 10
             self._cron = config.get("cron")
+            self._size = config.get("size") or 0
 
         # 停止现有任务
         self.stop_service()
@@ -243,7 +245,8 @@ class DirMonitor(_PluginBase):
             "monitor_dirs": self._monitor_dirs,
             "exclude_keywords": self._exclude_keywords,
             "interval": self._interval,
-            "cron": self._cron
+            "cron": self._cron,
+            "size": self._size
         })
 
     @eventmanager.register(EventType.PluginAction)
@@ -350,6 +353,11 @@ class DirMonitor(_PluginBase):
                 file_meta = MetaInfoPath(file_path)
                 if not file_meta.name:
                     logger.error(f"{file_path.name} 无法识别有效信息")
+                    return
+
+                # 判断文件大小
+                if self._size and int(self._size) > 0 and file_path.stat().st_size < int(self._size) * 1024 ** 3:
+                    logger.info(f"{event_path} 文件大小小于监控文件大小，不处理")
                     return
 
                 # 查询转移目的目录
@@ -765,7 +773,8 @@ class DirMonitor(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12
+                                    'cols': 12,
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -774,6 +783,23 @@ class DirMonitor(_PluginBase):
                                             'model': 'cron',
                                             'label': '定时全量同步周期',
                                             'placeholder': '5位cron表达式，留空关闭'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'size',
+                                            'label': '监控文件大小',
+                                            'placeholder': '0'
                                         }
                                     }
                                 ]
@@ -848,6 +874,27 @@ class DirMonitor(_PluginBase):
                                 ]
                             }
                         ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '监控文件大小：默认0，单位GB。0为不开启，低于监控文件大小的文件不会被监控转移。'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
                     }
                 ]
             }
@@ -860,7 +907,8 @@ class DirMonitor(_PluginBase):
             "monitor_dirs": "",
             "exclude_keywords": "",
             "interval": 10,
-            "cron": ""
+            "cron": "",
+            "size": 0
         }
 
     def get_page(self) -> List[dict]:
