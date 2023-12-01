@@ -20,7 +20,7 @@ class MoviePilotUpdateNotify(_PluginBase):
     # 插件描述
     plugin_desc = "MoviePilot推送release更新通知、自动重启。"
     # 插件图标
-    plugin_icon = "update.png"
+    plugin_icon = "Moviepilot_A.png"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

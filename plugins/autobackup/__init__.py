@@ -23,7 +23,7 @@ class AutoBackup(_PluginBase):
     # 插件描述
     plugin_desc = "自动备份数据和配置文件。"
     # 插件图标
-    plugin_icon = "backup.png"
+    plugin_icon = "Time_machine_B.png"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

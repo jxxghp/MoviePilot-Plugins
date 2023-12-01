@@ -99,7 +99,7 @@
         "name": "播放限速",
         "description": "外网播放媒体库视频时，自动对下载器进行限速。",
         "version": "1.0",
-        "icon": "SpeedLimiter.jpg",
+        "icon": "Librespeed_A.png",
         "author": "Shurelol",
         "level": 1
     },
@@ -171,7 +171,7 @@
         "name": "自动备份",
         "description": "自动备份数据和配置文件。",
         "version": "1.0",
-        "icon": "backup.png",
+        "icon": "Time_machine_B.png",
         "author": "thsrite",
         "level": 1
     },
@@ -187,7 +187,7 @@
         "name": "自动转移做种",
         "description": "定期转移下载器中的做种任务到另一个下载器。",
         "version": "1.1",
-        "icon": "torrenttransfer.jpg",
+        "icon": "seed.png",
         "author": "jxxghp",
         "level": 2
     },
@@ -251,7 +251,7 @@
         "name": "MoviePilot更新推送",
         "description": "MoviePilot推送release更新通知、自动重启。",
         "version": "1.0",
-        "icon": "update.png",
+        "icon": "Moviepilot_A.png",
         "author": "thsrite",
         "level": 1
     },

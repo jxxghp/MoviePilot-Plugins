@@ -25,7 +25,7 @@ class TorrentTransfer(_PluginBase):
     # 插件描述
     plugin_desc = "定期转移下载器中的做种任务到另一个下载器。"
     # 插件图标
-    plugin_icon = "torrenttransfer.jpg"
+    plugin_icon = "seed.png"
     # 插件版本
     plugin_version = "1.1"
     # 插件作者
