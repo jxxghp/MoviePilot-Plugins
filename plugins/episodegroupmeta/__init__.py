@@ -722,7 +722,7 @@ class EpisodeGroupMeta(_PluginBase):
             """
             try:
                 plexitem = Plex().get_plex().library.fetchItem(ekey=itemid)
-                if 'CommunityRating' in iteminfo:
+                if 'CommunityRating' in iteminfo and iteminfo['CommunityRating']:
                     edits = {
                         'audienceRating.value': iteminfo['CommunityRating'],
                         'audienceRating.locked': 1
