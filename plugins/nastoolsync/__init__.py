@@ -18,7 +18,7 @@ class NAStoolSync(_PluginBase):
     # 插件描述
     plugin_desc = "同步NAStool历史记录、下载记录、插件记录到MoviePilot。"
     # 插件图标
-    plugin_icon = "sync.png"
+    plugin_icon = "Nastools_A.png"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

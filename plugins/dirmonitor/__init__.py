@@ -356,7 +356,7 @@ class DirMonitor(_PluginBase):
                     return
 
                 # 判断文件大小
-                if self._size and int(self._size) > 0 and file_path.stat().st_size < int(self._size) * 1024 ** 3:
+                if self._size and float(self._size) > 0 and file_path.stat().st_size < float(self._size) * 1024 ** 3:
                     logger.info(f"{event_path} 文件大小小于监控文件大小，不处理")
                     return
 
@@ -798,7 +798,7 @@ class DirMonitor(_PluginBase):
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'size',
-                                            'label': '监控文件大小',
+                                            'label': '监控文件大小（GB）',
                                             'placeholder': '0'
                                         }
                                     }
@@ -889,7 +889,7 @@ class DirMonitor(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '监控文件大小：默认0，单位GB。0为不开启，低于监控文件大小的文件不会被监控转移。'
+                                            'text': '监控文件大小：单位GB，0为不开启，低于监控文件大小的文件不会被监控转移。'
                                         }
                                     }
                                 ]

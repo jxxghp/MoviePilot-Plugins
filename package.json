@@ -75,7 +75,7 @@
         "name": "自动删种",
         "description": "自动删除下载器中的下载任务。",
         "version": "1.1",
-        "icon": "torrent.png",
+        "icon": "delete.png",
         "author": "jxxghp",
         "level": 2
     },
@@ -155,7 +155,7 @@
         "name": "历史记录同步",
         "description": "同步NAStool历史记录、下载记录、插件记录到MoviePilot。",
         "version": "1.0",
-        "icon": "sync.png",
+        "icon": "Nastools_A.png",
         "author": "thsrite",
         "level": 1
     },
