@@ -1,21 +1,13 @@
 import base64
-import copy
-import datetime
 import json
-import re
 import threading
 import time
 from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional, Union
 
-import pytz
-import zhconv
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
 from requests import RequestException
 
 from app.chain.mediaserver import MediaServerChain
-from app.chain.tmdb import TmdbChain
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.core.meta import MetaBase
@@ -24,19 +16,18 @@ from app.modules.emby import Emby
 from app.modules.jellyfin import Jellyfin
 from app.modules.plex import Plex
 from app.plugins import _PluginBase
-from app.schemas import MediaInfo, MediaServerItem
+from app import schemas
 from app.schemas.types import EventType, MediaType
 from app.utils.common import retry
 from app.utils.http import RequestUtils
-from app.utils.string import StringUtils
 
-from app.modules.themoviedb.tmdbv3api import TMDb, Search, Movie, TV, Season, Episode, Discover, Trending, Person
+from app.modules.themoviedb.tmdbv3api import TV
 
 from pydantic import BaseModel
 
 class ExistMediaInfo(BaseModel):
     # 类型 电影、电视剧
-    type: Optional[MediaType]
+    type: Optional[schemas.MediaType]
     # 季, 集
     groupep: Optional[Dict[int, list]] = {}
     # 集在媒体服务器的ID
@@ -56,7 +47,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 主题色
     plugin_color = "#098663"
     # 插件版本
-    plugin_version = "0.1"
+    plugin_version = "1.0"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -75,14 +66,23 @@ class EpisodeGroupMeta(_PluginBase):
     mschain = None
     tv = None
     _enabled = False
+    _ignorelock = False
     _delay = 0
+    _allowlist = []
 
     def init_plugin(self, config: dict = None):
         self.mschain = MediaServerChain()
         self.tv = TV()
         if config:
             self._enabled = config.get("enabled")
-            self._delay = config.get("delay") or 0
+            self._ignorelock = config.get("ignorelock")
+            self._delay = config.get("delay") or 120
+            self._allowlist = []
+            for s in str(config.get("allowlist", "")).split(","):
+                s = s.strip()
+                if s and s not in self._allowlist:
+                    self._allowlist.append(s)
+            self.log_info(f"白名单数量: {len(self._allowlist)} > {self._allowlist}")
 
     def get_state(self) -> bool:
         return self._enabled
@@ -120,6 +120,22 @@ class EpisodeGroupMeta(_PluginBase):
                                         }
                                     }
                                 ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'ignorelock',
+                                            'label': '媒体信息锁定时也进行刮削',
+                                        }
+                                    }
+                                ]
                             }
                         ]
                     },
@@ -137,7 +153,29 @@ class EpisodeGroupMeta(_PluginBase):
                                         'props': {
                                             'model': 'delay',
                                             'label': '入库延迟时间（秒）',
-                                            'placeholder': '30'
+                                            'placeholder': '120'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextarea',
+                                        'props': {
+                                            'model': 'allowlist',
+                                            'label': '刮削白名单',
+                                            'rows': 6,
+                                            'placeholder': '使用,分隔电视剧名称'
                                         }
                                     }
                                 ]
@@ -158,7 +196,28 @@ class EpisodeGroupMeta(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '注意：插件目前仅支持Emby和Jellyfin'
+                                            'text': '注意：刮削白名单(留空), 则全部刮削. 否则仅刮削白名单.'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '注意：如需刮削已经入库的项目, 可通过mp重新整理单集即可.'
                                         }
                                     }
                                 ]
@@ -169,7 +228,9 @@ class EpisodeGroupMeta(_PluginBase):
             }
         ], {
             "enabled": False,
-            "delay": 30
+            "ignorelock": False,
+            "allowlist": [],
+            "delay": 120
         }
 
     def get_page(self) -> List[dict]:
@@ -183,18 +244,21 @@ class EpisodeGroupMeta(_PluginBase):
         if not self.get_state():
             return
         # 事件数据
-        mediainfo: MediaInfo = event.event_data.get("mediainfo")
+        mediainfo: schemas.MediaInfo = event.event_data.get("mediainfo")
         meta: MetaBase = event.event_data.get("meta")
         # self.log_error(f"{event.event_data}")
         if not mediainfo or not meta:
             return
         # 非TV类型不处理
-        if mediainfo.type !=  MediaType.TV:
+        if mediainfo.type !=  schemas.MediaType.TV:
             self.log_warn(f"{mediainfo.title} 非TV类型, 无需处理")
             return
         # 没有tmdbID不处理
         if not mediainfo.tmdb_id:
             self.log_warn(f"{mediainfo.title} 没有tmdbID, 无需处理")
+            return
+        if len(self._allowlist) != 0 and not mediainfo.title in self._allowlist:
+            self.log_warn(f"{mediainfo.title} 不在白名单, 无需处理")
             return
         # 获取剧集组信息
         try:
@@ -209,16 +273,18 @@ class EpisodeGroupMeta(_PluginBase):
             return
         # 延迟
         if self._delay:
+            self.log_warn(f"{mediainfo.title} 将在 {self._delay} 秒后开始处理..")
             time.sleep(int(self._delay))
         # 获取可用的媒体服务器
         _existsinfo = self.chain.media_exists(mediainfo=mediainfo)
-        # 新增需要的属性
-        existsinfo: ExistMediaInfo = self.__media_exists(server=_existsinfo.server, mediainfo=mediainfo)
-        existsinfo.server = _existsinfo.server
-        existsinfo.type = _existsinfo.type
+        existsinfo: ExistMediaInfo = self.__media_exists(server=_existsinfo.server, mediainfo=mediainfo, existsinfo=_existsinfo)
         if not existsinfo or not existsinfo.itemid:
             self.log_warn(f"{mediainfo.title_year} 在媒体库中不存在")
             return
+        # 新增需要的属性
+        existsinfo.server = _existsinfo.server
+        existsinfo.type = _existsinfo.type
+        self.log_info(f"{mediainfo.title_year} 存在于媒体服务器: {_existsinfo.server}")
         # 获取全部剧集组信息
         copy_keys = ['Id', 'Name', 'ChannelNumber', 'OriginalTitle', 'ForcedSortName', 'SortName', 'CommunityRating', 'CriticRating', 'IndexNumber', 'ParentIndexNumber', 'SortParentIndexNumber', 'SortIndexNumber', 'DisplayOrder', 'Album', 'AlbumArtists', 'ArtistItems', 'Overview', 'Status', 'Genres', 'Tags', 'TagItems', 'Studios', 'PremiereDate', 'DateCreated', 'ProductionYear', 'Video3DFormat', 'OfficialRating', 'CustomRating', 'People', 'LockData', 'LockedFields', 'ProviderIds', 'PreferredMetadataLanguage', 'PreferredMetadataCountryCode', 'Taglines']
         for episode_group in episode_groups:
@@ -237,7 +303,9 @@ class EpisodeGroupMeta(_PluginBase):
                 for groups in groups_meta:
                     if not bool(existsinfo.groupep):
                         break
+                    # 剧集组中的季
                     order = groups.get("order")
+                    # 剧集组中的集列表
                     episodes = groups.get("episodes")
                     if not order or not episodes or len(episodes) == 0:
                         continue
@@ -248,35 +316,40 @@ class EpisodeGroupMeta(_PluginBase):
                     self.log_info(f"已匹配剧集组: {name}, {id}, 第 {order} 季")
                     # 遍历全部媒体项并更新
                     for _index, _ids in enumerate(existsinfo.groupid.get(order)):
+                        # 提取出媒体库中集id对应的集数index
+                        ep_num = ep[_index]
                         for _id in _ids:
                             # 获取媒体服务器媒体项
                             iteminfo = self.get_iteminfo(server=existsinfo.server, itemid=_id)
                             if not iteminfo:
-                                self.log_info(f"未找到媒体项 - itemid: {_id},  第 {order} 季,  第 {str(_index + 1)} 集")
+                                self.log_info(f"未找到媒体项 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
                                 continue
-                            if iteminfo["LockData"]:
-                                self.log_warn(f"已锁定媒体项 - itemid: {_id},  第 {order} 季,  第 {str(_index + 1)} 集")
-                                continue
+                            # 是否无视项目锁定
+                            if not self._ignorelock:
+                                if iteminfo.get("LockData") or ("Name" in iteminfo.get("LockedFields",[]) and "Overview" in iteminfo.get("LockedFields",[])):
+                                    self.log_warn(f"已锁定媒体项 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
+                                    continue
                             # 替换项目数据
+                            episode = episodes[ep_num - 1]
                             new_dict = {}
                             new_dict.update({k: v for k, v in iteminfo.items() if k in copy_keys})
-                            new_dict["Name"] = episodes[_index]["name"]
-                            new_dict["Overview"] = episodes[_index]["overview"]
+                            new_dict["Name"] = episode["name"]
+                            new_dict["Overview"] = episode["overview"]
                             new_dict["ParentIndexNumber"] = str(order)
-                            new_dict["IndexNumber"] = str(_index + 1)
+                            new_dict["IndexNumber"] = str(ep_num)
                             new_dict["LockData"] = True
-                            # if not new_dict["LockedFields"]:
-                            #     new_dict["LockedFields"] = []
-                            # self.__append_to_list(new_dict["LockedFields"], "Name")
-                            # self.__append_to_list(new_dict["LockedFields"], "Overview")
-                            # self.__append_to_list(new_dict["LockedFields"], "ParentIndexNumber")
-                            # self.__append_to_list(new_dict["LockedFields"], "IndexNumber")
+                            if episode.get("vote_average"):
+                                new_dict["CommunityRating"] = episode.get("vote_average")
+                            if not new_dict["LockedFields"]:
+                                new_dict["LockedFields"] = []
+                            self.__append_to_list(new_dict["LockedFields"], "Name")
+                            self.__append_to_list(new_dict["LockedFields"], "Overview")
                             # 更新数据
                             self.set_iteminfo(server=existsinfo.server, itemid=_id, iteminfo=new_dict)
                             # still_path 图片
                             if episodes[_index]["still_path"]:
-                                self.set_item_image(server=existsinfo.server, itemid=_id, imageurl=f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{episodes[_index]['still_path']}")
-                            self.log_info(f"已修改剧集 - itemid: {_id},  第 {order} 季,  第 {str(_index + 1)} 集")
+                                self.set_item_image(server=existsinfo.server, itemid=_id, imageurl=f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{episode['still_path']}")
+                            self.log_info(f"已修改剧集 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
                     # 移除已经处理成功的季
                     existsinfo.groupep.pop(order, 0)
                     existsinfo.groupid.pop(order, 0)
@@ -291,7 +364,7 @@ class EpisodeGroupMeta(_PluginBase):
         if item not in list:
             list.append(item)
 
-    def __media_exists(self, server: str, mediainfo: MediaInfo) -> ExistMediaInfo:
+    def __media_exists(self, server: str, mediainfo: schemas.MediaInfo, existsinfo: schemas.ExistMediaInfo) -> ExistMediaInfo:
         """
         根据媒体信息，返回剧集列表与剧集ID列表
         :param mediainfo: 媒体信息
@@ -325,6 +398,7 @@ class EpisodeGroupMeta(_PluginBase):
             if item_info:
                 if mediainfo.tmdb_id and item_info.tmdbid:
                     if str(mediainfo.tmdb_id) != str(item_info.tmdbid):
+                        self.log_error(f"tmdbid不匹配或不存在")
                         return None
             try:
                 res_json = Emby().get_data("[HOST]emby/Shows/%s/Episodes?Season=&IsMissing=false&api_key=[APIKEY]" % (item_id))
@@ -381,6 +455,7 @@ class EpisodeGroupMeta(_PluginBase):
             if item_info:
                 if mediainfo.tmdb_id and item_info.tmdbid:
                     if str(mediainfo.tmdb_id) != str(item_info.tmdbid):
+                        self.log_error(f"tmdbid不匹配或不存在")
                         return None
             try:
                 res_json = Jellyfin().get_data("[HOST]emby/Shows/%s/Episodes?Season=&IsMissing=false&api_key=[APIKEY]" % (item_id))
@@ -416,15 +491,96 @@ class EpisodeGroupMeta(_PluginBase):
                 self.log_error(f"连接Shows/Id/Episodes出错：{str(e)}")
             return None
         
+        def __plex_media_exists():
+            try:
+                _plex = Plex().get_plex()
+                if not _plex:
+                    return None
+                if existsinfo.itemid:
+                    videos = _plex.fetchItem(existsinfo.itemid)
+                else:
+                    # 根据标题和年份模糊搜索，该结果不够准确
+                    videos = _plex.library.search(title=mediainfo.title,
+                                                    year=mediainfo.year,
+                                                    libtype="show")
+                    if (not videos
+                            and mediainfo.original_title
+                            and str(mediainfo.original_title) != str(mediainfo.title)):
+                        videos = _plex.library.search(title=mediainfo.original_title,
+                                                        year=mediainfo.year,
+                                                        libtype="show")
+                if not videos:
+                    return None
+                if isinstance(videos, list):
+                    videos = videos[0]
+                video_tmdbid = __get_ids(videos.guids).get('tmdb_id')
+                if mediainfo.tmdb_id and video_tmdbid:
+                    if str(video_tmdbid) != str(mediainfo.tmdb_id):
+                        self.log_error(f"tmdbid不匹配或不存在")
+                        return None
+                episodes = videos.episodes()
+                group_ep = {}
+                group_id = {}
+                for episode in episodes:
+                    season_index = episode.seasonNumber
+                    if not season_index:
+                        continue
+                    episode_index = episode.index
+                    if not episode_index:
+                        continue
+                    episode_id = episode.key
+                    if not episode_id:
+                        continue
+                    if season_index not in group_ep:
+                        group_ep[season_index] = []
+                        group_id[season_index] = []
+                    if episode_index not in group_ep[season_index]:
+                        group_ep[season_index].append(episode_index)
+                        group_id[season_index].append([])
+                    # 找到准确的插入索引
+                    _index = group_ep[season_index].index(episode_index)
+                    if episode_id not in group_id[season_index][_index]:
+                        group_id[season_index][_index].append(episode_id)
+                # 返回
+                return ExistMediaInfo(
+                    itemid=videos.key,
+                    groupep=group_ep,
+                    groupid=group_id
+                )
+            except Exception as e:
+                self.log_error(f"连接Shows/Id/Episodes出错：{str(e)}")
+            return None
+        
+        def __get_ids(guids: List[Any]) -> dict:
+            guid_mapping = {
+                "imdb://": "imdb_id",
+                "tmdb://": "tmdb_id",
+                "tvdb://": "tvdb_id"
+            }
+            ids = {}
+            for prefix, varname in guid_mapping.items():
+                ids[varname] = None
+            for guid in guids:
+                for prefix, varname in guid_mapping.items():
+                    if isinstance(guid, dict):
+                        if guid['id'].startswith(prefix):
+                            # 找到匹配的ID
+                            ids[varname] = guid['id'][len(prefix):]
+                            break
+                    else:
+                        if guid.id.startswith(prefix):
+                            # 找到匹配的ID
+                            ids[varname] = guid.id[len(prefix):]
+                            break
+            return ids
+            
         if server == "emby":
             return __emby_media_exists()
         elif server == "jellyfin":
             return __jellyfin_media_exists()
         else:
-            self.log_error(f"{mediainfo.title_year} 暂不支持当前媒体服务器")
-            return None
-        
-    
+            return __plex_media_exists()
+            
     def get_iteminfo(self, server: str, itemid: str) -> dict:
         """
         获得媒体项详情
@@ -489,6 +645,18 @@ class EpisodeGroupMeta(_PluginBase):
                     iteminfo['FileName'] = Path(location).name
                 iteminfo['Overview'] = plexitem.summary
                 iteminfo['CommunityRating'] = plexitem.audienceRating
+                # 增加锁定属性列表
+                iteminfo['LockedFields'] = []
+                try:
+                    if plexitem.title.locked:
+                        iteminfo['LockedFields'].append('Name')
+                except Exception as err:
+                    pass
+                try:
+                    if plexitem.summary.locked:
+                        iteminfo['LockedFields'].append('Overview')
+                except Exception as err:
+                    pass
                 return iteminfo
             except Exception as err:
                 self.log_error(f"获取Plex媒体项详情失败：{str(err)}")
@@ -554,7 +722,7 @@ class EpisodeGroupMeta(_PluginBase):
             """
             try:
                 plexitem = Plex().get_plex().library.fetchItem(ekey=itemid)
-                if 'CommunityRating' in iteminfo:
+                if 'CommunityRating' in iteminfo and iteminfo['CommunityRating']:
                     edits = {
                         'audienceRating.value': iteminfo['CommunityRating'],
                         'audienceRating.locked': 1
