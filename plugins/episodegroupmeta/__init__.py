@@ -229,7 +229,7 @@ class EpisodeGroupMeta(_PluginBase):
         ], {
             "enabled": False,
             "ignorelock": False,
-            "allowlist": [],
+            "allowlist": "",
             "delay": 120
         }
 
@@ -347,7 +347,7 @@ class EpisodeGroupMeta(_PluginBase):
                             # 更新数据
                             self.set_iteminfo(server=existsinfo.server, itemid=_id, iteminfo=new_dict)
                             # still_path 图片
-                            if episodes[_index]["still_path"]:
+                            if episode.get("still_path"):
                                 self.set_item_image(server=existsinfo.server, itemid=_id, imageurl=f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{episode['still_path']}")
                             self.log_info(f"已修改剧集 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
                     # 移除已经处理成功的季
