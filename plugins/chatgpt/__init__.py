@@ -16,7 +16,7 @@ class ChatGPT(_PluginBase):
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -35,6 +35,7 @@ class ChatGPT(_PluginBase):
     _recognize = False
     _openai_url = None
     _openai_key = None
+    _model = None
 
     def init_plugin(self, config: dict = None):
         if config:
@@ -43,8 +44,11 @@ class ChatGPT(_PluginBase):
             self._recognize = config.get("recognize")
             self._openai_url = config.get("openai_url")
             self._openai_key = config.get("openai_key")
-            self.openai = OpenAi(api_key=self._openai_key, api_url=self._openai_url,
-                                 proxy=settings.PROXY if self._proxy else None)
+            self._model = config.get("model")
+            if self._openai_url and self._openai_key:
+                self.openai = OpenAi(api_key=self._openai_key, api_url=self._openai_url,
+                                     proxy=settings.PROXY if self._proxy else None,
+                                     model=self._model)
 
     def get_state(self) -> bool:
         return self._enabled
@@ -124,7 +128,7 @@ class ChatGPT(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -141,7 +145,7 @@ class ChatGPT(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -149,6 +153,23 @@ class ChatGPT(_PluginBase):
                                         'props': {
                                             'model': 'openai_key',
                                             'label': 'sk-xxx'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'model',
+                                            'label': '自定义模型',
+                                            'placeholder': 'gpt-3.5-turbo',
                                         }
                                     }
                                 ]
@@ -162,7 +183,8 @@ class ChatGPT(_PluginBase):
             "proxy": False,
             "recognize": False,
             "openai_url": "https://api.openai.com",
-            "openai_key": ""
+            "openai_key": "",
+            "model": "gpt-3.5-turbo"
         }
 
     def get_page(self) -> List[dict]:

@@ -11,14 +11,17 @@ OpenAISessionCache = Cache(maxsize=100, ttl=3600, timer=time.time, default=None)
 class OpenAi:
     _api_key: str = None
     _api_url: str = None
+    _model: str = "gpt-3.5-turbo"
 
-    def __init__(self, api_key: str = None, api_url: str = None, proxy: dict = None):
+    def __init__(self, api_key: str = None, api_url: str = None, proxy: dict = None, model: str = None):
         self._api_key = api_key
         self._api_url = api_url
         openai.api_base = self._api_url + "/v1"
         openai.api_key = self._api_key
         if proxy and proxy.get("https"):
             openai.proxy = proxy.get("https")
+        if model:
+            self._model = model
 
     def get_state(self) -> bool:
         return True if self._api_key else False
@@ -65,8 +68,7 @@ class OpenAi:
             OpenAISessionCache.set(session_id, seasion)
         return seasion
 
-    @staticmethod
-    def __get_model(message: Union[str, List[dict]],
+    def __get_model(self, message: Union[str, List[dict]],
                     prompt: str = None,
                     user: str = "MoviePilot",
                     **kwargs):
@@ -93,7 +95,7 @@ class OpenAi:
                     }
                 ]
         return openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model=self._model,
             user=user,
             messages=message,
             **kwargs

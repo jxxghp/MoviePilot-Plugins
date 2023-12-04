@@ -146,7 +146,7 @@
     "ChatGPT": {
         "name": "ChatGPT",
         "description": "消息交互支持与ChatGPT对话。",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "Chatgpt_A.png",
         "author": "jxxghp",
         "level": 1
