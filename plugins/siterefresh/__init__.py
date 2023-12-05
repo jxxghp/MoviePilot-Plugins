@@ -15,7 +15,7 @@ class SiteRefresh(_PluginBase):
     # 插件描述
     plugin_desc = "自动登录获取站点Cookie和User-Agent。"
     # 插件图标
-    plugin_icon = "Cookiecloud_A.png"
+    plugin_icon = "Chrome_A.png"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

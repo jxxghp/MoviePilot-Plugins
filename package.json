@@ -27,7 +27,7 @@
         "name": "站点自动更新",
         "description": "自动登录获取站点Cookie和User-Agent。",
         "version": "1.0",
-        "icon": "Cookiecloud_A.png",
+        "icon": "Chrome_A.png",
         "author": "thsrite",
         "level": 2
     },
