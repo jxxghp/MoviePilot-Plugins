@@ -310,5 +310,13 @@
         "icon": "Element_A.png",
         "author": "叮叮当",
         "level": 1
+    },
+    "CustomIndexer": {
+        "name": "自定义索引站点",
+        "description": "修改或扩展内建索引器支持的站点",
+        "version": "1.0",
+        "icon": "spider.png",
+        "author": "jxxghp",
+        "level": 1
     }
 }
