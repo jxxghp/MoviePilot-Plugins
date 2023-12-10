@@ -23,7 +23,7 @@ class FFmpegThumb(_PluginBase):
     # 插件描述
     plugin_desc = "TheMovieDb没有背景图片时使用FFmpeg截取视频文件缩略图。"
     # 插件图标
-    plugin_icon = "scan.png"
+    plugin_icon = "ffmpeg.png"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者
@@ -330,6 +330,9 @@ class FFmpegThumb(_PluginBase):
         """
         try:
             thumb_path = file_path.with_name(file_path.stem + "-thumb.jpg")
+            if thumb_path.exists():
+                logger.info(f"缩略图已存在：{thumb_path}")
+                return
             if FfmpegHelper.get_thumb(video_path=str(file_path),
                                       image_path=str(thumb_path), frames=self._timeline):
                 logger.info(f"{file_path} 缩略图已生成：{thumb_path}")
