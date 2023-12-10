@@ -257,7 +257,7 @@ class LibraryScraper(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '刮削路径要配置到二级分类路径。（如果配置了LIBRARY_CATEGORY=true）'
+                                            'text': '刮削路径要配置到二级分类路径（如果配置了LIBRARY_CATEGORY=true）；开启插件后默认会实时处理增量整理的媒体文件，需要处理存量媒体文件时才需开启定时。'
                                         }
                                     }
                                 ]

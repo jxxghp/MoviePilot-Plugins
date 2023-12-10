@@ -318,5 +318,13 @@
         "icon": "spider.png",
         "author": "jxxghp",
         "level": 1
+    },
+    "FFmpegThumb": {
+        "name": "FFmpeg缩略图",
+        "description": "TheMovieDb没有背景图片时使用FFmpeg截取视频文件缩略图",
+        "version": "1.0",
+        "icon": "ffmpeg.png",
+        "author": "jxxghp",
+        "level": 1
     }
 }
