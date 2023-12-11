@@ -59,7 +59,7 @@ class DirMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "directory.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -848,6 +848,27 @@ class DirMonitor(_PluginBase):
                                             'label': '排除关键词',
                                             'rows': 2,
                                             'placeholder': '每一行一个关键词'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '监控目录不指定目的目录时，将转移到媒体库目录，并按配置自动创建一级或二级分类目录；监控目录指定了目的目录时，不会自动添加一级和二级目录而是直接转移到配置的目的目录，同时需要提前手动创建好目的目录路程径，多个转移目录时需要配置多条记录。'
                                         }
                                     }
                                 ]
