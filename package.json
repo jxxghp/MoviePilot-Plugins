@@ -42,7 +42,7 @@
     "DirMonitor": {
         "name": "目录监控",
         "description": "监控目录文件发生变化时实时整理到媒体库。",
-        "version": "1.4",
+        "version": "1.5",
         "icon": "directory.png",
         "author": "jxxghp",
         "level": 1

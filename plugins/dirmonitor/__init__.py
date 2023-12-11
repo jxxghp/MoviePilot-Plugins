@@ -59,7 +59,7 @@ class DirMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "directory.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -868,7 +868,7 @@ class DirMonitor(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '监控目录不指定目的目录时，将转移到媒体库目录，并按配置自动创建一级或二级分类目录；监控目录指定了目的目录时，不会自动添加一级和二级目录而是直接转移到配置的目的目录，同时需要提前手动创建好目的目录路程径，多个转移目录时需要配置多条记录。'
+                                            'text': '监控目录不指定目的目录时，将转移到媒体库目录，并自动创建一级分类目录，同时按配置创建二级分类目录；监控目录指定了目的目录时，不会自动创建一级目录，但会根据配置创建二级分类目录。'
                                         }
                                     }
                                 ]
