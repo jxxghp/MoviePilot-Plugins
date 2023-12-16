@@ -58,7 +58,7 @@
     "DoubanRank": {
         "name": "豆瓣榜单订阅",
         "description": "监控豆瓣热门榜单，自动添加订阅。",
-        "version": "1.2",
+        "version": "1.3",
         "icon": "movie.jpg",
         "author": "jxxghp",
         "level": 2
