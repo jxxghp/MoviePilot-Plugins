@@ -48,7 +48,7 @@ class DoubanRank(_PluginBase):
     _douban_address = {
         'movie-ustop': 'https://rsshub.app/douban/movie/ustop',
         'movie-weekly': 'https://rsshub.app/douban/movie/weekly',
-        'movie-real-time': 'https://rsshub.app/douban/movie/weekly/subject_real_time_hotest',
+        'movie-real-time': 'https://rsshub.app/douban/movie/weekly/movie_real_time_hotest',
         'show-domestic': 'https://rsshub.app/douban/movie/weekly/show_domestic',
         'movie-hot-gaia': 'https://rsshub.app/douban/movie/weekly/movie_hot_gaia',
         'tv-hot': 'https://rsshub.app/douban/movie/weekly/tv_hot',
