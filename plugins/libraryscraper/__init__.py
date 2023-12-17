@@ -8,8 +8,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.core.config import settings
-from app.core.meta import MetaBase
-from app.core.metainfo import MetaInfo
+from app.core.metainfo import MetaInfoPath
 from app.db.transferhistory_oper import TransferHistoryOper
 from app.helper.nfo import NfoReader
 from app.log import logger
@@ -26,7 +25,7 @@ class LibraryScraper(_PluginBase):
     # 插件图标
     plugin_icon = "scraper.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -214,7 +213,7 @@ class LibraryScraper(_PluginBase):
                                             'model': 'scraper_paths',
                                             'label': '削刮路径',
                                             'rows': 5,
-                                            'placeholder': '每一行一个目录，需配置到媒体文件的上级目录，即开了二级分类时需要配置到二级分类目录'
+                                            'placeholder': '每一行一个目录'
                                         }
                                     }
                                 ]
@@ -237,27 +236,6 @@ class LibraryScraper(_PluginBase):
                                             'label': '排除路径',
                                             'rows': 2,
                                             'placeholder': '每一行一个目录'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'info',
-                                            'variant': 'tonal',
-                                            'text': '刮削路径要配置到二级分类路径（如果配置了LIBRARY_CATEGORY=true）；开启插件后默认会实时处理增量整理的媒体文件，需要处理存量媒体文件时才需开启定时。'
                                         }
                                     }
                                 ]
@@ -325,8 +303,9 @@ class LibraryScraper(_PluginBase):
                 logger.warning(f"媒体库刮削路径不存在：{path}")
                 continue
             logger.info(f"开始刮削媒体库：{path} {mtype} ...")
-            # 遍历一层文件夹
-            for sub_path in scraper_path.iterdir():
+            # 遍历所有文件
+            files = SystemUtils.list_files(scraper_path, settings.RMT_MEDIAEXT)
+            for file_path in files:
                 if self._event.is_set():
                     logger.info(f"媒体库刮削服务停止")
                     return
@@ -334,115 +313,71 @@ class LibraryScraper(_PluginBase):
                 exclude_flag = False
                 for exclude_path in exclude_paths:
                     try:
-                        if sub_path.is_relative_to(Path(exclude_path)):
+                        if file_path.is_relative_to(Path(exclude_path)):
                             exclude_flag = True
                             break
                     except Exception as err:
                         print(str(err))
                 if exclude_flag:
-                    logger.debug(f"{sub_path} 在排除目录中，跳过 ...")
+                    logger.debug(f"{file_path} 在排除目录中，跳过 ...")
                     continue
-                # 开始刮削目录
-                if sub_path.is_dir():
-                    # 判断目录是不是媒体目录
-                    dir_meta = MetaInfo(sub_path.name)
-                    if not dir_meta.name or not dir_meta.year:
-                        logger.warn(f"{sub_path} 可能不是媒体目录，请检查刮削目录配置，跳过 ...")
-                        continue
-                    logger.info(f"开始刮削目录：{sub_path} ...")
-                    self.__scrape_dir(path=sub_path, dir_meta=dir_meta, mtype=mtype)
-                    logger.info(f"目录 {sub_path} 刮削完成")
+                # 开始刮削文件
+                self.__scrape_file(file=file_path, mtype=mtype)
             logger.info(f"媒体库 {path} 刮削完成")
 
-    def __scrape_dir(self, path: Path, dir_meta: MetaBase, mtype: MediaType = None):
+    def __scrape_file(self, file: Path, mtype: MediaType = None):
         """
         削刮一个目录，该目录必须是媒体文件目录
         """
+        # 识别元数据
+        meta_info = MetaInfoPath(file)
+        # 强制指定类型
+        if mtype:
+            meta_info.type = mtype
 
-        # 媒体信息
-        mediainfo = None
+        # 是否刮削
+        force_nfo = self._mode in ["force_all", "force_nfo"]
+        force_img = self._mode in ["force_all", "force_image"]
 
-        # 查找目录下所有的文件
-        files = SystemUtils.list_files(path, settings.RMT_MEDIAEXT)
-        for file in files:
-            if self._event.is_set():
-                logger.info(f"媒体库刮削服务停止")
-                return
+        # 优先读取本地nfo文件
+        tmdbid = None
+        if meta_info.type == MediaType.MOVIE:
+            # 电影
+            movie_nfo = file.parent / "movie.nfo"
+            if movie_nfo.exists():
+                tmdbid = self.__get_tmdbid_from_nfo(movie_nfo)
+            file_nfo = file.with_suffix(".nfo")
+            if not tmdbid and file_nfo.exists():
+                tmdbid = self.__get_tmdbid_from_nfo(file_nfo)
+        else:
+            # 电视剧
+            tv_nfo = file.parent.parent / "tvshow.nfo"
+            if tv_nfo.exists():
+                tmdbid = self.__get_tmdbid_from_nfo(tv_nfo)
+        if tmdbid:
+            # 按TMDBID识别
+            logger.info(f"读取到本地nfo文件的tmdbid：{tmdbid}")
+            mediainfo = self.chain.recognize_media(tmdbid=tmdbid, mtype=meta_info.type)
+        else:
+            # 按名称识别
+            mediainfo = self.chain.recognize_media(meta=meta_info)
+        if not mediainfo:
+            logger.warn(f"未识别到媒体信息：{file}")
+            return
 
-            # 识别元数据
-            meta_info = MetaInfo(file.stem)
-            # 合并
-            meta_info.merge(dir_meta)
-            # 强制指定类型
-            if mtype:
-                meta_info.type = mtype
+        # 如果未开启新增已入库媒体是否跟随TMDB信息变化则根据tmdbid查询之前的title
+        if not settings.SCRAP_FOLLOW_TMDB:
+            transfer_history = self.transferhis.get_by_type_tmdbid(tmdbid=mediainfo.tmdb_id,
+                                                                   mtype=mediainfo.type.value)
+            if transfer_history:
+                mediainfo.title = transfer_history.title
 
-            # 是否刮削
-            scrap_metadata = settings.SCRAP_METADATA
-
-            # 没有媒体信息或者名字出现变化时，需要重新识别
-            if not mediainfo \
-                    or meta_info.name != dir_meta.name:
-                # 优先读取本地nfo文件
-                tmdbid = None
-                if meta_info.type == MediaType.MOVIE:
-                    # 电影
-                    movie_nfo = file.parent / "movie.nfo"
-                    if movie_nfo.exists():
-                        tmdbid = self.__get_tmdbid_from_nfo(movie_nfo)
-                    file_nfo = file.with_suffix(".nfo")
-                    if not tmdbid and file_nfo.exists():
-                        tmdbid = self.__get_tmdbid_from_nfo(file_nfo)
-                else:
-                    # 电视剧
-                    tv_nfo = file.parent.parent / "tvshow.nfo"
-                    if tv_nfo.exists():
-                        tmdbid = self.__get_tmdbid_from_nfo(tv_nfo)
-                if tmdbid:
-                    # 按TMDBID识别
-                    logger.info(f"读取到本地nfo文件的tmdbid：{tmdbid}")
-                    mediainfo = self.chain.recognize_media(tmdbid=tmdbid, mtype=meta_info.type)
-                else:
-                    # 按名称识别
-                    mediainfo = self.chain.recognize_media(meta=meta_info)
-                if not mediainfo:
-                    logger.warn(f"未识别到媒体信息：{file}")
-                    continue
-                    
-                # 如果未开启新增已入库媒体是否跟随TMDB信息变化则根据tmdbid查询之前的title
-                if not settings.SCRAP_FOLLOW_TMDB:
-                    transfer_history = self.transferhis.get_by_type_tmdbid(tmdbid=mediainfo.tmdb_id,
-                                                                           mtype=mediainfo.type.value)
-                    if transfer_history:
-                        mediainfo.title = transfer_history.title
-
-                # 覆盖模式时，提前删除nfo
-                if self._mode in ["force_all", "force_nfo"]:
-                    scrap_metadata = True
-                    nfo_files = SystemUtils.list_files(path, [".nfo"])
-                    for nfo_file in nfo_files:
-                        try:
-                            logger.warn(f"删除nfo文件：{nfo_file}")
-                            nfo_file.unlink()
-                        except Exception as err:
-                            print(str(err))
-
-                # 覆盖模式时，提前删除图片文件
-                if self._mode in ["force_all", "force_image"]:
-                    scrap_metadata = True
-                    image_files = SystemUtils.list_files(path, [".jpg", ".png"])
-                    for image_file in image_files:
-                        if ".actors" in str(image_file):
-                            continue
-                        try:
-                            logger.warn(f"删除图片文件：{image_file}")
-                            image_file.unlink()
-                        except Exception as err:
-                            print(str(err))
-
-            # 刮削单个文件
-            if scrap_metadata:
-                self.chain.scrape_metadata(path=file, mediainfo=mediainfo, transfer_type=settings.TRANSFER_TYPE)
+        # 刮削
+        self.chain.scrape_metadata(path=file,
+                                   mediainfo=mediainfo,
+                                   transfer_type=settings.TRANSFER_TYPE,
+                                   force_nfo=force_nfo,
+                                   force_img=force_img)
 
     @staticmethod
     def __get_tmdbid_from_nfo(file_path: Path):
