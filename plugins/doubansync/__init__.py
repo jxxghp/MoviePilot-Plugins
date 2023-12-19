@@ -6,6 +6,7 @@ from typing import Optional, Any, List, Dict, Tuple
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from app.schemas.types import MediaType
 
 from app.chain.download import DownloadChain
 from app.chain.search import SearchChain
@@ -30,7 +31,7 @@ class DoubanSync(_PluginBase):
     # 插件图标
     plugin_icon = "douban.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -475,6 +476,9 @@ class DoubanSync(_PluginBase):
                         continue
                     # 识别媒体信息
                     meta = MetaInfo(title=title)
+                    douban_info = self.chain.douban_info(doubanid=douban_id)
+                    meta.year = douban_info.get("year")
+                    meta.type = MediaType.MOVIE if douban_info.get("type") == "movie" else MediaType.TV
                     mediainfo = self.chain.recognize_media(meta=meta, doubanid=douban_id)
                     if not mediainfo:
                         logger.warn(f'未识别到媒体信息，标题：{title}，豆瓣ID：{douban_id}')
