@@ -28,7 +28,7 @@ class FFmpegThumb(_PluginBase):
     # 插件图标
     plugin_icon = "ffmpeg.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -341,8 +341,6 @@ class FFmpegThumb(_PluginBase):
                 if FfmpegHelper.get_thumb(video_path=str(file_path),
                                           image_path=str(thumb_path), frames=self._timeline):
                     logger.info(f"{file_path} 缩略图已生成：{thumb_path}")
-                else:
-                    logger.warn(f"{file_path} 缩略图生成失败！")
             except Exception as err:
                 logger.error(f"FFmpeg处理文件 {file_path} 时发生错误：{str(err)}")
 
