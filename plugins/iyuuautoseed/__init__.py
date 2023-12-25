@@ -26,11 +26,11 @@ from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
 
-class IYUUAutoSeed(_PluginBase):
+class MyIYUUAutoSeed(_PluginBase):
     # 插件名称
-    plugin_name = "IYUU自动辅种"
+    plugin_name = "MyIYUU自动辅种"
     # 插件描述
-    plugin_desc = "基于IYUU官方Api实现自动辅种。"
+    plugin_desc = "基于IYUU自动辅种实现"
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
@@ -38,9 +38,9 @@ class IYUUAutoSeed(_PluginBase):
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
-    author_url = "https://github.com/jxxghp"
+    author_url = "https://github.com/zhangxinli168/My-MoviePilot-Plugins"
     # 插件配置项ID前缀
-    plugin_config_prefix = "iyuuautoseed_"
+    plugin_config_prefix = "myiyuuautoseed_"
     # 加载顺序
     plugin_order = 17
     # 可使用的用户级别
@@ -125,8 +125,8 @@ class IYUUAutoSeed(_PluginBase):
         if self.get_state() or self._onlyonce:
             self.iyuuhelper = IyuuHelper(token=self._token)
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            self.qb = Qbittorrent()
-            self.tr = Transmission()
+            self.qb = Qbittorrent("192.168.0.10",8080,"admin","adminadmin")
+            self.tr = Transmission("192.168.0.10",9090,"admin","admin")
 
             if self._cron:
                 try:
@@ -155,7 +155,7 @@ class IYUUAutoSeed(_PluginBase):
 
             if self._scheduler.get_jobs():
                 # 追加种子校验服务
-                self._scheduler.add_job(self.check_recheck, 'interval', minutes=3)
+                #self._scheduler.add_job(self.check_recheck, 'interval', minutes=3)
                 # 启动服务
                 self._scheduler.print_jobs()
                 self._scheduler.start()
@@ -686,6 +686,7 @@ class IYUUAutoSeed(_PluginBase):
         """
         添加下载任务
         """
+        downloader="transmission"
         if downloader == "qbittorrent":
             # 生成随机Tag
             tag = StringUtils.generate_random_str(10)
@@ -813,6 +814,7 @@ class IYUUAutoSeed(_PluginBase):
             return False
         else:
             self.success += 1
+            """
             # 追加校验任务
             logger.info(f"添加校验检查任务：{download_id} ...")
             if not self._recheck_torrents.get(downloader):
@@ -824,6 +826,7 @@ class IYUUAutoSeed(_PluginBase):
             if downloader == "qbittorrent":
                 # 开始校验种子
                 downloader_obj.recheck_torrents(ids=[download_id])
+            """
             # 成功也加入缓存，有一些改了路径校验不通过的，手动删除后，下一次又会辅上
             self._success_caches.append(seed.get("info_hash"))
             return True
