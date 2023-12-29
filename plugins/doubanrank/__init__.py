@@ -27,7 +27,7 @@ class DoubanRank(_PluginBase):
     # 插件图标
     plugin_icon = "movie.jpg"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -101,10 +101,8 @@ class DoubanRank(_PluginBase):
                     logger.error(f"豆瓣榜单订阅服务启动失败，错误信息：{str(e)}")
                     self.systemmessage.put(f"豆瓣榜单订阅服务启动失败，错误信息：{str(e)}")
             else:
-                self._scheduler.add_job(func=self.__refresh_rss, trigger='date',
-                                        run_date=datetime.datetime.now(
-                                            tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
-                                        )
+                self._scheduler.add_job(func=self.__refresh_rss, trigger=CronTrigger.from_crontab("0 8 * * *"),
+                                        name="豆瓣榜单订阅")
                 logger.info("豆瓣榜单订阅服务启动，周期：每天 08:00")
 
             if self._onlyonce:
