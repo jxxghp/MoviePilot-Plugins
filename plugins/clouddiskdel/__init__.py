@@ -20,7 +20,7 @@ class CloudDiskDel(_PluginBase):
     # 插件图标
     plugin_icon = "clouddisk.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -84,9 +84,13 @@ class CloudDiskDel(_PluginBase):
         season_num = event_data.get("season_num")
         episode_num = event_data.get("episode_num")
 
+        # 不是网盘监控路径，直接排除
+        cloud_file_flag = False
+
         # 判断删除媒体路径是否与配置的媒体库路径相符，相符则继续删除，不符则跳过
         for library_path in list(self._paths.keys()):
             if str(media_path).startswith(library_path):
+                cloud_file_flag = True
                 # 替换网盘路径
                 media_path = str(media_path).replace(library_path, self._paths.get(library_path))
                 logger.info(f"获取到moviepilot本地云盘挂载路径 {media_path}")
@@ -128,63 +132,64 @@ class CloudDiskDel(_PluginBase):
 
                 break
 
-        # 发送消息
-        image = 'https://emby.media/notificationicon.png'
-        media_type = MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
-        if self._notify:
-            backrop_image = self.chain.obtain_specific_image(
+        if cloud_file_flag:
+            # 发送消息
+            image = 'https://emby.media/notificationicon.png'
+            media_type = MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
+            if self._notify:
+                backrop_image = self.chain.obtain_specific_image(
+                    mediaid=tmdb_id,
+                    mtype=media_type,
+                    image_type=MediaImageType.Backdrop,
+                    season=season_num,
+                    episode=episode_num
+                ) or image
+
+                # 类型
+                if media_type == MediaType.MOVIE:
+                    msg = f'电影 {media_name} {tmdb_id}'
+                # 删除电视剧
+                elif media_type == MediaType.TV and not season_num and not episode_num:
+                    msg = f'剧集 {media_name} {tmdb_id}'
+                # 删除季 S02
+                elif media_type == MediaType.TV and season_num and not episode_num:
+                    msg = f'剧集 {media_name} S{season_num} {tmdb_id}'
+                # 删除剧集S02E02
+                elif media_type == MediaType.TV and season_num and episode_num:
+                    msg = f'剧集 {media_name} S{season_num}E{episode_num} {tmdb_id}'
+                else:
+                    msg = media_name
+
+                # 发送通知
+                self.post_message(
+                    mtype=NotificationType.MediaServer,
+                    title="云盘同步删除任务完成",
+                    image=backrop_image,
+                    text=f"{msg}\n"
+                         f"时间 {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}"
+                )
+
+            # 读取历史记录
+            history = self.get_data('history') or []
+
+            # 获取poster
+            poster_image = self.chain.obtain_specific_image(
                 mediaid=tmdb_id,
                 mtype=media_type,
-                image_type=MediaImageType.Backdrop,
-                season=season_num,
-                episode=episode_num
+                image_type=MediaImageType.Poster,
             ) or image
+            history.append({
+                "type": media_type.value,
+                "title": media_name,
+                "path": media_path,
+                "season": season_num if season_num and str(season_num).isdigit() else None,
+                "episode": episode_num if episode_num and str(episode_num).isdigit() else None,
+                "image": poster_image,
+                "del_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))
+            })
 
-            # 类型
-            if media_type == MediaType.MOVIE:
-                msg = f'电影 {media_name} {tmdb_id}'
-            # 删除电视剧
-            elif media_type == MediaType.TV and not season_num and not episode_num:
-                msg = f'剧集 {media_name} {tmdb_id}'
-            # 删除季 S02
-            elif media_type == MediaType.TV and season_num and not episode_num:
-                msg = f'剧集 {media_name} S{season_num} {tmdb_id}'
-            # 删除剧集S02E02
-            elif media_type == MediaType.TV and season_num and episode_num:
-                msg = f'剧集 {media_name} S{season_num}E{episode_num} {tmdb_id}'
-            else:
-                msg = media_name
-
-            # 发送通知
-            self.post_message(
-                mtype=NotificationType.MediaServer,
-                title="云盘同步删除任务完成",
-                image=backrop_image,
-                text=f"{msg}\n"
-                     f"时间 {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}"
-            )
-
-        # 读取历史记录
-        history = self.get_data('history') or []
-
-        # 获取poster
-        poster_image = self.chain.obtain_specific_image(
-            mediaid=tmdb_id,
-            mtype=media_type,
-            image_type=MediaImageType.Poster,
-        ) or image
-        history.append({
-            "type": media_type.value,
-            "title": media_name,
-            "path": media_path,
-            "season": season_num if season_num and str(season_num).isdigit() else None,
-            "episode": episode_num if episode_num and str(episode_num).isdigit() else None,
-            "image": poster_image,
-            "del_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))
-        })
-
-        # 保存历史
-        self.save_data("history", history)
+            # 保存历史
+            self.save_data("history", history)
 
     def get_state(self) -> bool:
         return self._enabled
