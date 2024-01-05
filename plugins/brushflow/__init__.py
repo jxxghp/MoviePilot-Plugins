@@ -31,7 +31,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -64,6 +64,7 @@ class BrushFlow(_PluginBase):
     _downloader = "qbittorrent"
     _disksize = 0
     _freeleech = "free"
+    _hr = "no"
     _maxupspeed = 0
     _maxdlspeed = 0
     _maxdlcount = 0
@@ -96,6 +97,7 @@ class BrushFlow(_PluginBase):
             self._downloader = config.get("downloader")
             self._disksize = config.get("disksize")
             self._freeleech = config.get("freeleech")
+            self._hr = config.get("hr")
             self._maxupspeed = config.get("maxupspeed")
             self._maxdlspeed = config.get("maxdlspeed")
             self._maxdlcount = config.get("maxdlcount")
@@ -406,6 +408,26 @@ class BrushFlow(_PluginBase):
                                                 {'title': '全部（包括普通）', 'value': ''},
                                                 {'title': '免费', 'value': 'free'},
                                                 {'title': '2X免费', 'value': '2xfree'},
+                                            ]
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    "cols": 12,
+                                    "md": 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'hr',
+                                            'label': '排除H&R',
+                                            'items': [
+                                                {'title': '是', 'value': 'yes'},
+                                                {'title': '否', 'value': 'no'},
                                             ]
                                         }
                                     }
@@ -732,7 +754,28 @@ class BrushFlow(_PluginBase):
                                 ]
                             }
                         ]
-                    }
+                    },
+                    {
+                       'component': 'VRow',
+                       'content': [
+                           {
+                               'component': 'VCol',
+                               'props': {
+                                   'cols': 12,
+                               },
+                               'content': [
+                                   {
+                                       'component': 'VAlert',
+                                       'props': {
+                                           'type': 'info',
+                                           'variant': 'tonal',
+                                           'text': '注意：排除H&R并不保证能完全适配所有站点（部分站点在列表页不显示H&R标志，但实际上是有H&R的），请注意核对使用！'
+                                       }
+                                   }
+                               ]
+                           }
+                       ]
+                   }
                 ]
             }
         ], {
@@ -740,7 +783,8 @@ class BrushFlow(_PluginBase):
             "notify": True,
             "onlyonce": False,
             "clear_task": False,
-            "freeleech": "free"
+            "freeleech": "free",
+            "hr": "yes",
         }
 
     def get_page(self) -> List[dict]:
@@ -1215,6 +1259,7 @@ class BrushFlow(_PluginBase):
             "downloader": self._downloader,
             "disksize": self._disksize,
             "freeleech": self._freeleech,
+            "hr": self._hr,
             "maxupspeed": self._maxupspeed,
             "maxdlspeed": self._maxdlspeed,
             "maxdlcount": self._maxdlcount,
@@ -1283,6 +1328,9 @@ class BrushFlow(_PluginBase):
                     if self._freeleech and torrent.downloadvolumefactor != 0:
                         continue
                     if self._freeleech == "2xfree" and torrent.uploadvolumefactor != 2:
+                        continue
+                    # H&R
+                    if self._hr == "yes" and torrent.hit_and_run:
                         continue
                     # 包含规则
                     if self._include and not re.search(r"%s" % self._include, torrent.title, re.I):

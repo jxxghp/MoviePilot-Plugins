@@ -34,7 +34,7 @@
     "DoubanSync": {
         "name": "豆瓣想看",
         "description": "同步豆瓣想看数据，自动添加订阅。",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "douban.png",
         "author": "jxxghp",
         "level": 2
@@ -58,7 +58,7 @@
     "DoubanRank": {
         "name": "豆瓣榜单订阅",
         "description": "监控豆瓣热门榜单，自动添加订阅。",
-        "version": "1.2",
+        "version": "1.4",
         "icon": "movie.jpg",
         "author": "jxxghp",
         "level": 2
@@ -66,7 +66,7 @@
     "LibraryScraper": {
         "name": "媒体库刮削",
         "description": "定时对媒体库进行刮削，补齐缺失元数据和图片。",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "scraper.png",
         "author": "jxxghp",
         "level": 1
@@ -210,7 +210,7 @@
     "BrushFlow": {
         "name": "站点刷流",
         "description": "自动托管刷流，将会提高对应站点的访问频率。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "brush.jpg",
         "author": "jxxghp",
         "level": 2
@@ -258,7 +258,7 @@
     "CloudDiskDel": {
         "name": "云盘文件删除",
         "description": "媒体库删除strm文件后同步删除云盘资源。",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "clouddisk.png",
         "author": "thsrite",
         "level": 1
@@ -322,7 +322,7 @@
     "FFmpegThumb": {
         "name": "FFmpeg缩略图",
         "description": "TheMovieDb没有背景图片时使用FFmpeg截取视频文件缩略图",
-        "version": "1.0",
+        "version": "1.2",
         "icon": "ffmpeg.png",
         "author": "jxxghp",
         "level": 1

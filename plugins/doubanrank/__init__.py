@@ -27,7 +27,7 @@ class DoubanRank(_PluginBase):
     # 插件图标
     plugin_icon = "movie.jpg"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -48,7 +48,7 @@ class DoubanRank(_PluginBase):
     _douban_address = {
         'movie-ustop': 'https://rsshub.app/douban/movie/ustop',
         'movie-weekly': 'https://rsshub.app/douban/movie/weekly',
-        'movie-real-time': 'https://rsshub.app/douban/movie/weekly/subject_real_time_hotest',
+        'movie-real-time': 'https://rsshub.app/douban/movie/weekly/movie_real_time_hotest',
         'show-domestic': 'https://rsshub.app/douban/movie/weekly/show_domestic',
         'movie-hot-gaia': 'https://rsshub.app/douban/movie/weekly/movie_hot_gaia',
         'tv-hot': 'https://rsshub.app/douban/movie/weekly/tv_hot',
@@ -101,10 +101,8 @@ class DoubanRank(_PluginBase):
                     logger.error(f"豆瓣榜单订阅服务启动失败，错误信息：{str(e)}")
                     self.systemmessage.put(f"豆瓣榜单订阅服务启动失败，错误信息：{str(e)}")
             else:
-                self._scheduler.add_job(func=self.__refresh_rss, trigger='date',
-                                        run_date=datetime.datetime.now(
-                                            tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
-                                        )
+                self._scheduler.add_job(func=self.__refresh_rss, trigger=CronTrigger.from_crontab("0 8 * * *"),
+                                        name="豆瓣榜单订阅")
                 logger.info("豆瓣榜单订阅服务启动，周期：每天 08:00")
 
             if self._onlyonce:
@@ -484,12 +482,14 @@ class DoubanRank(_PluginBase):
 
                     title = rss_info.get('title')
                     douban_id = rss_info.get('doubanid')
+                    year = rss_info.get('year')
                     unique_flag = f"doubanrank: {title} (DB:{douban_id})"
                     # 检查是否已处理过
                     if unique_flag in [h.get("unique") for h in history]:
                         continue
                     # 元数据
                     meta = MetaInfo(title)
+                    meta.year = year
                     # 识别媒体信息
                     if douban_id:
                         # 识别豆瓣信息
@@ -565,25 +565,36 @@ class DoubanRank(_PluginBase):
             items = rootNode.getElementsByTagName("item")
             for item in items:
                 try:
+                    rss_info = {}
+
                     # 标题
                     title = DomUtils.tag_value(item, "title", default="")
                     # 链接
                     link = DomUtils.tag_value(item, "link", default="")
+                    # 年份
+                    description = DomUtils.tag_value(item, "description", default="")
+
                     if not title and not link:
                         logger.warn(f"条目标题和链接均为空，无法处理")
                         continue
+                    rss_info['title'] = title
+                    rss_info['link'] = link
+
                     doubanid = re.findall(r"/(\d+)/", link)
                     if doubanid:
                         doubanid = doubanid[0]
                     if doubanid and not str(doubanid).isdigit():
                         logger.warn(f"解析的豆瓣ID格式不正确：{doubanid}")
                         continue
+                    rss_info['doubanid'] = doubanid
+
+                    # 匹配4位独立数字1900-2099年
+                    year = re.findall(r"\b(19\d{2}|20\d{2})\b", description)
+                    if year:
+                        rss_info['year'] = year[0]
+
                     # 返回对象
-                    ret_array.append({
-                        'title': title,
-                        'link': link,
-                        'doubanid': doubanid
-                    })
+                    ret_array.append(rss_info)
                 except Exception as e1:
                     logger.error("解析RSS条目失败：" + str(e1))
                     continue
