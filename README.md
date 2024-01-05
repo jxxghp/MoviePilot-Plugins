@@ -118,7 +118,20 @@ class EventType(Enum):
   
 - 在对应的方法中实现API响应方法逻辑，通过 `http://localhost:3001/docs` 查看API文档和调试
 
-### 4. 如何通过插件增强MoviePilot的识别功能？
+### 4. 如何在插件中注册公共定时服务？
+- 注册公共定时服务后，可以在`设定-服务`中查看运行状态和手动启动，更加便捷。
+- 实现 `get_service()` 方法，按以下格式返回服务注册信息：
+    ```json
+    [{
+        "id": "服务ID", // 不能与其它服务ID重复
+        "name": "服务名称", // 显示在服务列表中的名称
+        "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+        "func": self.xxx, // 服务方法
+        "kwargs": {} // 定时器参数，参考APScheduler
+    }]
+    ```
+
+### 5. 如何通过插件增强MoviePilot的识别功能？
 - 注册 `NameRecognize` 事件，实现识别逻辑（参考ChatGPT插件），注意：只有主程序无法识别时才会触发该事件
     ```python
     @eventmanager.register(EventType.NameRecognize)
@@ -148,7 +161,7 @@ class EventType(Enum):
     )
     ```
   
-### 5. 如何扩展内建索引器的索引站点？
+### 6. 如何扩展内建索引器的索引站点？
 - 通过调用 `SitesHelper().add_indexer(domain: str, indexer: dict)` 方法，新增或修改内建索引器的支持范围，其中`indexer`为站点配置Json，格式示例如下：
 
   示例一：
