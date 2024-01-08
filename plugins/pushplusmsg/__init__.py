@@ -173,7 +173,7 @@ class PushPlusMsg(_PluginBase):
             return
 
         try:
-            sc_url = "http://www.pushplus.plus/send?token=%s&title=%s&content=%s&template=json" % (self._token, urlencode(title), urlencode(text))
+            sc_url = "http://www.pushplus.plus/send?token=%s&title=%s&content=%s&template=json" % (self._token, title, text)
             logger.info(f"PushPlus消息准备发送,信息内容：{sc_url}")
             res = RequestUtils().get_res(sc_url)
             if res and res.status_code == 200:
@@ -190,7 +190,7 @@ class PushPlusMsg(_PluginBase):
             else:
                 logger.warn("PushPlus消息发送失败，未获取到返回信息")
         except Exception as msg_e:
-            logger.error(f"PushPlus消息发送异常，{str(msg_e)}")
+            logger.error(f"PushPlus消息发送异常，{msg_e}")
 
     def stop_service(self):
         """

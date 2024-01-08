@@ -330,7 +330,7 @@
     "PushPlusMsg": {
         "name": "PushPlus消息推送",
         "description": "支持使用PushPlus发送消息通知。",
-        "version": "0.1",
+        "version": "0.2",
         "icon": "Pushplus_A.png",
         "author": "cheng",
         "level": 1
