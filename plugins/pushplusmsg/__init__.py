@@ -16,7 +16,7 @@ class PushPlusMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Pushplus_A.png"
     # 插件版本
-    plugin_version = "0.2"
+    plugin_version = "0.3"
     # 插件作者
     plugin_author = "cheng"
     # 作者主页
@@ -173,11 +173,16 @@ class PushPlusMsg(_PluginBase):
             return
 
         try:
-            sc_url = "http://www.pushplus.plus/send?token=%s&title=%s&content=%s&template=json" % (self._token, title, text)
-            logger.info(f"PushPlus消息准备发送,信息内容：{sc_url}")
-            res = RequestUtils().get_res(sc_url)
+            sc_url = "http://www.pushplus.plus/send"
+            event_info = {
+                "token": self._token,
+                "title": title,
+                "content": text,
+                "template": "txt",
+                "channel":"wechat"
+            }
+            res = RequestUtils(content_type="application/json").post_res(sc_url, json=event_info)
             if res and res.status_code == 200:
-                logger.info(f"PushPlus消息发送成功,返回信息：{res}")
                 ret_json = res.json()
                 code = ret_json.get('code')
                 msg = ret_json.get('msg')
@@ -190,7 +195,7 @@ class PushPlusMsg(_PluginBase):
             else:
                 logger.warn("PushPlus消息发送失败，未获取到返回信息")
         except Exception as msg_e:
-            logger.error(f"PushPlus消息发送异常，{msg_e}")
+            logger.error(f"PushPlus消息发送异常，{str(msg_e)}")
 
     def stop_service(self):
         """
