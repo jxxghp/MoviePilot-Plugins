@@ -326,5 +326,13 @@
         "icon": "ffmpeg.png",
         "author": "jxxghp",
         "level": 1
+    },
+    "PushPlusMsg": {
+        "name": "PushPlus消息推送",
+        "description": "支持使用PushPlus发送消息通知。",
+        "version": "1.0",
+        "icon": "Pushplus_A.png",
+        "author": "cheng",
+        "level": 1
     }
 }
