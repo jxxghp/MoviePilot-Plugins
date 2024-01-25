@@ -178,7 +178,7 @@
     "IYUUAutoSeed": {
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2
