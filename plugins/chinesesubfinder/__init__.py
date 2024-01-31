@@ -20,7 +20,7 @@ class ChineseSubFinder(_PluginBase):
     # 插件图标
     plugin_icon = "chinesesubfinder.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -218,7 +218,7 @@ class ChineseSubFinder(_PluginBase):
             # 调用CSF下载字幕
             self.__request_csf(req_url=req_url,
                                file_path=file_path,
-                               item_type=0 if item_type == MediaType.MOVIE.value else 1,
+                               item_type=0 if item_type == MediaType.MOVIE else 1,
                                item_bluray=item_bluray)
 
     @lru_cache(maxsize=128)

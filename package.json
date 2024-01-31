@@ -50,7 +50,7 @@
     "ChineseSubFinder": {
         "name": "ChineseSubFinder",
         "description": "整理入库时通知ChineseSubFinder下载字幕。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "chinesesubfinder.png",
         "author": "jxxghp",
         "level": 1
