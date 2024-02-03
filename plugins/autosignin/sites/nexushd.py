@@ -9,13 +9,13 @@ from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
 
-class HDArea(_ISiteSigninHandler):
+class NexusHD(_ISiteSigninHandler):
     """
     NexusHD签到
     """
 
     # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
-    site_url = "nexushd.org"
+    site_url = "v6.nexushd.org"
 
     # 签到成功
     _success_text = "本次签到获得"
