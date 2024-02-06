@@ -12,10 +12,12 @@ from app.plugins import _PluginBase
 from app.schemas import Notification, NotificationType
 import time
 
+
 class FileMonitorHandler(FileSystemEventHandler):
     """
     目录监控处理
     """
+
     def __init__(self, monpath: str, sync: Any, **kwargs):
         super(FileMonitorHandler, self).__init__(**kwargs)
         self._watch_path = monpath
@@ -28,6 +30,7 @@ class FileMonitorHandler(FileSystemEventHandler):
     def on_deleted(self, event):
         logger.info("监测到删除：%s" % event.src_path)
         self.sync.event_handler(event=event, event_path=event.src_path)
+
 
 def updateState(monitor_dirs: List[str]):
     """
@@ -47,6 +50,7 @@ def updateState(monitor_dirs: List[str]):
     logger.info(f"更新文件列表完成，共计{len(state_set)}个文件，耗时：{elapsed_time}秒")
 
     return state_set
+
 
 class RemoveLink(_PluginBase):
     # 插件名称
@@ -72,6 +76,7 @@ class RemoveLink(_PluginBase):
     _monitor_dirs = ""
     _exclude_keywords = ""
     _enabled = False
+    _notify = False
     _observer = []
     _state_set = set()
 
@@ -254,7 +259,7 @@ class RemoveLink(_PluginBase):
                     if keyword and re.findall(keyword, event_path):
                         logger.info(f"{event_path} 命中过滤关键字 {keyword}，不处理")
                         return
-                        
+
             file_path = Path(event_path)
             current_set = updateState(self._monitor_dirs.split("\n"))
             deleted_set = self._state_set - current_set
@@ -269,12 +274,12 @@ class RemoveLink(_PluginBase):
                         logger.info(f"删除硬链接文件：{path}")
             except Exception as e:
                 logger.error("目录监控发生错误：%s - %s" % (str(e), traceback.format_exc()))
-            
+
             if self._notify and (len(deleted_files) != 0):
                 self.chain.post_message(Notification(
                     mtype=NotificationType.SiteMessage,
                     title=f"[删除硬链接]",
                     text=f"根据源文件：{file_path}\n"
-                        f"删除硬链接文件：{[str(x) for x in deleted_files]}",
+                         f"删除硬链接文件：{[str(x) for x in deleted_files]}",
                 ))
             self._state_set = updateState(self._monitor_dirs.split("\n"))
