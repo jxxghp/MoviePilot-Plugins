@@ -58,7 +58,7 @@ class RemoveLink(_PluginBase):
     # 插件描述
     plugin_desc = "监控目录内文件被删除时，同步删除所有和它硬链接的文件"
     # 插件图标
-    plugin_icon = "delete.png"
+    plugin_icon = "Ombi_A.png"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

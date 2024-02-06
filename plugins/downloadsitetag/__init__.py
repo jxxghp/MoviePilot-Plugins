@@ -9,13 +9,14 @@ from app.plugins import _PluginBase
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 
+
 class DownloadSiteTag(_PluginBase):
     # 插件名称
     plugin_name = "下载任务分类与标签"
     # 插件描述
     plugin_desc = "自动给下载任务分类与打站点标签"
     # 插件图标
-    plugin_icon = "nfo.png"
+    plugin_icon = "Youtube-dl_B.png"
     # 插件版本
     plugin_version = "1.1"
     # 插件作者
@@ -113,7 +114,8 @@ class DownloadSiteTag(_PluginBase):
                 # 设置标签, 如果勾选开关的话
                 if self._enabled_tag:
                     self.downloader_example.set_torrent_tag(ids=_hash, tags=[_torrent.site_name])
-            logger.warn(f"[DownloadSiteTag] 当前下载器: {self.downloader_name}{('  TAG: ' + _torrent.site_name) if self._enabled_tag else ''}{('  CAT: ' + _media_type) if _media_type else ''}")
+            logger.warn(
+                f"[DownloadSiteTag] 当前下载器: {self.downloader_name}{('  TAG: ' + _torrent.site_name) if self._enabled_tag else ''}{('  CAT: ' + _media_type) if _media_type else ''}")
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
