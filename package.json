@@ -350,5 +350,13 @@
         "icon": "delete.png",
         "author": "DzAvril",
         "level": 1
+    },
+    "LinkMonitor": {
+        "name": "实时硬链接",
+        "description": "监控目录文件变化，实时硬链接。",
+        "version": "1.0",
+        "icon": "Linkace_C.png",
+        "author": "jxxghp",
+        "level": 1
     }
 }
