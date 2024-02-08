@@ -358,5 +358,13 @@
         "icon": "Linkace_C.png",
         "author": "jxxghp",
         "level": 1
+    },
+    "CategoryEditor": {
+        "name": "二级分类策略",
+        "description": "编辑下载目录和媒体库目录的二级分类规则。",
+        "version": "1.0",
+        "icon": "Bookstack_A.png",
+        "author": "jxxghp",
+        "level": 1
     }
 }
