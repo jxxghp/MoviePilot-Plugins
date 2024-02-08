@@ -13,7 +13,7 @@ class CategoryEditor(_PluginBase):
     # 插件图标
     plugin_icon = "Bookstack_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -27,7 +27,7 @@ class CategoryEditor(_PluginBase):
 
     # 私有属性
     _enabled = False
-    _content = ""
+    _yaml_content = ""
 
     user_yaml = settings.CONFIG_PATH / "category.yaml"
     default_yaml = settings.INNER_CONFIG_PATH / "category.yaml"
@@ -35,10 +35,10 @@ class CategoryEditor(_PluginBase):
     def init_plugin(self, config: dict = None):
         if config:
             self._enabled = config.get("enabled")
-            self._content = config.get("content") or ""
+            self._yaml_content = config.get("yaml_content") or ""
             # 写入文件
             if self._enabled:
-                self.user_yaml.write_text(self._content, encoding="utf-8")
+                self.user_yaml.write_text(self._yaml_content, encoding="utf-8")
                 if not settings.LIBRARY_CATEGORY:
                     self.systemmessage.put("二级分类未开启，策略已保存但未生效！")
                     return
@@ -97,7 +97,7 @@ class CategoryEditor(_PluginBase):
                                     {
                                         'component': 'VAceEditor',
                                         'props': {
-                                            'modelvalue': 'content',
+                                            'modelvalue': 'yaml_content',
                                             'lang': 'yaml',
                                             'theme': 'monokai',
                                             'style': 'height: 30rem',
