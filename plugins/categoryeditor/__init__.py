@@ -111,7 +111,7 @@ class CategoryEditor(_PluginBase):
             }
         ], {
             "enabled": False,
-            "content": self.default_yaml.read_text(encoding="utf-8")
+            "yaml_content": self.default_yaml.read_text(encoding="utf-8")
         }
 
     def get_page(self) -> List[dict]:
