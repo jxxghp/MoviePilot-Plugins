@@ -47,7 +47,7 @@ class LinkMonitor(_PluginBase):
     # 插件名称
     plugin_name = "实时硬链接"
     # 插件描述
-    plugin_desc = "监控目录文件变化，实时硬链接。"
+    plugin_desc = "监控目录文件变化，按原文件名硬链接。"
     # 插件图标
     plugin_icon = "Linkace_C.png"
     # 插件版本
