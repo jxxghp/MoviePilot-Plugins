@@ -388,6 +388,8 @@ class SiteStatistic(_PluginBase):
                     }
                 }
             ]
+        # 按日期倒序排序
+        data_list.sort(key=lambda x: x.key, reverse=True)
         # 今天的日期
         today = data_list[0].key
         # 数据按时间降序排序
