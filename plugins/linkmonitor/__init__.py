@@ -241,7 +241,7 @@ class LinkMonitor(_PluginBase):
         # 遍历所有监控目录
         for mon_path in self._dirconf.keys():
             # 遍历目录下所有文件
-            for file_path in SystemUtils.list_files(Path(mon_path), settings.RMT_MEDIAEXT):
+            for file_path in SystemUtils.list_files(Path(mon_path), ['*']):
                 self.__handle_file(event_path=str(file_path), mon_path=mon_path)
         logger.info("全量实时硬链接完成！")
 
