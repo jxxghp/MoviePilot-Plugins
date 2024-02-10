@@ -388,6 +388,8 @@ class SiteStatistic(_PluginBase):
                     }
                 }
             ]
+        # 取key符合日期格式的数据
+        data_list = [data for data in data_list if re.match(r"\d{4}-\d{2}-\d{2}", data.key)]
         # 按日期倒序排序
         data_list.sort(key=lambda x: x.key, reverse=True)
         # 今天的日期
