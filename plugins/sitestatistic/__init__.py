@@ -16,6 +16,7 @@ from app import schemas
 from app.core.config import settings
 from app.core.event import Event
 from app.core.event import eventmanager
+from app.db.models import PluginData
 from app.db.site_oper import SiteOper
 from app.helper.browser import PlaywrightHelper
 from app.helper.module import ModuleHelper
@@ -376,7 +377,7 @@ class SiteStatistic(_PluginBase):
         # 昨天数据
         yesterday_sites_data: Dict[str, Dict[str, Any]] = {}
         # 获取最近所有数据
-        data_list: list = self.get_data()
+        data_list: List[PluginData] = self.get_data()
         if not data_list:
             return [
                 {
@@ -387,12 +388,14 @@ class SiteStatistic(_PluginBase):
                     }
                 }
             ]
+        # 今天的日期
+        today = data_list[0].key
         # 数据按时间降序排序
-        data_list = [json.loads(data.value) for data in data_list if ObjectUtils.is_obj(data.value)]
+        datas = [json.loads(data.value) for data in data_list if ObjectUtils.is_obj(data.value)]
         if len(data_list) > 0:
-            stattistic_data = data_list[0]
+            stattistic_data = datas[0]
         if len(data_list) > 1:
-            yesterday_sites_data = data_list[1]
+            yesterday_sites_data = datas[1]
 
         # 数据按时间降序排序
         stattistic_data = dict(sorted(stattistic_data.items(),
@@ -790,7 +793,7 @@ class SiteStatistic(_PluginBase):
                                         },
                                         'labels': upload_sites,
                                         'title': {
-                                            'text': '今日上传'
+                                            'text': f'今日上传（{today}）'
                                         },
                                         'legend': {
                                             'show': True
@@ -824,7 +827,7 @@ class SiteStatistic(_PluginBase):
                                         },
                                         'labels': download_sites,
                                         'title': {
-                                            'text': '今日下载'
+                                            'text': f'今日下载（{today}）'
                                         },
                                         'legend': {
                                             'show': True
