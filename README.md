@@ -173,6 +173,8 @@ class EventType(Enum):
     "encoding": "UTF-8",
     "public": true,
     "proxy": true,
+    "result_num": 100,
+    "timeout": 30,
     "search": {
       "paths": [
         {
