@@ -363,8 +363,13 @@ class SiteStatistic(_PluginBase):
                 return {}
             if not d2:
                 return d1
-            return {k: d1.get(k) - d2.get(k) for k in d1
-                    if k in d2 and isinstance(d1.get(k), int) and isinstance(d2.get(k), int)}
+            d = {k: d1.get(k) - d2.get(k) for k in d1
+                 if k in d2 and isinstance(d1.get(k), int) and isinstance(d2.get(k), int)}
+            # 把小于0的数据变成0
+            for k, v in d.items():
+                if isinstance(v, int) and v < 0:
+                    d[k] = 0
+            return d
 
         # 最近一天的签到数据
         stattistic_data: Dict[str, Dict[str, Any]] = {}
