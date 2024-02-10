@@ -1,3 +1,4 @@
+import json
 import re
 import warnings
 from datetime import datetime, timedelta
@@ -15,7 +16,6 @@ from app import schemas
 from app.core.config import settings
 from app.core.event import Event
 from app.core.event import eventmanager
-from app.db.models.site import Site
 from app.db.site_oper import SiteOper
 from app.helper.browser import PlaywrightHelper
 from app.helper.module import ModuleHelper
@@ -25,6 +25,7 @@ from app.plugins import _PluginBase
 from app.plugins.sitestatistic.siteuserinfo import ISiteUserInfo
 from app.schemas.types import EventType, NotificationType
 from app.utils.http import RequestUtils
+from app.utils.object import ObjectUtils
 from app.utils.string import StringUtils
 from app.utils.timer import TimerUtils
 
@@ -41,7 +42,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -365,16 +366,13 @@ class SiteStatistic(_PluginBase):
             return {k: d1.get(k) - d2.get(k) for k in d1
                     if k in d2 and isinstance(d1.get(k), int) and isinstance(d2.get(k), int)}
 
-        # 最近两天的日期数组
-        date_list = [(datetime.now() - timedelta(days=i)).date() for i in range(2)]
         # 最近一天的签到数据
         stattistic_data: Dict[str, Dict[str, Any]] = {}
-        for day in date_list:
-            current_day = day.strftime("%Y-%m-%d")
-            stattistic_data = self.get_data(current_day)
-            if stattistic_data:
-                break
-        if not stattistic_data:
+        # 昨天数据
+        yesterday_sites_data: Dict[str, Dict[str, Any]] = {}
+        # 获取最近所有数据
+        data_list: list = self.get_data()
+        if not data_list:
             return [
                 {
                     'component': 'div',
@@ -384,6 +382,13 @@ class SiteStatistic(_PluginBase):
                     }
                 }
             ]
+        # 数据按时间降序排序
+        data_list = [json.loads(data.value) for data in data_list if ObjectUtils.is_obj(data.value)]
+        if len(data_list) > 0:
+            stattistic_data = data_list[0]
+        if len(data_list) > 1:
+            yesterday_sites_data = data_list[1]
+
         # 数据按时间降序排序
         stattistic_data = dict(sorted(stattistic_data.items(),
                                       key=lambda item: item[1].get('upload') or 0,
@@ -458,11 +463,6 @@ class SiteStatistic(_PluginBase):
             } for site, data in stattistic_data.items() if not data.get("err_msg")
         ]
 
-        # 获取昨日数据
-        yesterday_sites_data = {}
-        last_update_time = self.get_data("last_update_time")
-        if last_update_time:
-            yesterday_sites_data = self.get_data(last_update_time) or {}
         # 计算增量数据集
         inc_data = {}
         for site, data in stattistic_data.items():
