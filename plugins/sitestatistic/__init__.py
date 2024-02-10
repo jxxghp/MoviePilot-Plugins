@@ -41,7 +41,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -190,7 +190,7 @@ class SiteStatistic(_PluginBase):
         customSites = self.__custom_sites()
 
         site_options = ([{"title": site.name, "value": site.id}
-                        for site in self.siteoper.list_order_by_pri()]
+                         for site in self.siteoper.list_order_by_pri()]
                         + [{"title": site.get("name"), "value": site.get("id")}
                            for site in customSites])
 
@@ -345,7 +345,26 @@ class SiteStatistic(_PluginBase):
         """
         拼装插件详情页面，需要返回页面配置，同时附带数据
         """
-        #
+
+        def __gb(value: int) -> float:
+            """
+            转换为GB，保留1位小数
+            """
+            if not value:
+                return 0
+            return round(value / 1024 / 1024 / 1024, 1)
+
+        def __sub_dict(d1: dict, d2: dict) -> dict:
+            """
+            计算两个字典相同Key值的差值（如果值为数字），返回新字典
+            """
+            if not d1:
+                return {}
+            if not d2:
+                return d1
+            return {k: d1.get(k) - d2.get(k) for k in d1
+                    if k in d2 and isinstance(d1.get(k), int) and isinstance(d2.get(k), int)}
+
         # 最近两天的日期数组
         date_list = [(datetime.now() - timedelta(days=i)).date() for i in range(2)]
         # 最近一天的签到数据
@@ -438,6 +457,30 @@ class SiteStatistic(_PluginBase):
                 ]
             } for site, data in stattistic_data.items() if not data.get("err_msg")
         ]
+
+        # 获取昨日数据
+        yesterday_sites_data = {}
+        last_update_time = self.get_data("last_update_time")
+        if last_update_time:
+            yesterday_sites_data = self.get_data(last_update_time) or {}
+        # 计算增量数据集
+        inc_data = {}
+        for site, data in stattistic_data.items():
+            inc = __sub_dict(data, yesterday_sites_data.get(site))
+            if inc:
+                inc_data[site] = inc
+        # 今日上传
+        uploads = {k: v for k, v in inc_data.items() if v.get("upload")}
+        # 今日上传站点
+        upload_sites = [site for site in uploads.keys()]
+        # 今日上传数据
+        upload_datas = [__gb(data.get("upload")) for data in uploads.values()]
+        # 今日下载
+        downloads = {k: v for k, v in inc_data.items() if v.get("download")}
+        # 今日下载站点
+        download_sites = [site for site in downloads.keys()]
+        # 今日下载数据
+        download_datas = [__gb(data.get("download")) for data in downloads.values()]
 
         # 拼装页面
         return [
@@ -721,6 +764,74 @@ class SiteStatistic(_PluginBase):
                                         ]
                                     }
                                 ]
+                            }
+                        ]
+                    },
+                    # 上传量图表
+                    {
+                        'component': 'VCol',
+                        'props': {
+                            'cols': 12,
+                            'md': 6
+                        },
+                        'content': [
+                            {
+                                'component': 'VApexChart',
+                                'props': {
+                                    'height': 300,
+                                    'options': {
+                                        'chart': {
+                                            'type': 'pie',
+                                        },
+                                        'labels': upload_sites,
+                                        'title': {
+                                            'text': '今日上传'
+                                        },
+                                        'legend': {
+                                            'show': True
+                                        },
+                                        'plotOptions': {
+                                            'pie': {
+                                                'expandOnClick': False
+                                            }
+                                        }
+                                    },
+                                    'series': upload_datas
+                                }
+                            }
+                        ]
+                    },
+                    # 下载量图表
+                    {
+                        'component': 'VCol',
+                        'props': {
+                            'cols': 12,
+                            'md': 6
+                        },
+                        'content': [
+                            {
+                                'component': 'VApexChart',
+                                'props': {
+                                    'height': 300,
+                                    'options': {
+                                        'chart': {
+                                            'type': 'pie',
+                                        },
+                                        'labels': download_sites,
+                                        'title': {
+                                            'text': '今日下载'
+                                        },
+                                        'legend': {
+                                            'show': True
+                                        },
+                                        'plotOptions': {
+                                            'pie': {
+                                                'expandOnClick': False
+                                            }
+                                        }
+                                    },
+                                    'series': download_datas
+                                }
                             }
                         ]
                     },
