@@ -43,7 +43,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -377,7 +377,7 @@ class SiteStatistic(_PluginBase):
         # 昨天数据
         yesterday_sites_data: Dict[str, Dict[str, Any]] = {}
         # 获取最近所有数据
-        data_list: List[PluginData] = self.get_data()
+        data_list: List[PluginData] = self.get_data(key=None)
         if not data_list:
             return [
                 {
