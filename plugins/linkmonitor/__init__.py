@@ -51,7 +51,7 @@ class LinkMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "Linkace_C.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -127,13 +127,14 @@ class LinkMonitor(_PluginBase):
                     paths = mon_path.split(":")
 
                 # 目的目录
-                target_path = None
                 if len(paths) > 1:
                     mon_path = paths[0]
                     target_path = Path(paths[1])
                     self._dirconf[mon_path] = target_path
                 else:
-                    self._dirconf[mon_path] = None
+                    logger.warn(f"{mon_path} 未配置目的目录，将不会进行硬链接")
+                    self.systemmessage.put(f"{mon_path} 未配置目的目录，将不会进行硬链接！")
+                    continue
 
                 # 启用目录监控
                 if self._enabled:
@@ -273,6 +274,10 @@ class LinkMonitor(_PluginBase):
         if new_path.exists():
             return True, "目标路径文件已存在"
         else:
+            # 创建目标目录
+            if not new_path.parent.exists():
+                new_path.parent.mkdir(parents=True, exist_ok=True)
+            # 转移
             if transfer_type == "copy":
                 code, errmsg = SystemUtils.copy(src_path, new_path)
             else:
@@ -316,6 +321,9 @@ class LinkMonitor(_PluginBase):
 
                 # 查询转移目的目录
                 target: Path = self._dirconf.get(mon_path)
+                if not target:
+                    logger.warn(f"{mon_path} 未配置目的目录，将不会进行硬链接")
+                    return
 
                 # 开始硬连接
                 state, errmsg = self._link_file(src_path=file_path, mon_path=mon_path,

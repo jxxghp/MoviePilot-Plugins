@@ -354,7 +354,7 @@
     "LinkMonitor": {
         "name": "实时硬链接",
         "description": "监控目录文件变化，实时硬链接。",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "Linkace_C.png",
         "author": "jxxghp",
         "level": 1
