@@ -17,7 +17,7 @@ class ConfigCenter(_PluginBase):
     # 插件图标
     plugin_icon = "setting.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -114,7 +114,7 @@ class ConfigCenter(_PluginBase):
         # 读写app.env
         env_path = settings.CONFIG_PATH / "app.env"
         for key, value in conf.items():
-            if not key:
+            if not key or value is None:
                 continue
             set_key(env_path, key, str(value))
         logger.info("app.env文件写入完成")
