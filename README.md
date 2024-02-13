@@ -74,6 +74,8 @@ class EventType(Enum):
     NameRecognize = "name.recognize"
     # 名称识别结果
     NameRecognizeResult = "name.recognize.result"
+    # 缓存站点图标
+    CacheSiteIcon = "cache.siteicon"
 ```
   
 ### 2. 如何在插件中实现远程命令响应？
@@ -252,6 +254,10 @@ class EventType(Enum):
       "id": "xxx",
       "name": "站点名称",
       "domain": "https://www.xxx.com/",
+      "ext_domains": [
+        "https://www.xxx1.com/",
+        "https://www.xxx2.com/"
+      ],
       "encoding": "UTF-8",
       "public": false,
       "search": {
