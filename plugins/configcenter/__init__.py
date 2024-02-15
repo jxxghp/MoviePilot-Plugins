@@ -17,7 +17,7 @@ class ConfigCenter(_PluginBase):
     # 插件图标
     plugin_icon = "setting.png"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -35,8 +35,7 @@ class ConfigCenter(_PluginBase):
     _writeenv = False
     settings_attributes = [
         "GITHUB_TOKEN", "API_TOKEN", "TMDB_API_DOMAIN", "TMDB_IMAGE_DOMAIN", "WALLPAPER",
-        "RECOGNIZE_SOURCE", "SCRAP_FOLLOW_TMDB", "COOKIECLOUD_HOST", "COOKIECLOUD_KEY",
-        "COOKIECLOUD_PASSWORD", "COOKIECLOUD_INTERVAL", "USER_AGENT", "AUTO_DOWNLOAD_USER",
+        "RECOGNIZE_SOURCE", "SCRAP_FOLLOW_TMDB", "AUTO_DOWNLOAD_USER",
         "OCR_HOST", "DOWNLOAD_SUBTITLE", "PLUGIN_MARKET", "MOVIE_RENAME_FORMAT",
         "TV_RENAME_FORMAT", "FANART_ENABLE"
     ]
@@ -353,90 +352,6 @@ class ConfigCenter(_PluginBase):
                                         "props": {
                                             "model": "FANART_ENABLE",
                                             "label": "使用Fanart图片数据源"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "COOKIECLOUD_HOST",
-                                            "label": "CookieCloud服务器地址"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "COOKIECLOUD_KEY",
-                                            "label": "CookieCloud用户KEY"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "COOKIECLOUD_PASSWORD",
-                                            "label": "CookieCloud端对端加密密码"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "COOKIECLOUD_INTERVAL",
-                                            "label": "CookieCloud同步间隔（分钟）"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "USER_AGENT",
-                                            "label": "CookieCloud浏览器UA"
                                         }
                                     }
                                 ]
