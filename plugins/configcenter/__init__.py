@@ -17,7 +17,7 @@ class ConfigCenter(_PluginBase):
     # 插件图标
     plugin_icon = "setting.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -35,16 +35,10 @@ class ConfigCenter(_PluginBase):
     _writeenv = False
     settings_attributes = [
         "GITHUB_TOKEN", "API_TOKEN", "TMDB_API_DOMAIN", "TMDB_IMAGE_DOMAIN", "WALLPAPER",
-        "RECOGNIZE_SOURCE", "SCRAP_METADATA", "SCRAP_FOLLOW_TMDB", "LIBRARY_PATH",
-        "LIBRARY_MOVIE_NAME", "LIBRARY_TV_NAME", "LIBRARY_ANIME_NAME", "LIBRARY_CATEGORY",
-        "TRANSFER_TYPE", "OVERWRITE_MODE", "COOKIECLOUD_HOST", "COOKIECLOUD_KEY",
-        "COOKIECLOUD_PASSWORD", "COOKIECLOUD_INTERVAL", "USER_AGENT", "SUBSCRIBE_MODE",
-        "SUBSCRIBE_RSS_INTERVAL", "SUBSCRIBE_SEARCH", "AUTO_DOWNLOAD_USER", "OCR_HOST",
-        "DOWNLOAD_PATH", "DOWNLOAD_MOVIE_PATH", "DOWNLOAD_TV_PATH",
-        "DOWNLOAD_ANIME_PATH", "DOWNLOAD_CATEGORY", "DOWNLOAD_SUBTITLE", "DOWNLOADER",
-        "DOWNLOADER_MONITOR", "TORRENT_TAG", "MEDIASERVER_SYNC_INTERVAL",
-        "MEDIASERVER_SYNC_BLACKLIST", "PLUGIN_MARKET", "MOVIE_RENAME_FORMAT",
-        "TV_RENAME_FORMAT"
+        "RECOGNIZE_SOURCE", "SCRAP_FOLLOW_TMDB", "COOKIECLOUD_HOST", "COOKIECLOUD_KEY",
+        "COOKIECLOUD_PASSWORD", "COOKIECLOUD_INTERVAL", "USER_AGENT", "AUTO_DOWNLOAD_USER",
+        "OCR_HOST", "DOWNLOAD_SUBTITLE", "PLUGIN_MARKET", "MOVIE_RENAME_FORMAT",
+        "TV_RENAME_FORMAT", "FANART_ENABLE"
     ]
 
     def init_plugin(self, config: dict = None):
@@ -58,19 +52,11 @@ class ConfigCenter(_PluginBase):
         logger.info(f"正在应用配置中心配置：{config}")
         for attribute in self.settings_attributes:
             setattr(settings, attribute, config.get(attribute) or getattr(settings, attribute))
-        # 消息渠道，以逗号分隔
-        messagers = config.get("MESSAGER") or []
-        if messagers:
-            settings.MESSAGER = ",".join(messagers)
-        # 媒体服务器，以逗号分隔
-        media_servers = config.get("MEDIASERVER") or []
-        if media_servers:
-            settings.MEDIASERVER = ",".join(media_servers)
         # 自定义配置，以换行分隔
         self._params = config.get("params") or ""
         for key, value in self.__parse_params(self._params):
             if hasattr(settings, key):
-                setattr(settings, key, value)
+                setattr(settings, key, str(value))
 
         # 重新加载模块
         ModuleManager().stop()
@@ -97,10 +83,6 @@ class ConfigCenter(_PluginBase):
         # 避免修改原值
         conf = copy.deepcopy(config)
 
-        # 消息渠道，以逗号分隔
-        conf.update({"MESSAGER": ",".join(conf.get("MESSAGER"))})
-        # 媒体服务器，以逗号分隔
-        conf.update({"MEDIASERVER": ",".join(conf.get("MEDIASERVER"))})
         # 自定义配置，以换行分隔
         config_params = self.__parse_params(conf.get("params"))
         conf.update(config_params)
@@ -166,8 +148,6 @@ class ConfigCenter(_PluginBase):
         }
         for attribute in self.settings_attributes:
             default_settings[attribute] = getattr(settings, attribute)
-        default_settings["MESSAGER"] = settings.MESSAGER.split(",")
-        default_settings["MEDIASERVER"] = settings.MEDIASERVER.split(",")
         return [
             {
                 "component": "VForm",
@@ -191,11 +171,6 @@ class ConfigCenter(_PluginBase):
                                     }
                                 ]
                             },
-                        ]
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
                             {
                                 "component": "VCol",
                                 "props": {
@@ -356,160 +331,24 @@ class ConfigCenter(_PluginBase):
                                     {
                                         "component": "VSwitch",
                                         "props": {
-                                            "model": "LIBRARY_CATEGORY",
-                                            "label": "开启媒体库二级分类"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "SCRAP_METADATA",
-                                            "label": "刮削入库的媒体文件"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "LIBRARY_PATH",
-                                            "label": "媒体库目录"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "LIBRARY_MOVIE_NAME",
-                                            "label": "电影目录名称"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "LIBRARY_TV_NAME",
-                                            "label": "电视剧目录名称"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "LIBRARY_ANIME_NAME",
-                                            "label": "动漫目录名称"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSelect",
-                                        "props": {
-                                            "model": "TRANSFER_TYPE",
-                                            "label": "整理转移方式",
-                                            "items": [
-                                                {"title": "硬链接", "value": "link"},
-                                                {"title": "复制", "value": "copy"},
-                                                {"title": "移动", "value": "move"},
-                                                {"title": "软链接", "value": "softlink"},
-                                                {"title": "rclone复制", "value": "rclone_copy"},
-                                                {"title": "rclone移动", "value": "rclone_move"}
-                                            ]
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSelect",
-                                        "props": {
-                                            "model": "OVERWRITE_MODE",
-                                            "label": "转移覆盖模式",
-                                            "items": [
-                                                {"title": "从不覆盖", "value": "never"},
-                                                {"title": "按大小覆盖", "value": "size"},
-                                                {"title": "总是覆盖", "value": "always"},
-                                                {"title": "仅保留最新版本", "value": "latest"}
-                                            ]
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
                                             "model": "SCRAP_FOLLOW_TMDB",
                                             "label": "新增入库跟随TMDB信息变化"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "FANART_ENABLE",
+                                            "label": "使用Fanart图片数据源"
                                         }
                                     }
                                 ]
@@ -606,113 +445,6 @@ class ConfigCenter(_PluginBase):
                             {
                                 "component": "VCol",
                                 "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSelect",
-                                        "props": {
-                                            "model": "SUBSCRIBE_MODE",
-                                            "label": "订阅模式",
-                                            "items": [
-                                                {"title": "站点RSS", "value": "rss"},
-                                                {"title": "自动", "value": "spider"}
-                                            ]
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "SUBSCRIBE_RSS_INTERVAL",
-                                            "label": "RSS订阅刷新间隔（分钟）"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "SUBSCRIBE_SEARCH",
-                                            "label": "开启订阅定时搜索"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSelect",
-                                        "props": {
-                                            "model": "MESSAGER",
-                                            "label": "消息通知渠道",
-                                            'chips': True,
-                                            'multiple': True,
-                                            "items": [
-                                                {"title": "Telegram", "value": "telegram"},
-                                                {"title": "微信", "value": "wechat"},
-                                                {"title": "Slack", "value": "slack"},
-                                                {"title": "SynologyChat", "value": "synologychat"}
-                                            ]
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "AUTO_DOWNLOAD_USER",
-                                            "label": "自动择优下载用户列表"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                "component": "VCol",
-                                "props": {
                                     "cols": 12
                                 },
                                 "content": [
@@ -721,148 +453,6 @@ class ConfigCenter(_PluginBase):
                                         "props": {
                                             "model": "OCR_HOST",
                                             "label": "验证码识别服务器"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "DOWNLOAD_PATH",
-                                            "label": "下载保存目录"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "DOWNLOAD_MOVIE_PATH",
-                                            "label": "电影下载保存目录"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "DOWNLOAD_TV_PATH",
-                                            "label": "电视剧下载保存目录"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "DOWNLOAD_ANIME_PATH",
-                                            "label": "动漫下载保存目录"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "DOWNLOADER_MONITOR",
-                                            "label": "开启下载器监控"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "DOWNLOAD_CATEGORY",
-                                            "label": "开启下载二级分类"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSelect",
-                                        "props": {
-                                            "model": "DOWNLOADER",
-                                            "label": "下载器",
-                                            "items": [
-                                                {"title": "Qbittorrent", "value": "qbittorrent"},
-                                                {"title": "Transmission", "value": "transmission"}
-                                            ]
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "TORRENT_TAG",
-                                            "label": "下载器种子标签"
                                         }
                                     }
                                 ]
@@ -884,65 +474,6 @@ class ConfigCenter(_PluginBase):
                                         "props": {
                                             "model": "DOWNLOAD_SUBTITLE",
                                             "label": "自动下载站点字幕"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSelect",
-                                        "props": {
-                                            "model": "MEDIASERVER",
-                                            "label": "媒体服务器",
-                                            'chips': True,
-                                            'multiple': True,
-                                            "items": [
-                                                {"title": "Emby", "value": "emby"},
-                                                {"title": "Jellyfin", "value": "jellyfin"},
-                                                {"title": "Plex", "value": "plex"}
-                                            ]
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "MEDIASERVER_SYNC_INTERVAL",
-                                            "label": "媒体服务器同步间隔（小时）"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "MEDIASERVER_SYNC_BLACKLIST",
-                                            "label": "媒体服务器同步黑名单"
                                         }
                                     }
                                 ]
