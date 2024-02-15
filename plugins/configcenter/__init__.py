@@ -98,7 +98,7 @@ class ConfigCenter(_PluginBase):
         for key, value in conf.items():
             if not key:
                 continue
-            if value is None:
+            if value is None or str(value) == "None":
                 value = ''
             else:
                 value = str(value)
