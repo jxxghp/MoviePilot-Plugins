@@ -96,9 +96,13 @@ class ConfigCenter(_PluginBase):
         # 读写app.env
         env_path = settings.CONFIG_PATH / "app.env"
         for key, value in conf.items():
-            if not key or value is None:
+            if not key:
                 continue
-            set_key(env_path, key, str(value))
+            if value is None:
+                value = ''
+            else:
+                value = str(value)
+            set_key(env_path, key, value)
         logger.info("app.env文件写入完成")
         self.systemmessage.put("配置中心设置已写入app.env文件，插件关闭")
 
