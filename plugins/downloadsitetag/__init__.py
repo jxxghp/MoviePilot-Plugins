@@ -14,11 +14,11 @@ class DownloadSiteTag(_PluginBase):
     # 插件名称
     plugin_name = "下载任务分类与标签"
     # 插件描述
-    plugin_desc = "自动给下载任务分类与打站点标签"
+    plugin_desc = "自动给下载任务分类与打站点标签、剧集名称标签"
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -34,6 +34,7 @@ class DownloadSiteTag(_PluginBase):
     downloader_name = None
     downloader_example = None
     _enabled = False
+    _enabled_media_tag = False
     _enabled_tag = True
     _enabled_category = False
     _category_movie = None
@@ -44,6 +45,7 @@ class DownloadSiteTag(_PluginBase):
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
+            self._enabled_media_tag = config.get("enabled_media_tag")
             self._enabled_tag = config.get("enabled_tag")
             self._enabled_category = config.get("enabled_category")
             self._category_movie = config.get("category_movie") or "电影"
@@ -93,6 +95,9 @@ class DownloadSiteTag(_PluginBase):
                 # 设置标签, 如果勾选开关的话
                 if self._enabled_tag:
                     self.downloader_example.set_torrents_tag(ids=_hash, tags=[_torrent.site_name])
+                # 设置媒体标题标签, 如果勾选开关的话
+                if self._enabled_media_tag:
+                    self.downloader_example.set_torrents_tag(ids=_hash, tags=[_media.title])
                 # 设置分类, 如果勾选开关的话 <tr暂不支持>
                 if self._enabled_category:
                     if _media.type == MediaType.MOVIE:
@@ -114,8 +119,11 @@ class DownloadSiteTag(_PluginBase):
                 # 设置标签, 如果勾选开关的话
                 if self._enabled_tag:
                     self.downloader_example.set_torrent_tag(ids=_hash, tags=[_torrent.site_name])
+                # 设置媒体标题标签, 如果勾选开关的话
+                if self._enabled_media_tag:
+                    self.downloader_example.set_torrent_tag(ids=_hash, tags=[_media.title])
             logger.warn(
-                f"[DownloadSiteTag] 当前下载器: {self.downloader_name}{('  TAG: ' + _torrent.site_name) if self._enabled_tag else ''}{('  CAT: ' + _media_type) if _media_type else ''}")
+                f"[DownloadSiteTag] 当前下载器: {self.downloader_name}{('  TAG: ' + _torrent.site_name) if self._enabled_tag else ''}{('  MEDIA_TAG: ' + _media.title) if self._enabled_media_tag else ''}{('  CAT: ' + _media_type) if _media_type else ''}")
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -132,7 +140,7 @@ class DownloadSiteTag(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -148,7 +156,7 @@ class DownloadSiteTag(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -164,7 +172,23 @@ class DownloadSiteTag(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'enabled_media_tag',
+                                            'label': '自动剧名标签',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -288,6 +312,7 @@ class DownloadSiteTag(_PluginBase):
         ], {
             "enabled": False,
             "enabled_tag": True,
+            "enabled_media_tag": False,
             "enabled_category": False,
             "category_movie": "电影",
             "category_tv": "电视",
