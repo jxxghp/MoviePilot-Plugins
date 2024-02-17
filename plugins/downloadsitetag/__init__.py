@@ -1,3 +1,5 @@
+import datetime
+import pytz
 from typing import List, Tuple, Dict, Any
 
 from app.core.context import Context
@@ -10,6 +12,7 @@ from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.modules.themoviedb.tmdbapi import TmdbHelper
+from apscheduler.schedulers.background import BackgroundScheduler
 
 class DownloadSiteTag(_PluginBase):
     # 插件名称
@@ -38,6 +41,7 @@ class DownloadSiteTag(_PluginBase):
     downloader_tr = None
     downloadhistory_oper = None
     tmdb_helper = None
+    _scheduler = None
     _enabled = False
     _onlyonce = False
     _enabled_media_tag = False
@@ -63,13 +67,26 @@ class DownloadSiteTag(_PluginBase):
             self._category_tv = config.get("category_tv") or "电视"
             self._category_anime = config.get("category_anime") or "动漫"
         
+        # 停止现有任务
+        self.stop_service()
+
         if self._onlyonce:
+            # 创建定时任务控制器
+            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
             # 执行一次, 关闭onlyonce
             self._onlyonce = False
             config.update({"onlyonce": self._onlyonce})
             self.update_config(config)
-            # 补全下载历史的标签与分类
-            self._complemented_history()
+            # 添加 补全下载历史的标签与分类 任务
+            self._scheduler.add_job(func= self._complemented_history, trigger='date',
+                                            run_date=datetime.datetime.now(
+                                                tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
+                                            )
+
+        if self._scheduler and self._scheduler.get_jobs():
+            # 启动服务
+            self._scheduler.print_jobs()
+            self._scheduler.start()
 
     def get_state(self) -> bool:
         return self._enabled
@@ -85,6 +102,7 @@ class DownloadSiteTag(_PluginBase):
         """
         补全下载历史的标签与分类
         """
+        logger.info(f"{self.LOG_TAG}开始执行: 补全下载历史的标签与分类 ...")
         for DOWNLOADER in ["qbittorrent", "transmission"]:
             logger.info(f"{self.LOG_TAG}开始扫描下载器 {DOWNLOADER} ...")
             # 获取下载器中的种子
@@ -122,10 +140,10 @@ class DownloadSiteTag(_PluginBase):
                 if self._enabled_media_tag and history.title:
                     _tags.append(history.title)
                 # 分类, 如果勾选开关的话 <tr暂不支持>
-                if DOWNLOADER == "qbittorrent" and self._enabled_category:
+                if DOWNLOADER == "qbittorrent" and self._enabled_category and not torrent_cat:
                     # 如果是电视剧 需要区分是否动漫
                     genre_ids = None
-                    if mtype == MediaType.TV:
+                    if mtype == MediaType.TV or mtype == MediaType.TV.value:
                         # tmdb_id获取tmdb信息
                         tmdb_info = self.tmdb_helper.get_info(mtype=mtype, tmdbid=tmdbid)
                         if tmdb_info:
@@ -144,12 +162,14 @@ class DownloadSiteTag(_PluginBase):
                 # 执行通用方法, 设置种子标签与分类
                 self._set_torrent_info(DOWNLOADER=DOWNLOADER, _hash=_hash, _tags=_tags, _cat=_cat, _original_tags=torrent_tags)
 
+        logger.info(f"{self.LOG_TAG}执行完成: 补全下载历史的标签与分类 ...")
+
     def _genre_ids_get_cat(self, mtype, genre_ids = None):
         """
         根据genre_ids判断是否<动漫>分类
         """
         _cat = None
-        if mtype == MediaType.MOVIE:
+        if mtype == MediaType.MOVIE or mtype == MediaType.MOVIE.value:
             # 电影
             _cat = self._category_movie
         elif mtype:
@@ -481,6 +501,15 @@ class DownloadSiteTag(_PluginBase):
 
     def stop_service(self):
         """
-        退出插件
+        停止服务
         """
-        pass
+        try:
+            if self._scheduler:
+                self._scheduler.remove_all_jobs()
+                if self._scheduler.running:
+                    self._event.set()
+                    self._scheduler.shutdown()
+                    self._event.clear()
+                self._scheduler = None
+        except Exception as e:
+            print(str(e))
