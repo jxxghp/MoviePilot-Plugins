@@ -96,7 +96,7 @@ class DownloadSiteTag(_PluginBase):
             # 如果下载器获取种子发生错误 或 没有种子 则跳过
             if error or not torrents:
                 continue
-            elif torrents:
+            else:
                 logger.info(f"{self.LOG_TAG}下载器 {DOWNLOADER} 种子数：{len(torrents)}")
             for torrent in torrents:
                 # 获取种子hash
@@ -224,7 +224,7 @@ class DownloadSiteTag(_PluginBase):
             else:
                 # 设置标签
                 if _tags:
-                    # _original_tags = None表示为指定, 因此需要获取原始标签
+                    # _original_tags = None表示未指定, 因此需要获取原始标签
                     if _original_tags == None:
                         torrent = downloader_obj.trc.get_torrent(torrent_id=_hash)
                         if torrent:
