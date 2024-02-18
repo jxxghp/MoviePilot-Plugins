@@ -11,8 +11,11 @@ from app.plugins import _PluginBase
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.db.downloadhistory_oper import DownloadHistoryOper
+from app.db.models.downloadhistory import DownloadHistory
 from app.modules.themoviedb.tmdbapi import TmdbHelper
 from apscheduler.schedulers.background import BackgroundScheduler
+from app.helper.sites import SitesHelper
+from app.utils.string import StringUtils
 
 class DownloadSiteTag(_PluginBase):
     # 插件名称
@@ -22,7 +25,7 @@ class DownloadSiteTag(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -103,6 +106,8 @@ class DownloadSiteTag(_PluginBase):
         补全下载历史的标签与分类
         """
         logger.info(f"{self.LOG_TAG}开始执行: 补全下载历史的标签与分类 ...")
+        # 记录处理的种子, 供辅种(无下载历史)使用
+        dispose_history = {}
         for DOWNLOADER in ["qbittorrent", "transmission"]:
             logger.info(f"{self.LOG_TAG}开始扫描下载器 {DOWNLOADER} ...")
             # 获取下载器中的种子
@@ -116,39 +121,68 @@ class DownloadSiteTag(_PluginBase):
                 continue
             else:
                 logger.info(f"{self.LOG_TAG}下载器 {DOWNLOADER} 种子数：{len(torrents)}")
+            # 按添加时间进行排序, 时间靠前的按大小和名称加入处理历史, 判定为原始种子, 其他为辅种
+            torrents = self._torrents_sort(torrents=torrents, dl_type=DOWNLOADER)
             for torrent in torrents:
+                # 获取已处理种子的key (size, name)
+                _key = self._torrent_key(torrent=torrent, dl_type=DOWNLOADER)
                 # 获取种子hash
                 _hash = self._get_hash(torrent=torrent, dl_type=DOWNLOADER)
                 if not _hash:
                     continue
                 # 提取种子hash对应的下载历史
-                history = self.downloadhistory_oper.get_by_hash(_hash)
+                history: DownloadHistory = self.downloadhistory_oper.get_by_hash(_hash)
                 if not history:
-                    continue
+                    # 如果找到已处理种子的历史, 表明当前种子是辅种, 否则创建一个空DownloadHistory
+                    if _key and _key in dispose_history:
+                        history = dispose_history[_key]
+                        # 因为辅种站点必定不同, 所以需要更新站点名字 history.torrent_site
+                        history.torrent_site = None
+                    else:
+                        history = DownloadHistory(
+                            torrent_site=None,
+                            title=None,
+                            type=None,
+                            tmdbid=None)
+                else:
+                    # 加入历史记录
+                    if _key:
+                        dispose_history[_key] = history
+                # 如果站点名称为空, 尝试通过trackers识别
+                if not history.torrent_site:
+                    trackers = self._get_trackers(torrent=torrent, dl_type=DOWNLOADER)
+                    for tracker in trackers:
+                        domain = StringUtils.get_url_domain(tracker)
+                        site_info = SitesHelper().get_indexer(domain)
+                        if site_info:
+                            history.torrent_site = site_info.get("name")
+                            break
+                    # 如果通过tracker还是无法获取站点名称, 且tmdbid, type, title都是空的, 那么跳过当前种子
+                    if not history.torrent_site and not history.tmdbid and not history.type and not history.title:
+                        continue
                 # 获取种子当前标签
                 torrent_tags = self._get_label(torrent=torrent, dl_type=DOWNLOADER)
                 torrent_cat = self._get_category(torrent=torrent, dl_type=DOWNLOADER)
                 # 按设置生成需要写入的标签与分类
                 _tags = []
                 _cat = None
-                tmdbid = history.tmdbid
-                mtype = history.type
-                # 站点标签, 如果勾选开关的话
+                # 站点标签, 如果勾选开关的话 因允许torrent_site为空时运行到此, 因此需要判断torrent_site不为空
                 if self._enabled_tag and history.torrent_site:
                     _tags.append(history.torrent_site)
-                # 媒体标题标签, 如果勾选开关的话
+                # 媒体标题标签, 如果勾选开关的话 因允许title为空时运行到此, 因此需要判断title不为空
                 if self._enabled_media_tag and history.title:
                     _tags.append(history.title)
-                # 分类, 如果勾选开关的话 <tr暂不支持>
-                if DOWNLOADER == "qbittorrent" and self._enabled_category and not torrent_cat:
+                # 分类, 如果勾选开关的话 <tr暂不支持> 因允许mtype为空时运行到此, 因此需要判断mtype不为空。为防止不必要的识别, 种子已经存在分类torrent_cat时 也不执行
+                if DOWNLOADER == "qbittorrent" and self._enabled_category and not torrent_cat and history.type:
                     # 如果是电视剧 需要区分是否动漫
                     genre_ids = None
-                    if mtype == MediaType.TV or mtype == MediaType.TV.value:
+                    # 因允许tmdbid为空时运行到此, 因此需要判断tmdbid不为空
+                    if history.tmdbid and (history.type == MediaType.TV or history.type == MediaType.TV.value):
                         # tmdb_id获取tmdb信息
-                        tmdb_info = self.tmdb_helper.get_info(mtype=mtype, tmdbid=tmdbid)
+                        tmdb_info = self.tmdb_helper.get_info(mtype=history.type, tmdbid=history.tmdbid)
                         if tmdb_info:
                             genre_ids = tmdb_info.get("genre_ids")
-                    _cat = self._genre_ids_get_cat(mtype, genre_ids)
+                    _cat = self._genre_ids_get_cat(history.type, genre_ids)
                 
                 # 去除种子已经存在的标签
                 if _tags and torrent_tags:
@@ -194,6 +228,33 @@ class DownloadSiteTag(_PluginBase):
         else:
             return None
 
+    def _torrent_key(self, torrent: Any, dl_type: str):
+        """
+        按种子大小和时间返回key
+        """
+        size = None
+        name = None
+        if dl_type == "qbittorrent":
+            size = torrent.get('size')
+            name = torrent.get('name')
+        else:
+            size = torrent.total_size
+            name = torrent.name
+        if not size or not name:
+            return None
+        else:
+            return (size, name)
+
+    def _torrents_sort(self, torrents: Any, dl_type: str):
+        """
+        按种子添加时间排序
+        """
+        if dl_type == "qbittorrent":
+            torrents = sorted(torrents, key=lambda x: x.get("added_on"), reverse=False)
+        else:
+            torrents = sorted(torrents, key=lambda x: x.added_date, reverse=False)
+        return torrents
+
     def _get_hash(self, torrent: Any, dl_type: str):
         """
         获取种子hash
@@ -204,12 +265,53 @@ class DownloadSiteTag(_PluginBase):
             print(str(e))
             return ""
 
+    def _get_trackers(self, torrent: Any, dl_type: str):
+        """
+        获取种子trackers
+        """
+        try:
+            if dl_type == "qbittorrent":
+                """
+                url	字符串	跟踪器网址
+                status	整数	跟踪器状态。有关可能的值，请参阅下表
+                tier	整数	跟踪器优先级。较低级别的跟踪器在较高级别的跟踪器之前试用。当特殊条目（如 DHT）不存在时，层号用作占位符时，层号有效。>= 0< 0tier
+                num_peers	整数	跟踪器报告的当前 torrent 的对等体数量
+                num_seeds	整数	当前种子的种子数，由跟踪器报告
+                num_leeches	整数	当前种子的水蛭数量，如跟踪器报告的那样
+                num_downloaded	整数	跟踪器报告的当前 torrent 的已完成下载次数
+                msg	字符串	跟踪器消息（无法知道此消息是什么 - 由跟踪器管理员决定）
+                """
+                return [tracker.get("url") for tracker in (torrent.trackers or []) if tracker.get("tier", -1) >= 0 and tracker.get("url")]
+            else:
+                """
+                class Tracker(Container):
+                    @property
+                    def id(self) -> int:
+                        return self.fields["id"]
+
+                    @property
+                    def announce(self) -> str:
+                        return self.fields["announce"]
+
+                    @property
+                    def scrape(self) -> str:
+                        return self.fields["scrape"]
+
+                    @property
+                    def tier(self) -> int:
+                        return self.fields["tier"]
+                """
+                return [tracker.announce for tracker in (torrent.trackers or []) if tracker.tier >= 0 and tracker.announce]
+        except Exception as e:
+            print(str(e))
+            return []
+
     def _get_label(self, torrent: Any, dl_type: str):
         """
         获取种子标签
         """
         try:
-            return [str(tag).strip() for tag in torrent.get("tags").split(',')] \
+            return [str(tag).strip() for tag in torrent.get("tags", "").split(',')] \
                 if dl_type == "qbittorrent" else torrent.labels or []
         except Exception as e:
             print(str(e))
@@ -253,8 +355,7 @@ class DownloadSiteTag(_PluginBase):
                     if _original_tags:
                         _tags = list(set(_original_tags).union(set(_tags)))
                     downloader_obj.set_torrent_tag(ids=_hash, tags=_tags)
-            logger.warn(
-                f"{self.LOG_TAG}当前下载器: {DOWNLOADER} {('  TAG: ' + ','.join(_tags)) if _tags else ''} {('  CAT: ' + _cat) if _cat else ''}")
+            logger.warn(f"{self.LOG_TAG}下载器: {DOWNLOADER} 种子id: {_hash} {('  标签: ' + ','.join(_tags)) if _tags else ''} {('  分类: ' + _cat) if _cat else ''}")
 
     @eventmanager.register(EventType.DownloadAdded)
     def DownloadAdded(self, event: Event):
