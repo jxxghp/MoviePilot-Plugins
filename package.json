@@ -26,7 +26,7 @@
     "SiteRefresh": {
         "name": "站点自动更新",
         "description": "使用浏览器模拟登录站点获取Cookie和UA。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "Chrome_A.png",
         "author": "thsrite",
         "level": 2
