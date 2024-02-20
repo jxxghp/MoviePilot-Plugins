@@ -85,7 +85,7 @@ class SiteStatistic(_PluginBase):
             self._onlyonce = config.get("onlyonce")
             self._cron = config.get("cron")
             self._notify = config.get("notify")
-            self._sitemsg = config.get("sitemsg") or True
+            self._sitemsg = config.get("sitemsg")
             self._queue_cnt = config.get("queue_cnt")
             self._statistic_type = config.get("statistic_type") or "all"
             self._statistic_sites = config.get("statistic_sites") or []
