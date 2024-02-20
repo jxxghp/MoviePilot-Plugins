@@ -17,7 +17,7 @@ class SiteRefresh(_PluginBase):
     # 插件图标
     plugin_icon = "Chrome_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -83,12 +83,11 @@ class SiteRefresh(_PluginBase):
             if not site_conf:
                 continue
             site_confs = str(site_conf).split("|")
-            if len(site_confs) == 3:
-                siteurl = site_confs[0]
-                siteuser = site_confs[1]
-                sitepwd = site_confs[2]
-            else:
-                logger.error(f"{site_conf}配置有误，已跳过")
+            try:
+                siteurl, siteuser, sitepwd, *sitecode = site_confs
+                sitecode = str(sitecode[0]) if sitecode else ""
+            except Exception as e:
+                logger.error(f"{site_conf}配置有误:{e}，已跳过")
                 continue
 
             # 判断是否是目标域名
@@ -100,7 +99,8 @@ class SiteRefresh(_PluginBase):
         if siteurl and siteuser and sitepwd:
             state, messages = SiteChain().update_cookie(site_info=site,
                                                         username=siteuser,
-                                                        password=sitepwd)
+                                                        password=sitepwd,
+                                                        two_step_code=sitecode)
             if state:
                 logger.info(f"站点{site_name}自动更新Cookie和Ua成功")
             else:
@@ -181,7 +181,7 @@ class SiteRefresh(_PluginBase):
                                             'label': '站点配置',
                                             'rows': 5,
                                             'placeholder': '每一行一个站点，配置方式：\n'
-                                                           '域名domain|用户名|用户密码\n'
+                                                           '域名domain|用户名|用户密码(|二次验证秘钥)\n'
                                         }
                                     }
                                 ]

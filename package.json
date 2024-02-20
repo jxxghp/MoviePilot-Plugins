@@ -26,7 +26,7 @@
     "SiteRefresh": {
         "name": "站点自动更新",
         "description": "使用浏览器模拟登录站点获取Cookie和UA。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "Chrome_A.png",
         "author": "thsrite",
         "level": 2
@@ -337,8 +337,8 @@
     },
     "DownloadSiteTag": {
         "name": "下载任务分类与标签",
-        "description": "自动给下载任务分类与打站点标签",
-        "version": "1.1",
+        "description": "自动给下载任务分类与打站点标签、剧集名称标签",
+        "version": "1.5",
         "icon": "Youtube-dl_B.png",
         "author": "叮叮当",
         "level": 1
