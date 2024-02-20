@@ -66,6 +66,7 @@ class SiteStatistic(_PluginBase):
     # 配置属性
     _enabled: bool = False
     _onlyonce: bool = False
+    _sitemsg: bool = True
     _cron: str = ""
     _notify: bool = False
     _queue_cnt: int = 5
@@ -84,6 +85,7 @@ class SiteStatistic(_PluginBase):
             self._onlyonce = config.get("onlyonce")
             self._cron = config.get("cron")
             self._notify = config.get("notify")
+            self._sitemsg = config.get("sitemsg") or True
             self._queue_cnt = config.get("queue_cnt")
             self._statistic_type = config.get("statistic_type") or "all"
             self._statistic_sites = config.get("statistic_sites") or []
@@ -330,6 +332,27 @@ class SiteStatistic(_PluginBase):
                                 ]
                             }
                         ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'sitemsg',
+                                            'label': '站点未读消息',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
                     }
                 ]
             }
@@ -337,6 +360,7 @@ class SiteStatistic(_PluginBase):
             "enabled": False,
             "onlyonce": False,
             "notify": True,
+            "sitemsg": True,
             "cron": "5 1 * * *",
             "queue_cnt": 5,
             "statistic_type": "all",
@@ -1108,8 +1132,9 @@ class SiteStatistic(_PluginBase):
                     self._sites_data.update({site_name: {"err_msg": site_user_info.err_msg}})
                     return None
 
-                # 发送通知，存在未读消息
-                self.__notify_unread_msg(site_name, site_user_info, unread_msg_notify)
+                if self._sitemsg:
+                    # 发送通知，存在未读消息
+                    self.__notify_unread_msg(site_name, site_user_info, unread_msg_notify)
 
                 # 分享率接近1时，发送消息提醒
                 if site_user_info.ratio and float(site_user_info.ratio) < 1:
@@ -1270,6 +1295,7 @@ class SiteStatistic(_PluginBase):
             "onlyonce": self._onlyonce,
             "cron": self._cron,
             "notify": self._notify,
+            "sitemsg": self._sitemsg,
             "queue_cnt": self._queue_cnt,
             "statistic_type": self._statistic_type,
             "statistic_sites": self._statistic_sites,
