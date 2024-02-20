@@ -59,7 +59,7 @@ class DirMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "directory.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -339,14 +339,17 @@ class DirMonitor(_PluginBase):
                     return
 
                 # 判断是不是蓝光目录
+                bluray_flag = False
                 if re.search(r"BDMV[/\\]STREAM", event_path, re.IGNORECASE):
+                    bluray_flag = True
                     # 截取BDMV前面的路径
-                    event_path = event_path[:event_path.find("BDMV")]
-                    file_path = Path(event_path)
+                    blurray_dir = event_path[:event_path.find("BDMV")]
+                    file_path = Path(blurray_dir)
+                    logger.info(f"{event_path} 是蓝光目录，更正文件路径为：{str(file_path)}")
 
                 # 查询历史记录，已转移的不处理
-                if self.transferhis.get_by_src(event_path):
-                    logger.info(f"{event_path} 已整理过")
+                if self.transferhis.get_by_src(str(file_path)):
+                    logger.info(f"{file_path} 已整理过")
                     return
 
                 # 元数据
@@ -357,15 +360,25 @@ class DirMonitor(_PluginBase):
 
                 # 判断文件大小
                 if self._size and float(self._size) > 0 and file_path.stat().st_size < float(self._size) * 1024 ** 3:
-                    logger.info(f"{event_path} 文件大小小于监控文件大小，不处理")
+                    logger.info(f"{file_path} 文件大小小于监控文件大小，不处理")
                     return
 
                 # 查询转移目的目录
                 target: Path = self._dirconf.get(mon_path)
                 # 查询转移方式
                 transfer_type = self._transferconf.get(mon_path)
+
                 # 根据父路径获取下载历史
-                download_history = self.downloadhis.get_by_path(Path(event_path).parent)
+                download_history = None
+                if bluray_flag:
+                    # 蓝光原盘，按目录名查询
+                    # FIXME 理论上DownloadHistory表中的path应该是全路径，但实际表中登记的数据只有目录名，暂按目录名查询
+                    download_history = self.downloadhis.get_by_path(file_path.name)
+                else:
+                    # 按文件全路径查询
+                    download_file = self.downloadhis.get_file_by_fullpath(str(file_path))
+                    if download_file:
+                        download_history = self.downloadhis.get_by_hash(download_file.download_hash)
 
                 # 识别媒体信息
                 mediainfo: MediaInfo = self.chain.recognize_media(meta=file_meta,
@@ -404,8 +417,10 @@ class DirMonitor(_PluginBase):
                 else:
                     episodes_info = None
 
-                # 获取downloadhash
-                download_hash = self.get_download_hash(src=str(file_path))
+                # 获取下载Hash
+                download_hash = None
+                if download_history:
+                    download_hash = download_history.download_hash
 
                 # 转移
                 transferinfo: TransferInfo = self.chain.transfer(mediainfo=mediainfo,
@@ -418,6 +433,7 @@ class DirMonitor(_PluginBase):
                 if not transferinfo:
                     logger.error("文件转移模块运行失败")
                     return
+
                 if not transferinfo.success:
                     # 转移失败
                     logger.warn(f"{file_path.name} 入库失败：{transferinfo.message}")
@@ -477,12 +493,12 @@ class DirMonitor(_PluginBase):
                     if media_files:
                         file_exists = False
                         for file in media_files:
-                            if str(event_path) == file.get("path"):
+                            if str(file_path) == file.get("path"):
                                 file_exists = True
                                 break
                         if not file_exists:
                             media_files.append({
-                                "path": event_path,
+                                "path": str(file_path),
                                 "mediainfo": mediainfo,
                                 "file_meta": file_meta,
                                 "transferinfo": transferinfo
@@ -490,7 +506,7 @@ class DirMonitor(_PluginBase):
                     else:
                         media_files = [
                             {
-                                "path": event_path,
+                                "path": str(file_path),
                                 "mediainfo": mediainfo,
                                 "file_meta": file_meta,
                                 "transferinfo": transferinfo
@@ -504,7 +520,7 @@ class DirMonitor(_PluginBase):
                     media_list = {
                         "files": [
                             {
-                                "path": event_path,
+                                "path": str(file_path),
                                 "mediainfo": mediainfo,
                                 "file_meta": file_meta,
                                 "transferinfo": transferinfo
@@ -598,15 +614,6 @@ class DirMonitor(_PluginBase):
                 # 发送完消息，移出key
                 del self._medias[medis_title_year_season]
                 continue
-
-    def get_download_hash(self, src: str):
-        """
-        从表中获取download_hash，避免连接下载器
-        """
-        download_file = self.downloadhis.get_file_by_fullpath(src)
-        if download_file:
-            return download_file.download_hash
-        return None
 
     def get_state(self) -> bool:
         return self._enabled
