@@ -1,5 +1,6 @@
 import datetime
 import pytz
+import threading
 from typing import List, Tuple, Dict, Any
 
 from app.core.context import Context
@@ -26,7 +27,7 @@ class DownloadSiteTag(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "1.6"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -39,12 +40,15 @@ class DownloadSiteTag(_PluginBase):
     auth_level = 1
     # 日志前缀
     LOG_TAG = "[DownloadSiteTag] "
-
+    
+    # 退出事件
+    _event = threading.Event()
     # 私有属性
     downloader_qb = None
     downloader_tr = None
     downloadhistory_oper = None
     tmdb_helper = None
+    sites_helper = None
     _scheduler = None
     _enabled = False
     _onlyonce = False
@@ -64,6 +68,7 @@ class DownloadSiteTag(_PluginBase):
         self.downloader_tr = Transmission()
         self.downloadhistory_oper = DownloadHistoryOper()
         self.tmdb_helper = TmdbHelper()
+        self.sites_helper = SitesHelper()
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
@@ -78,10 +83,10 @@ class DownloadSiteTag(_PluginBase):
             self._category_movie = config.get("category_movie") or "电影"
             self._category_tv = config.get("category_tv") or "电视"
             self._category_anime = config.get("category_anime") or "动漫"
-            if self.plugin_version == "1.6" and not ("interval_time" in config):
+            if not ("interval_cron" in config):
                 # 新版本v1.6更新插件配置默认配置
                 config["interval"] = self._interval
-                config["interval_time"] =  self._interval_cron
+                config["interval_cron"] =  self._interval_cron
                 config["interval_time"] = self._interval_time
                 config["interval_unit"] = self._interval_unit
                 self.update_config(config)
@@ -157,6 +162,11 @@ class DownloadSiteTag(_PluginBase):
         logger.info(f"{self.LOG_TAG}开始执行{'(定时任务)' if interval else ''}: 补全下载历史的标签与分类 ...")
         # 记录处理的种子, 供辅种(无下载历史)使用
         dispose_history = {}
+        # 所有站点索引
+        indexers = [indexer.get("name") for indexer in self.sites_helper.get_indexers()]
+        # JackettIndexers索引器支持多个站点, 如果不存在历史记录, 则通过tracker会再次附加其他站点名称
+        indexers.append("JackettIndexers")
+        indexers = set(indexers)
         for DOWNLOADER in ["qbittorrent", "transmission"]:
             logger.info(f"{self.LOG_TAG}开始扫描下载器 {DOWNLOADER} ...")
             # 获取下载器中的种子
@@ -174,12 +184,18 @@ class DownloadSiteTag(_PluginBase):
             logger.info(f"{self.LOG_TAG}下载器 {DOWNLOADER} 分析种子信息中 ...")
             for torrent in torrents:
                 try:
+                    if self._event.is_set():
+                        logger.info(f"{self.LOG_TAG}停止服务{'(定时任务)' if interval else ''}: 补全下载历史的标签与分类")
+                        return
                     # 获取已处理种子的key (size, name)
                     _key = self._torrent_key(torrent=torrent, dl_type=DOWNLOADER)
                     # 获取种子hash
                     _hash = self._get_hash(torrent=torrent, dl_type=DOWNLOADER)
                     if not _hash:
                         continue
+                    # 获取种子当前标签
+                    torrent_tags = self._get_label(torrent=torrent, dl_type=DOWNLOADER)
+                    torrent_cat = self._get_category(torrent=torrent, dl_type=DOWNLOADER)
                     # 提取种子hash对应的下载历史
                     history: DownloadHistory = self.downloadhistory_oper.get_by_hash(_hash)
                     if not history:
@@ -198,21 +214,21 @@ class DownloadSiteTag(_PluginBase):
                         # 加入历史记录
                         if _key:
                             dispose_history[_key] = history
+                    # 如果标签已经存在任意站点, 则不再添加站点标签
+                    if indexers.intersection(set(torrent_tags)):
+                        history.torrent_site = None
                     # 如果站点名称为空, 尝试通过trackers识别
-                    if not history.torrent_site:
+                    elif not history.torrent_site:
                         trackers = self._get_trackers(torrent=torrent, dl_type=DOWNLOADER)
                         for tracker in trackers:
                             domain = StringUtils.get_url_domain(tracker)
-                            site_info = SitesHelper().get_indexer(domain)
+                            site_info = self.sites_helper.get_indexer(domain)
                             if site_info:
                                 history.torrent_site = site_info.get("name")
                                 break
                         # 如果通过tracker还是无法获取站点名称, 且tmdbid, type, title都是空的, 那么跳过当前种子
                         if not history.torrent_site and not history.tmdbid and not history.type and not history.title:
                             continue
-                    # 获取种子当前标签
-                    torrent_tags = self._get_label(torrent=torrent, dl_type=DOWNLOADER)
-                    torrent_cat = self._get_category(torrent=torrent, dl_type=DOWNLOADER)
                     # 按设置生成需要写入的标签与分类
                     _tags = []
                     _cat = None
@@ -693,6 +709,27 @@ class DownloadSiteTag(_PluginBase):
                                             'model': 'category_anime',
                                             'label': '动漫分类名称(默认: 动漫)',
                                             'placeholder': '动漫'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '定时任务：支持两种定时方式，主要针对辅种刷流等种子补全站点信息。如没有对应的需求建议切换为禁用。'
                                         }
                                     }
                                 ]

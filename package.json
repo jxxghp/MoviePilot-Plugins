@@ -338,7 +338,7 @@
     "DownloadSiteTag": {
         "name": "下载任务分类与标签",
         "description": "自动给下载任务分类与打站点标签、剧集名称标签",
-        "version": "1.6",
+        "version": "1.7",
         "icon": "Youtube-dl_B.png",
         "author": "叮叮当",
         "level": 1
