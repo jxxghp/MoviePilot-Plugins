@@ -162,6 +162,11 @@ class DownloadSiteTag(_PluginBase):
         logger.info(f"{self.LOG_TAG}开始执行{'(定时任务)' if interval else ''}: 补全下载历史的标签与分类 ...")
         # 记录处理的种子, 供辅种(无下载历史)使用
         dispose_history = {}
+        # 所有站点索引
+        indexers = [indexer.get("name") for indexer in self.sites_helper.get_indexers()]
+        # JackettIndexers索引器支持多个站点, 如果不存在历史记录, 则通过tracker会再次附加其他站点名称
+        indexers.append("JackettIndexers")
+        indexers = set(indexers)
         for DOWNLOADER in ["qbittorrent", "transmission"]:
             logger.info(f"{self.LOG_TAG}开始扫描下载器 {DOWNLOADER} ...")
             # 获取下载器中的种子
@@ -209,12 +214,8 @@ class DownloadSiteTag(_PluginBase):
                         # 加入历史记录
                         if _key:
                             dispose_history[_key] = history
-                    # 获取已知索引列表
-                    indexers_list = [v.get("name") for k, v in (self.sites_helper._indexers or {}).items()]
-                    # JackettIndexers索引器支持多个站点, 如果不存在历史记录, 则通过tracker会再次附加其他站点名称
-                    indexers_list.append("JackettIndexers")
                     # 如果标签已经存在任意站点, 则不再添加站点标签
-                    if set(indexers_list).intersection(set(torrent_tags)):
+                    if indexers.intersection(set(torrent_tags)):
                         history.torrent_site = None
                     # 如果站点名称为空, 尝试通过trackers识别
                     elif not history.torrent_site:
