@@ -1,5 +1,6 @@
 import datetime
 import pytz
+import threading
 from typing import List, Tuple, Dict, Any
 
 from app.core.context import Context
@@ -39,7 +40,9 @@ class DownloadSiteTag(_PluginBase):
     auth_level = 1
     # 日志前缀
     LOG_TAG = "[DownloadSiteTag] "
-
+    
+    # 退出事件
+    _event = threading.Event()
     # 私有属性
     downloader_qb = None
     downloader_tr = None
@@ -176,6 +179,9 @@ class DownloadSiteTag(_PluginBase):
             logger.info(f"{self.LOG_TAG}下载器 {DOWNLOADER} 分析种子信息中 ...")
             for torrent in torrents:
                 try:
+                    if self._event.is_set():
+                        logger.info(f"{self.LOG_TAG}停止服务{'(定时任务)' if interval else ''}: 补全下载历史的标签与分类")
+                        return
                     # 获取已处理种子的key (size, name)
                     _key = self._torrent_key(torrent=torrent, dl_type=DOWNLOADER)
                     # 获取种子hash
