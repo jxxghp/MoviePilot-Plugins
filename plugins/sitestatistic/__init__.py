@@ -43,7 +43,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -511,12 +511,16 @@ class SiteStatistic(_PluginBase):
         upload_sites = [site for site in uploads.keys()]
         # 今日上传数据
         upload_datas = [__gb(data.get("upload")) for data in uploads.values()]
+        # 今日上传总量
+        today_upload = sum(upload_datas)
         # 今日下载
         downloads = {k: v for k, v in inc_data.items() if v.get("download")}
         # 今日下载站点
         download_sites = [site for site in downloads.keys()]
         # 今日下载数据
         download_datas = [__gb(data.get("download")) for data in downloads.values()]
+        # 今日下载总量
+        today_download = sum(download_datas)
 
         # 拼装页面
         return [
@@ -821,7 +825,7 @@ class SiteStatistic(_PluginBase):
                                         },
                                         'labels': upload_sites,
                                         'title': {
-                                            'text': f'今日上传（{today}）'
+                                            'text': f'今日上传（{today}）共 {today_upload} GB'
                                         },
                                         'legend': {
                                             'show': True
@@ -858,7 +862,7 @@ class SiteStatistic(_PluginBase):
                                         },
                                         'labels': download_sites,
                                         'title': {
-                                            'text': f'今日下载（{today}）'
+                                            'text': f'今日下载（{today}）共 {today_download} GB'
                                         },
                                         'legend': {
                                             'show': True
