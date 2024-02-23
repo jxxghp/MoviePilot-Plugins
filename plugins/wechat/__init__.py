@@ -93,7 +93,6 @@ class WeChat(_PluginBase):
                                         'props': {
                                             'model': 'chatroomid',
                                             'label': '群聊ID',
-                                            # 'items': request_options
                                         }
                                     }
                                 ]
@@ -176,10 +175,8 @@ def send(self, event: Event):
                     "nickname": "",
                     "ext": "",
                 }
-                # "text": {
-                #     "content": title + "\n" + text,
-                # }
             }
+        # 图片涉及到存储到本地，第二个版本开发
         # else:
         #     payload = {
         #         "msgtype": "news",
@@ -201,15 +198,15 @@ def send(self, event: Event):
             errno = ret_json.get('errcode')
             error = ret_json.get('errmsg')
             if errno == 0:
-                logger.info("企业微信机器人消息发送成功")
+                logger.info("微信机器人消息发送成功")
             else:
-                logger.warn(f"企业微信机器人消息发送失败，错误码：{errno}，错误原因：{error}")
+                logger.warn(f"微信机器人消息发送失败，错误码：{errno}，错误原因：{error}")
         elif res is not None:
-            logger.warn(f"企业微信机器人消息发送失败，错误码：{res.status_code}，错误原因：{res.reason}")
+            logger.warn(f"微信机器人消息发送失败，错误码：{res.status_code}，错误原因：{res.reason}")
         else:
-            logger.warn("企业微信机器人消息发送失败，未获取到返回信息")
+            logger.warn("微信机器人消息发送失败，未获取到返回信息")
     except Exception as msg_e:
-        logger.error(f"企业微信机器人消息发送失败，{str(msg_e)}")
+        logger.error(f"微信机器人消息发送失败，{str(msg_e)}")
 
 def stop_service(self):
     """
