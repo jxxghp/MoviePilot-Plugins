@@ -24,12 +24,32 @@ class FileMonitorHandler(FileSystemEventHandler):
         self.sync = sync
 
     def on_created(self, event):
-        logger.info("新增文件：%s" % event.event_data)
-        self.sync._state_set.add((event.src_path, event.src_path.stat().st_ino))
+        logger.info("监测到新增文件：%s" % event.src_path)
+        if self.sync._exclude_keywords:
+            for keyword in self.sync._exclude_keywords.split("\n"):
+                if keyword and re.findall(keyword, event.src_path):
+                    logger.info(f"{event.src_path} 命中过滤关键字 {keyword}，不处理")
+                    print(f"{event.src_path} 命中过滤关键字 {keyword}，不处理")
+                    return
+        new_file = Path(event.src_path)
+        try:
+            self.sync._state_set.add((event.src_path, new_file.stat().st_ino))
+        except Exception as e:
+            logger.error("文件丢失：%s" % event.src_path)
 
     def on_deleted(self, event):
+        if Path(event.src_path) in self.sync._ignored_files:
+            self.sync._ignored_files.remove(Path(event.src_path))
+            return
         logger.info("监测到删除：%s" % event.src_path)
-        self.sync.event_handler(event=event, event_path=event.src_path)
+        # 命中过滤关键字不处理
+        if self.sync._exclude_keywords:
+            for keyword in self.sync._exclude_keywords.split("\n"):
+                if keyword and re.findall(keyword, event.src_path):
+                    logger.info(f"{event.src_path} 命中过滤关键字 {keyword}，不处理")
+                    print(f"{event.src_path} 命中过滤关键字 {keyword}，不处理")
+                    return
+        self.sync.event_handler()
 
 
 def updateState(monitor_dirs: List[str]):
@@ -56,11 +76,11 @@ class RemoveLink(_PluginBase):
     # 插件名称
     plugin_name = "清理硬链接"
     # 插件描述
-    plugin_desc = "监控目录内文件被删除时，同步删除所有和它硬链接的文件"
+    plugin_desc = "监控目录内文件被删除时，同步删除监控目录内所有和它硬链接的文件"
     # 插件图标
     plugin_icon = "Ombi_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -79,6 +99,7 @@ class RemoveLink(_PluginBase):
     _notify = False
     _observer = []
     _state_set = set()
+    _ignored_files = set()
 
     def init_plugin(self, config: dict = None):
         logger.info(f"Hello, RemoveLink! config {config}")
@@ -103,7 +124,9 @@ class RemoveLink(_PluginBase):
                 try:
                     observer = Observer(timeout=10)
                     self._observer.append(observer)
-                    observer.schedule(FileMonitorHandler(mon_path, self), mon_path, recursive=True)
+                    observer.schedule(
+                        FileMonitorHandler(mon_path, self), mon_path, recursive=True
+                    )
                     observer.daemon = True
                     observer.start()
                     logger.info(f"{mon_path} 的目录监控服务启动")
@@ -117,12 +140,14 @@ class RemoveLink(_PluginBase):
         """
         更新配置
         """
-        self.update_config({
-            "enabled": self._enabled,
-            "notify": self._notify,
-            "monitor_dirs": self._monitor_dirs,
-            "exclude_keywords": self._exclude_keywords,
-        })
+        self.update_config(
+            {
+                "enabled": self._enabled,
+                "notify": self._notify,
+                "monitor_dirs": self._monitor_dirs,
+                "exclude_keywords": self._exclude_keywords,
+            }
+        )
 
     def get_state(self) -> bool:
         return self._enabled
@@ -137,44 +162,80 @@ class RemoveLink(_PluginBase):
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
             {
-                'component': 'VForm',
-                'content': [
+                "component": "VForm",
+                "content": [
                     {
-                        'component': 'VRow',
-                        'content': [
+                        "component": "VRow",
+                        "content": [
                             {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
                                     {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'enabled',
-                                            'label': '启用插件',
-                                        }
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "enabled",
+                                            "label": "启用插件",
+                                        },
                                     }
-                                ]
+                                ],
                             },
                             {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
                                     {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'notify',
-                                            'label': '发送通知',
-                                        }
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "notify",
+                                            "label": "发送通知",
+                                        },
                                     }
-                                ]
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "monitor_dirs",
+                                            "label": "监控目录",
+                                            "rows": 5,
+                                            "placeholder": "每一行一个目录",
+                                        },
+                                    }
+                                ],
                             }
-                        ]
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "exclude_keywords",
+                                            "label": "排除关键词",
+                                            "rows": 2,
+                                            "placeholder": "每一行一个关键词",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
                     },
                     {
                         'component': 'VRow',
@@ -182,45 +243,22 @@ class RemoveLink(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextarea',
-                                        'props': {
-                                            'model': 'monitor_dirs',
-                                            'label': '监控目录',
-                                            'rows': 5,
-                                            'placeholder': '每一行一个目录'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
                                     'cols': 12,
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextarea',
+                                        'component': 'VAlert',
                                         'props': {
-                                            'model': 'exclude_keywords',
-                                            'label': '排除关键词',
-                                            'rows': 2,
-                                            'placeholder': '每一行一个关键词'
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '监控目录如有多个请换行，源目录和硬链接目录都需要添加到监控目录中。'
                                         }
                                     }
                                 ]
                             }
                         ]
                     }
-                ]
+                ],
             }
         ], {
             "enabled": False,
@@ -247,39 +285,35 @@ class RemoveLink(_PluginBase):
                     logger.error(f"停止目录监控失败：{str(e)}")
         self._observer = []
 
-    def event_handler(self, event, event_path: str):
+    def event_handler(self):
         """
         处理删除事件
         """
-        deleted_files = []
-        if not event.is_directory:
-            # 命中过滤关键字不处理
-            if self._exclude_keywords:
-                for keyword in self._exclude_keywords.split("\n"):
-                    if keyword and re.findall(keyword, event_path):
-                        logger.info(f"{event_path} 命中过滤关键字 {keyword}，不处理")
-                        return
+        current_set = updateState(self._monitor_dirs.split("\n"))
+        deleted_set = self._state_set - current_set
+        deleted_inode = [x[1] for x in deleted_set]
+        try:
+            # 在current_set中查找与deleted_inode有相同inode的文件并删除
+            for path, inode in current_set:
+                if inode in deleted_inode:
+                    file = Path(path)
+                    self._ignored_files.add(file)
+                    file.unlink()
+                    logger.info(f"删除硬链接文件：{path}")
+                    if self._notify:
+                        for d_path, d_inode in deleted_set:
+                            if d_inode == inode:
+                                self.chain.post_message(
+                                    Notification(
+                                        mtype=NotificationType.SiteMessage,
+                                        title=f"【清理硬链接】",
+                                        text=f"监控到删除源文件：\n"
+                                        f"[{d_path}]\n"
+                                        f"同步删除硬链接文件：\n"
+                                        f"[{path}]",
+                                    )
+                                )
+        except Exception as e:
+            logger.error("目录监控发生错误：%s - %s" % (str(e), traceback.format_exc()))
 
-            file_path = Path(event_path)
-            current_set = updateState(self._monitor_dirs.split("\n"))
-            deleted_set = self._state_set - current_set
-            deleted_inode = [x[1] for x in deleted_set]
-            try:
-                # 在current_set中查找与deleted_inode有相同inode的文件并删除
-                for path, inode in current_set:
-                    if inode in deleted_inode:
-                        file = Path(path)
-                        file.unlink()
-                        deleted_files.append(path)
-                        logger.info(f"删除硬链接文件：{path}")
-            except Exception as e:
-                logger.error("目录监控发生错误：%s - %s" % (str(e), traceback.format_exc()))
-
-            if self._notify and (len(deleted_files) != 0):
-                self.chain.post_message(Notification(
-                    mtype=NotificationType.SiteMessage,
-                    title=f"[删除硬链接]",
-                    text=f"根据源文件：{file_path}\n"
-                         f"删除硬链接文件：{[str(x) for x in deleted_files]}",
-                ))
-            self._state_set = updateState(self._monitor_dirs.split("\n"))
+        self._state_set = updateState(self._monitor_dirs.split("\n"))

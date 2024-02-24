@@ -345,8 +345,8 @@
     },
     "RemoveLink": {
         "name": "清理硬链接",
-        "description": "监控目录内文件被删除时，同步删除所有和它硬链接的文件",
-        "version": "1.0",
+        "description": "监控目录内文件被删除时，同步删除监控目录内所有和它硬链接的文件",
+        "version": "1.1",
         "icon": "Ombi_A.png",
         "author": "DzAvril",
         "level": 1
