@@ -27,7 +27,7 @@ class TorrentTransfer(_PluginBase):
     # 插件图标
     plugin_icon = "seed.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -59,6 +59,7 @@ class TorrentTransfer(_PluginBase):
     _deletesource = False
     _fromtorrentpath = None
     _autostart = False
+    _transferemptylabel = False
     # 退出事件
     _event = Event()
     # 待检查种子清单
@@ -85,6 +86,7 @@ class TorrentTransfer(_PluginBase):
             self._fromtorrentpath = config.get("fromtorrentpath")
             self._nopaths = config.get("nopaths")
             self._autostart = config.get("autostart")
+            self._transferemptylabel = config.get("transferemptylabel")
 
         # 停止现有任务
         self.stop_service()
@@ -133,7 +135,8 @@ class TorrentTransfer(_PluginBase):
                     "deletesource": self._deletesource,
                     "fromtorrentpath": self._fromtorrentpath,
                     "nopaths": self._nopaths,
-                    "autostart": self._autostart
+                    "autostart": self._autostart,
+                    "transferemptylabel": self._transferemptylabel
                 })
             if self._scheduler.get_jobs():
                 if self._autostart:
@@ -172,7 +175,7 @@ class TorrentTransfer(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -188,7 +191,7 @@ class TorrentTransfer(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -196,6 +199,22 @@ class TorrentTransfer(_PluginBase):
                                         'props': {
                                             'model': 'notify',
                                             'label': '发送通知',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'transferemptylabel',
+                                            'label': '转移无标签种子',
                                         }
                                     }
                                 ]
@@ -444,7 +463,8 @@ class TorrentTransfer(_PluginBase):
             "deletesource": False,
             "fromtorrentpath": "",
             "nopaths": "",
-            "autostart": True
+            "autostart": True,
+            "transferemptylabel": False
         }
 
     def get_page(self) -> List[dict]:
@@ -541,26 +561,37 @@ class TorrentTransfer(_PluginBase):
 
             # 获取种子标签
             torrent_labels = self.__get_label(torrent, downloader)
-            # 排除含有不转移的标签
-            if torrent_labels and self._nolabels:
-                is_skip = False
-                for label in self._nolabels.split(','):
-                    if label in torrent_labels:
-                        logger.info(f"种子 {hash_str} 含有不转移标签 {label}，跳过 ...")
-                        is_skip = True
-                        break
-                if is_skip:
+            
+            # 种子为无标签,则进行规范化
+            is_torrent_labels_empty = torrent_labels == [''] or torrent_labels == [] or torrent_labels is None
+            if is_torrent_labels_empty:
+                torrent_labels = []
+            
+            #根据设置决定是否转移无标签的种子
+            if is_torrent_labels_empty:
+                if not self._transferemptylabel:
                     continue
-            # 排除不含有转移标签的种子
-            if torrent_labels and self._includelabels:
-                is_skip = False
-                for label in self._includelabels.split(','):
-                    if label not in torrent_labels:
-                        logger.info(f"种子 {hash_str} 不含有转移标签 {label}，跳过 ...")
-                        is_skip = True
-                        break
-                if is_skip:
-                    continue
+            else:
+                # 排除含有不转移的标签
+                if self._nolabels:
+                    is_skip = False
+                    for label in self._nolabels.split(','):
+                        if label in torrent_labels:
+                            logger.info(f"种子 {hash_str} 含有不转移标签 {label}，跳过 ...")
+                            is_skip = True
+                            break
+                    if is_skip:
+                        continue
+                # 排除不含有转移标签的种子
+                if self._includelabels:
+                    is_skip = False
+                    for label in self._includelabels.split(','):
+                        if label not in torrent_labels:
+                            logger.info(f"种子 {hash_str} 不含有转移标签 {label}，跳过 ...")
+                            is_skip = True
+                            break
+                    if is_skip:
+                        continue
 
             # 添加转移数据
             trans_torrents.append({
