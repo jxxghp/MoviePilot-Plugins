@@ -251,7 +251,7 @@ class RemoveLink(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '监控目录里每行一个目录，源目录和监控目录都需要添加到监控目录中。'
+                                            'text': '监控目录如有多个请换行，源目录和硬链接目录都需要添加到监控目录中。'
                                         }
                                     }
                                 ]
