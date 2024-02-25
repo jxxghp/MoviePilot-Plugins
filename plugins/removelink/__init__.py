@@ -33,7 +33,7 @@ class FileMonitorHandler(FileSystemEventHandler):
                     return
         new_file = Path(event.src_path)
         try:
-            self.sync._state_set.add((event.src_path, new_file.stat().st_ino))
+            self.sync._state_set.add((Path(event.src_path), new_file.stat().st_ino))
         except Exception as e:
             logger.error("文件丢失：%s" % event.src_path)
 
