@@ -22,7 +22,7 @@ class InvitesSignin(_PluginBase):
     # 插件图标
     plugin_icon = "invites.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -56,33 +56,22 @@ class InvitesSignin(_PluginBase):
             self._notify = config.get("notify")
             self._onlyonce = config.get("onlyonce")
 
-            # 加载模块
-        if self._enabled:
+        if self._onlyonce:
             # 定时服务
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-
-            if self._cron:
-                try:
-                    self._scheduler.add_job(func=self.__signin,
-                                            trigger=CronTrigger.from_crontab(self._cron),
-                                            name="药丸签到")
-                except Exception as err:
-                    logger.error(f"定时任务配置错误：{str(err)}")
-
-            if self._onlyonce:
-                logger.info(f"药丸签到服务启动，立即运行一次")
-                self._scheduler.add_job(func=self.__signin, trigger='date',
-                                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                                        name="药丸签到")
-                # 关闭一次性开关
-                self._onlyonce = False
-                self.update_config({
-                    "onlyonce": False,
-                    "cron": self._cron,
-                    "enabled": self._enabled,
-                    "cookie": self._cookie,
-                    "notify": self._notify,
-                })
+            logger.info(f"药丸签到服务启动，立即运行一次")
+            self._scheduler.add_job(func=self.__signin, trigger='date',
+                                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+                                    name="药丸签到")
+            # 关闭一次性开关
+            self._onlyonce = False
+            self.update_config({
+                "onlyonce": False,
+                "cron": self._cron,
+                "enabled": self._enabled,
+                "cookie": self._cookie,
+                "notify": self._notify,
+            })
 
             # 启动任务
             if self._scheduler.get_jobs():
@@ -182,6 +171,27 @@ class InvitesSignin(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled and self._cron:
+            return [{
+                "id": "InvitesSignin",
+                "name": "药丸签到服务",
+                "trigger": CronTrigger.from_crontab(self._cron),
+                "func": self.__signin,
+                "kwargs": {}
+            }]
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """

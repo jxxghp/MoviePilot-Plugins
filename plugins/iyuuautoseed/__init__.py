@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -128,22 +128,21 @@ class IYUUAutoSeed(_PluginBase):
             self.qb = Qbittorrent()
             self.tr = Transmission()
 
-            if self._cron:
-                try:
-                    self._scheduler.add_job(self.auto_seed,
-                                            CronTrigger.from_crontab(self._cron))
-                    logger.info(f"辅种服务启动，周期：{self._cron}")
-                except Exception as err:
-                    logger.error(f"辅种服务启动失败：{str(err)}")
-                    self.systemmessage.put(f"辅种服务启动失败：{str(err)}")
             if self._onlyonce:
                 logger.info(f"辅种服务启动，立即运行一次")
                 self._scheduler.add_job(self.auto_seed, 'date',
                                         run_date=datetime.now(
                                             tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3)
                                         )
+
                 # 关闭一次性开关
                 self._onlyonce = False
+                if self._scheduler.get_jobs():
+                    # 追加种子校验服务
+                    self._scheduler.add_job(self.check_recheck, 'interval', minutes=3)
+                    # 启动服务
+                    self._scheduler.print_jobs()
+                    self._scheduler.start()
 
             if self._clearcache:
                 # 关闭清除缓存开关
@@ -152,13 +151,6 @@ class IYUUAutoSeed(_PluginBase):
             if self._clearcache or self._onlyonce:
                 # 保存配置
                 self.__update_config()
-
-            if self._scheduler.get_jobs():
-                # 追加种子校验服务
-                self._scheduler.add_job(self.check_recheck, 'interval', minutes=3)
-                # 启动服务
-                self._scheduler.print_jobs()
-                self._scheduler.start()
 
     def get_state(self) -> bool:
         return True if self._enabled and self._cron and self._token and self._downloaders else False
@@ -169,6 +161,27 @@ class IYUUAutoSeed(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self.get_state():
+            return [{
+                "id": "IYUUAutoSeed",
+                "name": "IYUU自动辅种服务",
+                "trigger": CronTrigger.from_crontab(self._cron),
+                "func": self.auto_seed,
+                "kwargs": {}
+            }]
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """

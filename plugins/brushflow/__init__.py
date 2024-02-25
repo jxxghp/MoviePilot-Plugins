@@ -31,7 +31,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -50,8 +50,9 @@ class BrushFlow(_PluginBase):
     sites = None
     qb = None
     tr = None
-    # 添加种子定时
+    # 添加种子定时 分钟
     _cron = 10
+    _task_enable = False
     # 检查种子定时
     _check_interval = 5
     # 退出事件
@@ -137,6 +138,7 @@ class BrushFlow(_PluginBase):
             self.stop_service()
 
             # 启动定时任务 & 立即运行一次
+            self._task_enable = False
             if self.get_state() or self._onlyonce:
                 self.qb = Qbittorrent()
                 self.tr = Transmission()
@@ -231,15 +233,11 @@ class BrushFlow(_PluginBase):
                     return
 
                 # 启动任务
-                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-                logger.info(f"站点刷流服务启动，周期：{self._cron}分钟")
-                try:
-                    self._scheduler.add_job(self.brush, 'interval', minutes=self._cron)
-                except Exception as e:
-                    logger.error(f"站点刷流服务启动失败：{str(e)}")
-                    self.systemmessage.put(f"站点刷流服务启动失败：{str(e)}")
-                    return
+                self._task_enable = True
+
+                # 仅一次
                 if self._onlyonce:
+                    self._scheduler = BackgroundScheduler(timezone=settings.TZ)
                     logger.info(f"站点刷流服务启动，立即运行一次")
                     self._scheduler.add_job(self.brush, 'date',
                                             run_date=datetime.now(
@@ -249,14 +247,14 @@ class BrushFlow(_PluginBase):
                     # 关闭一次性开关
                     self._onlyonce = False
                     self.__update_config()
-                if self._scheduler.get_jobs():
-                    # 增加检查任务
-                    self._scheduler.add_job(self.check, 'interval',
-                                            minutes=self._check_interval,
-                                            name="站点刷流检查服务")
-                    # 启动服务
-                    self._scheduler.print_jobs()
-                    self._scheduler.start()
+                    if self._scheduler.get_jobs():
+                        # 增加检查任务
+                        self._scheduler.add_job(self.check, 'interval',
+                                                minutes=self._check_interval,
+                                                name="站点刷流检查服务")
+                        # 启动服务
+                        self._scheduler.print_jobs()
+                        self._scheduler.start()
 
     def get_state(self) -> bool:
         return True if self._enabled and self._brushsites and self._downloader else False
@@ -267,6 +265,27 @@ class BrushFlow(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._task_enable:
+            return [{
+                "id": "BrushFlow",
+                "name": "站点刷流服务",
+                "trigger": "interval",
+                "func": self.brush,
+                "kwargs": {"minutes": self._cron}
+            }]
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -756,26 +775,26 @@ class BrushFlow(_PluginBase):
                         ]
                     },
                     {
-                       'component': 'VRow',
-                       'content': [
-                           {
-                               'component': 'VCol',
-                               'props': {
-                                   'cols': 12,
-                               },
-                               'content': [
-                                   {
-                                       'component': 'VAlert',
-                                       'props': {
-                                           'type': 'info',
-                                           'variant': 'tonal',
-                                           'text': '注意：排除H&R并不保证能完全适配所有站点（部分站点在列表页不显示H&R标志，但实际上是有H&R的），请注意核对使用！'
-                                       }
-                                   }
-                               ]
-                           }
-                       ]
-                   }
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '注意：排除H&R并不保证能完全适配所有站点（部分站点在列表页不显示H&R标志，但实际上是有H&R的），请注意核对使用！'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
                 ]
             }
         ], {
@@ -1921,7 +1940,7 @@ class BrushFlow(_PluginBase):
         return len(torrents) or 0
 
     @staticmethod
-    def __get_pubminutes(pubdate: str) -> int:
+    def __get_pubminutes(pubdate: str) -> float:
         """
         将字符串转换为时间，并计算与当前时间差）（分钟）
         """

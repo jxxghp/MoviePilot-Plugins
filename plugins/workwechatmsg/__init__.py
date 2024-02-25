@@ -1,11 +1,10 @@
-from urllib.parse import urlencode
+from typing import Any, List, Dict, Tuple
 
-from app.plugins import _PluginBase
 from app.core.event import eventmanager, Event
+from app.log import logger
+from app.plugins import _PluginBase
 from app.schemas.types import EventType, NotificationType
 from app.utils.http import RequestUtils
-from typing import Any, List, Dict, Tuple
-from app.log import logger
 
 
 class WorkWechatMsg(_PluginBase):
@@ -186,18 +185,18 @@ class WorkWechatMsg(_PluginBase):
                 payload = {
                     "msgtype": "news",
                     "news": {
-                        "articles" : [
+                        "articles": [
                             {
-                                "title" : title,
-                                "description" : text,
-                                "url" : "moviepilot",
-                                "picurl" : image
+                                "title": title,
+                                "description": text,
+                                "url": "moviepilot",
+                                "picurl": image
                             }
                         ]
                     }
                 }
 
-            res = RequestUtils().post_res(url = self._webhookurl, json = payload)
+            res = RequestUtils().post_res(url=self._webhookurl, json=payload)
             if res and res.status_code == 200:
                 ret_json = res.json()
                 errno = ret_json.get('errcode')

@@ -25,7 +25,7 @@ class LibraryScraper(_PluginBase):
     # 插件图标
     plugin_icon = "scraper.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -67,23 +67,10 @@ class LibraryScraper(_PluginBase):
         # 启动定时任务 & 立即运行一次
         if self._enabled or self._onlyonce:
             self.transferhis = TransferHistoryOper()
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            if self._cron:
-                logger.info(f"媒体库刮削服务启动，周期：{self._cron}")
-                try:
-                    self._scheduler.add_job(func=self.__libraryscraper,
-                                            trigger=CronTrigger.from_crontab(self._cron),
-                                            name="媒体库刮削")
-                except Exception as e:
-                    logger.error(f"媒体库刮削服务启动失败，原因：{str(e)}")
-                    self.systemmessage.put(f"媒体库刮削服务启动失败，原因：{str(e)}")
-            else:
-                logger.info(f"媒体库刮削服务启动，周期：每7天")
-                self._scheduler.add_job(func=self.__libraryscraper,
-                                        trigger=CronTrigger.from_crontab("0 0 */7 * *"),
-                                        name="媒体库刮削")
+
             if self._onlyonce:
                 logger.info(f"媒体库刮削服务，立即运行一次")
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
                 self._scheduler.add_job(func=self.__libraryscraper, trigger='date',
                                         run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                                         name="媒体库刮削")
@@ -97,10 +84,10 @@ class LibraryScraper(_PluginBase):
                     "scraper_paths": self._scraper_paths,
                     "exclude_paths": self._exclude_paths
                 })
-            if self._scheduler.get_jobs():
-                # 启动服务
-                self._scheduler.print_jobs()
-                self._scheduler.start()
+                if self._scheduler.get_jobs():
+                    # 启动服务
+                    self._scheduler.print_jobs()
+                    self._scheduler.start()
 
     def get_state(self) -> bool:
         return self._enabled
@@ -111,6 +98,35 @@ class LibraryScraper(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled and self._cron:
+            return [{
+                "id": "LibraryScraper",
+                "name": "媒体库刮削",
+                "trigger": "cron",
+                "func": self.__libraryscraper,
+                "kwargs": {}
+            }]
+        elif self._enabled:
+            return [{
+                "id": "LibraryScraper",
+                "name": "媒体库刮削",
+                "trigger": CronTrigger.from_crontab("0 0 */7 * *"),
+                "func": self.__libraryscraper,
+                "kwargs": {}
+            }]
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [

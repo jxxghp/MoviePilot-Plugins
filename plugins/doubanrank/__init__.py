@@ -27,7 +27,7 @@ class DoubanRank(_PluginBase):
     # 插件图标
     plugin_icon = "movie.jpg"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -90,27 +90,18 @@ class DoubanRank(_PluginBase):
 
         # 启动服务
         if self._enabled or self._onlyonce:
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            if self._cron:
-                logger.info(f"豆瓣榜单订阅服务启动，周期：{self._cron}")
-                try:
-                    self._scheduler.add_job(func=self.__refresh_rss,
-                                            trigger=CronTrigger.from_crontab(self._cron),
-                                            name="豆瓣榜单订阅")
-                except Exception as e:
-                    logger.error(f"豆瓣榜单订阅服务启动失败，错误信息：{str(e)}")
-                    self.systemmessage.put(f"豆瓣榜单订阅服务启动失败，错误信息：{str(e)}")
-            else:
-                self._scheduler.add_job(func=self.__refresh_rss, trigger=CronTrigger.from_crontab("0 8 * * *"),
-                                        name="豆瓣榜单订阅")
-                logger.info("豆瓣榜单订阅服务启动，周期：每天 08:00")
-
             if self._onlyonce:
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
                 logger.info("豆瓣榜单订阅服务启动，立即运行一次")
                 self._scheduler.add_job(func=self.__refresh_rss, trigger='date',
                                         run_date=datetime.datetime.now(
                                             tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
                                         )
+
+                if self._scheduler.get_jobs():
+                    # 启动服务
+                    self._scheduler.print_jobs()
+                    self._scheduler.start()
 
             if self._onlyonce or self._clear:
                 # 关闭一次性开关
@@ -122,11 +113,6 @@ class DoubanRank(_PluginBase):
                 # 保存配置
                 self.__update_config()
 
-            if self._scheduler.get_jobs():
-                # 启动服务
-                self._scheduler.print_jobs()
-                self._scheduler.start()
-
     def get_state(self) -> bool:
         return self._enabled
 
@@ -136,6 +122,39 @@ class DoubanRank(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled and self._cron:
+            return [
+                {
+                    "id": "DoubanRank",
+                    "name": "豆瓣榜单订阅服务",
+                    "trigger": CronTrigger.from_crontab(self._cron),
+                    "func": self.__refresh_rss,
+                    "kwargs": {}
+                }
+            ]
+        elif self._enabled:
+            return [
+                {
+                    "id": "DoubanRank",
+                    "name": "豆瓣榜单订阅服务",
+                    "trigger": CronTrigger.from_crontab("0 8 * * *"),
+                    "func": self.__refresh_rss,
+                    "kwargs": {}
+                }
+            ]
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [

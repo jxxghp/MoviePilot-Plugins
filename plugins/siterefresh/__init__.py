@@ -17,7 +17,7 @@ class SiteRefresh(_PluginBase):
     # 插件图标
     plugin_icon = "Chrome_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -77,7 +77,7 @@ class SiteRefresh(_PluginBase):
 
         site_name = site.name
         logger.info(f"开始尝试登录站点 {site_name}")
-        siteurl, siteuser, sitepwd = None, None, None
+        siteurl, siteuser, sitepwd, sitecode = None, None, None, None
         # 判断site是否已配置用户名密码
         for site_conf in self._siteconf:
             if not site_conf:

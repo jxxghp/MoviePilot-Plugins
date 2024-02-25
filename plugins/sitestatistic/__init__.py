@@ -43,7 +43,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.6"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -101,9 +101,6 @@ class SiteStatistic(_PluginBase):
             self._site_schema = ModuleHelper.load('app.plugins.sitestatistic.siteuserinfo',
                                                   filter_func=lambda _, obj: hasattr(obj, 'schema'))
 
-            # 定时服务
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-
             self._site_schema.sort(key=lambda x: x.order)
             # 站点上一次更新时间
             self._last_update_time = None
@@ -112,6 +109,8 @@ class SiteStatistic(_PluginBase):
 
             # 立即运行一次
             if self._onlyonce:
+                # 定时服务
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
                 logger.info(f"站点数据统计服务启动，立即运行一次")
                 self._scheduler.add_job(self.refresh_all_site_data, 'date',
                                         run_date=datetime.now(
@@ -123,31 +122,10 @@ class SiteStatistic(_PluginBase):
                 # 保存配置
                 self.__update_config()
 
-            # 周期运行
-            if self._enabled and self._cron:
-                try:
-                    self._scheduler.add_job(func=self.refresh_all_site_data,
-                                            trigger=CronTrigger.from_crontab(self._cron),
-                                            name="站点数据统计")
-                except Exception as err:
-                    logger.error(f"定时任务配置错误：{str(err)}")
-                    # 推送实时消息
-                    self.systemmessage.put(f"执行周期配置错误：{str(err)}")
-            else:
-                triggers = TimerUtils.random_scheduler(num_executions=1,
-                                                       begin_hour=0,
-                                                       end_hour=1,
-                                                       min_interval=1,
-                                                       max_interval=60)
-                for trigger in triggers:
-                    self._scheduler.add_job(self.refresh_all_site_data, "cron",
-                                            hour=trigger.hour, minute=trigger.minute,
-                                            name="站点数据统计")
-
-            # 启动任务
-            if self._scheduler.get_jobs():
-                self._scheduler.print_jobs()
-                self._scheduler.start()
+                # 启动任务
+                if self._scheduler.get_jobs():
+                    self._scheduler.print_jobs()
+                    self._scheduler.start()
 
     def get_state(self) -> bool:
         return self._enabled
@@ -185,6 +163,46 @@ class SiteStatistic(_PluginBase):
             "summary": "刷新站点数据",
             "description": "刷新对应域名的站点数据",
         }]
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled and self._cron:
+            return [{
+                "id": "SiteStatistic",
+                "name": "站点数据统计服务",
+                "trigger": CronTrigger.from_crontab(self._cron),
+                "func": self.refresh_all_site_data,
+                "kwargs": {}
+            }]
+        elif self._enabled:
+            triggers = TimerUtils.random_scheduler(num_executions=1,
+                                                   begin_hour=0,
+                                                   end_hour=1,
+                                                   min_interval=1,
+                                                   max_interval=60)
+            ret_jobs = []
+            for trigger in triggers:
+                ret_jobs.append({
+                    "id": f"SiteStatistic|{trigger.hour}:{trigger.minute}",
+                    "name": "站点数据统计服务",
+                    "trigger": "cron",
+                    "func": self.refresh_all_site_data,
+                    "kwargs": {
+                        "hour": trigger.hour,
+                        "minute": trigger.minute
+                    }
+                })
+            return ret_jobs
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """

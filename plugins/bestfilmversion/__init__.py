@@ -34,7 +34,7 @@ class BestFilmVersion(_PluginBase):
     # 插件图标
     plugin_icon = "like.jpg"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "wlj"
     # 作者主页
@@ -73,33 +73,19 @@ class BestFilmVersion(_PluginBase):
             self._webhook_enabled = config.get("webhook_enabled")
             self._only_once = config.get("only_once")
 
-        if self._enabled:
+        if self._only_once:
+            self._only_once = False
+            self.update_config({
+                "enabled": self._enabled,
+                "cron": self._cron,
+                "notify": self._notify,
+                "webhook_enabled": self._webhook_enabled,
+                "only_once": self._only_once
+            })
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            if not self._webhook_enabled:
-                if self._cron:
-                    try:
-                        self._scheduler.add_job(func=self.sync,
-                                                trigger=CronTrigger.from_crontab(self._cron),
-                                                name="收藏洗版")
-                    except Exception as err:
-                        logger.error(f"定时任务配置错误：{str(err)}")
-                        # 推送实时消息
-                        self.systemmessage.put(f"执行周期配置错误：{str(err)}")
-                else:
-                    self._scheduler.add_job(self.sync, "interval", minutes=30, name="收藏洗版")
-
-            if self._only_once:
-                self._only_once = False
-                self.update_config({
-                    "enabled": self._enabled,
-                    "cron": self._cron,
-                    "notify": self._notify,
-                    "webhook_enabled": self._webhook_enabled,
-                    "only_once": self._only_once
-                })
-                self._scheduler.add_job(self.sync, 'date',
-                                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                                        name="立即运行收藏洗版")
+            self._scheduler.add_job(self.sync, 'date',
+                                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+                                    name="立即运行收藏洗版")
             # 启动任务
             if self._scheduler.get_jobs():
                 self._scheduler.print_jobs()
@@ -123,6 +109,39 @@ class BestFilmVersion(_PluginBase):
         }]
         """
         pass
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled and not self._webhook_enabled:
+            if self._cron:
+                return [{
+                    "id": "BestFilmVersion",
+                    "name": "收藏洗版定时服务",
+                    "trigger": CronTrigger.from_crontab(self._cron),
+                    "func": self.sync,
+                    "kwargs": {}
+                }]
+            return [
+                {
+                    "id": "BestFilmVersion",
+                    "name": "收藏洗版定时服务",
+                    "trigger": "interval",
+                    "func": self.sync,
+                    "kwargs": {
+                        "minutes": 30
+                    }
+                }
+            ]
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """

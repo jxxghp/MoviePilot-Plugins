@@ -5,8 +5,10 @@ import time
 from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional, Union
 
+from pydantic import BaseModel
 from requests import RequestException
 
+from app import schemas
 from app.chain.mediaserver import MediaServerChain
 from app.core.config import settings
 from app.core.event import eventmanager, Event
@@ -15,15 +17,11 @@ from app.log import logger
 from app.modules.emby import Emby
 from app.modules.jellyfin import Jellyfin
 from app.modules.plex import Plex
+from app.modules.themoviedb.tmdbv3api import TV
 from app.plugins import _PluginBase
-from app import schemas
-from app.schemas.types import EventType, MediaType
+from app.schemas.types import EventType
 from app.utils.common import retry
 from app.utils.http import RequestUtils
-
-from app.modules.themoviedb.tmdbv3api import TV
-
-from pydantic import BaseModel
 
 
 class ExistMediaInfo(BaseModel):
@@ -49,7 +47,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 主题色
     plugin_color = "#098663"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -67,6 +65,10 @@ class EpisodeGroupMeta(_PluginBase):
     # 私有属性
     mschain = None
     tv = None
+    emby = None
+    plex = None
+    jellyfin = None
+
     _enabled = False
     _ignorelock = False
     _delay = 0
@@ -75,6 +77,9 @@ class EpisodeGroupMeta(_PluginBase):
     def init_plugin(self, config: dict = None):
         self.mschain = MediaServerChain()
         self.tv = TV()
+        self.emby = Emby()
+        self.plex = Plex()
+        self.jellyfin = Jellyfin()
         if config:
             self._enabled = config.get("enabled")
             self._ignorelock = config.get("ignorelock")
@@ -259,7 +264,8 @@ class EpisodeGroupMeta(_PluginBase):
         if not mediainfo.tmdb_id:
             self.log_warn(f"{mediainfo.title} 没有tmdbID, 无需处理")
             return
-        if len(self._allowlist) != 0 and not mediainfo.title in self._allowlist:
+        if len(self._allowlist) != 0 \
+                and mediainfo.title not in self._allowlist:
             self.log_warn(f"{mediainfo.title} 不在白名单, 无需处理")
             return
         # 获取剧集组信息
@@ -335,8 +341,8 @@ class EpisodeGroupMeta(_PluginBase):
                             # 是否无视项目锁定
                             if not self._ignorelock:
                                 if iteminfo.get("LockData") or (
-                                        "Name" in iteminfo.get("LockedFields", []) and "Overview" in iteminfo.get(
-                                        "LockedFields", [])):
+                                        "Name" in iteminfo.get("LockedFields", [])
+                                        and "Overview" in iteminfo.get("LockedFields", [])):
                                     self.log_warn(f"已锁定媒体项 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
                                     continue
                             # 替换项目数据
@@ -371,7 +377,8 @@ class EpisodeGroupMeta(_PluginBase):
 
         self.log_info(f"{mediainfo.title_year} 已经运行完毕了..")
 
-    def __append_to_list(self, list, item):
+    @staticmethod
+    def __append_to_list(list, item):
         if item not in list:
             list.append(item)
 
@@ -387,15 +394,15 @@ class EpisodeGroupMeta(_PluginBase):
             # 获取系列id
             item_id = None
             try:
-                res = Emby().get_data(("[HOST]emby/Items?"
-                                       "IncludeItemTypes=Series"
-                                       "&Fields=ProductionYear"
-                                       "&StartIndex=0"
-                                       "&Recursive=true"
-                                       "&SearchTerm=%s"
-                                       "&Limit=10"
-                                       "&IncludeSearchTypes=false"
-                                       "&api_key=[APIKEY]") % (mediainfo.title))
+                res = self.emby.get_data(("[HOST]emby/Items?"
+                                          "IncludeItemTypes=Series"
+                                          "&Fields=ProductionYear"
+                                          "&StartIndex=0"
+                                          "&Recursive=true"
+                                          "&SearchTerm=%s"
+                                          "&Limit=10"
+                                          "&IncludeSearchTypes=false"
+                                          "&api_key=[APIKEY]") % mediainfo.title)
                 res_items = res.json().get("Items")
                 if res_items:
                     for res_item in res_items:
@@ -407,15 +414,15 @@ class EpisodeGroupMeta(_PluginBase):
             if not item_id:
                 return None
             # 验证tmdbid是否相同
-            item_info = Emby().get_iteminfo(item_id)
+            item_info = self.emby.get_iteminfo(item_id)
             if item_info:
                 if mediainfo.tmdb_id and item_info.tmdbid:
                     if str(mediainfo.tmdb_id) != str(item_info.tmdbid):
                         self.log_error(f"tmdbid不匹配或不存在")
                         return None
             try:
-                res_json = Emby().get_data(
-                    "[HOST]emby/Shows/%s/Episodes?Season=&IsMissing=false&api_key=[APIKEY]" % (item_id))
+                res_json = self.emby.get_data(
+                    "[HOST]emby/Shows/%s/Episodes?Season=&IsMissing=false&api_key=[APIKEY]" % item_id)
                 if res_json:
                     tv_item = res_json.json()
                     res_items = tv_item.get("Items")
@@ -452,9 +459,10 @@ class EpisodeGroupMeta(_PluginBase):
             # 获取系列id
             item_id = None
             try:
-                res = Jellyfin.get_data(("[HOST]Users/[USER]/Items?"
-                                         "api_key=[APIKEY]&searchTerm=%s&IncludeItemTypes=Series&Limit=10&Recursive=true") % (
-                                            mediainfo.title))
+                res = self.jellyfin.get_data(url=f"[HOST]Users/[USER]/Items?api_key=[APIKEY]"
+                                                 f"&searchTerm={mediainfo.title}"
+                                                 f"&IncludeItemTypes=Series"
+                                                 f"&Limit=10&Recursive=true")
                 res_items = res.json().get("Items")
                 if res_items:
                     for res_item in res_items:
@@ -466,15 +474,15 @@ class EpisodeGroupMeta(_PluginBase):
             if not item_id:
                 return None
             # 验证tmdbid是否相同
-            item_info = Jellyfin().get_iteminfo(item_id)
+            item_info = self.jellyfin.get_iteminfo(item_id)
             if item_info:
                 if mediainfo.tmdb_id and item_info.tmdbid:
                     if str(mediainfo.tmdb_id) != str(item_info.tmdbid):
                         self.log_error(f"tmdbid不匹配或不存在")
                         return None
             try:
-                res_json = Jellyfin().get_data(
-                    "[HOST]emby/Shows/%s/Episodes?Season=&IsMissing=false&api_key=[APIKEY]" % (item_id))
+                res_json = self.jellyfin.get_data(
+                    "[HOST]emby/Shows/%s/Episodes?Season=&IsMissing=false&api_key=[APIKEY]" % item_id)
                 if res_json:
                     tv_item = res_json.json()
                     res_items = tv_item.get("Items")
@@ -509,7 +517,7 @@ class EpisodeGroupMeta(_PluginBase):
 
         def __plex_media_exists():
             try:
-                _plex = Plex().get_plex()
+                _plex = self.plex.get_plex()
                 if not _plex:
                     return None
                 if existsinfo.itemid:
@@ -609,7 +617,7 @@ class EpisodeGroupMeta(_PluginBase):
             try:
                 url = f'[HOST]emby/Users/[USER]/Items/{itemid}?' \
                       f'Fields=ChannelMappingInfo&api_key=[APIKEY]'
-                res = Emby().get_data(url=url)
+                res = self.emby.get_data(url=url)
                 if res:
                     return res.json()
             except Exception as err:
@@ -622,7 +630,7 @@ class EpisodeGroupMeta(_PluginBase):
             """
             try:
                 url = f'[HOST]Users/[USER]/Items/{itemid}?Fields=ChannelMappingInfo&api_key=[APIKEY]'
-                res = Jellyfin().get_data(url=url)
+                res = self.jellyfin.get_data(url=url)
                 if res:
                     result = res.json()
                     if result:
@@ -638,7 +646,7 @@ class EpisodeGroupMeta(_PluginBase):
             """
             iteminfo = {}
             try:
-                plexitem = Plex().get_plex().library.fetchItem(ekey=itemid)
+                plexitem = self.plex.get_plex().library.fetchItem(ekey=itemid)
                 if 'movie' in plexitem.METADATA_TYPE:
                     iteminfo['Type'] = 'Movie'
                     iteminfo['IsFolder'] = False
@@ -667,11 +675,13 @@ class EpisodeGroupMeta(_PluginBase):
                     if plexitem.title.locked:
                         iteminfo['LockedFields'].append('Name')
                 except Exception as err:
+                    logger.warn(f"获取Plex媒体项详情失败：{str(err)}")
                     pass
                 try:
                     if plexitem.summary.locked:
                         iteminfo['LockedFields'].append('Overview')
                 except Exception as err:
+                    logger.warn(f"获取Plex媒体项详情失败：{str(err)}")
                     pass
                 return iteminfo
             except Exception as err:
@@ -695,7 +705,7 @@ class EpisodeGroupMeta(_PluginBase):
             更新Emby媒体项详情
             """
             try:
-                res = Emby().post_data(
+                res = self.emby.post_data(
                     url=f'[HOST]emby/Items/{itemid}?api_key=[APIKEY]&reqformat=json',
                     data=json.dumps(iteminfo),
                     headers={
@@ -716,7 +726,7 @@ class EpisodeGroupMeta(_PluginBase):
             更新Jellyfin媒体项详情
             """
             try:
-                res = Jellyfin().post_data(
+                res = self.jellyfin.post_data(
                     url=f'[HOST]Items/{itemid}?api_key=[APIKEY]',
                     data=json.dumps(iteminfo),
                     headers={
@@ -737,7 +747,7 @@ class EpisodeGroupMeta(_PluginBase):
             更新Plex媒体项详情
             """
             try:
-                plexitem = Plex().get_plex().library.fetchItem(ekey=itemid)
+                plexitem = self.plex.get_plex().library.fetchItem(ekey=itemid)
                 if 'CommunityRating' in iteminfo and iteminfo['CommunityRating']:
                     edits = {
                         'audienceRating.value': iteminfo['CommunityRating'],
@@ -788,7 +798,7 @@ class EpisodeGroupMeta(_PluginBase):
             """
             try:
                 url = f'[HOST]emby/Items/{itemid}/Images/Primary?api_key=[APIKEY]'
-                res = Emby().post_data(
+                res = self.emby.post_data(
                     url=url,
                     data=_base64,
                     headers={
@@ -812,7 +822,7 @@ class EpisodeGroupMeta(_PluginBase):
             try:
                 url = f'[HOST]Items/{itemid}/RemoteImages/Download?' \
                       f'Type=Primary&ImageUrl={imageurl}&ProviderName=TheMovieDb&api_key=[APIKEY]'
-                res = Jellyfin().post_data(url=url)
+                res = self.jellyfin.post_data(url=url)
                 if res and res.status_code in [200, 204]:
                     return True
                 else:
@@ -828,7 +838,7 @@ class EpisodeGroupMeta(_PluginBase):
             # FIXME 改为预下载图片
             """
             try:
-                plexitem = Plex().get_plex().library.fetchItem(ekey=itemid)
+                plexitem = self.plex.get_plex().library.fetchItem(ekey=itemid)
                 plexitem.uploadPoster(url=imageurl)
                 return True
             except Exception as err:

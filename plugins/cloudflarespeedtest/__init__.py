@@ -32,7 +32,7 @@ class CloudflareSpeedTest(_PluginBase):
     # 插件图标
     plugin_icon = "cloudflare.jpg"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -81,33 +81,24 @@ class CloudflareSpeedTest(_PluginBase):
             self._notify = config.get("notify")
             self._check = config.get("check")
 
-        if self.get_state() or self._onlyonce:
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-
+        if self.get_state() and self._onlyonce:
             try:
-                if self.get_state() and self._cron:
-                    logger.info(f"Cloudflare CDN优选服务启动，周期：{self._cron}")
-                    self._scheduler.add_job(func=self.__cloudflareSpeedTest,
-                                            trigger=CronTrigger.from_crontab(self._cron),
-                                            name="Cloudflare优选")
-
-                if self._onlyonce:
-                    logger.info(f"Cloudflare CDN优选服务启动，立即运行一次")
-                    self._scheduler.add_job(func=self.__cloudflareSpeedTest, trigger='date',
-                                            run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                                            name="Cloudflare优选")
-                    # 关闭一次性开关
-                    self._onlyonce = False
-                    self.__update_config()
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+                logger.info(f"Cloudflare CDN优选服务启动，立即运行一次")
+                self._scheduler.add_job(func=self.__cloudflareSpeedTest, trigger='date',
+                                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+                                        name="Cloudflare优选")
+                # 关闭一次性开关
+                self._onlyonce = False
+                self.__update_config()
+                # 启动任务
+                if self._scheduler.get_jobs():
+                    self._scheduler.print_jobs()
+                    self._scheduler.start()
             except Exception as err:
                 logger.error(f"Cloudflare CDN优选服务出错：{str(err)}")
                 self.systemmessage.put(f"Cloudflare CDN优选服务出错：{str(err)}")
                 return
-
-            # 启动任务
-            if self._scheduler.get_jobs():
-                self._scheduler.print_jobs()
-                self._scheduler.start()
 
     @eventmanager.register(EventType.PluginAction)
     def __cloudflareSpeedTest(self, event: Event = None):
@@ -324,9 +315,11 @@ class CloudflareSpeedTest(_PluginBase):
             install_flag = True
 
         # 重装后数据库有版本数据，但是本地没有则重装
-        if not install_flag and release_version == self._version and not Path(
-                f'{self._cf_path}/{self._binary_name}').exists() and not Path(
-            f'{self._cf_path}/CloudflareST.exe').exists():
+        if not install_flag \
+                and release_version == self._version \
+                and not Path(
+                f'{self._cf_path}/{self._binary_name}').exists() \
+                and not Path(f'{self._cf_path}/CloudflareST.exe').exists():
             logger.warn(f"未检测到CloudflareSpeedTest本地版本，重新安装")
             install_flag = True
 
@@ -502,6 +495,29 @@ class CloudflareSpeedTest(_PluginBase):
             "summary": "Cloudflare IP优选",
             "description": "Cloudflare IP优选",
         }]
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self.get_state():
+            return [
+                {
+                    "id": "CloudflareSpeedTest",
+                    "name": "Cloudflare IP优选服务",
+                    "trigger": CronTrigger.from_crontab(self._cron),
+                    "func": self.__cloudflareSpeedTest,
+                    "kwargs": {}
+                }
+            ]
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """

@@ -31,7 +31,7 @@ class MediaSyncDel(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -96,27 +96,6 @@ class MediaSyncDel(_PluginBase):
                     "library_path": self._library_path
                 })
 
-        if self._enabled and str(self._sync_type) == "log":
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            # 媒体库同步删除日志方式
-            if self._cron:
-                try:
-                    self._scheduler.add_job(func=self.sync_del_by_log,
-                                            trigger=CronTrigger.from_crontab(self._cron),
-                                            name="媒体库同步删除日志方式")
-                except Exception as err:
-                    logger.error(f"定时任务配置错误：{str(err)}")
-                    # 推送实时消息
-                    self.systemmessage.put(f"执行周期配置错误：{str(err)}")
-            else:
-                self._scheduler.add_job(self.sync_del_by_log, "interval", minutes=30,
-                                        name="媒体库同步删除日志方式")
-
-            # 启动任务
-            if self._scheduler.get_jobs():
-                self._scheduler.print_jobs()
-                self._scheduler.start()
-
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
         """
@@ -127,6 +106,37 @@ class MediaSyncDel(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled and str(self._sync_type) == "log":
+            # 媒体库同步删除日志方式
+            if self._cron:
+                return [{
+                    "id": "MediaSyncDel",
+                    "name": "媒体库同步删除服务",
+                    "trigger": CronTrigger.from_crontab(self._cron),
+                    "func": self.sync_del_by_log,
+                    "kwargs": {}
+                }]
+            else:
+                return [{
+                    "id": "MediaSyncDel",
+                    "name": "媒体库同步删除服务",
+                    "trigger": "interval",
+                    "func": self.sync_del_by_log,
+                    "kwargs": {"minutes": 30}
+                }]
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -1325,7 +1335,7 @@ class MediaSyncDel(_PluginBase):
         获取emby日志列表、解析emby日志
         """
 
-        def __parse_log(file_name: str, del_list: list, last_time):
+        def __parse_log(file_name: str, del_list: list):
             """
             解析emby日志
             """
@@ -1419,8 +1429,7 @@ class MediaSyncDel(_PluginBase):
         log_files.reverse()
         for log_file in log_files:
             del_medias = __parse_log(file_name=log_file,
-                                     del_list=del_medias,
-                                     last_time=last_time)
+                                     del_list=del_medias)
 
         return del_medias
 
@@ -1430,7 +1439,7 @@ class MediaSyncDel(_PluginBase):
         获取jellyfin日志列表、解析jellyfin日志
         """
 
-        def __parse_log(file_name: str, del_list: list, last_time):
+        def __parse_log(file_name: str, del_list: list):
             """
             解析jellyfin日志
             """
@@ -1524,8 +1533,7 @@ class MediaSyncDel(_PluginBase):
         log_files.reverse()
         for log_file in log_files:
             del_medias = __parse_log(file_name=log_file,
-                                     del_list=del_medias,
-                                     last_time=last_time)
+                                     del_list=del_medias)
 
         return del_medias
 

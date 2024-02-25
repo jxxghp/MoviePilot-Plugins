@@ -1,12 +1,11 @@
-from apscheduler.schedulers.background import BackgroundScheduler
+from typing import Any, List, Dict, Tuple, Optional, Union
 
 from app.chain.download import DownloadChain
 from app.chain.media import MediaChain
-from app.core.config import settings
+from app.core.metainfo import MetaInfo
 from app.db.downloadhistory_oper import DownloadHistoryOper
-from app.plugins import _PluginBase
-from typing import Any, List, Dict, Tuple, Optional, Union
 from app.log import logger
+from app.plugins import _PluginBase
 from app.schemas import NotificationType, TransferTorrent, DownloadingTorrent
 from app.schemas.types import TorrentStatus, MessageChannel
 from app.utils.string import StringUtils
@@ -20,7 +19,7 @@ class DownloadingMsg(_PluginBase):
     # 插件图标
     plugin_icon = "downloadmsg.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -40,10 +39,8 @@ class DownloadingMsg(_PluginBase):
     _adminuser = None
     _downloadhis = None
 
-    # 定时器
-    _scheduler: Optional[BackgroundScheduler] = None
-
     def init_plugin(self, config: dict = None):
+        self._downloadhis = DownloadHistoryOper()
         # 停止现有任务
         self.stop_service()
 
@@ -52,26 +49,6 @@ class DownloadingMsg(_PluginBase):
             self._seconds = config.get("seconds") or 300
             self._type = config.get("type") or 'admin'
             self._adminuser = config.get("adminuser")
-
-            # 加载模块
-        if self._enabled:
-            self._downloadhis = DownloadHistoryOper()
-            # 定时服务
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-
-            if self._seconds:
-                try:
-                    self._scheduler.add_job(func=self.__downloading,
-                                            trigger='interval',
-                                            seconds=int(self._seconds),
-                                            name="下载进度推送")
-                except Exception as err:
-                    logger.error(f"定时任务配置错误：{str(err)}")
-
-            # 启动任务
-            if self._scheduler.get_jobs():
-                self._scheduler.print_jobs()
-                self._scheduler.start()
 
     def __downloading(self):
         """
@@ -154,10 +131,10 @@ class DownloadingMsg(_PluginBase):
                     channel_value = downloadhis.channel
             else:
                 try:
-                    context = MediaChain().recognize_by_title(title=torrent.title)
-                    if not context or not context.media_info:
+                    meta = MetaInfo(torrent.title)
+                    media_info = MediaChain().recognize_media(meta)
+                    if not media_info:
                         continue
-                    media_info = context.media_info
                     year = media_info.year
                     name = media_info.title
                     if media_info.number_of_seasons:
@@ -206,6 +183,31 @@ class DownloadingMsg(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled and self._seconds:
+            return [
+                {
+                    "id": "downloading",
+                    "name": "下载进度推送服务",
+                    "trigger": "interval",
+                    "func": self.__downloading,
+                    "kwargs": {
+                        "seconds": int(self._seconds)
+                    }
+                }
+            ]
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -309,14 +311,4 @@ class DownloadingMsg(_PluginBase):
         pass
 
     def stop_service(self):
-        """
-        退出插件
-        """
-        try:
-            if self._scheduler:
-                self._scheduler.remove_all_jobs()
-                if self._scheduler.running:
-                    self._scheduler.shutdown()
-                self._scheduler = None
-        except Exception as e:
-            logger.error("退出插件失败：%s" % str(e))
+        pass

@@ -27,7 +27,7 @@ class TorrentTransfer(_PluginBase):
     # 插件图标
     plugin_icon = "seed.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -102,16 +102,14 @@ class TorrentTransfer(_PluginBase):
                 logger.error(f"源下载器和目的下载器不能相同")
                 self.systemmessage.put(f"源下载器和目的下载器不能相同")
                 return
+
+            # 定时服务
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            if self._cron:
-                logger.info(f"转移做种服务启动，周期：{self._cron}")
-                try:
-                    self._scheduler.add_job(self.transfer,
-                                            CronTrigger.from_crontab(self._cron))
-                except Exception as e:
-                    logger.error(f"转移做种服务启动失败：{str(e)}")
-                    self.systemmessage.put(f"转移做种服务启动失败：{str(e)}")
-                    return
+
+            if self._autostart:
+                # 追加种子校验服务
+                self._scheduler.add_job(self.check_recheck, 'interval', minutes=3)
+
             if self._onlyonce:
                 logger.info(f"转移做种服务启动，立即运行一次")
                 self._scheduler.add_job(self.transfer, 'date',
@@ -135,11 +133,9 @@ class TorrentTransfer(_PluginBase):
                     "nopaths": self._nopaths,
                     "autostart": self._autostart
                 })
+
+            # 启动服务
             if self._scheduler.get_jobs():
-                if self._autostart:
-                    # 追加种子校验服务
-                    self._scheduler.add_job(self.check_recheck, 'interval', minutes=3)
-                # 启动服务
                 self._scheduler.print_jobs()
                 self._scheduler.start()
 
@@ -156,6 +152,29 @@ class TorrentTransfer(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self.get_state():
+            return [
+                {
+                    "id": "TorrentTransfer",
+                    "name": "转移做种服务",
+                    "trigger": CronTrigger.from_crontab(self._cron),
+                    "func": self.transfer,
+                    "kwargs": {}
+                }
+            ]
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """

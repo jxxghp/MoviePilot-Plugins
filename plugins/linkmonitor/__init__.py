@@ -51,7 +51,7 @@ class LinkMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "Linkace_C.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -104,8 +104,6 @@ class LinkMonitor(_PluginBase):
         self.stop_service()
 
         if self._enabled or self._onlyonce:
-            # 定时服务管理器
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
 
             # 读取目录配置
             monitor_dirs = self._monitor_dirs.split("\n")
@@ -176,6 +174,8 @@ class LinkMonitor(_PluginBase):
 
             # 运行一次定时服务
             if self._onlyonce:
+                # 定时服务管理器
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
                 logger.info("目录监控服务启动，立即运行一次")
                 self._scheduler.add_job(func=self.sync_all, trigger='date',
                                         run_date=datetime.datetime.now(
@@ -186,21 +186,10 @@ class LinkMonitor(_PluginBase):
                 # 保存配置
                 self.__update_config()
 
-            # 全量同步定时
-            if self._enabled and self._cron:
-                try:
-                    self._scheduler.add_job(func=self.sync_all,
-                                            trigger=CronTrigger.from_crontab(self._cron),
-                                            name="实时硬链接")
-                except Exception as err:
-                    logger.error(f"定时任务配置错误：{str(err)}")
-                    # 推送实时消息
-                    self.systemmessage.put(f"执行周期配置错误：{str(err)}")
-
-            # 启动定时服务
-            if self._scheduler.get_jobs():
-                self._scheduler.print_jobs()
-                self._scheduler.start()
+                # 启动定时服务
+                if self._scheduler.get_jobs():
+                    self._scheduler.print_jobs()
+                    self._scheduler.start()
 
     def __update_config(self):
         """
@@ -379,6 +368,26 @@ class LinkMonitor(_PluginBase):
             "summary": "实时硬链接",
             "description": "实时硬链接",
         }]
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled and self._cron:
+            return [{
+                "id": "LinkMonitor",
+                "name": "全量硬链接定时服务",
+                "trigger": CronTrigger.from_crontab(self._cron),
+                "func": self.sync_all,
+                "kwargs": {}
+            }]
 
     def sync(self) -> schemas.Response:
         """

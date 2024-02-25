@@ -25,26 +25,26 @@ class FileMonitorHandler(FileSystemEventHandler):
 
     def on_created(self, event):
         logger.info("监测到新增文件：%s" % event.src_path)
-        if self.sync._exclude_keywords:
-            for keyword in self.sync._exclude_keywords.split("\n"):
+        if self.sync.exclude_keywords:
+            for keyword in self.sync.exclude_keywords.split("\n"):
                 if keyword and re.findall(keyword, event.src_path):
                     logger.info(f"{event.src_path} 命中过滤关键字 {keyword}，不处理")
                     print(f"{event.src_path} 命中过滤关键字 {keyword}，不处理")
                     return
         new_file = Path(event.src_path)
         try:
-            self.sync._state_set.add((Path(event.src_path), new_file.stat().st_ino))
+            self.sync.state_set.add((Path(event.src_path), new_file.stat().st_ino))
         except Exception as e:
-            logger.error("文件丢失：%s" % event.src_path)
+            logger.error(f"文件丢失：%s - {e}" % event.src_path)
 
     def on_deleted(self, event):
-        if Path(event.src_path) in self.sync._ignored_files:
-            self.sync._ignored_files.remove(Path(event.src_path))
+        if Path(event.src_path) in self.sync.ignored_files:
+            self.sync.ignored_files.remove(Path(event.src_path))
             return
         logger.info("监测到删除：%s" % event.src_path)
         # 命中过滤关键字不处理
-        if self.sync._exclude_keywords:
-            for keyword in self.sync._exclude_keywords.split("\n"):
+        if self.sync.exclude_keywords:
+            for keyword in self.sync.exclude_keywords.split("\n"):
                 if keyword and re.findall(keyword, event.src_path):
                     logger.info(f"{event.src_path} 命中过滤关键字 {keyword}，不处理")
                     print(f"{event.src_path} 命中过滤关键字 {keyword}，不处理")
@@ -80,7 +80,7 @@ class RemoveLink(_PluginBase):
     # 插件图标
     plugin_icon = "Ombi_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -93,27 +93,27 @@ class RemoveLink(_PluginBase):
     auth_level = 1
 
     # preivate property
-    _monitor_dirs = ""
-    _exclude_keywords = ""
+    monitor_dirs = ""
+    exclude_keywords = ""
     _enabled = False
     _notify = False
     _observer = []
-    _state_set = set()
-    _ignored_files = set()
+    state_set = set()
+    ignored_files = set()
 
     def init_plugin(self, config: dict = None):
         logger.info(f"Hello, RemoveLink! config {config}")
         if config:
             self._enabled = config.get("enabled")
             self._notify = config.get("notify")
-            self._monitor_dirs = config.get("monitor_dirs")
-            self._exclude_keywords = config.get("exclude_keywords") or ""
+            self.monitor_dirs = config.get("monitor_dirs")
+            self.exclude_keywords = config.get("exclude_keywords") or ""
         self.__update_config()
         # 停止现有任务
         self.stop_service()
         if self._enabled:
             # 读取目录配置
-            monitor_dirs = self._monitor_dirs.split("\n")
+            monitor_dirs = self.monitor_dirs.split("\n")
             logger.info(f"监控目录：{monitor_dirs}")
             if not monitor_dirs:
                 return
@@ -134,7 +134,7 @@ class RemoveLink(_PluginBase):
                     err_msg = str(e)
                     logger.error(f"{mon_path} 启动目录监控失败：{err_msg}")
                     self.systemmessage.put(f"{mon_path} 启动目录监控失败：{err_msg}")
-            self._state_set = updateState(monitor_dirs)
+            self.state_set = updateState(monitor_dirs)
 
     def __update_config(self):
         """
@@ -144,8 +144,8 @@ class RemoveLink(_PluginBase):
             {
                 "enabled": self._enabled,
                 "notify": self._notify,
-                "monitor_dirs": self._monitor_dirs,
-                "exclude_keywords": self._exclude_keywords,
+                "monitor_dirs": self.monitor_dirs,
+                "exclude_keywords": self.exclude_keywords,
             }
         )
 
@@ -289,15 +289,15 @@ class RemoveLink(_PluginBase):
         """
         处理删除事件
         """
-        current_set = updateState(self._monitor_dirs.split("\n"))
-        deleted_set = self._state_set - current_set
+        current_set = updateState(self.monitor_dirs.split("\n"))
+        deleted_set = self.state_set - current_set
         deleted_inode = [x[1] for x in deleted_set]
         try:
             # 在current_set中查找与deleted_inode有相同inode的文件并删除
             for path, inode in current_set:
                 if inode in deleted_inode:
                     file = Path(path)
-                    self._ignored_files.add(file)
+                    self.ignored_files.add(file)
                     file.unlink()
                     logger.info(f"删除硬链接文件：{path}")
                     if self._notify:
@@ -316,4 +316,4 @@ class RemoveLink(_PluginBase):
         except Exception as e:
             logger.error("目录监控发生错误：%s - %s" % (str(e), traceback.format_exc()))
 
-        self._state_set = updateState(self._monitor_dirs.split("\n"))
+        self.state_set = updateState(self.monitor_dirs.split("\n"))

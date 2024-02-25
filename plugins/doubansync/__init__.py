@@ -31,7 +31,7 @@ class DoubanSync(_PluginBase):
     # 插件图标
     plugin_icon = "douban.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -82,26 +82,18 @@ class DoubanSync(_PluginBase):
             self._clear = config.get("clear")
 
         if self._enabled or self._onlyonce:
-
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            if self._cron:
-                try:
-                    self._scheduler.add_job(func=self.sync,
-                                            trigger=CronTrigger.from_crontab(self._cron),
-                                            name="豆瓣想看")
-                except Exception as err:
-                    logger.error(f"定时任务配置错误：{str(err)}")
-                    # 推送实时消息
-                    self.systemmessage.put(f"执行周期配置错误：{str(err)}")
-            else:
-                self._scheduler.add_job(self.sync, "interval", minutes=30, name="豆瓣想看")
-
             if self._onlyonce:
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
                 logger.info(f"豆瓣想看服务启动，立即运行一次")
                 self._scheduler.add_job(func=self.sync, trigger='date',
                                         run_date=datetime.datetime.now(
                                             tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
                                         )
+
+                # 启动任务
+                if self._scheduler.get_jobs():
+                    self._scheduler.print_jobs()
+                    self._scheduler.start()
 
             if self._onlyonce or self._clear:
                 # 关闭一次性开关
@@ -112,11 +104,6 @@ class DoubanSync(_PluginBase):
                 self._clear = False
                 # 保存配置
                 self.__update_config()
-
-            # 启动任务
-            if self._scheduler.get_jobs():
-                self._scheduler.print_jobs()
-                self._scheduler.start()
 
     def get_state(self) -> bool:
         return self._enabled
@@ -148,6 +135,39 @@ class DoubanSync(_PluginBase):
         }]
         """
         pass
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled and self._cron:
+            return [
+                {
+                    "id": "DoubanSync",
+                    "name": "豆瓣想看同步服务",
+                    "trigger": CronTrigger.from_crontab(self._cron),
+                    "func": self.sync,
+                    "kwargs": {}
+                }
+            ]
+        elif self._enabled:
+            return [
+                {
+                    "id": "DoubanSync",
+                    "name": "豆瓣想看同步服务",
+                    "trigger": "interval",
+                    "func": self.sync,
+                    "kwargs": {"minutes": 30}
+                }
+            ]
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """

@@ -36,7 +36,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "1.3.1"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -107,11 +107,10 @@ class AutoSignIn(_PluginBase):
             self._site_schema = ModuleHelper.load('app.plugins.autosignin.sites',
                                                   filter_func=lambda _, obj: hasattr(obj, 'match'))
 
-            # 定时服务
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-
             # 立即运行一次
             if self._onlyonce:
+                # 定时服务
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
                 logger.info("站点自动签到服务启动，立即运行一次")
                 self._scheduler.add_job(func=self.sign_in, trigger='date',
                                         run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
@@ -122,75 +121,10 @@ class AutoSignIn(_PluginBase):
                 # 保存配置
                 self.__update_config()
 
-            # 周期运行
-            if self._enabled:
-                if self._cron:
-                    try:
-                        if str(self._cron).strip().count(" ") == 4:
-                            self._scheduler.add_job(func=self.sign_in,
-                                                    trigger=CronTrigger.from_crontab(self._cron),
-                                                    name="站点自动签到")
-                            logger.info(f"站点自动签到服务启动，执行周期 {self._cron}")
-                        else:
-                            # 2.3/9-23
-                            crons = str(self._cron).strip().split("/")
-                            if len(crons) == 2:
-                                # 2.3
-                                cron = crons[0]
-                                # 9-23
-                                times = crons[1].split("-")
-                                if len(times) == 2:
-                                    # 9
-                                    self._start_time = int(times[0])
-                                    # 23
-                                    self._end_time = int(times[1])
-                                if self._start_time and self._end_time:
-                                    self._scheduler.add_job(func=self.sign_in,
-                                                            trigger="interval",
-                                                            hours=float(str(cron).strip()),
-                                                            name="站点自动签到")
-                                    logger.info(
-                                        f"站点自动签到服务启动，执行周期 {self._start_time}点-{self._end_time}点 每{cron}小时执行一次")
-                                else:
-                                    logger.error("站点自动签到服务启动失败，周期格式错误")
-                                    # 推送实时消息
-                                    self.systemmessage.put(f"执行周期配置错误")
-                                    self._cron = ""
-                                    self._enabled = False
-                                    self.__update_config()
-                            else:
-                                # 默认0-24 按照周期运行
-                                self._start_time = 0
-                                self._end_time = 24
-                                self._scheduler.add_job(func=self.sign_in,
-                                                        trigger="interval",
-                                                        hours=float(str(self._cron).strip()),
-                                                        name="站点自动签到")
-                                logger.info(
-                                    f"站点自动签到服务启动，执行周期 {self._start_time}点-{self._end_time}点 每{self._cron}小时执行一次")
-                    except Exception as err:
-                        logger.error(f"定时任务配置错误：{str(err)}")
-                        # 推送实时消息
-                        self.systemmessage.put(f"执行周期配置错误：{str(err)}")
-                        self._cron = ""
-                        self._enabled = False
-                        self.__update_config()
-                else:
-                    # 随机时间
-                    triggers = TimerUtils.random_scheduler(num_executions=2,
-                                                           begin_hour=9,
-                                                           end_hour=23,
-                                                           max_interval=6 * 60,
-                                                           min_interval=2 * 60)
-                    for trigger in triggers:
-                        self._scheduler.add_job(self.sign_in, "cron",
-                                                hour=trigger.hour, minute=trigger.minute,
-                                                name="站点自动签到")
-
-            # 启动任务
-            if self._scheduler.get_jobs():
-                self._scheduler.print_jobs()
-                self._scheduler.start()
+                # 启动任务
+                if self._scheduler.get_jobs():
+                    self._scheduler.print_jobs()
+                    self._scheduler.start()
 
     def get_state(self) -> bool:
         return self._enabled
@@ -245,6 +179,87 @@ class AutoSignIn(_PluginBase):
             "summary": "站点签到",
             "description": "使用站点域名签到站点",
         }]
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled and self._cron:
+            try:
+                if str(self._cron).strip().count(" ") == 4:
+                    return [{
+                        "id": "AutoSignIn",
+                        "name": "站点自动签到服务",
+                        "trigger": CronTrigger.from_crontab(self._cron),
+                        "func": self.sign_in,
+                        "kwargs": {}
+                    }]
+                else:
+                    # 2.3/9-23
+                    crons = str(self._cron).strip().split("/")
+                    if len(crons) == 2:
+                        # 2.3
+                        cron = crons[0]
+                        # 9-23
+                        times = crons[1].split("-")
+                        if len(times) == 2:
+                            # 9
+                            self._start_time = int(times[0])
+                            # 23
+                            self._end_time = int(times[1])
+                        if self._start_time and self._end_time:
+                            return [{
+                                "id": "AutoSignIn",
+                                "name": "站点自动签到服务",
+                                "trigger": "interval",
+                                "func": self.sign_in,
+                                "kwargs": {
+                                    "hours": float(str(cron).strip()),
+                                }
+                            }]
+                        else:
+                            logger.error("站点自动签到服务启动失败，周期格式错误")
+                    else:
+                        # 默认0-24 按照周期运行
+                        return [{
+                            "id": "AutoSignIn",
+                            "name": "站点自动签到服务",
+                            "trigger": "interval",
+                            "func": self.sign_in,
+                            "kwargs": {
+                                "hours": float(str(self._cron).strip()),
+                            }
+                        }]
+            except Exception as err:
+                logger.error(f"定时任务配置错误：{str(err)}")
+        elif self._enabled:
+            # 随机时间
+            triggers = TimerUtils.random_scheduler(num_executions=2,
+                                                   begin_hour=9,
+                                                   end_hour=23,
+                                                   max_interval=6 * 60,
+                                                   min_interval=2 * 60)
+            ret_jobs = []
+            for trigger in triggers:
+                ret_jobs.append({
+                    "id": f"AutoSignIn|{trigger.hour}:{trigger.minute}",
+                    "name": "站点自动签到服务",
+                    "trigger": "cron",
+                    "func": self.sign_in,
+                    "kwargs": {
+                        "hour": trigger.hour,
+                        "minute": trigger.minute
+                    }
+                })
+            return ret_jobs
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """

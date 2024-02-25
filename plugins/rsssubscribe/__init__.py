@@ -30,7 +30,7 @@ class RssSubscribe(_PluginBase):
     # 插件图标
     plugin_icon = "rss.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -89,42 +89,28 @@ class RssSubscribe(_PluginBase):
             self._action = config.get("action")
             self._save_path = config.get("save_path")
 
-        if self._enabled or self._onlyonce:
-
+        if self._onlyonce:
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            if self._cron:
-                try:
-                    self._scheduler.add_job(func=self.check,
-                                            trigger=CronTrigger.from_crontab(self._cron),
-                                            name="RSS订阅")
-                except Exception as err:
-                    logger.error(f"定时任务配置错误：{str(err)}")
-                    # 推送实时消息
-                    self.systemmessage.put(f"执行周期配置错误：{str(err)}")
-            else:
-                self._scheduler.add_job(self.check, "interval", minutes=30, name="RSS订阅")
-
-            if self._onlyonce:
-                logger.info(f"RSS订阅服务启动，立即运行一次")
-                self._scheduler.add_job(func=self.check, trigger='date',
-                                        run_date=datetime.datetime.now(
-                                            tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
-                                        )
-
-            if self._onlyonce or self._clear:
-                # 关闭一次性开关
-                self._onlyonce = False
-                # 记录清理缓存设置
-                self._clearflag = self._clear
-                # 关闭清理缓存开关
-                self._clear = False
-                # 保存设置
-                self.__update_config()
+            logger.info(f"自定义订阅服务启动，立即运行一次")
+            self._scheduler.add_job(func=self.check, trigger='date',
+                                    run_date=datetime.datetime.now(
+                                        tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
+                                    )
 
             # 启动任务
             if self._scheduler.get_jobs():
                 self._scheduler.print_jobs()
                 self._scheduler.start()
+
+        if self._onlyonce or self._clear:
+            # 关闭一次性开关
+            self._onlyonce = False
+            # 记录清理缓存设置
+            self._clearflag = self._clear
+            # 关闭清理缓存开关
+            self._clear = False
+            # 保存设置
+            self.__update_config()
 
     def get_state(self) -> bool:
         return self._enabled
@@ -148,6 +134,35 @@ class RssSubscribe(_PluginBase):
         }]
         """
         pass
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled and self._cron:
+            return [{
+                "id": "RssSubscribe",
+                "name": "自定义订阅服务",
+                "trigger": CronTrigger.from_crontab(self._cron),
+                "func": self.check,
+                "kwargs": {}
+            }]
+        elif self._enabled:
+            return [{
+                "id": "RssSubscribe",
+                "name": "自定义订阅服务",
+                "trigger": "interval",
+                "func": self.check,
+                "kwargs": {"minutes": 30}
+            }]
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """

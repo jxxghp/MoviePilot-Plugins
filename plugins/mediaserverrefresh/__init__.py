@@ -21,7 +21,7 @@ class MediaServerRefresh(_PluginBase):
     # 插件图标
     plugin_icon = "refresh2.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -36,8 +36,14 @@ class MediaServerRefresh(_PluginBase):
     # 私有属性
     _enabled = False
     _delay = 0
+    _emby = None
+    _jellyfin = None
+    _plex = None
 
     def init_plugin(self, config: dict = None):
+        self._emby = Emby()
+        self._jellyfin = Jellyfin()
+        self._plex = Plex()
         if config:
             self._enabled = config.get("enabled")
             self._delay = config.get("delay") or 0
@@ -146,16 +152,16 @@ class MediaServerRefresh(_PluginBase):
         ]
         # Emby
         if "emby" in settings.MEDIASERVER:
-            Emby().refresh_library_by_items(items)
+            self._emby.refresh_library_by_items(items)
 
         # Jeyllyfin
         if "jellyfin" in settings.MEDIASERVER:
             # FIXME Jellyfin未找到刷新单个项目的API
-            Jellyfin().refresh_root_library()
+            self._jellyfin.refresh_root_library()
 
         # Plex
         if "plex" in settings.MEDIASERVER:
-            Plex().refresh_library_by_items(items)
+            self._plex.refresh_library_by_items(items)
 
     def stop_service(self):
         """

@@ -39,7 +39,7 @@ class PersonMeta(_PluginBase):
     # 插件图标
     plugin_icon = "actor.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -80,31 +80,19 @@ class PersonMeta(_PluginBase):
         self.stop_service()
 
         # 启动服务
-        if self._enabled or self._onlyonce:
+        if self._onlyonce:
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            if self._cron or self._onlyonce:
-                if self._cron:
-                    try:
-                        self._scheduler.add_job(func=self.scrap_library,
-                                                trigger=CronTrigger.from_crontab(self._cron),
-                                                name="演职人员刮削")
-                        logger.info(f"演职人员刮削服务启动，周期：{self._cron}")
-                    except Exception as e:
-                        logger.error(f"演职人员刮削服务启动失败，错误信息：{str(e)}")
-                        self.systemmessage.put(f"演职人员刮削服务启动失败，错误信息：{str(e)}")
-                if self._onlyonce:
-                    self._scheduler.add_job(func=self.scrap_library, trigger='date',
-                                            run_date=datetime.datetime.now(
-                                                tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
-                                            )
-                    logger.info(f"演职人员刮削服务启动，立即运行一次")
-                    # 关闭一次性开关
-                    self._onlyonce = False
-                    # 保存配置
-                    self.__update_config()
-
+            self._scheduler.add_job(func=self.scrap_library, trigger='date',
+                                    run_date=datetime.datetime.now(
+                                        tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
+                                    )
+            logger.info(f"演职人员刮削服务启动，立即运行一次")
+            # 关闭一次性开关
+            self._onlyonce = False
+            # 保存配置
+            self.__update_config()
+            # 启动服务
             if self._scheduler.get_jobs():
-                # 启动服务
                 self._scheduler.print_jobs()
                 self._scheduler.start()
 
@@ -130,6 +118,26 @@ class PersonMeta(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled and self._cron:
+            return [{
+                "id": "PersonMeta",
+                "name": "演职人员刮削服务",
+                "trigger": CronTrigger.from_crontab(self._cron),
+                "func": self.scrap_library,
+                "kwargs": {}
+            }]
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """

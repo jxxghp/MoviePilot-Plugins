@@ -22,7 +22,7 @@ class SyncDownloadFiles(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -87,27 +87,6 @@ class SyncDownloadFiles(_PluginBase):
             self.__update_config()
 
             self.sync()
-
-        if self._enabled:
-            # 定时服务
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            if self._time:
-                try:
-                    self._scheduler.add_job(func=self.sync,
-                                            trigger="interval",
-                                            hours=float(str(self._time).strip()),
-                                            name="自动同步下载器文件记录")
-                    logger.info(f"自动同步下载器文件记录服务启动，时间间隔 {self._time} 小时")
-                except Exception as err:
-                    logger.error(f"定时任务配置错误：{str(err)}")
-
-                # 启动任务
-                if self._scheduler.get_jobs():
-                    self._scheduler.print_jobs()
-                    self._scheduler.start()
-            else:
-                self._enabled = False
-                self.__update_config()
 
     def sync(self):
         """
@@ -378,7 +357,7 @@ class SyncDownloadFiles(_PluginBase):
             return None
 
     def get_state(self) -> bool:
-        return self._enabled
+        return True if self._enabled and self._time else False
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -386,6 +365,27 @@ class SyncDownloadFiles(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self.get_state():
+            return [{
+                "id": "SyncDownloadFiles",
+                "name": "同步下载器文件记录服务",
+                "trigger": "interval",
+                "func": self.sync,
+                "kwargs": {"seconds": float(str(self._time).strip()) * 3600}
+            }]
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -478,7 +478,7 @@ class SyncDownloadFiles(_PluginBase):
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'time',
-                                            'label': '同步时间间隔'
+                                            'label': '同步时间间隔（小时）'
                                         }
                                     }
                                 ]

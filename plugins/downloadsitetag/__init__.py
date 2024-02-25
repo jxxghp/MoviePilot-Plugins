@@ -1,7 +1,7 @@
 import datetime
 import pytz
 import threading
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 
 from app.core.context import Context
 from app.core.event import eventmanager, Event
@@ -19,6 +19,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app.helper.sites import SitesHelper
 from app.utils.string import StringUtils
 
+
 class DownloadSiteTag(_PluginBase):
     # 插件名称
     plugin_name = "下载任务分类与标签"
@@ -27,7 +28,7 @@ class DownloadSiteTag(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -40,7 +41,7 @@ class DownloadSiteTag(_PluginBase):
     auth_level = 1
     # 日志前缀
     LOG_TAG = "[DownloadSiteTag] "
-    
+
     # 退出事件
     _event = threading.Event()
     # 私有属性
@@ -86,57 +87,32 @@ class DownloadSiteTag(_PluginBase):
             if not ("interval_cron" in config):
                 # 新版本v1.6更新插件配置默认配置
                 config["interval"] = self._interval
-                config["interval_cron"] =  self._interval_cron
+                config["interval_cron"] = self._interval_cron
                 config["interval_time"] = self._interval_time
                 config["interval_unit"] = self._interval_unit
                 self.update_config(config)
                 logger.warn(f"{self.LOG_TAG}新版本v{self.plugin_version} 配置修正 ...")
-        
+
         # 停止现有任务
         self.stop_service()
 
-        if self._enabled or self._onlyonce:
+        if self._onlyonce:
             # 创建定时任务控制器
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-
-        if self._onlyonce:
             # 执行一次, 关闭onlyonce
             self._onlyonce = False
             config.update({"onlyonce": self._onlyonce})
             self.update_config(config)
             # 添加 补全下载历史的标签与分类 任务
-            self._scheduler.add_job(func= self._complemented_history, trigger='date',
-                                            run_date=datetime.datetime.now(
-                                                tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
-                                            )
-        if self._enabled:
-            if self._interval == "计划任务" or self._interval == "固定间隔":
-                args = {}
-                if self._interval == "固定间隔":
-                    args["trigger"] = "interval"
-                    if self._interval_unit == "小时":
-                        args["hours"] = self._interval_time
-                    else:
-                        args["minutes"] = self._interval_time
-                        if args["minutes"] < 5:
-                            args["minutes"] = 5
-                            logger.info(f"{self.LOG_TAG}启动定时服务: 最小不少于5分钟, 防止执行间隔太短任务冲突")
-                else:
-                    args["trigger"] = CronTrigger.from_crontab(self._interval_cron)
-                try:
-                    self._scheduler.add_job(func=lambda: self._complemented_history(interval=True),
-                                        **args,
-                                        name="补全下载历史的标签与分类")
-                    logger.info(
-                        f"{self.LOG_TAG}添加定时服务: 补全下载历史的标签与分类" + (f"(每){args.get('hours') or args.get('minutes')}{self._interval_unit}执行一次" if args["trigger"] == "interval" else f",计划任务: {self._interval_cron}"))
-                except Exception as e:
-                    logger.error(
-                        f"{self.LOG_TAG}添加定时服务发生了错误: {str(e)}")
+            self._scheduler.add_job(func=self._complemented_history, trigger='date',
+                                    run_date=datetime.datetime.now(
+                                        tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
+                                    )
 
-        if self._scheduler and self._scheduler.get_jobs():
-            # 启动服务
-            self._scheduler.print_jobs()
-            self._scheduler.start()
+            if self._scheduler and self._scheduler.get_jobs():
+                # 启动服务
+                self._scheduler.print_jobs()
+                self._scheduler.start()
 
     def get_state(self) -> bool:
         return self._enabled
@@ -145,21 +121,68 @@ class DownloadSiteTag(_PluginBase):
     def get_command() -> List[Dict[str, Any]]:
         pass
 
-    
     def get_api(self) -> List[Dict[str, Any]]:
         pass
 
-    def str_to_number(self, s: str, i: int) -> int:
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled:
+            if self._interval == "计划任务" or self._interval == "固定间隔":
+                if self._interval == "固定间隔":
+                    if self._interval_unit == "小时":
+                        return [{
+                            "id": "DownloadSiteTag",
+                            "name": "补全下载历史的标签与分类",
+                            "trigger": "interval",
+                            "func": self._complemented_history,
+                            "kwargs": {
+                                "hours": self._interval_time
+                            }
+                        }]
+                    else:
+                        if self._interval_time < 5:
+                            self._interval_time = 5
+                            logger.info(f"{self.LOG_TAG}启动定时服务: 最小不少于5分钟, 防止执行间隔太短任务冲突")
+                        return [{
+                            "id": "DownloadSiteTag",
+                            "name": "补全下载历史的标签与分类",
+                            "trigger": "interval",
+                            "func": self._complemented_history,
+                            "kwargs": {
+                                "minutes": self._interval_time
+                            }
+                        }]
+                else:
+                    return [{
+                        "id": "DownloadSiteTag",
+                        "name": "补全下载历史的标签与分类",
+                        "trigger": CronTrigger.from_crontab(self._interval_cron),
+                        "func": self._complemented_history,
+                        "kwargs": {}
+                    }]
+        return []
+
+    @staticmethod
+    def str_to_number(s: str, i: int) -> int:
         try:
             return int(s)
-        except:
+        except ValueError:
             return i
 
-    def _complemented_history(self, interval: bool = False):
+    def _complemented_history(self):
         """
         补全下载历史的标签与分类
         """
-        logger.info(f"{self.LOG_TAG}开始执行{'(定时任务)' if interval else ''}: 补全下载历史的标签与分类 ...")
+        logger.info(f"{self.LOG_TAG}开始执行 ...")
         # 记录处理的种子, 供辅种(无下载历史)使用
         dispose_history = {}
         # 所有站点索引
@@ -185,7 +208,8 @@ class DownloadSiteTag(_PluginBase):
             for torrent in torrents:
                 try:
                     if self._event.is_set():
-                        logger.info(f"{self.LOG_TAG}停止服务{'(定时任务)' if interval else ''}: 补全下载历史的标签与分类")
+                        logger.info(
+                            f"{self.LOG_TAG}停止服务")
                         return
                     # 获取已处理种子的key (size, name)
                     _key = self._torrent_key(torrent=torrent, dl_type=DOWNLOADER)
@@ -205,11 +229,7 @@ class DownloadSiteTag(_PluginBase):
                             # 因为辅种站点必定不同, 所以需要更新站点名字 history.torrent_site
                             history.torrent_site = None
                         else:
-                            history = DownloadHistory(
-                                torrent_site=None,
-                                title=None,
-                                type=None,
-                                tmdbid=None)
+                            history = DownloadHistory()
                     else:
                         # 加入历史记录
                         if _key:
@@ -243,13 +263,14 @@ class DownloadSiteTag(_PluginBase):
                         # 如果是电视剧 需要区分是否动漫
                         genre_ids = None
                         # 因允许tmdbid为空时运行到此, 因此需要判断tmdbid不为空
-                        if history.tmdbid and (history.type == MediaType.TV or history.type == MediaType.TV.value):
+                        history_type = MediaType(history.type) if history.type else None
+                        if history.tmdbid and history_type == MediaType.TV:
                             # tmdb_id获取tmdb信息
-                            tmdb_info = self.tmdb_helper.get_info(mtype=history.type, tmdbid=history.tmdbid)
+                            tmdb_info = self.tmdb_helper.get_info(mtype=history_type, tmdbid=history.tmdbid)
                             if tmdb_info:
                                 genre_ids = tmdb_info.get("genre_ids")
                         _cat = self._genre_ids_get_cat(history.type, genre_ids)
-                    
+
                     # 去除种子已经存在的标签
                     if _tags and torrent_tags:
                         _tags = list(set(_tags) - set(torrent_tags))
@@ -260,15 +281,15 @@ class DownloadSiteTag(_PluginBase):
                     if not _cat and not _tags:
                         continue
                     # 执行通用方法, 设置种子标签与分类
-                    self._set_torrent_info(DOWNLOADER=DOWNLOADER, _hash=_hash, _torrent=torrent, _tags=_tags, _cat=_cat, _original_tags=torrent_tags)
+                    self._set_torrent_info(DOWNLOADER=DOWNLOADER, _hash=_hash, _torrent=torrent, _tags=_tags, _cat=_cat,
+                                           _original_tags=torrent_tags)
                 except Exception as e:
                     logger.error(
                         f"{self.LOG_TAG}分析种子信息时发生了错误: {str(e)}")
 
+        logger.info(f"{self.LOG_TAG}执行完成")
 
-        logger.info(f"{self.LOG_TAG}执行完成{'(定时任务)' if interval else ''}: 补全下载历史的标签与分类 ...")
-
-    def _genre_ids_get_cat(self, mtype, genre_ids = None):
+    def _genre_ids_get_cat(self, mtype, genre_ids=None):
         """
         根据genre_ids判断是否<动漫>分类
         """
@@ -298,12 +319,11 @@ class DownloadSiteTag(_PluginBase):
         else:
             return None
 
-    def _torrent_key(self, torrent: Any, dl_type: str):
+    @staticmethod
+    def _torrent_key(torrent: Any, dl_type: str) -> Optional[Tuple[int, str]]:
         """
         按种子大小和时间返回key
         """
-        size = None
-        name = None
         if dl_type == "qbittorrent":
             size = torrent.get('size')
             name = torrent.get('name')
@@ -313,9 +333,10 @@ class DownloadSiteTag(_PluginBase):
         if not size or not name:
             return None
         else:
-            return (size, name)
+            return size, name
 
-    def _torrents_sort(self, torrents: Any, dl_type: str):
+    @staticmethod
+    def _torrents_sort(torrents: Any, dl_type: str):
         """
         按种子添加时间排序
         """
@@ -325,7 +346,8 @@ class DownloadSiteTag(_PluginBase):
             torrents = sorted(torrents, key=lambda x: x.added_date, reverse=False)
         return torrents
 
-    def _get_hash(self, torrent: Any, dl_type: str):
+    @staticmethod
+    def _get_hash(torrent: Any, dl_type: str):
         """
         获取种子hash
         """
@@ -335,7 +357,8 @@ class DownloadSiteTag(_PluginBase):
             print(str(e))
             return ""
 
-    def _get_trackers(self, torrent: Any, dl_type: str):
+    @staticmethod
+    def _get_trackers(torrent: Any, dl_type: str):
         """
         获取种子trackers
         """
@@ -351,7 +374,8 @@ class DownloadSiteTag(_PluginBase):
                 num_downloaded	整数	跟踪器报告的当前 torrent 的已完成下载次数
                 msg	字符串	跟踪器消息（无法知道此消息是什么 - 由跟踪器管理员决定）
                 """
-                return [tracker.get("url") for tracker in (torrent.trackers or []) if tracker.get("tier", -1) >= 0 and tracker.get("url")]
+                return [tracker.get("url") for tracker in (torrent.trackers or []) if
+                        tracker.get("tier", -1) >= 0 and tracker.get("url")]
             else:
                 """
                 class Tracker(Container):
@@ -371,12 +395,14 @@ class DownloadSiteTag(_PluginBase):
                     def tier(self) -> int:
                         return self.fields["tier"]
                 """
-                return [tracker.announce for tracker in (torrent.trackers or []) if tracker.tier >= 0 and tracker.announce]
+                return [tracker.announce for tracker in (torrent.trackers or []) if
+                        tracker.tier >= 0 and tracker.announce]
         except Exception as e:
             print(str(e))
             return []
 
-    def _get_label(self, torrent: Any, dl_type: str):
+    @staticmethod
+    def _get_label(torrent: Any, dl_type: str):
         """
         获取种子标签
         """
@@ -387,7 +413,8 @@ class DownloadSiteTag(_PluginBase):
             print(str(e))
             return []
 
-    def _get_category(self, torrent: Any, dl_type: str):
+    @staticmethod
+    def _get_category(torrent: Any, dl_type: str):
         """
         获取种子分类
         """
@@ -397,20 +424,23 @@ class DownloadSiteTag(_PluginBase):
             print(str(e))
             return None
 
-    def _set_torrent_info(self, DOWNLOADER: str, _hash: str, _torrent: Any = None, _tags: list = [], _cat: str = None, _original_tags: list = None):
+    def _set_torrent_info(self, DOWNLOADER: str, _hash: str, _torrent: Any = None, _tags=None, _cat: str = None,
+                          _original_tags: list = None):
         """
         设置种子标签与分类
         """
         # 当前下载器
+        if _tags is None:
+            _tags = []
         downloader_obj = self._get_downloader(DOWNLOADER)
         if not _torrent:
             _torrent, error = downloader_obj.get_torrents(ids=_hash)
             if not _torrent or error:
                 logger.error(
-                        f"{self.LOG_TAG}设置种子标签与分类时发生了错误: 通过 {_hash} 查询不到任何种子!")
+                    f"{self.LOG_TAG}设置种子标签与分类时发生了错误: 通过 {_hash} 查询不到任何种子!")
                 return
             logger.info(
-                    f"{self.LOG_TAG}设置种子标签与分类: {_hash} 查询到 {len(_torrent)} 个种子")
+                f"{self.LOG_TAG}设置种子标签与分类: {_hash} 查询到 {len(_torrent)} 个种子")
             _torrent = _torrent[0]
         # 判断是否可执行
         if DOWNLOADER and downloader_obj and _hash and _torrent:
@@ -424,20 +454,23 @@ class DownloadSiteTag(_PluginBase):
                     # 尝试设置种子分类, 如果失败, 则创建再设置一遍
                     try:
                         _torrent.setCategory(category=_cat)
-                    except:
+                    except Exception as e:
+                        logger.warn(f"下载器 {DOWNLOADER} 种子id: {_hash} 设置分类 {_cat} 失败：{str(e)}, "
+                                    f"尝试创建分类再设置 ...")
                         downloader_obj.qbc.torrents_createCategory(name=_cat)
                         _torrent.setCategory(category=_cat)
             else:
                 # 设置标签
                 if _tags:
                     # _original_tags = None表示未指定, 因此需要获取原始标签
-                    if _original_tags == None:
+                    if _original_tags is None:
                         _original_tags = self._get_label(torrent=_torrent, dl_type=DOWNLOADER)
                     # 如果原始标签不是空的, 那么合并原始标签
                     if _original_tags:
                         _tags = list(set(_original_tags).union(set(_tags)))
                     downloader_obj.set_torrent_tag(ids=_hash, tags=_tags)
-            logger.warn(f"{self.LOG_TAG}下载器: {DOWNLOADER} 种子id: {_hash} {('  标签: ' + ','.join(_tags)) if _tags else ''} {('  分类: ' + _cat) if _cat else ''}")
+            logger.warn(
+                f"{self.LOG_TAG}下载器: {DOWNLOADER} 种子id: {_hash} {('  标签: ' + ','.join(_tags)) if _tags else ''} {('  分类: ' + _cat) if _cat else ''}")
 
     @eventmanager.register(EventType.DownloadAdded)
     def DownloadAdded(self, event: Event):
@@ -449,7 +482,7 @@ class DownloadSiteTag(_PluginBase):
 
         if not event.event_data:
             return
-        
+
         try:
             context: Context = event.event_data.get("context")
             _hash = event.event_data.get("hash")
@@ -472,7 +505,6 @@ class DownloadSiteTag(_PluginBase):
         except Exception as e:
             logger.error(
                 f"{self.LOG_TAG}分析下载事件时发生了错误: {str(e)}")
-
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """

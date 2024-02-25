@@ -59,7 +59,7 @@ class DirMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "directory.png"
     # 插件版本
-    plugin_version = "1.6"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -215,17 +215,6 @@ class DirMonitor(_PluginBase):
                 self._onlyonce = False
                 # 保存配置
                 self.__update_config()
-
-            # 全量同步定时
-            if self._enabled and self._cron:
-                try:
-                    self._scheduler.add_job(func=self.sync_all,
-                                            trigger=CronTrigger.from_crontab(self._cron),
-                                            name="目录监控全量同步")
-                except Exception as err:
-                    logger.error(f"定时任务配置错误：{str(err)}")
-                    # 推送实时消息
-                    self.systemmessage.put(f"执行周期配置错误：{str(err)}")
 
             # 启动定时服务
             if self._scheduler.get_jobs():
@@ -642,6 +631,27 @@ class DirMonitor(_PluginBase):
             "summary": "目录监控同步",
             "description": "目录监控同步",
         }]
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled and self._cron:
+            return [{
+                "id": "DirMonitor",
+                "name": "目录监控全量同步服务",
+                "trigger": CronTrigger.from_crontab(self._cron),
+                "func": self.sync_all,
+                "kwargs": {}
+            }]
+        return []
 
     def sync(self) -> schemas.Response:
         """

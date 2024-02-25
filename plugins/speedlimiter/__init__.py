@@ -1,8 +1,6 @@
 import ipaddress
 from typing import List, Tuple, Dict, Any
 
-from apscheduler.schedulers.background import BackgroundScheduler
-
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
@@ -25,7 +23,7 @@ class SpeedLimiter(_PluginBase):
     # 插件图标
     plugin_icon = "Librespeed_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "Shurelol"
     # 作者主页
@@ -96,20 +94,6 @@ class SpeedLimiter(_PluginBase):
                 if 'transmission' in self._downloader:
                     self._tr = Transmission()
 
-        # 移出现有任务
-        self.stop_service()
-
-        # 启动限速任务
-        if self._enabled and self._limit_enabled:
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            self._scheduler.add_job(func=self.check_playing_sessions,
-                                    trigger='interval',
-                                    seconds=self._interval,
-                                    name="播放限速检查")
-            self._scheduler.print_jobs()
-            self._scheduler.start()
-            logger.info("播放限速检查服务启动")
-
     def get_state(self) -> bool:
         return self._enabled
 
@@ -119,6 +103,29 @@ class SpeedLimiter(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled and self._limit_enabled and self._interval:
+            return [
+                {
+                    "id": "SpeedLimiter",
+                    "name": "播放限速检查服务",
+                    "trigger": "interval",
+                    "func": self.check_playing_sessions,
+                    "kwargs": {"seconds": self._interval}
+                }
+            ]
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
@@ -614,14 +621,4 @@ class SpeedLimiter(_PluginBase):
         return False
 
     def stop_service(self):
-        """
-        退出插件
-        """
-        try:
-            if self._scheduler:
-                self._scheduler.remove_all_jobs()
-                if self._scheduler.running:
-                    self._scheduler.shutdown()
-                self._scheduler = None
-        except Exception as e:
-            print(str(e))
+        pass
