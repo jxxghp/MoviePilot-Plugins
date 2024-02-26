@@ -370,7 +370,7 @@
     "RemoteIdentifiers": {
         "name": "共享识别词",
         "description": "从Github、Etherpad等远程文件中获取共享识别词并应用。",
-        "version": "2.0",
+        "version": "2.1",
         "icon": "words.png",
         "author": "honue",
         "level": 1
