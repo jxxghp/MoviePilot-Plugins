@@ -25,7 +25,7 @@ class LibraryScraper(_PluginBase):
     # 插件图标
     plugin_icon = "scraper.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -114,7 +114,7 @@ class LibraryScraper(_PluginBase):
             return [{
                 "id": "LibraryScraper",
                 "name": "媒体库刮削",
-                "trigger": "cron",
+                "trigger": CronTrigger.from_crontab(self._cron),
                 "func": self.__libraryscraper,
                 "kwargs": {}
             }]
