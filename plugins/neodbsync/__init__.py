@@ -30,7 +30,7 @@ class NeoDBSync(_PluginBase):
     # 插件描述
     plugin_desc = "同步 NeoDB 想看数据，自动添加订阅。"
     # 插件图标
-    plugin_icon = "neodb.png"
+    plugin_icon = "NeoDB.jpeg"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者
