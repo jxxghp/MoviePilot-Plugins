@@ -16,7 +16,7 @@ class ChatGPT(_PluginBase):
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -176,6 +176,28 @@ class ChatGPT(_PluginBase):
                             }
                         ]
                     },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '开启插件后，消息交互时使用请[问帮你]开头，或者以？号结尾，或者超过10个汉字/单词，则会触发ChatGPT回复。'
+                                                    '开启辅助识别后，内置识别功能无法正常识别种子/文件名称时，将使用ChatGTP进行AI辅助识别，可以提升动漫等非规范命名的识别成功率。'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
                 ]
             }
         ], {

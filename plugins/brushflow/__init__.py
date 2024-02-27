@@ -31,7 +31,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -232,12 +232,15 @@ class BrushFlow(_PluginBase):
                 if not self._brushsites or not self._downloader:
                     return
 
-                # 启动任务
+                # 增加任务
                 self._task_enable = True
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+                self._scheduler.add_job(self.check, 'interval',
+                                        minutes=self._check_interval,
+                                        name="站点刷流检查服务")
 
                 # 仅一次
                 if self._onlyonce:
-                    self._scheduler = BackgroundScheduler(timezone=settings.TZ)
                     logger.info(f"站点刷流服务启动，立即运行一次")
                     self._scheduler.add_job(self.brush, 'date',
                                             run_date=datetime.now(
@@ -247,14 +250,11 @@ class BrushFlow(_PluginBase):
                     # 关闭一次性开关
                     self._onlyonce = False
                     self.__update_config()
-                    if self._scheduler.get_jobs():
-                        # 增加检查任务
-                        self._scheduler.add_job(self.check, 'interval',
-                                                minutes=self._check_interval,
-                                                name="站点刷流检查服务")
-                        # 启动服务
-                        self._scheduler.print_jobs()
-                        self._scheduler.start()
+
+                # 启动服务
+                if self._scheduler.get_jobs():
+                    self._scheduler.print_jobs()
+                    self._scheduler.start()
 
     def get_state(self) -> bool:
         return True if self._enabled and self._brushsites and self._downloader else False
