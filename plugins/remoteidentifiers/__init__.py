@@ -23,7 +23,7 @@ class RemoteIdentifiers(_PluginBase):
     # 插件图标
     plugin_icon = "words.png"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "honue"
     # 作者主页
@@ -52,7 +52,7 @@ class RemoteIdentifiers(_PluginBase):
             self._onlyonce = config.get("onlyonce") or False
             self._cron = config.get("cron") or '30 4 * * *'
             self._file_urls = config.get("file_urls") or ''
-            self._flitter = config.get("flitter") or True
+            self._flitter = config.get("flitter") or False
             # config操作
             self.systemconfig = SystemConfigOper()
 

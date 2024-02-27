@@ -250,7 +250,7 @@
     "MoviePilotUpdateNotify": {
         "name": "MoviePilot更新推送",
         "description": "MoviePilot推送release更新通知、自动重启。",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "Moviepilot_A.png",
         "author": "thsrite",
         "level": 1
@@ -370,9 +370,17 @@
     "RemoteIdentifiers": {
         "name": "共享识别词",
         "description": "从Github、Etherpad等远程文件中获取共享识别词并应用。",
-        "version": "2.0",
+        "version": "2.1",
         "icon": "words.png",
         "author": "honue",
         "level": 1
-      }
+      },
+    "NeoDBSync": {
+        "name": "NeoDB 想看",
+        "description": "同步 NeoDB 想看条目，自动添加订阅",
+        "version": "1.0",
+        "icon": "NeoDB.jpeg",
+        "author": "hcplantern",
+        "level": 1
+    }
 }

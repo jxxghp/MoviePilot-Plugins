@@ -22,7 +22,7 @@ class MoviePilotUpdateNotify(_PluginBase):
     # 插件图标
     plugin_icon = "Moviepilot_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -97,7 +97,7 @@ class MoviePilotUpdateNotify(_PluginBase):
         """
         获取最新版本
         """
-        version_res = RequestUtils(proxies=settings.PROXY).get_res(
+        version_res = RequestUtils(proxies=settings.PROXY, headers=settings.GITHUB_HEADERS).get_res(
             "https://api.github.com/repos/jxxghp/MoviePilot/releases/latest")
         if version_res:
             ver_json = version_res.json()
