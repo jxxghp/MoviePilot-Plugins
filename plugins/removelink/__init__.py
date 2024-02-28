@@ -1,8 +1,8 @@
+import os
+import time
 import traceback
 from pathlib import Path
-from typing import List, Tuple, Dict, Any
-import os
-import re
+from typing import List, Tuple, Dict, Any, Set
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
@@ -10,7 +10,6 @@ from watchdog.observers import Observer
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import Notification, NotificationType
-import time
 
 
 class FileMonitorHandler(FileSystemEventHandler):
@@ -27,9 +26,8 @@ class FileMonitorHandler(FileSystemEventHandler):
         logger.info("监测到新增文件：%s" % event.src_path)
         if self.sync.exclude_keywords:
             for keyword in self.sync.exclude_keywords.split("\n"):
-                if keyword and re.findall(keyword, event.src_path):
+                if keyword and keyword in event.src_path:
                     logger.info(f"{event.src_path} 命中过滤关键字 {keyword}，不处理")
-                    print(f"{event.src_path} 命中过滤关键字 {keyword}，不处理")
                     return
         new_file = Path(event.src_path)
         try:
@@ -45,11 +43,11 @@ class FileMonitorHandler(FileSystemEventHandler):
         # 命中过滤关键字不处理
         if self.sync.exclude_keywords:
             for keyword in self.sync.exclude_keywords.split("\n"):
-                if keyword and re.findall(keyword, event.src_path):
+                if keyword and keyword in event.src_path:
                     logger.info(f"{event.src_path} 命中过滤关键字 {keyword}，不处理")
-                    print(f"{event.src_path} 命中过滤关键字 {keyword}，不处理")
                     return
-        self.sync.event_handler()
+        # 删除硬链接文件
+        self.sync.handle_deleted()
 
 
 def updateState(monitor_dirs: List[str]):
@@ -65,8 +63,10 @@ def updateState(monitor_dirs: List[str]):
                 if not file.exists():
                     continue
                 state_set.add((file, file.stat().st_ino))
-    end_time = time.time()  # 记录结束时间
-    elapsed_time = end_time - start_time  # 计算耗时
+    # 记录结束时间
+    end_time = time.time()
+    # 计算耗时
+    elapsed_time = end_time - start_time
     logger.info(f"更新文件列表完成，共计{len(state_set)}个文件，耗时：{elapsed_time}秒")
 
     return state_set
@@ -80,7 +80,7 @@ class RemoveLink(_PluginBase):
     # 插件图标
     plugin_icon = "Ombi_A.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -94,12 +94,14 @@ class RemoveLink(_PluginBase):
 
     # preivate property
     monitor_dirs = ""
-    exclude_keywords = ""
+    exclude_keywords = ".!qB"
     _enabled = False
     _notify = False
     _observer = []
-    state_set = set()
-    ignored_files = set()
+    # 监控目录的文件列表
+    state_set: Set[Tuple[Path, int]] = set()
+    # 已忽略的文件
+    ignored_files: Set[Path] = set()
 
     def init_plugin(self, config: dict = None):
         logger.info(f"Hello, RemoveLink! config {config}")
@@ -108,7 +110,7 @@ class RemoveLink(_PluginBase):
             self._notify = config.get("notify")
             self.monitor_dirs = config.get("monitor_dirs")
             self.exclude_keywords = config.get("exclude_keywords") or ""
-        self.__update_config()
+
         # 停止现有任务
         self.stop_service()
         if self._enabled:
@@ -134,6 +136,7 @@ class RemoveLink(_PluginBase):
                     err_msg = str(e)
                     logger.error(f"{mon_path} 启动目录监控失败：{err_msg}")
                     self.systemmessage.put(f"{mon_path} 启动目录监控失败：{err_msg}")
+            # 更新监控集合
             self.state_set = updateState(monitor_dirs)
 
     def __update_config(self):
@@ -265,7 +268,7 @@ class RemoveLink(_PluginBase):
             "notify": False,
             "onlyonce": False,
             "monitor_dirs": "",
-            "exclude_keywords": "",
+            "exclude_keywords": ".!qB",
         }
 
     def get_page(self) -> List[dict]:
@@ -285,21 +288,25 @@ class RemoveLink(_PluginBase):
                     logger.error(f"停止目录监控失败：{str(e)}")
         self._observer = []
 
-    def event_handler(self):
+    def handle_deleted(self):
         """
         处理删除事件
         """
+        # 当前目录文件列表
         current_set = updateState(self.monitor_dirs.split("\n"))
+        # 已删除的文件
         deleted_set = self.state_set - current_set
+        # 已删除的inode
         deleted_inode = [x[1] for x in deleted_set]
         try:
             # 在current_set中查找与deleted_inode有相同inode的文件并删除
             for path, inode in current_set:
                 if inode in deleted_inode:
                     file = Path(path)
-                    self.ignored_files.add(file)
-                    file.unlink()
+                    # 删除硬链接文件
                     logger.info(f"删除硬链接文件：{path}")
+                    file.unlink()
+                    self.ignored_files.add(file)
                     if self._notify:
                         for d_path, d_inode in deleted_set:
                             if d_inode == inode:
@@ -307,10 +314,8 @@ class RemoveLink(_PluginBase):
                                     Notification(
                                         mtype=NotificationType.SiteMessage,
                                         title=f"【清理硬链接】",
-                                        text=f"监控到删除源文件：\n"
-                                        f"[{d_path}]\n"
-                                        f"同步删除硬链接文件：\n"
-                                        f"[{path}]",
+                                        text=f"监控到删除源文件：[{d_path}]\n"
+                                        f"同步删除硬链接文件：[{path}]",
                                     )
                                 )
         except Exception as e:
