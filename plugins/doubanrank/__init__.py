@@ -53,6 +53,7 @@ class DoubanRank(_PluginBase):
         'movie-hot-gaia': 'https://rsshub.app/douban/movie/weekly/movie_hot_gaia',
         'tv-hot': 'https://rsshub.app/douban/movie/weekly/tv_hot',
         'movie-top250': 'https://rsshub.app/douban/movie/weekly/movie_top250',
+        'movie-top250-full': 'https://rsshub.app/douban/list/movie_top250',
     }
     _enabled = False
     _cron = ""
@@ -274,6 +275,7 @@ class DoubanRank(_PluginBase):
                                                 {'title': '热门电影', 'value': 'movie-hot-gaia'},
                                                 {'title': '热门电视剧', 'value': 'tv-hot'},
                                                 {'title': '电影TOP10', 'value': 'movie-top250'},
+                                                {'title': '电影TOP250', 'value': 'movie-top250-full'},
                                             ]
                                         }
                                     }
