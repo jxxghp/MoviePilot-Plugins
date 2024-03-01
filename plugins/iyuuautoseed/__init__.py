@@ -712,7 +712,7 @@ class IYUUAutoSeed(_PluginBase):
                 # 获取种子Hash
                 torrent_hash = self.qb.get_torrent_id_by_tag(tags=tag)
                 if not torrent_hash:
-                    logger.error(f"{downloader} 获取种子Hash失败")
+                    logger.error(f"{downloader} 下载任务添加成功，但获取任务信息失败！")
                     return None
             return torrent_hash
         elif downloader == "transmission":
