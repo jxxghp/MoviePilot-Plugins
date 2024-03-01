@@ -290,7 +290,7 @@
     "ConfigCenter": {
         "name": "配置中心",
         "description": "快速调整部分系统设定。",
-        "version": "2.1",
+        "version": "2.2",
         "icon": "setting.png",
         "author": "jxxghp",
         "level": 1

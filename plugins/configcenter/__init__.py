@@ -17,7 +17,7 @@ class ConfigCenter(_PluginBase):
     # 插件图标
     plugin_icon = "setting.png"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -85,17 +85,13 @@ class ConfigCenter(_PluginBase):
         # 自定义配置，以换行分隔
         config_params = self.__parse_params(conf.get("params"))
         conf.update(config_params)
-        # 去掉无效参数
-        try:
-            conf.pop("enabled")
-            conf.pop("writeenv")
-            conf.pop("params")
-        except KeyError:
-            pass
         # 读写app.env
         env_path = settings.CONFIG_PATH / "app.env"
         for key, value in conf.items():
             if not key:
+                continue
+            # 如果参数不在支持列表中, 则跳过
+            if key not in self.settings_attributes and key not in config_params:
                 continue
             if value is None or str(value) == "None":
                 value = ''
