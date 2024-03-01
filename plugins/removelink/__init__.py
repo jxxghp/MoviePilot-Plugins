@@ -85,7 +85,7 @@ class RemoveLink(_PluginBase):
     # 插件图标
     plugin_icon = "Ombi_A.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -99,6 +99,7 @@ class RemoveLink(_PluginBase):
 
     # preivate property
     monitor_dirs = ""
+    exclude_dirs = ""
     exclude_keywords = ".!qB"
     _enabled = False
     _notify = False
@@ -112,10 +113,12 @@ class RemoveLink(_PluginBase):
             self._enabled = config.get("enabled")
             self._notify = config.get("notify")
             self.monitor_dirs = config.get("monitor_dirs")
+            self.exclude_dirs = config.get("exclude_dirs") or ""
             self.exclude_keywords = config.get("exclude_keywords") or ""
 
         # 停止现有任务
         self.stop_service()
+
         if self._enabled:
             # 读取目录配置
             monitor_dirs = self.monitor_dirs.split("\n")
@@ -215,7 +218,27 @@ class RemoveLink(_PluginBase):
                                             "model": "monitor_dirs",
                                             "label": "监控目录",
                                             "rows": 5,
-                                            "placeholder": "每一行一个目录",
+                                            "placeholder": "源目录及硬链接目录均需加入监控，每一行一个目录",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "exclude_dirs",
+                                            "label": "不删除目录",
+                                            "rows": 5,
+                                            "placeholder": "该目录下的文件不会被动删除，一行一个目录",
                                         },
                                     }
                                 ],
@@ -258,7 +281,7 @@ class RemoveLink(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '监控目录如有多个请换行，源目录和硬链接目录都需要添加到监控目录中。'
+                                            'text': '监控目录如有多个需换行，源目录和硬链接目录都需要添加到监控目录中；如需实现删除硬链接时不删除源文件，可把源文件目录配置到不删除目录中。'
                                         }
                                     }
                                 ]
@@ -292,6 +315,15 @@ class RemoveLink(_PluginBase):
                     logger.error(f"停止目录监控失败：{str(e)}")
         self._observer = []
 
+    def __is_excluded(self, file_path: Path) -> bool:
+        """
+        是否排除目录
+        """
+        for exclude_dir in self.exclude_dirs.split("\n"):
+            if exclude_dir and exclude_dir in str(file_path):
+                return True
+        return False
+
     def handle_deleted(self, file_path: Path):
         """
         处理删除事件
@@ -310,6 +342,9 @@ class RemoveLink(_PluginBase):
                 for path, inode in self.state_set.copy().items():
                     if inode == deleted_inode:
                         file = Path(path)
+                        if self.__is_excluded(file):
+                            logger.info(f"文件 {file} 在不删除目录中，不处理")
+                            continue
                         # 删除硬链接文件
                         logger.info(f"删除硬链接文件：{path}， inode: {inode}")
                         file.unlink()
