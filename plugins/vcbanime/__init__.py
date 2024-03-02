@@ -60,11 +60,11 @@ class VCBAnime(_PluginBase):
     # 插件图标
     plugin_icon = "directory.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "luojianquan443"
     # 作者主页
-    author_url = "https://github.com/jxxghp"
+    author_url = "https://github.com/luojianquan443"
     # 插件配置项ID前缀
     plugin_config_prefix = "vcbanime_"
     # 加载顺序
@@ -123,7 +123,7 @@ class VCBAnime(_PluginBase):
         pre_title = pre_meta.title
         if not pre_title:
             return None
-        if '[VCB-Studio]' not in pre_title:
+        if 'VCB-Studio' not in pre_title:
             logger.info(f"{file_path} 不是VCB的资源，不处理")
             return None
         # 从title解析出集数,把第一个[VCB-Studio]去掉，第二个[]里面的内容就是集数,把里面的内容提取
@@ -425,9 +425,13 @@ class VCBAnime(_PluginBase):
 
                 # 元数据
                 file_meta = self.handel_filename(file_path)
-                if not file_meta.name:
-                    logger.error(f"{file_path.name} 无法识别有效信息")
+                if file_meta:
+                    if not file_meta.name:
+                        logger.error(f"{file_path.name} 无法识别有效信息")
+                        return
+                else:
                     return
+
 
                 # 判断文件大小
                 if self._size and float(self._size) > 0 and file_path.stat().st_size < float(self._size) * 1024 ** 3:
