@@ -1,6 +1,6 @@
 {
     "VCBAnime": {
-        "name": "目录监控(VCB-Studio版本)",
+        "name": "目录监控(VCB-Studio)",
         "description": "监控目录文件发生变化时实时整理到媒体库。",
         "version": "1.0",
         "icon": "Qinglong_A.png",
