@@ -1,4 +1,5 @@
 import datetime
+import logging
 import re
 import shutil
 import threading
@@ -28,6 +29,7 @@ from app.schemas import Notification, NotificationType, TransferInfo
 from app.schemas.types import EventType, MediaType, SystemConfigKey
 from app.utils.string import StringUtils
 from app.utils.system import SystemUtils
+import roman
 
 lock = threading.Lock()
 
@@ -50,10 +52,9 @@ class FileMonitorHandler(FileSystemEventHandler):
         self.sync.event_handler(event=event, text="移动",
                                 mon_path=self._watch_path, event_path=event.dest_path)
 
-
-class DirMonitor(_PluginBase):
+class VCBAnime(_PluginBase):
     # 插件名称
-    plugin_name = "目录监控"
+    plugin_name = "目录监控(VCB-Studio版本)"
     # 插件描述
     plugin_desc = "监控目录文件发生变化时实时整理到媒体库。"
     # 插件图标
@@ -61,11 +62,11 @@ class DirMonitor(_PluginBase):
     # 插件版本
     plugin_version = "1.7"
     # 插件作者
-    plugin_author = "jxxghp"
+    plugin_author = "luojianquan443"
     # 作者主页
     author_url = "https://github.com/jxxghp"
     # 插件配置项ID前缀
-    plugin_config_prefix = "dirmonitor_"
+    plugin_config_prefix = "vcbanime_"
     # 加载顺序
     plugin_order = 4
     # 可使用的用户级别
@@ -97,6 +98,87 @@ class DirMonitor(_PluginBase):
     _medias = {}
     # 退出事件
     _event = threading.Event()
+
+    ep: str = None
+    season: str = "S01"
+    season_ep: str = None
+    # 适用于VCB季度的正则表达列表，字典中的key是正则表达式，value是季度的位置
+    _seasons_pattern = [
+        {r"S(\d+)$", 1},  # 匹配S01情况，例子：Go-Toubun no Hanayome S2
+        {r"(\d+)$": 1},  # 匹配01情况，例子：Go-Toubun no Hanayome 2
+        {r"(\d+)(st|nd|rd|th)?\s*[Ss]eason": 1},  # 匹配1st Season情况，例子：Go-Toubun no Hanayome 1st Season
+        {r"\s(II|III|IV|V|VI|VII|VIII|IX|X)$": "1"}
+
+    ]
+    _episode_patterns = [
+        {r"\[\d+\((OVA|OAD)\d*\)\]": "OVA"},  # 匹配集数中出现OVA或者OAD的情况，此时应该直接判断季度为0
+        {r"\[(\d+\)]": 1},
+        {r"\[(\d+)\((\d+)\)\]": 2}
+    ]
+    _ova_patterns = [
+        {r"\((OVA|OAD)(\d+)\)": 2},
+    ]
+    def handel_filename(self, file_path: Path):
+        pre_meta = MetaInfoPath(path=file_path)
+        pre_title = pre_meta.title
+        if not pre_title:
+            return None
+        if '[VCB-Studio]' not in pre_title:
+            logger.info(f"{file_path} 不是VCB的资源，不处理")
+            return None
+        # 从title解析出集数,把第一个[VCB-Studio]去掉，第二个[]里面的内容就是集数,把里面的内容提取
+        pre_title = pre_title.replace('[VCB-Studio]', '')
+        episodes = re.findall(r"\[(.*?)\]", pre_title)
+        if episodes:  # 确保找到至少一个匹配
+            episode = episodes[0]
+            for _episode_pattern in self._episode_patterns:
+                for k, v in _episode_pattern.items():
+                    match = re.search(k, episode)
+                    if match:
+                        if v == "OVA":
+                            self.season = "S00"
+                            logging.info("识别出是OVA/OAD,开始进行OVA模式匹配！")
+                            self.ep = f"E{self.handle_ova(match.group(0))}"
+                            break
+                        else:
+                            self.ep = f"E{match.group(v).zfill(2)}"
+                            logging.info(f"识别出: 第{episode}集")
+                            break
+        else:
+            print("无法匹配出集数的位置! 结束识别！")
+            return None
+        # 从title解析出集数之后,去掉所有的[]，然后用正则匹配季度
+        pre_title = Path(re.sub(r"\[.*?\]", "", pre_title)).stem.strip()
+        for _season_pattern in self._seasons_pattern:
+            for k, v in _season_pattern.items():
+                match = re.search(k, pre_title)
+                if match:
+                    if type(v) == str:
+                        self.season = f"S{roman.fromRoman(match.group(int(v))).zfll(2)}"
+                    else:
+                        self.season = f"S{match.group(v).zfill(2)}"
+                    logging.info(f"识别出: 第{self.season}季")
+                    break
+        if self.ep:
+            self.season_ep = f"{self.season} {self.ep}"
+        else:
+            logging.info("从标题无法获得明确季度信息，默认返回第1季！")
+        pre_meta.begin_episode = self.ep
+        pre_meta.begin_season = self.season
+        pre_meta.__dict__.__setitem__('season_episode', self.season_ep)
+        return pre_meta
+
+    # 处理OVA
+    def handle_ova(self, ova_name: str) -> int:
+        # OVA处理
+        for _ova_pattern in self._ova_patterns:
+            for k, v in _ova_pattern.items():
+                match = re.search(k, ova_name)
+                if match:
+                    return int(match.group(v))
+        # 如果OAD后面没有匹配到数字，默认返回1
+        logging.info("没有匹配到OVA/OAD的集数，默认返回1")
+        return 1
 
     def init_plugin(self, config: dict = None):
         self.transferhis = TransferHistoryOper()
@@ -342,7 +424,7 @@ class DirMonitor(_PluginBase):
                     return
 
                 # 元数据
-                file_meta = MetaInfoPath(file_path)
+                file_meta = self.handel_filename(file_path)
                 if not file_meta.name:
                     logger.error(f"{file_path.name} 无法识别有效信息")
                     return
