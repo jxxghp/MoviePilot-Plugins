@@ -51,7 +51,7 @@ class LinkMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "Linkace_C.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -304,9 +304,9 @@ class LinkMonitor(_PluginBase):
                 # 判断文件大小
                 if self._size and float(self._size) > 0 and file_path.stat().st_size < float(self._size) * 1024:
                     logger.info(f"{event_path} 文件大小小于最小文件大小，复制...")
-                    _transfer_type = "link"
-                else:
                     _transfer_type = "copy"
+                else:
+                    _transfer_type = "link"
 
                 # 查询转移目的目录
                 target: Path = self._dirconf.get(mon_path)
