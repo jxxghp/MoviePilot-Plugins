@@ -271,6 +271,8 @@ class PlayletCategory(_PluginBase):
             # 新的文件目录
             new_path = root_path / self._category_name / tv_name / season_dir / file.name
             logger.info(f"移动文件 {file} 到 {new_path} ...")
+            if not new_path.parent.exists():
+                new_path.parent.mkdir(parents=True, exist_ok=True)
             code, msg = SystemUtils.move(Path(file), new_path)
             if code == 0:
                 logger.info(f"{file} 移动完成")
