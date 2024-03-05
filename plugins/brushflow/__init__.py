@@ -1852,13 +1852,13 @@ class BrushFlow(_PluginBase):
         """
         if not self._notify:
             return
-        self.chain.post_message(Notification(
+        self.post_message(
             mtype=NotificationType.SiteMessage,
             title=f"【刷流任务删种】",
             text=f"站点：{site_name}\n"
                  f"标题：{torrent_title}\n"
                  f"原因：{reason}"
-        ))
+        )
 
     def __send_add_message(self, torrent: TorrentInfo):
         """
@@ -1886,11 +1886,11 @@ class BrushFlow(_PluginBase):
         if torrent.hit_and_run:
             msg_text = f"{msg_text}\nHit&Run：是"
 
-        self.chain.post_message(Notification(
+        self.post_message(
             mtype=NotificationType.SiteMessage,
             title="【刷流任务种子下载】",
             text=msg_text
-        ))
+        )
 
     def __get_torrents_size(self) -> int:
         """

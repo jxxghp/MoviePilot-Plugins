@@ -25,7 +25,7 @@ class PlayletCategory(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -38,6 +38,7 @@ class PlayletCategory(_PluginBase):
     auth_level = 1
 
     _enabled = False
+    _notify = True
     _delay = 0
     _category_name = "短剧"
     _episode_duration = 20
@@ -47,6 +48,7 @@ class PlayletCategory(_PluginBase):
         if config:
             self._enabled = config.get("enabled")
             self._delay = config.get("delay") or 0
+            self._notify = config.get("notify")
             self._category_name = config.get("category_name")
             self._episode_duration = config.get("episode_duration")
 
@@ -83,6 +85,22 @@ class PlayletCategory(_PluginBase):
                                         'props': {
                                             'model': 'enabled',
                                             'label': '启用插件',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'notify',
+                                            'label': '发送消息',
                                         }
                                     }
                                 ]
@@ -170,6 +188,7 @@ class PlayletCategory(_PluginBase):
             }
         ], {
             "enabled": False,
+            "notify": True,
             "delay": '',
             "category_name": '短剧',
             "episode_duration": '20'
@@ -267,6 +286,12 @@ class PlayletCategory(_PluginBase):
         # 移动目录
         try:
             shutil.move(tv_path, new_path)
+            # 发送消息
+            if self._notify:
+                self.post_message(
+                    title="【短剧自动分类】",
+                    text=f"已将 {tv_path.name} 分类到 {self._category_name} 目录",
+                )
         except Exception as e:
             logger.error(f"移动文件失败：{e}")
 

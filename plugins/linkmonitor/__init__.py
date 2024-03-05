@@ -322,21 +322,21 @@ class LinkMonitor(_PluginBase):
                     # 转移失败
                     logger.warn(f"{file_path.name} 硬链接失败：{errmsg}")
                     if self._notify:
-                        self.chain.post_message(Notification(
+                        self.post_message(
                             mtype=NotificationType.Manual,
                             title=f"{file_path.name} 硬链接失败！",
                             text=f"原因：{errmsg or '未知'}"
-                        ))
+                        )
                     return
 
                 # 转移成功
                 logger.info(f"{file_path.name} 硬链接成功")
                 if self._notify:
-                    self.chain.post_message(Notification(
+                    self.post_message(
                         mtype=NotificationType.Manual,
                         title=f"{file_path.name} 硬链接完成！",
                         text=f"目标目录：{target}"
-                    ))
+                    )
 
         except Exception as e:
             logger.error("目录监控发生错误：%s - %s" % (str(e), traceback.format_exc()))

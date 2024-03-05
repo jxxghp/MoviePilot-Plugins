@@ -381,11 +381,11 @@ class DirMonitor(_PluginBase):
                         meta=file_meta
                     )
                     if self._notify:
-                        self.chain.post_message(Notification(
+                        self.post_message(
                             mtype=NotificationType.Manual,
                             title=f"{file_path.name} 未识别到媒体信息，无法入库！\n"
                                   f"回复：```\n/redo {his.id} [tmdbid]|[类型]\n``` 手动识别转移。"
-                        ))
+                        )
                     return
 
                 # 如果未开启新增已入库媒体是否跟随TMDB信息变化则根据tmdbid查询之前的title
@@ -436,12 +436,12 @@ class DirMonitor(_PluginBase):
                         transferinfo=transferinfo
                     )
                     if self._notify:
-                        self.chain.post_message(Notification(
+                        self.post_message(
                             mtype=NotificationType.Manual,
                             title=f"{mediainfo.title_year}{file_meta.season_episode} 入库失败！",
                             text=f"原因：{transferinfo.message or '未知'}",
                             image=mediainfo.get_message_image()
-                        ))
+                        )
                     return
 
                 # 新增转移成功历史记录

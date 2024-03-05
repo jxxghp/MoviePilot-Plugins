@@ -349,13 +349,11 @@ class RemoveLink(_PluginBase):
                         logger.info(f"删除硬链接文件：{path}， inode: {inode}")
                         file.unlink()
                         if self._notify:
-                            self.chain.post_message(
-                                Notification(
-                                    mtype=NotificationType.SiteMessage,
-                                    title=f"【清理硬链接】",
-                                    text=f"监控到删除源文件：[{file_path}]\n"
-                                         f"同步删除硬链接文件：[{path}]",
-                                )
+                            self.post_message(
+                                mtype=NotificationType.SiteMessage,
+                                title=f"【清理硬链接】",
+                                text=f"监控到删除源文件：[{file_path}]\n"
+                                     f"同步删除硬链接文件：[{path}]",
                             )
             except Exception as e:
                 logger.error("删除硬链接文件发生错误：%s - %s" % (str(e), traceback.format_exc()))
