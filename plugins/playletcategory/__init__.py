@@ -23,7 +23,7 @@ class PlayletCategory(_PluginBase):
     # 插件描述
     plugin_desc = "网络短剧自动分类到独立的二级目录。"
     # 插件图标
-    plugin_icon = "Amule_B.png"
+    plugin_icon = "Amule_A.png"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者
