@@ -386,7 +386,7 @@
     "PlayletCategory": {
         "name": "短剧自动分类",
         "description": "网络短剧自动整理到独立的分类目录。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "Amule_A.png",
         "author": "jxxghp",
         "level": 1

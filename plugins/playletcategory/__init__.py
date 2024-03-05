@@ -25,7 +25,7 @@ class PlayletCategory(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -190,10 +190,14 @@ class PlayletCategory(_PluginBase):
         event_data = event.event_data
         mediainfo: MediaInfo = event_data.get("mediainfo")
         transferinfo: TransferInfo = event_data.get("transferinfo")
-        if not mediainfo or not transferinfo:
-            return
         if not settings.LIBRARY_CATEGORY:
             logger.warn(f"未开始媒体库自动分类，跳过分类处理")
+            return
+        if not mediainfo or not transferinfo:
+            return
+        if not transferinfo.target_path:
+            return
+        if not transferinfo.target_path.exists():
             return
         if mediainfo.type != MediaType.TV:
             logger.info(f"{transferinfo.target_path} 不是电视剧，跳过分类处理")
@@ -247,43 +251,24 @@ class PlayletCategory(_PluginBase):
             return 0
 
         # 获取视频时长（秒），转换为分钟
-        return float(output) / 60
+        return round(float(output) / 60, 1)
 
     def __move_files(self, target_path: Path):
         """
         移动文件到分类目录
+        :param target_path: 电视剧时为季的目录
         """
         if not target_path.exists():
             return
-        # 获取目标目录下的所有文件
-        file_list = list(target_path.iterdir())
-        # 季目录名
-        season_dir = target_path.name
         # 剧集的根目录
         tv_path = target_path.parent
-        # 剧集名称
-        tv_name = target_path.name
-        # 原分类目录
-        root_path = tv_path.parent
-        # 二级分类目录
-        has_error = False
-        for file in file_list:
-            # 新的文件目录
-            new_path = root_path / self._category_name / tv_name / season_dir / file.name
-            logger.info(f"移动文件 {file} 到 {new_path} ...")
-            if not new_path.parent.exists():
-                new_path.parent.mkdir(parents=True, exist_ok=True)
-            code, msg = SystemUtils.move(Path(file), new_path)
-            if code == 0:
-                logger.info(f"{file} 移动完成")
-            else:
-                logger.error(f"{file} 移动失败：{msg}")
-                has_error = True
-        # 删除空目录
-        if not has_error:
-            logger.info(f"删除空目录 {target_path} ...")
-            shutil.rmtree(target_path)
-            logger.info(f"{target_path} 删除完成")
+        # 新的文件目录
+        new_path = tv_path.parent.parent / self._category_name / tv_path.name
+        # 移动目录
+        try:
+            shutil.move(tv_path, new_path)
+        except Exception as e:
+            logger.error(f"移动文件失败：{e}")
 
     def stop_service(self):
         """
