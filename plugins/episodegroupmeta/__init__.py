@@ -41,7 +41,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 插件名称
     plugin_name = "TMDB剧集组刮削"
     # 插件描述
-    plugin_desc = "从TMDB剧集组刮削季集的实际顺序"
+    plugin_desc = "从TMDB剧集组刮削季集的实际顺序。"
     # 插件图标
     plugin_icon = "Element_A.png"
     # 主题色
