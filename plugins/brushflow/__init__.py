@@ -1,4 +1,5 @@
 import re
+import requests
 import threading
 import time
 from datetime import datetime, timedelta
@@ -117,6 +118,7 @@ class BrushFlow(_PluginBase):
             self._dl_speed = config.get("dl_speed")
             self._save_path = config.get("save_path")
             self._clear_task = config.get("clear_task")
+            self._offline_mode = config.get("offline_mode")
 
             # 过滤掉已删除的站点
             self._brushsites = [site.get("id") for site in self.sites.get_indexers() if
@@ -345,6 +347,22 @@ class BrushFlow(_PluginBase):
                                         'props': {
                                             'model': 'onlyonce',
                                             'label': '立即运行一次',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'offline_mode',
+                                            'label': '离线下载种子',
                                         }
                                     }
                                 ]
@@ -801,6 +819,7 @@ class BrushFlow(_PluginBase):
             "enabled": False,
             "notify": True,
             "onlyonce": False,
+            "offline_mode": False,
             "clear_task": False,
             "freeleech": "free",
             "hr": "yes",
@@ -1641,7 +1660,15 @@ class BrushFlow(_PluginBase):
             down_speed = down_speed * 1024 if down_speed else None
             # 生成随机Tag
             tag = StringUtils.generate_random_str(10)
-            state = self.qb.add_torrent(content=torrent.enclosure,
+            content = torrent.enclosure
+            if self._offline_mode:
+                torrent_resp = requests.get(content,
+                                            headers={'User-Agent': torrent.site_ua.strip(), 'cookie': torrent.site_cookie.strip()})
+                if torrent_resp.ok:
+                    content = torrent_resp.content
+                else:
+                    logger.error('下载种子文件失败，继续提交种子链接进行下载')
+            state = self.qb.add_torrent(content=content,
                                         download_dir=self._save_path or None,
                                         cookie=torrent.site_cookie,
                                         tag=["已整理", "刷流", tag],
