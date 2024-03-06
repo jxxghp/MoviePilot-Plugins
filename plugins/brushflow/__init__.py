@@ -32,7 +32,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -1316,7 +1316,7 @@ class BrushFlow(_PluginBase):
             "dl_speed": self._dl_speed,
             "save_path": self._save_path,
             "clear_task": self._clear_task,
-            "offline_mode": self._offline_mode,
+            "offline_mode": self._offline_mode
         })
 
     def brush(self):
