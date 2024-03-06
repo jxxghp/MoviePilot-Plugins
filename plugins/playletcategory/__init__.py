@@ -11,8 +11,7 @@ from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import TransferInfo
-from app.schemas.types import EventType, MediaType
-from app.utils.system import SystemUtils
+from app.schemas.types import EventType, MediaType, NotificationType
 
 lock = threading.Lock()
 
@@ -25,7 +24,7 @@ class PlayletCategory(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -289,6 +288,7 @@ class PlayletCategory(_PluginBase):
             # 发送消息
             if self._notify:
                 self.post_message(
+                    mtype=NotificationType.Organize,
                     title="【短剧自动分类】",
                     text=f"已将 {tv_path.name} 分类到 {self._category_name} 目录",
                 )
