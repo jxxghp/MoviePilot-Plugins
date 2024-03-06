@@ -1315,7 +1315,8 @@ class BrushFlow(_PluginBase):
             "up_speed": self._up_speed,
             "dl_speed": self._dl_speed,
             "save_path": self._save_path,
-            "clear_task": self._clear_task
+            "clear_task": self._clear_task,
+            "offline_mode": self._offline_mode,
         })
 
     def brush(self):
