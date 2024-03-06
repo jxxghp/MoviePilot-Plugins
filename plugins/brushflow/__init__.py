@@ -18,6 +18,7 @@ from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
 from app.schemas import Notification, NotificationType, TorrentInfo
+from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
 lock = threading.Lock()
@@ -31,7 +32,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -117,6 +118,7 @@ class BrushFlow(_PluginBase):
             self._dl_speed = config.get("dl_speed")
             self._save_path = config.get("save_path")
             self._clear_task = config.get("clear_task")
+            self._offline_mode = config.get("offline_mode")
 
             # 过滤掉已删除的站点
             self._brushsites = [site.get("id") for site in self.sites.get_indexers() if
@@ -345,6 +347,22 @@ class BrushFlow(_PluginBase):
                                         'props': {
                                             'model': 'onlyonce',
                                             'label': '立即运行一次',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'offline_mode',
+                                            'label': '离线下载种子',
                                         }
                                     }
                                 ]
@@ -801,6 +819,7 @@ class BrushFlow(_PluginBase):
             "enabled": False,
             "notify": True,
             "onlyonce": False,
+            "offline_mode": False,
             "clear_task": False,
             "freeleech": "free",
             "hr": "yes",
@@ -1296,7 +1315,8 @@ class BrushFlow(_PluginBase):
             "up_speed": self._up_speed,
             "dl_speed": self._dl_speed,
             "save_path": self._save_path,
-            "clear_task": self._clear_task
+            "clear_task": self._clear_task,
+            "offline_mode": self._offline_mode
         })
 
     def brush(self):
@@ -1641,7 +1661,15 @@ class BrushFlow(_PluginBase):
             down_speed = down_speed * 1024 if down_speed else None
             # 生成随机Tag
             tag = StringUtils.generate_random_str(10)
-            state = self.qb.add_torrent(content=torrent.enclosure,
+            content = torrent.enclosure
+            if self._offline_mode:
+                torrent_res = RequestUtils(cookies=torrent.site_cookie,
+                                           ua=torrent.site_ua).get_res(url=content)
+                if torrent_res.ok:
+                    content = torrent_res.content
+                else:
+                    logger.error('下载种子文件失败，继续提交种子链接进行下载')
+            state = self.qb.add_torrent(content=content,
                                         download_dir=self._save_path or None,
                                         cookie=torrent.site_cookie,
                                         tag=["已整理", "刷流", tag],
