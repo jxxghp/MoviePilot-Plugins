@@ -1,5 +1,4 @@
 import re
-import requests
 import threading
 import time
 from datetime import datetime, timedelta
@@ -19,6 +18,7 @@ from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
 from app.schemas import Notification, NotificationType, TorrentInfo
+from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
 lock = threading.Lock()
@@ -1663,10 +1663,10 @@ class BrushFlow(_PluginBase):
             tag = StringUtils.generate_random_str(10)
             content = torrent.enclosure
             if self._offline_mode:
-                torrent_resp = requests.get(content,
-                                            headers={'User-Agent': torrent.site_ua.strip(), 'cookie': torrent.site_cookie.strip()})
-                if torrent_resp.ok:
-                    content = torrent_resp.content
+                torrent_res = RequestUtils(cookies=torrent.site_cookie,
+                                           ua=torrent.site_ua).get_res(url=content)
+                if torrent_res.ok:
+                    content = torrent_res.content
                 else:
                     logger.error('下载种子文件失败，继续提交种子链接进行下载')
             state = self.qb.add_torrent(content=content,
