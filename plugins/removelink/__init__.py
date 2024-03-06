@@ -28,8 +28,10 @@ class FileMonitorHandler(FileSystemEventHandler):
     def on_created(self, event):
         if event.is_directory:
             return
-        logger.info("监测到新增文件：%s" % event.src_path)
         file_path = Path(event.src_path)
+        if file_path.suffix in [".!qB", ".part", ".mp"]:
+            return
+        logger.info(f"监测到新增文件：{file_path}")
         if self.sync.exclude_keywords:
             for keyword in self.sync.exclude_keywords.split("\n"):
                 if keyword and keyword in str(file_path):
@@ -42,8 +44,10 @@ class FileMonitorHandler(FileSystemEventHandler):
     def on_deleted(self, event):
         if event.is_directory:
             return
-        logger.info("监测到删除文件：%s" % event.src_path)
         file_path = Path(event.src_path)
+        if file_path.suffix in [".!qB", ".part", ".mp"]:
+            return
+        logger.info(f"监测到删除文件：{file_path}")
         # 命中过滤关键字不处理
         if self.sync.exclude_keywords:
             for keyword in self.sync.exclude_keywords.split("\n"):
@@ -58,7 +62,8 @@ def updateState(monitor_dirs: List[str]):
     """
     更新监控目录的文件列表
     """
-    start_time = time.time()  # 记录开始时间
+    # 记录开始时间
+    start_time = time.time()
     state_set = {}
     for mon_path in monitor_dirs:
         for root, dirs, files in os.walk(mon_path):
@@ -85,7 +90,7 @@ class RemoveLink(_PluginBase):
     # 插件图标
     plugin_icon = "Ombi_A.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -100,7 +105,7 @@ class RemoveLink(_PluginBase):
     # preivate property
     monitor_dirs = ""
     exclude_dirs = ""
-    exclude_keywords = ".!qB"
+    exclude_keywords = ""
     _enabled = False
     _notify = False
     _observer = []
@@ -295,7 +300,7 @@ class RemoveLink(_PluginBase):
             "notify": False,
             "onlyonce": False,
             "monitor_dirs": "",
-            "exclude_keywords": ".!qB",
+            "exclude_keywords": "",
         }
 
     def get_page(self) -> List[dict]:
