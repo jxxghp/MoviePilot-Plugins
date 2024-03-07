@@ -14,6 +14,7 @@ from app.core.event import eventmanager, Event
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.schedulers.background import BackgroundScheduler
 
+
 class DiagParamAdjust(_PluginBase):
     # 插件名称
     plugin_name = "诊断参数调整"
@@ -50,13 +51,13 @@ class DiagParamAdjust(_PluginBase):
     _url = "[HOST]emby/EncodingDiagnostics/DiagnosticOptions?api_key=[APIKEY]"
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
-    
+
     # 目标消息
     _webhook_actions = {
         "playback.start": "开始播放",
         "user.authenticated": "登录成功"
     }
-    
+
     def init_plugin(self, config: dict = None):
         # 停止现有任务
         self.stop_service()
@@ -90,7 +91,7 @@ class DiagParamAdjust(_PluginBase):
                 "cron_switch": self._cron_switch,
                 "login_play": self._login_play
             })
-            
+
             # 启动任务
             # self.run()
             if self._scheduler.get_jobs():
@@ -99,7 +100,7 @@ class DiagParamAdjust(_PluginBase):
 
     def get_state(self) -> bool:
         return self._enabled
-    
+
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
         pass
@@ -325,7 +326,7 @@ class DiagParamAdjust(_PluginBase):
                     }
                 ]
             }
-        ],{
+        ], {
             "enabled": False,
             "offset": True,
             "onlyonce": False,
@@ -335,36 +336,35 @@ class DiagParamAdjust(_PluginBase):
             "cron_switch": True,
             "login_play": False
         }
-    
+
     def detect(self):
-        '''
+        """
         检测是否存在目标参数
 
-        :return True: 存在; False: 不存在 
-        '''
+        :return True: 存在; False: 不存在
+        """
         logger.info('字幕偏移修正，检测目标参数')
-        replaceText = ""
         try:
             res = Emby().get_data(self._url)
             result = res.json()
             data = result['Object']['CommandLineOptions']
             replaceText = data['ReplaceText']
-        except json.JSONDecodeError as j:
+        except json.JSONDecodeError:
             logger.error('服务停止，Emby请安装【Diagnostics】插件')
             return None
         except KeyError:
             # 已装插件，未设置过该参数
             # logger.info('目标参数为空')
-            pass
+            return None
 
         # 符合所有情况
         if 'repeatlast' in replaceText \
-            and 'x=(W-w)/2:y=(H-h):repeatlast=0' in data['SearchText'] \
-            and result['Object']['TranscodingOptions']['DisableHardwareSubtitleOverlay']==True:
+                and 'x=(W-w)/2:y=(H-h):repeatlast=0' in data['SearchText'] \
+                and result['Object']['TranscodingOptions']['DisableHardwareSubtitleOverlay'] is True:
             return True
-        
+
         return False
-        
+
     def set_options(self):
         data = {
             "CommandLineOptions": {
@@ -392,7 +392,7 @@ class DiagParamAdjust(_PluginBase):
         # 消息方式开关
         if not self._enabled or not self._login_play:
             return
-        
+
         # 消息获取
         event_info: WebhookEventInfo = event.event_data
         if not event_info:
@@ -401,9 +401,8 @@ class DiagParamAdjust(_PluginBase):
         # 非目标消息
         if not self._webhook_actions.get(event_info.event):
             return
-        
+
         self.run()
-        
 
     def run(self):
         # 字幕偏移修正，则带检测
@@ -412,11 +411,10 @@ class DiagParamAdjust(_PluginBase):
             if state:
                 logger.info('参数正常，无需修正')
                 return True
-            elif state==None:
+            elif state is None:
                 return None
-        
-        self.set_options()
 
+        self.set_options()
 
     def get_page(self) -> List[dict]:
         pass
@@ -433,5 +431,3 @@ class DiagParamAdjust(_PluginBase):
                 self._scheduler = None
         except Exception as e:
             logger.error("退出插件失败：%s" % str(e))
-
-
