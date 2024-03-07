@@ -23,7 +23,7 @@ class DiagParamAdjust(_PluginBase):
     # 插件图标
     plugin_icon = "Themeengine_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jeblove"
     # 作者主页
@@ -355,7 +355,7 @@ class DiagParamAdjust(_PluginBase):
         except KeyError:
             # 已装插件，未设置过该参数
             # logger.info('目标参数为空')
-            return None
+            return False
 
         # 符合所有情况
         if 'repeatlast' in replaceText \
@@ -412,6 +412,7 @@ class DiagParamAdjust(_PluginBase):
                 logger.info('参数正常，无需修正')
                 return True
             elif state is None:
+                logger.info('插件退出')
                 return None
 
         self.set_options()
