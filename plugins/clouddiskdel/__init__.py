@@ -220,7 +220,18 @@ class CloudDiskDel(_PluginBase):
                                 file = open(cloud_files_json, 'w')
                                 file.write(json.dumps(__cloud_files))
                                 file.close()
-
+                            else:
+                                remove_flag = False
+                                # 删除目录下文件
+                                for cloud_file in __cloud_files:
+                                    if str(cloud_file).startswith(str(path)):
+                                        __cloud_files.remove(cloud_file)
+                                        remove_flag = True
+                                if remove_flag:
+                                    # 重新写入本地
+                                    file = open(cloud_files_json, 'w')
+                                    file.write(json.dumps(__cloud_files))
+                                    file.close()
         except Exception as e:
             print(str(e))
 
