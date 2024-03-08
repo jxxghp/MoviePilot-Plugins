@@ -1,4 +1,4 @@
-import json
+import json,re
 from datetime import datetime, timedelta
 
 from app.modules.emby import Emby
@@ -23,7 +23,7 @@ class DiagParamAdjust(_PluginBase):
     # 插件图标
     plugin_icon = "Themeengine_A.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jeblove"
     # 作者主页
@@ -37,7 +37,8 @@ class DiagParamAdjust(_PluginBase):
 
     # 私有属性
     _enabled: bool = False
-    _offset = True
+    # 修正字幕偏移用途（播放时执行）
+    _offset_play = True
     _onlyonce = False
     _base_url = None
     _endpoint = None
@@ -46,7 +47,7 @@ class DiagParamAdjust(_PluginBase):
     _replace_text = None
     _cron = None
     _cron_switch = False
-    _login_play = False
+
     # 请求接口
     _url = "[HOST]emby/EncodingDiagnostics/DiagnosticOptions?api_key=[APIKEY]"
     # 定时器
@@ -55,8 +56,15 @@ class DiagParamAdjust(_PluginBase):
     # 目标消息
     _webhook_actions = {
         "playback.start": "开始播放",
-        "user.authenticated": "登录成功"
     }
+
+    # 分辨率标识
+    _resolution = None
+    # 分辨率改动
+    _last_resolution = None
+    # 目标参数
+    _target_search_text = None
+    _target_replace_text = None
 
     def init_plugin(self, config: dict = None):
         # 停止现有任务
@@ -64,13 +72,12 @@ class DiagParamAdjust(_PluginBase):
 
         if config:
             self._enabled = config.get("enabled")
-            self._offset = config.get('offset')
+            self._offset_play = config.get("offset_play")
             self._onlyonce = config.get("onlyonce")
             self._search_text = config.get("search")
             self._replace_text = config.get("replace")
             self._cron = config.get("cron")
             self._cron_switch = config.get("cron_switch")
-            self._login_play = config.get("login_play")
 
         if self._onlyonce:
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -83,17 +90,15 @@ class DiagParamAdjust(_PluginBase):
             self._onlyonce = False
             self.update_config({
                 "enabled": self._enabled,
-                "offset": self._offset,
+                "offset_play": self._offset_play,
                 "onlyonce": False,
                 "search": self._search_text,
                 "replace": self._replace_text,
                 "cron": self._cron,
                 "cron_switch": self._cron_switch,
-                "login_play": self._login_play
             })
 
             # 启动任务
-            # self.run()
             if self._scheduler.get_jobs():
                 self._scheduler.print_jobs()
                 self._scheduler.start()
@@ -165,8 +170,8 @@ class DiagParamAdjust(_PluginBase):
                                     {
                                         'component': 'VSwitch',
                                         'props': {
-                                            'model': 'offset',
-                                            'label': '字幕偏移用途',
+                                            'model': 'offset_play',
+                                            'label': '修正字幕偏移(播放时执行)',
                                         }
                                     }
                                 ]
@@ -261,22 +266,6 @@ class DiagParamAdjust(_PluginBase):
                                         }
                                     }
                                 ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 3
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'login_play',
-                                            'label': '用户登录|播放时执行',
-                                        }
-                                    }
-                                ]
                             }
                         ]
                     },
@@ -294,7 +283,7 @@ class DiagParamAdjust(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '暂时性解决emby字幕偏移问题，如默认参数不合适请在基础上修改x、y至适合，如[x=W/4:y=h/5]。\n 【用户登录|播放时执行】需要emby配置webhooks消息通知：勾选[播放-开始]、[用户-已验证用户身份]（具体可参考【媒体库服务器通知】插件）',
+                                            'text': '- 暂时性解决emby字幕偏移问题，如默认参数不合适请在基础上修改【替换文本】x、y至适合(4K视频情况下！)，如[x=W/4:y=h/5]。\n - 【修正字幕偏移(播放时执行)】需要emby配置webhooks消息通知：勾选[播放-开始](具体可参考【媒体库服务器通知】插件)',
                                             'style': 'white-space: pre-line;'
                                         }
                                     }
@@ -316,7 +305,7 @@ class DiagParamAdjust(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '此替换文本参数应用于emby-Diagnostics-Parameter Adjustment。\n 默认参数用于修改ffmpeg中字幕覆盖在视频上的位置。\n 方案来源于https://opve.cn/archives/983.html',
+                                            'text': '- 播放视频分辨率与上次视频分辨率不一致时，在通知延迟和已加载旧位置字幕影响下，需要片刻后才会加载到新位置字幕，或关闭视频再次打开(建议)。\n - 此替换文本参数应用于emby-Diagnostics-Parameter Adjustment。\n - 默认参数用于修改ffmpeg中字幕覆盖在视频上的位置。\n - 方案来源于https://opve.cn/archives/983.html',
                                             'style': 'white-space: pre-line;'
                                         }
                                     }
@@ -328,18 +317,17 @@ class DiagParamAdjust(_PluginBase):
             }
         ], {
             "enabled": False,
-            "offset": True,
+            "offset_play": True,
             "onlyonce": False,
             "search": "x=(W-w)/2:y=(H-h):repeatlast=0",
             "replace": "x=W/4:y=h/4:repeatlast=0",
             "cron": "*/5 * * * *",
-            "cron_switch": True,
-            "login_play": False
+            "cron_switch": False,
         }
 
     def detect(self):
         """
-        检测是否存在目标参数
+        检测是否存在目标参数（修正字幕偏移用途）
 
         :return True: 存在; False: 不存在
         """
@@ -348,6 +336,7 @@ class DiagParamAdjust(_PluginBase):
             res = Emby().get_data(self._url)
             result = res.json()
             data = result['Object']['CommandLineOptions']
+            searchText = data['SearchText']
             replaceText = data['ReplaceText']
         except json.JSONDecodeError:
             logger.error('服务停止，Emby请安装【Diagnostics】插件')
@@ -358,18 +347,37 @@ class DiagParamAdjust(_PluginBase):
             return False
 
         # 符合所有情况
-        if 'repeatlast' in replaceText \
-                and 'x=(W-w)/2:y=(H-h):repeatlast=0' in data['SearchText'] \
-                and result['Object']['TranscodingOptions']['DisableHardwareSubtitleOverlay'] is True:
+        if (('repeatlast' in replaceText \
+                and 'x=(W-w)/2:y=(H-h):repeatlast=0' in searchText \
+                and result['Object']['TranscodingOptions']['DisableHardwareSubtitleOverlay'] is True) \
+                or (searchText == "" and replaceText == "")) \
+                and self._resolution == self._last_resolution:
+            # (A or B) and C
             return True
 
         return False
 
     def set_options(self):
+        """
+        向Emby发送请求设置参数
+        """
+
+        # 根据分辨率情况而选择是否替换
+        if self._resolution == 0 and self._offset_play is True:
+            # 1080p，不替换（清空文本）
+            self._target_search_text = ""
+            self._target_replace_text = ""
+            logger.info('清空替换参数')
+        else:
+            # >1080p or 非字幕偏移用途
+            self._target_search_text = self._search_text
+            self._target_replace_text = self._replace_text
+            logger.info("替换值为：{}".format(self._target_replace_text))
+
         data = {
             "CommandLineOptions": {
-                "SearchText": self._search_text,
-                "ReplaceText": self._replace_text
+                "SearchText": self._target_search_text,
+                "ReplaceText": self._target_replace_text
             },
             "TranscodingOptions": {
                 "DisableHardwareSubtitleOverlay": True
@@ -390,7 +398,7 @@ class DiagParamAdjust(_PluginBase):
     @eventmanager.register(EventType.WebhookMessage)
     def get_msg(self, event: Event):
         # 消息方式开关
-        if not self._enabled or not self._login_play:
+        if not self._enabled or not self._offset_play:
             return
 
         # 消息获取
@@ -402,11 +410,24 @@ class DiagParamAdjust(_PluginBase):
         if not self._webhook_actions.get(event_info.event):
             return
 
+        # 根据视频名获得分辨率信息
+        item_path = event_info.item_path
+        video_resolution = re.findall(r"\d{3,4}p", item_path)
+        video_width = int(video_resolution[0][:-1])
+        logger.info('视频分辨率:{}'.format(video_width))
+
+        self._last_resolution = self._resolution
+        # 分辨率变化情况
+        if video_width > 1080:
+            # 2160p/4k
+            self._resolution = 1
+        else:
+            self._resolution = 0
         self.run()
 
     def run(self):
         # 字幕偏移修正，则带检测
-        if self._offset:
+        if self._offset_play:
             state = self.detect()
             if state:
                 logger.info('参数正常，无需修正')
