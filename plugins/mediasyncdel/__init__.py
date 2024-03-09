@@ -1101,7 +1101,7 @@ class MediaSyncDel(_PluginBase):
         全部删除则删除种子
         """
         download_id = torrent_hash
-        download = settings.DOWNLOADER
+        download = settings.DEFAULT_DOWNLOADER
         history_key = "%s-%s" % (download, torrent_hash)
         plugin_id = "TorrentTransfer"
         transfer_history = self.get_data(key=history_key,
@@ -1151,7 +1151,7 @@ class MediaSyncDel(_PluginBase):
                         logger.info(f"{history_key} 转种时未删除源下载任务，开始删除源下载任务…")
 
                         # 删除源种子
-                        logger.info(f"删除源下载器下载任务：{settings.DOWNLOADER} - {torrent_hash}")
+                        logger.info(f"删除源下载器下载任务：{settings.DEFAULT_DOWNLOADER} - {torrent_hash}")
                         self.chain.remove_torrents(torrent_hash)
                         handle_torrent_hashs.append(torrent_hash)
 
@@ -1172,7 +1172,7 @@ class MediaSyncDel(_PluginBase):
                         logger.info(f"{history_key} 转种时未删除源下载任务，开始暂停源下载任务…")
 
                         # 暂停源种子
-                        logger.info(f"暂停源下载器下载任务：{settings.DOWNLOADER} - {torrent_hash}")
+                        logger.info(f"暂停源下载器下载任务：{settings.DEFAULT_DOWNLOADER} - {torrent_hash}")
                         self.chain.stop_torrents(torrent_hash)
                         handle_torrent_hashs.append(torrent_hash)
 
