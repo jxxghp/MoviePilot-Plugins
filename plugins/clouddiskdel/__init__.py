@@ -1,3 +1,5 @@
+import json
+import os
 import shutil
 import time
 from pathlib import Path
@@ -20,7 +22,7 @@ class CloudDiskDel(_PluginBase):
     # 插件图标
     plugin_icon = "clouddisk.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -105,6 +107,7 @@ class CloudDiskDel(_PluginBase):
                     for file in files:
                         Path(file).unlink()
                         logger.info(f"云盘文件 {file} 已删除")
+                        self.__remove_json(file)
                         remove_flag = True
 
                     if not remove_flag:
@@ -113,11 +116,13 @@ class CloudDiskDel(_PluginBase):
                             if Path(file).exists():
                                 Path(file).unlink()
                                 logger.info(f"云盘文件 {file} 已删除")
+                                self.__remove_json(file)
                 else:
                     # 非根目录，才删除目录
                     shutil.rmtree(path)
                     # 删除目录
                     logger.warn(f"云盘目录 {path} 已删除")
+                    self.__remove_json(path)
 
                 # 判断当前媒体父路径下是否有媒体文件，如有则无需遍历父级
                 if not SystemUtils.exits_files(path.parent, settings.RMT_MEDIAEXT):
@@ -129,7 +134,7 @@ class CloudDiskDel(_PluginBase):
                                 # 当前路径下没有媒体文件则删除
                                 shutil.rmtree(parent_path)
                                 logger.warn(f"云盘目录 {parent_path} 已删除")
-
+                                self.__remove_json(parent_path)
                 break
 
         if cloud_file_flag:
@@ -190,6 +195,45 @@ class CloudDiskDel(_PluginBase):
 
             # 保存历史
             self.save_data("history", history)
+
+    def __remove_json(self, path):
+        """
+        删除json中的文件内容
+        """
+        try:
+            # 删除本地缓存文件
+            cloud_files_json = os.path.join(settings.PLUGIN_DATA_PATH, "CloudStrm", "cloud_files.json")
+            if Path(cloud_files_json).exists():
+                # 删除json文件中已删除部分文件
+                # 尝试加载本地
+                with open(cloud_files_json, 'r') as file:
+                    content = file.read()
+                    if content:
+                        __cloud_files = json.loads(content)
+                        if __cloud_files:
+                            if not isinstance(__cloud_files, list):
+                                __cloud_files = [__cloud_files]
+                            if str(path) in __cloud_files:
+                                # 删除已删除文件
+                                __cloud_files.remove(str(path))
+                                # 重新写入本地
+                                file = open(cloud_files_json, 'w')
+                                file.write(json.dumps(__cloud_files))
+                                file.close()
+                            else:
+                                remove_flag = False
+                                # 删除目录下文件
+                                for cloud_file in __cloud_files:
+                                    if str(cloud_file).startswith(str(path)):
+                                        __cloud_files.remove(cloud_file)
+                                        remove_flag = True
+                                if remove_flag:
+                                    # 重新写入本地
+                                    file = open(cloud_files_json, 'w')
+                                    file.write(json.dumps(__cloud_files))
+                                    file.close()
+        except Exception as e:
+            print(str(e))
 
     def get_state(self) -> bool:
         return self._enabled
