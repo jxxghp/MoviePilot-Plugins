@@ -532,7 +532,7 @@ class DirMonitor(_PluginBase):
                         if len(str(file_dir)) <= len(str(Path(mon_path))):
                             # 重要，删除到监控目录为止
                             break
-                        files = SystemUtils.list_files(file_dir, settings.RMT_MEDIAEXT)
+                        files = SystemUtils.list_files(file_dir, settings.RMT_MEDIAEXT + settings.DOWNLOAD_TMPEXT)
                         if not files:
                             logger.warn(f"移动模式，删除空目录：{file_dir}")
                             shutil.rmtree(file_dir, ignore_errors=True)
