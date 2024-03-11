@@ -12,6 +12,7 @@ from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import TransferInfo
 from app.schemas.types import EventType, MediaType, NotificationType
+from app.utils.system import SystemUtils
 
 lock = threading.Lock()
 
@@ -24,7 +25,7 @@ class PlayletCategory(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -239,7 +240,8 @@ class PlayletCategory(_PluginBase):
             for file in check_files:
                 duration = self.__get_duration(file)
                 if duration > float(self._episode_duration):
-                    logger.info(f"{file} 时长 {duration} 分钟，大于单集时长 {self._episode_duration} 分钟，不需要分类处理")
+                    logger.info(
+                        f"{file} 时长 {duration} 分钟，大于单集时长 {self._episode_duration} 分钟，不需要分类处理")
                     need_category = False
                     break
                 else:
@@ -278,22 +280,44 @@ class PlayletCategory(_PluginBase):
         """
         if not target_path.exists():
             return
+        if target_path.is_file():
+            target_path = target_path.parent
         # 剧集的根目录
         tv_path = target_path.parent
         # 新的文件目录
         new_path = tv_path.parent.parent / self._category_name / tv_path.name
-        # 移动目录
-        try:
-            shutil.move(tv_path, new_path)
-            # 发送消息
-            if self._notify:
-                self.post_message(
-                    mtype=NotificationType.Organize,
-                    title="【短剧自动分类】",
-                    text=f"已将 {tv_path.name} 分类到 {self._category_name} 目录",
-                )
-        except Exception as e:
-            logger.error(f"移动文件失败：{e}")
+        if not new_path.exists():
+            # 移动目录
+            try:
+                shutil.move(tv_path, new_path)
+            except Exception as e:
+                logger.error(f"移动文件失败：{e}")
+                return
+        else:
+            # 遍历目录下的所有文件，并移动到目的目录
+            for file in tv_path.iterdir():
+                if file.is_file():
+                    try:
+                        # 相对路径
+                        relative_path = file.relative_to(tv_path)
+                        shutil.move(file, new_path / relative_path)
+                    except Exception as e:
+                        logger.error(f"移动文件失败：{e}")
+                        return
+            # 删除空目录
+            if not SystemUtils.list_files(tv_path, extensions=settings.RMT_MEDIAEXT + settings.DOWNLOAD_TMPEXT):
+                try:
+                    shutil.rmtree(tv_path, ignore_errors=True)
+                except Exception as e:
+                    logger.error(f"删除空目录失败：{e}")
+
+        # 发送消息
+        if self._notify:
+            self.post_message(
+                mtype=NotificationType.Organize,
+                title="【短剧自动分类】",
+                text=f"已将 {tv_path.name} 分类到 {self._category_name} 目录",
+            )
 
     def stop_service(self):
         """
