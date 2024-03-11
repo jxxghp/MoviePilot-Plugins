@@ -51,7 +51,7 @@ class LinkMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "Linkace_C.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -258,8 +258,12 @@ class LinkMonitor(_PluginBase):
         :param target_path: 目标目录
         :param transfer_type: 转移方式
         """
-        new_file = str(src_path).replace(mon_path, str(target_path))
-        new_path = Path(new_file)
+        # 计算相对路径
+        try:
+            rel_path = src_path.relative_to(Path(mon_path))
+        except ValueError:
+            return False, "文件路径不在监控目录内"
+        new_path = target_path / rel_path
         if new_path.exists():
             return True, "目标路径文件已存在"
         else:
