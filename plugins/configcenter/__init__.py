@@ -17,7 +17,7 @@ class ConfigCenter(_PluginBase):
     # 插件图标
     plugin_icon = "setting.png"
     # 插件版本
-    plugin_version = "2.2"
+    plugin_version = "2.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -53,7 +53,7 @@ class ConfigCenter(_PluginBase):
             setattr(settings, attribute, config.get(attribute) or getattr(settings, attribute))
         # 自定义配置，以换行分隔
         self._params = config.get("params") or ""
-        for key, value in self.__parse_params(self._params):
+        for key, value in self.__parse_params(self._params).items():
             if hasattr(settings, key):
                 setattr(settings, key, str(value))
 
