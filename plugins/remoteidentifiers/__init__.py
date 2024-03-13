@@ -23,7 +23,7 @@ class RemoteIdentifiers(_PluginBase):
     # 插件图标
     plugin_icon = "words.png"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "honue"
     # 作者主页
@@ -48,11 +48,11 @@ class RemoteIdentifiers(_PluginBase):
         # 停止后台任务
         self.stop_service()
         if config:
-            self._enable = config.get("enable") or False
-            self._onlyonce = config.get("onlyonce") or False
+            self._enable = config.get("enable") if config.get("enable") is not None else False
+            self._onlyonce = config.get("onlyonce") if config.get("onlyonce") is not None else False
+            self._flitter = config.get("flitter") if config.get("flitter") is not None else False
             self._cron = config.get("cron") or '30 4 * * *'
             self._file_urls = config.get("file_urls") or ''
-            self._flitter = config.get("flitter") or False
             # config操作
             self.systemconfig = SystemConfigOper()
 
@@ -75,22 +75,22 @@ class RemoteIdentifiers(_PluginBase):
         ret: List[str] = ['#========以下识别词由 RemoteIdentifiers 插件添加========#']
         for file_url in file_urls:
             # https://movie-pilot.org/etherpad/p/MoviePilot_TV_Words
-            if file_url.find("etherpad") and file_url.find("export") < 0:
+            if file_url.count("etherpad") != 0 and file_url.count("export") == 0:
                 real_url = file_url + "/export/txt"
             else:
                 real_url = file_url
             response = RequestUtils(proxies=settings.PROXY,
-                                    headers=settings.GITHUB_HEADERS if real_url.find("git") else None,
+                                    headers=settings.GITHUB_HEADERS if real_url.count("github") else None,
                                     timeout=15).get_res(real_url)
             if not response:
-                raise Exception(f"文件 {file_url} 下载失败！")
+                raise Exception(f"文件 {real_url} 下载失败！")
             elif response.status_code != 200:
-                raise Exception(f"下载文件 {file_url} 失败：{response.status_code} - {response.reason}")
+                raise Exception(f"下载文件 {real_url} 失败：{response.status_code} - {response.reason}")
             text = response.content.decode('utf-8')
             if text.find("doctype html") > 0:
-                raise Exception(f"下载文件 {file_url} 失败：{response.status_code} - {response.reason}")
+                raise Exception(f"下载文件 {real_url} 失败：{response.status_code} - {response.reason}")
             if "try again later" in text:
-                raise Exception(f"下载文件 {file_url} 失败：{text}")
+                raise Exception(f"下载文件 {real_url} 失败：{text}")
             identifiers: List[str] = text.split('\n')
             ret += identifiers
         # flitter 过滤空行
@@ -131,7 +131,7 @@ class RemoteIdentifiers(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 3
+                                    'md': 2
                                 },
                                 'content': [
                                     {
@@ -146,7 +146,7 @@ class RemoteIdentifiers(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 3
+                                    'md': 2
                                 },
                                 'content': [
                                     {
@@ -172,13 +172,7 @@ class RemoteIdentifiers(_PluginBase):
                                         }
                                     }
                                 ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
+                            }, {
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
