@@ -162,6 +162,26 @@ class QbCommond(_PluginBase):
                     "kwargs": {},
                 },
             ]
+        if self._enabled and self._pause_cron:
+            return [
+                {
+                    "id": "QbPause",
+                    "name": "暂停QB所有任务",
+                    "trigger": CronTrigger.from_crontab(self._pause_cron),
+                    "func": self.pause_torrent,
+                    "kwargs": {},
+                }
+            ]
+        if self._enabled and self._resume_cron:
+            return [
+                {
+                    "id": "QbResume",
+                    "name": "开始QB所有任务",
+                    "trigger": CronTrigger.from_crontab(self._resume_cron),
+                    "func": self.resume_torrent,
+                    "kwargs": {},
+                }
+            ]
         return []
 
     def get_all_torrents(self):
