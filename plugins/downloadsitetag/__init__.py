@@ -28,7 +28,7 @@ class DownloadSiteTag(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -501,7 +501,7 @@ class DownloadSiteTag(_PluginBase):
                 _cat = self._genre_ids_get_cat(_media.type, _media.genre_ids)
             if _hash and (_tags or _cat):
                 # 执行通用方法, 设置种子标签与分类
-                self._set_torrent_info(DOWNLOADER=settings.DOWNLOADER, _hash=_hash, _tags=_tags, _cat=_cat)
+                self._set_torrent_info(DOWNLOADER=settings.DEFAULT_DOWNLOADER, _hash=_hash, _tags=_tags, _cat=_cat)
         except Exception as e:
             logger.error(
                 f"{self.LOG_TAG}分析下载事件时发生了错误: {str(e)}")
