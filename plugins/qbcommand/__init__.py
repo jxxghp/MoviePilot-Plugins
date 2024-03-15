@@ -1,3 +1,4 @@
+import math
 from typing import List, Tuple, Dict, Any
 
 from app.log import logger
@@ -81,15 +82,7 @@ class QbCommond(_PluginBase):
                 }
             )
 
-        # 限速
-        if self._enable_upload_limit and not self._enable_download_limit:
-            self.set_limit(self._upload_limit, 0)
-        elif not self._enable_upload_limit and self._enable_download_limit:
-            self.set_limit(0, self._download_limit)
-        elif self._enable_upload_limit and self._enable_download_limit:
-            self.set_limit(self._upload_limit, self._download_limit)
-        else:
-            self.set_limit(0, 0)
+        self.set_limit(self._upload_limit, self._download_limit)
 
     def get_state(self) -> bool:
         return self._enabled
@@ -267,12 +260,12 @@ class QbCommond(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【QB暂停任务启动】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                f"做种数量:  {len(hash_uploading)}\n"
-                f"下载数量:  {len(hash_downloading)}\n"
-                f"检查数量:  {len(hash_checking)}\n"
-                f"暂停数量:  {len(hash_paused)}\n"
-                f"错误数量:  {len(hash_error)}\n"
-                f"暂停操作中请稍等...\n",
+                     f"做种数量:  {len(hash_uploading)}\n"
+                     f"下载数量:  {len(hash_downloading)}\n"
+                     f"检查数量:  {len(hash_checking)}\n"
+                     f"暂停数量:  {len(hash_paused)}\n"
+                     f"错误数量:  {len(hash_error)}\n"
+                     f"暂停操作中请稍等...\n",
             )
         if len(to_be_paused) > 0:
             if self._qb.stop_torrents(ids=(to_be_paused)):
@@ -307,11 +300,11 @@ class QbCommond(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【QB暂停任务完成】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                f"做种数量:  {len(hash_uploading)}\n"
-                f"下载数量:  {len(hash_downloading)}\n"
-                f"检查数量:  {len(hash_checking)}\n"
-                f"暂停数量:  {len(hash_paused)}\n"
-                f"错误数量:  {len(hash_error)}\n",
+                     f"做种数量:  {len(hash_uploading)}\n"
+                     f"下载数量:  {len(hash_downloading)}\n"
+                     f"检查数量:  {len(hash_checking)}\n"
+                     f"暂停数量:  {len(hash_paused)}\n"
+                     f"错误数量:  {len(hash_error)}\n",
             )
 
     @eventmanager.register(EventType.PluginAction)
@@ -347,12 +340,12 @@ class QbCommond(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【QB开始任务启动】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                f"做种数量:  {len(hash_uploading)}\n"
-                f"下载数量:  {len(hash_downloading)}\n"
-                f"检查数量:  {len(hash_checking)}\n"
-                f"暂停数量:  {len(hash_paused)}\n"
-                f"错误数量:  {len(hash_error)}\n"
-                f"开始操作中请稍等...\n",
+                     f"做种数量:  {len(hash_uploading)}\n"
+                     f"下载数量:  {len(hash_downloading)}\n"
+                     f"检查数量:  {len(hash_checking)}\n"
+                     f"暂停数量:  {len(hash_paused)}\n"
+                     f"错误数量:  {len(hash_error)}\n"
+                     f"开始操作中请稍等...\n",
             )
         if not self._qb.start_torrents(ids=hash_paused):
             logger.error(f"开始种子失败")
@@ -384,11 +377,11 @@ class QbCommond(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【QB开始任务完成】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                f"做种数量:  {len(hash_uploading)}\n"
-                f"下载数量:  {len(hash_downloading)}\n"
-                f"检查数量:  {len(hash_checking)}\n"
-                f"暂停数量:  {len(hash_paused)}\n"
-                f"错误数量:  {len(hash_error)}\n",
+                     f"做种数量:  {len(hash_uploading)}\n"
+                     f"下载数量:  {len(hash_downloading)}\n"
+                     f"检查数量:  {len(hash_checking)}\n"
+                     f"暂停数量:  {len(hash_paused)}\n"
+                     f"错误数量:  {len(hash_error)}\n",
             )
 
     @eventmanager.register(EventType.PluginAction)
@@ -399,18 +392,7 @@ class QbCommond(_PluginBase):
             event_data = event.event_data
             if not event_data or event_data.get("action") != "toggle_upload_limit":
                 return
-        if self._enable_upload_limit:
-            if self._enable_download_limit:
-                self.set_limit(0, self._download_limit)
-            else:
-                self.set_limit(0, 0)
-            self._enable_upload_limit = False
-        else:
-            if self._enable_download_limit:
-                self.set_limit(self._upload_limit, self._download_limit)
-            else:
-                self.set_limit(self._upload_limit, 0)
-            self._enable_upload_limit = True
+        self.set_limit(self._upload_limit, self._download_limit)
 
     @eventmanager.register(EventType.PluginAction)
     def handle_toggle_download_limit(self, event: Event):
@@ -420,26 +402,76 @@ class QbCommond(_PluginBase):
             event_data = event.event_data
             if not event_data or event_data.get("action") != "toggle_download_limit":
                 return
-        if self._enable_download_limit:
-            if self._enable_upload_limit:
-                self.set_limit(self._upload_limit, 0)
-            else:
-                self.set_limit(0, 0)
-            self._enable_download_limit = False
-        else:
-            if self._enable_upload_limit:
-                self.set_limit(self._upload_limit, self._download_limit)
-            else:
-                self.set_limit(0, self._download_limit)
-            self._enable_download_limit = True
+        self.set_limit(self._upload_limit, self._download_limit)
+
+    def set_both_limit(self, upload_limit, download_limit):
+        if not self._enable_upload_limit or not self._enable_upload_limit:
+            return True
+
+        if not upload_limit or not upload_limit.isdigit() or not download_limit or not download_limit.isdigit():
+            self.post_message(
+                mtype=NotificationType.SiteMessage,
+                title=f"【QB远程操作】",
+                text=f"设置QB限速失败,download_limit或upload_limit不是一个数值",
+            )
+            return False
+
+        return self._qb.set_speed_limit(
+            download_limit=int(download_limit), upload_limit=int(upload_limit)
+        )
+
+    def set_upload_limit(self, upload_limit):
+        if not self._enable_upload_limit:
+            return True
+
+        if not upload_limit or not upload_limit.isdigit():
+            self.post_message(
+                mtype=NotificationType.SiteMessage,
+                title=f"【QB远程操作】",
+                text=f"设置QB限速失败,upload_limit不是一个数值",
+            )
+            return False
+
+        download_limit_current_val, _ = self._qb.get_speed_limit()
+        return self._qb.set_speed_limit(
+            download_limit=int(download_limit_current_val), upload_limit=int(upload_limit)
+        )
+
+    def set_download_limit(self, download_limit):
+        if not self._enable_download_limit:
+            return True
+
+        if not download_limit or not download_limit.isdigit():
+            self.post_message(
+                mtype=NotificationType.SiteMessage,
+                title=f"【QB远程操作】",
+                text=f"设置QB限速失败,download_limit不是一个数值",
+            )
+            return False
+
+        _, upload_limit_current_val = self._qb.get_speed_limit()
+        return self._qb.set_speed_limit(
+            download_limit=int(download_limit), upload_limit=int(upload_limit_current_val)
+        )
 
     def set_limit(self, upload_limit, download_limit):
-        if not self._enabled:
-            return
+        # 限速，满足以下三种情况设置限速
+        # 1. 插件启用 && download_limit启用
+        # 2. 插件启用 && upload_limit启用
+        # 3. 插件启用 && download_limit启用 && upload_limit启用
 
-        if self._qb.set_speed_limit(
-            download_limit=int(download_limit), upload_limit=int(upload_limit)
-        ):
+        flag = None
+        if self._enabled and self._enable_download_limit and self._enable_upload_limit:
+            flag = self.set_both_limit(upload_limit, download_limit)
+
+        elif flag is None and self._enabled and self._enable_download_limit:
+            flag = self.set_download_limit(download_limit)
+
+        elif flag is None and self._enabled and self._enable_upload_limit:
+            flag = self.set_upload_limit(upload_limit)
+
+
+        if flag:
             logger.info(f"设置QB限速成功")
             if self._notify:
                 text = "QB设置限速成功\n"
@@ -456,7 +488,7 @@ class QbCommond(_PluginBase):
                     title=f"【QB远程操作】",
                     text=text,
                 )
-        else:
+        elif not flag:
             logger.error(f"QB设置限速失败")
             if self._notify:
                 self.post_message(
