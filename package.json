@@ -10,7 +10,7 @@
     "CustomSites": {
         "name": "自定义站点",
         "description": "增加自定义站点为签到和统计使用。",
-        "version": "0.1",
+        "version": "1.0",
         "icon": "world.png",
         "author": "lightolly",
         "level": 2

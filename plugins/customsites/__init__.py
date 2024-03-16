@@ -1,7 +1,6 @@
 from typing import Any, List, Dict, Tuple
 from urllib.parse import urlparse
 
-from app.core.config import settings
 from app.core.event import EventManager
 from app.helper.cookiecloud import CookieCloudHelper
 from app.log import logger
@@ -17,7 +16,7 @@ class CustomSites(_PluginBase):
     # 插件图标
     plugin_icon = "world.png"
     # 插件版本
-    plugin_version = "0.1"
+    plugin_version = "1.0"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -57,11 +56,7 @@ class CustomSites(_PluginBase):
     _site_urls: str = ""
 
     def init_plugin(self, config: dict = None):
-        self.cookie_cloud = CookieCloudHelper(
-            server=settings.COOKIECLOUD_HOST,
-            key=settings.COOKIECLOUD_KEY,
-            password=settings.COOKIECLOUD_PASSWORD
-        )
+        self.cookie_cloud = CookieCloudHelper()
 
         del_sites = []
         sites = []
