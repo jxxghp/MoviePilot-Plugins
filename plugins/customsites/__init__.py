@@ -17,7 +17,7 @@ class CustomSites(_PluginBase):
     # 插件图标
     plugin_icon = "world.png"
     # 插件版本
-    plugin_version = "0.1"
+    plugin_version = "0.2"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -58,9 +58,7 @@ class CustomSites(_PluginBase):
 
     def init_plugin(self, config: dict = None):
         self.cookie_cloud = CookieCloudHelper(
-            server=settings.COOKIECLOUD_HOST,
-            key=settings.COOKIECLOUD_KEY,
-            password=settings.COOKIECLOUD_PASSWORD
+            settings=settings
         )
 
         del_sites = []
