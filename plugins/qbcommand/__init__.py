@@ -19,7 +19,7 @@ class QbCommond(_PluginBase):
     # 插件图标
     plugin_icon = "Qbittorrent_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -488,7 +488,7 @@ class QbCommond(_PluginBase):
                     title=f"【QB远程操作】",
                     text=text,
                 )
-        elif not flag:
+        elif flag == False:
             logger.error(f"QB设置限速失败")
             if self._notify:
                 self.post_message(
