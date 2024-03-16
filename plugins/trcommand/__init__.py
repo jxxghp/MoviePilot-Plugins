@@ -18,7 +18,7 @@ class TrCommond(_PluginBase):
     # 插件图标
     plugin_icon = "Transmission_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "Hoey"
     # 作者主页
@@ -82,14 +82,7 @@ class TrCommond(_PluginBase):
             )
 
         # 限速
-        if self._enable_upload_limit and not self._enable_download_limit:
-            self.set_limit(self._upload_limit, 0)
-        elif not self._enable_upload_limit and self._enable_download_limit:
-            self.set_limit(0, self._download_limit)
-        elif self._enable_upload_limit and self._enable_download_limit:
-            self.set_limit(self._upload_limit, self._download_limit)
-        else:
-            self.set_limit(0, 0)
+        self.set_limit(self._upload_limit, self._download_limit)
 
     def get_state(self) -> bool:
         return self._enabled
@@ -404,18 +397,8 @@ class TrCommond(_PluginBase):
             event_data = event.event_data
             if not event_data or event_data.get("action") != "toggle_upload_limit":
                 return
-        if self._enable_upload_limit:
-            if self._enable_download_limit:
-                self.set_limit(0, self._download_limit)
-            else:
-                self.set_limit(0, 0)
-            self._enable_upload_limit = False
-        else:
-            if self._enable_download_limit:
-                self.set_limit(self._upload_limit, self._download_limit)
-            else:
-                self.set_limit(self._upload_limit, 0)
-            self._enable_upload_limit = True
+
+        self.set_limit(self._upload_limit, self._download_limit)
 
     @eventmanager.register(EventType.PluginAction)
     def handle_toggle_download_limit(self, event: Event):
@@ -425,26 +408,77 @@ class TrCommond(_PluginBase):
             event_data = event.event_data
             if not event_data or event_data.get("action") != "toggle_download_limit":
                 return
-        if self._enable_download_limit:
-            if self._enable_upload_limit:
-                self.set_limit(self._upload_limit, 0)
-            else:
-                self.set_limit(0, 0)
-            self._enable_download_limit = False
-        else:
-            if self._enable_upload_limit:
-                self.set_limit(self._upload_limit, self._download_limit)
-            else:
-                self.set_limit(0, self._download_limit)
-            self._enable_download_limit = True
+        self.set_limit(self._upload_limit, self._download_limit)
+
+
+    def set_both_limit(self, upload_limit, download_limit):
+        if not self._enable_upload_limit or not self._enable_upload_limit:
+            return True
+
+        if not upload_limit or not upload_limit.isdigit() or not download_limit or not download_limit.isdigit():
+            self.post_message(
+                mtype=NotificationType.SiteMessage,
+                title=f"【TR远程操作】",
+                text=f"设置TR限速失败,download_limit或upload_limit不是一个数值",
+            )
+            return False
+
+        return self._tr.set_speed_limit(
+            download_limit=int(download_limit), upload_limit=int(upload_limit)
+        )
+
+    def set_upload_limit(self, upload_limit):
+        if not self._enable_upload_limit:
+            return True
+
+        if not upload_limit or not upload_limit.isdigit():
+            self.post_message(
+                mtype=NotificationType.SiteMessage,
+                title=f"【TR远程操作】",
+                text=f"设置TR限速失败,upload_limit不是一个数值",
+            )
+            return False
+
+        download_limit_current_val, _ = self._tr.get_speed_limit()
+        return self._tr.set_speed_limit(
+            download_limit=int(download_limit_current_val), upload_limit=int(upload_limit)
+        )
+
+    def set_download_limit(self, download_limit):
+        if not self._enable_download_limit:
+            return True
+
+        if not download_limit or not download_limit.isdigit():
+            self.post_message(
+                mtype=NotificationType.SiteMessage,
+                title=f"【TR远程操作】",
+                text=f"设置TR限速失败,download_limit不是一个数值",
+            )
+            return False
+
+        _, upload_limit_current_val = self._tr.get_speed_limit()
+        return self._tr.set_speed_limit(
+            download_limit=int(download_limit), upload_limit=int(upload_limit_current_val)
+        )
+
 
     def set_limit(self, upload_limit, download_limit):
-        if not self._enabled:
-            return
+        # 限速，满足以下三种情况设置限速
+        # 1. 插件启用 && download_limit启用
+        # 2. 插件启用 && upload_limit启用
+        # 3. 插件启用 && download_limit启用 && upload_limit启用
 
-        if self._tr.set_speed_limit(
-            download_limit=int(download_limit), upload_limit=int(upload_limit)
-        ):
+        flag = None
+        if self._enabled and self._enable_download_limit and self._enable_upload_limit:
+            flag = self.set_both_limit(upload_limit, download_limit)
+
+        elif flag is None and self._enabled and self._enable_download_limit:
+            flag = self.set_download_limit(download_limit)
+
+        elif flag is None and self._enabled and self._enable_upload_limit:
+            flag = self.set_upload_limit(upload_limit)
+
+        if flag:
             logger.info(f"设置TR限速成功")
             if self._notify:
                 text = "TR设置限速成功\n"
@@ -461,7 +495,7 @@ class TrCommond(_PluginBase):
                     title=f"【TR远程操作】",
                     text=text,
                 )
-        else:
+        elif flag == False:
             logger.error(f"TR设置限速失败")
             if self._notify:
                 self.post_message(

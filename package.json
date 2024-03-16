@@ -410,7 +410,7 @@
     "TrCommond": {
         "name": "TR远程操作",
         "description": "通过定时任务或交互命令远程操作TR暂停/开始/限速等。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "Transmission_A.png",
         "author": "Hoey",
         "level": 1
