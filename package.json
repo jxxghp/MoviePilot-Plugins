@@ -414,5 +414,13 @@
         "icon": "Transmission_A.png",
         "author": "Hoey",
         "level": 1
+    },
+    "IpDetect": {
+        "name": "本地IP检测",
+        "description": "如果QB、TR等服务在本地部署，当本地IP改变时自动修改其server IP",
+        "version": "1.0",
+        "icon": "ipAddress.png",
+        "author": "DzAvril",
+        "level": 1
     }
 }
