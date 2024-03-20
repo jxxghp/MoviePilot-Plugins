@@ -9,6 +9,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.chain.download import DownloadChain
+from app.chain.media import MediaChain
 from app.chain.subscribe import SubscribeChain
 from app.core.config import settings
 from app.core.context import MediaInfo
@@ -27,7 +28,7 @@ class DoubanRank(_PluginBase):
     # 插件图标
     plugin_icon = "movie.jpg"
     # 插件版本
-    plugin_version = "1.6"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -44,6 +45,7 @@ class DoubanRank(_PluginBase):
     # 私有属性
     downloadchain: DownloadChain = None
     subscribechain: SubscribeChain = None
+    mediachain: MediaChain = None
     _scheduler = None
     _douban_address = {
         'movie-ustop': 'https://rsshub.app/douban/movie/ustop',
@@ -68,6 +70,7 @@ class DoubanRank(_PluginBase):
     def init_plugin(self, config: dict = None):
         self.downloadchain = DownloadChain()
         self.subscribechain = SubscribeChain()
+        self.mediachain = MediaChain()
 
         if config:
             self._enabled = config.get("enabled")
@@ -514,11 +517,20 @@ class DoubanRank(_PluginBase):
                     # 识别媒体信息
                     if douban_id:
                         # 识别豆瓣信息
-                        mediainfo = self.chain.recognize_media(meta=meta, doubanid=douban_id)
-                        if not mediainfo:
-                            logger.warn(f'未识别到媒体信息，标题：{title}，豆瓣ID：{douban_id}')
-                            continue
-
+                        if settings.RECOGNIZE_SOURCE == "themoviedb":
+                            tmdbinfo = self.mediachain.get_tmdbinfo_by_doubanid(doubanid=douban_id, mtype=meta.type)
+                            if not tmdbinfo:
+                                logger.warn(f'未能通过豆瓣ID {douban_id} 获取到TMDB信息，标题：{title}，豆瓣ID：{douban_id}')
+                                continue
+                            mediainfo = self.chain.recognize_media(meta=meta, tmdbid=tmdbinfo.get("id"))
+                            if not mediainfo:
+                                logger.warn(f'TMDBID {tmdbinfo.get("id")} 未识别到媒体信息')
+                                continue
+                        else:
+                            mediainfo = self.chain.recognize_media(meta=meta, doubanid=douban_id)
+                            if not mediainfo:
+                                logger.warn(f'豆瓣ID {douban_id} 未识别到媒体信息')
+                                continue
                     else:
                         # 匹配媒体信息
                         mediainfo: MediaInfo = self.chain.recognize_media(meta=meta)
