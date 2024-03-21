@@ -395,7 +395,7 @@
         "name": "诊断参数调整",
         "description": "Emby专用插件|暂时性解决emby字幕偏移问题，需要emby安装Diagnostics插件。",
         "version": "1.3",
-        "icon": "Themeengine_A.png",
+        "icon": "Gatus_A.png",
         "author": "jeblove",
         "level": 1
     },

@@ -21,7 +21,7 @@ class DiagParamAdjust(_PluginBase):
     # 插件描述
     plugin_desc = "Emby专用插件|暂时性解决emby字幕偏移问题，需要emby安装Diagnostics插件。"
     # 插件图标
-    plugin_icon = "Themeengine_A.png"
+    plugin_icon = "Gatus_A.png"
     # 插件版本
     plugin_version = "1.3"
     # 插件作者
