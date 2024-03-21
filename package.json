@@ -422,5 +422,13 @@
         "icon": "ipAddress.png",
         "author": "DzAvril",
         "level": 1
+    },
+    "TrackerEditor": {
+        "name": "Tracker替换",
+        "description": "批量replace种子的tracker qb 4.6.0已测试 tr只支持4.0以上(未测试)",
+        "version": "1.4",
+        "icon": "trackereditor_A.png",
+        "author": "honue",
+        "level": 1
     }
 }
