@@ -15,7 +15,7 @@ class TrackerEditor(_PluginBase):
     # 插件名称
     plugin_name = "Tracker替换"
     # 插件描述
-    plugin_desc = "批量replace种子的tracker qb 4.6.0已测试 tr只支持4.0以上(未测试)"
+    plugin_desc = "批量替换种子tracker，支持周期性巡检（如为TR，仅支持4.0以上版本）"
     # 插件图标
     plugin_icon = "trackereditor_A.png"
     # 插件版本
@@ -136,279 +136,279 @@ class TrackerEditor(_PluginBase):
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
-                   {
-                       'component': 'VForm',
-                       'content': [
-                           {
-                               'component': 'VRow',
-                               'content': [
-                                   {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12,
-                                           'md': 6
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VSwitch',
-                                               'props': {
-                                                   'model': 'run_con_enable',
-                                                   'label': '启用周期性巡检 (注: 请开启时，务必填写cron表达式)',
-                                               }
-                                           }
-                                       ]
-                                   },
-                                   {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12,
-                                           'md': 6
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VSwitch',
-                                               'props': {
-                                                   'model': 'onlyonce',
-                                                   'label': '立即运行一次',
-                                               }
-                                           }
-                                       ]
-                                   }]
-                           }, {
-                               'component': 'VRow',
-                               'content': [
-                                   {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12,
-                                           'md': 6
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VSwitch',
-                                               'props': {
-                                                   'model': 'notify',
-                                                   'label': '发送通知',
-                                               }
-                                           }
-                                       ]
-                                   }]
-                           },
-                           {
-                               'component': 'VRow',
-                               'content': [
+            {
+                'component': 'VForm',
+                'content': [
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'run_con_enable',
+                                            'label': '启用周期性巡检 (注: 请开启时，务必填写cron表达式)',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'onlyonce',
+                                            'label': '立即运行一次',
+                                        }
+                                    }
+                                ]
+                            }]
+                    }, {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'notify',
+                                            'label': '发送通知',
+                                        }
+                                    }
+                                ]
+                            }]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
 
-                                   {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12,
-                                           'md': 6
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VTextField',
-                                               'props': {
-                                                   'model': 'run_con',
-                                                   'label': 'cron表达式',
-                                                   'placeholder': '* * * * *'
-                                               }
-                                           }
-                                       ]
-                                   }, {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12,
-                                           'md': 6
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VSelect',
-                                               'props': {
-                                                   'model': 'downloader_type',
-                                                   'label': '下载器类型',
-                                                   'items': [
-                                                       {'title': 'Qbittorrent', 'value': 'qbittorrent'},
-                                                       {'title': 'Transmission', 'value': 'transmission'}
-                                                   ]
-                                               }
-                                           }
-                                       ]
-                                   }]
-                           }, {
-                               'component': 'VRow',
-                               'content': [
-                                   {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12,
-                                           'md': 6
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VTextField',
-                                               'props': {
-                                                   'model': 'host',
-                                                   'label': 'host主机ip',
-                                                   'placeholder': '192.168.2.100'
-                                               }
-                                           }
-                                       ]
-                                   },
-                                   {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12,
-                                           'md': 6
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VTextField',
-                                               'props': {
-                                                   'model': 'port',
-                                                   'label': 'qb/tr端口',
-                                                   'placeholder': '8989'
-                                               }
-                                           }
-                                       ]
-                                   }
-                               ]
-                           },
-                           {
-                               'component': 'VRow',
-                               'content': [
-                                   {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12,
-                                           'md': 6
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VTextField',
-                                               'props': {
-                                                   'model': 'username',
-                                                   'label': '用户名',
-                                                   'placeholder': 'username'
-                                               }
-                                           }
-                                       ]
-                                   },
-                                   {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12,
-                                           'md': 6
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VTextField',
-                                               'props': {
-                                                   'model': 'password',
-                                                   'label': '密码',
-                                                   'placeholder': 'password'
-                                               }
-                                           }
-                                       ]
-                                   }
-                               ]
-                           }, {
-                               'component': 'VRow',
-                               'content': [
-                                   {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12,
-                                           'md': 6
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VTextField',
-                                               'props': {
-                                                   'model': 'target_domain',
-                                                   'label': '待替换文本',
-                                                   'placeholder': 'target.com'
-                                               }
-                                           }
-                                       ]
-                                   },
-                                   {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12,
-                                           'md': 6
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VTextField',
-                                               'props': {
-                                                   'model': 'replace_domain',
-                                                   'label': '替换的文本',
-                                                   'placeholder': 'replace.net'
-                                               }
-                                           }
-                                       ]
-                                   }
-                               ]
-                           }, {
-                               'component': 'VRow',
-                               'content': [
-                                   {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12,
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VAlert',
-                                               'props': {
-                                                   'type': 'info',
-                                                   'variant': 'tonal',
-                                                   'text': '对下载器中所有符合代替换文本的tacker进行字符串replace替换' + '\n' +
-                                                           '现有tracker: https://baidu.com/announce.php?passkey=xxxx' + '\n' +
-                                                           '待替换 baidu.com 或 https://baidu.com' + '\n' +
-                                                           '用于替换的文本 qq.com 或 https://qq.com' + '\n' +
-                                                           '结果为 https://qq.com/announce.php?passkey=xxxx',
-                                                   'style': 'white-space: pre-line;'
-                                               }
-                                           },
-                                           {
-                                               'component': 'VAlert',
-                                               'props': {
-                                                   'type': 'info',
-                                                   'variant': 'tonal',
-                                                   'text': '强烈建议自己先添加一个tracker测试替换是否符合预期，程序是否正常运行',
-                                                   'style': 'white-space: pre-line;'
-                                               }
-                                           },
-                                           {
-                                               'component': 'VAlert',
-                                               'props': {
-                                                   'type': 'info',
-                                                   'variant': 'tonal',
-                                                   'text': '周期性巡检时指的是允许设置间隔一段进行巡检下载器中的种子Tracker' + '\n'
-                                                       '当匹配到等待替换的tracker时，进行替换，其中cron表达式是5位，例如:* * * * * 指的是每过一分钟轮训一次',
-                                                   'style': 'white-space: pre-line;'
-                                               }
-                                           }
-                                       ]
-                                   }
-                               ]
-                           }
-                       ]
-                   }
-               ], {
-                   "onlyonce": False,
-                   "downloader_type": "qbittorrent",
-                   "host": "192.168.2.100",
-                   "port": 8989,
-                   "username": "username",
-                   "password": "password",
-                   "target_domain": "",
-                   "replace_domain": "",
-                   "run_con_enable": False,
-                   "run_con": "",
-                   "notify": True
-               }
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'run_con',
+                                            'label': 'cron表达式',
+                                            'placeholder': '* * * * *'
+                                        }
+                                    }
+                                ]
+                            }, {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'downloader_type',
+                                            'label': '下载器类型',
+                                            'items': [
+                                                {'title': 'Qbittorrent', 'value': 'qbittorrent'},
+                                                {'title': 'Transmission', 'value': 'transmission'}
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }]
+                    }, {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'host',
+                                            'label': 'host主机ip',
+                                            'placeholder': '192.168.2.100'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'port',
+                                            'label': 'qb/tr端口',
+                                            'placeholder': '8989'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'username',
+                                            'label': '用户名',
+                                            'placeholder': 'username'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'password',
+                                            'label': '密码',
+                                            'placeholder': 'password'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }, {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'target_domain',
+                                            'label': '待替换文本',
+                                            'placeholder': 'target.com'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'replace_domain',
+                                            'label': '替换的文本',
+                                            'placeholder': 'replace.net'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }, {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '对下载器中所有符合代替换文本的tacker进行字符串replace替换' + '\n' +
+                                                    '现有tracker: https://baidu.com/announce.php?passkey=xxxx' + '\n' +
+                                                    '待替换 baidu.com 或 https://baidu.com' + '\n' +
+                                                    '用于替换的文本 qq.com 或 https://qq.com' + '\n' +
+                                                    '结果为 https://qq.com/announce.php?passkey=xxxx',
+                                            'style': 'white-space: pre-line;'
+                                        }
+                                    },
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '强烈建议自己先添加一个tracker测试替换是否符合预期，程序是否正常运行',
+                                            'style': 'white-space: pre-line;'
+                                        }
+                                    },
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '周期性巡检时指的是允许设置间隔一段进行巡检下载器中的种子Tracker' + '\n'
+                                                    '当匹配到等待替换的tracker时，进行替换，其中cron表达式是5位，例如:* * * * * 指的是每过一分钟轮训一次',
+                                            'style': 'white-space: pre-line;'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ], {
+            "onlyonce": False,
+            "downloader_type": "qbittorrent",
+            "host": "192.168.2.100",
+            "port": 8989,
+            "username": "username",
+            "password": "password",
+            "target_domain": "",
+            "replace_domain": "",
+            "run_con_enable": False,
+            "run_con": "",
+            "notify": True
+        }
 
     def get_page(self) -> List[dict]:
         pass
