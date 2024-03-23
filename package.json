@@ -2,7 +2,7 @@
     "AutoSignIn": {
         "name": "站点自动签到",
         "description": "自动模拟登录站点、签到。",
-        "version": "1.4",
+        "version": "1.5",
         "icon": "signin.png",
         "author": "thsrite",
         "level": 2
@@ -18,7 +18,7 @@
     "SiteStatistic": {
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
-        "version": "2.0",
+        "version": "2.1",
         "icon": "statistic.png",
         "author": "lightolly",
         "level": 2

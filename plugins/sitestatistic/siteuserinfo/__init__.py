@@ -278,8 +278,6 @@ class ISiteUserInfo(metaclass=ABCMeta):
         proxies = settings.PROXY if self._proxy else None
         if self._ua or headers or self._addition_headers:
             req_headers = {}
-            if headers:
-                req_headers.update(headers)
 
             req_headers.update({
                 "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
@@ -288,6 +286,9 @@ class ISiteUserInfo(metaclass=ABCMeta):
 
             if self._addition_headers:
                 req_headers.update(self._addition_headers)
+
+            if headers:
+                req_headers.update(headers)
 
         if params:
             res = RequestUtils(cookies=self._site_cookie,

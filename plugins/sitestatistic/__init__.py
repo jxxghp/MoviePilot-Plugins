@@ -43,7 +43,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -1263,10 +1263,10 @@ class SiteStatistic(_PluginBase):
                 # 按照上传降序排序
                 sites = self._sites_data.keys()
                 uploads = [self._sites_data[site].get("upload") or 0 if not yesterday_sites_data.get(site) else
-                           (self._sites_data[site].get("upload") or 0) - (
+                           int(self._sites_data[site].get("upload") or 0) - int(
                                    yesterday_sites_data[site].get("upload") or 0) for site in sites]
                 downloads = [self._sites_data[site].get("download") or 0 if not yesterday_sites_data.get(site) else
-                             (self._sites_data[site].get("download") or 0) - (
+                             int(self._sites_data[site].get("download") or 0) - int(
                                      yesterday_sites_data[site].get("download") or 0) for site in sites]
                 data_list = sorted(list(zip(sites, uploads, downloads)),
                                    key=lambda x: x[1],

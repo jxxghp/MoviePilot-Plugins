@@ -61,13 +61,13 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
         self.upload = int(user_info.get("memberCount", {}).get("uploaded") or '0')
         self.download = int(user_info.get("memberCount", {}).get("downloaded") or '0')
         self.ratio = user_info.get("memberCount", {}).get("shareRate") or 0
-        self.bonus = float(user_info.get("bonus") or '0')
+        self.bonus = user_info.get("memberCount", {}).get("bonus") or 0
         self.message_unread = 1
 
         self._torrent_seeding_params = {
-            "pageNumber": "1",
-            "pageSize": "20000",
-            "type": "seeding",
+            "pageNumber": 1,
+            "pageSize": 20000,
+            "type": "SEEDING",
             "userid": self.userid
         }
 
@@ -123,11 +123,18 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
             return None
         messages = messages_info.get("data", {}).get("data", [])
         for message in messages:
+            if not message.get("unread"):
+                continue
             head = message.get("title")
             date = message.get("createdDate")
             content = message.get("context")
             if head and date and content:
                 self.message_unread_contents.append((head, date, content))
+                # 设置已读
+                self._get_page_content(
+                    url=urljoin(self.site_url, f"api/msg/markRead"),
+                    params={"msgId": message.get("id")}
+                )
         # 是否存在下页数据
         return None
 

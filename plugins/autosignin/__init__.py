@@ -12,6 +12,7 @@ from apscheduler.triggers.cron import CronTrigger
 from ruamel.yaml import CommentedMap
 
 from app import schemas
+from app.chain.site import SiteChain
 from app.core.config import settings
 from app.core.event import EventManager, eventmanager, Event
 from app.db.site_oper import SiteOper
@@ -36,7 +37,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -51,6 +52,7 @@ class AutoSignIn(_PluginBase):
     # 私有属性
     sites: SitesHelper = None
     siteoper: SiteOper = None
+    sitechain: SiteChain = None
     # 事件管理器
     event: EventManager = None
     # 定时器
@@ -76,6 +78,7 @@ class AutoSignIn(_PluginBase):
         self.sites = SitesHelper()
         self.siteoper = SiteOper()
         self.event = EventManager()
+        self.sitechain = SiteChain()
 
         # 停止现有任务
         self.stop_service()
@@ -955,8 +958,7 @@ class AutoSignIn(_PluginBase):
         """
         return site_info.get("name"), self.__login_base(site_info)
 
-    @staticmethod
-    def __login_base(site_info: CommentedMap) -> str:
+    def __login_base(self, site_info: CommentedMap) -> str:
         """
         模拟登陆通用处理
         :param site_info: 站点信息
@@ -964,61 +966,11 @@ class AutoSignIn(_PluginBase):
         """
         if not site_info:
             return ""
-        site = site_info.get("name")
-        site_url = site_info.get("url")
-        site_cookie = site_info.get("cookie")
-        ua = site_info.get("ua")
-        render = site_info.get("render")
-        proxies = settings.PROXY if site_info.get("proxy") else None
-        proxy_server = settings.PROXY_SERVER if site_info.get("proxy") else None
-        if not site_url or not site_cookie:
-            logger.warn(f"未配置 {site} 的站点地址或Cookie，无法签到")
-            return ""
-        # 模拟登录
-        try:
-            # 访问链接
-            site_url = str(site_url).replace("attendance.php", "")
-            logger.info(f"开始站点模拟登陆：{site}，地址：{site_url}...")
-            if render:
-                page_source = PlaywrightHelper().get_page_source(url=site_url,
-                                                                 cookies=site_cookie,
-                                                                 ua=ua,
-                                                                 proxies=proxy_server)
-                if not SiteUtils.is_logged_in(page_source):
-                    if under_challenge(page_source):
-                        return f"无法通过Cloudflare！"
-                    return f"仿真登录失败，Cookie已失效！"
-                else:
-                    return "模拟登陆成功"
-            else:
-                res = RequestUtils(cookies=site_cookie,
-                                   ua=ua,
-                                   proxies=proxies
-                                   ).get_res(url=site_url)
-                # 判断登录状态
-                if res and res.status_code in [200, 500, 403]:
-                    if not SiteUtils.is_logged_in(res.text):
-                        if under_challenge(res.text):
-                            msg = "站点被Cloudflare防护，请打开站点浏览器仿真"
-                        elif res.status_code == 200:
-                            msg = "Cookie已失效"
-                        else:
-                            msg = f"状态码：{res.status_code}"
-                        logger.warn(f"{site} 模拟登陆失败，{msg}")
-                        return f"模拟登陆失败，{msg}！"
-                    else:
-                        logger.info(f"{site} 模拟登陆成功")
-                        return f"模拟登陆成功"
-                elif res is not None:
-                    logger.warn(f"{site} 模拟登陆失败，状态码：{res.status_code}")
-                    return f"模拟登陆失败，状态码：{res.status_code}！"
-                else:
-                    logger.warn(f"{site} 模拟登陆失败，无法打开网站")
-                    return f"模拟登陆失败，无法打开网站！"
-        except Exception as e:
-            logger.warn("%s 模拟登陆失败：%s" % (site, str(e)))
-            traceback.print_exc()
-            return f"模拟登陆失败：{str(e)}！"
+        state, msg = self.sitechain.test(site_info.get("url"))
+        if state:
+            return f"模拟登陆成功"
+        else:
+            return f"模拟登陆失败：{msg}"
 
     def stop_service(self):
         """
