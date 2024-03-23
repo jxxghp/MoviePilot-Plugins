@@ -61,6 +61,9 @@ class NexusPhpSiteUserInfo(ISiteUserInfo):
                 self.message_unread = StringUtils.str_int(message_text)
 
     def _parse_user_base_info(self, html_text: str):
+        """
+        解析用户基本信息
+        """
         # 合并解析，减少额外请求调用
         self._parse_user_traffic_info(html_text)
         self._user_traffic_page = None
@@ -85,6 +88,9 @@ class NexusPhpSiteUserInfo(ISiteUserInfo):
             return
 
     def _parse_user_traffic_info(self, html_text):
+        """
+        解析用户流量信息
+        """
         html_text = self._prepare_html_text(html_text)
         upload_match = re.search(r"[^总]上[传傳]量?[:：_<>/a-zA-Z-=\"'\s#;]+([\d,.\s]+[KMGTPI]*B)", html_text,
                                  re.IGNORECASE)

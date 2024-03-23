@@ -18,7 +18,7 @@
     "SiteStatistic": {
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
-        "version": "1.8",
+        "version": "1.9",
         "icon": "statistic.png",
         "author": "lightolly",
         "level": 2
