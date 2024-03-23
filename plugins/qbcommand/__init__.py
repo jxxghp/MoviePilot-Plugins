@@ -11,7 +11,7 @@ from app.core.event import eventmanager, Event
 import time
 
 
-class QbCommond(_PluginBase):
+class QbCommand(_PluginBase):
     # 插件名称
     plugin_name = "QB远程操作"
     # 插件描述

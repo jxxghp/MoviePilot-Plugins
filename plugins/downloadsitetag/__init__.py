@@ -28,7 +28,7 @@ class DownloadSiteTag(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "1.9"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -190,6 +190,11 @@ class DownloadSiteTag(_PluginBase):
         # JackettIndexers索引器支持多个站点, 如果不存在历史记录, 则通过tracker会再次附加其他站点名称
         indexers.append("JackettIndexers")
         indexers = set(indexers)
+        tracker_mappings = {
+            "chdbits.xyz": "ptchdbits.co",
+            "agsvpt.trackers.work": "agsvpt.com",
+            "tracker.cinefiles.info": "audiences.me",
+        }
         for DOWNLOADER in ["qbittorrent", "transmission"]:
             logger.info(f"{self.LOG_TAG}开始扫描下载器 {DOWNLOADER} ...")
             # 获取下载器中的种子
@@ -241,7 +246,13 @@ class DownloadSiteTag(_PluginBase):
                     elif not history.torrent_site:
                         trackers = self._get_trackers(torrent=torrent, dl_type=DOWNLOADER)
                         for tracker in trackers:
-                            domain = StringUtils.get_url_domain(tracker)
+                            # 检查tracker是否包含特定的关键字，并进行相应的映射
+                            for key, mapped_domain in tracker_mappings.items():
+                                if key in tracker:
+                                    domain = mapped_domain
+                                    break
+                            else:
+                                domain = StringUtils.get_url_domain(tracker)
                             site_info = self.sites_helper.get_indexer(domain)
                             if site_info:
                                 history.torrent_site = site_info.get("name")

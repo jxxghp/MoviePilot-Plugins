@@ -10,7 +10,7 @@ from app.core.event import eventmanager, Event
 import time
 
 
-class TrCommond(_PluginBase):
+class TrCommand(_PluginBase):
     # 插件名称
     plugin_name = "TR远程操作"
     # 插件描述
