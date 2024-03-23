@@ -43,7 +43,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.9"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -396,7 +396,7 @@ class SiteStatistic(_PluginBase):
             """
             if not value:
                 return 0
-            return round(value / 1024 / 1024 / 1024, 1)
+            return round(float(value) / 1024 / 1024 / 1024, 1)
 
         def __sub_dict(d1: dict, d2: dict) -> dict:
             """
@@ -406,11 +406,11 @@ class SiteStatistic(_PluginBase):
                 return {}
             if not d2:
                 return d1
-            d = {k: d1.get(k) - d2.get(k) for k in d1
-                 if k in d2 and isinstance(d1.get(k), int) and isinstance(d2.get(k), int)}
+            d = {k: int(d1.get(k)) - int(d2.get(k)) for k in d1
+                 if k in d2 and str(d1.get(k)).isdigit() and str(d2.get(k)).isdigit()}
             # 把小于0的数据变成0
             for k, v in d.items():
-                if isinstance(v, int) and v < 0:
+                if str(v).isdigit() and int(v) < 0:
                     d[k] = 0
             return d
 
@@ -448,16 +448,16 @@ class SiteStatistic(_PluginBase):
                                       key=lambda item: item[1].get('upload') or 0,
                                       reverse=True))
         # 总上传量
-        total_upload = sum([data.get("upload")
+        total_upload = sum([int(data.get("upload"))
                             for data in stattistic_data.values() if data.get("upload")])
         # 总下载量
-        total_download = sum([data.get("download")
+        total_download = sum([int(data.get("download"))
                               for data in stattistic_data.values() if data.get("download")])
         # 总做种数
-        total_seed = sum([data.get("seeding")
+        total_seed = sum([int(data.get("seeding"))
                           for data in stattistic_data.values() if data.get("seeding")])
         # 总做种体积
-        total_seed_size = sum([data.get("seeding_size")
+        total_seed_size = sum([int(data.get("seeding_size"))
                                for data in stattistic_data.values() if data.get("seeding_size")])
 
         # 站点数据明细

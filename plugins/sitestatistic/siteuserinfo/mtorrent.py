@@ -58,10 +58,10 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
         self.user_level = user_info.get("role")
         self.join_at = user_info.get("memberStatus", {}).get("createdDate")
 
-        self.upload = user_info.get("memberCount", {}).get("uploaded")
-        self.download = user_info.get("memberCount", {}).get("downloaded")
+        self.upload = int(user_info.get("memberCount", {}).get("uploaded") or '0')
+        self.download = int(user_info.get("memberCount", {}).get("downloaded") or '0')
         self.ratio = user_info.get("memberCount", {}).get("shareRate") or 0
-        self.bonus = user_info.get("bonus")
+        self.bonus = float(user_info.get("bonus") or '0')
         self.message_unread = 1
 
         self._torrent_seeding_params = {
