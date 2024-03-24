@@ -37,7 +37,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -651,23 +651,23 @@ class AutoSignIn(_PluginBase):
                               userid=event.event_data.get("user"))
 
         if self._sign_sites:
-            self.__do(today=today, type="签到", do_sites=self._sign_sites, event=event)
+            self.__do(today=today, type_str="签到", do_sites=self._sign_sites, event=event)
         if self._login_sites:
-            self.__do(today=today, type="登录", do_sites=self._login_sites, event=event)
+            self.__do(today=today, type_str="登录", do_sites=self._login_sites, event=event)
 
-    def __do(self, today: datetime, type: str, do_sites: list, event: Event = None):
+    def __do(self, today: datetime, type_str: str, do_sites: list, event: Event = None):
         """
         签到逻辑
         """
         yesterday = today - timedelta(days=1)
         yesterday_str = yesterday.strftime('%Y-%m-%d')
         # 删除昨天历史
-        self.del_data(key=type + "-" + yesterday_str)
+        self.del_data(key=type_str + "-" + yesterday_str)
         self.del_data(key=f"{yesterday.month}月{yesterday.day}日")
 
         # 查看今天有没有签到|登录历史
         today = today.strftime('%Y-%m-%d')
-        today_history = self.get_data(key=type + "-" + today)
+        today_history = self.get_data(key=type_str + "-" + today)
 
         # 查询所有站点
         all_sites = [site for site in self.sites.get_indexers() if not site.get("public")] + self.__custom_sites()
@@ -679,7 +679,7 @@ class AutoSignIn(_PluginBase):
 
         # 今日没数据
         if not today_history or self._clean:
-            logger.info(f"今日 {today} 未{type}，开始{type}已选站点")
+            logger.info(f"今日 {today} 未{type_str}，开始{type_str}已选站点")
             if self._clean:
                 # 关闭开关
                 self._clean = False
@@ -694,20 +694,20 @@ class AutoSignIn(_PluginBase):
                         site.get("id") not in already_sites or site.get("id") in retry_sites]
 
             if not no_sites:
-                logger.info(f"今日 {today} 已{type}，无重新{type}站点，本次任务结束")
+                logger.info(f"今日 {today} 已{type_str}，无重新{type_str}站点，本次任务结束")
                 return
 
             # 任务站点 = 需要重试+今日未do
             do_sites = no_sites
-            logger.info(f"今日 {today} 已{type}，开始重试命中关键词站点")
+            logger.info(f"今日 {today} 已{type_str}，开始重试命中关键词站点")
 
         if not do_sites:
-            logger.info(f"没有需要{type}的站点")
+            logger.info(f"没有需要{type_str}的站点")
             return
 
         # 执行签到
-        logger.info(f"开始执行{type}任务 ...")
-        if type == "签到":
+        logger.info(f"开始执行{type_str}任务 ...")
+        if type_str == "签到":
             with ThreadPool(min(len(do_sites), int(self._queue_cnt))) as p:
                 status = p.map(self.signin_site, do_sites)
         else:
@@ -715,7 +715,7 @@ class AutoSignIn(_PluginBase):
                 status = p.map(self.login_site, do_sites)
 
         if status:
-            logger.info(f"站点{type}任务完成！")
+            logger.info(f"站点{type_str}任务完成！")
             # 获取今天的日期
             key = f"{datetime.now().month}月{datetime.now().day}日"
             today_data = self.get_data(key)
@@ -790,13 +790,13 @@ class AutoSignIn(_PluginBase):
 
             if not self._retry_keyword:
                 # 没设置重试关键词则重试已选站点
-                retry_sites = self._sign_sites if type == "签到" else self._login_sites
-            logger.debug(f"下次{type}重试站点 {retry_sites}")
+                retry_sites = self._sign_sites if type_str == "签到" else self._login_sites
+            logger.debug(f"下次{type_str}重试站点 {retry_sites}")
 
             # 存入历史
-            self.save_data(key=type + "-" + today,
+            self.save_data(key=type_str + "-" + today,
                            value={
-                               "do": self._sign_sites if type == "签到" else self._login_sites,
+                               "do": self._sign_sites if type_str == "签到" else self._login_sites,
                                "retry": retry_sites
                            })
 
@@ -814,21 +814,21 @@ class AutoSignIn(_PluginBase):
                     signin_message += retry_msg
 
                 signin_message = "\n".join([f'【{s[0]}】{s[1]}' for s in signin_message if s])
-                self.post_message(title=f"【站点自动{type}】",
+                self.post_message(title=f"【站点自动{type_str}】",
                                   mtype=NotificationType.SiteMessage,
-                                  text=f"全部{type}数量: {len(self._sign_sites if type == '签到' else self._login_sites)} \n"
-                                       f"本次{type}数量: {len(do_sites)} \n"
-                                       f"下次{type}数量: {len(retry_sites) if self._retry_keyword else 0} \n"
+                                  text=f"全部{type_str}数量: {len(self._sign_sites if type_str == '签到' else self._login_sites)} \n"
+                                       f"本次{type_str}数量: {len(do_sites)} \n"
+                                       f"下次{type_str}数量: {len(retry_sites) if self._retry_keyword else 0} \n"
                                        f"{signin_message}"
                                   )
             if event:
                 self.post_message(channel=event.event_data.get("channel"),
-                                  title=f"站点{type}完成！", userid=event.event_data.get("user"))
+                                  title=f"站点{type_str}完成！", userid=event.event_data.get("user"))
         else:
-            logger.error(f"站点{type}任务失败！")
+            logger.error(f"站点{type_str}任务失败！")
             if event:
                 self.post_message(channel=event.event_data.get("channel"),
-                                  title=f"站点{type}任务失败！", userid=event.event_data.get("user"))
+                                  title=f"站点{type_str}任务失败！", userid=event.event_data.get("user"))
         # 保存配置
         self.__update_config()
 

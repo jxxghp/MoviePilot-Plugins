@@ -2,7 +2,7 @@
     "AutoSignIn": {
         "name": "站点自动签到",
         "description": "自动模拟登录站点、签到。",
-        "version": "1.5",
+        "version": "1.6",
         "icon": "signin.png",
         "author": "thsrite",
         "level": 2
