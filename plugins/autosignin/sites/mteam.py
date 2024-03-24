@@ -27,7 +27,7 @@ class MTorrent(_ISiteSigninHandler):
 
     def signin(self, site_info: CommentedMap) -> Tuple[bool, str]:
         """
-        执行签到操作，馒头实际没有签到，访问一下用户详情页面即可
+        执行签到操作，馒头实际没有签到，非仿真模式下需要更新访问时间
         :param site_info: 站点信息，含有站点Url、站点Cookie、UA等信息
         :return: 签到结果信息
         """
@@ -56,7 +56,7 @@ class MTorrent(_ISiteSigninHandler):
                                ua=ua,
                                timeout=60,
                                proxies=settings.PROXY if proxy else None
-                               ).post_res(url=urljoin(url, "api/member/profile"))
+                               ).post_res(url=urljoin(url, "api/member/updateLastBrowse"))
             if res:
                 logger.info(f'【{site}】模拟登录成功')
                 return True, f'模拟登录成功'
