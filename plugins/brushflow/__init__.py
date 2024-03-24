@@ -32,7 +32,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -857,54 +857,32 @@ class BrushFlow(_PluginBase):
         total_count = stattistic_data.get("count") or 0
         # 删除种子数
         total_deleted = stattistic_data.get("deleted") or 0
+        # 表格标题
+        headers = [
+            {'title': '站点', 'key': 'site', 'sortable': True},
+            {'title': '标题', 'key': 'title', 'sortable': True},
+            {'title': '大小', 'key': 'size', 'sortable': True},
+            {'title': '上传量', 'key': 'uploaded', 'sortable': True},
+            {'title': '下载量', 'key': 'downloaded', 'sortable': True},
+            {'title': '分享率', 'key': 'ratio', 'sortable': True},
+            {'title': '状态', 'key': 'status', 'sortable': True},
+        ]
         # 种子数据明细
-        torrent_trs = [
+        items = [
             {
-                'component': 'tr',
-                'props': {
-                    'class': 'text-sm'
-                },
-                'content': [
-                    {
-                        'component': 'td',
-                        'props': {
-                            'class': 'whitespace-nowrap break-keep text-high-emphasis'
-                        },
-                        'text': data.get("site_name")
-                    },
-                    {
-                        'component': 'td',
-                        'text': data.get("title")
-                    },
-                    {
-                        'component': 'td',
-                        'text': StringUtils.str_filesize(data.get("size"))
-                    },
-                    {
-                        'component': 'td',
-                        'text': StringUtils.str_filesize(data.get("uploaded") or 0)
-                    },
-                    {
-                        'component': 'td',
-                        'text': StringUtils.str_filesize(data.get("downloaded") or 0)
-                    },
-                    {
-                        'component': 'td',
-                        'text': round(data.get('ratio') or 0, 2)
-                    },
-                    {
-                        'component': 'td',
-                        'props': {
-                            'class': 'text-no-wrap'
-                        },
-                        'text': "已删除" if data.get("deleted") else "正常"
-                    }
-                ]
+                'site': data.get("site_name"),
+                'title': data.get("title"),
+                'size': StringUtils.str_filesize(data.get("size")),
+                'uploaded': StringUtils.str_filesize(data.get("uploaded") or 0),
+                'downloaded': StringUtils.str_filesize(data.get("downloaded") or 0),
+                'ratio': round(data.get('ratio') or 0, 2),
+                'status': "已删除" if data.get("deleted") else "正常"
             } for data in data_list
         ]
 
         # 拼装页面
         return [
+            # 统计数据
             {
                 'component': 'VRow',
                 'content': [
@@ -1187,8 +1165,16 @@ class BrushFlow(_PluginBase):
                                 ]
                             }
                         ]
-                    },
-                    # 种子明细
+                    }
+                ]
+            },
+            # 种子明细
+            {
+                'component': 'VRow',
+                'props': {
+                    'class': 'd-none d-sm-block',
+                },
+                'content': [
                     {
                         'component': 'VCol',
                         'props': {
@@ -1196,73 +1182,19 @@ class BrushFlow(_PluginBase):
                         },
                         'content': [
                             {
-                                'component': 'VTable',
+                                'component': 'VDataTableVirtual',
                                 'props': {
-                                    'hover': True
-                                },
-                                'content': [
-                                    {
-                                        'component': 'thead',
-                                        'props': {
-                                            'class': 'text-no-wrap'
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '站点'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '标题'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '大小'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '上传量'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '下载量'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '分享率'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '状态'
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'tbody',
-                                        'content': torrent_trs
-                                    }
-                                ]
+                                    'class': 'text-sm',
+                                    'hover': True,
+                                    'headers': headers,
+                                    'items': items,
+                                    'height': '500',
+                                    'item-value': 'title',
+                                    'density': 'compact',
+                                    'fixed-header': True,
+                                    'hide-no-data': True,
+                                    'sticky': True,
+                                }
                             }
                         ]
                     }
