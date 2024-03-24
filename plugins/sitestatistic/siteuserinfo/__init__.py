@@ -242,7 +242,7 @@ class ISiteUserInfo(metaclass=ABCMeta):
             )
 
             # 其他页处理
-            while next_page:
+            while next_page is not None and next_page is not False:
                 next_page = self._parse_user_torrent_seeding_info(
                     self._get_page_content(
                         url=urljoin(urljoin(self._base_url, self._torrent_seeding_page), next_page),
@@ -277,25 +277,32 @@ class ISiteUserInfo(metaclass=ABCMeta):
         req_headers = None
         proxies = settings.PROXY if self._proxy else None
         if self._ua or headers or self._addition_headers:
-            req_headers = {}
-
-            req_headers.update({
-                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            req_headers = {
                 "User-Agent": f"{self._ua}"
-            })
-
-            if self._addition_headers:
-                req_headers.update(self._addition_headers)
+            }
 
             if headers:
                 req_headers.update(headers)
+            else:
+                req_headers.update({
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                })
+                if self._addition_headers:
+                    req_headers.update(self._addition_headers)
 
         if params:
-            res = RequestUtils(cookies=self._site_cookie,
-                               session=self._session,
-                               timeout=60,
-                               proxies=proxies,
-                               headers=req_headers).post_res(url=url, data=params)
+            if req_headers.get("Content-Type") == "application/json":
+                res = RequestUtils(cookies=self._site_cookie,
+                                   session=self._session,
+                                   timeout=60,
+                                   proxies=proxies,
+                                   headers=req_headers).post_res(url=url, json=params)
+            else:
+                res = RequestUtils(cookies=self._site_cookie,
+                                   session=self._session,
+                                   timeout=60,
+                                   proxies=proxies,
+                                   headers=req_headers).post_res(url=url, data=params)
         else:
             res = RequestUtils(cookies=self._site_cookie,
                                session=self._session,
@@ -303,16 +310,19 @@ class ISiteUserInfo(metaclass=ABCMeta):
                                proxies=proxies,
                                headers=req_headers).get_res(url=url)
         if res is not None and res.status_code in (200, 500, 403):
-            # 如果cloudflare 有防护，尝试使用浏览器仿真
-            if under_challenge(res.text):
-                logger.warn(
-                    f"{self.site_name} 检测到Cloudflare，请更新Cookie和UA")
-                return ""
-            if re.search(r"charset=\"?utf-8\"?", res.text, re.IGNORECASE):
-                res.encoding = "utf-8"
+            if "application/json" in (req_headers.get("Accept") or ""):
+                return json.dumps(res.json())
             else:
-                res.encoding = res.apparent_encoding
-            return res.text
+                # 如果cloudflare 有防护，尝试使用浏览器仿真
+                if under_challenge(res.text):
+                    logger.warn(
+                        f"{self.site_name} 检测到Cloudflare，请更新Cookie和UA")
+                    return ""
+                if re.search(r"charset=\"?utf-8\"?", res.text, re.IGNORECASE):
+                    res.encoding = "utf-8"
+                else:
+                    res.encoding = res.apparent_encoding
+                return res.text
 
         return ""
 

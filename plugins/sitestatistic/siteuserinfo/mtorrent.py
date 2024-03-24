@@ -3,12 +3,24 @@ import json
 from typing import Optional, Tuple
 from urllib.parse import urljoin
 
+from app.log import logger
 from app.plugins.sitestatistic.siteuserinfo import ISiteUserInfo, SITE_BASE_ORDER, SiteSchema
 
 
 class MTorrentSiteUserInfo(ISiteUserInfo):
     schema = SiteSchema.MTorrent
     order = SITE_BASE_ORDER + 60
+
+    # 用户级别字典
+    MTeam_sysRoleList = {
+        "1": "User",
+        "2": "Power User",
+        "3": "Elite User",
+        "4": "Crazy User",
+        "5": "Insane User",
+        "6": "Veteran User",
+        "7": "Extreme User",
+    }
 
     @classmethod
     def match(cls, html_text: str) -> bool:
@@ -33,6 +45,10 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
             "pageSize": 100
         }
         self._torrent_seeding_page = "api/member/getUserTorrentList"
+        self._torrent_seeding_headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/plain, */*"
+        }
 
     def _parse_logged_in(self, html_text):
         """
@@ -55,7 +71,7 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
         user_info = detail.get("data", {})
         self.userid = user_info.get("id")
         self.username = user_info.get("username")
-        self.user_level = user_info.get("role")
+        self.user_level = self.MTeam_sysRoleList.get(user_info.get("role") or "1")
         self.join_at = user_info.get("memberStatus", {}).get("createdDate")
 
         self.upload = int(user_info.get("memberCount", {}).get("uploaded") or '0')
@@ -66,7 +82,7 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
 
         self._torrent_seeding_params = {
             "pageNumber": 1,
-            "pageSize": 20000,
+            "pageSize": 200,
             "type": "SEEDING",
             "userid": self.userid
         }
@@ -91,26 +107,39 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
             return None
         seeding_info = json.loads(html_text)
         if not seeding_info or seeding_info.get("code") != "0":
-            return
-
+            return None
         torrents = seeding_info.get("data", {}).get("data", [])
-
         page_seeding_size = 0
         page_seeding_info = []
         for info in torrents:
             torrent = info.get("torrent", {})
             size = int(torrent.get("size") or '0')
             seeders = int(torrent.get("source") or '0')
-
             page_seeding_size += size
             page_seeding_info.append([seeders, size])
-
         self.seeding += len(torrents)
         self.seeding_size += page_seeding_size
         self.seeding_info.extend(page_seeding_info)
 
-        # 是否存在下页数据
-        return None
+        # 查询总做种数
+        seeder_count = 0
+        try:
+            result = self._get_page_content(
+                url=urljoin(self.site_url, "api/tracker/myPeerStatus"),
+                params={"uid": self.userid},
+            )
+            if result:
+                seeder_info = json.loads(result)
+                seeder_count = int(seeder_info.get("data", {}).get("seeder") or 0)
+        except Exception as e:
+            logger.error(f"获取做种数失败: {str(e)}")
+        if not seeder_count:
+            return None
+        if self.seeding >= seeder_count:
+            return None
+        # 还有下一页
+        self._torrent_seeding_params["pageNumber"] += 1
+        return ""
 
     def _parse_message_unread_links(self, html_text: str, msg_links: list) -> Optional[str]:
         """
