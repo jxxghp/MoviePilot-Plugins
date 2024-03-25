@@ -2,8 +2,10 @@
 import json
 from typing import Optional, Tuple
 from urllib.parse import urljoin
+from lxml import etree
 
 from app.log import logger
+from app.db.systemconfig_oper import SystemConfigOper
 from app.plugins.sitestatistic.siteuserinfo import ISiteUserInfo, SITE_BASE_ORDER, SiteSchema
 
 
@@ -20,11 +22,27 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
         "5": "Insane User",
         "6": "Veteran User",
         "7": "Extreme User",
+        "8": "Ultimate User",
+        "9": "Nexus Master",
+        "10": "VIP",
+        "11": "Retiree",
+        "12": "Uploader",
+        "13": "Moderator",
+        "14": "Administrator",
+        "15": "Sysop",
+        "16": "Staff",
+        "17": "Offer memberStaff",
+        "18": "Bet memberStaff",
     }
 
     @classmethod
     def match(cls, html_text: str) -> bool:
-        return 'M-Team' in html_text
+        html = etree.HTML(html_text)
+        if not html:
+            return False
+        if html.xpath("//title/text()") and "M-Team" in html.xpath("//title/text()")[0]:
+            return True
+        return False
 
     def _parse_site_page(self, html_text: str):
         """
@@ -45,9 +63,11 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
             "pageSize": 100
         }
         self._torrent_seeding_page = "api/member/getUserTorrentList"
+        domain = self.site_domain.split(".")[-2]
         self._torrent_seeding_headers = {
             "Content-Type": "application/json",
-            "Accept": "application/json, text/plain, */*"
+            "Accept": "application/json, text/plain, */*",
+            "x-api-key": SystemConfigOper().get(f"site.{domain}.apikey"),
         }
 
     def _parse_logged_in(self, html_text):

@@ -43,7 +43,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "2.2"
+    plugin_version = "2.3"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -1185,7 +1185,9 @@ class SiteStatistic(_PluginBase):
                 return site_user_info
 
         except Exception as e:
+            import traceback
             logger.error(f"站点 {site_name} 获取流量数据失败：{str(e)}")
+            logger.error(traceback.format_exc())
         return None
 
     def __notify_unread_msg(self, site_name: str, site_user_info: ISiteUserInfo, unread_msg_notify: bool):
