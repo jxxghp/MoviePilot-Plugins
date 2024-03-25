@@ -116,6 +116,7 @@ class ISiteUserInfo(metaclass=ABCMeta):
         self.site_name = site_name
         self.site_url = url
         self._base_url = f"{split_url.scheme}://{split_url.netloc}"
+        self.site_domain = split_url.netloc
         self._site_cookie = site_cookie
         self._index_html = index_html
         self._session = session if session else None
@@ -292,9 +293,7 @@ class ISiteUserInfo(metaclass=ABCMeta):
 
         if params:
             if req_headers.get("Content-Type") == "application/json":
-                res = RequestUtils(cookies=self._site_cookie,
-                                   session=self._session,
-                                   timeout=60,
+                res = RequestUtils(timeout=60,
                                    proxies=proxies,
                                    headers=req_headers).post_res(url=url, json=params)
             else:
@@ -310,7 +309,7 @@ class ISiteUserInfo(metaclass=ABCMeta):
                                proxies=proxies,
                                headers=req_headers).get_res(url=url)
         if res is not None and res.status_code in (200, 500, 403):
-            if "application/json" in (req_headers.get("Accept") or ""):
+            if "application/json" in ((req_headers and req_headers.get("Accept")) or ""):
                 return json.dumps(res.json())
             else:
                 # 如果cloudflare 有防护，尝试使用浏览器仿真
