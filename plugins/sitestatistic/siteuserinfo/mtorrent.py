@@ -7,11 +7,13 @@ from lxml import etree
 from app.log import logger
 from app.db.systemconfig_oper import SystemConfigOper
 from app.plugins.sitestatistic.siteuserinfo import ISiteUserInfo, SITE_BASE_ORDER, SiteSchema
+from app.utils.string import StringUtils
 
 
 class MTorrentSiteUserInfo(ISiteUserInfo):
     schema = SiteSchema.MTorrent
     order = SITE_BASE_ORDER + 60
+    request_mode = "apikey"
 
     # 用户级别字典
     MTeam_sysRoleList = {
@@ -63,7 +65,7 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
             "pageSize": 100
         }
         self._torrent_seeding_page = "api/member/getUserTorrentList"
-        domain = self.site_domain.split(".")[-2]
+        domain = StringUtils.get_url_host(self.site_url)
         self._torrent_seeding_headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/plain, */*",

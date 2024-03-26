@@ -39,6 +39,8 @@ class ISiteUserInfo(metaclass=ABCMeta):
     schema = SiteSchema.NexusPhp
     # 站点解析时判断顺序，值越小越先解析
     order = SITE_BASE_ORDER
+    # 请求模式 cookie/apikey
+    request_mode = "cookie"
 
     def __init__(self, site_name: str,
                  url: str,
@@ -115,8 +117,8 @@ class ISiteUserInfo(metaclass=ABCMeta):
         split_url = urlsplit(url)
         self.site_name = site_name
         self.site_url = url
-        self._base_url = f"{split_url.scheme}://{split_url.netloc}"
         self.site_domain = split_url.netloc
+        self._base_url = f"{split_url.scheme}://{split_url.netloc}"
         self._site_cookie = site_cookie
         self._index_html = index_html
         self._session = session if session else None
@@ -291,25 +293,36 @@ class ISiteUserInfo(metaclass=ABCMeta):
                 if self._addition_headers:
                     req_headers.update(self._addition_headers)
 
+        if self.request_mode == "apikey":
+            # 使用apikey请求，通过请求头传递
+            cookie = None
+            session = None
+        else:
+            # 使用cookie请求
+            cookie = self._site_cookie
+            session = self._session
+
         if params:
             if req_headers.get("Content-Type") == "application/json":
-                res = RequestUtils(timeout=60,
+                res = RequestUtils(cookies=cookie,
+                                   session=session,
+                                   timeout=60,
                                    proxies=proxies,
                                    headers=req_headers).post_res(url=url, json=params)
             else:
-                res = RequestUtils(cookies=self._site_cookie,
-                                   session=self._session,
+                res = RequestUtils(cookies=cookie,
+                                   session=session,
                                    timeout=60,
                                    proxies=proxies,
                                    headers=req_headers).post_res(url=url, data=params)
         else:
-            res = RequestUtils(cookies=self._site_cookie,
-                               session=self._session,
+            res = RequestUtils(cookies=cookie,
+                               session=session,
                                timeout=60,
                                proxies=proxies,
                                headers=req_headers).get_res(url=url)
         if res is not None and res.status_code in (200, 500, 403):
-            if "application/json" in ((req_headers and req_headers.get("Accept")) or ""):
+            if req_headers and "application/json" in req_headers.get("Accept"):
                 return json.dumps(res.json())
             else:
                 # 如果cloudflare 有防护，尝试使用浏览器仿真
