@@ -322,7 +322,7 @@ class ISiteUserInfo(metaclass=ABCMeta):
                                proxies=proxies,
                                headers=req_headers).get_res(url=url)
         if res is not None and res.status_code in (200, 500, 403):
-            if req_headers and "application/json" in req_headers.get("Accept"):
+            if req_headers and "application/json" in str(req_headers.get("Accept")):
                 return json.dumps(res.json())
             else:
                 # 如果cloudflare 有防护，尝试使用浏览器仿真
