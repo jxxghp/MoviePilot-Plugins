@@ -418,7 +418,7 @@
     "IpDetect": {
         "name": "本地IP检测",
         "description": "如果QB、TR等服务在本地部署，当本地IP改变时自动修改其server IP",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "ipAddress.png",
         "author": "DzAvril",
         "level": 1
@@ -429,6 +429,14 @@
         "version": "1.4",
         "icon": "trackereditor_A.png",
         "author": "honue",
+        "level": 1
+    },
+    "ContractCheck": {
+        "name": "契约检查",
+        "description": "定时检查保种契约达成情况",
+        "version": "1.0",
+        "icon": "contract.png",
+        "author": "DzAvril",
         "level": 1
     }
 }
