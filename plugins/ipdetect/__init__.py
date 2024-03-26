@@ -9,6 +9,9 @@ from dotenv import set_key
 from app.core.module import ModuleManager
 from app.scheduler import Scheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import datetime, timedelta
+import pytz
 
 
 class IpDetect(_PluginBase):
@@ -19,7 +22,7 @@ class IpDetect(_PluginBase):
     # 插件图标
     plugin_icon = "ipAddress.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -45,9 +48,11 @@ class IpDetect(_PluginBase):
     _onlyonce = False
     _cron = ""
     _setting_keys = []
+    _scheduler = None
 
     def init_plugin(self, config: dict = None):
         logger.info(f"Hello IpDetect, config {config}")
+        self.stop_service()
         if config:
             self._enabled = config.get("enabled")
             self._onlyonce = config.get("onlyonce")
@@ -116,25 +121,40 @@ class IpDetect(_PluginBase):
         self.__update_config()
         logger.info(f"_setting_keys: {self._setting_keys}")
         if self._onlyonce:
+            # 定时任务
+            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+            logger.info(f"本地IP检测服务启动，立即运行一次")
+            self._scheduler.add_job(
+                self.detect_ip,
+                "date",
+                run_date=datetime.now(tz=pytz.timezone(settings.TZ))
+                + timedelta(seconds=3),
+            )
             self._onlyonce = False
             self.__update_config()
-            self.detect_ip()
+
+            # 启动任务
+            if self._scheduler.get_jobs():
+                self._scheduler.print_jobs()
+                self._scheduler.start()
 
     def __update_config(self):
-        self.update_config({
-            "enabled": self._enabled,
-            "onlyonce": self._onlyonce,
-            "cron": self._cron,
-            "notify": self._notify,
-            "enable_qb": self._enable_qb,
-            "enable_tr": self._enable_tr,
-            "enable_emby": self._enable_emby,
-            "enable_emby_play": self._enable_emby_play,
-            "enable_jellyfin": self._enable_jellyfin,
-            "enable_jellyfin_play": self._enable_jellyfin_play,
-            "enable_plex": self._enable_plex,
-            "enable_plex_play": self._enable_plex_play,
-        })
+        self.update_config(
+            {
+                "enabled": self._enabled,
+                "onlyonce": self._onlyonce,
+                "cron": self._cron,
+                "notify": self._notify,
+                "enable_qb": self._enable_qb,
+                "enable_tr": self._enable_tr,
+                "enable_emby": self._enable_emby,
+                "enable_emby_play": self._enable_emby_play,
+                "enable_jellyfin": self._enable_jellyfin,
+                "enable_jellyfin_play": self._enable_jellyfin_play,
+                "enable_plex": self._enable_plex,
+                "enable_plex_play": self._enable_plex_play,
+            }
+        )
 
     def get_state(self) -> bool:
         return self._enabled
@@ -185,8 +205,8 @@ class IpDetect(_PluginBase):
                 old_value,
             )
         else:  # ip:port
-            ip_pattern = r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d+)'
-            v = re.sub(ip_pattern, r'{}:\2'.format(v), old_value)
+            ip_pattern = r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d+)"
+            v = re.sub(ip_pattern, r"{}:\2".format(v), old_value)
         if hasattr(settings, k):
             if v == "None":
                 v = None
@@ -219,7 +239,7 @@ class IpDetect(_PluginBase):
             return None
 
     def parse_ip(self, ip):
-        ip_pattern = r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
+        ip_pattern = r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"
         match = re.search(ip_pattern, ip)
         if match:
             return match.group(1)
@@ -476,7 +496,7 @@ class IpDetect(_PluginBase):
                                             "text": "本插件针对部署在本地的服务，如QB下载器、Emby服务等，检测到本地IP变化时同步修改服务地址，请勾选部署在本地的服务。",
                                         },
                                     }
-                                ]
+                                ],
                             },
                             {
                                 "component": "VCol",
@@ -494,7 +514,6 @@ class IpDetect(_PluginBase):
                                     }
                                 ],
                             },
-                            
                         ],
                     },
                 ],
@@ -517,4 +536,14 @@ class IpDetect(_PluginBase):
         pass
 
     def stop_service(self):
-        pass
+        """
+        退出插件
+        """
+        try:
+            if self._scheduler:
+                self._scheduler.remove_all_jobs()
+                if self._scheduler.running:
+                    self._scheduler.shutdown()
+                self._scheduler = None
+        except Exception as e:
+            logger.error("退出插件失败：%s" % str(e))

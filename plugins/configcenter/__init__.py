@@ -17,7 +17,7 @@ class ConfigCenter(_PluginBase):
     # 插件图标
     plugin_icon = "setting.png"
     # 插件版本
-    plugin_version = "2.3"
+    plugin_version = "2.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -37,7 +37,7 @@ class ConfigCenter(_PluginBase):
         "GITHUB_TOKEN", "API_TOKEN", "TMDB_API_DOMAIN", "TMDB_IMAGE_DOMAIN", "WALLPAPER",
         "RECOGNIZE_SOURCE", "SCRAP_FOLLOW_TMDB", "AUTO_DOWNLOAD_USER",
         "OCR_HOST", "DOWNLOAD_SUBTITLE", "PLUGIN_MARKET", "MOVIE_RENAME_FORMAT",
-        "TV_RENAME_FORMAT", "FANART_ENABLE"
+        "TV_RENAME_FORMAT", "FANART_ENABLE", "DOH_ENABLE", "SEARCH_MULTIPLE_NAME", "META_CACHE_EXPIRE"
     ]
 
     def init_plugin(self, config: dict = None):
@@ -314,27 +314,6 @@ class ConfigCenter(_PluginBase):
                                         }
                                     }
                                 ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "SCRAP_FOLLOW_TMDB",
-                                            "label": "新增入库跟随TMDB信息变化"
-                                        }
-                                    }
-                                ]
                             },
                             {
                                 "component": "VCol",
@@ -344,51 +323,10 @@ class ConfigCenter(_PluginBase):
                                 },
                                 "content": [
                                     {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "FANART_ENABLE",
-                                            "label": "使用Fanart图片数据源"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12
-                                },
-                                "content": [
-                                    {
                                         "component": "VTextField",
                                         "props": {
                                             "model": "OCR_HOST",
                                             "label": "验证码识别服务器"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "DOWNLOAD_SUBTITLE",
-                                            "label": "自动下载站点字幕"
                                         }
                                     }
                                 ]
@@ -471,6 +409,91 @@ class ConfigCenter(_PluginBase):
                                             "model": "params",
                                             "label": "自定义配置",
                                             "placeholder": "每行一个配置项，格式：配置项=值"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 4
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "DOWNLOAD_SUBTITLE",
+                                            "label": "自动下载站点字幕"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 4
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "SCRAP_FOLLOW_TMDB",
+                                            "label": "新增入库跟随TMDB信息变化"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 4
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "FANART_ENABLE",
+                                            "label": "使用Fanart图片数据源"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 4
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "DOH_ENABLE",
+                                            "label": "启用DNS over HTTPS"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 4
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "SEARCH_MULTIPLE_NAME",
+                                            "label": "资源搜索整合多名称搜索结果"
                                         }
                                     }
                                 ]

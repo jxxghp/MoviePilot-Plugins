@@ -1,3 +1,5 @@
+import base64
+import json
 import re
 import threading
 import time
@@ -17,7 +19,7 @@ from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
-from app.schemas import Notification, NotificationType, TorrentInfo
+from app.schemas import NotificationType, TorrentInfo
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
@@ -32,7 +34,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -85,6 +87,7 @@ class BrushFlow(_PluginBase):
     _dl_speed = 0
     _save_path = ""
     _clear_task = False
+    _offline_mode = True
 
     def init_plugin(self, config: dict = None):
         self.siteshelper = SitesHelper()
@@ -819,7 +822,7 @@ class BrushFlow(_PluginBase):
             "enabled": False,
             "notify": True,
             "onlyonce": False,
-            "offline_mode": False,
+            "offline_mode": True,
             "clear_task": False,
             "freeleech": "free",
             "hr": "yes",
@@ -857,54 +860,32 @@ class BrushFlow(_PluginBase):
         total_count = stattistic_data.get("count") or 0
         # 删除种子数
         total_deleted = stattistic_data.get("deleted") or 0
+        # 表格标题
+        headers = [
+            {'title': '站点', 'key': 'site', 'sortable': True},
+            {'title': '标题', 'key': 'title', 'sortable': True},
+            {'title': '大小', 'key': 'size', 'sortable': True},
+            {'title': '上传量', 'key': 'uploaded', 'sortable': True},
+            {'title': '下载量', 'key': 'downloaded', 'sortable': True},
+            {'title': '分享率', 'key': 'ratio', 'sortable': True},
+            {'title': '状态', 'key': 'status', 'sortable': True},
+        ]
         # 种子数据明细
-        torrent_trs = [
+        items = [
             {
-                'component': 'tr',
-                'props': {
-                    'class': 'text-sm'
-                },
-                'content': [
-                    {
-                        'component': 'td',
-                        'props': {
-                            'class': 'whitespace-nowrap break-keep text-high-emphasis'
-                        },
-                        'text': data.get("site_name")
-                    },
-                    {
-                        'component': 'td',
-                        'text': data.get("title")
-                    },
-                    {
-                        'component': 'td',
-                        'text': StringUtils.str_filesize(data.get("size"))
-                    },
-                    {
-                        'component': 'td',
-                        'text': StringUtils.str_filesize(data.get("uploaded") or 0)
-                    },
-                    {
-                        'component': 'td',
-                        'text': StringUtils.str_filesize(data.get("downloaded") or 0)
-                    },
-                    {
-                        'component': 'td',
-                        'text': round(data.get('ratio') or 0, 2)
-                    },
-                    {
-                        'component': 'td',
-                        'props': {
-                            'class': 'text-no-wrap'
-                        },
-                        'text': "已删除" if data.get("deleted") else "正常"
-                    }
-                ]
+                'site': data.get("site_name"),
+                'title': data.get("title"),
+                'size': StringUtils.str_filesize(data.get("size")),
+                'uploaded': StringUtils.str_filesize(data.get("uploaded") or 0),
+                'downloaded': StringUtils.str_filesize(data.get("downloaded") or 0),
+                'ratio': round(data.get('ratio') or 0, 2),
+                'status': "已删除" if data.get("deleted") else "正常"
             } for data in data_list
         ]
 
         # 拼装页面
         return [
+            # 统计数据
             {
                 'component': 'VRow',
                 'content': [
@@ -1187,8 +1168,16 @@ class BrushFlow(_PluginBase):
                                 ]
                             }
                         ]
-                    },
-                    # 种子明细
+                    }
+                ]
+            },
+            # 种子明细
+            {
+                'component': 'VRow',
+                'props': {
+                    'class': 'd-none d-sm-block',
+                },
+                'content': [
                     {
                         'component': 'VCol',
                         'props': {
@@ -1196,73 +1185,19 @@ class BrushFlow(_PluginBase):
                         },
                         'content': [
                             {
-                                'component': 'VTable',
+                                'component': 'VDataTableVirtual',
                                 'props': {
-                                    'hover': True
-                                },
-                                'content': [
-                                    {
-                                        'component': 'thead',
-                                        'props': {
-                                            'class': 'text-no-wrap'
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '站点'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '标题'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '大小'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '上传量'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '下载量'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '分享率'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '状态'
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'tbody',
-                                        'content': torrent_trs
-                                    }
-                                ]
+                                    'class': 'text-sm',
+                                    'hover': True,
+                                    'headers': headers,
+                                    'items': items,
+                                    'height': '500',
+                                    'item-value': 'title',
+                                    'density': 'compact',
+                                    'fixed-header': True,
+                                    'hide-no-data': True,
+                                    'sticky': True,
+                                }
                             }
                         ]
                     }
@@ -1645,14 +1580,79 @@ class BrushFlow(_PluginBase):
         else:
             return None
 
+    @staticmethod
+    def __get_redict_url(url: str, ua: str = None, cookie: str = None) -> Optional[str]:
+        """
+        获取下载链接， url格式：[base64]url
+        """
+        # 获取[]中的内容
+        m = re.search(r"\[(.*)](.*)", url)
+        if m:
+            # 参数
+            base64_str = m.group(1)
+            # URL
+            url = m.group(2)
+            if not base64_str:
+                return url
+            # 解码参数
+            req_str = base64.b64decode(base64_str.encode('utf-8')).decode('utf-8')
+            req_params: Dict[str, dict] = json.loads(req_str)
+            # 是否使用cookie
+            if not req_params.get('cookie'):
+                cookie = None
+            # 请求头
+            if req_params.get('header'):
+                headers = req_params.get('header')
+            else:
+                headers = None
+            if req_params.get('method') == 'get':
+                # GET请求
+                res = RequestUtils(
+                    ua=ua,
+                    cookies=cookie,
+                    headers=headers
+                ).get_res(url, params=req_params.get('params'))
+            else:
+                # POST请求
+                res = RequestUtils(
+                    ua=ua,
+                    cookies=cookie,
+                    headers=headers
+                ).post_res(url, params=req_params.get('params'))
+            if not res:
+                return None
+            if not req_params.get('result'):
+                return res.text
+            else:
+                data = res.json()
+                for key in str(req_params.get('result')).split("."):
+                    data = data.get(key)
+                    if not data:
+                        return None
+                logger.info(f"获取到下载地址：{data}")
+                return data
+        return None
+
     def __download(self, torrent: TorrentInfo) -> Optional[str]:
         """
         添加下载任务
         """
+        if not torrent.enclosure:
+            return None
         # 上传限速
         up_speed = int(self._up_speed) if self._up_speed else None
         # 下载限速
         down_speed = int(self._dl_speed) if self._dl_speed else None
+        # 获取下载链接
+        content = torrent.enclosure
+        if content.startswith("["):
+            content = self.__get_redict_url(url=content,
+                                            ua=torrent.site_ua,
+                                            cookie=torrent.site_cookie)
+        if not content:
+            logger.error(f"获取下载链接失败：{torrent.title}")
+            return None
+        # 添加下载任务
         if self._downloader == "qbittorrent":
             if not self.qb:
                 return None
@@ -1661,9 +1661,11 @@ class BrushFlow(_PluginBase):
             down_speed = down_speed * 1024 if down_speed else None
             # 生成随机Tag
             tag = StringUtils.generate_random_str(10)
-            content = torrent.enclosure
-            if self._offline_mode:
+            # 添加下载
+            if (self._offline_mode
+                    and not content.startswith("magnet")):
                 torrent_res = RequestUtils(cookies=torrent.site_cookie,
+                                           proxies=settings.PROXY if torrent.site_proxy else None,
                                            ua=torrent.site_ua).get_res(url=content)
                 if torrent_res.ok:
                     content = torrent_res.content
@@ -1688,7 +1690,7 @@ class BrushFlow(_PluginBase):
             if not self.tr:
                 return None
             # 添加任务
-            torrent = self.tr.add_torrent(content=torrent.enclosure,
+            torrent = self.tr.add_torrent(content=content,
                                           download_dir=self._save_path or None,
                                           cookie=torrent.site_cookie,
                                           labels=["已整理", "刷流"])

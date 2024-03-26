@@ -2,7 +2,7 @@
     "AutoSignIn": {
         "name": "站点自动签到",
         "description": "自动模拟登录站点、签到。",
-        "version": "1.5",
+        "version": "1.7",
         "icon": "signin.png",
         "author": "thsrite",
         "level": 2
@@ -18,7 +18,7 @@
     "SiteStatistic": {
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
-        "version": "2.1",
+        "version": "2.5",
         "icon": "statistic.png",
         "author": "lightolly",
         "level": 2
@@ -218,7 +218,7 @@
     "BrushFlow": {
         "name": "站点刷流",
         "description": "自动托管刷流，将会提高对应站点的访问频率。",
-        "version": "1.4",
+        "version": "1.6",
         "icon": "brush.jpg",
         "author": "jxxghp",
         "level": 2
@@ -298,7 +298,7 @@
     "ConfigCenter": {
         "name": "配置中心",
         "description": "快速调整部分系统设定。",
-        "version": "2.3",
+        "version": "2.4",
         "icon": "setting.png",
         "author": "jxxghp",
         "level": 1
@@ -426,7 +426,7 @@
     "IpDetect": {
         "name": "本地IP检测",
         "description": "如果QB、TR等服务在本地部署，当本地IP改变时自动修改其server IP",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "ipAddress.png",
         "author": "DzAvril",
         "level": 1
@@ -437,6 +437,14 @@
         "version": "1.4",
         "icon": "trackereditor_A.png",
         "author": "honue",
+        "level": 1
+    },
+    "ContractCheck": {
+        "name": "契约检查",
+        "description": "定时检查保种契约达成情况",
+        "version": "1.0",
+        "icon": "contract.png",
+        "author": "DzAvril",
         "level": 1
     }
 }
