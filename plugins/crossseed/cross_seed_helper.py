@@ -1,10 +1,9 @@
 import hashlib
-import os
 from pathlib import Path
-from typing import List, Self
+from typing import Self
 
-import bencodepy
 import requests
+from bencode import decode, encode
 
 
 class CSSiteConfig(object):
@@ -18,6 +17,8 @@ class CSSiteConfig(object):
         self.passkey = site_passkey
 
     def get_api_url(self):
+        if self.name == "憨憨":
+            return f"{self.url}/npapi/pieces-hash"
         return f"{self.url}/api/pieces-hash"
 
     def get_torrent_url(self, torrent_id: str):
@@ -57,18 +58,17 @@ class TorInfo:
         )
 
     @staticmethod
-    def from_file(data: bytes) -> tuple[Self, str]:
+    def from_data(data: bytes) -> tuple[Self, str]:
         try:
-            torrent = bencodepy.decode(data)
-            info = torrent[b"info"]
-            pieces = info[b"pieces"]
-            info_hash = hashlib.sha1(bencodepy.encode(info)).hexdigest()
+            torrent = decode(data)
+            info = torrent["info"]
+            pieces = info["pieces"]
+            info_hash = hashlib.sha1(encode(info)).hexdigest()
             pieces_hash = hashlib.sha1(pieces).hexdigest()
             local_tor = TorInfo(info_hash=info_hash, pieces_hash=pieces_hash)
             #从种子中获取 announce, qb可能存在获取不到的情况，会存在于fastresume文件中
-            if b"announce" in torrent:
-                announce: bytes = torrent[b"announce"]
-                local_tor.torrent_announce = announce.decode(encoding="utf-8")
+            if "announce" in torrent:
+                local_tor.torrent_announce  = torrent["announce"]
             return local_tor, None
         except Exception as err:
             return None, err
@@ -80,7 +80,7 @@ class TorInfo:
         return f"{self.site_name}:{self.pieces_hash}"
 
 class CrossSeedHelper(object):
-    _version = "0.1.0"
+    _version = "0.2.0"
 
     def get_local_torrent_info(self, torrent_path: Path | str) -> tuple[TorInfo, str]:
         try:
@@ -90,17 +90,10 @@ class CrossSeedHelper(object):
             else:
                 with open(torrent_path, "rb") as f:
                     torrent_data = f.read()
-            torrent = bencodepy.decode(torrent_data)
-            info = torrent[b"info"]
-            pieces = info[b"pieces"]
-
-            info_hash = hashlib.sha1(bencodepy.encode(info)).hexdigest()
-            pieces_hash = hashlib.sha1(pieces).hexdigest()
-            local_tor = TorInfo.local(str(torrent_path), info_hash, pieces_hash)
-            # 对于 transmission 可以从种子中补充 announce
-            if b"announce" in torrent:
-                announce: bytes = torrent[b"announce"]
-                local_tor.torrent_announce = announce.decode(encoding="utf-8")
+            local_tor, err = TorInfo.from_data(torrent_data)
+            if not local_tor:
+                return None, err
+            local_tor.torrent_path = str(torrent_path)
             return local_tor, ""
         except Exception as err:
             return None, err
@@ -133,4 +126,3 @@ class CrossSeedHelper(object):
                     TorInfo.remote(site.name, pieces_hash, torrent_id)
                 )
         return remote_torrent_infos, None
-
