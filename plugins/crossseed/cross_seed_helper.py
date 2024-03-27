@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Self
 
 import requests
-from bencode import decode, encode
+from bencode import bdecode, bencode
 
 
 class CSSiteConfig(object):
@@ -60,10 +60,10 @@ class TorInfo:
     @staticmethod
     def from_data(data: bytes) -> tuple[Self, str]:
         try:
-            torrent = decode(data)
+            torrent = bdecode(data)
             info = torrent["info"]
             pieces = info["pieces"]
-            info_hash = hashlib.sha1(encode(info)).hexdigest()
+            info_hash = hashlib.sha1(bencode(info)).hexdigest()
             pieces_hash = hashlib.sha1(pieces).hexdigest()
             local_tor = TorInfo(info_hash=info_hash, pieces_hash=pieces_hash)
             #从种子中获取 announce, qb可能存在获取不到的情况，会存在于fastresume文件中
