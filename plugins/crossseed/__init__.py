@@ -1,11 +1,12 @@
-import math
+import hashlib
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Event
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Self, Tuple
 
 import pytz
+import requests
 from app.core.config import settings
 from app.core.event import eventmanager
 from app.db.models import Site
@@ -23,10 +24,129 @@ from app.utils.string import StringUtils
 from app.utils.timer import TimerUtils
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from bencode import dumps, loads
 
-from plugins.crossseed.cross_seed_helper import (CrossSeedHelper, CSSiteConfig,
-                                                 TorInfo)
 
+class CSSiteConfig(object):
+    """
+    站点辅种配置类
+    """
+
+    def __init__(self, site_name: str, site_url: str, site_passkey: str) -> None:
+        self.name = site_name
+        self.url = site_url.removesuffix("/")
+        self.passkey = site_passkey
+
+    def get_api_url(self):
+        if self.name == "憨憨":
+            return f"{self.url}/npapi/pieces-hash"
+        return f"{self.url}/api/pieces-hash"
+
+    def get_torrent_url(self, torrent_id: str):
+        return f"{self.url}/download.php?id={torrent_id}&passkey={self.passkey}"
+
+
+class TorInfo:
+
+    def __init__(
+        self,
+        site_name: str = None,
+        torrent_path: str = None,
+        file_path: str = None,
+        info_hash: str = None,
+        pieces_hash: str = None,
+        torrent_id: str = None,
+    ) -> None:
+        self.site_name = site_name
+        self.torrent_path = torrent_path
+        self.file_path = file_path
+        self.info_hash = info_hash
+        self.pieces_hash = pieces_hash
+        self.torrent_id = torrent_id
+        self.torrent_announce = None
+
+    @staticmethod
+    def local(torrent_path: str, info_hash: str, pieces_hash: str) -> Self:
+
+        return TorInfo(
+            torrent_path=torrent_path, info_hash=info_hash, pieces_hash=pieces_hash
+        )
+
+    @staticmethod
+    def remote(site_name: str, pieces_hash: str, torrent_id: str) -> Self:
+        return TorInfo(
+            site_name=site_name, pieces_hash=pieces_hash, torrent_id=torrent_id
+        )
+
+    @staticmethod
+    def from_data(data: bytes) -> tuple[Self, str]:
+        try:
+            torrent = loads(data)
+            info = torrent["info"]
+            pieces = info["pieces"]
+            info_hash = hashlib.sha1(dumps(info)).hexdigest()
+            pieces_hash = hashlib.sha1(pieces).hexdigest()
+            local_tor = TorInfo(info_hash=info_hash, pieces_hash=pieces_hash)
+            #从种子中获取 announce, qb可能存在获取不到的情况，会存在于fastresume文件中
+            if "announce" in torrent:
+                local_tor.torrent_announce  = torrent["announce"]
+            return local_tor, None
+        except Exception as err:
+            return None, err
+
+    def get_name_id_tag(self):
+        return f"{self.site_name}:{self.torrent_id}"
+
+    def get_name_pieces_tag(self):
+        return f"{self.site_name}:{self.pieces_hash}"
+
+class CrossSeedHelper(object):
+    _version = "0.2.0"
+
+    def get_local_torrent_info(self, torrent_path: Path | str) -> tuple[TorInfo, str]:
+        try:
+            torrent_data = None
+            if isinstance(torrent_path, Path):
+                torrent_data = torrent_path.read_bytes()
+            else:
+                with open(torrent_path, "rb") as f:
+                    torrent_data = f.read()
+            local_tor, err = TorInfo.from_data(torrent_data)
+            if not local_tor:
+                return None, err
+            local_tor.torrent_path = str(torrent_path)
+            return local_tor, ""
+        except Exception as err:
+            return None, err
+
+    def get_target_torrent(
+        self, site: CSSiteConfig, pieces_hash_set: list[str]
+    ) -> list[TorInfo]:
+        """
+        返回pieces_hash对应的种子信息，包括站点id,pieces_hash,种子id
+        """
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "CrossSeedHelper",
+        }
+        data = {"passkey": site.passkey, "pieces_hash": pieces_hash_set}
+        try:
+            response = requests.post(
+                site.get_api_url(), headers=headers, json=data, timeout=10
+            )
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            return None, f"站点{site.name}请求失败：{e}"
+        rsp_body = response.json()
+
+        remote_torrent_infos = []
+        if isinstance(rsp_body["data"], dict):
+            for pieces_hash, torrent_id in rsp_body["data"].items():
+                remote_torrent_infos.append(
+                    TorInfo.remote(site.name, pieces_hash, torrent_id)
+                )
+        return remote_torrent_infos, None
 
 class CrossSeed(_PluginBase):
     # 插件名称
@@ -36,7 +156,7 @@ class CrossSeed(_PluginBase):
     # 插件图标
     plugin_icon = "qingwa.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6.2"
     # 插件作者
     plugin_author = "233@qingwa"
     # 作者主页
@@ -98,18 +218,6 @@ class CrossSeed(_PluginBase):
             self._onlyonce = config.get("onlyonce")
             self._cron = config.get("cron")
             self._token = config.get("token")  # passkey格式  青蛙:xxxxxx,站点名称:xxxxxxx
-            # 拆分为映射关系
-            self._name_site_map = {}
-            for site in self.siteoper.list_order_by_pri():
-                self._name_site_map[site.name] = site
-            # 构造站点配置
-            self._site_cs_infos:list[CSSiteConfig] = []
-            for site_key in self._token.strip().split("\n"):
-                site_key_arr = site_key.strip().split(":")
-                site_name = site_key_arr[0]
-                db_site = self._name_site_map[site_name]
-                if db_site:
-                    self._site_cs_infos.append(CSSiteConfig(site_name,db_site.url,site_key_arr[1]))
 
             self._downloaders = config.get("downloaders")
             self._torrentpath = config.get("torrentpath") #种子路径和下载器对应  /qb,/tr
@@ -124,9 +232,26 @@ class CrossSeed(_PluginBase):
             self._success_caches = [] if self._clearcache else config.get("success_caches") or []
 
             # 过滤掉已删除的站点
-            all_sites = [site.id for site in self.siteoper.list_order_by_pri()] + [site.get("id") for site in
-                                                                                   self.__custom_sites()]
-            self._sites = [site_id for site_id in all_sites if site_id in self._sites]
+            inner_site_list = self.siteoper.list_order_by_pri()
+            all_sites = [(site.id, site.name) for site in inner_site_list] + [
+                (site.get("id"), site.get("name")) for site in self.__custom_sites()
+            ]
+            self._sites = [site_id for site_id, site_name in all_sites if site_id in self._sites]
+            # 拆分出选中的站点
+            site_names =  [site_name for site_id, site_name in all_sites if site_id in self._sites]
+            # 拆分为映射关系
+            self._name_site_map = {}
+            for site in self.siteoper.list_order_by_pri():
+                self._name_site_map[site.name] = site
+            # 只给选中的站点构造站点配置
+            self._site_cs_infos:list[CSSiteConfig] = []
+            for site_key in self._token.strip().split("\n"):
+                site_key_arr = site_key.strip().split(":")
+                site_name = site_key_arr[0]
+                db_site = self._name_site_map[site_name]
+                if site_name in site_names and db_site:
+                    self._site_cs_infos.append(CSSiteConfig(site_name,db_site.url,site_key_arr[1]))
+
             self.__update_config()
 
         # 停止现有任务
@@ -477,7 +602,7 @@ class CrossSeed(_PluginBase):
                                             'type': 'info',
                                             'variant': 'tonal',
                                             'text': '1. 定时任务周期建议每次辅种间隔时间大于1天，不填写每天上午2点到7点随机辅种一次； '
-                                                    '2. 支持辅种站点列表：青蛙【已验证】，AGSVPT，麒麟，UBits，聆音 等，配置passkey时，站点名称需严格和上面选项一致； '
+                                                    '2. 支持辅种站点列表：青蛙【已验证】，AGSVPT，麒麟，UBits，聆音 等，配置passkey时，站点名称需严格和上面选项一致，只有选中的站点会辅种，passkey可保存多个； '
                                                     '3. 请勿与IYUU辅种插件同时添加相同站点，可能会有冲突，且意义不大；'
                                                     '4. 测试站点是否支持的方法：【站点域名/api/pieces-hash】接口访问返回405则大概率支持 '
                                         }
