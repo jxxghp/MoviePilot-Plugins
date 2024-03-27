@@ -32,7 +32,7 @@ class CrossSeed(_PluginBase):
     # 插件名称
     plugin_name = "青蛙辅种助手"
     # 插件描述
-    plugin_desc = "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙【已验证】, AGSVPT, 麒麟, UBits, 聆音 等"
+    plugin_desc = "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙、AGSVPT、麒麟、UBits、聆音等。"
     # 插件图标
     plugin_icon = "qingwa.png"
     # 插件版本

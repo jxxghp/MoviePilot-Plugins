@@ -18,7 +18,7 @@ class IpDetect(_PluginBase):
     # 插件名称
     plugin_name = "本地IP检测"
     # 插件描述
-    plugin_desc = "如果QB、TR等服务在本地部署，当本地IP改变时自动修改其server IP"
+    plugin_desc = "如果QB、TR等服务在本地部署，当本地IP改变时自动修改其Server IP。"
     # 插件图标
     plugin_icon = "ipAddress.png"
     # 插件版本

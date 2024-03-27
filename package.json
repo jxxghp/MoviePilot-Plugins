@@ -185,7 +185,7 @@
     },
     "CrossSeed": {
         "name": "青蛙辅种助手",
-        "description": "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙【已验证】, AGSVPT, 麒麟, UBits, 聆音 等",
+        "description": "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙、AGSVPT、麒麟、UBits、聆音等。",
         "version": "1.5",
         "icon": "qingwa.png",
         "author": "233@qingwa",
@@ -313,7 +313,7 @@
     },
     "EpisodeGroupMeta": {
         "name": "TMDB剧集组刮削",
-        "description": "从TMDB剧集组刮削季集的实际顺序",
+        "description": "从TMDB剧集组刮削季集的实际顺序。",
         "version": "1.1",
         "icon": "Element_A.png",
         "author": "叮叮当",
@@ -321,7 +321,7 @@
     },
     "CustomIndexer": {
         "name": "自定义索引站点",
-        "description": "修改或扩展内建索引器支持的站点",
+        "description": "修改或扩展内建索引器支持的站点。",
         "version": "1.0",
         "icon": "spider.png",
         "author": "jxxghp",
@@ -425,7 +425,7 @@
     },
     "IpDetect": {
         "name": "本地IP检测",
-        "description": "如果QB、TR等服务在本地部署，当本地IP改变时自动修改其server IP",
+        "description": "如果QB、TR等服务在本地部署，当本地IP改变时自动修改其Server IP。",
         "version": "1.1",
         "icon": "ipAddress.png",
         "author": "DzAvril",
@@ -433,7 +433,7 @@
     },
     "TrackerEditor": {
         "name": "Tracker替换",
-        "description": "批量替换种子tracker，支持周期性巡检（如为TR，仅支持4.0以上版本）",
+        "description": "批量替换种子tracker，支持周期性巡检（如为TR，仅支持4.0以上版本）。",
         "version": "1.4",
         "icon": "trackereditor_A.png",
         "author": "honue",
@@ -441,7 +441,7 @@
     },
     "ContractCheck": {
         "name": "契约检查",
-        "description": "定时检查保种契约达成情况",
+        "description": "定时检查保种契约达成情况。",
         "version": "1.0",
         "icon": "contract.png",
         "author": "DzAvril",
