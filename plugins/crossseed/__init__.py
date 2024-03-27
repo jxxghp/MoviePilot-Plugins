@@ -477,9 +477,9 @@ class CrossSeed(_PluginBase):
                                             'type': 'info',
                                             'variant': 'tonal',
                                             'text': '1. 定时任务周期建议每次辅种间隔时间大于1天，不填写每天上午2点到7点随机辅种一次； '
-                                                    '2. 支持辅种站点列表: 青蛙【已验证】, AGSVPT, 麒麟, UBits, 聆音 等； '
+                                                    '2. 支持辅种站点列表：青蛙【已验证】，AGSVPT，麒麟，UBits，聆音 等，配置passkey时，站点名称需严格和上面选项一致； '
                                                     '3. 请勿与IYUU辅种插件同时添加相同站点，可能会有冲突，且意义不大；'
-                                                    '3. 测试站点是否支持的方法: 站点域名/api/pieces-hash 接口访问返回405则大概率支持 '
+                                                    '4. 测试站点是否支持的方法：【站点域名/api/pieces-hash】接口访问返回405则大概率支持 '
                                         }
                                     }
                                 ]
@@ -842,7 +842,7 @@ class CrossSeed(_PluginBase):
             proxy=site_info.proxy)
 
         # 兼容种子无法访问的情况
-        if not content or (isinstance(content, str) and "你没有该权限" in content):
+        if not content or (isinstance(content, bytes) and "你没有该权限".encode(encoding="utf-8") in content):
             # 下载失败
             self.fail += 1
             self.cached += 1
