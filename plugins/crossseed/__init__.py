@@ -36,7 +36,7 @@ class CrossSeed(_PluginBase):
     # 插件图标
     plugin_icon = "qingwa.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "233@qingwa"
     # 作者主页
@@ -559,7 +559,6 @@ class CrossSeed(_PluginBase):
                 logger.info(f"下载器 {downloader} 没有已完成种子")
                 continue   
             hash_strs = []
-            torrent_site_pieces_hashes = set() 
             for torrent in torrents:
                 if self._event.is_set():
                     logger.info(f"辅种服务停止")
@@ -856,7 +855,7 @@ class CrossSeed(_PluginBase):
             return False
 
         # 添加任务前查询校验一次，避免重复添加，导致暂停的任务被重新开始
-        tmp_tor_info, err_msg = TorInfo.from_file(content)
+        tmp_tor_info, err_msg = TorInfo.from_data(content)
         if tmp_tor_info and tmp_tor_info.info_hash:
             tors, msg =  self.__get_downloader(downloader).get_torrents(ids=[tmp_tor_info.info_hash])
             if tors:
