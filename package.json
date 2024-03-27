@@ -2,7 +2,7 @@
     "AutoSignIn": {
         "name": "站点自动签到",
         "description": "自动模拟登录站点、签到。",
-        "version": "1.7",
+        "version": "1.8",
         "icon": "signin.png",
         "author": "thsrite",
         "level": 2
@@ -18,7 +18,7 @@
     "SiteStatistic": {
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
-        "version": "2.5",
+        "version": "2.6",
         "icon": "statistic.png",
         "author": "lightolly",
         "level": 2
@@ -34,7 +34,7 @@
     "DoubanSync": {
         "name": "豆瓣想看",
         "description": "同步豆瓣想看数据，自动添加订阅。",
-        "version": "1.4",
+        "version": "1.5",
         "icon": "douban.png",
         "author": "jxxghp",
         "level": 2
