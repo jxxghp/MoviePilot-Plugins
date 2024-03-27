@@ -33,7 +33,7 @@ class DoubanSync(_PluginBase):
     # 插件图标
     plugin_icon = "douban.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -522,41 +522,16 @@ class DoubanSync(_PluginBase):
                         logger.info(f'{mediainfo.title_year} 媒体库中已存在')
                         action = "exist"
                     else:
-                        logger.info(f'{mediainfo.title_year} 媒体库中不存在，开始搜索 ...')
-                        # 搜索
-                        contexts = self.searchchain.process(mediainfo=mediainfo,
-                                                            no_exists=no_exists)
-                        if not contexts:
-                            logger.warn(f'{mediainfo.title_year} 未搜索到资源')
-                            # 添加订阅
-                            self.subscribechain.add(title=mediainfo.title,
-                                                    year=mediainfo.year,
-                                                    mtype=mediainfo.type,
-                                                    tmdbid=mediainfo.tmdb_id,
-                                                    season=meta.begin_season,
-                                                    exist_ok=True,
-                                                    username="豆瓣想看")
-                            action = "subscribe"
-                        else:
-                            # 自动下载
-                            downloads, lefts = self.downloadchain.batch_download(contexts=contexts, no_exists=no_exists,
-                                                                                 username="豆瓣想看")
-                            if downloads and not lefts:
-                                # 全部下载完成
-                                logger.info(f'{mediainfo.title_year} 下载完成')
-                                action = "download"
-                            else:
-                                # 未完成下载
-                                logger.info(f'{mediainfo.title_year} 未下载未完整，添加订阅 ...')
-                                # 添加订阅
-                                self.subscribechain.add(title=mediainfo.title,
-                                                        year=mediainfo.year,
-                                                        mtype=mediainfo.type,
-                                                        tmdbid=mediainfo.tmdb_id,
-                                                        season=meta.begin_season,
-                                                        exist_ok=True,
-                                                        username="豆瓣想看")
-                                action = "subscribe"
+                        # 添加订阅
+                        logger.info(f'{mediainfo.title_year} 媒体库中不存在或不完整，添加订阅 ...')
+                        self.subscribechain.add(title=mediainfo.title,
+                                                year=mediainfo.year,
+                                                mtype=mediainfo.type,
+                                                tmdbid=mediainfo.tmdb_id,
+                                                season=meta.begin_season,
+                                                exist_ok=True,
+                                                username="豆瓣想看")
+                        action = "subscribe"
                     # 存储历史记录
                     history.append({
                         "action": action,

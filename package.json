@@ -34,7 +34,7 @@
     "DoubanSync": {
         "name": "豆瓣想看",
         "description": "同步豆瓣想看数据，自动添加订阅。",
-        "version": "1.4",
+        "version": "1.5",
         "icon": "douban.png",
         "author": "jxxghp",
         "level": 2
