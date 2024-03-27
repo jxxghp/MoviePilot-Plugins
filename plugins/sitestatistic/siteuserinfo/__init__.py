@@ -290,8 +290,8 @@ class ISiteUserInfo(metaclass=ABCMeta):
                 req_headers.update({
                     "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
                 })
-                if self._addition_headers:
-                    req_headers.update(self._addition_headers)
+            if self._addition_headers:
+                req_headers.update(self._addition_headers)
 
         if self.request_mode == "apikey":
             # 使用apikey请求，通过请求头传递

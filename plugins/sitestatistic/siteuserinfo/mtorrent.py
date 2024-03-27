@@ -68,7 +68,9 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
         domain = StringUtils.get_url_host(self.site_url)
         self._torrent_seeding_headers = {
             "Content-Type": "application/json",
-            "Accept": "application/json, text/plain, */*",
+            "Accept": "application/json, text/plain, */*"
+        }
+        self._addition_headers = {
             "x-api-key": SystemConfigOper().get(f"site.{domain}.apikey"),
         }
 
