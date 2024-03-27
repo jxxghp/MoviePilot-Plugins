@@ -36,7 +36,7 @@ class CrossSeed(_PluginBase):
     # 插件图标
     plugin_icon = "qingwa.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "233@qingwa"
     # 作者主页
@@ -192,7 +192,7 @@ class CrossSeed(_PluginBase):
                 "func": self.auto_seed,
                 "kwargs": {}
             }]
-            
+
         elif self._enabled and self._token and self._downloaders and self._torrentpath:
             # 随机时间
             triggers = TimerUtils.random_scheduler(num_executions=1,
@@ -597,11 +597,17 @@ class CrossSeed(_PluginBase):
                     logger.warn(f"尝试获取 {downloader} 的tracker出错 {err}")
                 # 根据tracker补充站点信息
                 for tracker in tracker_urls:
-                    # 站点信息
-                    tracker_domain = StringUtils.get_url_domain(tracker)
-                    site_info = self.sites.get_indexer(tracker_domain)
-                    if site_info:
-                        torrent_info.site_name = site_info.get("name")
+                    # 优先通过passkey获取站点名
+                    for site_config in self._site_cs_infos:
+                        if site_config.passkey in tracker:
+                            torrent_info.site_name = site_config.name
+                            break
+                    if not torrent_info.site_name:
+                        # 尝试通过域名获取站点信息
+                        tracker_domain = StringUtils.get_url_domain(tracker)
+                        site_info = self.sites.get_indexer(tracker_domain)
+                        if site_info:
+                            torrent_info.site_name = site_info.get("name")
 
                 if self._nopaths and save_path:
                     # 过滤不需要转移的路径
@@ -835,7 +841,8 @@ class CrossSeed(_PluginBase):
             ua=site_info.ua or settings.USER_AGENT,
             proxy=site_info.proxy)
 
-        if not content:
+        # 兼容种子无法访问的情况
+        if not content or (isinstance(content, str) and "你没有该权限" in content):
             # 下载失败
             self.fail += 1
             self.cached += 1
