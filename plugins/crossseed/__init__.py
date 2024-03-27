@@ -218,18 +218,6 @@ class CrossSeed(_PluginBase):
             self._onlyonce = config.get("onlyonce")
             self._cron = config.get("cron")
             self._token = config.get("token")  # passkey格式  青蛙:xxxxxx,站点名称:xxxxxxx
-            # 拆分为映射关系
-            self._name_site_map = {}
-            for site in self.siteoper.list_order_by_pri():
-                self._name_site_map[site.name] = site
-            # 构造站点配置
-            self._site_cs_infos:list[CSSiteConfig] = []
-            for site_key in self._token.strip().split("\n"):
-                site_key_arr = site_key.strip().split(":")
-                site_name = site_key_arr[0]
-                db_site = self._name_site_map[site_name]
-                if db_site:
-                    self._site_cs_infos.append(CSSiteConfig(site_name,db_site.url,site_key_arr[1]))
 
             self._downloaders = config.get("downloaders")
             self._torrentpath = config.get("torrentpath") #种子路径和下载器对应  /qb,/tr
@@ -244,9 +232,26 @@ class CrossSeed(_PluginBase):
             self._success_caches = [] if self._clearcache else config.get("success_caches") or []
 
             # 过滤掉已删除的站点
-            all_sites = [site.id for site in self.siteoper.list_order_by_pri()] + [site.get("id") for site in
-                                                                                   self.__custom_sites()]
-            self._sites = [site_id for site_id in all_sites if site_id in self._sites]
+            inner_site_list = self.siteoper.list_order_by_pri()
+            all_sites = [(site.id, site.name) for site in inner_site_list] + [
+                (site.get("id"), site.get("name")) for site in self.__custom_sites()
+            ]
+            self._sites = [site_id for site_id, site_name in all_sites if site_id in self._sites]
+            # 拆分出选中的站点
+            site_names =  [site_name for site_id, site_name in all_sites if site_id in self._sites]
+            # 拆分为映射关系
+            self._name_site_map = {}
+            for site in self.siteoper.list_order_by_pri():
+                self._name_site_map[site.name] = site
+            # 只给选中的站点构造站点配置
+            self._site_cs_infos:list[CSSiteConfig] = []
+            for site_key in self._token.strip().split("\n"):
+                site_key_arr = site_key.strip().split(":")
+                site_name = site_key_arr[0]
+                db_site = self._name_site_map[site_name]
+                if site_name in site_names and db_site:
+                    self._site_cs_infos.append(CSSiteConfig(site_name,db_site.url,site_key_arr[1]))
+
             self.__update_config()
 
         # 停止现有任务
@@ -597,7 +602,7 @@ class CrossSeed(_PluginBase):
                                             'type': 'info',
                                             'variant': 'tonal',
                                             'text': '1. 定时任务周期建议每次辅种间隔时间大于1天，不填写每天上午2点到7点随机辅种一次； '
-                                                    '2. 支持辅种站点列表：青蛙【已验证】，AGSVPT，麒麟，UBits，聆音 等，配置passkey时，站点名称需严格和上面选项一致； '
+                                                    '2. 支持辅种站点列表：青蛙【已验证】，AGSVPT，麒麟，UBits，聆音 等，配置passkey时，站点名称需严格和上面选项一致，只有选中的站点会辅种，passkey可保存多个； '
                                                     '3. 请勿与IYUU辅种插件同时添加相同站点，可能会有冲突，且意义不大；'
                                                     '4. 测试站点是否支持的方法：【站点域名/api/pieces-hash】接口访问返回405则大概率支持 '
                                         }
