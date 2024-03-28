@@ -3,10 +3,14 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Event
-from typing import Any, Dict, List, Optional, Self, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pytz
 import requests
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from bencode import dumps, loads
+
 from app.core.config import settings
 from app.core.event import eventmanager
 from app.db.models import Site
@@ -19,12 +23,8 @@ from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
 from app.schemas import NotificationType
 from app.schemas.types import EventType
-from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 from app.utils.timer import TimerUtils
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from bencode import dumps, loads
 
 
 class CSSiteConfig(object):
@@ -49,13 +49,13 @@ class CSSiteConfig(object):
 class TorInfo:
 
     def __init__(
-        self,
-        site_name: str = None,
-        torrent_path: str = None,
-        file_path: str = None,
-        info_hash: str = None,
-        pieces_hash: str = None,
-        torrent_id: str = None,
+            self,
+            site_name: str = None,
+            torrent_path: str = None,
+            file_path: str = None,
+            info_hash: str = None,
+            pieces_hash: str = None,
+            torrent_id: str = None,
     ) -> None:
         self.site_name = site_name
         self.torrent_path = torrent_path
@@ -66,20 +66,20 @@ class TorInfo:
         self.torrent_announce = None
 
     @staticmethod
-    def local(torrent_path: str, info_hash: str, pieces_hash: str) -> Self:
+    def local(torrent_path: str, info_hash: str, pieces_hash: str):
 
         return TorInfo(
             torrent_path=torrent_path, info_hash=info_hash, pieces_hash=pieces_hash
         )
 
     @staticmethod
-    def remote(site_name: str, pieces_hash: str, torrent_id: str) -> Self:
+    def remote(site_name: str, pieces_hash: str, torrent_id: str):
         return TorInfo(
             site_name=site_name, pieces_hash=pieces_hash, torrent_id=torrent_id
         )
 
     @staticmethod
-    def from_data(data: bytes) -> tuple[Self, str]:
+    def from_data(data: Union[bytes, str]) -> Tuple[Optional[Any], Optional[str]]:
         try:
             torrent = loads(data)
             info = torrent["info"]
@@ -87,12 +87,12 @@ class TorInfo:
             info_hash = hashlib.sha1(dumps(info)).hexdigest()
             pieces_hash = hashlib.sha1(pieces).hexdigest()
             local_tor = TorInfo(info_hash=info_hash, pieces_hash=pieces_hash)
-            #从种子中获取 announce, qb可能存在获取不到的情况，会存在于fastresume文件中
+            # 从种子中获取 announce, qb可能存在获取不到的情况，会存在于fastresume文件中
             if "announce" in torrent:
-                local_tor.torrent_announce  = torrent["announce"]
+                local_tor.torrent_announce = torrent["announce"]
             return local_tor, None
         except Exception as err:
-            return None, err
+            return None, str(err)
 
     def get_name_id_tag(self):
         return f"{self.site_name}:{self.torrent_id}"
@@ -100,12 +100,13 @@ class TorInfo:
     def get_name_pieces_tag(self):
         return f"{self.site_name}:{self.pieces_hash}"
 
+
 class CrossSeedHelper(object):
     _version = "0.2.0"
 
-    def get_local_torrent_info(self, torrent_path: Path | str) -> tuple[TorInfo, str]:
+    @staticmethod
+    def get_local_torrent_info(torrent_path: Path | str) -> Tuple[Optional[TorInfo], str]:
         try:
-            torrent_data = None
             if isinstance(torrent_path, Path):
                 torrent_data = torrent_path.read_bytes()
             else:
@@ -117,11 +118,13 @@ class CrossSeedHelper(object):
             local_tor.torrent_path = str(torrent_path)
             return local_tor, ""
         except Exception as err:
-            return None, err
+            return None, str(err)
 
+    @staticmethod
     def get_target_torrent(
-        self, site: CSSiteConfig, pieces_hash_set: list[str]
-    ) -> list[TorInfo]:
+            site: CSSiteConfig,
+            pieces_hash_set: List[str]
+    ) -> Tuple[Optional[List[TorInfo]], Optional[str]]:
         """
         返回pieces_hash对应的种子信息，包括站点id,pieces_hash,种子id
         """
@@ -147,6 +150,7 @@ class CrossSeedHelper(object):
                     TorInfo.remote(site.name, pieces_hash, torrent_id)
                 )
         return remote_torrent_infos, None
+
 
 class CrossSeed(_PluginBase):
     # 插件名称
@@ -183,7 +187,7 @@ class CrossSeed(_PluginBase):
     _token = None
     _downloaders = []
     _sites = []
-    _torrentpath = None   
+    _torrentpath = None
     _notify = False
     _nolabels = None
     _nopaths = None
@@ -200,6 +204,9 @@ class CrossSeed(_PluginBase):
     _success_caches = []
     # 辅种缓存，出错的种子不再重复辅种，且无法清除。种子被删除404等情况
     _permanent_error_caches = []
+    _torrentpaths = []
+    _name_site_map = {}
+    _site_cs_infos = []
     # 辅种计数
     total = 0
     realtotal = 0
@@ -220,8 +227,8 @@ class CrossSeed(_PluginBase):
             self._token = config.get("token")  # passkey格式  青蛙:xxxxxx,站点名称:xxxxxxx
 
             self._downloaders = config.get("downloaders")
-            self._torrentpath = config.get("torrentpath") #种子路径和下载器对应  /qb,/tr
-            self._torrentpaths = self._torrentpath.split(",") 
+            self._torrentpath = config.get("torrentpath")  # 种子路径和下载器对应  /qb,/tr
+            self._torrentpaths = self._torrentpath.split(",")
             self._sites = config.get("sites") or []
             self._notify = config.get("notify")
             self._nolabels = config.get("nolabels")
@@ -238,19 +245,19 @@ class CrossSeed(_PluginBase):
             ]
             self._sites = [site_id for site_id, site_name in all_sites if site_id in self._sites]
             # 拆分出选中的站点
-            site_names =  [site_name for site_id, site_name in all_sites if site_id in self._sites]
+            site_names = [site_name for site_id, site_name in all_sites if site_id in self._sites]
             # 拆分为映射关系
             self._name_site_map = {}
             for site in self.siteoper.list_order_by_pri():
                 self._name_site_map[site.name] = site
             # 只给选中的站点构造站点配置
-            self._site_cs_infos:list[CSSiteConfig] = []
+            self._site_cs_infos: List[CSSiteConfig] = []
             for site_key in self._token.strip().split("\n"):
                 site_key_arr = site_key.strip().split(":")
                 site_name = site_key_arr[0]
                 db_site = self._name_site_map[site_name]
                 if site_name in site_names and db_site:
-                    self._site_cs_infos.append(CSSiteConfig(site_name,db_site.url,site_key_arr[1]))
+                    self._site_cs_infos.append(CSSiteConfig(site_name, db_site.url, site_key_arr[1]))
 
             self.__update_config()
 
@@ -442,7 +449,7 @@ class CrossSeed(_PluginBase):
                                     }
                                 ]
                             },
-                            
+
                         ]
                     },
                     {
@@ -487,17 +494,17 @@ class CrossSeed(_PluginBase):
                                     }
                                 ]
                             },
-                            
+
                         ]
                     },
-                     {
+                    {
                         'component': 'VRow',
                         'content': [
                             {
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md':12
+                                    'md': 12
                                 },
                                 'content': [
                                     {
@@ -621,7 +628,7 @@ class CrossSeed(_PluginBase):
             "cron": "",
             "token": "",
             "downloaders": [],
-            "torrentpath":"",
+            "torrentpath": "",
             "sites": [],
             "nopaths": "",
             "nolabels": ""
@@ -638,7 +645,7 @@ class CrossSeed(_PluginBase):
             "cron": self._cron,
             "token": self._token,
             "downloaders": self._downloaders,
-            "torrentpath":self._torrentpath,
+            "torrentpath": self._torrentpath,
             "sites": self._sites,
             "notify": self._notify,
             "nolabels": self._nolabels,
@@ -682,13 +689,13 @@ class CrossSeed(_PluginBase):
                 logger.info(f"下载器 {downloader} 已完成种子数：{len(torrents)}")
             else:
                 logger.info(f"下载器 {downloader} 没有已完成种子")
-                continue   
+                continue
             hash_strs = []
             for torrent in torrents:
                 if self._event.is_set():
                     logger.info(f"辅种服务停止")
-                    return 
-                # 获取种子hash
+                    return
+                    # 获取种子hash
                 hash_str = self.__get_hash(torrent, downloader)
                 if hash_str in self._error_caches or hash_str in self._permanent_error_caches:
                     logger.info(f"种子 {hash_str} 辅种失败且已缓存，跳过 ...")
@@ -853,20 +860,20 @@ class CrossSeed(_PluginBase):
             db_site_info = self._name_site_map[site_config.name]
             if not db_site_info:
                 logger.info(f"未在支持站点中找到{site_config.name}")
-            remote_tors : list[TorInfo] = []
+            remote_tors: List[TorInfo] = []
             total_size = len(pieces_hashes)
             for i in range(0, len(pieces_hashes), chunk_size):
                 # 切片操作
                 chunk = pieces_hashes[i:i + chunk_size]
                 # 处理分组
-                chunk_tors, err_msg = self.cross_helper.get_target_torrent(site_config,chunk)
+                chunk_tors, err_msg = self.cross_helper.get_target_torrent(site_config, chunk)
                 if not chunk_tors and err_msg:
                     logger.info(
-                        f"查询站点{site_config.name}可辅种的信息出错 {err_msg},进度={i+1}/{total_size}"
+                        f"查询站点{site_config.name}可辅种的信息出错 {err_msg},进度={i + 1}/{total_size}"
                     )
                 else:
                     logger.info(
-                        f"站点{site_config.name}本批次的可辅种/查询数={len(chunk_tors)}/{len(chunk)},进度={i+1}/{total_size}"
+                        f"站点{site_config.name}本批次的可辅种/查询数={len(chunk_tors)}/{len(chunk)},进度={i + 1}/{total_size}"
                     )
                     remote_tors = remote_tors + chunk_tors
 
@@ -877,10 +884,10 @@ class CrossSeed(_PluginBase):
             not_local_tors = []
             for tor_info in remote_tors:
                 if (
-                    tor_info
-                    and tor_info.site_name
-                    and tor_info.pieces_hash
-                    and tor_info.get_name_pieces_tag() in site_pieces_hash_set
+                        tor_info
+                        and tor_info.site_name
+                        and tor_info.pieces_hash
+                        and tor_info.get_name_pieces_tag() in site_pieces_hash_set
                 ):
                     local_cnt = local_cnt + 1
                 else:
@@ -899,13 +906,13 @@ class CrossSeed(_PluginBase):
                     logger.info(f"种子 {tor_info.get_name_id_tag()} 辅种失败且已缓存，跳过 ...")
                     continue
                 # 添加任务
-                self.__download_torrent(tor=tor_info,site_config=site_config,site_info=db_site_info,
-                                                downloader=downloader,
-                                                save_path=save_paths.get(tor_info.pieces_hash))
+                self.__download_torrent(tor=tor_info, site_config=site_config, site_info=db_site_info,
+                                        downloader=downloader,
+                                        save_path=save_paths.get(tor_info.pieces_hash))
 
         logger.info(f"下载器 {downloader} 辅种完成")
 
-    def __download(self, downloader: str, content: bytes,
+    def __download(self, downloader: str, content: Union[bytes, str],
                    save_path: str) -> Optional[str]:
         """
         添加下载任务
@@ -941,12 +948,12 @@ class CrossSeed(_PluginBase):
         return None
 
     def __download_torrent(
-        self,
-        tor: TorInfo,
-        site_config: CSSiteConfig,
-        site_info: Site,
-        downloader: str,
-        save_path: str,
+            self,
+            tor: TorInfo,
+            site_config: CSSiteConfig,
+            site_info: Site,
+            downloader: str,
+            save_path: str,
     ):
         """
         下载种子
@@ -963,7 +970,7 @@ class CrossSeed(_PluginBase):
             url=torrent_url,
             cookie=site_info.cookie,
             ua=site_info.ua or settings.USER_AGENT,
-            proxy=site_info.proxy)
+            proxy=True if site_info.proxy else False)
 
         # 兼容种子无法访问的情况
         if not content or (isinstance(content, bytes) and "你没有该权限".encode(encoding="utf-8") in content):
@@ -982,7 +989,7 @@ class CrossSeed(_PluginBase):
         # 添加任务前查询校验一次，避免重复添加，导致暂停的任务被重新开始
         tmp_tor_info, err_msg = TorInfo.from_data(content)
         if tmp_tor_info and tmp_tor_info.info_hash:
-            tors, msg =  self.__get_downloader(downloader).get_torrents(ids=[tmp_tor_info.info_hash])
+            tors, msg = self.__get_downloader(downloader).get_torrents(ids=[tmp_tor_info.info_hash])
             if tors:
                 self.exist += 1
                 self._success_caches.append(tor.get_name_id_tag())
