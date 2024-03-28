@@ -19,7 +19,7 @@ class TrackerEditor(_PluginBase):
     # 插件图标
     plugin_icon = "trackereditor_A.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "honue"
     # 作者主页

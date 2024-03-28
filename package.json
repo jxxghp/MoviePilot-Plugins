@@ -434,7 +434,7 @@
     "TrackerEditor": {
         "name": "Tracker替换",
         "description": "批量替换种子tracker，支持周期性巡检（如为TR，仅支持4.0以上版本）。",
-        "version": "1.4",
+        "version": "1.5",
         "icon": "trackereditor_A.png",
         "author": "honue",
         "level": 1
