@@ -186,7 +186,7 @@
     "CrossSeed": {
         "name": "青蛙辅种助手",
         "description": "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙、AGSVPT、麒麟、UBits、聆音等。",
-        "version": "1.7",
+        "version": "1.8",
         "icon": "qingwa.png",
         "author": "233@qingwa",
         "level": 2

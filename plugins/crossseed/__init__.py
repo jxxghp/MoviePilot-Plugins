@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Event
@@ -160,7 +161,7 @@ class CrossSeed(_PluginBase):
     # 插件图标
     plugin_icon = "qingwa.png"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "233@qingwa"
     # 作者主页
@@ -253,7 +254,7 @@ class CrossSeed(_PluginBase):
             # 只给选中的站点构造站点配置
             self._site_cs_infos: List[CSSiteConfig] = []
             for site_key in self._token.strip().split("\n"):
-                site_key_arr = site_key.strip().split(":")
+                site_key_arr = re.split("[\s:：]+",site_key.strip())
                 site_name = site_key_arr[0]
                 db_site = self._name_site_map[site_name]
                 if site_name in site_names and db_site:
@@ -296,7 +297,7 @@ class CrossSeed(_PluginBase):
                 self.__update_config()
 
     def get_state(self) -> bool:
-        return True if self._enabled and self._cron and self._token and self._downloaders else False
+        return True if self._enabled and self._token and self._downloaders and self._torrentpath else False
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -316,35 +317,36 @@ class CrossSeed(_PluginBase):
             "kwargs": {} # 定时器参数
         }]
         """
-        if self._enabled and self._cron and self._token and self._downloaders and self._torrentpath:
-            return [{
-                "id": "CrossSeed",
-                "name": "青蛙辅种助手",
-                "trigger": CronTrigger.from_crontab(self._cron),
-                "func": self.auto_seed,
-                "kwargs": {}
-            }]
-
-        elif self._enabled and self._token and self._downloaders and self._torrentpath:
-            # 随机时间
-            triggers = TimerUtils.random_scheduler(num_executions=1,
-                                                   begin_hour=2,
-                                                   end_hour=7,
-                                                   max_interval=290,
-                                                   min_interval=0)
-            ret_jobs = []
-            for trigger in triggers:
-                ret_jobs.append({
-                    "id": f"CrossSeed|{trigger.hour}:{trigger.minute}",
+        if self.get_state():
+            # 如果开启了定时任务，并且参数齐全
+            if self._cron :
+                return [{
+                    "id": "CrossSeed",
                     "name": "青蛙辅种助手",
-                    "trigger": "cron",
+                    "trigger": CronTrigger.from_crontab(self._cron),
                     "func": self.auto_seed,
-                    "kwargs": {
-                        "hour": trigger.hour,
-                        "minute": trigger.minute
-                    }
-                })
-            return ret_jobs
+                    "kwargs": {}
+                }]
+            else:
+                # 随机时间
+                triggers = TimerUtils.random_scheduler(num_executions=1,
+                                                    begin_hour=2,
+                                                    end_hour=7,
+                                                    max_interval=290,
+                                                    min_interval=0)
+                ret_jobs = []
+                for trigger in triggers:
+                    ret_jobs.append({
+                        "id": f"CrossSeed|{trigger.hour}:{trigger.minute}",
+                        "name": "青蛙辅种助手",
+                        "trigger": "cron",
+                        "func": self.auto_seed,
+                        "kwargs": {
+                            "hour": trigger.hour,
+                            "minute": trigger.minute
+                        }
+                    })
+                return ret_jobs
         elif self._enabled:
             logger.warn(f"青蛙辅种助手插件参数不全，定时任务未正常启动")
         return []
