@@ -498,9 +498,6 @@ class DownloaderHelper(_PluginBase):
         }], config_suggest
     
     def get_page(self) -> List[dict]:
-        """
-        拼装插件详情页面，需要返回页面配置，同时附带数据
-        """
         pass
 
     def stop_service(self):
