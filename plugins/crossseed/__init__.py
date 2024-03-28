@@ -9,7 +9,7 @@ import pytz
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from bencode import dumps, loads
+from bencode import bdecode, bencode
 
 from app.core.config import settings
 from app.core.event import eventmanager
@@ -79,12 +79,12 @@ class TorInfo:
         )
 
     @staticmethod
-    def from_data(data: Union[bytes, str]) -> Tuple[Optional[Any], Optional[str]]:
+    def from_data(data: bytes) -> Tuple[Optional[Any], Optional[str]]:
         try:
-            torrent = loads(data)
+            torrent = bdecode(data)
             info = torrent["info"]
             pieces = info["pieces"]
-            info_hash = hashlib.sha1(dumps(info)).hexdigest()
+            info_hash = hashlib.sha1(bencode(info)).hexdigest()
             pieces_hash = hashlib.sha1(pieces).hexdigest()
             local_tor = TorInfo(info_hash=info_hash, pieces_hash=pieces_hash)
             # 从种子中获取 announce, qb可能存在获取不到的情况，会存在于fastresume文件中
@@ -160,7 +160,7 @@ class CrossSeed(_PluginBase):
     # 插件图标
     plugin_icon = "qingwa.png"
     # 插件版本
-    plugin_version = "1.6.2"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "233@qingwa"
     # 作者主页
