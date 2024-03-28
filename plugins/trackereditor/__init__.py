@@ -89,6 +89,8 @@ class TrackerEditor(_PluginBase):
 
         elif self._downloader_type == "transmission":
             self._downloader = Transmission(self._host, self._port, self._username, self._password)
+            tr_version = self._downloader.get_session().get('version')
+            # "4.0.3 (6b0e49bbb2)"  "3.00 (bb6b5a062e)"
             torrent_list: List[Torrent]
             torrent_list, error = self._downloader.get_torrents()
             torrent_total_cnt = len(torrent_list)
@@ -101,12 +103,24 @@ class TrackerEditor(_PluginBase):
                     if self._target_domain in tracker:
                         new_url = tracker.replace(self._target_domain, self._replace_domain)
                         new_tracker_list.append(new_url)
-                    else:
-                        new_tracker_list.append(tracker)
                         logger.info(f"{tracker} 替换为\n {new_url}")
                         torrent_update_cnt += 1
-                self._downloader.update_tracker(hash_string=torrent.hashString, tracker_list=new_tracker_list)
-        logger.info(f"{'*' * 30}TrackerEditor: Tracker替换成功{'*' * 30}")
+                    else:
+                        new_tracker_list.append(tracker)
+                if int(tr_version[0]) >= 4:
+                    # 版本大于等于4.x
+                    __tracker_list = [new_tracker_list]
+                else:
+                    __tracker_list = new_tracker_list
+                if torrent_update_cnt > 0:
+                    update_result = self._downloader.update_tracker(hash_string=torrent.hashString, tracker_list=__tracker_list)
+                    if update_result == False:
+                        logger.error(f"执行tracker修改出错，中止本次执行")
+                        torrent_update_cnt = 0
+                        break
+            if torrent_update_cnt == 0:
+                logger.info(f"tracker修改条数为0")
+        logger.info(f"{'*' * 30}TrackerEditor: Tracker替换完成{'*' * 30}")
         if (self._run_con_enable and self._notify) or (self._onlyonce and self._notify):
             title = '【Tracker替换】'
             msg = f'''扫描下载器{self._downloader_type}\n总的种子数: {torrent_total_cnt}\n已修改种子数: {torrent_update_cnt}'''
