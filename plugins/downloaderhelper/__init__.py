@@ -1,24 +1,28 @@
-from typing import Any, List, Dict, Tuple, Optional, Set
-from threading import Event as ThreadEvent, RLock
-from datetime import datetime, timedelta
-import pytz
+import os
 import re
 import urllib
-import os
+from datetime import datetime, timedelta
+from threading import Event as ThreadEvent, RLock
+from typing import Any, List, Dict, Tuple, Optional, Set
+from urllib.parse import urlparse
+
+import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from qbittorrentapi import TorrentDictionary
 from transmission_rpc import Torrent
-from app.plugins import _PluginBase
-from app.log import logger
+
 from app.core.config import settings
 from app.core.event import eventmanager, Event
-from app.schemas.types import EventType, NotificationType
+from app.helper.sites import SitesHelper
+from app.log import logger
 from app.modules.qbittorrent.qbittorrent import Qbittorrent
 from app.modules.transmission.transmission import Transmission
-from app.helper.sites import SitesHelper
-from app.utils.string import StringUtils
+from app.plugins import _PluginBase
 from app.plugins.downloaderhelper.module import Constants, TaskContext, TaskResult
+from app.schemas.types import EventType
+from app.utils.string import StringUtils
+
 
 class DownloaderHelper(_PluginBase):
     # 插件名称
@@ -74,8 +78,6 @@ class DownloaderHelper(_PluginBase):
     # 排除种子标签
     __exclude_tags: Set[str] = set()
 
-    ################################# 插件标准函数 #################################
-
     def init_plugin(self, config: dict = None):
         """
         初始化插件
@@ -89,13 +91,13 @@ class DownloaderHelper(_PluginBase):
         exclude_tags = self.__get_config_item(config_key='exclude_tags')
         self.__exclude_tags = self.__split_tags(tags=exclude_tags)
         logger.info(f"插件配置加载完成：{config}")
-        
+
         # 停止现有服务
         self.stop_service()
 
         # 如果需要立即运行一次
         if self.__get_config_item(config_key='run_once'):
-            if (self.__check_enable_any_task()):
+            if self.__check_enable_any_task():
                 self.__start_scheduler()
                 self.__scheduler.add_job(func=self.__run,
                                          trigger='date',
@@ -112,12 +114,12 @@ class DownloaderHelper(_PluginBase):
         """
         获取插件状态
         """
-        state = True if self.__get_config_item(config_key='enable') \
-                        and (self.__get_config_item(config_key='cron') or self.__check_enable_listen()) \
-                        and self.__check_enable_any_task() \
-                     else False
+        state = True if self.__get_config_item(config_key='enable') and (
+                self.__get_config_item(config_key='cron') or self.__check_enable_listen()
+        ) and self.__check_enable_any_task() \
+            else False
         return state
-    
+
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
         """
@@ -496,7 +498,7 @@ class DownloaderHelper(_PluginBase):
                 }]
             }]
         }], config_suggest
-    
+
     def get_page(self) -> List[dict]:
         pass
 
@@ -514,9 +516,8 @@ class DownloaderHelper(_PluginBase):
         finally:
             self.__exit_event.clear()
 
-    ################################# 自定义辅助函数 #################################
-    
-    def __parse_tracker_mappings(self, tracker_mappings: str) -> Dict[str, str]:
+    @staticmethod
+    def __parse_tracker_mappings(tracker_mappings: str) -> Dict[str, str]:
         """
         解析配置的tracker映射
         :param tracker_mappings: 配置的tracker映射
@@ -531,7 +532,7 @@ class DownloaderHelper(_PluginBase):
                 continue
             line = line.strip()
             arr = line.split(':')
-            if (len(arr) < 2):
+            if len(arr) < 2:
                 continue
             key, value = arr[0], arr[1]
             if not key or not value:
@@ -542,43 +543,43 @@ class DownloaderHelper(_PluginBase):
             if len(key.split('.')) >= 2 and len(value.split('.')) == 2:
                 mappings[key] = value
         return mappings
-    
+
     @staticmethod
     def __split_tags(tags: str = None) -> Set[str]:
         """
         分割tags字符串为set
-        :param tags字符串: tags字符串
+        :param tags: tags字符串
         """
-        return set(re.split("\s*,\s*", tags.strip())) if tags else set()
-    
-    def __exists_exclude_tag(self, tags = None) -> bool:
+        return set(re.split(r"\s*,\s*", tags.strip())) if tags else set()
+
+    def __exists_exclude_tag(self, tags=None) -> bool:
         """
         判断多个标签中是否存在被排除的标签
         :param tags: 字符串或者集合
         """
-        if (not tags):
+        if not tags:
             return False
         tags_type = type(tags)
-        if (tags_type == str):
+        if tags_type == str:
             return self.__exists_exclude_tag(self.__split_tags(tags))
-        elif (tags_type == set or tags_type == list):
-            if (not self.__exclude_tags):
+        elif tags_type == set or tags_type == list:
+            if not self.__exclude_tags:
                 return False
             for tag in tags:
-                if (tag in self.__exclude_tags):
+                if tag in self.__exclude_tags:
                     return True
             return False
         else:
             return False
 
-    def __start_scheduler(self, timezone = None):
+    def __start_scheduler(self, timezone=None):
         """
         启动调度器
         :param timezone: 时区
         """
         try:
-            if (not self.__scheduler):
-                if (not timezone):
+            if not self.__scheduler:
+                if not timezone:
                     timezone = settings.TZ
                 self.__scheduler = BackgroundScheduler(timezone=timezone)
                 logger.debug(f"插件服务调度器初始化完成: timezone = {str(timezone)}")
@@ -617,12 +618,12 @@ class DownloaderHelper(_PluginBase):
             return None
         config = self.__config if self.__config else {}
         config_value = config.get(config_key)
-        if (config_value == None and use_default):
+        if config_value is None and use_default:
             config_default = self.__config_default if self.__config_default else {}
             config_value = config_default.get(config_key)
         return config_value
-    
-    def __match_site_domain_by_tracker_domain(self, tracker_domain: str, use_default: bool = True) -> str:
+
+    def __match_site_domain_by_tracker_domain(self, tracker_domain: str, use_default: bool = True) -> Optional[str]:
         """
         通过tracker映射配置根据tracker域名匹配站点域名
         :param tracker_domain: tracker域名
@@ -648,8 +649,8 @@ class DownloaderHelper(_PluginBase):
             if tracker_domain.endswith('.' + key):
                 return value
         return None
-    
-    def __get_site_info_by_domain(self, site_domain: str) -> str:
+
+    def __get_site_info_by_domain(self, site_domain: str) -> Optional[str]:
         """
         根据站点域名从索引中获取站点信息
         :param site_domain: 站点域名
@@ -665,9 +666,8 @@ class DownloaderHelper(_PluginBase):
         :return: 是否启用了事件监听
         """
         return True if self.__get_config_item(config_key='listen_download_event') \
-                       or self.__get_config_item(config_key='listen_source_file_event') \
-                    else False
-    
+                       or self.__get_config_item(config_key='listen_source_file_event') else False
+
     def __check_enable_qb_sub_task(self) -> bool:
         """
         判断是否启用了qb子任务
@@ -675,8 +675,7 @@ class DownloaderHelper(_PluginBase):
         """
         return True if self.__get_config_item(config_key='qb_enable_seeding') \
                        or self.__get_config_item(config_key='qb_enable_tagging') \
-                       or self.__get_config_item(config_key='qb_enable_delete') \
-                    else False
+                       or self.__get_config_item(config_key='qb_enable_delete') else False
 
     def __check_enable_qb_task(self) -> bool:
         """
@@ -684,8 +683,7 @@ class DownloaderHelper(_PluginBase):
         :return: 是否启用了qb任务
         """
         return True if self.__get_config_item(config_key='qb_enable') \
-                       and self.__check_enable_qb_sub_task() \
-                    else False
+                       and self.__check_enable_qb_sub_task() else False
 
     def __check_enable_tr_sub_task(self) -> bool:
         """
@@ -694,8 +692,7 @@ class DownloaderHelper(_PluginBase):
         """
         return True if self.__get_config_item(config_key='tr_enable_seeding') \
                        or self.__get_config_item(config_key='tr_enable_tagging') \
-                       or self.__get_config_item(config_key='tr_enable_delete') \
-                    else False
+                       or self.__get_config_item(config_key='tr_enable_delete') else False
 
     def __check_enable_tr_task(self) -> bool:
         """
@@ -703,8 +700,7 @@ class DownloaderHelper(_PluginBase):
         :return: 是否启用了tr任务
         """
         return True if self.__get_config_item(config_key='tr_enable') \
-                       and self.__check_enable_tr_sub_task() \
-                    else False
+                       and self.__check_enable_tr_sub_task() else False
 
     def __check_enable_any_task(self) -> bool:
         """
@@ -712,40 +708,39 @@ class DownloaderHelper(_PluginBase):
         :return: 是否启用了任意任务
         """
         return True if self.__check_enable_qb_task() \
-                       or self.__check_enable_tr_task() \
-                    else False
+                       or self.__check_enable_tr_task() else False
 
     @classmethod
-    def __parse_tracker_for_qbittorrent(cls, torrent: TorrentDictionary) -> str:
+    def __parse_tracker_for_qbittorrent(cls, torrent: TorrentDictionary) -> Optional[str]:
         """
         qb解析 tracker
         :return: tracker url
         """
-        if (not torrent):
+        if not torrent:
             return None
         tracker = torrent.get('tracker')
-        if (tracker and len(tracker) > 0):
+        if tracker and len(tracker) > 0:
             return tracker
         magnet_uri = torrent.get('magnet_uri')
-        if (not magnet_uri or len(magnet_uri) <= 0):
+        if not magnet_uri or len(magnet_uri) <= 0:
             return None
-        magnet_uri_obj = urllib.parse.urlparse(magnet_uri)
+        magnet_uri_obj = urlparse(magnet_uri)
         query = cls.__parse_url_query(magnet_uri_obj.query)
         tr = query['tr']
-        if (not tr or len(tr) <= 0):
+        if not tr or len(tr) <= 0:
             return None
         return tr[0]
-    
+
     @classmethod
-    def __parse_tracker_for_transmission(cls, torrent: Torrent) -> str:
+    def __parse_tracker_for_transmission(cls, torrent: Torrent) -> Optional[str]:
         """
         tr解析 tracker
         :return: tracker url
         """
-        if (not torrent):
+        if not torrent:
             return None
         trackers = torrent.trackers
-        if (not trackers or len(trackers) <= 0):
+        if not trackers or len(trackers) <= 0:
             return None
         tracker = trackers[0]
         if not tracker:
@@ -758,12 +753,12 @@ class DownloaderHelper(_PluginBase):
         解析url的query
         :param query 字典
         """
-        if (not query or len(query) <= 0):
+        if not query or len(query) <= 0:
             return {}
         return urllib.parse.parse_qs(query)
 
     @staticmethod
-    def __get_url_domain(url: str) -> str:
+    def __get_url_domain(url: str) -> Optional[str]:
         """
         获取url的域名
         """
@@ -771,9 +766,9 @@ class DownloaderHelper(_PluginBase):
             return None
         scheme, netloc = StringUtils.get_url_netloc(url)
         return netloc
-    
+
     @staticmethod
-    def __get_domain_level2(domain: str) -> str:
+    def __get_domain_level2(domain: str) -> Optional[str]:
         """
         获取域名的二级域名
         """
@@ -787,9 +782,9 @@ class DownloaderHelper(_PluginBase):
             return f'{domain_arr[-2]}.{domain_arr[-1]}'
         else:
             return None
-    
+
     @staticmethod
-    def __get_domain_keyword(domain: str) -> str:
+    def __get_domain_keyword(domain: str) -> Optional[str]:
         """
         获取域名关键字
         """
@@ -800,8 +795,8 @@ class DownloaderHelper(_PluginBase):
             return domain_arr[-2]
         else:
             return None
-    
-    def __generate_site_tag(self, site: str) -> str:
+
+    def __generate_site_tag(self, site: str) -> Optional[str]:
         """
         生成站点标签
         """
@@ -811,8 +806,8 @@ class DownloaderHelper(_PluginBase):
         if not tag_prefix:
             return site
         return f'{tag_prefix}{site}'
-    
-    def __consult_site_tag_by_tracker(self, tracker_url: str) -> Tuple[str, Set[str]]:
+
+    def __consult_site_tag_by_tracker(self, tracker_url: str) -> Tuple[Optional[str], Optional[Set[str]]]:
         """
         根据tracker地址咨询站点标签
         :return: ('本次需要添加的站点标签', '建议移除的可能存在的历史标签集合')
@@ -824,27 +819,28 @@ class DownloaderHelper(_PluginBase):
         tracker_domain = self.__get_url_domain(tracker_url)
         if not tracker_domain:
             return None, None
-        
+
         # 建议移除的可能存在的历史标签集合
         delete_suggest = set()
-        
+
         # tracker域名关键字
         tracker_domain_keyword = self.__get_domain_keyword(tracker_domain)
         if tracker_domain_keyword:
             # 建议移除
             delete_suggest.add(tracker_domain_keyword)
             delete_suggest.add(self.__generate_site_tag(tracker_domain_keyword))
-        
+
         # 首先根据tracker的完整域名去匹配站点信息
         site_info = self.__get_site_info_by_domain(tracker_domain)
-        
+
         # 如果没有匹配到，再根据二级域名去匹配
         if not site_info:
             tracker_domain_level2 = self.__get_domain_level2(tracker_domain)
             if tracker_domain_level2:
                 site_info = self.__get_site_info_by_domain(tracker_domain_level2)
-        
+
         # 如果还是没有匹配到，就根据tracker映射的域名匹配
+        matched_site_domain = None
         if not site_info:
             matched_site_domain = self.__match_site_domain_by_tracker_domain(tracker_domain)
             if matched_site_domain:
@@ -855,7 +851,7 @@ class DownloaderHelper(_PluginBase):
                     # 建议移除
                     delete_suggest.add(matched_site_domain_keyword)
                     delete_suggest.add(self.__generate_site_tag(matched_site_domain_keyword))
-        
+
         # 如果匹配到了站点信息
         if site_info:
             site_name = site_info.get('name')
@@ -875,12 +871,12 @@ class DownloaderHelper(_PluginBase):
                 site_tag = self.__generate_site_tag(self.__get_domain_keyword(matched_site_domain))
             else:
                 site_tag = self.__generate_site_tag(self.__get_domain_keyword(tracker_domain))
-        
+
         if site_tag:
             delete_suggest.remove(site_tag)
 
         return site_tag, delete_suggest
-    
+
     @classmethod
     def __check_need_delete_for_qbittorrent(cls, torrent: TorrentDictionary, deleted_event_data: dict = None) -> bool:
         """
@@ -889,18 +885,19 @@ class DownloaderHelper(_PluginBase):
         """
         if not torrent:
             return False
-        
+
         # 根据种子状态判断是否应该删种：状态为丢失文件时需要删除
         if torrent.get('state') == 'missingFiles':
             return True
-        
+
         # 根据伴随的源文件删除事件判断是否应该删种：如果当前种子和事件匹配并且种子中已经不存在数据文件时就需要删除
-        match, torrent_data_path = cls.__check_torrent_match_file_for_qbittorrent(torrent=torrent, source_file_info=deleted_event_data)
-        if (not match):
+        match, torrent_data_path = cls.__check_torrent_match_file_for_qbittorrent(torrent=torrent,
+                                                                                  source_file_info=deleted_event_data)
+        if not match:
             return False
         # 如果匹配的种子数据路径不存在，说明数据文件已经（全部）被删除了，那么就允许删种
         return not os.path.exists(torrent_data_path)
-    
+
     @classmethod
     def __check_need_delete_for_transmission(cls, torrent: Torrent, deleted_event_data: dict = None) -> bool:
         """
@@ -909,42 +906,45 @@ class DownloaderHelper(_PluginBase):
         """
         if not torrent:
             return False
-        
+
         # 根据种子状态判断是否应该删种：状态为丢失文件时需要删除
         if torrent.error == 3 and torrent.error_string and 'No data found' in torrent.error_string:
             return True
-        
+
         # 根据伴随的源文件删除事件判断是否应该删种：如果当前种子和事件匹配并且种子中已经不存在数据文件时就需要删除
-        match, torrent_data_path = cls.__check_torrent_match_file_for_transmission(torrent=torrent, source_file_info=deleted_event_data)
-        if (not match):
+        match, torrent_data_path = cls.__check_torrent_match_file_for_transmission(torrent=torrent,
+                                                                                   source_file_info=deleted_event_data)
+        if not match:
             return False
         # 如果匹配的种子数据路径不存在，说明数据文件已经（全部）被删除了，那么就允许删种
         return not os.path.exists(torrent_data_path)
-    
+
     @classmethod
-    def __check_torrent_match_file_for_qbittorrent(cls, torrent: TorrentDictionary, source_file_info: dict) -> bool:
+    def __check_torrent_match_file_for_qbittorrent(cls, torrent: TorrentDictionary,
+                                                   source_file_info: dict) -> Tuple[bool, Optional[str]]:
         """
         检查种子和源文件是否匹配
         :param torrent: 种子
         :param source_file_info: 源文件信息：src=源文件路径，hash=源文件对应的种子hash
         :return: 是否匹配, 匹配的种子数据文件路径
         """
-        if (not torrent or not source_file_info):
+        if not torrent or not source_file_info:
             return False, None
         return cls.__check_torrent_match_file(torrent_hash=torrent.get('hash'),
                                               torrent_data_file_name=torrent.get('name'),
                                               source_hash=None,
                                               source_file_path=source_file_info.get('src'))
-    
+
     @classmethod
-    def __check_torrent_match_file_for_transmission(cls, torrent: Torrent, source_file_info: dict) -> bool:
+    def __check_torrent_match_file_for_transmission(cls, torrent: Torrent,
+                                                    source_file_info: dict) -> Tuple[bool, Optional[str]]:
         """
         检查种子和源文件是否匹配
         :param torrent: 种子
         :param source_file_info: 源文件信息：src=源文件路径，hash=源文件对应的种子hash
         :return: 是否匹配, 匹配的种子数据文件路径
         """
-        if (not torrent or not source_file_info):
+        if not torrent or not source_file_info:
             return False, None
         return cls.__check_torrent_match_file(torrent_hash=torrent.hashString,
                                               torrent_data_file_name=torrent.get('name'),
@@ -953,9 +953,9 @@ class DownloaderHelper(_PluginBase):
 
     @classmethod
     def __check_torrent_match_file(cls, torrent_hash: str,
-                                        torrent_data_file_name: str, 
-                                        source_hash: str,
-                                        source_file_path: str) -> bool:
+                                   torrent_data_file_name: str,
+                                   source_hash: Optional[str],
+                                   source_file_path: str) -> Tuple[bool, Optional[str]]:
         """
         检查种子和源文件是否匹配
         :param torrent_hash: 种子hash
@@ -964,29 +964,29 @@ class DownloaderHelper(_PluginBase):
         :param source_file_path: 源文件路径
         :return: 是否匹配, 匹配的种子数据文件（在MoviePilot中的）路径
         """
-        if (not torrent_hash or not torrent_data_file_name or not source_file_path):
+        if not torrent_hash or not torrent_data_file_name or not source_file_path:
             return False, None
         # 当前传入源hash时，先根据hash判断是否匹配
         if source_hash and torrent_hash != hash:
-             return False, None
-        
+            return False, None
+
         # 从源文件路径中分离文件夹路径和文件名称
         source_file_dir, source_file_name = os.path.split(source_file_path)
         # 情况一：如果源文件名称和种子数据文件（夹）名称一致，则认为匹配，适用于单文件种子和原盘资源的情况
-        if (source_file_name == torrent_data_file_name):
+        if source_file_name == torrent_data_file_name:
             return True, source_file_path
         # 情况二：如果原文件父目录名称和种子数据文件（夹）名称一致，则认为匹配，适用于多文件剧集种子的情况
         _, source_file_dir_name = os.path.split(source_file_dir)
-        if (source_file_dir_name == torrent_data_file_name):
+        if source_file_dir_name == torrent_data_file_name:
             return True, source_file_dir
         # 情况三：如果种子数据文件（夹）名称是源文件路径的一部分，则认为匹配
         torrent_data_file_name_wrap = os.path.sep + torrent_data_file_name + os.path.sep
         index = source_file_path.find(torrent_data_file_name_wrap)
-        if (index >= 0):
-            return True, source_file_path[0, index] + os.path.sep + torrent_data_file_name
-        
+        if index >= 0:
+            return True, source_file_path[0:index] + os.path.sep + torrent_data_file_name
+
         return False, None
-    
+
     def __send_notify(self, context: TaskContext):
         """
         发送通知
@@ -998,8 +998,9 @@ class DownloaderHelper(_PluginBase):
         if not text:
             return
         self.post_message(title=f'{self.plugin_name}任务执行结果', text=text, userid=context.get_username())
-    
-    def __build_notify_message(self, context: TaskContext):
+
+    @staticmethod
+    def __build_notify_message(context: TaskContext):
         """
         构建通知消息内容
         """
@@ -1030,9 +1031,7 @@ class DownloaderHelper(_PluginBase):
                 text += '执行失败\n'
             text += '\n————————————\n'
         return text
-    
-    ################################# 自定义任务函数 #################################
-    
+
     def __run(self):
         """
         运行插件任务
@@ -1045,7 +1044,7 @@ class DownloaderHelper(_PluginBase):
             self.__run_for_all(context=context)
         finally:
             self.__task_lock.release()
-    
+
     def __run_for_all(self, context: TaskContext = None) -> TaskContext:
         """
         针对所有下载器运行插件任务
@@ -1054,22 +1053,22 @@ class DownloaderHelper(_PluginBase):
         """
         if not context:
             context = TaskContext()
-        
+
         if self.__exit_event.is_set():
             logger.warn('插件服务正在退出，任务终止')
             return context
-        
+
         self.__run_for_qbittorrent(context=context)
-        
+
         if self.__exit_event.is_set():
             logger.warn('插件服务正在退出，任务终止')
             return context
-        
+
         self.__run_for_transmission(context=context)
 
         # 发送通知
         self.__send_notify(context=context)
-        
+
         return context
 
     def __run_for_qbittorrent(self, context: TaskContext = None) -> TaskContext:
@@ -1087,25 +1086,27 @@ class DownloaderHelper(_PluginBase):
             return context
         if not context.is_selected_qb_downloader():
             return context
-        enable_seeding = True if self.__get_config_item(config_key='qb_enable_seeding') and context.is_enabled_seeding() else False
-        enable_tagging = True if self.__get_config_item(config_key='qb_enable_tagging') and context.is_enabled_tagging() else False
-        enable_delete = True if self.__get_config_item(config_key='qb_enable_delete') and context.is_enabled_delete() else False
-        if (not enable_seeding and not enable_tagging and not enable_delete):
+        enable_seeding = True if self.__get_config_item(
+            config_key='qb_enable_seeding') and context.is_enabled_seeding() else False
+        enable_tagging = True if self.__get_config_item(
+            config_key='qb_enable_tagging') and context.is_enabled_tagging() else False
+        enable_delete = True if self.__get_config_item(
+            config_key='qb_enable_delete') and context.is_enabled_delete() else False
+        if not enable_seeding and not enable_tagging and not enable_delete:
             return context
-        
+        # 任务结果
+        result = TaskResult(downloader_name)
         try:
             qbittorrent = Qbittorrent()
-            if (not qbittorrent.qbc):
+            if not qbittorrent.qbc:
                 return context
-            
+
             logger.info(f'下载器[{downloader_name}]任务执行开始...')
-            
+
             if self.__exit_event.is_set():
                 logger.warn(f'插件服务正在退出，任务终止[{downloader_name}]')
                 return context
-            
-            # 任务结果
-            result = TaskResult(downloader_name)
+
             context.save_result(result=result)
 
             torrents, error = qbittorrent.get_torrents()
@@ -1119,13 +1120,14 @@ class DownloaderHelper(_PluginBase):
 
             # 根据上下文过滤种子
             selected_torrents = context.get_selected_torrents()
-            torrents = torrents if selected_torrents == None \
-                                else [torrent for torrent in torrents if torrent and torrent.hash in selected_torrents]
+            torrents = torrents if selected_torrents is None \
+                else [torrent for torrent in torrents if torrent and torrent.hash in selected_torrents]
             if not torrents or len(torrents) <= 0:
                 logger.warn(f'下载器[{downloader_name}]中没有目标种子，任务终止')
                 return context
 
-            logger.info(f'子任务执行状态: 自动做种={enable_seeding}, 自动打标={enable_tagging}, 自动删种={enable_delete}')
+            logger.info(
+                f'子任务执行状态: 自动做种={enable_seeding}, 自动打标={enable_tagging}, 自动删种={enable_delete}')
 
             # 做种
             if enable_seeding:
@@ -1141,7 +1143,8 @@ class DownloaderHelper(_PluginBase):
                     return context
             # 删种
             if enable_delete:
-                result.set_delete(self.__delete_batch_for_qbittorrent(qbittorrent=qbittorrent, torrents=torrents, deleted_event_data=context.get_deleted_event_data()))
+                result.set_delete(self.__delete_batch_for_qbittorrent(qbittorrent=qbittorrent, torrents=torrents,
+                                                                      deleted_event_data=context.get_deleted_event_data()))
                 if self.__exit_event.is_set():
                     logger.warn(f'插件服务正在退出，任务终止[{downloader_name}]')
                     return context
@@ -1162,10 +1165,10 @@ class DownloaderHelper(_PluginBase):
         if not torrents:
             return count
         for torrent in torrents:
-            if (self.__exit_event.is_set()):
+            if self.__exit_event.is_set():
                 logger.warn('插件服务正在退出，子任务终止')
                 return count
-            if(self.__seeding_single_for_qbittorrent(torrent=torrent)):
+            if self.__seeding_single_for_qbittorrent(torrent=torrent):
                 count += 1
         logger.info('[QB]批量做种结束')
         return count
@@ -1180,15 +1183,13 @@ class DownloaderHelper(_PluginBase):
         # 种子当前已经存在的标签
         torrent_tags = self.__split_tags(torrent.get('tags'))
         # 判断种子中是否存在排除的标签
-        if (self.__exists_exclude_tag(torrent_tags)):
+        if self.__exists_exclude_tag(torrent_tags):
             return False
         need_seeding = torrent.state_enum.is_complete and torrent.state_enum.is_paused
-        if (not need_seeding):
+        if not need_seeding:
             return False
         torrent.resume()
-        hash = torrent.get('hash')
-        name = torrent.get('name')
-        logger.info(f'[QB]单个做种完成: hash = {hash}, name = {name}')
+        logger.info(f"[QB]单个做种完成: hash = {torrent.get('hash')}, name = {torrent.get('name')}")
         return True
 
     def __tagging_batch_for_qbittorrent(self, torrents: List[TorrentDictionary]) -> int:
@@ -1201,14 +1202,14 @@ class DownloaderHelper(_PluginBase):
         if not torrents:
             return count
         for torrent in torrents:
-            if (self.__exit_event.is_set()):
+            if self.__exit_event.is_set():
                 logger.warn('插件服务正在退出，子任务终止')
                 return count
-            if (self.__tagging_single_for_qbittorrent(torrent=torrent)):
+            if self.__tagging_single_for_qbittorrent(torrent=torrent):
                 count += 1
         logger.info('[QB]批量打标结束')
         return count
-    
+
     def __tagging_single_for_qbittorrent(self, torrent: TorrentDictionary) -> bool:
         """
         qb单个打标签
@@ -1219,7 +1220,7 @@ class DownloaderHelper(_PluginBase):
         # 种子当前已经存在的标签
         torrent_tags = self.__split_tags(torrent.get('tags'))
         # 判断种子中是否存在排除的标签
-        if (self.__exists_exclude_tag(torrent_tags)):
+        if self.__exists_exclude_tag(torrent_tags):
             return False
         # 种子的tracker地址
         tracker_url = self.__parse_tracker_for_qbittorrent(torrent=torrent)
@@ -1237,12 +1238,11 @@ class DownloaderHelper(_PluginBase):
             return False
         # 打标签
         torrent.add_tags(site_tag)
-        hash = torrent.get('hash')
-        name = torrent.get('name')
-        logger.info(f'[QB]单个打标成功: hash = {hash}, name = {name}')
+        logger.info(f"[QB]单个打标成功: hash = {torrent.get('hash')}, name = {torrent.get('name')}")
         return True
 
-    def __delete_batch_for_qbittorrent(self, qbittorrent: Qbittorrent, torrents: List[TorrentDictionary], deleted_event_data: dict = None) -> int:
+    def __delete_batch_for_qbittorrent(self, qbittorrent: Qbittorrent, torrents: List[TorrentDictionary],
+                                       deleted_event_data: dict = None) -> int:
         """
         qb批量删种
         :return: 删种数
@@ -1252,15 +1252,17 @@ class DownloaderHelper(_PluginBase):
         if not torrents:
             return count
         for torrent in torrents:
-            if (self.__exit_event.is_set()):
+            if self.__exit_event.is_set():
                 logger.warn('插件服务正在退出，子任务终止')
                 return count
-            if (self.__delete_single_for_qbittorrent(qbittorrent=qbittorrent, torrent=torrent, deleted_event_data=deleted_event_data)):
+            if (self.__delete_single_for_qbittorrent(qbittorrent=qbittorrent, torrent=torrent,
+                                                     deleted_event_data=deleted_event_data)):
                 count += 1
         logger.info('[QB]批量删种结束')
         return count
 
-    def __delete_single_for_qbittorrent(self, qbittorrent: Qbittorrent, torrent: TorrentDictionary, deleted_event_data: dict = None) -> bool:
+    def __delete_single_for_qbittorrent(self, qbittorrent: Qbittorrent, torrent: TorrentDictionary,
+                                        deleted_event_data: dict = None) -> bool:
         """
         qb单个删种
         :return: 是否执行
@@ -1270,14 +1272,12 @@ class DownloaderHelper(_PluginBase):
         # 种子当前已经存在的标签
         torrent_tags = self.__split_tags(torrent.get('tags'))
         # 判断种子中是否存在排除的标签
-        if (self.__exists_exclude_tag(torrent_tags)):
+        if self.__exists_exclude_tag(torrent_tags):
             return False
-        if (not self.__check_need_delete_for_qbittorrent(torrent=torrent, deleted_event_data=deleted_event_data)):
+        if not self.__check_need_delete_for_qbittorrent(torrent=torrent, deleted_event_data=deleted_event_data):
             return False
-        hash = torrent.get('hash')
-        qbittorrent.delete_torrents(True, hash)
-        name = torrent.get('name')
-        logger.info(f'[QB]单个删种完成: hash = {hash}, name = {name}')
+        qbittorrent.delete_torrents(True, torrent.get('hash'))
+        logger.info(f"[QB]单个删种完成: hash = {torrent.get('hash')}, name = {torrent.get('name')}")
         return True
 
     def __run_for_transmission(self, context: TaskContext = None) -> TaskContext:
@@ -1295,25 +1295,29 @@ class DownloaderHelper(_PluginBase):
             return context
         if not context.is_selected_tr_downloader():
             return context
-        enable_seeding = True if self.__get_config_item(config_key='tr_enable_seeding') and context.is_enabled_seeding() else False
-        enable_tagging = True if self.__get_config_item(config_key='tr_enable_tagging') and context.is_enabled_tagging() else False
-        enable_delete = True if self.__get_config_item(config_key='tr_enable_delete') and context.is_enabled_delete() else False
-        if (not enable_seeding and not enable_tagging and not enable_delete):
+        enable_seeding = True if self.__get_config_item(
+            config_key='tr_enable_seeding') and context.is_enabled_seeding() else False
+        enable_tagging = True if self.__get_config_item(
+            config_key='tr_enable_tagging') and context.is_enabled_tagging() else False
+        enable_delete = True if self.__get_config_item(
+            config_key='tr_enable_delete') and context.is_enabled_delete() else False
+        if not enable_seeding and not enable_tagging and not enable_delete:
             return context
-        
+
+        # 任务结果
+        result = TaskResult(downloader_name)
+
         try:
             transmission = Transmission()
-            if (not transmission.trc):
+            if not transmission.trc:
                 return context
-            
+
             logger.info(f'下载器[{downloader_name}]任务执行开始...')
-            
+
             if self.__exit_event.is_set():
                 logger.warn(f'插件服务正在退出，任务终止[{downloader_name}]')
                 return context
-            
-            # 任务结果
-            result = TaskResult(downloader_name)
+
             context.save_result(result=result)
 
             torrents, error = transmission.get_torrents()
@@ -1327,13 +1331,14 @@ class DownloaderHelper(_PluginBase):
 
             # 根据上下文过滤种子
             selected_torrents = context.get_selected_torrents()
-            torrents = torrents if selected_torrents == None \
-                                else [torrent for torrent in torrents if torrent and torrent.hash in selected_torrents]
+            torrents = torrents if selected_torrents is None \
+                else [torrent for torrent in torrents if torrent in selected_torrents]
             if not torrents or len(torrents) <= 0:
                 logger.warn(f'下载器[{downloader_name}]中没有目标种子，任务终止')
                 return context
 
-            logger.info(f'子任务执行状态: 自动做种={enable_seeding}, 自动打标={enable_tagging}, 自动删种={enable_delete}')
+            logger.info(
+                f'子任务执行状态: 自动做种={enable_seeding}, 自动打标={enable_tagging}, 自动删种={enable_delete}')
 
             # 做种
             if enable_seeding:
@@ -1349,7 +1354,8 @@ class DownloaderHelper(_PluginBase):
                     return context
             # 删种
             if enable_delete:
-                result.set_delete(self.__delete_batch_for_transmission(transmission=transmission, torrents=torrents, deleted_event_data=context.get_deleted_event_data()))
+                result.set_delete(self.__delete_batch_for_transmission(transmission=transmission, torrents=torrents,
+                                                                       deleted_event_data=context.get_deleted_event_data()))
                 if self.__exit_event.is_set():
                     logger.warn(f'插件服务正在退出，任务终止[{downloader_name}]')
                     return context
@@ -1370,10 +1376,10 @@ class DownloaderHelper(_PluginBase):
         if not torrents:
             return count
         for torrent in torrents:
-            if (self.__exit_event.is_set()):
+            if self.__exit_event.is_set():
                 logger.warn('插件服务正在退出，子任务终止')
                 return count
-            if(self.__seeding_single_for_transmission(transmission=transmission, torrent=torrent)):
+            if self.__seeding_single_for_transmission(transmission=transmission, torrent=torrent):
                 count += 1
         logger.info('[TR]批量做种结束')
         return count
@@ -1388,15 +1394,13 @@ class DownloaderHelper(_PluginBase):
         # 种子当前已经存在的标签
         torrent_tags = torrent.get('labels')
         # 判断种子中是否存在排除的标签
-        if (self.__exists_exclude_tag(torrent_tags)):
+        if self.__exists_exclude_tag(torrent_tags):
             return False
         need_seeding = torrent.progress == 100 and torrent.stopped and torrent.error == 0
-        if (not need_seeding):
+        if not need_seeding:
             return False
-        transmission.start_torrents(torrent.id)
-        hash = torrent.hashString
-        name = torrent.get('name')
-        logger.info(f'[TR]单个做种完成: hash = {hash}, name = {name}')
+        transmission.start_torrents(torrent.hashString)
+        logger.info(f"[TR]单个做种完成: hash = {torrent.hashString}, name = {torrent.get('name')}")
         return True
 
     def __tagging_batch_for_transmission(self, transmission: Transmission, torrents: List[Torrent]) -> int:
@@ -1409,14 +1413,14 @@ class DownloaderHelper(_PluginBase):
         if not torrents:
             return count
         for torrent in torrents:
-            if (self.__exit_event.is_set()):
+            if self.__exit_event.is_set():
                 logger.warn('插件服务正在退出，子任务终止')
                 return count
-            if (self.__tagging_single_for_transmission(transmission=transmission, torrent=torrent)):
+            if self.__tagging_single_for_transmission(transmission=transmission, torrent=torrent):
                 count += 1
         logger.info('[TR]批量打标结束')
         return count
-    
+
     def __tagging_single_for_transmission(self, transmission: Transmission, torrent: Torrent) -> bool:
         """
         tr单个打标签
@@ -1427,7 +1431,7 @@ class DownloaderHelper(_PluginBase):
         # 种子当前已经存在的标签
         torrent_tags = torrent.get('labels')
         # 判断种子中是否存在排除的标签
-        if (self.__exists_exclude_tag(torrent_tags)):
+        if self.__exists_exclude_tag(torrent_tags):
             return False
         # 种子的tracker地址
         tracker_url = self.__parse_tracker_for_transmission(torrent=torrent)
@@ -1448,13 +1452,12 @@ class DownloaderHelper(_PluginBase):
         if torrent_tags_copy == torrent_tags:
             return False
         # 保存标签
-        transmission.set_torrent_tag(torrent.id, torrent_tags_copy)
-        hash = torrent.hashString
-        name = torrent.get('name')
-        logger.info(f'[TR]单个打标成功: hash = {hash}, name = {name}')
+        transmission.set_torrent_tag(torrent.hashString, torrent_tags_copy)
+        logger.info(f"[TR]单个打标成功: hash = {torrent.hashString}, name = {torrent.get('name')}")
         return True
 
-    def __delete_batch_for_transmission(self, transmission: Transmission, torrents: List[Torrent], deleted_event_data: dict = None) -> int:
+    def __delete_batch_for_transmission(self, transmission: Transmission, torrents: List[Torrent],
+                                        deleted_event_data: dict = None) -> int:
         """
         tr批量删种
         :return: 删种数
@@ -1464,15 +1467,17 @@ class DownloaderHelper(_PluginBase):
         if not torrents:
             return count
         for torrent in torrents:
-            if (self.__exit_event.is_set()):
+            if self.__exit_event.is_set():
                 logger.warn('插件服务正在退出，子任务终止')
                 return count
-            if (self.__delete_single_for_transmission(transmission=transmission, torrent=torrent, deleted_event_data=deleted_event_data)):
+            if (self.__delete_single_for_transmission(transmission=transmission, torrent=torrent,
+                                                      deleted_event_data=deleted_event_data)):
                 count += 1
         logger.info('[TR]批量删种结束')
         return count
 
-    def __delete_single_for_transmission(self, transmission: Transmission, torrent: Torrent, deleted_event_data: dict = None) -> bool:
+    def __delete_single_for_transmission(self, transmission: Transmission, torrent: Torrent,
+                                         deleted_event_data: dict = None) -> bool:
         """
         tr单个删种
         :return: 是否执行
@@ -1482,39 +1487,35 @@ class DownloaderHelper(_PluginBase):
         # 种子当前已经存在的标签
         torrent_tags = torrent.get('labels')
         # 判断种子中是否存在排除的标签
-        if (self.__exists_exclude_tag(torrent_tags)):
+        if self.__exists_exclude_tag(torrent_tags):
             return False
-        if (not self.__check_need_delete_for_transmission(torrent=torrent, deleted_event_data=deleted_event_data)):
+        if not self.__check_need_delete_for_transmission(torrent=torrent, deleted_event_data=deleted_event_data):
             return False
-        transmission.delete_torrents(True, torrent.id)
-        hash = torrent.hashString
-        name = torrent.get('name')
-        logger.info(f'[TR]单个删种完成: hash = {hash}, name = {name}')
+        transmission.delete_torrents(True, torrent.hashString)
+        logger.info(f"'[TR]单个删种完成: hash = {torrent.hashString}, name = {torrent.get('name')}")
         return True
 
-    ################################# 事件监听 #################################
-    
     @eventmanager.register(EventType.DownloadAdded)
     def listen_download_added_event(self, event: Event = None):
         """
         监听下载添加事件
         """
         logger.info('监听到下载添加事件')
-        if (not event or not event.event_data):
+        if not event or not event.event_data:
             logger.warn('事件信息无效，忽略事件')
             return
-        if (not self.get_state() or not self.__get_config_item(config_key='listen_download_event')):
+        if not self.get_state() or not self.__get_config_item(config_key='listen_download_event'):
             logger.warn('插件状态无效或未开启监听，忽略事件')
             return
-        if (self.__exit_event.is_set()):
+        if self.__exit_event.is_set():
             logger.warn('插件服务正在退出，忽略事件')
             return
         # 执行
         logger.info('下载添加事件监听任务执行开始...')
         context = TaskContext().enable_seeding(False).enable_tagging(True).enable_delete(False)
-        hash = event.event_data.get('hash')
+        hash_str = event.event_data.get('hash')
         if hash:
-            context.select_torrent(hash)
+            context.select_torrent(hash_str)
         username = event.event_data.get('username')
         if username:
             context.select_username(username)
@@ -1527,17 +1528,18 @@ class DownloaderHelper(_PluginBase):
         监听源文件删除事件
         """
         logger.info('监听到源文件删除事件')
-        if (not event or not event.event_data):
+        if not event or not event.event_data:
             logger.warn('事件信息无效，忽略事件')
             return
-        if (not self.get_state() or not self.__get_config_item(config_key='listen_source_file_event')):
+        if not self.get_state() or not self.__get_config_item(config_key='listen_source_file_event'):
             logger.warn('插件状态无效或未开启监听，忽略事件')
             return
-        if (self.__exit_event.is_set()):
+        if self.__exit_event.is_set():
             logger.warn('插件服务正在退出，忽略事件')
             return
         # 执行
         logger.info('源文件删除事件监听任务执行开始...')
-        context = TaskContext().enable_seeding(False).enable_tagging(False).enable_delete(True).set_deleted_event_data(event.event_data)
+        context = TaskContext().enable_seeding(False).enable_tagging(False).enable_delete(True).set_deleted_event_data(
+            event.event_data)
         self.__run_for_all(context=context)
         logger.info('源文件删除事件监听任务执行结束')

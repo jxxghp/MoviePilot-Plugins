@@ -1,6 +1,7 @@
-from typing import Set, List
+from typing import Set, List, Optional
 
-class Constants():
+
+class Constants:
     """
     常量
     """
@@ -10,10 +11,12 @@ class Constants():
     # tr下载器id
     tr_downloader_id: str = 'transmission'
 
-class TaskResult():
+
+class TaskResult:
     """
     任务执行结果
     """
+
     def __init__(self, name: str):
         self.__name: str = name
         self.__success: bool = True
@@ -24,49 +27,51 @@ class TaskResult():
 
     def get_name(self) -> str:
         return self.__name
-    
+
     def set_success(self, success: bool):
         self.__success = success
         return self
-    
+
     def is_success(self):
         return self.__success
 
     def set_total(self, total: int):
         self.__total = total
         return self
-    
+
     def get_total(self):
         return self.__total
-    
+
     def set_seeding(self, seeding: int):
         self.__seeding = seeding
         return self
-    
+
     def get_seeding(self):
         return self.__seeding
-    
+
     def set_tagging(self, tagging: int):
         self.__tagging = tagging
         return self
-    
+
     def get_tagging(self):
         return self.__tagging
-    
+
     def set_delete(self, delete: int):
         self.__delete = delete
         return self
-    
+
     def get_delete(self):
         return self.__delete
 
-class TaskContext():
+
+class TaskContext:
     """
     任务上下文
     """
+
     def __init__(self):
         # 选择的下载器集合，为None时表示选择全部
-        self.__selected_downloaders: Set[str] = None
+        self.__selected_downloaders: Optional[Set[str]] = None
 
         # 启用的子任务
         # 启用做种
@@ -77,18 +82,18 @@ class TaskContext():
         self.__enable_delete: bool = True
 
         # 选择的种子，为None时表示选择全部
-        #self.__selected_torrents: Set[str] = None
+        # self.__selected_torrents: Set[str] = None
         self.__selected_torrents = None
 
         #  源文件删除事件数据
         self.__deleted_event_data = None
 
         # 任务结果集
-        self.__results: List[TaskResult] = None
+        self.__results: Optional[List[TaskResult]] = None
 
         # 操作用户名
-        self.__username: str = None
-    
+        self.__username: Optional[str] = None
+
     def select_downloader(self, downloader_id: str):
         """
         选择下载器
@@ -100,7 +105,7 @@ class TaskContext():
             self.__selected_downloaders = set()
         self.__selected_downloaders.add(downloader_id)
         return self
-    
+
     def select_downloaders(self, downloader_ids: List[str]):
         """
         选择下载器
@@ -120,24 +125,23 @@ class TaskContext():
         """
         if not downloader_id:
             return False
-        return True if self.__selected_downloaders == None \
-                       or downloader_id in self.__selected_downloaders \
-                    else False
-    
+        return True if self.__selected_downloaders is None or downloader_id in self.__selected_downloaders \
+            else False
+
     def is_selected_qb_downloader(self) -> bool:
         """
         是否选择了qb下载器
         :return: 是否选择了qb下载器
         """
         return self.__is_selected_the_downloader(Constants.qb_downloader_id)
-    
+
     def is_selected_tr_downloader(self) -> bool:
         """
         是否选择了tr下载器
         :return: 是否选择了tr下载器
         """
         return self.__is_selected_the_downloader(Constants.tr_downloader_id)
-    
+
     def enable_seeding(self, enable_seeding: bool = True):
         """
         是否启用做种
@@ -145,7 +149,7 @@ class TaskContext():
         """
         self.__enable_seeding = enable_seeding if enable_seeding else False
         return self
-    
+
     def is_enabled_seeding(self) -> bool:
         """
         是否启用了做种
@@ -160,14 +164,14 @@ class TaskContext():
         """
         self.__enable_tagging = enable_tagging if enable_tagging else False
         return self
-    
+
     def is_enabled_tagging(self) -> bool:
         """
         是否启用了打标
         :return: 是否启用了打标
         """
         return self.__enable_tagging
-    
+
     def enable_delete(self, enable_delete: bool = True):
         """
         是否启用删种
@@ -175,7 +179,7 @@ class TaskContext():
         """
         self.__enable_delete = enable_delete if enable_delete else False
         return self
-    
+
     def is_enabled_delete(self) -> bool:
         """
         是否启用了删种
@@ -194,7 +198,7 @@ class TaskContext():
             self.__selected_torrents = set()
         self.__selected_torrents.add(torrent)
         return self
-    
+
     def select_torrents(self, torrents: List[str]):
         """
         选择种子
@@ -205,27 +209,27 @@ class TaskContext():
         for torrent in torrents:
             self.select_torrent(torrent)
         return self
-    
-    #def get_selected_torrents(self) -> Set[str]:
+
+    # def get_selected_torrents(self) -> Set[str]:
     def get_selected_torrents(self):
         """
         获取所有选择的种子
         """
         return self.__selected_torrents
-    
+
     def set_deleted_event_data(self, deleted_event_data: dict):
         """
         设置源文件删除事件数据
         """
         self.__deleted_event_data = deleted_event_data
         return self
-    
+
     def get_deleted_event_data(self) -> dict:
         """
         获取源文件删除事件数据
         """
         return self.__deleted_event_data
-    
+
     def save_result(self, result: TaskResult):
         """
         存储结果
@@ -237,7 +241,7 @@ class TaskContext():
             self.__results = []
         self.__results.append(result)
         return self
-    
+
     def get_results(self) -> List[TaskResult]:
         """
         获取结果集
@@ -250,7 +254,7 @@ class TaskContext():
         """
         self.__username = username
         return self
-    
+
     def get_username(self) -> str:
         """
         获取操作用户名
