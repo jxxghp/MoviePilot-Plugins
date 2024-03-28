@@ -28,7 +28,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -498,9 +498,6 @@ class DownloaderHelper(_PluginBase):
         }], config_suggest
     
     def get_page(self) -> List[dict]:
-        """
-        拼装插件详情页面，需要返回页面配置，同时附带数据
-        """
         pass
 
     def stop_service(self):
