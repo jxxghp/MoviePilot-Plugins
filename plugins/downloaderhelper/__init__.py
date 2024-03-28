@@ -124,29 +124,32 @@ class DownloaderHelper(_PluginBase):
         定义远程控制命令
         :return: 命令关键字、事件、描述、附带数据
         """
-        return [{}]
+        pass
 
     def get_api(self) -> List[Dict[str, Any]]:
         """
         获取插件API
         """
-        return [{}]
+        pass
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
         注册插件公共服务
         """
-        cron = self.__get_config_item(config_key='cron')
-        if self.get_state() and cron:
-            return [{
-                "id": "DownloaderHelperTimerService",
-                "name": "下载器助手定时服务",
-                "trigger": CronTrigger.from_crontab(cron),
-                "func": self.__run,
-                "kwargs": {}
-            }]
-        else:
-            return []
+        try:
+            cron = self.__get_config_item(config_key='cron')
+            if self.get_state() and cron:
+                return [{
+                    "id": "DownloaderHelperTimerService",
+                    "name": "下载器助手定时服务",
+                    "trigger": CronTrigger.from_crontab(cron),
+                    "func": self.__run,
+                    "kwargs": {}
+                }]
+            else:
+                return []
+        except Exception as e:
+            logger.error(f"注册插件公共服务异常: {str(e)}", exc_info=True)
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
