@@ -37,7 +37,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -73,6 +73,14 @@ class AutoSignIn(_PluginBase):
     _start_time: int = None
     _end_time: int = None
     _auto_cf: int = 0
+
+    def __init__(self):
+        super().__init__()
+        # 特殊模拟登录站点
+        self._special_login_sites = {
+            "m-team.io": self.__mteam_login,
+            "m-team.cc": self.__mteam_login,
+        }
 
     def init_plugin(self, config: dict = None):
         self.sites = SitesHelper()
@@ -631,7 +639,7 @@ class AutoSignIn(_PluginBase):
     @eventmanager.register(EventType.PluginAction)
     def sign_in(self, event: Event = None):
         """
-        自动签到|模拟登陆
+        自动签到|模拟登录
         """
         if event:
             event_data = event.event_data
@@ -866,7 +874,7 @@ class AutoSignIn(_PluginBase):
         if site_module and hasattr(site_module, "signin"):
             try:
                 _, msg = site_module().signin(site_info)
-                # 特殊站点直接返回签到信息，防止仿真签到、模拟登陆有歧义
+                # 特殊站点直接返回签到信息，防止仿真签到、模拟登录有歧义
                 return site_info.get("name"), msg or ""
             except Exception as e:
                 traceback.print_exc()
@@ -954,23 +962,96 @@ class AutoSignIn(_PluginBase):
 
     def login_site(self, site_info: CommentedMap) -> Tuple[str, str]:
         """
-        模拟登陆一个站点
+        模拟登录一个站点
         """
+        domain = StringUtils.get_url_domain(site_info.get("url"))
+        if domain in self._special_login_sites:
+            return site_info.get("name"), self._special_login_sites[domain](site_info)
         return site_info.get("name"), self.__login_base(site_info)
 
-    def __login_base(self, site_info: CommentedMap) -> str:
+    @staticmethod
+    def __mteam_login(site: CommentedMap) -> str:
         """
-        模拟登陆通用处理
+        mteam登录
+        """
+        # 更新最后访问时间
+        res = RequestUtils(cookies=site.get("cookie"),
+                           ua=site.get("ua"),
+                           timeout=60,
+                           proxies=settings.PROXY if site.get("proxy") else None,
+                           referer=f"{site.get('url')}index"
+                           ).post_res(url=urljoin(site.get('url'), "api/member/updateLastBrowse"))
+        if res:
+            return "模拟登录成功"
+        elif res is not None:
+            return f"模拟登录失败，状态码：{res.status_code}"
+        else:
+            return "模拟登录失败，无法打开网站"
+
+    @staticmethod
+    def __login_base(site_info: CommentedMap) -> str:
+        """
+        模拟登录通用处理
         :param site_info: 站点信息
         :return: 签到结果信息
         """
         if not site_info:
             return ""
-        state, msg = self.sitechain.test(site_info)
-        if state:
-            return f"模拟登陆成功"
-        else:
-            return f"模拟登陆失败：{msg}"
+        site = site_info.get("name")
+        site_url = site_info.get("url")
+        site_cookie = site_info.get("cookie")
+        ua = site_info.get("ua")
+        render = site_info.get("render")
+        proxies = settings.PROXY if site_info.get("proxy") else None
+        proxy_server = settings.PROXY_SERVER if site_info.get("proxy") else None
+        if not site_url or not site_cookie:
+            logger.warn(f"未配置 {site} 的站点地址或Cookie，无法签到")
+            return ""
+        # 模拟登录
+        try:
+            # 访问链接
+            site_url = str(site_url).replace("attendance.php", "")
+            logger.info(f"开始站点模拟登录：{site}，地址：{site_url}...")
+            if render:
+                page_source = PlaywrightHelper().get_page_source(url=site_url,
+                                                                 cookies=site_cookie,
+                                                                 ua=ua,
+                                                                 proxies=proxy_server)
+                if not SiteUtils.is_logged_in(page_source):
+                    if under_challenge(page_source):
+                        return f"无法通过Cloudflare！"
+                    return f"仿真登录失败，Cookie已失效！"
+                else:
+                    return "模拟登录成功"
+            else:
+                res = RequestUtils(cookies=site_cookie,
+                                   ua=ua,
+                                   proxies=proxies
+                                   ).get_res(url=site_url)
+                # 判断登录状态
+                if res and res.status_code in [200, 500, 403]:
+                    if not SiteUtils.is_logged_in(res.text):
+                        if under_challenge(res.text):
+                            msg = "站点被Cloudflare防护，请打开站点浏览器仿真"
+                        elif res.status_code == 200:
+                            msg = "Cookie已失效"
+                        else:
+                            msg = f"状态码：{res.status_code}"
+                        logger.warn(f"{site} 模拟登录失败，{msg}")
+                        return f"模拟登录失败，{msg}！"
+                    else:
+                        logger.info(f"{site} 模拟登录成功")
+                        return f"模拟登录成功"
+                elif res is not None:
+                    logger.warn(f"{site} 模拟登录失败，状态码：{res.status_code}")
+                    return f"模拟登录失败，状态码：{res.status_code}！"
+                else:
+                    logger.warn(f"{site} 模拟登录失败，无法打开网站")
+                    return f"模拟登录失败，无法打开网站！"
+        except Exception as e:
+            logger.warn("%s 模拟登录失败：%s" % (site, str(e)))
+            traceback.print_exc()
+            return f"模拟登录失败：{str(e)}！"
 
     def stop_service(self):
         """
