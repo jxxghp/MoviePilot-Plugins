@@ -77,6 +77,8 @@ class DownloaderHelper(_PluginBase):
     __tracker_mappings: Dict[str, str] = {}
     # 排除种子标签
     __exclude_tags: Set[str] = set()
+    # 多级根域名，用于在打标时做特殊处理
+    __multi_level_root_domain: List[str] = ['edu.cn', 'com.cn', 'net.cn', 'org.cn']
 
     def init_plugin(self, config: dict = None):
         """
@@ -516,8 +518,7 @@ class DownloaderHelper(_PluginBase):
         finally:
             self.__exit_event.clear()
 
-    @staticmethod
-    def __parse_tracker_mappings(tracker_mappings: str) -> Dict[str, str]:
+    def __parse_tracker_mappings(self, tracker_mappings: str) -> Dict[str, str]:
         """
         解析配置的tracker映射
         :param tracker_mappings: 配置的tracker映射
@@ -540,7 +541,7 @@ class DownloaderHelper(_PluginBase):
             key, value = key.strip(), value.strip()
             if not key or not value:
                 continue
-            if len(key.split('.')) >= 2 and len(value.split('.')) == 2:
+            if self.__is_valid_domain(key) and self.__is_valid_domain(value):
                 mappings[key] = value
         return mappings
 
@@ -795,6 +796,34 @@ class DownloaderHelper(_PluginBase):
             return domain_arr[-2]
         else:
             return None
+
+    def __match_multi_level_root_domain(self, domain: str) -> Tuple[str, int]:
+        """
+        匹配多级根域名
+        :param domain: 被匹配的域名
+        :return: 匹配的根域名, 匹配的根域名长度
+        """
+        if not domain or not self.__multi_level_root_domain:
+            return None, 0
+        for root_domain in self.__multi_level_root_domain:
+            if domain.endswith('.' + root_domain):
+                root_domain_len = len(root_domain.split('.'))
+                return root_domain, root_domain_len
+        return None, 0
+
+    def __is_valid_domain(self, domain: str) -> bool:
+        """
+        判断域名是否有效
+        :param domain: 被判断的域名
+        :return: 是否有效
+        """
+        if not domain:
+            return False
+        domain_len = len(domain.split('.'))
+        root_domain, root_domain_len = self.__match_multi_level_root_domain(domain)
+        if root_domain:
+            return domain_len > root_domain_len
+        return domain_len > 1
 
     def __generate_site_tag(self, site: str) -> Optional[str]:
         """
