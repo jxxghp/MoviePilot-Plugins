@@ -71,13 +71,13 @@ class TorrentHandler(FileSystemEventHandler):
 
 class VCBAnimeMonitor(_PluginBase):
     # 插件名称
-    plugin_name = "整理VCB-Studio压制组作品"
+    plugin_name = "整理VCB动漫压制组作品"
     # 插件描述
     plugin_desc = "提高部分VCB-Studio作品的识别准确率,将VCB-Studio的作品统一转移到指定目录同时进行刮削整理"
     # 插件图标
     plugin_icon = "vcbmonitor.png"
     # 插件版本
-    plugin_version = "1.6.5"
+    plugin_version = "1.6.6"
     # 插件作者
     plugin_author = "pixel@qingwa"
     # 作者主页
