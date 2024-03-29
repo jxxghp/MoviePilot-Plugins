@@ -705,15 +705,29 @@ class CrossSeed(_PluginBase):
                 save_path = self.__get_save_path(torrent, downloader)
                 # 获取种子文件路径
                 torrent_path = Path(self._torrentpaths[idx]) / f"{hash_str}.torrent"
+                torrent_info = None
                 if not torrent_path.exists():
-                    logger.error(f"种子文件不存在：{torrent_path}")
-                    continue
+                    if downloader == "qbittorrent":
+                        # FIXME qb从4.4.0开始，种子文件以标题+序号的方式保存，目前只能尝试导出后再解析
+                        # logger.info(f"正在导出种子 {torrent.get('name')}({hash_str})")
+                        try:
+                            torrent_data = torrent.export()
+                            torrent_info, err = TorInfo.from_data(torrent_data)
+                        except Exception as e:
+                            err = str(e)
+                        if not torrent_info:
+                            logger.error(f"尝试导出种子 {hash_str} 出错 {err}")
+                            continue
+                    else:
+                        logger.error(f"种子文件不存在：{torrent_path}")
+                        continue
 
                 # 读取种子文件具体信息
-                torrent_info, err = self.cross_helper.get_local_torrent_info(torrent_path)
                 if not torrent_info:
-                    logger.error(f"未能读取到种子文件具体信息：{torrent_path} {err}")
-                    continue
+                    torrent_info, err = self.cross_helper.get_local_torrent_info(torrent_path)
+                    if not torrent_info:
+                        logger.error(f"未能读取到种子文件具体信息：{torrent_path} {err}")
+                        continue
 
                 # 用站点+pieces_hash记录该站点是否已经在该下载器中,需要从tracker补充站点名字
                 tracker_urls = set()
