@@ -768,34 +768,32 @@ class DownloaderHelper(_PluginBase):
         scheme, netloc = StringUtils.get_url_netloc(url)
         return netloc
 
-    @staticmethod
-    def __get_domain_level2(domain: str) -> Optional[str]:
+    def __get_main_domain(self, domain: str) -> Optional[str]:
         """
-        获取域名的二级域名
+        获取域名的主域名
+        :param domain: 原域名
+        :return: 主域名
         """
         if not domain:
             return None
         domain_arr = domain.split('.')
-        domain_arr_len = len(domain_arr)
-        if domain_arr_len == 2:
-            return domain
-        elif domain_arr_len > 2:
-            return f'{domain_arr[-2]}.{domain_arr[-1]}'
-        else:
+        domain_len = len(domain_arr)
+        if domain_len < 2:
             return None
+        root_domain, root_domain_len = self.__match_multi_level_root_domain(domain=domain)
+        if root_domain:
+            return f'{domain_arr[-root_domain_len - 1]}.{root_domain}'
+        else:
+            return f'{domain_arr[-2]}.{domain_arr[-1]}'
 
-    @staticmethod
-    def __get_domain_keyword(domain: str) -> Optional[str]:
+    def __get_domain_keyword(self, domain: str) -> Optional[str]:
         """
         获取域名关键字
         """
-        if not domain:
+        main_domain = self.__get_main_domain(domain=domain)
+        if not main_domain:
             return None
-        domain_arr = domain.split('.')
-        if len(domain_arr) >= 2:
-            return domain_arr[-2]
-        else:
-            return None
+        return main_domain.split('.')[0]
 
     def __match_multi_level_root_domain(self, domain: str) -> Tuple[Optional[str], int]:
         """
@@ -845,7 +843,7 @@ class DownloaderHelper(_PluginBase):
             return None, None
 
         # tracker的完整域名
-        tracker_domain = self.__get_url_domain(tracker_url)
+        tracker_domain = self.__get_url_domain(url=tracker_url)
         if not tracker_domain:
             return None, None
 
@@ -853,20 +851,20 @@ class DownloaderHelper(_PluginBase):
         delete_suggest = set()
 
         # tracker域名关键字
-        tracker_domain_keyword = self.__get_domain_keyword(tracker_domain)
+        tracker_domain_keyword = self.__get_domain_keyword(domain=tracker_domain)
         if tracker_domain_keyword:
             # 建议移除
             delete_suggest.add(tracker_domain_keyword)
-            delete_suggest.add(self.__generate_site_tag(tracker_domain_keyword))
+            delete_suggest.add(self.__generate_site_tag(site=tracker_domain_keyword))
 
         # 首先根据tracker的完整域名去匹配站点信息
-        site_info = self.__get_site_info_by_domain(tracker_domain)
+        site_info = self.__get_site_info_by_domain(site_domain=tracker_domain)
 
-        # 如果没有匹配到，再根据二级域名去匹配
+        # 如果没有匹配到，再根据主域名去匹配
         if not site_info:
-            tracker_domain_level2 = self.__get_domain_level2(tracker_domain)
-            if tracker_domain_level2:
-                site_info = self.__get_site_info_by_domain(tracker_domain_level2)
+            tracker_main_domain = self.__get_main_domain(domain=tracker_domain)
+            if tracker_main_domain and tracker_main_domain != tracker_domain:
+                site_info = self.__get_site_info_by_domain(tracker_main_domain)
 
         # 如果还是没有匹配到，就根据tracker映射的域名匹配
         matched_site_domain = None
