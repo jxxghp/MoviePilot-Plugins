@@ -872,7 +872,7 @@ class DownloaderHelper(_PluginBase):
             else:
                 site_tag = self.__generate_site_tag(self.__get_domain_keyword(tracker_domain))
 
-        if site_tag:
+        if site_tag and site_tag in delete_suggest:
             delete_suggest.remove(site_tag)
 
         return site_tag, delete_suggest
@@ -1444,7 +1444,8 @@ class DownloaderHelper(_PluginBase):
         # 移除建议删除的标签
         if delete_suggest and len(delete_suggest) > 0:
             for to_delete in delete_suggest:
-                torrent_tags_copy.remove(to_delete)
+                if to_delete and to_delete in torrent_tags_copy:
+                    torrent_tags_copy.remove(to_delete)
         # 如果本次需要打标签
         if site_tag and site_tag not in torrent_tags_copy:
             torrent_tags_copy.append(site_tag)
