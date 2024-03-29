@@ -32,7 +32,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -77,6 +77,8 @@ class DownloaderHelper(_PluginBase):
     __tracker_mappings: Dict[str, str] = {}
     # 排除种子标签
     __exclude_tags: Set[str] = set()
+    # 多级根域名，用于在打标时做特殊处理
+    __multi_level_root_domain: List[str] = ['edu.cn', 'com.cn', 'net.cn', 'org.cn']
 
     def init_plugin(self, config: dict = None):
         """
@@ -312,7 +314,7 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'title': 'Tracker映射。用于在站点打标签时，指定tracker和站点域名不同的种子的域名对应关系；前面为tracker域名（二级或多级），中间是英文冒号，后面是站点域名（只能是二级）。'
+                        'title': 'Tracker映射。用于在站点打标签时，指定tracker和站点域名不同的种子的域名对应关系；前面为tracker域名（完整域名或者主域名皆可），中间是英文冒号，后面是站点域名。'
                     },
                     'content': [{
                         'component': 'VTextarea',
@@ -516,8 +518,7 @@ class DownloaderHelper(_PluginBase):
         finally:
             self.__exit_event.clear()
 
-    @staticmethod
-    def __parse_tracker_mappings(tracker_mappings: str) -> Dict[str, str]:
+    def __parse_tracker_mappings(self, tracker_mappings: str) -> Dict[str, str]:
         """
         解析配置的tracker映射
         :param tracker_mappings: 配置的tracker映射
@@ -540,7 +541,7 @@ class DownloaderHelper(_PluginBase):
             key, value = key.strip(), value.strip()
             if not key or not value:
                 continue
-            if len(key.split('.')) >= 2 and len(value.split('.')) == 2:
+            if self.__is_valid_domain(key) and self.__is_valid_domain(value):
                 mappings[key] = value
         return mappings
 
@@ -767,34 +768,60 @@ class DownloaderHelper(_PluginBase):
         scheme, netloc = StringUtils.get_url_netloc(url)
         return netloc
 
-    @staticmethod
-    def __get_domain_level2(domain: str) -> Optional[str]:
+    def __get_main_domain(self, domain: str) -> Optional[str]:
         """
-        获取域名的二级域名
+        获取域名的主域名
+        :param domain: 原域名
+        :return: 主域名
         """
         if not domain:
             return None
         domain_arr = domain.split('.')
-        domain_arr_len = len(domain_arr)
-        if domain_arr_len == 2:
-            return domain
-        elif domain_arr_len > 2:
-            return f'{domain_arr[-2]}.{domain_arr[-1]}'
-        else:
+        domain_len = len(domain_arr)
+        if domain_len < 2:
             return None
+        root_domain, root_domain_len = self.__match_multi_level_root_domain(domain=domain)
+        if root_domain:
+            return f'{domain_arr[-root_domain_len - 1]}.{root_domain}'
+        else:
+            return f'{domain_arr[-2]}.{domain_arr[-1]}'
 
-    @staticmethod
-    def __get_domain_keyword(domain: str) -> Optional[str]:
+    def __get_domain_keyword(self, domain: str) -> Optional[str]:
         """
         获取域名关键字
         """
+        main_domain = self.__get_main_domain(domain=domain)
+        if not main_domain:
+            return None
+        return main_domain.split('.')[0]
+
+    def __match_multi_level_root_domain(self, domain: str) -> Tuple[Optional[str], int]:
+        """
+        匹配多级根域名
+        :param domain: 被匹配的域名
+        :return: 匹配的根域名, 匹配的根域名长度
+        """
+        if not domain or not self.__multi_level_root_domain:
+            return None, 0
+        for root_domain in self.__multi_level_root_domain:
+            if domain.endswith('.' + root_domain):
+                root_domain_len = len(root_domain.split('.'))
+                return root_domain, root_domain_len
+        return None, 0
+
+    def __is_valid_domain(self, domain: str) -> bool:
+        """
+        判断域名是否有效
+        :param domain: 被判断的域名
+        :return: 是否有效
+        """
         if not domain:
-            return None
-        domain_arr = domain.split('.')
-        if len(domain_arr) >= 2:
-            return domain_arr[-2]
-        else:
-            return None
+            return False
+        domain_len = len(domain.split('.'))
+        root_domain, root_domain_len = self.__match_multi_level_root_domain(domain)
+        if root_domain:
+            return domain_len > root_domain_len
+        return domain_len > 1
 
     def __generate_site_tag(self, site: str) -> Optional[str]:
         """
@@ -816,7 +843,7 @@ class DownloaderHelper(_PluginBase):
             return None, None
 
         # tracker的完整域名
-        tracker_domain = self.__get_url_domain(tracker_url)
+        tracker_domain = self.__get_url_domain(url=tracker_url)
         if not tracker_domain:
             return None, None
 
@@ -824,20 +851,20 @@ class DownloaderHelper(_PluginBase):
         delete_suggest = set()
 
         # tracker域名关键字
-        tracker_domain_keyword = self.__get_domain_keyword(tracker_domain)
+        tracker_domain_keyword = self.__get_domain_keyword(domain=tracker_domain)
         if tracker_domain_keyword:
             # 建议移除
             delete_suggest.add(tracker_domain_keyword)
-            delete_suggest.add(self.__generate_site_tag(tracker_domain_keyword))
+            delete_suggest.add(self.__generate_site_tag(site=tracker_domain_keyword))
 
         # 首先根据tracker的完整域名去匹配站点信息
-        site_info = self.__get_site_info_by_domain(tracker_domain)
+        site_info = self.__get_site_info_by_domain(site_domain=tracker_domain)
 
-        # 如果没有匹配到，再根据二级域名去匹配
+        # 如果没有匹配到，再根据主域名去匹配
         if not site_info:
-            tracker_domain_level2 = self.__get_domain_level2(tracker_domain)
-            if tracker_domain_level2:
-                site_info = self.__get_site_info_by_domain(tracker_domain_level2)
+            tracker_main_domain = self.__get_main_domain(domain=tracker_domain)
+            if tracker_main_domain and tracker_main_domain != tracker_domain:
+                site_info = self.__get_site_info_by_domain(tracker_main_domain)
 
         # 如果还是没有匹配到，就根据tracker映射的域名匹配
         matched_site_domain = None
@@ -872,7 +899,7 @@ class DownloaderHelper(_PluginBase):
             else:
                 site_tag = self.__generate_site_tag(self.__get_domain_keyword(tracker_domain))
 
-        if site_tag:
+        if site_tag and site_tag in delete_suggest:
             delete_suggest.remove(site_tag)
 
         return site_tag, delete_suggest
@@ -1444,7 +1471,8 @@ class DownloaderHelper(_PluginBase):
         # 移除建议删除的标签
         if delete_suggest and len(delete_suggest) > 0:
             for to_delete in delete_suggest:
-                torrent_tags_copy.remove(to_delete)
+                if to_delete and to_delete in torrent_tags_copy:
+                    torrent_tags_copy.remove(to_delete)
         # 如果本次需要打标签
         if site_tag and site_tag not in torrent_tags_copy:
             torrent_tags_copy.append(site_tag)
