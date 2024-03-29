@@ -797,7 +797,7 @@ class DownloaderHelper(_PluginBase):
         else:
             return None
 
-    def __match_multi_level_root_domain(self, domain: str) -> Tuple[str, int]:
+    def __match_multi_level_root_domain(self, domain: str) -> Tuple[Optional[str], int]:
         """
         匹配多级根域名
         :param domain: 被匹配的域名
