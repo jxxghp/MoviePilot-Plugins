@@ -195,7 +195,7 @@
         "name": "整理VCB动漫压制组作品",
         "description": "提高部分VCB-Studio作品的识别准确率,将VCB-Studio的作品统一转移到指定目录同时进行刮削整理",
         "version": "1.6.6",
-        "icon": "qingwa.png",
+        "icon": "vcbmonitor.png",
         "author": "pixel@qingwa",
         "level": 2
     },
