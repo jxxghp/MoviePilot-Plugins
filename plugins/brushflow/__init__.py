@@ -117,8 +117,10 @@ class BrushConfig:
 
                 self.group_site_configs[sitename] = BrushConfig(config=full_config, process_site_config=False)
         except Exception as e:
-            logger.error(f"解析站点配置失败，请检查配置项。错误详情: {e}")
+            logger.error(f"解析站点配置失败，已停用插件并关闭站点独立配置，请检查配置项，错误详情: {e}")
             self.group_site_configs = {}
+            self.enable_site_config = False
+            self.enabled = False
 
     def get_site_config(self, sitename):
         """
