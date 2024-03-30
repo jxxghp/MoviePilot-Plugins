@@ -262,6 +262,12 @@ class BrushFlow(_PluginBase):
             brush_config.archive_task = False
             self.__update_config()
 
+        if brush_config.log_more:
+            if brush_config.enable_site_config:
+                logger.info(f"已开启站点独立配置，配置信息：{brush_config}")
+            else:
+                logger.info(f"没有开启站点独立配置，配置信息：{brush_config}")
+
         # 停止现有任务
         self.stop_service()
 
@@ -282,7 +288,7 @@ class BrushFlow(_PluginBase):
         # 如果开启&存在站点时，才需要启用后台任务
         self._task_brush_enable = brush_config.enabled and brush_config.brushsites
 
-        # brush_config.onlyonce = True        
+        # brush_config.onlyonce = True
 
         # 检查是否启用了一次性任务
         if brush_config.onlyonce:
