@@ -462,5 +462,13 @@
         "icon": "DownloaderHelper.png",
         "author": "hotlcc",
         "level": 2
+    },
+    "FeiShuMsg": {
+        "name": "飞书机器人消息通知",
+        "description": "支持使用飞书群聊机器人发送消息通知。",
+        "version": "1.0",
+        "icon": "FeiShu_A.png",
+        "author": "InfinityPacer",
+        "level": 2
     }
 }
