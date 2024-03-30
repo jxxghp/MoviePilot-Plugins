@@ -32,7 +32,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -1541,12 +1541,12 @@ class DownloaderHelper(_PluginBase):
         # 执行
         logger.info('下载添加事件监听任务执行开始...')
         context = TaskContext().enable_seeding(False).enable_tagging(True).enable_delete(False)
-        hash_str = event.event_data.get('hash')
-        if hash:
-            context.select_torrent(hash_str)
+        _hash = event.event_data.get('hash')
+        if _hash:
+            context.select_torrent(torrent=_hash)
         username = event.event_data.get('username')
         if username:
-            context.select_username(username)
+            context.set_username(username=username)
         self.__run_for_all(context=context)
         logger.info('下载添加事件监听任务执行结束')
 
