@@ -1541,9 +1541,9 @@ class DownloaderHelper(_PluginBase):
         # 执行
         logger.info('下载添加事件监听任务执行开始...')
         context = TaskContext().enable_seeding(False).enable_tagging(True).enable_delete(False)
-        hash = event.event_data.get('hash')
-        if hash:
-            context.select_torrent(torrent=hash)
+        _hash = event.event_data.get('hash')
+        if _hash:
+            context.select_torrent(torrent=_hash)
         username = event.event_data.get('username')
         if username:
             context.set_username(username=username)
