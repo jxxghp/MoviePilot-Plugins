@@ -33,18 +33,31 @@ class CSSiteConfig(object):
     站点辅种配置类
     """
 
-    def __init__(self, site_name: str, site_url: str, site_passkey: str) -> None:
-        self.name = site_name
-        self.url = site_url.removesuffix("/")
-        self.passkey = site_passkey
+    def __init__(
+        self,
+        name: str = None,
+        url: str = None,
+        passkey: str = None,
+        id: int = None,
+        cookie: str = None,
+        ua: str = None,
+        proxy: bool = None,
+    ) -> None:
+        self.name = name
+        self.url = url
+        self.passkey = passkey
+        self.id = id
+        self.cookie = cookie
+        self.ua = ua
+        self.proxy = proxy
 
     def get_api_url(self):
         if self.name == "憨憨":
-            return f"{self.url}/npapi/pieces-hash"
-        return f"{self.url}/api/pieces-hash"
+            return f"{self.url}npapi/pieces-hash"
+        return f"{self.url}api/pieces-hash"
 
     def get_torrent_url(self, torrent_id: str):
-        return f"{self.url}/download.php?id={torrent_id}&passkey={self.passkey}"
+        return f"{self.url}download.php?id={torrent_id}&passkey={self.passkey}"
 
 
 class TorInfo:
@@ -135,21 +148,20 @@ class CrossSeedHelper(object):
             "User-Agent": "CrossSeedHelper",
         }
         data = {"passkey": site.passkey, "pieces_hash": pieces_hash_set}
+        remote_torrent_infos = []
         try:
             response = requests.post(
                 site.get_api_url(), headers=headers, json=data, timeout=10
             )
             response.raise_for_status()
+            rsp_body = response.json()
+            if isinstance(rsp_body["data"], dict):
+                for pieces_hash, torrent_id in rsp_body["data"].items():
+                    remote_torrent_infos.append(
+                        TorInfo.remote(site.name, pieces_hash, torrent_id)
+                    )
         except requests.exceptions.RequestException as e:
             return None, f"站点{site.name}请求失败：{e}"
-        rsp_body = response.json()
-
-        remote_torrent_infos = []
-        if isinstance(rsp_body["data"], dict):
-            for pieces_hash, torrent_id in rsp_body["data"].items():
-                remote_torrent_infos.append(
-                    TorInfo.remote(site.name, pieces_hash, torrent_id)
-                )
         return remote_torrent_infos, None
 
 
@@ -157,11 +169,11 @@ class CrossSeed(_PluginBase):
     # 插件名称
     plugin_name = "青蛙辅种助手"
     # 插件描述
-    plugin_desc = "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙、AGSVPT、麒麟、UBits、聆音等。"
+    plugin_desc = "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙、AGSVPT、麒麟、UBits、聆音、憨憨等。"
     # 插件图标
     plugin_icon = "qingwa.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "233@qingwa"
     # 作者主页
@@ -206,7 +218,6 @@ class CrossSeed(_PluginBase):
     # 辅种缓存，出错的种子不再重复辅种，且无法清除。种子被删除404等情况
     _permanent_error_caches = []
     _torrentpaths = []
-    _name_site_map = {}
     _site_cs_infos = []
     # 辅种计数
     total = 0
@@ -247,18 +258,49 @@ class CrossSeed(_PluginBase):
             self._sites = [site_id for site_id, site_name in all_sites if site_id in self._sites]
             # 拆分出选中的站点
             site_names = [site_name for site_id, site_name in all_sites if site_id in self._sites]
-            # 拆分为映射关系
-            self._name_site_map = {}
-            for site in self.siteoper.list_order_by_pri():
-                self._name_site_map[site.name] = site
-            # 只给选中的站点构造站点配置
-            self._site_cs_infos: List[CSSiteConfig] = []
+
+            # 整理所有可用内部站点信息
+            all_site_cs_info_map : dict[str, CSSiteConfig] = dict()
+            for site in inner_site_list:
+                if site.is_active:
+                    all_site_cs_info_map[site.name] = CSSiteConfig(
+                        name=site.name,
+                        url=site.url,
+                        id=site.id,
+                        cookie=site.cookie,
+                        ua=site.ua,
+                        proxy=site.proxy,
+                    )
+            for site in self.__custom_sites():
+                all_site_cs_info_map[site.get("name")] = CSSiteConfig(
+                    name=site.get("name"),
+                    url=site.get("url"),
+                    id=site.get("id"),
+                    cookie=site.get("cookie"),
+                    ua=site.get("ua"),
+                    proxy=site.get("proxy"),
+                )
+            self._sites = [site.id for site in all_site_cs_info_map.values() if site.id in self._sites]
+            site_names = [site.name for site in all_site_cs_info_map.values() if site.id in self._sites]
+            
+            # 整理passkey映射关系
+            site_name_key_map = dict()
             for site_key in self._token.strip().split("\n"):
                 site_key_arr = re.split("[\s:：]+",site_key.strip())
                 site_name = site_key_arr[0]
-                db_site = self._name_site_map[site_name]
-                if site_name in site_names and db_site:
-                    self._site_cs_infos.append(CSSiteConfig(site_name, db_site.url, site_key_arr[1]))
+                site_name_key_map[site_name] = site_key_arr[1]
+
+            # 只给选中的站点补全站点配置
+            self._site_cs_infos: List[CSSiteConfig] = []
+            # 根据配置来补充passkey
+            for site_name in site_names:
+                site_key = site_name_key_map.get(site_name)
+                if not site_key:
+                    logger.warning(f"未找到站点{site_name}的passkey, 请检查passkey配置是否有误，站点{site_name}将跳过辅种")
+                    continue
+                site_cs_info = all_site_cs_info_map.get(site_name)
+                site_cs_info.passkey = site_key
+                self._site_cs_infos.append(site_cs_info)
 
             self.__update_config()
 
@@ -709,14 +751,14 @@ class CrossSeed(_PluginBase):
                 if not torrent_path.exists():
                     if downloader == "qbittorrent":
                         # FIXME qb从4.4.0开始，种子文件以标题+序号的方式保存，目前只能尝试导出后再解析
-                        # logger.info(f"正在导出种子 {torrent.get('name')}({hash_str})")
+                        logger.warn(f"QB种子文件不存在：{torrent_path} 尝试远程导出种子")
                         try:
                             torrent_data = torrent.export()
                             torrent_info, err = TorInfo.from_data(torrent_data)
                         except Exception as e:
                             err = str(e)
                         if not torrent_info:
-                            logger.error(f"尝试导出种子 {hash_str} 出错 {err}")
+                            logger.error(f"尝试远程导出种子 {hash_str} 出错 {err}")
                             continue
                     else:
                         logger.error(f"种子文件不存在：{torrent_path}")
@@ -873,12 +915,12 @@ class CrossSeed(_PluginBase):
         # 逐个站点查询可辅种数据
         chunk_size = 100
         for site_config in self._site_cs_infos:
-            db_site_info = self._name_site_map[site_config.name]
-            if not db_site_info:
-                logger.info(f"未在支持站点中找到{site_config.name}")
             remote_tors: List[TorInfo] = []
             total_size = len(pieces_hashes)
             for i in range(0, len(pieces_hashes), chunk_size):
+                if self._event.is_set():
+                    logger.info(f"辅种服务停止")
+                    return
                 # 切片操作
                 chunk = pieces_hashes[i:i + chunk_size]
                 # 处理分组
@@ -911,6 +953,9 @@ class CrossSeed(_PluginBase):
             logger.info(f"站点{site_config.name}正在做种或已经辅种过的种子数为{local_cnt}")
 
             for tor_info in not_local_tors:
+                if self._event.is_set():
+                    logger.info(f"辅种服务停止")
+                    return
                 if not tor_info:
                     continue
                 if not tor_info.torrent_id or not tor_info.pieces_hash:
@@ -922,7 +967,7 @@ class CrossSeed(_PluginBase):
                     logger.info(f"种子 {tor_info.get_name_id_tag()} 辅种失败且已缓存，跳过 ...")
                     continue
                 # 添加任务
-                self.__download_torrent(tor=tor_info, site_config=site_config, site_info=db_site_info,
+                self.__download_torrent(tor=tor_info, site_config=site_config,
                                         downloader=downloader,
                                         save_path=save_paths.get(tor_info.pieces_hash))
 
@@ -967,7 +1012,6 @@ class CrossSeed(_PluginBase):
             self,
             tor: TorInfo,
             site_config: CSSiteConfig,
-            site_info: Site,
             downloader: str,
             save_path: str,
     ):
@@ -984,9 +1028,9 @@ class CrossSeed(_PluginBase):
         # 下载种子文件
         _, content, _, _, error_msg = self.torrent.download_torrent(
             url=torrent_url,
-            cookie=site_info.cookie,
-            ua=site_info.ua or settings.USER_AGENT,
-            proxy=True if site_info.proxy else False)
+            cookie=site_config.cookie,
+            ua=site_config.ua or settings.USER_AGENT,
+            proxy=True if site_config.proxy else False)
 
         # 兼容种子无法访问的情况
         if not content or (isinstance(content, bytes) and "你没有该权限".encode(encoding="utf-8") in content):
