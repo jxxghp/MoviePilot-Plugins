@@ -294,7 +294,7 @@ class CrossSeed(_PluginBase):
                 site_key_arr = re.split("[\s:：]+",site_key.strip())
                 site_name = site_key_arr[0]
                 site_name_key_map[site_name] = site_key_arr[1]
-                if len(site_key_arr) >= 2:
+                if len(site_key_arr) > 2:
                     if str.isdigit(site_key_arr[2]):
                         site_name_gap_map[site_name] = int(site_key_arr[2])
                     else:
