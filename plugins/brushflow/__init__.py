@@ -184,7 +184,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -2252,7 +2252,7 @@ class BrushFlow(_PluginBase):
 
         need_delete_hashes = []
 
-        # 即使开了动态删除，但是也有可能部分站点单独设置了关闭，这里根据种子动态进行分组，先处理不需要动态的种子，按设置的规则进行删除
+        # 即使开了动态删除，但是也有可能部分站点单独设置了关闭，这里根据种子托管进行分组，先处理不需要托管的种子，按设置的规则进行删除
         proxy_delete_torrents, not_proxy_delete_torrents = self.__group_torrents_by_proxy_delete(torrents=torrents,
                                                                                                  torrent_tasks=torrent_tasks)
         logger.info(f"托管种子数 {len(proxy_delete_torrents)}，未托管种子数 {len(not_proxy_delete_torrents)}")
@@ -2264,7 +2264,7 @@ class BrushFlow(_PluginBase):
                 torrent_info_map[self.__get_hash(torrent)].get("total_size", 0) for torrent in not_proxy_delete_torrents
                 if self.__get_hash(torrent) in not_proxy_delete_hashes)
 
-        # 如果删除非动态种子后仍未达到最小体积要求，则处理动态种子
+        # 如果删除非托管种子后仍未达到最小体积要求，则处理托管种子
         if total_torrent_size > min_size and proxy_delete_torrents:
             proxy_delete_hashes = self.__delete_torrent_for_evaluate_conditions(torrents=proxy_delete_torrents,
                                                                                 torrent_tasks=torrent_tasks,
@@ -2274,7 +2274,7 @@ class BrushFlow(_PluginBase):
                 torrent_info_map[self.__get_hash(torrent)].get("total_size", 0) for torrent in proxy_delete_torrents if
                 self.__get_hash(torrent) in proxy_delete_hashes)
 
-        # 在完成初始删除步骤后，如果总体积仍然超过最小阈值，则进一步找到已完成种子并排除HR种子后按加入时间倒序进行删除
+        # 在完成初始删除步骤后，如果总体积仍然超过最小阈值，则进一步找到已完成种子并排除HR种子后按加入时间正序进行删除
         if total_torrent_size > min_size:
             # 重新计算当前的种子列表，排除已删除的种子
             remaining_hashes = list(
@@ -2707,7 +2707,7 @@ class BrushFlow(_PluginBase):
                 else:
                     logger.error('代理下载种子失败，继续尝试传递种子地址到下载器进行下载')
             if torrent_content:
-                torrent = self.tr.add_torrent(content=torrent.enclosure,
+                torrent = self.tr.add_torrent(content=torrent_content,
                                               download_dir=download_dir,
                                               cookie=torrent.site_cookie,
                                               labels=["已整理", brush_config.brush_tag])
