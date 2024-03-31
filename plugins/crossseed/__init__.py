@@ -1,6 +1,7 @@
 import hashlib
 import os
 import re
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Event
@@ -42,6 +43,7 @@ class CSSiteConfig(object):
         cookie: str = None,
         ua: str = None,
         proxy: bool = None,
+        query_gap: int = 1,
     ) -> None:
         self.name = name
         self.url = url
@@ -50,6 +52,7 @@ class CSSiteConfig(object):
         self.cookie = cookie
         self.ua = ua
         self.proxy = proxy
+        self.query_gap = query_gap
 
     def get_api_url(self):
         if self.name == "憨憨":
@@ -160,6 +163,7 @@ class CrossSeedHelper(object):
                     remote_torrent_infos.append(
                         TorInfo.remote(site.name, pieces_hash, torrent_id)
                     )
+            time.sleep(site.query_gap)
         except requests.exceptions.RequestException as e:
             return None, f"站点{site.name}请求失败：{e}"
         return remote_torrent_infos, None
@@ -173,7 +177,7 @@ class CrossSeed(_PluginBase):
     # 插件图标
     plugin_icon = "qingwa.png"
     # 插件版本
-    plugin_version = "1.9"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "233@qingwa"
     # 作者主页
@@ -240,7 +244,7 @@ class CrossSeed(_PluginBase):
 
             self._downloaders = config.get("downloaders")
             self._torrentpath = config.get("torrentpath")  # 种子路径和下载器对应  /qb,/tr
-            self._torrentpaths = self._torrentpath.split(",")
+            self._torrentpaths = self._torrentpath.strip().split(",")
             self._sites = config.get("sites") or []
             self._notify = config.get("notify")
             self._nolabels = config.get("nolabels")
@@ -282,13 +286,21 @@ class CrossSeed(_PluginBase):
                 )
             self._sites = [site.id for site in all_site_cs_info_map.values() if site.id in self._sites]
             site_names = [site.name for site in all_site_cs_info_map.values() if site.id in self._sites]
-            
+
             # 整理passkey映射关系
             site_name_key_map = dict()
+            site_name_gap_map = dict()
             for site_key in self._token.strip().split("\n"):
                 site_key_arr = re.split("[\s:：]+",site_key.strip())
                 site_name = site_key_arr[0]
                 site_name_key_map[site_name] = site_key_arr[1]
+                if len(site_key_arr) >= 2:
+                    if str.isdigit(site_key_arr[2]):
+                        site_name_gap_map[site_name] = int(site_key_arr[2])
+                    else:
+                        logger.warn(
+                            f"站点{site_name}配置的查询请求间隔时间不为整数，不能生效, 请修改 {site_key_arr[2]}"
+                        )
 
             # 只给选中的站点补全站点配置
             self._site_cs_infos: List[CSSiteConfig] = []
@@ -300,6 +312,10 @@ class CrossSeed(_PluginBase):
                     continue
                 site_cs_info = all_site_cs_info_map.get(site_name)
                 site_cs_info.passkey = site_key
+                # 追加设置的请求间隔时间
+                site_query_gap = site_name_gap_map.get(site_name)
+                if site_query_gap:
+                    site_cs_info.query_gap = site_query_gap
                 self._site_cs_infos.append(site_cs_info)
 
             self.__update_config()
@@ -653,9 +669,32 @@ class CrossSeed(_PluginBase):
                                             'type': 'info',
                                             'variant': 'tonal',
                                             'text': '1. 定时任务周期建议每次辅种间隔时间大于1天，不填写每天上午2点到7点随机辅种一次； '
-                                                    '2. 支持辅种站点列表：青蛙【已验证】，AGSVPT，麒麟，UBits，聆音 等，配置passkey时，站点名称需严格和上面选项一致，只有选中的站点会辅种，passkey可保存多个； '
+                                                    '2. 支持辅种站点列表：青蛙、AGSVPT、红豆饭、麒麟、UBits、聆音等，配置passkey时，站点名称需严格和上面选项一致，只有选中的站点会辅种，passkey可保存多个； '
                                                     '3. 请勿与IYUU辅种插件同时添加相同站点，可能会有冲突，且意义不大；'
                                                     '4. 测试站点是否支持的方法：【站点域名/api/pieces-hash】接口访问返回405则大概率支持 '
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '【进阶设置】如果辅种过程中访问/api/pieces-hash接口偶尔会失败，可以设置请求间隔时间。 '
+                                                    '可以在passkey后增加 :3 来将某个站点的请求间隔调整为3秒，3可以改为其他数字，只能为整数，默认请求间隔为1秒。 '
+                                                    '示例配置 站点名称:Passkey:3'
                                         }
                                     }
                                 ]
