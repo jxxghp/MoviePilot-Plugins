@@ -20,7 +20,7 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 - 可在插件目录中放置`requirement.txt`文件，用于指定插件依赖的第三方库，MoviePilot会在插件安装时自动安装依赖库。
 
 ### 5. 界面开发
-- 插件支持`插件配置`及`详情展示`两个展示页面，通过配置化的方式组装，使用[Vuetify](https://vuetifyjs.com/)组件库，所有该组件库有的组件都可以通过Json配置使用。
+- 插件支持`插件配置`及`详情展示`两个展示页面，通过配置化的方式组装，使用 [Vuetify](https://vuetifyjs.com/) 组件库，所有该组件库有的组件都可以通过Json配置使用。
 
 
 ## 常见问题
@@ -48,34 +48,38 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 PS：MoviePilot中的其它事件也是同样方法实现响应：
 ```python
 class EventType(Enum):
-    # 插件重载
+    # 插件需要重载
     PluginReload = "plugin.reload"
     # 插件动作
     PluginAction = "plugin.action"
     # 执行命令
     CommandExcute = "command.excute"
-    # 站点删除
+    # 站点已删除
     SiteDeleted = "site.deleted"
-    # Webhook消息
-    WebhookMessage = "webhook.message"
+    # 站点已更新
+    SiteUpdated = "site.updated"
     # 转移完成
     TransferComplete = "transfer.complete"
-    # 添加下载
+    # 下载已添加
     DownloadAdded = "download.added"
     # 删除历史记录
     HistoryDeleted = "history.deleted"
     # 删除下载源文件
     DownloadFileDeleted = "downloadfile.deleted"
-    # 用户外来消息
+    # 收到用户外来消息
     UserMessage = "user.message"
-    # 通知消息
+    # 收到Webhook消息
+    WebhookMessage = "webhook.message"
+    # 发送消息通知
     NoticeMessage = "notice.message"
     # 名称识别请求
     NameRecognize = "name.recognize"
     # 名称识别结果
     NameRecognizeResult = "name.recognize.result"
-    # 站点信息更新
-    SiteUpdated = "site.updated"
+    # 订阅已添加
+    SubscribeAdded = "subscribe.added"
+    # 订阅已完成
+    SubscribeComplete = "subscribe.complete"
 ```
   
 ### 2. 如何在插件中实现远程命令响应？

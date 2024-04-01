@@ -32,7 +32,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -77,6 +77,8 @@ class DownloaderHelper(_PluginBase):
     __tracker_mappings: Dict[str, str] = {}
     # 排除种子标签
     __exclude_tags: Set[str] = set()
+    # 多级根域名，用于在打标时做特殊处理
+    __multi_level_root_domain: List[str] = ['edu.cn', 'com.cn', 'net.cn', 'org.cn']
 
     def init_plugin(self, config: dict = None):
         """
@@ -175,87 +177,90 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '插件总开关'
+                        'md': 4,
+                        'xl': 3
                     },
                     'content': [{
                         'component': 'VSwitch',
                         'props': {
                             'model': 'enable',
-                            'label': '启用插件'
+                            'label': '启用插件',
+                            'hint': '插件总开关'
                         }
                     }]
                 }, {
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '执行插件任务后是否发送通知'
+                        'md': 4,
+                        'xl': 3
                     },
                     'content': [{
                         'component': 'VSwitch',
                         'props': {
                             'model': 'enable_notify',
-                            'label': '发送通知'
+                            'label': '发送通知',
+                            'hint': '执行插件任务后是否发送通知'
                         }
                     }]
                 }, {
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '保存插件配置后是否立即触发一次插件任务运行'
+                        'md': 4,
+                        'xl': 3
                     },
                     'content': [{
                         'component': 'VSwitch',
                         'props': {
                             'model': 'run_once',
-                            'label': '立即运行一次'
+                            'label': '立即运行一次',
+                            'hint': '保存插件配置后是否立即触发一次插件任务运行'
                         }
                     }]
-                }]
-            }, {
-                'component': 'VRow',
-                'content': [{
+                }, {
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '监听下载添加事件。当MoviePilot添加下载任务时，会触发执行本插件进行自动做种和添加站点标签。'
+                        'md': 4,
+                        'xl': 3
                     },
                     'content': [{
                         'component': 'VSwitch',
                         'props': {
                             'model': 'listen_download_event',
-                            'label': '监听下载事件'
+                            'label': '监听下载事件',
+                            'hint': '监听下载添加事件。当MoviePilot添加下载任务时，会触发执行本插件进行自动做种和添加站点标签。'
                         }
                     }]
                 }, {
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '监听源文件删除事件。当在【历史记录】中删除源文件时，会自动触发运行本插件任务进行自动删种。'
+                        'md': 4,
+                        'xl': 3
                     },
                     'content': [{
                         'component': 'VSwitch',
                         'props': {
                             'model': 'listen_source_file_event',
-                            'label': '监听源文件事件'
+                            'label': '监听源文件事件',
+                            'hint': '监听源文件删除事件。当在【历史记录】中删除源文件时，会自动触发运行本插件任务进行自动删种。'
                         }
                     }]
                 }, {
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '给种子添加站点标签时，是否优先以站点名称作为标签内容（否则将使用域名关键字）？'
+                        'md': 4,
+                        'xl': 3
                     },
                     'content': [{
                         'component': 'VSwitch',
                         'props': {
                             'model': 'site_name_priority',
-                            'label': '站点名称优先'
+                            'label': '站点名称优先',
+                            'hint': '给种子添加站点标签时，是否优先以站点名称作为标签内容（否则将使用域名关键字）？'
                         }
                     }]
                 }]
@@ -265,44 +270,44 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '设置插件任务执行周期。支持5位cron表达式，应避免任务执行过于频繁，例如：0/30 * * * *。缺省时不执行定时任务，但不影响监听任务的执行。'
+                        'md': 4
                     },
                     'content': [{
                         'component': 'VTextField',
                         'props': {
                             'model': 'cron',
                             'label': '定时执行周期',
-                            'placeholder': '0/30 * * * *'
+                            'placeholder': '0/30 * * * *',
+                            'hint': '设置插件任务执行周期。支持5位cron表达式，应避免任务执行过于频繁，例如：0/30 * * * *。缺省时不执行定时任务，但不影响监听任务的执行。'
                         }
                     }]
                 }, {
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '下载器中的种子有这些标签时不进行任何操作，多个标签使用英文“,”分割'
+                        'md': 4
                     },
                     'content': [{
                         'component': 'VTextField',
                         'props': {
                             'model': 'exclude_tags',
-                            'label': '排除种子标签'
+                            'label': '排除种子标签',
+                            'hint': '下载器中的种子有这些标签时不进行任何操作，多个标签使用英文“,”分割'
                         }
                     }]
                 }, {
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '给种子添加站点标签时的标签前缀，默认值为“站点/”'
+                        'md': 4
                     },
                     'content': [{
                         'component': 'VTextField',
                         'props': {
                             'model': 'tag_prefix',
                             'label': '站点标签前缀',
-                            'placeholder': '站点/'
+                            'placeholder': '站点/',
+                            'hint': '给种子添加站点标签时的标签前缀，默认值为“站点/”'
                         }
                     }]
                 }]
@@ -311,8 +316,7 @@ class DownloaderHelper(_PluginBase):
                 'content': [{
                     'component': 'VCol',
                     'props': {
-                        'cols': 12,
-                        'title': 'Tracker映射。用于在站点打标签时，指定tracker和站点域名不同的种子的域名对应关系；前面为tracker域名（二级或多级），中间是英文冒号，后面是站点域名（只能是二级）。'
+                        'cols': 12
                     },
                     'content': [{
                         'component': 'VTextarea',
@@ -322,7 +326,8 @@ class DownloaderHelper(_PluginBase):
                             'placeholder': '格式：\n'
                                            '<tracker-domain>:<site-domain>\n'
                                            '例如：\n'
-                                           'chdbits.xyz:ptchdbits.co'
+                                           'chdbits.xyz:ptchdbits.co',
+                            'hint': 'Tracker映射。用于在站点打标签时，指定tracker和站点域名不同的种子的域名对应关系；前面为tracker域名（完整域名或者主域名皆可），中间是英文冒号，后面是站点域名。'
                         }
                     }]
                 }]
@@ -371,7 +376,8 @@ class DownloaderHelper(_PluginBase):
                                 'component': 'VSwitch',
                                 'props': {
                                     'model': 'qb_enable',
-                                    'label': '任务开关'
+                                    'label': '任务开关',
+                                    'hint': '该下载器子任务的开关'
                                 }
                             }]
                         }, {
@@ -384,7 +390,8 @@ class DownloaderHelper(_PluginBase):
                                 'component': 'VSwitch',
                                 'props': {
                                     'model': 'qb_enable_seeding',
-                                    'label': '自动做种'
+                                    'label': '自动做种',
+                                    'hint': '是否开启自动做种功能'
                                 }
                             }]
                         }, {
@@ -397,7 +404,8 @@ class DownloaderHelper(_PluginBase):
                                 'component': 'VSwitch',
                                 'props': {
                                     'model': 'qb_enable_tagging',
-                                    'label': '站点标签'
+                                    'label': '站点标签',
+                                    'hint': '是否开启站点标签功能'
                                 }
                             }]
                         }, {
@@ -410,7 +418,8 @@ class DownloaderHelper(_PluginBase):
                                 'component': 'VSwitch',
                                 'props': {
                                     'model': 'qb_enable_delete',
-                                    'label': '自动删种'
+                                    'label': '自动删种',
+                                    'hint': '是否开启自动删种功能'
                                 }
                             }]
                         }]
@@ -516,8 +525,7 @@ class DownloaderHelper(_PluginBase):
         finally:
             self.__exit_event.clear()
 
-    @staticmethod
-    def __parse_tracker_mappings(tracker_mappings: str) -> Dict[str, str]:
+    def __parse_tracker_mappings(self, tracker_mappings: str) -> Dict[str, str]:
         """
         解析配置的tracker映射
         :param tracker_mappings: 配置的tracker映射
@@ -540,7 +548,7 @@ class DownloaderHelper(_PluginBase):
             key, value = key.strip(), value.strip()
             if not key or not value:
                 continue
-            if len(key.split('.')) >= 2 and len(value.split('.')) == 2:
+            if self.__is_valid_domain(key) and self.__is_valid_domain(value):
                 mappings[key] = value
         return mappings
 
@@ -767,34 +775,60 @@ class DownloaderHelper(_PluginBase):
         scheme, netloc = StringUtils.get_url_netloc(url)
         return netloc
 
-    @staticmethod
-    def __get_domain_level2(domain: str) -> Optional[str]:
+    def __get_main_domain(self, domain: str) -> Optional[str]:
         """
-        获取域名的二级域名
+        获取域名的主域名
+        :param domain: 原域名
+        :return: 主域名
         """
         if not domain:
             return None
         domain_arr = domain.split('.')
-        domain_arr_len = len(domain_arr)
-        if domain_arr_len == 2:
-            return domain
-        elif domain_arr_len > 2:
-            return f'{domain_arr[-2]}.{domain_arr[-1]}'
-        else:
+        domain_len = len(domain_arr)
+        if domain_len < 2:
             return None
+        root_domain, root_domain_len = self.__match_multi_level_root_domain(domain=domain)
+        if root_domain:
+            return f'{domain_arr[-root_domain_len - 1]}.{root_domain}'
+        else:
+            return f'{domain_arr[-2]}.{domain_arr[-1]}'
 
-    @staticmethod
-    def __get_domain_keyword(domain: str) -> Optional[str]:
+    def __get_domain_keyword(self, domain: str) -> Optional[str]:
         """
         获取域名关键字
         """
+        main_domain = self.__get_main_domain(domain=domain)
+        if not main_domain:
+            return None
+        return main_domain.split('.')[0]
+
+    def __match_multi_level_root_domain(self, domain: str) -> Tuple[Optional[str], int]:
+        """
+        匹配多级根域名
+        :param domain: 被匹配的域名
+        :return: 匹配的根域名, 匹配的根域名长度
+        """
+        if not domain or not self.__multi_level_root_domain:
+            return None, 0
+        for root_domain in self.__multi_level_root_domain:
+            if domain.endswith('.' + root_domain):
+                root_domain_len = len(root_domain.split('.'))
+                return root_domain, root_domain_len
+        return None, 0
+
+    def __is_valid_domain(self, domain: str) -> bool:
+        """
+        判断域名是否有效
+        :param domain: 被判断的域名
+        :return: 是否有效
+        """
         if not domain:
-            return None
-        domain_arr = domain.split('.')
-        if len(domain_arr) >= 2:
-            return domain_arr[-2]
-        else:
-            return None
+            return False
+        domain_len = len(domain.split('.'))
+        root_domain, root_domain_len = self.__match_multi_level_root_domain(domain)
+        if root_domain:
+            return domain_len > root_domain_len
+        return domain_len > 1
 
     def __generate_site_tag(self, site: str) -> Optional[str]:
         """
@@ -816,7 +850,7 @@ class DownloaderHelper(_PluginBase):
             return None, None
 
         # tracker的完整域名
-        tracker_domain = self.__get_url_domain(tracker_url)
+        tracker_domain = self.__get_url_domain(url=tracker_url)
         if not tracker_domain:
             return None, None
 
@@ -824,20 +858,20 @@ class DownloaderHelper(_PluginBase):
         delete_suggest = set()
 
         # tracker域名关键字
-        tracker_domain_keyword = self.__get_domain_keyword(tracker_domain)
+        tracker_domain_keyword = self.__get_domain_keyword(domain=tracker_domain)
         if tracker_domain_keyword:
             # 建议移除
             delete_suggest.add(tracker_domain_keyword)
-            delete_suggest.add(self.__generate_site_tag(tracker_domain_keyword))
+            delete_suggest.add(self.__generate_site_tag(site=tracker_domain_keyword))
 
         # 首先根据tracker的完整域名去匹配站点信息
-        site_info = self.__get_site_info_by_domain(tracker_domain)
+        site_info = self.__get_site_info_by_domain(site_domain=tracker_domain)
 
-        # 如果没有匹配到，再根据二级域名去匹配
+        # 如果没有匹配到，再根据主域名去匹配
         if not site_info:
-            tracker_domain_level2 = self.__get_domain_level2(tracker_domain)
-            if tracker_domain_level2:
-                site_info = self.__get_site_info_by_domain(tracker_domain_level2)
+            tracker_main_domain = self.__get_main_domain(domain=tracker_domain)
+            if tracker_main_domain and tracker_main_domain != tracker_domain:
+                site_info = self.__get_site_info_by_domain(tracker_main_domain)
 
         # 如果还是没有匹配到，就根据tracker映射的域名匹配
         matched_site_domain = None
@@ -872,7 +906,7 @@ class DownloaderHelper(_PluginBase):
             else:
                 site_tag = self.__generate_site_tag(self.__get_domain_keyword(tracker_domain))
 
-        if site_tag:
+        if site_tag and site_tag in delete_suggest:
             delete_suggest.remove(site_tag)
 
         return site_tag, delete_suggest
@@ -1444,7 +1478,8 @@ class DownloaderHelper(_PluginBase):
         # 移除建议删除的标签
         if delete_suggest and len(delete_suggest) > 0:
             for to_delete in delete_suggest:
-                torrent_tags_copy.remove(to_delete)
+                if to_delete and to_delete in torrent_tags_copy:
+                    torrent_tags_copy.remove(to_delete)
         # 如果本次需要打标签
         if site_tag and site_tag not in torrent_tags_copy:
             torrent_tags_copy.append(site_tag)
@@ -1513,12 +1548,12 @@ class DownloaderHelper(_PluginBase):
         # 执行
         logger.info('下载添加事件监听任务执行开始...')
         context = TaskContext().enable_seeding(False).enable_tagging(True).enable_delete(False)
-        hash_str = event.event_data.get('hash')
-        if hash:
-            context.select_torrent(hash_str)
+        _hash = event.event_data.get('hash')
+        if _hash:
+            context.select_torrent(torrent=_hash)
         username = event.event_data.get('username')
         if username:
-            context.select_username(username)
+            context.set_username(username=username)
         self.__run_for_all(context=context)
         logger.info('下载添加事件监听任务执行结束')
 

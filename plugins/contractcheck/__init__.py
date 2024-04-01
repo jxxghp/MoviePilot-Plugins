@@ -39,7 +39,7 @@ class ContractCheck(_PluginBase):
     # 插件图标
     plugin_icon = "contract.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -108,11 +108,11 @@ class ContractCheck(_PluginBase):
             )
 
             self._site_schema.sort(key=lambda x: x.order)
-            # 站点数据
-            self._sites_data = {}
 
             # 立即运行一次
             if self._onlyonce:
+                # 站点数据
+                self._sites_data = {}
                 # 定时服务
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
                 logger.info(f"保种契约检查服务启动，立即运行一次")
