@@ -393,15 +393,15 @@ class VCBAnimeMonitor(_PluginBase):
                     if remeta.is_special and not self._switch_ova:
                         logger.warn(f"{file_path.name} 为OVA资源，未开启OVA开关，不处理")
                         return
-                    else:
-                        ova_history_ep = 1
+                    if remeta.is_special and self._switch_ova:
+                        logger.info(f"{file_path.name} 为OVA资源,开始处理")
                         if self.get_data(key=f"OVA_{file_meta.title}") is not None:
-                            ova_history_ep = int(self.get_data(key=f"OVA_{file_meta.title}"))
-                            self.save_data(key=f"OVA_{file_meta.title}", value=ova_history_ep + 1)
-                            file_meta.begin_episode = ova_history_ep + 1
-                        else:
+                            ova_history_ep = int(self.get_data(key=f"OVA_{file_meta.title}"))+1
                             file_meta.begin_episode = ova_history_ep
-                            self.save_data(key=f"OVA_{file_meta.title}", value=ova_history_ep + 1)
+                            self.save_data(key=f"OVA_{file_meta.title}", value=ova_history_ep)
+                        else:
+                            file_meta.begin_episode = 1
+                            self.save_data(key=f"OVA_{file_meta.title}", value=1)
                 else:
                     return
 
@@ -1015,7 +1015,8 @@ class VCBAnimeMonitor(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '核心用法与目录同步插件相同，不同点在于只识别处理VCB-Studio资源,\n'
+                                            'text': '核心用法与目录同步插件相同，不同点在于只识别处理VCB-Studio资源,'
+                                                    '避免与目录同步插件的监控目录相同(否则会同时进行识别)'
                                                     '不处理SPs目录下的文件,OVA/OAD集数根据入库顺序累加命名,不保证与TMDB集数匹配'
                                         }
                                     }
