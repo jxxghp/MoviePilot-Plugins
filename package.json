@@ -185,8 +185,8 @@
     },
     "CrossSeed": {
         "name": "青蛙辅种助手",
-        "description": "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙、AGSVPT、麒麟、UBits、聆音等。",
-        "version": "1.8",
+        "description": "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙、AGSVPT、麒麟、UBits、聆音、憨憨等。",
+        "version": "2.0",
         "icon": "qingwa.png",
         "author": "233@qingwa",
         "level": 2
@@ -194,7 +194,7 @@
     "VCBAnimeMonitor": {
         "name": "整理VCB动漫压制组作品",
         "description": "提高部分VCB-Studio作品的识别准确率,将VCB-Studio的作品统一转移到指定目录同时进行刮削整理",
-        "version": "1.6.6",
+        "version": "1.7",
         "icon": "vcbmonitor.png",
         "author": "pixel@qingwa",
         "level": 2
@@ -226,7 +226,7 @@
     "BrushFlow": {
         "name": "站点刷流",
         "description": "自动托管刷流，将会提高对应站点的访问频率。",
-        "version": "2.0",
+        "version": "2.2",
         "icon": "brush.jpg",
         "author": "jxxghp",
         "level": 2
@@ -458,9 +458,17 @@
     "DownloaderHelper": {
         "name": "下载器助手",
         "description": "自动做种、站点标签、自动删种。",
-        "version": "1.2",
+        "version": "1.4",
         "icon": "DownloaderHelper.png",
         "author": "hotlcc",
+        "level": 2
+    },
+    "FeiShuMsg": {
+        "name": "飞书机器人消息通知",
+        "description": "支持使用飞书群聊机器人发送消息通知。",
+        "version": "1.0",
+        "icon": "FeiShu_A.png",
+        "author": "InfinityPacer",
         "level": 2
     },
     "GistSyncCK": {

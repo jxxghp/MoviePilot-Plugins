@@ -1,16 +1,14 @@
+import base64
+import json
+import random
 import re
 import threading
 import time
-import random
-import json
-import base64
 from datetime import datetime, timedelta
 from threading import Event
 from typing import Any, List, Dict, Tuple, Optional, Union, Set
 
 import pytz
-from apscheduler.schedulers.background import BackgroundScheduler
-
 from app import schemas
 from app.chain.torrents import TorrentsChain
 from app.core.config import settings
@@ -24,6 +22,7 @@ from app.plugins import _PluginBase
 from app.schemas import NotificationType, TorrentInfo
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
+from apscheduler.schedulers.background import BackgroundScheduler
 
 lock = threading.Lock()
 
@@ -67,6 +66,7 @@ class BrushConfig:
         self.brush_sequential = config.get("brush_sequential", False)
         self.proxy_download = config.get("proxy_download", True)
         self.proxy_delete = config.get("proxy_delete", False)
+        self.log_more = config.get("log_more", False)
         self.active_time_range = config.get("active_time_range")
         self.enable_site_config = config.get("enable_site_config", False)
         self.brush_tag = "刷流"
@@ -117,8 +117,10 @@ class BrushConfig:
 
                 self.group_site_configs[sitename] = BrushConfig(config=full_config, process_site_config=False)
         except Exception as e:
-            logger.error(f"解析站点配置失败，请检查配置项。错误详情: {e}")
+            logger.error(f"解析站点配置失败，已停用插件并关闭站点独立配置，请检查配置项，错误详情: {e}")
             self.group_site_configs = {}
+            self.enable_site_config = False
+            self.enabled = False
 
     def get_site_config(self, sitename):
         """
@@ -182,7 +184,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -262,6 +264,12 @@ class BrushFlow(_PluginBase):
             brush_config.archive_task = False
             self.__update_config()
 
+        if brush_config.log_more:
+            if brush_config.enable_site_config:
+                logger.info(f"已开启站点独立配置，配置信息：{brush_config}")
+            else:
+                logger.info(f"没有开启站点独立配置，配置信息：{brush_config}")
+
         # 停止现有任务
         self.stop_service()
 
@@ -282,7 +290,7 @@ class BrushFlow(_PluginBase):
         # 如果开启&存在站点时，才需要启用后台任务
         self._task_brush_enable = brush_config.enabled and brush_config.brushsites
 
-        # brush_config.onlyonce = True        
+        # brush_config.onlyonce = True
 
         # 检查是否启用了一次性任务
         if brush_config.onlyonce:
@@ -1032,6 +1040,27 @@ class BrushFlow(_PluginBase):
                     },
                     {
                         'component': 'VRow',
+                        "content": [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'log_more',
+                                            'label': '记录更多日志',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
                         'content': [
                             {
                                 'component': 'VCol',
@@ -1156,7 +1185,8 @@ class BrushFlow(_PluginBase):
             "proxy_delete": False,
             "freeleech": "free",
             "hr": "yes",
-            "enable_site_config": False
+            "enable_site_config": False,
+            "log_more": False
         }
 
     def get_page(self) -> List[dict]:
@@ -1658,8 +1688,15 @@ class BrushFlow(_PluginBase):
             torrent_tasks: Dict[str, dict] = self.get_data("torrents") or {}
             torrents_size = self.__calculate_seeding_torrents_size(torrent_tasks=torrent_tasks)
 
+            # 判断能否通过保种体积前置条件
+            size_condition_passed, reason = self.__evaluate_size_condition_for_brush(torrents_size=torrents_size)
+            self.__log_brush_conditions(passed=size_condition_passed, reason=reason)
+            if not size_condition_passed:
+                return
+
             # 判断能否通过刷流前置条件
-            pre_condition_passed, reason = self.__evaluate_pre_conditions_for_brush(torrents_size=torrents_size)
+            pre_condition_passed, reason = self.__evaluate_pre_conditions_for_brush()
+            self.__log_brush_conditions(passed=pre_condition_passed, reason=reason)
             if not pre_condition_passed:
                 return
 
@@ -1695,7 +1732,9 @@ class BrushFlow(_PluginBase):
             logger.info(f"刷流任务执行完成")
 
     def __brush_site_torrents(self, siteid, torrent_tasks, statistic_info) -> bool:
-
+        """
+        针对站点进行刷流
+        """
         siteinfo = self.siteoper.get(siteid)
         if not siteinfo:
             logger.warn(f"站点不存在：{siteid}")
@@ -1723,23 +1762,24 @@ class BrushFlow(_PluginBase):
         # 过滤种子
         for torrent in torrents:
             # 判断能否通过刷流前置条件
-            seeding_size = torrents_size + torrent.size
-            pre_condition_passed, reason = self.__evaluate_pre_conditions_for_brush(torrents_size=seeding_size,
-                                                                                    include_network_conditions=False)
+            pre_condition_passed, reason = self.__evaluate_pre_conditions_for_brush(include_network_conditions=False)
+            self.__log_brush_conditions(passed=pre_condition_passed, reason=reason, torrent=torrent)
             if not pre_condition_passed:
-                # logger.info(f"种子没有通过刷流前置条件校验，原因：{reason} 种子：{torrent.title}|{torrent.description}")
                 return False
-            # else:
-            #     logger.info(f"种子已通过刷流前置校验，种子：{torrent.title}|{torrent.description}")
+
+            # 判断能否通过保种体积刷流条件
+            size_condition_passed, reason = self.__evaluate_size_condition_for_brush(torrents_size=torrents_size,
+                                                                                     brush_torrent_size=torrent.size)
+            self.__log_brush_conditions(passed=size_condition_passed, reason=reason, torrent=torrent)
+            if not size_condition_passed:
+                continue
 
             # 判断能否通过刷流条件
             condition_passed, reason = self.__evaluate_conditions_for_brush(torrent=torrent,
                                                                             torrent_tasks=torrent_tasks)
+            self.__log_brush_conditions(passed=condition_passed, reason=reason, torrent=torrent)
             if not condition_passed:
-                # logger.info(f"种子没有通过刷流条件校验，原因：{reason} 种子：{torrent.title}|{torrent.description}")
                 continue
-            # else:
-            #     logger.info(f"种子已通过刷流条件校验，种子：{torrent.title}|{torrent.description}")
 
             # 添加下载任务
             hash_string = self.__download(torrent=torrent)
@@ -1790,14 +1830,43 @@ class BrushFlow(_PluginBase):
 
         return True
 
-    def __evaluate_pre_conditions_for_brush(self, torrents_size: float,
-                                            include_network_conditions: bool = True) -> Tuple[bool, Optional[str]]:
+    def __evaluate_size_condition_for_brush(self, torrents_size: float,
+                                            brush_torrent_size: float = 0.0) -> Tuple[bool, Optional[str]]:
+        """
+        过滤体积不符合条件的种子
+        """
+        total_size = self.__bytes_to_gb(torrents_size + brush_torrent_size)  # 预计总做种体积
+
+        def generate_message(config):
+            if brush_torrent_size > 0:
+                return (f"当前做种体积 {self.__bytes_to_gb(torrents_size):.1f} GB，"
+                        f"刷流种子 {self.__bytes_to_gb(brush_torrent_size):.1f} GB，"
+                        f"预计做种体积 {total_size:.1f} GB，已超过做种体积 {config} GB")
+            else:
+                return f"当前做种体积 {self.__bytes_to_gb(torrents_size):.1f} GB，已超过做种体积 {config} GB，暂时停止新增任务"
+
+        reasons = [
+            ("disksize",
+             lambda config: torrents_size + brush_torrent_size > float(config) * 1024 ** 3, generate_message)
+        ]
+
+        brush_config = self.__get_brush_config()
+        for condition, check, message in reasons:
+            config_value = getattr(brush_config, condition, None)
+            if config_value and check(config_value):
+                reason = message(config_value)
+                return False, reason
+
+        return True, None
+
+    def __evaluate_pre_conditions_for_brush(self, include_network_conditions: bool = True) \
+            -> Tuple[bool, Optional[str]]:
+        """
+        前置过滤不符合条件的种子
+        """
         reasons = [
             ("maxdlcount", lambda config: self.__get_downloading_count() >= int(config),
-             lambda config: f"当前同时下载任务数已达到最大值 {config}，暂时停止新增任务"),
-            ("disksize", lambda config: torrents_size > float(config) * 1024 ** 3,
-             lambda config: f"当前做种体积 {self.__bytes_to_gb(torrents_size):.1f} GB，"
-                            f"已超过保种体积 {config} GB，暂时停止新增任务"),
+             lambda config: f"当前同时下载任务数已达到最大值 {config}，暂时停止新增任务")
         ]
 
         if include_network_conditions:
@@ -1819,7 +1888,6 @@ class BrushFlow(_PluginBase):
             config_value = getattr(brush_config, condition, None)
             if config_value and check(config_value):
                 reason = message(config_value)
-                logger.warn(reason)
                 return False, reason
 
         return True, None
@@ -1894,6 +1962,18 @@ class BrushFlow(_PluginBase):
 
         return True, None
 
+    def __log_brush_conditions(self, passed: bool, reason: str, torrent: Any = None):
+        """
+        记录刷流日志
+        """
+        if not passed:
+            if not torrent:
+                logger.warn(f"种子没有通过前置刷流条件校验，原因：{reason}")
+            else:
+                brush_config = self.__get_brush_config()
+                if brush_config.log_more:
+                    logger.warn(f"种子没有通过刷流条件校验，原因：{reason} 种子：{torrent.title}|{torrent.description}")
+
     # endregion
 
     # region Check
@@ -1944,25 +2024,27 @@ class BrushFlow(_PluginBase):
             # 先更新刷流任务的最新状态，上下传，分享率
             self.__update_torrent_tasks_state(torrents=check_torrents, torrent_tasks=torrent_tasks)
 
-            # 先通过获取的全量种子，判断已经被删除，但是任务记录中还没有被标记删除的种子
-            undeleted_hashes = self.__get_undeleted_torrents_missing_in_downloader(torrent_tasks, torrent_check_hashes,
-                                                                                   check_torrents) or []
-
             # 排除MoviePilot种子
             if check_torrents and brush_config.except_tags:
                 check_torrents = self.__filter_torrents_by_tag(torrents=check_torrents,
                                                                exclude_tag=settings.TORRENT_TAG)
 
-            need_delete_hashes = []
-            need_delete_hashes.extend(undeleted_hashes)
+            # 先通过获取的全量种子，判断已经被删除，但是任务记录中还没有被标记删除的种子
+            undeleted_hashes = self.__get_undeleted_torrents_missing_in_downloader(torrent_tasks, torrent_check_hashes,
+                                                                                   check_torrents) or []
+            # 这里提前把已经被删除的种子进行标记，避免开启动态删除种子统计体积有时差
+            if undeleted_hashes:
+                for torrent_hash in undeleted_hashes:
+                    torrent_tasks[torrent_hash]["deleted"] = True
 
+            need_delete_hashes = []
             # 如果配置了删种阈值，则根据动态删种进行分组处理
             if brush_config.proxy_delete and brush_config.delete_size_range:
                 logger.info("已开启动态删种，按系统默认动态删种条件开始检查任务")
                 proxy_delete_hashs = self.__delete_torrent_for_proxy(torrents=check_torrents,
                                                                      torrent_tasks=torrent_tasks) or []
                 need_delete_hashes.extend(proxy_delete_hashs)
-            # 否则均认为是没有开启动态删种      
+            # 否则均认为是没有开启动态删种
             else:
                 logger.info("没有开启动态删种，按用户设置删种条件开始检查任务")
                 not_proxy_delete_hashs = self.__delete_torrent_for_evaluate_conditions(torrents=check_torrents,
@@ -2138,9 +2220,9 @@ class BrushFlow(_PluginBase):
 
     def __delete_torrent_for_proxy(self, torrents: List[Any], torrent_tasks: Dict[str, dict]) -> List:
         """
-        支持动态删除种子，当设置了动态删种（全局）和删除阈值时，当保种体积达到删除阈值时，优先按设置规则进行删除，若还没有达到阈值，则排除HR种子后按加入时间倒序进行删除
-        删除阈值：100，当保种体积 > 100G 时，则开始删除种子，直至降低至 100G
-        删除阈值：50-100，当保种体积 > 100G 时，则开始删除种子，直至降至为 50G
+        支持动态删除种子，当设置了动态删种（全局）和删除阈值时，当做种体积达到删除阈值时，优先按设置规则进行删除，若还没有达到阈值，则排除HR种子后按加入时间倒序进行删除
+        删除阈值：100，当做种体积 > 100G 时，则开始删除种子，直至降低至 100G
+        删除阈值：50-100，当做种体积 > 100G 时，则开始删除种子，直至降至为 50G
         """
         brush_config = self.__get_brush_config()
 
@@ -2150,26 +2232,27 @@ class BrushFlow(_PluginBase):
 
         # 解析删除阈值范围
         sizes = [float(size) * 1024 ** 3 for size in brush_config.delete_size_range.split("-")]
-        min_size = sizes[0]  # 至少需要达到的保种体积
-        max_size = sizes[1] if len(sizes) > 1 else sizes[0]  # 触发删除操作的保种体积上限
+        min_size = sizes[0]  # 至少需要达到的做种体积
+        max_size = sizes[1] if len(sizes) > 1 else sizes[0]  # 触发删除操作的做种体积上限
 
         torrent_info_map = {self.__get_hash(torrent): self.__get_torrent_info(torrent=torrent) for torrent in torrents}
 
-        # 计算当前总保种体积
-        total_torrent_size = sum(info.get("total_size", 0) for info in torrent_info_map.values())
+        # 计算当前总做种体积
+        # total_torrent_size = sum(info.get("total_size", 0) for info in torrent_info_map.values())
+        total_torrent_size = self.__calculate_seeding_torrents_size(torrent_tasks=torrent_tasks)
 
         # 当总体积未超过最大阈值时，不需要执行删除操作
         if total_torrent_size < max_size:
             logger.info(
-                f"当前保种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，上限 {self.__bytes_to_gb(max_size):.1f} GB，下限 {self.__bytes_to_gb(min_size):.1f} GB，未触发动态删除")
+                f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，上限 {self.__bytes_to_gb(max_size):.1f} GB，下限 {self.__bytes_to_gb(min_size):.1f} GB，未触发动态删除")
             return []
         else:
             logger.info(
-                f"当前保种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，上限 {self.__bytes_to_gb(max_size):.1f} GB，下限 {self.__bytes_to_gb(min_size):.1f} GB，触发动态删除")
+                f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，上限 {self.__bytes_to_gb(max_size):.1f} GB，下限 {self.__bytes_to_gb(min_size):.1f} GB，触发动态删除")
 
         need_delete_hashes = []
 
-        # 即使开了动态删除，但是也有可能部分站点单独设置了关闭，这里根据种子动态进行分组，先处理不需要动态的种子，按设置的规则进行删除            
+        # 即使开了动态删除，但是也有可能部分站点单独设置了关闭，这里根据种子托管进行分组，先处理不需要托管的种子，按设置的规则进行删除
         proxy_delete_torrents, not_proxy_delete_torrents = self.__group_torrents_by_proxy_delete(torrents=torrents,
                                                                                                  torrent_tasks=torrent_tasks)
         logger.info(f"托管种子数 {len(proxy_delete_torrents)}，未托管种子数 {len(not_proxy_delete_torrents)}")
@@ -2181,7 +2264,7 @@ class BrushFlow(_PluginBase):
                 torrent_info_map[self.__get_hash(torrent)].get("total_size", 0) for torrent in not_proxy_delete_torrents
                 if self.__get_hash(torrent) in not_proxy_delete_hashes)
 
-        # 如果删除非动态种子后仍未达到最小体积要求，则处理动态种子
+        # 如果删除非托管种子后仍未达到最小体积要求，则处理托管种子
         if total_torrent_size > min_size and proxy_delete_torrents:
             proxy_delete_hashes = self.__delete_torrent_for_evaluate_conditions(torrents=proxy_delete_torrents,
                                                                                 torrent_tasks=torrent_tasks,
@@ -2191,7 +2274,7 @@ class BrushFlow(_PluginBase):
                 torrent_info_map[self.__get_hash(torrent)].get("total_size", 0) for torrent in proxy_delete_torrents if
                 self.__get_hash(torrent) in proxy_delete_hashes)
 
-        # 在完成初始删除步骤后，如果总体积仍然超过最小阈值，则进一步找到已完成种子并排除HR种子后按加入时间倒序进行删除
+        # 在完成初始删除步骤后，如果总体积仍然超过最小阈值，则进一步找到已完成种子并排除HR种子后按加入时间正序进行删除
         if total_torrent_size > min_size:
             # 重新计算当前的种子列表，排除已删除的种子
             remaining_hashes = list(
@@ -2227,7 +2310,7 @@ class BrushFlow(_PluginBase):
                                            reason=reason)
                 logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
 
-        msg = f"已完成 {len(need_delete_hashes)} 个种子删除，当前保种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB"
+        msg = f"已完成 {len(need_delete_hashes)} 个种子删除，当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB"
         self.post_message(mtype=NotificationType.SiteMessage, title="【刷流任务种子删除】", text=msg)
         logger.info(msg)
 
@@ -2453,6 +2536,7 @@ class BrushFlow(_PluginBase):
             "brush_sequential": brush_config.brush_sequential,
             "proxy_download": brush_config.proxy_download,
             "proxy_delete": brush_config.proxy_delete,
+            "log_more": brush_config.log_more,
             "active_time_range": brush_config.active_time_range,
             "enable_site_config": brush_config.enable_site_config,
             "site_config": brush_config.site_config
@@ -2604,7 +2688,8 @@ class BrushFlow(_PluginBase):
                     # 获取种子Hash
                     torrent_hash = self.qb.get_torrent_id_by_tag(tags=tag)
                     if not torrent_hash:
-                        logger.error(f"{brush_config.downloader} 获取种子Hash失败")
+                        logger.error(f"{brush_config.downloader} 获取种子Hash失败"
+                                     f"{'，请尝试开启代理下载种子' if not brush_config.proxy_download else ''}")
                         return None
                     return torrent_hash
             return None
@@ -2622,7 +2707,7 @@ class BrushFlow(_PluginBase):
                 else:
                     logger.error('代理下载种子失败，继续尝试传递种子地址到下载器进行下载')
             if torrent_content:
-                torrent = self.tr.add_torrent(content=torrent.enclosure,
+                torrent = self.tr.add_torrent(content=torrent_content,
                                               download_dir=download_dir,
                                               cookie=torrent.site_cookie,
                                               labels=["已整理", brush_config.brush_tag])
