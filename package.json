@@ -458,7 +458,7 @@
     "DownloaderHelper": {
         "name": "下载器助手",
         "description": "自动做种、站点标签、自动删种。",
-        "version": "1.3",
+        "version": "1.4",
         "icon": "DownloaderHelper.png",
         "author": "hotlcc",
         "level": 2

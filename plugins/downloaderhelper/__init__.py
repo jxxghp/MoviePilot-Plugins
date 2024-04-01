@@ -32,7 +32,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -177,42 +177,42 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '插件总开关'
+                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VSwitch',
                         'props': {
                             'model': 'enable',
-                            'label': '启用插件'
+                            'label': '启用插件',
+                            'hint': '插件总开关'
                         }
                     }]
                 }, {
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '执行插件任务后是否发送通知'
+                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VSwitch',
                         'props': {
                             'model': 'enable_notify',
-                            'label': '发送通知'
+                            'label': '发送通知',
+                            'hint': '执行插件任务后是否发送通知'
                         }
                     }]
                 }, {
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '保存插件配置后是否立即触发一次插件任务运行'
+                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VSwitch',
                         'props': {
                             'model': 'run_once',
-                            'label': '立即运行一次'
+                            'label': '立即运行一次',
+                            'hint': '保存插件配置后是否立即触发一次插件任务运行'
                         }
                     }]
                 }]
@@ -222,42 +222,42 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '监听下载添加事件。当MoviePilot添加下载任务时，会触发执行本插件进行自动做种和添加站点标签。'
+                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VSwitch',
                         'props': {
                             'model': 'listen_download_event',
-                            'label': '监听下载事件'
+                            'label': '监听下载事件',
+                            'hint': '监听下载添加事件。当MoviePilot添加下载任务时，会触发执行本插件进行自动做种和添加站点标签。'
                         }
                     }]
                 }, {
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '监听源文件删除事件。当在【历史记录】中删除源文件时，会自动触发运行本插件任务进行自动删种。'
+                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VSwitch',
                         'props': {
                             'model': 'listen_source_file_event',
-                            'label': '监听源文件事件'
+                            'label': '监听源文件事件',
+                            'hint': '监听源文件删除事件。当在【历史记录】中删除源文件时，会自动触发运行本插件任务进行自动删种。'
                         }
                     }]
                 }, {
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '给种子添加站点标签时，是否优先以站点名称作为标签内容（否则将使用域名关键字）？'
+                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VSwitch',
                         'props': {
                             'model': 'site_name_priority',
-                            'label': '站点名称优先'
+                            'label': '站点名称优先',
+                            'hint': '给种子添加站点标签时，是否优先以站点名称作为标签内容（否则将使用域名关键字）？'
                         }
                     }]
                 }]
@@ -267,44 +267,44 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '设置插件任务执行周期。支持5位cron表达式，应避免任务执行过于频繁，例如：0/30 * * * *。缺省时不执行定时任务，但不影响监听任务的执行。'
+                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VTextField',
                         'props': {
                             'model': 'cron',
                             'label': '定时执行周期',
-                            'placeholder': '0/30 * * * *'
+                            'placeholder': '0/30 * * * *',
+                            'hint': '设置插件任务执行周期。支持5位cron表达式，应避免任务执行过于频繁，例如：0/30 * * * *。缺省时不执行定时任务，但不影响监听任务的执行。'
                         }
                     }]
                 }, {
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '下载器中的种子有这些标签时不进行任何操作，多个标签使用英文“,”分割'
+                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VTextField',
                         'props': {
                             'model': 'exclude_tags',
-                            'label': '排除种子标签'
+                            'label': '排除种子标签',
+                            'hint': '下载器中的种子有这些标签时不进行任何操作，多个标签使用英文“,”分割'
                         }
                     }]
                 }, {
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12,
-                        'title': '给种子添加站点标签时的标签前缀，默认值为“站点/”'
+                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VTextField',
                         'props': {
                             'model': 'tag_prefix',
                             'label': '站点标签前缀',
-                            'placeholder': '站点/'
+                            'placeholder': '站点/',
+                            'hint': '给种子添加站点标签时的标签前缀，默认值为“站点/”'
                         }
                     }]
                 }]
@@ -313,8 +313,7 @@ class DownloaderHelper(_PluginBase):
                 'content': [{
                     'component': 'VCol',
                     'props': {
-                        'cols': 12,
-                        'title': 'Tracker映射。用于在站点打标签时，指定tracker和站点域名不同的种子的域名对应关系；前面为tracker域名（完整域名或者主域名皆可），中间是英文冒号，后面是站点域名。'
+                        'cols': 12
                     },
                     'content': [{
                         'component': 'VTextarea',
@@ -324,7 +323,8 @@ class DownloaderHelper(_PluginBase):
                             'placeholder': '格式：\n'
                                            '<tracker-domain>:<site-domain>\n'
                                            '例如：\n'
-                                           'chdbits.xyz:ptchdbits.co'
+                                           'chdbits.xyz:ptchdbits.co',
+                            'hint': 'Tracker映射。用于在站点打标签时，指定tracker和站点域名不同的种子的域名对应关系；前面为tracker域名（完整域名或者主域名皆可），中间是英文冒号，后面是站点域名。'
                         }
                     }]
                 }]
@@ -373,7 +373,8 @@ class DownloaderHelper(_PluginBase):
                                 'component': 'VSwitch',
                                 'props': {
                                     'model': 'qb_enable',
-                                    'label': '任务开关'
+                                    'label': '任务开关',
+                                    'hint': '该下载器子任务的开关'
                                 }
                             }]
                         }, {
@@ -386,7 +387,8 @@ class DownloaderHelper(_PluginBase):
                                 'component': 'VSwitch',
                                 'props': {
                                     'model': 'qb_enable_seeding',
-                                    'label': '自动做种'
+                                    'label': '自动做种',
+                                    'hint': '是否开启自动做种功能'
                                 }
                             }]
                         }, {
@@ -399,7 +401,8 @@ class DownloaderHelper(_PluginBase):
                                 'component': 'VSwitch',
                                 'props': {
                                     'model': 'qb_enable_tagging',
-                                    'label': '站点标签'
+                                    'label': '站点标签',
+                                    'hint': '是否开启站点标签功能'
                                 }
                             }]
                         }, {
@@ -412,7 +415,8 @@ class DownloaderHelper(_PluginBase):
                                 'component': 'VSwitch',
                                 'props': {
                                     'model': 'qb_enable_delete',
-                                    'label': '自动删种'
+                                    'label': '自动删种',
+                                    'hint': '是否开启自动删种功能'
                                 }
                             }]
                         }]
