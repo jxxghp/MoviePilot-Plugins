@@ -462,5 +462,13 @@
         "icon": "DownloaderHelper.png",
         "author": "hotlcc",
         "level": 2
+    },
+    "GistSyncCK": {
+        "name": "Gist同步CK",
+        "description": "以Gist方式同步cookie，搭配sync-my-cookie浏览器插件。",
+        "version": "1.0",
+        "icon": "Github_C.png",
+        "author": "jeblove",
+        "level": 1
     }
 }
