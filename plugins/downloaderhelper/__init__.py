@@ -177,7 +177,8 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
+                        'md': 4,
+                        'xl': 3
                     },
                     'content': [{
                         'component': 'VSwitch',
@@ -191,7 +192,8 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
+                        'md': 4,
+                        'xl': 3
                     },
                     'content': [{
                         'component': 'VSwitch',
@@ -205,7 +207,8 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
+                        'md': 4,
+                        'xl': 3
                     },
                     'content': [{
                         'component': 'VSwitch',
@@ -215,14 +218,12 @@ class DownloaderHelper(_PluginBase):
                             'hint': '保存插件配置后是否立即触发一次插件任务运行'
                         }
                     }]
-                }]
-            }, {
-                'component': 'VRow',
-                'content': [{
+                }, {
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
+                        'md': 4,
+                        'xl': 3
                     },
                     'content': [{
                         'component': 'VSwitch',
@@ -236,7 +237,8 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
+                        'md': 4,
+                        'xl': 3
                     },
                     'content': [{
                         'component': 'VSwitch',
@@ -250,7 +252,8 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
+                        'md': 4,
+                        'xl': 3
                     },
                     'content': [{
                         'component': 'VSwitch',
@@ -267,7 +270,7 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
+                        'md': 4
                     },
                     'content': [{
                         'component': 'VTextField',
@@ -282,7 +285,7 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
+                        'md': 4
                     },
                     'content': [{
                         'component': 'VTextField',
@@ -296,7 +299,7 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
+                        'md': 4
                     },
                     'content': [{
                         'component': 'VTextField',
