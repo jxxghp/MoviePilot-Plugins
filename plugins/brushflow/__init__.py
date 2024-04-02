@@ -188,7 +188,7 @@ class BrushFlow(_PluginBase):
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
-    author_url = "https://github.com/jxxghp"
+    author_url = "https://github.com/InfinityPacer"
     # 插件配置项ID前缀
     plugin_config_prefix = "brushflow_"
     # 加载顺序
