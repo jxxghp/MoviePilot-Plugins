@@ -1,6 +1,5 @@
-import math
 from typing import List, Tuple, Dict, Any
-
+from enum import Enum
 from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.plugins import _PluginBase
@@ -19,7 +18,7 @@ class QbCommand(_PluginBase):
     # 插件图标
     plugin_icon = "Qbittorrent_A.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -39,6 +38,9 @@ class QbCommand(_PluginBase):
     _resume_cron = None
     _only_pause_once = False
     _only_resume_once = False
+    _only_pause_upload = False
+    _only_pause_download = False
+    _only_pause_checking = False
     _upload_limit = 0
     _enable_upload_limit = False
     _download_limit = 0
@@ -55,6 +57,9 @@ class QbCommand(_PluginBase):
             self._resume_cron = config.get("resume_cron")
             self._only_pause_once = config.get("onlypauseonce")
             self._only_resume_once = config.get("onlyresumeonce")
+            self._only_pause_upload = config.get("onlypauseupload")
+            self._only_pause_download = config.get("onlypausedownload")
+            self._only_pause_checking = config.get("onlypausechecking")
             self._download_limit = config.get("download_limit")
             self._upload_limit = config.get("upload_limit")
             self._enable_download_limit = config.get("enable_download_limit")
@@ -82,10 +87,39 @@ class QbCommand(_PluginBase):
                 }
             )
 
+        if self._only_pause_upload or self._only_pause_download or self._only_pause_checking:
+            if self._only_pause_upload:
+                self.pause_torrent(self.TorrentType.UPLOADING)
+            if self._only_pause_download:
+                self.pause_torrent(self.TorrentType.DOWNLOADING)
+            if self._only_pause_checking:
+                self.pause_torrent(self.TorrentType.CHECKING)
+
+            self._only_pause_upload = False
+            self._only_pause_download = False
+            self._only_pause_checking = False
+            self.update_config(
+                {
+                    "onlypauseupload": False,
+                    "onlypausedownload": False,
+                    "onlypausechecking": False,
+                    "enabled": self._enabled,
+                    "notify": self._notify,
+                    "pause_cron": self._pause_cron,
+                    "resume_cron": self._resume_cron,
+                }
+            )
+
         self.set_limit(self._upload_limit, self._download_limit)
 
     def get_state(self) -> bool:
         return self._enabled
+
+    class TorrentType(Enum):
+        ALL = 1
+        DOWNLOADING = 2
+        UPLOADING = 3
+        CHECKING = 4
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -97,16 +131,44 @@ class QbCommand(_PluginBase):
             {
                 "cmd": "/pause_torrents",
                 "event": EventType.PluginAction,
-                "desc": "暂停QB种子",
+                "desc": "暂停QB所有任务",
                 "category": "QB",
                 "data": {"action": "pause_torrents"},
             },
             {
+                "cmd": "/pause_upload_torrents",
+                "event": EventType.PluginAction,
+                "desc": "暂停QB上传任务",
+                "category": "QB",
+                "data": {"action": "pause_upload_torrents"},
+            },
+            {
+                "cmd": "/pause_download_torrents",
+                "event": EventType.PluginAction,
+                "desc": "暂停QB下载任务",
+                "category": "QB",
+                "data": {"action": "pause_download_torrents"},
+            },
+            {
+                "cmd": "/pause_checking_torrents",
+                "event": EventType.PluginAction,
+                "desc": "暂停QB检查任务",
+                "category": "QB",
+                "data": {"action": "pause_checking_torrents"},
+            },
+            {
                 "cmd": "/resume_torrents",
                 "event": EventType.PluginAction,
-                "desc": "开始QB种子",
+                "desc": "开始QB所有任务",
                 "category": "QB",
                 "data": {"action": "resume_torrents"},
+            },
+            {
+                "cmd": "/qb_status",
+                "event": EventType.PluginAction,
+                "desc": "QB当前任务状态",
+                "category": "QB",
+                "data": {"action": "qb_status"},
             },
             {
                 "cmd": "/toggle_upload_limit",
@@ -209,7 +271,11 @@ class QbCommand(_PluginBase):
         for torrent in torrents:
             if torrent.state_enum.is_uploading and not torrent.state_enum.is_paused:
                 uploading_torrents.append(torrent.get("hash"))
-            elif torrent.state_enum.is_downloading and not torrent.state_enum.is_paused:
+            elif (
+                torrent.state_enum.is_downloading
+                and not torrent.state_enum.is_paused
+                and not torrent.state_enum.is_checking
+            ):
                 downloading_torrents.append(torrent.get("hash"))
             elif torrent.state_enum.is_checking:
                 checking_torrents.append(torrent.get("hash"))
@@ -236,7 +302,37 @@ class QbCommand(_PluginBase):
                 return
         self.pause_torrent()
 
-    def pause_torrent(self):
+    @eventmanager.register(EventType.PluginAction)
+    def handle_pause_upload_torrent(self, event: Event):
+        if not self._enabled:
+            return
+        if event:
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "pause_upload_torrents":
+                return
+        self.pause_torrent(self.TorrentType.UPLOADING)
+
+    @eventmanager.register(EventType.PluginAction)
+    def handle_pause_download_torrent(self, event: Event):
+        if not self._enabled:
+            return
+        if event:
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "pause_download_torrents":
+                return
+        self.pause_torrent(self.TorrentType.DOWNLOADING)
+
+    @eventmanager.register(EventType.PluginAction)
+    def handle_pause_checking_torrent(self, event: Event):
+        if not self._enabled:
+            return
+        if event:
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "pause_checking_torrents":
+                return
+        self.pause_torrent(self.TorrentType.CHECKING)
+
+    def pause_torrent(self, type: TorrentType = TorrentType.ALL):
         if not self._enabled:
             return
 
@@ -244,7 +340,15 @@ class QbCommand(_PluginBase):
         hash_downloading, hash_uploading, hash_paused, hash_checking, hash_error = (
             self.get_torrents_status(all_torrents)
         )
-        to_be_paused = hash_downloading + hash_uploading + hash_checking
+        if type == self.TorrentType.DOWNLOADING:
+            to_be_paused = hash_downloading
+        elif type == self.TorrentType.UPLOADING:
+            to_be_paused = hash_uploading
+        elif type == self.TorrentType.CHECKING:
+            to_be_paused = hash_checking
+        else:
+            to_be_paused = hash_downloading + hash_uploading + hash_checking
+
         logger.info(
             f"暂定任务启动 \n"
             f"种子总数:  {len(all_torrents)} \n"
@@ -260,12 +364,12 @@ class QbCommand(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【QB暂停任务启动】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                     f"做种数量:  {len(hash_uploading)}\n"
-                     f"下载数量:  {len(hash_downloading)}\n"
-                     f"检查数量:  {len(hash_checking)}\n"
-                     f"暂停数量:  {len(hash_paused)}\n"
-                     f"错误数量:  {len(hash_error)}\n"
-                     f"暂停操作中请稍等...\n",
+                f"做种数量:  {len(hash_uploading)}\n"
+                f"下载数量:  {len(hash_downloading)}\n"
+                f"检查数量:  {len(hash_checking)}\n"
+                f"暂停数量:  {len(hash_paused)}\n"
+                f"错误数量:  {len(hash_error)}\n"
+                f"暂停操作中请稍等...\n",
             )
         if len(to_be_paused) > 0:
             if self._qb.stop_torrents(ids=(to_be_paused)):
@@ -300,11 +404,11 @@ class QbCommand(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【QB暂停任务完成】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                     f"做种数量:  {len(hash_uploading)}\n"
-                     f"下载数量:  {len(hash_downloading)}\n"
-                     f"检查数量:  {len(hash_checking)}\n"
-                     f"暂停数量:  {len(hash_paused)}\n"
-                     f"错误数量:  {len(hash_error)}\n",
+                f"做种数量:  {len(hash_uploading)}\n"
+                f"下载数量:  {len(hash_downloading)}\n"
+                f"检查数量:  {len(hash_checking)}\n"
+                f"暂停数量:  {len(hash_paused)}\n"
+                f"错误数量:  {len(hash_error)}\n",
             )
 
     @eventmanager.register(EventType.PluginAction)
@@ -340,12 +444,12 @@ class QbCommand(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【QB开始任务启动】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                     f"做种数量:  {len(hash_uploading)}\n"
-                     f"下载数量:  {len(hash_downloading)}\n"
-                     f"检查数量:  {len(hash_checking)}\n"
-                     f"暂停数量:  {len(hash_paused)}\n"
-                     f"错误数量:  {len(hash_error)}\n"
-                     f"开始操作中请稍等...\n",
+                f"做种数量:  {len(hash_uploading)}\n"
+                f"下载数量:  {len(hash_downloading)}\n"
+                f"检查数量:  {len(hash_checking)}\n"
+                f"暂停数量:  {len(hash_paused)}\n"
+                f"错误数量:  {len(hash_error)}\n"
+                f"开始操作中请稍等...\n",
             )
         if not self._qb.start_torrents(ids=hash_paused):
             logger.error(f"开始种子失败")
@@ -377,11 +481,52 @@ class QbCommand(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【QB开始任务完成】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                     f"做种数量:  {len(hash_uploading)}\n"
-                     f"下载数量:  {len(hash_downloading)}\n"
-                     f"检查数量:  {len(hash_checking)}\n"
-                     f"暂停数量:  {len(hash_paused)}\n"
-                     f"错误数量:  {len(hash_error)}\n",
+                f"做种数量:  {len(hash_uploading)}\n"
+                f"下载数量:  {len(hash_downloading)}\n"
+                f"检查数量:  {len(hash_checking)}\n"
+                f"暂停数量:  {len(hash_paused)}\n"
+                f"错误数量:  {len(hash_error)}\n",
+            )
+
+    @eventmanager.register(EventType.PluginAction)
+    def handle_qb_status(self, event: Event):
+        if not self._enabled:
+            return
+        if event:
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "qb_status":
+                return
+        self.qb_status()
+
+    def qb_status(self):
+        if not self._enabled:
+            return
+
+        all_torrents = self.get_all_torrents()
+        hash_downloading, hash_uploading, hash_paused, hash_checking, hash_error = (
+            self.get_torrents_status(all_torrents)
+        )
+        logger.info(
+            f"QB开始任务启动 \n"
+            f"种子总数:  {len(all_torrents)} \n"
+            f"做种数量:  {len(hash_uploading)}\n"
+            f"下载数量:  {len(hash_downloading)}\n"
+            f"检查数量:  {len(hash_checking)}\n"
+            f"暂停数量:  {len(hash_paused)}\n"
+            f"错误数量:  {len(hash_error)}\n"
+            f"开始操作中请稍等...\n",
+        )
+        if self._notify:
+            self.post_message(
+                mtype=NotificationType.SiteMessage,
+                title=f"【QB开始任务启动】",
+                text=f"种子总数:  {len(all_torrents)} \n"
+                f"做种数量:  {len(hash_uploading)}\n"
+                f"下载数量:  {len(hash_downloading)}\n"
+                f"检查数量:  {len(hash_checking)}\n"
+                f"暂停数量:  {len(hash_paused)}\n"
+                f"错误数量:  {len(hash_error)}\n"
+                f"开始操作中请稍等...\n",
             )
 
     @eventmanager.register(EventType.PluginAction)
@@ -408,7 +553,12 @@ class QbCommand(_PluginBase):
         if not self._enable_upload_limit or not self._enable_upload_limit:
             return True
 
-        if not upload_limit or not upload_limit.isdigit() or not download_limit or not download_limit.isdigit():
+        if (
+            not upload_limit
+            or not upload_limit.isdigit()
+            or not download_limit
+            or not download_limit.isdigit()
+        ):
             self.post_message(
                 mtype=NotificationType.SiteMessage,
                 title=f"【QB远程操作】",
@@ -434,7 +584,8 @@ class QbCommand(_PluginBase):
 
         download_limit_current_val, _ = self._qb.get_speed_limit()
         return self._qb.set_speed_limit(
-            download_limit=int(download_limit_current_val), upload_limit=int(upload_limit)
+            download_limit=int(download_limit_current_val),
+            upload_limit=int(upload_limit),
         )
 
     def set_download_limit(self, download_limit):
@@ -451,7 +602,8 @@ class QbCommand(_PluginBase):
 
         _, upload_limit_current_val = self._qb.get_speed_limit()
         return self._qb.set_speed_limit(
-            download_limit=int(download_limit), upload_limit=int(upload_limit_current_val)
+            download_limit=int(download_limit),
+            upload_limit=int(upload_limit_current_val),
         )
 
     def set_limit(self, upload_limit, download_limit):
@@ -469,7 +621,6 @@ class QbCommand(_PluginBase):
 
         elif flag is None and self._enabled and self._enable_upload_limit:
             flag = self.set_upload_limit(upload_limit)
-
 
         if flag:
             logger.info(f"设置QB限速成功")
@@ -659,6 +810,50 @@ class QbCommand(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "onlypauseupload",
+                                            "label": "暂停上传任务",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "onlypausedownload",
+                                            "label": "暂停下载任务",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "onlypausechecking",
+                                            "label": "暂停检查任务",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
                                 "props": {
                                     "cols": 12,
                                 },
@@ -668,7 +863,7 @@ class QbCommand(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "开始周期和暂停周期使用Cron表达式，如：0 0 0 * *",
+                                            "text": "开始周期和暂停周期使用Cron表达式，如：0 0 0 * *，仅针对开始/暂定全部任务",
                                         },
                                     }
                                 ],
@@ -704,7 +899,7 @@ class QbCommand(_PluginBase):
                                         },
                                     }
                                 ],
-                            }
+                            },
                         ],
                     },
                 ],
@@ -714,6 +909,9 @@ class QbCommand(_PluginBase):
             "notify": True,
             "onlypauseonce": False,
             "onlyresumeonce": False,
+            "onlypauseupload": False,
+            "onlypausedownload": False,
+            "onlypausechecking": False,
             "upload_limit": 0,
             "download_limit": 0,
             "enable_upload_limit": False,
