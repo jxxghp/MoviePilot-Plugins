@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta
 from threading import Event
 from typing import Any, List, Dict, Tuple, Optional, Union, Set
+from urllib.parse import urlparse, parse_qs, unquote
 
 import pytz
 from app import schemas
@@ -2365,11 +2366,7 @@ class BrushFlow(_PluginBase):
         """
         torrent_info = self.__get_torrent_info(torrent=torrent)
 
-        trackers = [tracker.get("url") for tracker in (torrent.trackers or []) if
-                    tracker.get("tier", -1) >= 0 and tracker.get("url")]
-        trackers.append(torrent_info.get("tracker"))
-
-        site_id, site_name = self.__get_site_by_tracker(trackers=trackers)
+        site_id, site_name = self.__get_site_by_torrent(torrent=torrent)
 
         torrent_task = {
             "site": site_id,
@@ -3334,10 +3331,26 @@ class BrushFlow(_PluginBase):
             # 情况2: 时间段跨越午夜
             return now >= start_time or now <= end_time
 
-    def __get_site_by_tracker(self, trackers: list[str]) -> Tuple[int, str]:
+    def __get_site_by_torrent(self, torrent: Any) -> Tuple[int, str]:
         """
         根据tracker获取站点信息
         """
+        trackers = []
+        try:
+            tracker_url = torrent.get("tracker")
+            if tracker_url:
+                trackers.append(tracker_url)
+
+            magnet_link = torrent.get("magnet_uri")
+            if magnet_link:
+                query_params = parse_qs(urlparse(magnet_link).query)
+                encoded_tracker_urls = query_params.get('tr', [])
+                # 解码tracker URLs然后扩展到trackers列表中
+                decoded_tracker_urls = [unquote(url) for url in encoded_tracker_urls]
+                trackers.extend(decoded_tracker_urls)
+        except Exception as e:
+            logger.error(e)
+
         domain = "未知"
         if not trackers:
             return 0, domain
@@ -3350,6 +3363,8 @@ class BrushFlow(_PluginBase):
         }
 
         for tracker in trackers:
+            if not tracker:
+                continue
             # 检查tracker是否包含特定的关键字，并进行相应的映射
             for key, mapped_domain in tracker_mappings.items():
                 if key in tracker:
