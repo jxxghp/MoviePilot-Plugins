@@ -91,7 +91,7 @@ class RemoveLink(_PluginBase):
     # 插件图标
     plugin_icon = "Ombi_A.png"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -369,7 +369,7 @@ class RemoveLink(_PluginBase):
         删除空目录
         """
         for mon_path in self.monitor_dirs.split("\n"):
-            for subdir, dirs, files in os.walk(mon_path):
+            for subdir, dirs, files in os.walk(mon_path, topdown=False):
                 for dir in dirs:
                     dir_path = os.path.join(subdir, dir)
                     # 检查当前目录是否为空
