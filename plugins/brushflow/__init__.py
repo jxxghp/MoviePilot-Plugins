@@ -2037,14 +2037,8 @@ class BrushFlow(_PluginBase):
             # 先更新刷流任务的最新状态，上下传，分享率
             self.__update_torrent_tasks_state(torrents=check_torrents, torrent_tasks=torrent_tasks)
 
-            # 先通过获取的全量种子，判断已经被删除，但是任务记录中还没有被标记删除的种子
-            undeleted_hashes = self.__get_undeleted_torrents_missing_in_downloader(torrent_tasks, torrent_check_hashes,
-                                                                                   check_torrents) or []
-
-            # 这里提前把已经被删除的种子进行标记，避免开启动态删除种子统计体积有时差
-            if undeleted_hashes:
-                for torrent_hash in undeleted_hashes:
-                    torrent_tasks[torrent_hash]["deleted"] = True
+            # 更新刷流任务列表中在下载器中删除的种子为删除状态
+            self.__update_undeleted_torrents_missing_in_downloader(torrent_tasks, torrent_check_hashes, check_torrents)
 
             # 排除MoviePilot种子
             if check_torrents and brush_config.except_tags:
@@ -2105,6 +2099,10 @@ class BrushFlow(_PluginBase):
         if not brush_config.downloader == "qbittorrent":
             return
 
+        # 初始化汇总信息
+        added_tasks = []
+        reset_tasks = []
+        removed_tasks = []
         # 基于 seeding_torrents_dict 的信息更新或添加到 torrent_tasks
         for torrent_hash, torrent in seeding_torrents_dict.items():
             tags = self.__get_label(torrent=torrent)
@@ -2117,40 +2115,48 @@ class BrushFlow(_PluginBase):
                         # 如果在 unmanaged_tasks 中，移除并转移到 torrent_tasks
                         torrent_task = unmanaged_tasks.pop(torrent_hash)
                         torrent_tasks[torrent_hash] = torrent_task
+                        added_tasks.append(torrent_task)
                         logger.info(
-                            f"站点 {torrent_task.get('site_name')}，种子再次加入刷流任务：{torrent_task.get('title')}|{torrent_task.get('description')}")
-                        self.__send_add_message(torrent=torrent_task, title="【刷流任务种子再次加入】")
+                            f"站点 {torrent_task.get('site_name')}，刷流任务种子再次加入：{torrent_task.get('title')}|{torrent_task.get('description')}")
                     else:
                         # 否则，创建一个新的任务
                         torrent_task = self.__convert_torrent_info_to_task(torrent)
                         torrent_tasks[torrent_hash] = torrent_task
+                        added_tasks.append(torrent_task)
                         logger.info(
-                            f"站点 {torrent_task.get('site_name')}，种子加入刷流任务：{torrent_task.get('title')}|{torrent_task.get('description')}")
-                        self.__send_add_message(torrent=torrent_task, title="【刷流任务种子加入】")
+                            f"站点 {torrent_task.get('site_name')}，刷流任务种子加入：{torrent_task.get('title')}|{torrent_task.get('description')}")
                 # 包含刷流标签又在刷流任务中，这里额外处理一个特殊逻辑，就是种子在刷流任务中可能被标记删除但实际上又还在下载器中，这里进行重置
                 else:
                     torrent_task = torrent_tasks[torrent_hash]
                     if torrent_task.get("deleted"):
                         torrent_task["deleted"] = False
+                        reset_tasks.append(torrent_task)
                         logger.info(
-                            f"站点 {torrent_task.get('site_name')}，种子再次加入刷流任务：{torrent_task.get('title')}|{torrent_task.get('description')}")
-                        self.__send_add_message(torrent=torrent_task, title="【刷流任务种子再次加入】")
+                            f"站点 {torrent_task.get('site_name')}，在下载器中找到已标记删除的刷流任务对应的种子信息，更新刷流任务状态为正常：{torrent_task.get('title')}|{torrent_task.get('description')}")
             else:
                 # 不包含刷流标签但又在刷流任务中，则移除管理
                 if torrent_hash in torrent_tasks:
                     # 如果种子不符合刷流条件但在 torrent_tasks 中，移除并加入 unmanaged_tasks
                     torrent_task = torrent_tasks.pop(torrent_hash)
                     unmanaged_tasks[torrent_hash] = torrent_task
+                    removed_tasks.append(torrent_task)
                     logger.info(
-                        f"站点 {torrent_task.get('site_name')}，种子移除刷流任务：{torrent_task.get('title')}|{torrent_task.get('description')}")
-                    self.__send_delete_message(site_name=torrent_task.get("site_name"),
-                                               torrent_title=torrent_task.get("title"),
-                                               torrent_desc=torrent_task.get("description"),
-                                               reason="刷流标签移除",
-                                               title="【刷流任务种子移除】")
+                        f"站点 {torrent_task.get('site_name')}，刷流任务种子移除：{torrent_task.get('title')}|{torrent_task.get('description')}")
 
         self.save_data("torrents", torrent_tasks)
         self.save_data("unmanaged", unmanaged_tasks)
+
+        # 发送汇总消息
+        if added_tasks:
+            self.__log_and_send_torrent_task_update_message(title="【刷流任务种子加入】", status="纳入刷流管理",
+                                                            reason="刷流标签添加", torrent_tasks=added_tasks)
+        if removed_tasks:
+            self.__log_and_send_torrent_task_update_message(title="【刷流任务种子移除】", status="移除刷流管理",
+                                                            reason="刷流标签移除", torrent_tasks=removed_tasks)
+        if reset_tasks:
+            self.__log_and_send_torrent_task_update_message(title="【刷流任务状态更新】", status="更新刷流状态为正常",
+                                                            reason="在下载器中找到已标记删除的刷流任务对应的种子信息",
+                                                            torrent_tasks=reset_tasks)
 
     def __group_torrents_by_proxy_delete(self, torrents: List[Any], torrent_tasks: Dict[str, dict]):
         """
@@ -2291,6 +2297,7 @@ class BrushFlow(_PluginBase):
                 self.__get_hash(torrent) in proxy_delete_hashes)
 
         # 在完成初始删除步骤后，如果总体积仍然超过最小阈值，则进一步找到已完成种子并排除HR种子后按做种时间正序进行删除
+        sites_names = set()
         if total_torrent_size > min_size:
             # 重新计算当前的种子列表，排除已删除的种子
             remaining_hashes = list(
@@ -2323,42 +2330,50 @@ class BrushFlow(_PluginBase):
                 torrent_desc = torrent_task.get("description", "")
                 seeding_time = torrent_task.get("seeding_time", 0)
                 if seeding_time:
+                    sites_names.add(site_name)
                     reason = f"触发动态删除，做种时间 {seeding_time / 3600:.1f} 小时，系统自动删除"
                     self.__send_delete_message(site_name=site_name, torrent_title=torrent_title,
                                                torrent_desc=torrent_desc,
                                                reason=reason)
                     logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
 
-        msg = f"已完成 {len(need_delete_hashes)} 个种子删除，当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB"
-        self.post_message(mtype=NotificationType.SiteMessage, title="【刷流任务种子删除】", text=msg)
+        msg = f"站点：{'，'.join(sites_names)}\n内容：已完成 {len(need_delete_hashes)} 个种子删除，当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB\n原因：触发动态删除"
         logger.info(msg)
+        self.__send_message(title="【刷流任务状态更新】", text=msg)
 
         # 返回所有需要删除的种子的哈希列表
         return need_delete_hashes
 
-    def __get_undeleted_torrents_missing_in_downloader(self, torrent_tasks, torrent_check_hashes, torrents) -> List:
+    def __update_undeleted_torrents_missing_in_downloader(self, torrent_tasks, torrent_check_hashes, torrents):
         """
         处理已经被删除，但是任务记录中还没有被标记删除的种子
         """
+        # 先通过获取的全量种子，判断已经被删除，但是任务记录中还没有被标记删除的种子
         torrent_all_hashes = self.__get_all_hashes(torrents)
         missing_hashes = [hash_value for hash_value in torrent_check_hashes if hash_value not in torrent_all_hashes]
         undeleted_hashes = [hash_value for hash_value in missing_hashes if not torrent_tasks[hash_value].get("deleted")]
 
         if not undeleted_hashes:
-            return []
+            return
 
-        # 处理每个符合条件的任务
+        # 初始化汇总信息
+        delete_tasks = []
         for hash_value in undeleted_hashes:
             # 获取对应的任务信息
-            torrent_info = torrent_tasks[hash_value]
-            # 获取site_name和torrent_title
-            site_name = torrent_info.get("site_name", "")
-            torrent_title = torrent_info.get("title", "")
-            torrent_desc = torrent_info.get("description", "")
-            self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc,
-                                       reason="下载器中找不到种子")
-            logger.info(f"站点：{site_name}，下载器中找不到种子，删除种子：{torrent_title}|{torrent_desc}")
-        return undeleted_hashes
+            torrent_task = torrent_tasks[hash_value]
+            # 标记为已删除
+            torrent_task["deleted"] = True
+            # 处理日志相关内容
+            delete_tasks.append(torrent_task)
+            site_name = torrent_task.get("site_name", "")
+            torrent_title = torrent_task.get("title", "")
+            torrent_desc = torrent_task.get("description", "")
+            logger.info(
+                f"站点：{site_name}，无法在下载器中找到对应种子信息，更新刷流任务状态为已删除，种子：{torrent_title}|{torrent_desc}")
+
+        self.__log_and_send_torrent_task_update_message(title="【刷流任务状态更新】", status="更新刷流状态为已删除",
+                                                        reason="无法在下载器中找到对应的种子信息",
+                                                        torrent_tasks=delete_tasks)
 
     def __convert_torrent_info_to_task(self, torrent: Any) -> dict:
         """
@@ -3020,6 +3035,29 @@ class BrushFlow(_PluginBase):
         msg_text = self.__build_add_message_text(torrent)
         self.post_message(mtype=NotificationType.SiteMessage, title=title, text=msg_text)
 
+    def __send_message(self, title: str, text: str):
+        """
+        发送消息
+        """
+        brush_config = self.__get_brush_config()
+        if not brush_config.notify:
+            return
+
+        self.post_message(mtype=NotificationType.SiteMessage, title=title, text=text)
+
+    def __log_and_send_torrent_task_update_message(self, title: str, status: str, reason: str,
+                                                   torrent_tasks: List[dict]):
+        """
+        记录和发送刷流任务更新消息
+        """
+        if torrent_tasks:
+            sites_names = ', '.join({task.get("site_name", "N/A") for task in torrent_tasks})
+            first_title = torrent_tasks[0].get('title', 'N/A')
+            count = len(torrent_tasks)
+            msg = f"站点：{sites_names}\n内容：{first_title} 等 {count} 个种子已经{status}\n原因：{reason}"
+            logger.info(f"{title}，{msg}")
+            self.__send_message(title=title, text=msg)
+
     def __get_torrents_size(self) -> int:
         """
         获取任务中的种子总大小
@@ -3233,19 +3271,13 @@ class BrushFlow(_PluginBase):
 
     def __clear_tasks(self):
         """
-        清除统计数据（清理已删除和已归档的数据，保留活跃种子数据）
+        清除统计数据
+        彻底重置所有刷流数据，如当前还存在正在做种的刷流任务，待定时检查任务执行后，会自动纳入刷流管理
         """
-        torrent_tasks: Dict[str, dict] = self.get_data("torrents") or {}
-
-        to_delete = [key for key, value in torrent_tasks.items() if value.get("deleted")]
-        for key in to_delete:
-            del torrent_tasks[key]
-
-        self.save_data("torrents", torrent_tasks)
+        self.save_data("torrents", {})
         self.save_data("archived", {})
         self.save_data("unmanaged", {})
-        # 需要更新一下统计数据
-        self.__update_and_save_statistic_info(torrent_tasks=torrent_tasks)
+        self.save_data("statistic", {})
 
     def __get_statistic_info(self) -> Dict[str, int]:
         """
