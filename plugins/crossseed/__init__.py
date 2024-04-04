@@ -788,8 +788,9 @@ class CrossSeed(_PluginBase):
                 torrent_path = Path(self._torrentpaths[idx]) / f"{hash_str}.torrent"
                 torrent_info = None
                 if not torrent_path.exists():
-                    if downloader == "qbittorrent":
-                        # FIXME qb从4.4.0开始，种子文件以标题+序号的方式保存，目前只能尝试导出后再解析
+                    if False and downloader == "qbittorrent":
+                        # qb开启SQLite功能后将不再以hash命名的方式保存torrent文件
+                        # TODO 导出功能需要qb4.5.0以上版本才支持
                         logger.warn(f"QB种子文件不存在：{torrent_path} 尝试远程导出种子")
                         try:
                             torrent_data = torrent.export()
