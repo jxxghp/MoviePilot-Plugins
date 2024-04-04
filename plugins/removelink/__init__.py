@@ -11,6 +11,7 @@ from watchdog.observers import Observer
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import Notification, NotificationType
+from app.utils.timer import TimerUtils
 
 state_lock = threading.Lock()
 
@@ -90,7 +91,7 @@ class RemoveLink(_PluginBase):
     # 插件图标
     plugin_icon = "Ombi_A.png"
     # 插件版本
-    plugin_version = "1.6"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -98,7 +99,7 @@ class RemoveLink(_PluginBase):
     # 插件配置项ID前缀
     plugin_config_prefix = "linkdeleted_"
     # 加载顺序
-    plugin_order = 27
+    plugin_order = 0
     # 可使用的用户级别
     auth_level = 1
 
@@ -173,6 +174,40 @@ class RemoveLink(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        [{
+            "id": "服务ID",
+            "name": "服务名称",
+            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
+            "func": self.xxx,
+            "kwargs": {} # 定时器参数
+        }]
+        """
+        if self._enabled:
+            # 随机时间
+            triggers = TimerUtils.random_scheduler(
+                num_executions=1,
+                begin_hour=0,
+                end_hour=1,
+                min_interval=1,
+                max_interval=60,
+            )
+            ret_jobs = []
+            for trigger in triggers:
+                ret_jobs.append(
+                    {
+                        "id": f"RemoveLink|{trigger.hour}:{trigger.minute}",
+                        "name": "清理空文件夹",
+                        "trigger": "cron",
+                        "func": self.delete_empty_folders,
+                        "kwargs": {"hour": trigger.hour, "minute": trigger.minute},
+                    }
+                )
+            return ret_jobs
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
@@ -273,26 +308,26 @@ class RemoveLink(_PluginBase):
                         ],
                     },
                     {
-                        'component': 'VRow',
-                        'content': [
+                        "component": "VRow",
+                        "content": [
                             {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
                                 },
-                                'content': [
+                                "content": [
                                     {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'info',
-                                            'variant': 'tonal',
-                                            'text': '监控目录如有多个需换行，源目录和硬链接目录都需要添加到监控目录中；如需实现删除硬链接时不删除源文件，可把源文件目录配置到不删除目录中。'
-                                        }
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "监控目录如有多个需换行，源目录和硬链接目录都需要添加到监控目录中；如需实现删除硬链接时不删除源文件，可把源文件目录配置到不删除目录中。",
+                                        },
                                     }
-                                ]
+                                ],
                             }
-                        ]
-                    }
+                        ],
+                    },
                 ],
             }
         ], {
@@ -329,6 +364,25 @@ class RemoveLink(_PluginBase):
                 return True
         return False
 
+    def delete_empty_folders(self):
+        """
+        删除空目录
+        """
+        for mon_path in self.monitor_dirs.split("\n"):
+            for subdir, dirs, files in os.walk(mon_path, topdown=False):
+                for dir in dirs:
+                    dir_path = os.path.join(subdir, dir)
+                    # 检查当前目录是否为空
+                    if not os.listdir(dir_path) and not self.__is_excluded(dir_path):
+                        os.rmdir(dir_path)
+                        logger.info(f"删除空目录：{dir_path}")
+                        if self._notify:
+                            self.post_message(
+                                mtype=NotificationType.SiteMessage,
+                                title=f"【清理硬链接】",
+                                text=f"清理空文件夹：[{dir_path}]\n",
+                            )
+
     def handle_deleted(self, file_path: Path):
         """
         处理删除事件
@@ -358,7 +412,10 @@ class RemoveLink(_PluginBase):
                                 mtype=NotificationType.SiteMessage,
                                 title=f"【清理硬链接】",
                                 text=f"监控到删除源文件：[{file_path}]\n"
-                                     f"同步删除硬链接文件：[{path}]",
+                                f"同步删除硬链接文件：[{path}]",
                             )
+
             except Exception as e:
-                logger.error("删除硬链接文件发生错误：%s - %s" % (str(e), traceback.format_exc()))
+                logger.error(
+                    "删除硬链接文件发生错误：%s - %s" % (str(e), traceback.format_exc())
+                )
