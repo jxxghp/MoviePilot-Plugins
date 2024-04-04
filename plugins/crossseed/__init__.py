@@ -56,7 +56,7 @@ class CSSiteConfig(object):
 
     def get_api_url(self):
         if self.name == "憨憨":
-            return f"{self.url}npapi/pieces-hash"
+            return f"{self.url}nexusapi/pieces-hash"
         return f"{self.url}api/pieces-hash"
 
     def get_torrent_url(self, torrent_id: str):
@@ -177,7 +177,7 @@ class CrossSeed(_PluginBase):
     # 插件图标
     plugin_icon = "qingwa.png"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "233@qingwa"
     # 作者主页
