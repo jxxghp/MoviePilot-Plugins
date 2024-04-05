@@ -13,6 +13,8 @@ import pytz
 from app import schemas
 from app.chain.torrents import TorrentsChain
 from app.core.config import settings
+from app.core.context import MediaInfo
+from app.core.metainfo import MetaInfo
 from app.db.site_oper import SiteOper
 from app.db.subscribe_oper import SubscribeOper
 from app.helper.sites import SitesHelper
@@ -20,7 +22,7 @@ from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
-from app.schemas import NotificationType, TorrentInfo
+from app.schemas import NotificationType, TorrentInfo, MediaType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -190,7 +192,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "2.5"
+    plugin_version = "2.6"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -213,6 +215,8 @@ class BrushFlow(_PluginBase):
     _brush_config = None
     # Brush任务是否启动
     _task_brush_enable = False
+    # 订阅缓存信息
+    _subscribe_infos = None
     # Brush定时
     _brush_interval = 10
     # Check定时
@@ -391,6 +395,48 @@ class BrushFlow(_PluginBase):
             {
                 'component': 'VForm',
                 'content': [
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'success',
+                                            'variant': 'tonal'
+                                        },
+                                        'html': "<span class=\"v-alert__underlay\"></span><div class=\"v-alert__prepend\"><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"             aria-hidden=\"true\" role=\"img\" tag=\"i\" class=\"v-icon notranslate v-theme--purple iconify iconify--mdi\"             density=\"default\" width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\"             style=\"font-size: 28px; height: 28px; width: 28px;\">             <path fill=\"currentColor\"                 d=\"M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2m-1 15h2v-6h-2v6Z\">             </path>         </svg></div>     <div class=\"v-alert__content\">部分配置项以及细节请参考<a href='https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md' target='_blank'>https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md</a></div>"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'error',
+                                            'variant': 'tonal',
+                                            'text': '注意：排除H&R并不保证能完全适配所有站点（部分站点在列表页不显示H&R标志，但实际上是有H&R的），请注意核对使用！'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
                     {
                         'component': 'VRow',
                         'content': [
@@ -1099,48 +1145,6 @@ class BrushFlow(_PluginBase):
                         ]
                     },
                     {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'success',
-                                            'variant': 'tonal'
-                                        },
-                                        'html': "<span class=\"v-alert__underlay\"></span><div class=\"v-alert__prepend\"><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"             aria-hidden=\"true\" role=\"img\" tag=\"i\" class=\"v-icon notranslate v-theme--purple iconify iconify--mdi\"             density=\"default\" width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\"             style=\"font-size: 28px; height: 28px; width: 28px;\">             <path fill=\"currentColor\"                 d=\"M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2m-1 15h2v-6h-2v6Z\">             </path>         </svg></div>     <div class=\"v-alert__content\">部分配置项以及细节请参考<a href='https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md' target='_blank'>https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md</a></div>"
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'info',
-                                            'variant': 'tonal',
-                                            'text': '注意：排除H&R并不保证能完全适配所有站点（部分站点在列表页不显示H&R标志，但实际上是有H&R的），请注意核对使用！'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
                         "component": "VDialog",
                         "props": {
                             "model": "dialog_closed",
@@ -1766,11 +1770,15 @@ class BrushFlow(_PluginBase):
 
             logger.info(f"即将针对站点 {', '.join(site.name for site in site_infos)} 开始刷流")
 
+            # 获取订阅标题
+            subscribe_titles = self.__get_subscribe_titles()
+
             # 处理所有站点
             for site in site_infos:
                 # 如果站点刷流没有正确响应，说明没有通过前置条件，其他站点也不需要继续刷流了
                 if not self.__brush_site_torrents(siteid=site.id, torrent_tasks=torrent_tasks,
-                                                  statistic_info=statistic_info):
+                                                  statistic_info=statistic_info,
+                                                  subscribe_titles=subscribe_titles):
                     logger.info(f"站点 {site.name} 刷流中途结束，停止后续刷流")
                     break
                 else:
@@ -1782,7 +1790,8 @@ class BrushFlow(_PluginBase):
             self.save_data("statistic", statistic_info)
             logger.info(f"刷流任务执行完成")
 
-    def __brush_site_torrents(self, siteid, torrent_tasks, statistic_info) -> bool:
+    def __brush_site_torrents(self, siteid, torrent_tasks: Dict[str, dict], statistic_info: Dict[str, int],
+                              subscribe_titles: Set[str]) -> bool:
         """
         针对站点进行刷流
         """
@@ -1801,7 +1810,7 @@ class BrushFlow(_PluginBase):
 
         # 排除包含订阅的种子
         if brush_config.except_subscribe:
-            torrents = self.__filter_torrents_contains_subscribe(torrents=torrents)
+            torrents = self.__filter_torrents_contains_subscribe(torrents=torrents, subscribe_titles=subscribe_titles)
 
         # 按发布日期降序排列
         torrents.sort(key=lambda x: x.pubdate or '', reverse=True)
@@ -3264,23 +3273,60 @@ class BrushFlow(_PluginBase):
 
     def __get_subscribe_titles(self) -> Set[str]:
         """
-        获取当前订阅的所有标题，返回一个不包含None的集合
+        获取当前订阅的所有标题，返回一个不包含None和空白字符的集合
         """
-        self.subscribeoper = SubscribeOper()
+        brush_config = self.__get_brush_config()
+        if not brush_config.except_subscribe:
+            logger.info("没有开启排除订阅，取消订阅标题匹配")
+            return set()
+
+        logger.info("已开启排除订阅，正在准备订阅标题匹配 ...")
+
+        if not self._subscribe_infos:
+            self._subscribe_infos = {}
+
         subscribes = self.subscribeoper.list()
+        if subscribes:
+            # 遍历订阅
+            for subscribe in subscribes:
+                # 判断当前订阅是否已经在缓存中，如果已经处理过，那么这里直接跳过
+                subscribe_key = f"{subscribe.id}_{subscribe.name}"
+                if subscribe_key in self._subscribe_infos:
+                    continue
 
-        # 使用 filter() 函数筛选出有 'name' 属性且该属性值不为 None 的 Subscribe 对象
-        # 然后使用 map() 函数获取每个对象的 'name' 属性值
-        # 最后，使用 set() 函数将结果转换为集合，自动去除重复项和 None
-        subscribe_titles = set(filter(None, map(lambda sub: getattr(sub, 'name', None), subscribes)))
+                subscribe_titles = [subscribe.name]
+                try:
+                    # 生成元数据
+                    meta = MetaInfo(subscribe.name)
+                    meta.year = subscribe.year
+                    meta.begin_season = subscribe.season or None
+                    meta.type = MediaType(subscribe.type)
+                    # 识别媒体信息
+                    mediainfo: MediaInfo = self.chain.recognize_media(meta=meta, mtype=meta.type,
+                                                                      tmdbid=subscribe.tmdbid,
+                                                                      doubanid=subscribe.doubanid,
+                                                                      cache=True)
+                    if mediainfo:
+                        logger.info(f"subscribe {subscribe.name} {mediainfo.to_dict()}")
+                        subscribe_titles.extend(mediainfo.names)
+                        subscribe_titles = [title.strip() for title in subscribe_titles if title and title.strip()]
+                        self._subscribe_infos[subscribe_key] = subscribe_titles
+                    else:
+                        logger.info(f"订阅 {subscribe.name} 没有识别到媒体信息，跳过订阅标题匹配")
+                except Exception as e:
+                    logger.error(f"识别订阅 {subscribe.name} 媒体信息失败，错误详情: {e}")
 
-        # 返回不包含 None 的名称集合
-        return subscribe_titles
+            # 移除不再存在的订阅
+            current_keys = {f"{subscribe.id}_{subscribe.name}" for subscribe in subscribes}
+            for key in set(self._subscribe_infos) - current_keys:
+                del self._subscribe_infos[key]
 
-    def __filter_torrents_contains_subscribe(self, torrents: Any):
-        subscribe_titles = self.__get_subscribe_titles()
-        logger.info(f"当前订阅的名称集合为：{subscribe_titles}")
+        logger.info(f"订阅标题匹配完成，当前订阅的标题集合为：{self._subscribe_infos}")
+        unique_titles = {title for titles in self._subscribe_infos.values() for title in titles}
+        return unique_titles
 
+    @staticmethod
+    def __filter_torrents_contains_subscribe(torrents: Any, subscribe_titles: Set[str]):
         # 初始化两个列表，一个用于收集未被排除的种子，一个用于记录被排除的种子
         included_torrents = []
         excluded_torrents = []
