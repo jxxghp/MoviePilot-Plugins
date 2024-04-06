@@ -13,6 +13,8 @@ import pytz
 from app import schemas
 from app.chain.torrents import TorrentsChain
 from app.core.config import settings
+from app.core.context import MediaInfo
+from app.core.metainfo import MetaInfo
 from app.db.site_oper import SiteOper
 from app.db.subscribe_oper import SubscribeOper
 from app.helper.sites import SitesHelper
@@ -20,7 +22,7 @@ from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
-from app.schemas import NotificationType, TorrentInfo
+from app.schemas import NotificationType, TorrentInfo, MediaType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -51,6 +53,7 @@ class BrushConfig:
         self.seeder = config.get("seeder")
         self.pubtime = config.get("pubtime")
         self.seed_time = self.__parse_number(config.get("seed_time"))
+        self.hr_seed_time = self.__parse_number(config.get("hr_seed_time"))
         self.seed_ratio = self.__parse_number(config.get("seed_ratio"))
         self.seed_size = self.__parse_number(config.get("seed_size"))
         self.download_time = self.__parse_number(config.get("download_time"))
@@ -65,12 +68,15 @@ class BrushConfig:
         self.except_tags = config.get("except_tags", True)
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
-        self.proxy_download = config.get("proxy_download", True)
+        self.proxy_download = config.get("proxy_download", False)
         self.proxy_delete = config.get("proxy_delete", False)
         self.log_more = config.get("log_more", False)
         self.active_time_range = config.get("active_time_range")
-        self.enable_site_config = config.get("enable_site_config", False)
+        self.downloader_monitor = config.get("downloader_monitor")
+
         self.brush_tag = "刷流"
+        # 站点独立配置
+        self.enable_site_config = config.get("enable_site_config", False)
         self.site_config = config.get("site_config", "[]")
         self.group_site_configs = {}
 
@@ -91,6 +97,7 @@ class BrushConfig:
             "seeder",
             "pubtime",
             "seed_time",
+            "hr_seed_time",
             "seed_ratio",
             "seed_size",
             "download_time",
@@ -185,7 +192,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "2.4"
+    plugin_version = "2.6"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -208,6 +215,8 @@ class BrushFlow(_PluginBase):
     _brush_config = None
     # Brush任务是否启动
     _task_brush_enable = False
+    # 订阅缓存信息
+    _subscribe_infos = None
     # Brush定时
     _brush_interval = 10
     # Check定时
@@ -386,6 +395,48 @@ class BrushFlow(_PluginBase):
             {
                 'component': 'VForm',
                 'content': [
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'success',
+                                            'variant': 'tonal'
+                                        },
+                                        'html': "<span class=\"v-alert__underlay\"></span><div class=\"v-alert__prepend\"><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"             aria-hidden=\"true\" role=\"img\" tag=\"i\" class=\"v-icon notranslate v-theme--purple iconify iconify--mdi\"             density=\"default\" width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\"             style=\"font-size: 28px; height: 28px; width: 28px;\">             <path fill=\"currentColor\"                 d=\"M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2m-1 15h2v-6h-2v6Z\">             </path>         </svg></div>     <div class=\"v-alert__content\">部分配置项以及细节请参考<a href='https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md' target='_blank'>https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md</a></div>"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'error',
+                                            'variant': 'tonal',
+                                            'text': '注意：排除H&R并不保证能完全适配所有站点（部分站点在列表页不显示H&R标志，但实际上是有H&R的），请注意核对使用！'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
                     {
                         'component': 'VRow',
                         'content': [
@@ -696,6 +747,23 @@ class BrushFlow(_PluginBase):
                                         'props': {
                                             'model': 'seed_time',
                                             'label': '做种时间（小时）',
+                                            'placeholder': '达到后删除任务'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    "cols": 12,
+                                    "md": 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'hr_seed_time',
+                                            'label': 'H&R做种时间（小时）',
                                             'placeholder': '达到后删除任务'
                                         }
                                     }
@@ -1052,50 +1120,24 @@ class BrushFlow(_PluginBase):
                                     {
                                         'component': 'VSwitch',
                                         'props': {
-                                            'model': 'log_more',
-                                            'label': '记录更多日志',
+                                            'model': 'downloader_monitor',
+                                            'label': '下载器监控',
                                         }
                                     }
                                 ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
+                            },
                             {
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
+                                    'md': 4
                                 },
                                 'content': [
                                     {
-                                        'component': 'VAlert',
+                                        'component': 'VSwitch',
                                         'props': {
-                                            'type': 'success',
-                                            'variant': 'tonal'
-                                        },
-                                        'html': "<span class=\"v-alert__underlay\"></span><div class=\"v-alert__prepend\"><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"             aria-hidden=\"true\" role=\"img\" tag=\"i\" class=\"v-icon notranslate v-theme--purple iconify iconify--mdi\"             density=\"default\" width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\"             style=\"font-size: 28px; height: 28px; width: 28px;\">             <path fill=\"currentColor\"                 d=\"M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2m-1 15h2v-6h-2v6Z\">             </path>         </svg></div>     <div class=\"v-alert__content\">部分配置项以及细节请参考<a href='https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md' target='_blank'>https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md</a></div>"
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'info',
-                                            'variant': 'tonal',
-                                            'text': '注意：排除H&R并不保证能完全适配所有站点（部分站点在列表页不显示H&R标志，但实际上是有H&R的），请注意核对使用！'
+                                            'model': 'log_more',
+                                            'label': '记录更多日志',
                                         }
                                     }
                                 ]
@@ -1182,12 +1224,13 @@ class BrushFlow(_PluginBase):
             "except_tags": True,
             "except_subscribe": True,
             "brush_sequential": False,
-            "proxy_download": True,
+            "proxy_download": False,
             "proxy_delete": False,
             "freeleech": "free",
             "hr": "yes",
             "enable_site_config": False,
-            "log_more": False
+            "log_more": False,
+            "downloader_monitor": False,
         }
 
     def get_page(self) -> List[dict]:
@@ -1727,11 +1770,15 @@ class BrushFlow(_PluginBase):
 
             logger.info(f"即将针对站点 {', '.join(site.name for site in site_infos)} 开始刷流")
 
+            # 获取订阅标题
+            subscribe_titles = self.__get_subscribe_titles()
+
             # 处理所有站点
             for site in site_infos:
                 # 如果站点刷流没有正确响应，说明没有通过前置条件，其他站点也不需要继续刷流了
                 if not self.__brush_site_torrents(siteid=site.id, torrent_tasks=torrent_tasks,
-                                                  statistic_info=statistic_info):
+                                                  statistic_info=statistic_info,
+                                                  subscribe_titles=subscribe_titles):
                     logger.info(f"站点 {site.name} 刷流中途结束，停止后续刷流")
                     break
                 else:
@@ -1743,7 +1790,8 @@ class BrushFlow(_PluginBase):
             self.save_data("statistic", statistic_info)
             logger.info(f"刷流任务执行完成")
 
-    def __brush_site_torrents(self, siteid, torrent_tasks, statistic_info) -> bool:
+    def __brush_site_torrents(self, siteid, torrent_tasks: Dict[str, dict], statistic_info: Dict[str, int],
+                              subscribe_titles: Set[str]) -> bool:
         """
         针对站点进行刷流
         """
@@ -1762,7 +1810,7 @@ class BrushFlow(_PluginBase):
 
         # 排除包含订阅的种子
         if brush_config.except_subscribe:
-            torrents = self.__filter_torrents_contains_subscribe(torrents=torrents)
+            torrents = self.__filter_torrents_contains_subscribe(torrents=torrents, subscribe_titles=subscribe_titles)
 
         # 按发布日期降序排列
         torrents.sort(key=lambda x: x.pubdate or '', reverse=True)
@@ -1781,7 +1829,7 @@ class BrushFlow(_PluginBase):
 
             # 判断能否通过保种体积刷流条件
             size_condition_passed, reason = self.__evaluate_size_condition_for_brush(torrents_size=torrents_size,
-                                                                                     brush_torrent_size=torrent.size)
+                                                                                     add_torrent_size=torrent.size)
             self.__log_brush_conditions(passed=size_condition_passed, reason=reason, torrent=torrent)
             if not size_condition_passed:
                 continue
@@ -1844,26 +1892,42 @@ class BrushFlow(_PluginBase):
         return True
 
     def __evaluate_size_condition_for_brush(self, torrents_size: float,
-                                            brush_torrent_size: float = 0.0) -> Tuple[bool, Optional[str]]:
+                                            add_torrent_size: float = 0.0) -> Tuple[bool, Optional[str]]:
         """
         过滤体积不符合条件的种子
         """
-        total_size = self.__bytes_to_gb(torrents_size + brush_torrent_size)  # 预计总做种体积
+        brush_config = self.__get_brush_config()
+
+        # 如果没有明确指定增加的种子大小，则检查配置中是否有种子大小下限，如果有，使用这个大小作为增加的种子大小
+        preset_condition = False
+        if not add_torrent_size and brush_config.size:
+            size_limits = [float(size) * 1024 ** 3 for size in brush_config.size.split("-")]
+            add_torrent_size = size_limits[0]  # 使用配置的种子大小下限
+            preset_condition = True
+
+        total_size = self.__bytes_to_gb(torrents_size + add_torrent_size)  # 预计总做种体积
 
         def generate_message(config):
-            if brush_torrent_size > 0:
-                return (f"当前做种体积 {self.__bytes_to_gb(torrents_size):.1f} GB，"
-                        f"刷流种子 {self.__bytes_to_gb(brush_torrent_size):.1f} GB，"
-                        f"预计做种体积 {total_size:.1f} GB，已超过做种体积 {config} GB")
+            if add_torrent_size:
+                if preset_condition:
+                    return (f"当前做种体积 {self.__bytes_to_gb(torrents_size):.1f} GB，"
+                            f"刷流种子下限 {self.__bytes_to_gb(add_torrent_size):.1f} GB，"
+                            f"预计做种体积 {total_size:.1f} GB，"
+                            f"超过设定的保种体积 {config} GB，暂时停止新增任务")
+                else:
+                    return (f"当前做种体积 {self.__bytes_to_gb(torrents_size):.1f} GB，"
+                            f"刷流种子大小 {self.__bytes_to_gb(add_torrent_size):.1f} GB，"
+                            f"预计做种体积 {total_size:.1f} GB，"
+                            f"超过设定的保种体积 {config} GB")
             else:
-                return f"当前做种体积 {self.__bytes_to_gb(torrents_size):.1f} GB，已超过做种体积 {config} GB，暂时停止新增任务"
+                return (f"当前做种体积 {self.__bytes_to_gb(torrents_size):.1f} GB，"
+                        f"超过设定的保种体积 {config} GB，暂时停止新增任务")
 
         reasons = [
             ("disksize",
-             lambda config: torrents_size + brush_torrent_size > float(config) * 1024 ** 3, generate_message)
+             lambda config: torrents_size + add_torrent_size > float(config) * 1024 ** 3, generate_message)
         ]
 
-        brush_config = self.__get_brush_config()
         for condition, check, message in reasons:
             config_value = getattr(brush_config, condition, None)
             if config_value and check(config_value):
@@ -2021,6 +2085,7 @@ class BrushFlow(_PluginBase):
 
             seeding_torrents_dict = {self.__get_hash(torrent): torrent for torrent in seeding_torrents}
 
+            # 检查种子刷流标签变更情况
             self.__update_seeding_tasks_based_on_tags(torrent_tasks=torrent_tasks, unmanaged_tasks=unmanaged_tasks,
                                                       seeding_torrents_dict=seeding_torrents_dict)
 
@@ -2096,7 +2161,14 @@ class BrushFlow(_PluginBase):
                                              seeding_torrents_dict: Dict[str, Any]):
         brush_config = self.__get_brush_config()
 
+        if brush_config.downloader_monitor:
+            logger.info("已开启下载器监控，开始同步种子刷流标签记录")
+        else:
+            logger.info("没有开启下载器监控，取消同步种子刷流标签记录")
+            return
+
         if not brush_config.downloader == "qbittorrent":
+            logger.info("同步种子刷流标签记录目前仅支持qbittorrent")
             return
 
         # 初始化汇总信息
@@ -2116,15 +2188,15 @@ class BrushFlow(_PluginBase):
                         torrent_task = unmanaged_tasks.pop(torrent_hash)
                         torrent_tasks[torrent_hash] = torrent_task
                         added_tasks.append(torrent_task)
-                        logger.info(
-                            f"站点 {torrent_task.get('site_name')}，刷流任务种子再次加入：{torrent_task.get('title')}|{torrent_task.get('description')}")
+                        logger.info(f"站点 {torrent_task.get('site_name')}，"
+                                    f"刷流任务种子再次加入：{torrent_task.get('title')}|{torrent_task.get('description')}")
                     else:
                         # 否则，创建一个新的任务
                         torrent_task = self.__convert_torrent_info_to_task(torrent)
                         torrent_tasks[torrent_hash] = torrent_task
                         added_tasks.append(torrent_task)
-                        logger.info(
-                            f"站点 {torrent_task.get('site_name')}，刷流任务种子加入：{torrent_task.get('title')}|{torrent_task.get('description')}")
+                        logger.info(f"站点 {torrent_task.get('site_name')}，"
+                                    f"刷流任务种子加入：{torrent_task.get('title')}|{torrent_task.get('description')}")
                 # 包含刷流标签又在刷流任务中，这里额外处理一个特殊逻辑，就是种子在刷流任务中可能被标记删除但实际上又还在下载器中，这里进行重置
                 else:
                     torrent_task = torrent_tasks[torrent_hash]
@@ -2132,7 +2204,8 @@ class BrushFlow(_PluginBase):
                         torrent_task["deleted"] = False
                         reset_tasks.append(torrent_task)
                         logger.info(
-                            f"站点 {torrent_task.get('site_name')}，在下载器中找到已标记删除的刷流任务对应的种子信息，更新刷流任务状态为正常：{torrent_task.get('title')}|{torrent_task.get('description')}")
+                            f"站点 {torrent_task.get('site_name')}，在下载器中找到已标记删除的刷流任务对应的种子信息，"
+                            f"更新刷流任务状态为正常：{torrent_task.get('title')}|{torrent_task.get('description')}")
             else:
                 # 不包含刷流标签但又在刷流任务中，则移除管理
                 if torrent_hash in torrent_tasks:
@@ -2140,8 +2213,8 @@ class BrushFlow(_PluginBase):
                     torrent_task = torrent_tasks.pop(torrent_hash)
                     unmanaged_tasks[torrent_hash] = torrent_task
                     removed_tasks.append(torrent_task)
-                    logger.info(
-                        f"站点 {torrent_task.get('site_name')}，刷流任务种子移除：{torrent_task.get('title')}|{torrent_task.get('description')}")
+                    logger.info(f"站点 {torrent_task.get('site_name')}，"
+                                f"刷流任务种子移除：{torrent_task.get('title')}|{torrent_task.get('description')}")
 
         self.save_data("torrents", torrent_tasks)
         self.save_data("unmanaged", unmanaged_tasks)
@@ -2183,12 +2256,30 @@ class BrushFlow(_PluginBase):
 
         return proxy_delete_torrents, not_proxy_delete_torrents
 
-    def __evaluate_conditions_for_delete(self, site_name: str, torrent_info: dict) -> Tuple[bool, str]:
+    def __evaluate_conditions_for_delete(self, site_name: str, torrent_info: dict, torrent_task: dict) \
+            -> Tuple[bool, str]:
         """
         评估删除条件并返回是否应删除种子及其原因
         """
         brush_config = self.__get_brush_config(sitename=site_name)
 
+        reason = "未能满足设置的删除条件"
+
+        # 当配置了H&R做种时间/分享率时，则H&R种子只有达到预期行为时，才会进行删除，如果没有配置H&R做种时间/分享率，则普通种子的删除规则也适用于H&R种子
+        # 判断是否为H&R种子并且是否配置了特定的H&R条件
+        hit_and_run = torrent_task.get("hit_and_run", False)
+        hr_specific_conditions_configured = hit_and_run and (brush_config.hr_seed_time or brush_config.seed_ratio)
+        if hr_specific_conditions_configured:
+            if (brush_config.hr_seed_time and torrent_info.get("seeding_time")
+                    >= float(brush_config.hr_seed_time) * 3600):
+                return True, (f"H&R种子，做种时间 {torrent_info.get('seeding_time') / 3600:.1f} 小时，"
+                              f"大于 {brush_config.hr_seed_time} 小时")
+            if brush_config.seed_ratio and torrent_info.get("ratio") >= float(brush_config.seed_ratio):
+                return True, f"H&R种子，分享率 {torrent_info.get('ratio'):.2f}，大于 {brush_config.seed_ratio}"
+            return False, "H&R种子，未能满足设置的H&R删除条件"
+
+        # 处理其他场景，1. 不是H&R种子；2. 是H&R种子但没有特定条件配置
+        reason = reason if not hit_and_run else "H&R种子（未设置H&R条件），未能满足设置的删除条件"
         if brush_config.seed_time and torrent_info.get("seeding_time") >= float(brush_config.seed_time) * 3600:
             reason = f"做种时间 {torrent_info.get('seeding_time') / 3600:.1f} 小时，大于 {brush_config.seed_time} 小时"
         elif brush_config.seed_ratio and torrent_info.get("ratio") >= float(brush_config.seed_ratio):
@@ -2205,15 +2296,16 @@ class BrushFlow(_PluginBase):
                 brush_config.seed_inactivetime) * 60:
             reason = f"未活动时间 {torrent_info.get('iatime') / 60:.0f} 分钟，大于 {brush_config.seed_inactivetime} 分钟"
         else:
-            return False, ""
+            return False, reason
 
-        return True, reason
+        return True, reason if not hit_and_run else "H&R种子（未设置H&R条件），" + reason
 
     def __delete_torrent_for_evaluate_conditions(self, torrents: List[Any], torrent_tasks: Dict[str, dict],
                                                  proxy_delete: bool = False) -> List:
         """
         根据条件删除种子并获取已删除列表
         """
+        brush_config = self.__get_brush_config()
         delete_hashs = []
 
         for torrent in torrents:
@@ -2230,13 +2322,17 @@ class BrushFlow(_PluginBase):
 
             # 删除种子的具体实现可能会根据实际情况略有不同
             should_delete, reason = self.__evaluate_conditions_for_delete(site_name=site_name,
-                                                                          torrent_info=torrent_info)
+                                                                          torrent_info=torrent_info,
+                                                                          torrent_task=torrent_task)
             if should_delete:
                 delete_hashs.append(torrent_hash)
                 reason = "触发动态删除，" + reason if proxy_delete else reason
                 self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc,
                                            reason=reason)
                 logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
+            else:
+                if brush_config.log_more:
+                    logger.info(f"站点：{site_name}，{reason}，不删除种子：{torrent_title}|{torrent_desc}")
 
         return delete_hashs
 
@@ -2266,11 +2362,13 @@ class BrushFlow(_PluginBase):
         # 当总体积未超过最大阈值时，不需要执行删除操作
         if total_torrent_size < max_size:
             logger.info(
-                f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，上限 {self.__bytes_to_gb(max_size):.1f} GB，下限 {self.__bytes_to_gb(min_size):.1f} GB，未触发动态删除")
+                f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，上限 {self.__bytes_to_gb(max_size):.1f} GB，"
+                f"下限 {self.__bytes_to_gb(min_size):.1f} GB，未触发动态删除")
             return []
         else:
             logger.info(
-                f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，上限 {self.__bytes_to_gb(max_size):.1f} GB，下限 {self.__bytes_to_gb(min_size):.1f} GB，触发动态删除")
+                f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，上限 {self.__bytes_to_gb(max_size):.1f} GB，"
+                f"下限 {self.__bytes_to_gb(min_size):.1f} GB，触发动态删除")
 
         need_delete_hashes = []
 
@@ -2337,7 +2435,8 @@ class BrushFlow(_PluginBase):
                                                reason=reason)
                     logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
 
-        msg = f"站点：{'，'.join(sites_names)}\n内容：已完成 {len(need_delete_hashes)} 个种子删除，当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB\n原因：触发动态删除"
+        msg = (f"站点：{'，'.join(sites_names)}\n内容：已完成 {len(need_delete_hashes)} 个种子删除，"
+               f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB\n原因：触发动态删除")
         logger.info(msg)
         self.__send_message(title="【刷流任务状态更新】", text=msg)
 
@@ -2348,6 +2447,14 @@ class BrushFlow(_PluginBase):
         """
         处理已经被删除，但是任务记录中还没有被标记删除的种子
         """
+        brush_config = self.__get_brush_config()
+
+        if brush_config.downloader_monitor:
+            logger.info("已开启下载器监控，开始同步刷流任务删除记录")
+        else:
+            logger.info("没有开启下载器监控，取消同步刷流任务删除记录")
+            return
+
         # 先通过获取的全量种子，判断已经被删除，但是任务记录中还没有被标记删除的种子
         torrent_all_hashes = self.__get_all_hashes(torrents)
         missing_hashes = [hash_value for hash_value in torrent_check_hashes if hash_value not in torrent_all_hashes]
@@ -2481,6 +2588,7 @@ class BrushFlow(_PluginBase):
             "maxdlspeed": "总下载带宽",
             "maxdlcount": "同时下载任务数",
             "seed_time": "做种时间",
+            "hr_seed_time": "H&R做种时间",
             "seed_ratio": "分享率",
             "seed_size": "上传量",
             "download_time": "下载超时时间",
@@ -2550,6 +2658,7 @@ class BrushFlow(_PluginBase):
             "seeder": brush_config.seeder,
             "pubtime": brush_config.pubtime,
             "seed_time": brush_config.seed_time,
+            "hr_seed_time": brush_config.hr_seed_time,
             "seed_ratio": brush_config.seed_ratio,
             "seed_size": brush_config.seed_size,
             "download_time": brush_config.download_time,
@@ -2568,6 +2677,7 @@ class BrushFlow(_PluginBase):
             "proxy_delete": brush_config.proxy_delete,
             "log_more": brush_config.log_more,
             "active_time_range": brush_config.active_time_range,
+            "downloader_monitor": brush_config.downloader_monitor,
             "enable_site_config": brush_config.enable_site_config,
             "site_config": brush_config.site_config
         }
@@ -3163,23 +3273,60 @@ class BrushFlow(_PluginBase):
 
     def __get_subscribe_titles(self) -> Set[str]:
         """
-        获取当前订阅的所有标题，返回一个不包含None的集合
+        获取当前订阅的所有标题，返回一个不包含None和空白字符的集合
         """
-        self.subscribeoper = SubscribeOper()
+        brush_config = self.__get_brush_config()
+        if not brush_config.except_subscribe:
+            logger.info("没有开启排除订阅，取消订阅标题匹配")
+            return set()
+
+        logger.info("已开启排除订阅，正在准备订阅标题匹配 ...")
+
+        if not self._subscribe_infos:
+            self._subscribe_infos = {}
+
         subscribes = self.subscribeoper.list()
+        if subscribes:
+            # 遍历订阅
+            for subscribe in subscribes:
+                # 判断当前订阅是否已经在缓存中，如果已经处理过，那么这里直接跳过
+                subscribe_key = f"{subscribe.id}_{subscribe.name}"
+                if subscribe_key in self._subscribe_infos:
+                    continue
 
-        # 使用 filter() 函数筛选出有 'name' 属性且该属性值不为 None 的 Subscribe 对象
-        # 然后使用 map() 函数获取每个对象的 'name' 属性值
-        # 最后，使用 set() 函数将结果转换为集合，自动去除重复项和 None
-        subscribe_titles = set(filter(None, map(lambda sub: getattr(sub, 'name', None), subscribes)))
+                subscribe_titles = [subscribe.name]
+                try:
+                    # 生成元数据
+                    meta = MetaInfo(subscribe.name)
+                    meta.year = subscribe.year
+                    meta.begin_season = subscribe.season or None
+                    meta.type = MediaType(subscribe.type)
+                    # 识别媒体信息
+                    mediainfo: MediaInfo = self.chain.recognize_media(meta=meta, mtype=meta.type,
+                                                                      tmdbid=subscribe.tmdbid,
+                                                                      doubanid=subscribe.doubanid,
+                                                                      cache=True)
+                    if mediainfo:
+                        logger.info(f"subscribe {subscribe.name} {mediainfo.to_dict()}")
+                        subscribe_titles.extend(mediainfo.names)
+                        subscribe_titles = [title.strip() for title in subscribe_titles if title and title.strip()]
+                        self._subscribe_infos[subscribe_key] = subscribe_titles
+                    else:
+                        logger.info(f"订阅 {subscribe.name} 没有识别到媒体信息，跳过订阅标题匹配")
+                except Exception as e:
+                    logger.error(f"识别订阅 {subscribe.name} 媒体信息失败，错误详情: {e}")
 
-        # 返回不包含 None 的名称集合
-        return subscribe_titles
+            # 移除不再存在的订阅
+            current_keys = {f"{subscribe.id}_{subscribe.name}" for subscribe in subscribes}
+            for key in set(self._subscribe_infos) - current_keys:
+                del self._subscribe_infos[key]
 
-    def __filter_torrents_contains_subscribe(self, torrents: Any):
-        subscribe_titles = self.__get_subscribe_titles()
-        logger.info(f"当前订阅的名称集合为：{subscribe_titles}")
+        logger.info(f"订阅标题匹配完成，当前订阅的标题集合为：{self._subscribe_infos}")
+        unique_titles = {title for titles in self._subscribe_infos.values() for title in titles}
+        return unique_titles
 
+    @staticmethod
+    def __filter_torrents_contains_subscribe(torrents: Any, subscribe_titles: Set[str]):
         # 初始化两个列表，一个用于收集未被排除的种子，一个用于记录被排除的种子
         included_torrents = []
         excluded_torrents = []
@@ -3301,23 +3448,39 @@ class BrushFlow(_PluginBase):
                 "https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md "
                 "进行配置，请注意，只需要保留实际配置内容（删除这段）\n")
         config = """[{
-    "sitename": "测试站点",
-    "freeleech": "free",
-    "hr": "no",
-    "include": "",
-    "exclude": "",
-    "size": "10-500",
-    "seeder": "1",
-    "pubtime": "5-120",
-    "seed_time": 120,
-    "seed_ratio": "",
-    "seed_size": "",
-    "download_time": "",
-    "seed_avgspeed": "",
-    "seed_inactivetime": "",
-    "save_path": "/downloads/site1",
-    "proxy_download": false
-}]"""
+  "sitename": "站点1",
+  "seed_time": 96,
+  "hr_seed_time": 144
+  }, {
+      "sitename": "站点2",
+      "hr": "yes",
+      "size": "10-500",
+      "seeder": "5-10",
+      "pubtime": "5-120",
+      "seed_time": 96,
+      "save_path": "/downloads/site2",
+      "proxy_download": true,
+      "hr_seed_time": 144
+  }, {
+      "sitename": "站点3",
+      "freeleech": "free",
+      "hr": "yes",
+      "include": "",
+      "exclude": "",
+      "size": "10-500",
+      "seeder": "1",
+      "pubtime": "5-120",
+      "seed_time": 120,
+      "hr_seed_time": 144,
+      "seed_ratio": "",
+      "seed_size": "",
+      "download_time": "",
+      "seed_avgspeed": "",
+      "seed_inactivetime": "",
+      "save_path": "/downloads/site1",
+      "proxy_download": false,
+      "proxy_delete": false,
+  }]"""
         return desc + config
 
     @staticmethod
