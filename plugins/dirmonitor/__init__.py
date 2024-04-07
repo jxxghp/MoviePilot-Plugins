@@ -59,7 +59,7 @@ class DirMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "directory.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -371,6 +371,8 @@ class DirMonitor(_PluginBase):
 
                 # 识别媒体信息
                 mediainfo: MediaInfo = self.chain.recognize_media(meta=file_meta,
+                                                                  mtype=MediaType(
+                                                                      download_history.type) if download_history else None,
                                                                   tmdbid=download_history.tmdbid if download_history else None)
                 if not mediainfo:
                     logger.warn(f'未识别到媒体信息，标题：{file_meta.name}')
