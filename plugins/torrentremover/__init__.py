@@ -27,7 +27,7 @@ class TorrentRemover(_PluginBase):
     # 插件图标
     plugin_icon = "delete.jpg"
     # 插件版本
-    plugin_version = "1.2.1"
+    plugin_version = "1.2.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -677,8 +677,8 @@ class TorrentRemover(_PluginBase):
         torrent_upload_avs = torrent.uploaded / torrent_seeding_time if torrent_seeding_time else 0
         # 大小 单位：GB
         sizes = self._size.split('-') if self._size else []
-        minsize = sizes[0] * 1024 * 1024 * 1024 if sizes else 0
-        maxsize = sizes[-1] * 1024 * 1024 * 1024 if sizes else 0
+        minsize = float(sizes[0]) * 1024 * 1024 * 1024 if sizes else 0
+        maxsize = float(sizes[-1]) * 1024 * 1024 * 1024 if sizes else 0
         # 分享率
         if self._ratio and torrent.ratio <= float(self._ratio):
             return None
@@ -721,8 +721,8 @@ class TorrentRemover(_PluginBase):
         torrent_upload_avs = torrent_uploaded / torrent_seeding_time if torrent_seeding_time else 0
         # 大小 单位：GB
         sizes = self._size.split('-') if self._size else []
-        minsize = sizes[0] * 1024 * 1024 * 1024 if sizes else 0
-        maxsize = sizes[-1] * 1024 * 1024 * 1024 if sizes else 0
+        minsize = float(sizes[0]) * 1024 * 1024 * 1024 if sizes else 0
+        maxsize = float(sizes[-1]) * 1024 * 1024 * 1024 if sizes else 0
         # 分享率
         if self._ratio and torrent.ratio <= float(self._ratio):
             return None

@@ -74,7 +74,7 @@
     "TorrentRemover": {
         "name": "自动删种",
         "description": "自动删除下载器中的下载任务。",
-        "version": "1.2.1",
+        "version": "1.2.2",
         "icon": "delete.jpg",
         "author": "jxxghp",
         "level": 2
