@@ -210,7 +210,7 @@
     "RssSubscribe": {
         "name": "自定义订阅",
         "description": "定时刷新RSS报文，识别内容后添加订阅或直接下载。",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "rss.png",
         "author": "jxxghp",
         "level": 2

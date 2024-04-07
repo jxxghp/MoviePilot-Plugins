@@ -1,5 +1,6 @@
 import datetime
 import re
+import traceback
 from pathlib import Path
 from threading import Lock
 from typing import Optional, Any, List, Dict, Tuple
@@ -30,7 +31,7 @@ class RssSubscribe(_PluginBase):
     # 插件图标
     plugin_icon = "rss.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -573,7 +574,7 @@ class RssSubscribe(_PluginBase):
                     description = result.get("description")
                     enclosure = result.get("enclosure")
                     link = result.get("link")
-                    sise = result.get("sise")
+                    size = result.get("size")
                     pubdate: datetime.datetime = result.get("pubdate")
                     # 检查是否处理过
                     if not title or title in [h.get("key") for h in history]:
@@ -602,7 +603,7 @@ class RssSubscribe(_PluginBase):
                         description=description,
                         enclosure=enclosure,
                         page_url=link,
-                        size=sise,
+                        size=size,
                         pubdate=pubdate.strftime("%Y-%m-%d %H:%M:%S") if pubdate else None,
                         site_proxy=self._proxy,
                     )
@@ -673,7 +674,7 @@ class RssSubscribe(_PluginBase):
                         "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     })
                 except Exception as err:
-                    logger.error(f'刷新RSS数据出错：{str(err)}')
+                    logger.error(f'刷新RSS数据出错：{str(err)} - {traceback.format_exc()}')
             logger.info(f"RSS {url} 刷新完成")
         # 保存历史记录
         self.save_data('history', history)
