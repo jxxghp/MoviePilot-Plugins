@@ -32,7 +32,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -101,7 +101,7 @@ class DownloaderHelper(_PluginBase):
         if self.__get_config_item(config_key='run_once'):
             if self.__check_enable_any_task():
                 self.__start_scheduler()
-                self.__scheduler.add_job(func=self.__run,
+                self.__scheduler.add_job(func=self.__try_run,
                                          trigger='date',
                                          run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                                          name='下载器助手任务-立即运行一次')
@@ -147,7 +147,7 @@ class DownloaderHelper(_PluginBase):
                     "id": "DownloaderHelperTimerService",
                     "name": "下载器助手定时服务",
                     "trigger": CronTrigger.from_crontab(cron),
-                    "func": self.__run,
+                    "func": self.__try_run,
                     "kwargs": {}
                 }]
             else:
@@ -171,14 +171,13 @@ class DownloaderHelper(_PluginBase):
 
         return [{
             'component': 'VForm',
-            'content': [{
+            'content': [{ # 业务无关总控
                 'component': 'VRow',
                 'content': [{
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'md': 4,
-                        'xl': 3
+                        'xxl': 4, 'xl': 4, 'lg': 4, 'md': 4, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VSwitch',
@@ -192,8 +191,7 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'md': 4,
-                        'xl': 3
+                        'xxl': 4, 'xl': 4, 'lg': 4, 'md': 4, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VSwitch',
@@ -207,8 +205,7 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'md': 4,
-                        'xl': 3
+                        'xxl': 4, 'xl': 4, 'lg': 4, 'md': 4, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VSwitch',
@@ -218,12 +215,14 @@ class DownloaderHelper(_PluginBase):
                             'hint': '保存插件配置后是否立即触发一次插件任务运行'
                         }
                     }]
-                }, {
+                }]
+            }, { # 业务相关总控
+                'component': 'VRow',
+                'content': [{
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'md': 4,
-                        'xl': 3
+                        'xxl': 4, 'xl': 4, 'lg': 4, 'md': 4, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VSwitch',
@@ -237,8 +236,7 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'md': 4,
-                        'xl': 3
+                        'xxl': 4, 'xl': 4, 'lg': 4, 'md': 4, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VSwitch',
@@ -252,8 +250,7 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'md': 4,
-                        'xl': 3
+                        'xxl': 4, 'xl': 4, 'lg': 4, 'md': 4, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VSwitch',
@@ -270,7 +267,7 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'md': 4
+                        'xxl': 4, 'xl': 4, 'lg': 4, 'md': 4, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VTextField',
@@ -285,7 +282,7 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'md': 4
+                        'xxl': 4, 'xl': 4, 'lg': 4, 'md': 4, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VTextField',
@@ -299,7 +296,7 @@ class DownloaderHelper(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'md': 4
+                        'xxl': 4, 'xl': 4, 'lg': 4, 'md': 4, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VTextField',
@@ -324,7 +321,7 @@ class DownloaderHelper(_PluginBase):
                             'model': 'tracker_mappings',
                             'label': 'Tracker映射',
                             'placeholder': '格式：\n'
-                                           '<tracker-domain>:<site-domain>\n'
+                                           '<tracker-domain>:<site-domain>\n\n'
                                            '例如：\n'
                                            'chdbits.xyz:ptchdbits.co',
                             'hint': 'Tracker映射。用于在站点打标签时，指定tracker和站点域名不同的种子的域名对应关系；前面为tracker域名（完整域名或者主域名皆可），中间是英文冒号，后面是站点域名。'
@@ -1066,15 +1063,24 @@ class DownloaderHelper(_PluginBase):
             text += '\n————————————\n'
         return text
 
-    def __run(self):
+    def __try_run(self, context: TaskContext = None):
         """
-        运行插件任务
+        尝试运行插件任务
         """
         if not self.__task_lock.acquire(blocking=False):
             logger.info('已有进行中的任务，本次不执行')
             return
         try:
-            context = TaskContext()
+            self.__run_for_all(context=context)
+        finally:
+            self.__task_lock.release()
+
+    def __block_run(self, context: TaskContext = None):
+        """
+        阻塞运行插件任务
+        """
+        self.__task_lock.acquire()
+        try:
             self.__run_for_all(context=context)
         finally:
             self.__task_lock.release()
@@ -1099,6 +1105,10 @@ class DownloaderHelper(_PluginBase):
             return context
 
         self.__run_for_transmission(context=context)
+
+        if self.__exit_event.is_set():
+            logger.warn('插件服务正在退出，任务终止')
+            return context
 
         # 发送通知
         self.__send_notify(context=context)
@@ -1554,7 +1564,7 @@ class DownloaderHelper(_PluginBase):
         username = event.event_data.get('username')
         if username:
             context.set_username(username=username)
-        self.__run_for_all(context=context)
+        self.__block_run(context=context)
         logger.info('下载添加事件监听任务执行结束')
 
     @eventmanager.register(EventType.DownloadFileDeleted)
@@ -1576,5 +1586,5 @@ class DownloaderHelper(_PluginBase):
         logger.info('源文件删除事件监听任务执行开始...')
         context = TaskContext().enable_seeding(False).enable_tagging(False).enable_delete(True).set_deleted_event_data(
             event.event_data)
-        self.__run_for_all(context=context)
+        self.__block_run(context=context)
         logger.info('源文件删除事件监听任务执行结束')
