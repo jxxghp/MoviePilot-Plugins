@@ -394,7 +394,7 @@
     "NeoDBSync": {
         "name": "NeoDB 想看",
         "description": "同步 NeoDB 想看条目，自动添加订阅。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "NeoDB.jpeg",
         "author": "hcplantern",
         "level": 1
