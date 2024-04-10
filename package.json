@@ -37,7 +37,10 @@
         "version": "1.5",
         "icon": "douban.png",
         "author": "jxxghp",
-        "level": 2
+        "level": 2,
+        "history": {
+            "v1.5": "豆瓣信息识别后直接添加订阅，不进行搜索下载"
+        }
     },
     "DirMonitor": {
         "name": "目录监控",
@@ -45,7 +48,10 @@
         "version": "1.9",
         "icon": "directory.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.9": "修复目录监控不能正确获取下载历史记录进行识别的问题"
+        }
     },
     "ChineseSubFinder": {
         "name": "ChineseSubFinder",
@@ -397,7 +403,10 @@
         "version": "1.1",
         "icon": "NeoDB.jpeg",
         "author": "hcplantern",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.1": "直接添加订阅，不提前进行搜索下载"
+        }
     },
     "PlayletCategory": {
         "name": "短剧自动分类",
