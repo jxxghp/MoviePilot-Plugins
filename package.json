@@ -5,7 +5,10 @@
         "version": "1.9",
         "icon": "signin.png",
         "author": "thsrite",
-        "level": 2
+        "level": 2,
+        "history": {
+            "v1.9": "支持馒头新架构自动签到"
+        }
     },
     "CustomSites": {
         "name": "自定义站点",
@@ -21,7 +24,10 @@
         "version": "2.6",
         "icon": "statistic.png",
         "author": "lightolly",
-        "level": 2
+        "level": 2,
+        "history": {
+            "v2.6": "支持馒头新架构数据统计"
+        }
     },
     "SiteRefresh": {
         "name": "站点自动更新",
@@ -235,7 +241,11 @@
         "version": "2.6",
         "icon": "brush.jpg",
         "author": "jxxghp,InfinityPacer",
-        "level": 2
+        "level": 2,
+        "history": {
+            "v2.6": "修复排除订阅功能",
+            "v2.5": "增加H&R做种时间、下载器监控配置项，刷流前置条件逻辑调整，代理下载种子默认为关闭"
+        }
     },
     "DownloadingMsg": {
         "name": "下载进度推送",
@@ -371,7 +381,11 @@
         "version": "1.8",
         "icon": "Ombi_A.png",
         "author": "DzAvril",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.8": "修复空目录删除逻辑",
+            "v1.7": "增加定时清理空目录功能"
+        }
     },
     "LinkMonitor": {
         "name": "实时硬链接",
