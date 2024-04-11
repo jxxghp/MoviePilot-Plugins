@@ -13,7 +13,6 @@ from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.db.models.downloadhistory import DownloadHistory
-from app.modules.themoviedb.tmdbapi import TmdbHelper
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from app.helper.sites import SitesHelper
@@ -28,7 +27,7 @@ class DownloadSiteTag(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -48,7 +47,6 @@ class DownloadSiteTag(_PluginBase):
     downloader_qb = None
     downloader_tr = None
     downloadhistory_oper = None
-    tmdb_helper = None
     sites_helper = None
     _scheduler = None
     _enabled = False
@@ -68,7 +66,6 @@ class DownloadSiteTag(_PluginBase):
         self.downloader_qb = Qbittorrent()
         self.downloader_tr = Transmission()
         self.downloadhistory_oper = DownloadHistoryOper()
-        self.tmdb_helper = TmdbHelper()
         self.sites_helper = SitesHelper()
         # 读取配置
         if config:
@@ -277,7 +274,7 @@ class DownloadSiteTag(_PluginBase):
                         history_type = MediaType(history.type) if history.type else None
                         if history.tmdbid and history_type == MediaType.TV:
                             # tmdb_id获取tmdb信息
-                            tmdb_info = self.tmdb_helper.get_info(mtype=history_type, tmdbid=history.tmdbid)
+                            tmdb_info = self.chain.tmdb_info(mtype=history_type, tmdbid=history.tmdbid)
                             if tmdb_info:
                                 genre_ids = tmdb_info.get("genre_ids")
                         _cat = self._genre_ids_get_cat(history.type, genre_ids)
