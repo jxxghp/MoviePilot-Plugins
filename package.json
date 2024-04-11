@@ -496,5 +496,13 @@
         "icon": "FeiShu_A.png",
         "author": "InfinityPacer",
         "level": 2
+    },
+    "IyuuAuth": {
+        "name": "IYUU站点绑定",
+        "description": "为IYUU账号绑定认证站点，以便用于用户认证和辅种。",
+        "version": "1.0",
+        "icon": "Iyuu_A.png",
+        "author": "jxxghp",
+        "level": 1
     }
 }

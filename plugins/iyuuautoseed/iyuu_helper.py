@@ -1,6 +1,7 @@
 import hashlib
 import json
 import time
+from typing import Tuple, Optional
 
 from app.utils.http import RequestUtils
 
@@ -11,7 +12,7 @@ class IyuuHelper(object):
     _sites = {}
     _token = None
 
-    def __init__(self, token):
+    def __init__(self, token: str):
         self._token = token
         if self._token:
             self.init_config()
@@ -19,7 +20,7 @@ class IyuuHelper(object):
     def init_config(self):
         pass
 
-    def __request_iyuu(self, url, method="get", params=None):
+    def __request_iyuu(self, url: str, method: str = "get", params: dict = None) -> Tuple[Optional[dict], str]:
         """
         向IYUUApi发送请求
         """
@@ -50,7 +51,7 @@ class IyuuHelper(object):
         else:
             return None, f"请求IYUU失败，未获取到返回信息"
 
-    def get_torrent_url(self, sid):
+    def get_torrent_url(self, sid: str) -> Tuple[Optional[str], Optional[str]]:
         if not sid:
             return None, None
         if not self._sites:
@@ -60,7 +61,7 @@ class IyuuHelper(object):
         site = self._sites.get(sid)
         return site.get('base_url'), site.get('download_page')
 
-    def __get_sites(self):
+    def __get_sites(self) -> dict:
         """
         返回支持辅种的全部站点
         :return: 站点列表、错误信息
@@ -92,7 +93,7 @@ class IyuuHelper(object):
             print(msg)
             return {}
 
-    def get_seed_info(self, info_hashs: list):
+    def get_seed_info(self, info_hashs: list) -> Tuple[Optional[dict], str]:
         """
         返回info_hash对应的站点id、种子id
         {
@@ -126,41 +127,5 @@ class IyuuHelper(object):
         return result, msg
 
     @staticmethod
-    def get_sha1(json_str) -> str:
+    def get_sha1(json_str: str) -> str:
         return hashlib.sha1(json_str.encode('utf-8')).hexdigest()
-
-    def get_auth_sites(self):
-        """
-        返回支持鉴权的站点列表
-        [
-            {
-                "id": 2,
-                "site": "pthome",
-                "bind_check": "passkey,uid"
-            }
-        ]
-        """
-        result, msg = self.__request_iyuu(url=self._api_base % 'App.Api.GetRecommendSites')
-        if result:
-            return result.get('recommend') or []
-        else:
-            print(msg)
-            return []
-
-    def bind_site(self, site, passkey, uid):
-        """
-        绑定站点
-        :param site: 站点名称
-        :param passkey: passkey
-        :param uid: 用户id
-        :return: 状态码、错误信息
-        """
-        result, msg = self.__request_iyuu(url=self._api_base % 'App.Api.Bind',
-                                          method="get",
-                                          params={
-                                              "token": self._token,
-                                              "site": site,
-                                              "passkey": self.get_sha1(passkey),
-                                              "id": uid
-                                          })
-        return result, msg
