@@ -161,7 +161,7 @@ class IyuuAuth(_PluginBase):
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextfield',
+                                        'component': 'VTextField',
                                         'props': {
                                             'model': 'passkey',
                                             'label': '站点密钥',
@@ -177,7 +177,7 @@ class IyuuAuth(_PluginBase):
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextfield',
+                                        'component': 'VTextField',
                                         'props': {
                                             'model': 'uid',
                                             'label': '用户UID',
@@ -201,7 +201,7 @@ class IyuuAuth(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '如果设置了`IYUU_SIGN`环境变量则会自动读取，否则需要先填写 IYUU令牌 保存，重新打开插件才能选择绑定站点。'
+                                            'text': '如果设置了`IYUU_SIGN`环境变量则会自动读取，否则需要先填写 IYUU令牌。需要先保存IYUU令牌后，重新打开插件才能选择绑定站点。'
                                         }
                                     }
                                 ]
