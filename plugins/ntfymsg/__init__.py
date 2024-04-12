@@ -1,4 +1,5 @@
-import json, requests
+import json
+import requests
 
 from typing import Any, List, Dict, Tuple
 
@@ -6,6 +7,7 @@ from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import EventType, NotificationType
+
 
 class NtfyClient:
 
@@ -21,18 +23,20 @@ class NtfyClient:
         return response
 
     def __init__(
-        self,
-        topic: str,
-        server: str = "https://ntfy.sh",
-        user: str = "",
-        password: str = "",
+            self,
+            topic: str,
+            server: str = "https://ntfy.sh",
+            user: str = "",
+            password: str = "",
     ):
         self._server = server
         self._topic = topic
         self.__set_url(server, topic)
         self._auth = (user, password)
+
     def __set_url(self, server, topic):
         self.url = server.strip("/") + "/" + topic
+
 
 class NtfyMsg(_PluginBase):
     # 插件名称
@@ -220,10 +224,9 @@ class NtfyMsg(_PluginBase):
             'msgtypes': [],
             'server': 'https://ntfy.sh',
             'topic': 'MoviePilot',
-            'user':'',
-            'password':'',
+            'user': '',
+            'password': '',
         }
-
 
     def get_page(self) -> List[dict]:
         pass
@@ -264,7 +267,7 @@ class NtfyMsg(_PluginBase):
             if not self._server or not self._topic:
                 return False, "参数未配置"
             ntfy = NtfyClient(server=self._server, topic=self._topic, user=self._user, password=self._password)
-            ntfy.send(title=title, message=text,format_as_markdown=True)
+            ntfy.send(title=title, message=text, format_as_markdown=True)
 
         except Exception as msg_e:
             logger.error(f"ntfy消息发送失败，错误信息：{str(msg_e)}")
