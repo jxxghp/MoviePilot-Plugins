@@ -504,5 +504,13 @@
         "icon": "Iyuu_A.png",
         "author": "jxxghp",
         "level": 1
+    },
+    "NtfyMsg": {
+        "name": "ntfy消息推送",
+        "description": "支持使用ntfy发送消息通知。",
+        "version": "1.0",
+        "icon": "Ntfy_A.png",
+        "author": "lethargicScribe",
+        "level": 1
     }
 }
