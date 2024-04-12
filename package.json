@@ -512,5 +512,13 @@
         "icon": "Ntfy_A.png",
         "author": "lethargicScribe",
         "level": 1
+    },
+    "PluginAutoUpgrade": {
+        "name": "插件自动升级",
+        "description": "定时检测、升级插件。",
+        "version": "1.0",
+        "icon": "PluginAutoUpgrade.png",
+        "author": "hotlcc",
+        "level": 1
     }
 }
