@@ -959,7 +959,7 @@ class CrossSeed(_PluginBase):
             db_site = self.siteoper.get(site_config.id)
             if db_site and not db_site.is_active:
                 logger.info(f"站点{site_config.name}已停用，跳过辅种")
-                return
+                continue
             remote_tors: List[TorInfo] = []
             total_size = len(pieces_hashes)
             for i in range(0, len(pieces_hashes), chunk_size):
