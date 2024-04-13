@@ -177,11 +177,11 @@ class CrossSeed(_PluginBase):
     # 插件图标
     plugin_icon = "qingwa.png"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "233@qingwa"
     # 作者主页
-    author_url = "https://new.qingwa.pro/"
+    author_url = "https://qingwapt.com/"
     # 插件配置项ID前缀
     plugin_config_prefix = "cross_seed_"
     # 加载顺序
@@ -955,6 +955,11 @@ class CrossSeed(_PluginBase):
         # 逐个站点查询可辅种数据
         chunk_size = 100
         for site_config in self._site_cs_infos:
+            # 检查站点是否已经停用
+            db_site = self.siteoper.get(site_config.id)
+            if db_site and not db_site.is_active:
+                logger.info(f"站点{site_config.name}已停用，跳过辅种")
+                return
             remote_tors: List[TorInfo] = []
             total_size = len(pieces_hashes)
             for i in range(0, len(pieces_hashes), chunk_size):
