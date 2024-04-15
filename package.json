@@ -385,13 +385,12 @@
     "RemoveLink": {
         "name": "清理硬链接",
         "description": "监控目录内文件被删除时，同步删除监控目录内所有和它硬链接的文件",
-        "version": "1.8",
+        "version": "1.6",
         "icon": "Ombi_A.png",
         "author": "DzAvril",
         "level": 1,
         "history": {
-            "v1.8": "修复空目录删除逻辑",
-            "v1.7": "增加定时清理空目录功能"
+            "v1.6": "提升插件性能"
         }
     },
     "LinkMonitor": {
