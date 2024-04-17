@@ -3559,7 +3559,7 @@ class BrushFlow(_PluginBase):
 
             magnet_link = torrent.get("magnet_uri")
             if magnet_link:
-                query_params = parse_qs(urlparse(magnet_link).query)
+                query_params: dict = parse_qs(urlparse(magnet_link).query)
                 encoded_tracker_urls = query_params.get('tr', [])
                 # 解码tracker URLs然后扩展到trackers列表中
                 decoded_tracker_urls = [unquote(url) for url in encoded_tracker_urls]
