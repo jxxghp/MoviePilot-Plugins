@@ -109,7 +109,9 @@ class BrushConfig:
             # 当新增支持字段时，仅在此处添加字段名
         }
         try:
-            site_configs = json.loads(self.site_config)
+            # site_config中去掉以//开始的行
+            site_config = re.sub(r'//.*?\n', '', self.site_config).strip()
+            site_configs = json.loads(site_config)
             self.group_site_configs = {}
             for config in site_configs:
                 sitename = config.get("sitename")
@@ -192,7 +194,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "2.6"
+    plugin_version = "2.7"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -410,7 +412,20 @@ class BrushFlow(_PluginBase):
                                             'type': 'success',
                                             'variant': 'tonal'
                                         },
-                                        'html': "<span class=\"v-alert__underlay\"></span><div class=\"v-alert__prepend\"><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"             aria-hidden=\"true\" role=\"img\" tag=\"i\" class=\"v-icon notranslate v-theme--purple iconify iconify--mdi\"             density=\"default\" width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\"             style=\"font-size: 28px; height: 28px; width: 28px;\">             <path fill=\"currentColor\"                 d=\"M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2m-1 15h2v-6h-2v6Z\">             </path>         </svg></div>     <div class=\"v-alert__content\">部分配置项以及细节请参考<a href='https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md' target='_blank'>https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md</a></div>"
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'text': '部分配置项以及细节请参考：'
+                                            },
+                                            {
+                                                'component': 'a',
+                                                'props': {
+                                                    'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md',
+                                                    'target': '_blank'
+                                                },
+                                                'text': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md'
+                                            }
+                                        ]
                                     }
                                 ]
                             }
@@ -1148,17 +1163,22 @@ class BrushFlow(_PluginBase):
                         "component": "VDialog",
                         "props": {
                             "model": "dialog_closed",
-                            "max-width": "80rem",
+                            "max-width": "50rem",
                             "overlay-class": "v-dialog--scrollable v-overlay--scroll-blocked",
                             "content-class": "v-card v-card--density-default v-card--variant-elevated rounded-t"
                         },
                         "content": [
                             {
                                 "component": "VCard",
+                                "props": {
+                                    "title": "设置站点配置"
+                                },
                                 "content": [
                                     {
-                                        "component": "VCardItem",
-                                        "text": "设置站点配置"
+                                        "component": "VDialogCloseBtn",
+                                        "props": {
+                                            "model": "dialog_closed"
+                                        }
                                     },
                                     {
                                         "component": "VCardText",
@@ -1174,12 +1194,12 @@ class BrushFlow(_PluginBase):
                                                         },
                                                         'content': [
                                                             {
-                                                                "component": "VTextarea",
-                                                                "props": {
-                                                                    "model": "site_config",
-                                                                    "placeholder": "请输入站点配置",
-                                                                    "label": "站点配置",
-                                                                    "rows": 16
+                                                                'component': 'VAceEditor',
+                                                                'props': {
+                                                                    'modelvalue': 'site_config',
+                                                                    'lang': 'json',
+                                                                    'theme': 'monokai',
+                                                                    'style': 'height: 30rem',
                                                                 }
                                                             }
                                                         ]
@@ -1201,7 +1221,20 @@ class BrushFlow(_PluginBase):
                                                                     'type': 'info',
                                                                     'variant': 'tonal'
                                                                 },
-                                                                'html': "<span class=\"v-alert__underlay\"></span><div class=\"v-alert__prepend\"><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"             aria-hidden=\"true\" role=\"img\" tag=\"i\" class=\"v-icon notranslate v-theme--purple iconify iconify--mdi\"             density=\"default\" width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\"             style=\"font-size: 28px; height: 28px; width: 28px;\">             <path fill=\"currentColor\"                 d=\"M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2m-1 15h2v-6h-2v6Z\">             </path>         </svg></div>     <div class=\"v-alert__content\">注意：只有启用站点独立配置时，该配置项才会生效，详细配置参考<a href='https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md' target='_blank'>https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md</a></div>"
+                                                                'content': [
+                                                                    {
+                                                                        'component': 'span',
+                                                                        'text': '注意：只有启用站点独立配置时，该配置项才会生效，详细配置参考：'
+                                                                    },
+                                                                    {
+                                                                        'component': 'a',
+                                                                        'props': {
+                                                                            'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md',
+                                                                            'target': '_blank'
+                                                                        },
+                                                                        'text': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md'
+                                                                    }
+                                                                ]
                                                             }
                                                         ]
                                                     }
@@ -1269,60 +1302,26 @@ class BrushFlow(_PluginBase):
         total_active_uploaded = StringUtils.str_filesize(statistic_info.get("active_uploaded") or 0)
         # 活跃下载量
         total_active_downloaded = StringUtils.str_filesize(statistic_info.get("active_downloaded") or 0)
+        # 表格标题
+        headers = [
+            {'title': '站点', 'key': 'site', 'sortable': True},
+            {'title': '标题', 'key': 'title', 'sortable': True},
+            {'title': '大小', 'key': 'size', 'sortable': True},
+            {'title': '上传量', 'key': 'uploaded', 'sortable': True},
+            {'title': '下载量', 'key': 'downloaded', 'sortable': True},
+            {'title': '分享率', 'key': 'ratio', 'sortable': True},
+            {'title': '状态', 'key': 'status', 'sortable': True},
+        ]
         # 种子数据明细
-        torrent_trs = [
+        items = [
             {
-                'component': 'tr',
-                'props': {
-                    'class': 'text-sm'
-                },
-                'content': [
-                    {
-                        'component': 'td',
-                        'props': {
-                            'class': 'whitespace-nowrap break-keep text-high-emphasis'
-                        },
-                        'text': data.get("site_name")
-                    },
-                    {
-                        'component': 'td',
-                        'html': f'<span style="font-size: .85rem;">{data.get("title")}</span>' +
-                                (f'<br><span style="font-size: 0.75rem;">{data.get("description")}</span>' if data.get(
-                                    "description") else "")
-
-                    },
-                    {
-                        'component': 'td',
-                        'text': StringUtils.str_filesize(data.get("size"))
-                    },
-                    {
-                        'component': 'td',
-                        'text': StringUtils.str_filesize(data.get("uploaded") or 0)
-                    },
-                    {
-                        'component': 'td',
-                        'text': StringUtils.str_filesize(data.get("downloaded") or 0)
-                    },
-                    {
-                        'component': 'td',
-                        'text': round(data.get('ratio') or 0, 2)
-                    },
-                    {
-                        'component': 'td',
-                        'text': "是" if data.get("hit_and_run") else "否"
-                    },
-                    {
-                        'component': 'td',
-                        'text': f"{data.get('seeding_time') / 3600:.1f}" if data.get('seeding_time') else "N/A"
-                    },
-                    {
-                        'component': 'td',
-                        'props': {
-                            'class': 'text-no-wrap'
-                        },
-                        'text': "已删除" if data.get("deleted") else "正常"
-                    }
-                ]
+                'site': data.get("site_name"),
+                'title': data.get("title"),
+                'size': StringUtils.str_filesize(data.get("size")),
+                'uploaded': StringUtils.str_filesize(data.get("uploaded") or 0),
+                'downloaded': StringUtils.str_filesize(data.get("downloaded") or 0),
+                'ratio': round(data.get('ratio') or 0, 2),
+                'status': "已删除" if data.get("deleted") else "正常"
             } for data in data_list
         ]
 
@@ -1376,7 +1375,7 @@ class BrushFlow(_PluginBase):
                                                         'props': {
                                                             'class': 'text-caption'
                                                         },
-                                                        'text': '总上传量(活跃)'
+                                                        'text': '总上传量 / 活跃'
                                                     },
                                                     {
                                                         'component': 'div',
@@ -1389,7 +1388,7 @@ class BrushFlow(_PluginBase):
                                                                 'props': {
                                                                     'class': 'text-h6'
                                                                 },
-                                                                'text': f"{total_uploaded}({total_active_uploaded})"
+                                                                'text': f"{total_uploaded} / {total_active_uploaded}"
                                                             }
                                                         ]
                                                     }
@@ -1446,7 +1445,7 @@ class BrushFlow(_PluginBase):
                                                         'props': {
                                                             'class': 'text-caption'
                                                         },
-                                                        'text': '总下载量(活跃)'
+                                                        'text': '总下载量 / 活跃'
                                                     },
                                                     {
                                                         'component': 'div',
@@ -1459,7 +1458,7 @@ class BrushFlow(_PluginBase):
                                                                 'props': {
                                                                     'class': 'text-h6'
                                                                 },
-                                                                'text': f"{total_downloaded}({total_active_downloaded})"
+                                                                'text': f"{total_downloaded} / {total_active_downloaded}"
                                                             }
                                                         ]
                                                     }
@@ -1516,7 +1515,7 @@ class BrushFlow(_PluginBase):
                                                         'props': {
                                                             'class': 'text-caption'
                                                         },
-                                                        'text': '下载种子数(活跃)'
+                                                        'text': '下载种子数 / 活跃'
                                                     },
                                                     {
                                                         'component': 'div',
@@ -1529,7 +1528,7 @@ class BrushFlow(_PluginBase):
                                                                 'props': {
                                                                     'class': 'text-h6'
                                                                 },
-                                                                'text': f"{total_count}({total_active})"
+                                                                'text': f"{total_count} / {total_active}"
                                                             }
                                                         ]
                                                     }
@@ -1586,7 +1585,7 @@ class BrushFlow(_PluginBase):
                                                         'props': {
                                                             'class': 'text-caption'
                                                         },
-                                                        'text': '删除种子数(待归档)'
+                                                        'text': '删除种子数 / 待归档'
                                                     },
                                                     {
                                                         'component': 'div',
@@ -1599,7 +1598,7 @@ class BrushFlow(_PluginBase):
                                                                 'props': {
                                                                     'class': 'text-h6'
                                                                 },
-                                                                'text': f"{total_deleted}({total_unarchived})"
+                                                                'text': f"{total_deleted} / {total_unarchived}"
                                                             }
                                                         ]
                                                     }
@@ -1613,91 +1612,29 @@ class BrushFlow(_PluginBase):
                     },
                     # 种子明细
                     {
-                        'component': 'VCol',
+                        'component': 'VRow',
                         'props': {
-                            'cols': 12,
+                            'class': 'd-none d-sm-block',
                         },
                         'content': [
                             {
-                                'component': 'VTable',
+                                'component': 'VCol',
                                 'props': {
-                                    'hover': True
+                                    'cols': 12,
                                 },
                                 'content': [
                                     {
-                                        'component': 'thead',
+                                        'component': 'VDataTableVirtual',
                                         'props': {
-                                            'class': 'text-no-wrap'
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '站点'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '标题'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '大小'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '上传量'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '下载量'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '分享率'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': 'HR'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '做种时间'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '状态'
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'tbody',
-                                        'content': torrent_trs
+                                            'class': 'text-sm',
+                                            'headers': headers,
+                                            'items': items,
+                                            'height': '30rem',
+                                            'density': 'compact',
+                                            'fixed-header': True,
+                                            'hide-no-data': True,
+                                            'hover': True
+                                        }
                                     }
                                 ]
                             }
@@ -3444,9 +3381,8 @@ class BrushFlow(_PluginBase):
 
     @staticmethod
     def __get_demo_site_config() -> str:
-        desc = ("以下为配置示例，请参考 "
-                "https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md "
-                "进行配置，请注意，只需要保留实际配置内容（删除这段）\n")
+        desc = ("// 以下为配置示例，请参考：https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md 进行配置\n"
+                "// 无关内容请使用 // 进行注释\n")
         config = """[{
   "sitename": "站点1",
   "seed_time": 96,
