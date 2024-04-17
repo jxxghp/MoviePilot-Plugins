@@ -86,7 +86,7 @@ class BrushConfig:
     def __initialize_site_config(self):
         if not self.site_config:
             logger.error(f"没有设置站点配置，已关闭站点独立配置并恢复默认配置示例，请检查配置项")
-            self.site_config = self.__get_demo_site_config()
+            self.site_config = self.get_demo_site_config()
             self.group_site_configs = {}
             self.enable_site_config = False
             return
@@ -137,7 +137,7 @@ class BrushConfig:
             self.enabled = False
 
     @staticmethod
-    def __get_demo_site_config() -> str:
+    def get_demo_site_config() -> str:
         desc = ("// 以下为配置示例，请参考：https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md 进行配置\n"
                 "// 注意无关内容需使用 // 注释\n")
         config = """[{
@@ -1298,6 +1298,7 @@ class BrushFlow(_PluginBase):
             "enable_site_config": False,
             "log_more": False,
             "downloader_monitor": False,
+            "site_config": BrushConfig.get_demo_site_config()
         }
 
     def get_page(self) -> List[dict]:
