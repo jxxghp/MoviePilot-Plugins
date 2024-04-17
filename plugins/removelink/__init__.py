@@ -40,6 +40,22 @@ class FileMonitorHandler(FileSystemEventHandler):
         # 新增文件记录
         with state_lock:
             self.sync.state_set[str(file_path)] = file_path.stat().st_ino
+    
+    def on_moved(self, event):
+        if event.is_directory:
+            return
+        file_path = Path(event.dest_path)
+        if file_path.suffix in [".!qB", ".part", ".mp"]:
+            return
+        logger.info(f"监测到新增文件：{file_path}")
+        if self.sync.exclude_keywords:
+            for keyword in self.sync.exclude_keywords.split("\n"):
+                if keyword and keyword in str(file_path):
+                    logger.info(f"{file_path} 命中过滤关键字 {keyword}，不处理")
+                    return
+        # 新增文件记录
+        with state_lock:
+            self.sync.state_set[str(file_path)] = file_path.stat().st_ino
 
     def on_deleted(self, event):
         if event.is_directory:
@@ -90,7 +106,7 @@ class RemoveLink(_PluginBase):
     # 插件图标
     plugin_icon = "Ombi_A.png"
     # 插件版本
-    plugin_version = "1.6"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
