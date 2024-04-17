@@ -198,10 +198,13 @@
     "CrossSeed": {
         "name": "青蛙辅种助手",
         "description": "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙、AGSVPT、麒麟、UBits、聆音、憨憨等。",
-        "version": "2.1",
+        "version": "2.2",
         "icon": "qingwa.png",
         "author": "233@qingwa",
-        "level": 2
+        "level": 2,
+        "history": {
+            "v2.2": "站点停用后会同步暂停对该站点的辅种"
+        }
     },
     "VCBAnimeMonitor": {
         "name": "整理VCB动漫压制组作品",
@@ -238,12 +241,13 @@
     "BrushFlow": {
         "name": "站点刷流",
         "description": "自动托管刷流，将会提高对应站点的访问频率。",
-        "version": "2.7",
+        "version": "2.8",
         "icon": "brush.jpg",
         "author": "jxxghp,InfinityPacer",
         "level": 2,
         "history": {
-            "v2.7": "优化UI显示以及提升性能",
+            "v2.8": "优化UI显示以及提升性能",
+            "v2.7": "动态删除种子规则调整（请注意查阅插件文档），站点独立配置样式优化、日志优化，修复部分配置项无法配置小数的问题，修复部分场景可能导致重复下载的问题",
             "v2.6": "修复排除订阅功能",
             "v2.5": "增加H&R做种时间、下载器监控配置项，刷流前置条件逻辑调整，代理下载种子默认为关闭"
         }
@@ -382,13 +386,12 @@
     "RemoveLink": {
         "name": "清理硬链接",
         "description": "监控目录内文件被删除时，同步删除监控目录内所有和它硬链接的文件",
-        "version": "1.8",
+        "version": "1.6",
         "icon": "Ombi_A.png",
         "author": "DzAvril",
         "level": 1,
         "history": {
-            "v1.8": "修复空目录删除逻辑",
-            "v1.7": "增加定时清理空目录功能"
+            "v1.6": "提升插件性能"
         }
     },
     "LinkMonitor": {
@@ -512,6 +515,14 @@
         "version": "1.0",
         "icon": "Ntfy_A.png",
         "author": "lethargicScribe",
+        "level": 1
+    },
+    "PluginAutoUpgrade": {
+        "name": "插件自动升级",
+        "description": "定时检测、升级插件。",
+        "version": "1.0",
+        "icon": "PluginAutoUpgrade.png",
+        "author": "hotlcc",
         "level": 1
     }
 }
