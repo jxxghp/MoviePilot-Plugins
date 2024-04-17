@@ -138,9 +138,8 @@ class BrushConfig:
 
     @staticmethod
     def __get_demo_site_config() -> str:
-        desc = ("//以下为配置示例，请参考 "
-                "https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md "
-                "进行配置，请注意，只需要保留实际配置内容（删除这段）\n")
+        desc = ("// 以下为配置示例，请参考：https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md 进行配置\n"
+                "// 注意无关内容需使用 // 注释\n")
         config = """[{
     "sitename": "站点1",
     "seed_time": 96,
