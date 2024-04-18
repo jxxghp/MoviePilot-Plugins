@@ -1286,6 +1286,7 @@ class SiteStatistic(_PluginBase):
             # 通知刷新完成
             if self._notify:
                 messages = []
+                today_date = datetime.now().strftime('%Y-%m-%d')
                 # 按照上传降序排序
                 sites = self._sites_data.keys()
                 uploads = [self._sites_data[site].get("upload") or 0 if not yesterday_sites_data.get(site) else
@@ -1294,7 +1295,10 @@ class SiteStatistic(_PluginBase):
                 downloads = [self._sites_data[site].get("download") or 0 if not yesterday_sites_data.get(site) else
                              int(self._sites_data[site].get("download") or 0) - int(
                                      yesterday_sites_data[site].get("download") or 0) for site in sites]
-                data_list = sorted(list(zip(sites, uploads, downloads)),
+                updated_date = ["" if not self._sites_data[site].get("updated_at") or 
+                                self._sites_data[site].get("updated_at") == today_date else
+                                f"（{self._sites_data[site].get('updated_at')}）" for site in sites]
+                data_list = sorted(list(zip(sites, uploads, downloads, updated_date)),
                                    key=lambda x: x[1],
                                    reverse=True)
                 # 总上传
@@ -1305,10 +1309,11 @@ class SiteStatistic(_PluginBase):
                     site = data[0]
                     upload = int(data[1])
                     download = int(data[2])
+                    updated_date = data[3]
                     if upload > 0 or download > 0:
                         incUploads += upload
                         incDownloads += download
-                        messages.append(f"【{site}】\n"
+                        messages.append(f"【{site}】{updated_date}\n"
                                         f"上传量：{StringUtils.str_filesize(upload)}\n"
                                         f"下载量：{StringUtils.str_filesize(download)}\n"
                                         f"————————————")
