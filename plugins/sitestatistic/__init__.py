@@ -43,7 +43,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "2.6"
+    plugin_version = "2.7"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -70,6 +70,7 @@ class SiteStatistic(_PluginBase):
     _cron: str = ""
     _notify: bool = False
     _queue_cnt: int = 5
+    _remove_failed: bool = False
     _statistic_type: str = None
     _statistic_sites: list = []
 
@@ -87,6 +88,7 @@ class SiteStatistic(_PluginBase):
             self._notify = config.get("notify")
             self._sitemsg = config.get("sitemsg")
             self._queue_cnt = config.get("queue_cnt")
+            self._remove_failed = config.get("remove_failed")
             self._statistic_type = config.get("statistic_type") or "all"
             self._statistic_sites = config.get("statistic_sites") or []
 
@@ -369,7 +371,23 @@ class SiteStatistic(_PluginBase):
                                         }
                                     }
                                 ]
-                            }
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'remove_failed',
+                                            'label': '移除失效站点',
+                                        }
+                                    }
+                                ]
+                            },
                         ]
                     }
                 ]
@@ -381,6 +399,7 @@ class SiteStatistic(_PluginBase):
             "sitemsg": True,
             "cron": "5 1 * * *",
             "queue_cnt": 5,
+            "remove_failed": False,
             "statistic_type": "all",
             "statistic_sites": []
         }
@@ -1179,7 +1198,8 @@ class SiteStatistic(_PluginBase):
                             "bonus": site_user_info.bonus,
                             "url": site_url,
                             "err_msg": site_user_info.err_msg,
-                            "message_unread": site_user_info.message_unread
+                            "message_unread": site_user_info.message_unread,
+                            "updated_at": datetime.now().strftime('%Y-%m-%d')
                         }
                     })
                 return site_user_info
@@ -1248,19 +1268,23 @@ class SiteStatistic(_PluginBase):
             if not refresh_sites:
                 return
 
+            # 将数据初始化为前一天，筛选站点
+            yesterday_sites_data = {}
+            if self._statistic_type == "add" or not self._remove_failed:
+                if last_update_time := self.get_data("last_update_time"):
+                    yesterday_sites_data = self.get_data(last_update_time) or {}
+
+                if not self._remove_failed and yesterday_sites_data:
+                    self._sites_data = {k: v for k, v in yesterday_sites_data.items() if k in refresh_sites}
+                if self._statistic_type != "add":
+                    yesterday_sites_data = {}
+
             # 并发刷新
             with ThreadPool(min(len(refresh_sites), int(self._queue_cnt or 5))) as p:
                 p.map(self.__refresh_site_data, refresh_sites)
 
             # 通知刷新完成
             if self._notify:
-                yesterday_sites_data = {}
-                # 增量数据
-                if self._statistic_type == "add":
-                    last_update_time = self.get_data("last_update_time")
-                    if last_update_time:
-                        yesterday_sites_data = self.get_data(last_update_time) or {}
-
                 messages = []
                 # 按照上传降序排序
                 sites = self._sites_data.keys()
@@ -1282,8 +1306,8 @@ class SiteStatistic(_PluginBase):
                     upload = int(data[1])
                     download = int(data[2])
                     if upload > 0 or download > 0:
-                        incUploads += int(upload)
-                        incDownloads += int(download)
+                        incUploads += upload
+                        incDownloads += download
                         messages.append(f"【{site}】\n"
                                         f"上传量：{StringUtils.str_filesize(upload)}\n"
                                         f"下载量：{StringUtils.str_filesize(download)}\n"
@@ -1321,6 +1345,7 @@ class SiteStatistic(_PluginBase):
             "notify": self._notify,
             "sitemsg": self._sitemsg,
             "queue_cnt": self._queue_cnt,
+            "remove_failed": self._remove_failed,
             "statistic_type": self._statistic_type,
             "statistic_sites": self._statistic_sites,
         })
