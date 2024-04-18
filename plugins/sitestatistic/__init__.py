@@ -1270,14 +1270,14 @@ class SiteStatistic(_PluginBase):
 
             # 将数据初始化为前一天，筛选站点
             yesterday_sites_data = {}
+            today_date = datetime.now().strftime('%Y-%m-%d')
             if self._statistic_type == "add" or not self._remove_failed:
                 if last_update_time := self.get_data("last_update_time"):
                     yesterday_sites_data = self.get_data(last_update_time) or {}
 
-                if not self._remove_failed and yesterday_sites_data:
-                    self._sites_data = {k: v for k, v in yesterday_sites_data.items() if k in refresh_sites}
-                if self._statistic_type != "add":
-                    yesterday_sites_data = {}
+            if not self._remove_failed and yesterday_sites_data:
+                site_names = [site.get("name") for site in refresh_sites]
+                self._sites_data = {k: v for k, v in yesterday_sites_data.items() if k in site_names}
 
             # 并发刷新
             with ThreadPool(min(len(refresh_sites), int(self._queue_cnt or 5))) as p:
@@ -1285,54 +1285,50 @@ class SiteStatistic(_PluginBase):
 
             # 通知刷新完成
             if self._notify:
-                messages = []
-                today_date = datetime.now().strftime('%Y-%m-%d')
-                # 按照上传降序排序
-                sites = self._sites_data.keys()
-                uploads = [self._sites_data[site].get("upload") or 0 if not yesterday_sites_data.get(site) else
-                           int(self._sites_data[site].get("upload") or 0) - int(
-                                   yesterday_sites_data[site].get("upload") or 0) for site in sites]
-                downloads = [self._sites_data[site].get("download") or 0 if not yesterday_sites_data.get(site) else
-                             int(self._sites_data[site].get("download") or 0) - int(
-                                     yesterday_sites_data[site].get("download") or 0) for site in sites]
-                updated_date = ["" if not self._sites_data[site].get("updated_at") or 
-                                self._sites_data[site].get("updated_at") == today_date else
-                                f"（{self._sites_data[site].get('updated_at')}）" for site in sites]
-                data_list = sorted(list(zip(sites, uploads, downloads, updated_date)),
-                                   key=lambda x: x[1],
-                                   reverse=True)
+                messages = {}
                 # 总上传
                 incUploads = 0
                 # 总下载
                 incDownloads = 0
-                for data in data_list:
-                    site = data[0]
-                    upload = int(data[1])
-                    download = int(data[2])
-                    updated_date = data[3]
+
+                for rand, site in enumerate(self._sites_data.keys()):
+                    upload = int(self._sites_data[site].get("upload") or 0)
+                    download = int(self._sites_data[site].get("download") or 0)
+                    updated_date = self._sites_data[site].get("updated_at")
+
+                    if self._statistic_type == "add" and yesterday_sites_data.get(site):
+                        upload -= int(yesterday_sites_data[site].get("upload") or 0)
+                        download -= int(yesterday_sites_data[site].get("download") or 0)
+
+                    if updated_date and updated_date != today_date:
+                        updated_date = f"（{updated_date}）"
+                    else:
+                        updated_date = ""
+
                     if upload > 0 or download > 0:
                         incUploads += upload
                         incDownloads += download
-                        messages.append(f"【{site}】{updated_date}\n"
-                                        f"上传量：{StringUtils.str_filesize(upload)}\n"
-                                        f"下载量：{StringUtils.str_filesize(download)}\n"
-                                        f"————————————")
+                        messages[upload + (rand / 1000)] = (
+                            f"【{site}】{updated_date}\n"
+                            + f"上传量：{StringUtils.str_filesize(upload)}\n"
+                            + f"下载量：{StringUtils.str_filesize(download)}\n"
+                            + "————————————"
+                        )
 
                 if incDownloads or incUploads:
-                    messages.insert(0, f"【汇总】\n"
+                    sorted_messages = [messages[key] for key in sorted(messages.keys(), reverse=True)]
+                    sorted_messages.insert(0, f"【汇总】\n"
                                        f"总上传：{StringUtils.str_filesize(incUploads)}\n"
                                        f"总下载：{StringUtils.str_filesize(incDownloads)}\n"
                                        f"————————————")
                     self.post_message(mtype=NotificationType.SiteMessage,
-                                      title="站点数据统计", text="\n".join(messages))
+                                      title="站点数据统计", text="\n".join(sorted_messages))
 
-            # 获取今天的日期
-            key = datetime.now().strftime('%Y-%m-%d')
             # 保存数据
-            self.save_data(key, self._sites_data)
+            self.save_data(today_date, self._sites_data)
 
             # 更新时间
-            self.save_data("last_update_time", key)
+            self.save_data("last_update_time", today_date)
             logger.info("站点数据刷新完成")
 
     def __custom_sites(self) -> List[Any]:
