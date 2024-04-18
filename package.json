@@ -505,10 +505,13 @@
     "IyuuAuth": {
         "name": "IYUU站点绑定",
         "description": "为IYUU账号绑定认证站点，以便用于用户认证和辅种。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "Iyuu_A.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.1": "修复IYUU站点绑定失败问题"
+        }
     },
     "NtfyMsg": {
         "name": "ntfy消息推送",
