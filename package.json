@@ -21,11 +21,12 @@
     "SiteStatistic": {
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
-        "version": "2.6",
+        "version": "2.7",
         "icon": "statistic.png",
         "author": "lightolly",
         "level": 2,
         "history": {
+            "v2.7": "修复憨憨种子信息只统计第一页的问题，增加移除失效统计选项",
             "v2.6": "支持馒头新架构数据统计"
         }
     },
