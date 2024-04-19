@@ -217,7 +217,7 @@ class NexusPhpSiteUserInfo(ISiteUserInfo):
 
         # 是否存在下页数据
         next_page = None
-        next_page_text = html.xpath('//a[contains(.//text(), "下一页") or contains(.//text(), "下一頁")]/@href')
+        next_page_text = html.xpath('//a[contains(.//text(), "下一页") or contains(.//text(), "下一頁") or contains(.//text(), ">")]/@href')
         if next_page_text:
             next_page = next_page_text[-1].strip()
             # fix up page url
