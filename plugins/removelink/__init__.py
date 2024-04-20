@@ -106,7 +106,7 @@ class RemoveLink(_PluginBase):
     # 插件图标
     plugin_icon = "Ombi_A.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -124,7 +124,7 @@ class RemoveLink(_PluginBase):
     exclude_keywords = ""
     _enabled = False
     _notify = False
-    _delete_empty = False
+    _delete_scrap_infos = False
     _observer = []
     # 监控目录的文件列表
     state_set: Dict[str, int] = {}
@@ -137,7 +137,7 @@ class RemoveLink(_PluginBase):
             self.monitor_dirs = config.get("monitor_dirs")
             self.exclude_dirs = config.get("exclude_dirs") or ""
             self.exclude_keywords = config.get("exclude_keywords") or ""
-            self._delete_empty = config.get("delete_empty")
+            self._delete_scrap_infos = config.get("delete_scrap_infos")
 
         # 停止现有任务
         self.stop_service()
@@ -233,8 +233,8 @@ class RemoveLink(_PluginBase):
                                     {
                                         "component": "VSwitch",
                                         "props": {
-                                            "model": "delete_empty",
-                                            "label": "清理空目录(beta)",
+                                            "model": "delete_scrap_infos",
+                                            "label": "清理刮削文件(beta)",
                                         },
                                     }
                                 ],
@@ -333,7 +333,7 @@ class RemoveLink(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "清理空目录为测试功能，请谨慎开启。",
+                                            "text": "清理刮削文件为测试功能，请谨慎开启。",
                                         },
                                     }
                                 ],
@@ -374,42 +374,92 @@ class RemoveLink(_PluginBase):
             if exclude_dir and exclude_dir in str(file_path):
                 return True
         return False
+
+    def scrape_files_left(self, path):
+        """
+        检查path目录是否只包含刮削文件
+        """
+        # 检查path下是否有目录
+        for dir_path in os.listdir(path):
+            if os.path.isdir(os.path.join(path, dir_path)):
+                return False
+
+        # 检查path下是否有非刮削文件
+        for file in path.iterdir():
+            if not file.suffix.lower() in [
+                ".jpg",
+                ".nfo",
+            ]:
+                return False
+        return True
+
+    def delete_scrap_infos(self, path):
+        """
+        清理path相关的刮削文件
+        """
+        if not self._delete_scrap_infos:
+            return
+        # 文件所在目录已被删除则退出
+        if not os.path.exists(path.parent):
+            return
+        logger.info(f"清理刮削文件: {path}")
+        if not path.suffix.lower() in [
+            ".jpg",
+            ".nfo",
+        ]:
+            # 清理与path相关的刮削文件
+            name_prefix = path.stem
+            for file in path.parent.iterdir():
+                if file.name.startswith(name_prefix):
+                    file.unlink()
+                    logger.info(f'删除刮削文件：{file}')
+        # 清理空目录
+        self.delete_empty_folders(path)
     def delete_empty_folders(self, path):
-            """
-            从指定路径开始，逐级向上层目录检测并删除空目录，直到遇到非空目录或到达指定监控目录为止
-            """
-            if not self._delete_empty:
-                return
-            while True:
-                parent_path = os.path.dirname(path)
-                # parent_path如已被删除则退出检查
-                if not os.path.exists(parent_path):
-                    break
-                # 如果当前路径等于监控目录之一，停止向上检查
-                if parent_path in self.monitor_dirs.split("\n"):
-                    break
-                # 检查当前目录是否为空且不在排除列表内
-                if not os.listdir(parent_path) and not self.__is_excluded(parent_path):
-                    os.rmdir(parent_path)
-                    logger.info(f"清理空目录：{parent_path}")
-                    if self._notify:
-                        self.post_message(
-                            mtype=NotificationType.SiteMessage,
-                            title=f"【清理硬链接】",
-                            text=f"清理空文件夹：[{parent_path}]\n",
-                        )
-                else:
-                    break
-                # 更新路径为父目录，准备下一轮检查
-                path = parent_path
+        """
+        从指定路径开始，逐级向上层目录检测并删除空目录，直到遇到非空目录或到达指定监控目录为止
+        """
+        logger.info(f"清理空目录: {path}")
+        while True:
+            parent_path = path.parent
+            if self.__is_excluded(parent_path):
+                break
+            # parent_path如已被删除则退出检查
+            if not os.path.exists(parent_path):
+                break
+            # 如果当前路径等于监控目录之一，停止向上检查
+            if parent_path in self.monitor_dirs.split("\n"):
+                break
+
+            # 若目录下只剩刮削文件，则清空文件夹
+            if self.scrape_files_left(parent_path):
+                # 清除目录下所有文件
+                for file in parent_path.iterdir():
+                    file.unlink()
+                    logger.info(f'删除刮削文件：{file}')
+
+            if not os.listdir(parent_path):
+                os.rmdir(parent_path)
+                logger.info(f"清理空目录：{parent_path}")
+                if self._notify:
+                    self.post_message(
+                        mtype=NotificationType.SiteMessage,
+                        title=f"【清理硬链接】",
+                        text=f"清理空文件夹：[{parent_path}]\n",
+                    )
+            else:
+                break
+            # 更新路径为父目录，准备下一轮检查
+            path = parent_path
+
     def handle_deleted(self, file_path: Path):
         """
         处理删除事件
         """
         # 删除的文件对应的监控信息
         with state_lock:
-            # 清理空目录
-            self.delete_empty_folders(file_path)
+            # 清理刮削文件
+            self.delete_scrap_infos(file_path)
             # 删除的文件inode
             deleted_inode = self.state_set.get(str(file_path))
             if not deleted_inode:
@@ -428,8 +478,8 @@ class RemoveLink(_PluginBase):
                         # 删除硬链接文件
                         logger.info(f"删除硬链接文件：{path}， inode: {inode}")
                         file.unlink()
-                        # 清理空目录
-                        self.delete_empty_folders(file)
+                        # 清理刮削文件
+                        self.delete_scrap_infos(file_path)
                         if self._notify:
                             self.post_message(
                                 mtype=NotificationType.SiteMessage,
