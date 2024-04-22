@@ -23,7 +23,7 @@ class PluginAutoUpgrade(_PluginBase):
     # 插件图标
     plugin_icon = "PluginAutoUpgrade.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -256,10 +256,10 @@ class PluginAutoUpgrade(_PluginBase):
                     'text': item.get('plugin_name')
                 }, {
                     'component': 'td',
-                    'text': f'v{item.get('old_plugin_version')}'
+                    'text': f'v{item.get("old_plugin_version")}'
                 }, {
                     'component': 'td',
-                    'text': f'v{item.get('new_plugin_version')}'
+                    'text': f'v{item.get("new_plugin_version")}'
                 }, {
                     'component': 'td',
                     'text': item.get('info')
