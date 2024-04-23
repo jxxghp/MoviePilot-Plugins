@@ -217,6 +217,9 @@ class ISiteUserInfo(metaclass=ABCMeta):
                         msg_links
                     )
                 unread_msg_links.extend(msg_links)
+        # 重新更新未读消息数（99999表示有消息但数量未知）
+        if self.message_unread == 99999:
+            self.message_unread = len(unread_msg_links)
         # 解析未读消息内容
         for msg_link in unread_msg_links:
             logger.debug(f"{self.site_name} 信息链接 {msg_link}")
