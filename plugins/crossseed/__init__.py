@@ -154,7 +154,11 @@ class CrossSeedHelper(object):
         remote_torrent_infos = []
         try:
             response = requests.post(
-                site.get_api_url(), headers=headers, json=data, timeout=10
+                site.get_api_url(),
+                headers=headers,
+                json=data,
+                timeout=10,
+                proxies=settings.PROXY if site.proxy else None,
             )
             response.raise_for_status()
             rsp_body = response.json()
@@ -177,7 +181,7 @@ class CrossSeed(_PluginBase):
     # 插件图标
     plugin_icon = "qingwa.png"
     # 插件版本
-    plugin_version = "2.2"
+    plugin_version = "2.3"
     # 插件作者
     plugin_author = "233@qingwa"
     # 作者主页
