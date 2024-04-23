@@ -23,7 +23,7 @@ class PluginAutoUpgrade(_PluginBase):
     # 插件图标
     plugin_icon = "PluginAutoUpgrade.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -248,21 +248,33 @@ class PluginAutoUpgrade(_PluginBase):
                 'content': [{
                     'component': 'td',
                     'props': {
-                        'class': 'whitespace-nowrap break-keep text-high-emphasis'
+                        'class': 'whitespace-nowrap'
                     },
                     'text': item.get('datetime_str')
                 }, {
                     'component': 'td',
+                    'props': {
+                        'class': 'whitespace-nowrap'
+                    },
                     'text': item.get('plugin_name')
                 }, {
                     'component': 'td',
+                    'props': {
+                        'class': 'whitespace-nowrap'
+                    },
                     'text': f'v{item.get("old_plugin_version")}'
                 }, {
                     'component': 'td',
+                    'props': {
+                        'class': 'whitespace-nowrap'
+                    },
                     'text': f'v{item.get("new_plugin_version")}'
                 }, {
                     'component': 'td',
                     'text': item.get('info')
+                }, {
+                    'component': 'td',
+                    'text': item.get('upgrade_info')
                 }]
             } for item in page_data if item]
         else:
@@ -274,7 +286,7 @@ class PluginAutoUpgrade(_PluginBase):
                 'content': [{
                     'component': 'td',
                     'props': {
-                        'colspan': '5',
+                        'colspan': '6',
                         'class': 'text-center'
                     },
                     'text': '暂无数据'
@@ -292,7 +304,7 @@ class PluginAutoUpgrade(_PluginBase):
                     'props': {
                         'class': 'text-start ps-4'
                     },
-                    'text': '升级时间'
+                    'text': '时间'
                 }, {
                     'component': 'th',
                     'props': {
@@ -304,19 +316,25 @@ class PluginAutoUpgrade(_PluginBase):
                     'props': {
                         'class': 'text-start ps-4'
                     },
-                    'text': '升级前版本'
+                    'text': '旧版本'
                 }, {
                     'component': 'th',
                     'props': {
                         'class': 'text-start ps-4'
                     },
-                    'text': '升级后版本'
+                    'text': '新版本'
                 }, {
                     'component': 'th',
                     'props': {
                         'class': 'text-start ps-4'
                     },
-                    'text': '结果'
+                    'text': '执行结果'
+                }, {
+                    'component': 'th',
+                    'props': {
+                        'class': 'text-start ps-4'
+                    },
+                    'text': '升级描述'
                 }]
             }, {
                 'component': 'tbody',
@@ -560,7 +578,8 @@ class PluginAutoUpgrade(_PluginBase):
             'plugin_name': online_plugin.plugin_name,
             'new_plugin_version': online_plugin.plugin_version,
             'old_plugin_version': installed_local_plugin.plugin_version,
-            'datetime_str':  datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            'datetime_str':  datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'upgrade_info': self.__extract_upgrade_history(online_plugin)
         }
 
     def __send_notify(self, results: List[Dict[str, Any]]):
@@ -592,7 +611,7 @@ class PluginAutoUpgrade(_PluginBase):
             else:
                 text += f"{result.get('message')}\n"
         return text
-    
+
     def __save_upgrade_records(self, records: List[Dict[str, Any]]):
         """
         保存升级记录
@@ -628,3 +647,20 @@ class PluginAutoUpgrade(_PluginBase):
         # 按时间倒序
         page_data = sorted(page_data, key=lambda item: item.get("datetime_str"), reverse=True)
         return page_data
+
+    @staticmethod
+    def __extract_upgrade_history(plugin: schemas.Plugin, version: str = None) -> str:
+        """
+        提取指定版本的升级历史信息
+        """
+        if not plugin or not plugin.history:
+            return None
+        if not version:
+            version = plugin.plugin_version
+        if not version:
+            return None
+        version_history = plugin.history.get(f'v{version}')
+        if not version_history:
+            # 兼容处理
+            version_history = plugin.history.get(version)
+        return version_history
