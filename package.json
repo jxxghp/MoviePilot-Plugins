@@ -1,12 +1,13 @@
 {
     "AutoSignIn": {
         "name": "站点自动签到",
-        "description": "自动模拟登录站点、签到。",
-        "version": "1.9",
+        "description": "自动模拟登录、签到站点。",
+        "version": "2.0",
         "icon": "signin.png",
         "author": "thsrite",
         "level": 2,
         "history": {
+            "v2.0": "站点签到时更新站点使用统计信息，需要主程序升级至v1.8.3+版本",
             "v1.9": "支持馒头新架构自动签到"
         }
     },
