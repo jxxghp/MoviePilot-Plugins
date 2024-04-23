@@ -23,7 +23,7 @@ class PluginAutoUpgrade(_PluginBase):
     # 插件图标
     plugin_icon = "PluginAutoUpgrade.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -552,7 +552,7 @@ class PluginAutoUpgrade(_PluginBase):
         if not installed_local_plugin:
             return None
         success, message = self.__install_plugin(plugin_id=online_plugin.id, repo_url=online_plugin.repo_url, force=True)
-        logger.info(f"插件升级结果: plugin_name = {online_plugin.plugin_name}, plugin_version = v{installed_local_plugin.plugin_version} -> v{online_plugin.plugin_version}, success = {response.success}, message = {response.message}")
+        logger.info(f"插件升级结果: plugin_name = {online_plugin.plugin_name}, plugin_version = v{installed_local_plugin.plugin_version} -> v{online_plugin.plugin_version}, success = {success}, message = {message}")
         return {
             'success': success,
             'message': message,
