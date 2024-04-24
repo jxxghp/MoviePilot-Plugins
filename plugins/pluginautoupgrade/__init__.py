@@ -5,11 +5,14 @@ from threading import Event as ThreadEvent, RLock
 from typing import Any, List, Dict, Tuple, Optional
 import pytz
 from app import schemas
-from app.api.endpoints.plugin import install
 from app.core.config import settings
 from app.core.plugin import PluginManager
+from app.db.systemconfig_oper import SystemConfigOper
+from app.helper.plugin import PluginHelper
 from app.log import logger
 from app.plugins import _PluginBase
+from app.scheduler import Scheduler
+from app.schemas.types import SystemConfigKey
 
 
 class PluginAutoUpgrade(_PluginBase):
@@ -20,7 +23,7 @@ class PluginAutoUpgrade(_PluginBase):
     # 插件图标
     plugin_icon = "PluginAutoUpgrade.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -39,6 +42,8 @@ class PluginAutoUpgrade(_PluginBase):
     __exit_event: ThreadEvent = ThreadEvent()
     # 任务锁
     __task_lock: RLock = RLock()
+    # 插件数据key：升级记录
+    __data_key_upgrade_records = "upgrade_records"
 
     # 依赖组件
     # 插件管理器
@@ -230,7 +235,112 @@ class PluginAutoUpgrade(_PluginBase):
         return form, config_suggest
 
     def get_page(self) -> List[dict]:
-        pass
+        """
+        拼装插件详情页面，需要返回页面配置，同时附带数据
+        """
+        page_data = self.__get_upgrade_records_to_page_data()
+        if page_data:
+            contents = [{
+                'component': 'tr',
+                'props': {
+                    'class': 'text-sm'
+                },
+                'content': [{
+                    'component': 'td',
+                    'props': {
+                        'class': 'whitespace-nowrap'
+                    },
+                    'text': item.get('datetime_str')
+                }, {
+                    'component': 'td',
+                    'props': {
+                        'class': 'whitespace-nowrap'
+                    },
+                    'text': item.get('plugin_name')
+                }, {
+                    'component': 'td',
+                    'props': {
+                        'class': 'whitespace-nowrap'
+                    },
+                    'text': f'v{item.get("old_plugin_version")}'
+                }, {
+                    'component': 'td',
+                    'props': {
+                        'class': 'whitespace-nowrap'
+                    },
+                    'text': f'v{item.get("new_plugin_version")}'
+                }, {
+                    'component': 'td',
+                    'text': item.get('info')
+                }, {
+                    'component': 'td',
+                    'text': item.get('upgrade_info')
+                }]
+            } for item in page_data if item]
+        else:
+            contents = [{
+                'component': 'tr',
+                'props': {
+                    'class': 'text-sm'
+                },
+                'content': [{
+                    'component': 'td',
+                    'props': {
+                        'colspan': '6',
+                        'class': 'text-center'
+                    },
+                    'text': '暂无数据'
+                }]
+            }]
+        return [{
+            'component': 'VTable',
+            'props': {
+                'hover': True
+            },
+            'content': [{
+                'component': 'thead',
+                'content': [{
+                    'component': 'th',
+                    'props': {
+                        'class': 'text-start ps-4'
+                    },
+                    'text': '时间'
+                }, {
+                    'component': 'th',
+                    'props': {
+                        'class': 'text-start ps-4'
+                    },
+                    'text': '插件名称'
+                }, {
+                    'component': 'th',
+                    'props': {
+                        'class': 'text-start ps-4'
+                    },
+                    'text': '旧版本'
+                }, {
+                    'component': 'th',
+                    'props': {
+                        'class': 'text-start ps-4'
+                    },
+                    'text': '新版本'
+                }, {
+                    'component': 'th',
+                    'props': {
+                        'class': 'text-start ps-4'
+                    },
+                    'text': '执行结果'
+                }, {
+                    'component': 'th',
+                    'props': {
+                        'class': 'text-start ps-4'
+                    },
+                    'text': '升级描述'
+                }]
+            }, {
+                'component': 'tbody',
+                'content': contents
+            }]
+        }]
 
     def stop_service(self):
         """
@@ -389,6 +499,34 @@ class PluginAutoUpgrade(_PluginBase):
         else:
             return False
 
+    @staticmethod
+    def __install_plugin(plugin_id: str, repo_url: str = "", force: bool = False) -> Tuple[bool, str]:
+        """
+        安装插件，参考：app.api.endpoints.plugin.install
+        :param plugin_id: 插件ID
+        :param repo_url: 插件仓库URL
+        :param force: 是否强制安装
+        """
+        # 已安装插件
+        install_plugins = SystemConfigOper().get(SystemConfigKey.UserInstalledPlugins) or []
+        # 如果是非本地括件，或者强制安装时，则需要下载安装
+        if repo_url and (force or plugin_id not in PluginManager().get_plugin_ids()):
+            # 下载安装
+            state, msg = PluginHelper().install(pid=plugin_id, repo_url=repo_url)
+            if not state:
+                # 安装失败
+                return False, msg
+        # 安装插件
+        if plugin_id not in install_plugins:
+            install_plugins.append(plugin_id)
+            # 保存设置
+            SystemConfigOper().set(SystemConfigKey.UserInstalledPlugins, install_plugins)
+        # 加载插件到内存
+        PluginManager().reload_plugin(plugin_id)
+        # 注册插件服务
+        Scheduler().update_plugin_job(plugin_id)
+        return True, None
+
     def __try_run(self):
         """
         尝试运行插件任务
@@ -417,6 +555,9 @@ class PluginAutoUpgrade(_PluginBase):
             upgrade_result = self.__upgrade_single(has_update_online_plugin)
             if upgrade_result:
                 upgrade_results.append(upgrade_result)
+        # 保存升级记录
+        self.__save_upgrade_records(records=upgrade_results)
+        # 发送通知
         self.__send_notify(results=upgrade_results)
 
     def __upgrade_single(self, online_plugin: schemas.Plugin) -> Dict[str, Any]:
@@ -428,15 +569,17 @@ class PluginAutoUpgrade(_PluginBase):
         installed_local_plugin = self.__get_installed_local_plugin(plugin_id=online_plugin.id)
         if not installed_local_plugin:
             return None
-        response = install(plugin_id=online_plugin.id, repo_url=online_plugin.repo_url, force=True)
-        logger.info(f"插件升级结果: plugin_name = {online_plugin.plugin_name}, plugin_version = v{installed_local_plugin.plugin_version} -> v{online_plugin.plugin_version}, success = {response.success}, message = {response.message}")
+        success, message = self.__install_plugin(plugin_id=online_plugin.id, repo_url=online_plugin.repo_url, force=True)
+        logger.info(f"插件升级结果: plugin_name = {online_plugin.plugin_name}, plugin_version = v{installed_local_plugin.plugin_version} -> v{online_plugin.plugin_version}, success = {success}, message = {message}")
         return {
-            'success': response.success,
-            'message': response.message,
+            'success': success,
+            'message': message,
             'plugin_id': online_plugin.id,
             'plugin_name': online_plugin.plugin_name,
             'new_plugin_version': online_plugin.plugin_version,
-            'old_plugin_version': installed_local_plugin.plugin_version
+            'old_plugin_version': installed_local_plugin.plugin_version,
+            'datetime_str':  datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'upgrade_info': self.__extract_upgrade_history(online_plugin)
         }
 
     def __send_notify(self, results: List[Dict[str, Any]]):
@@ -462,8 +605,62 @@ class PluginAutoUpgrade(_PluginBase):
         for result in results:
             if not result:
                 continue
+            text += f"【{result.get('plugin_name')}】[v{result.get('old_plugin_version')} -> v{result.get('new_plugin_version')}]："
             if result.get('success'):
-                text += f"{result.get('plugin_name')}升级[v{result.get('old_plugin_version')} -> v{result.get('new_plugin_version')}]成功\n"
+                text += f"成功\n"
             else:
-                text += f"{result.get('plugin_name')}升级[v{result.get('old_plugin_version')} -> v{result.get('new_plugin_version')}]失败：{result.get('message')}\n"
+                text += f"{result.get('message')}\n"
         return text
+
+    def __save_upgrade_records(self, records: List[Dict[str, Any]]):
+        """
+        保存升级记录
+        """
+        if not records:
+            return
+        upgrade_records = self.get_data(self.__data_key_upgrade_records)
+        if not upgrade_records:
+            upgrade_records = []
+        upgrade_records.extend(records)
+        # 最多保存100条
+        upgrade_records = upgrade_records[-100:]
+        self.save_data(self.__data_key_upgrade_records, upgrade_records)
+
+    @staticmethod
+    def __convert_upgrade_record_to_page_data(upgrade_record: Dict[str, Any]) -> Dict[str, Any]:
+        if not upgrade_record:
+            return None
+        info = "成功" if upgrade_record.get("success") else upgrade_record.get("message")
+        upgrade_record.update({"info": info})
+        return upgrade_record
+
+    def __get_upgrade_records_to_page_data(self) -> List[Dict[str, Any]]:
+        """
+        获取升级记录为page数据
+        """
+        upgrade_records = self.get_data(self.__data_key_upgrade_records)
+        if not upgrade_records:
+            return []
+        # 只展示最近10条
+        upgrade_records = upgrade_records[-10:]
+        page_data = [self.__convert_upgrade_record_to_page_data(upgrade_record) for upgrade_record in upgrade_records if upgrade_record]
+        # 按时间倒序
+        page_data = sorted(page_data, key=lambda item: item.get("datetime_str"), reverse=True)
+        return page_data
+
+    @staticmethod
+    def __extract_upgrade_history(plugin: schemas.Plugin, version: str = None) -> str:
+        """
+        提取指定版本的升级历史信息
+        """
+        if not plugin or not plugin.history:
+            return None
+        if not version:
+            version = plugin.plugin_version
+        if not version:
+            return None
+        version_history = plugin.history.get(f'v{version}')
+        if not version_history:
+            # 兼容处理
+            version_history = plugin.history.get(version)
+        return version_history
