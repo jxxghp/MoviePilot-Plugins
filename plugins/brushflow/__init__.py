@@ -2952,15 +2952,16 @@ class BrushFlow(_PluginBase):
         根据下载器类型初始化下载器实例
         """
         brush_config = self.__get_brush_config()
+        self.qb = Qbittorrent()
+        self.tr = Transmission()
 
         if brush_config.downloader == "qbittorrent":
-            self.qb = Qbittorrent()
             if self.qb.is_inactive():
                 self.__log_and_notify_error("站点刷流任务出错：Qbittorrent未连接")
                 return False
 
         elif brush_config.downloader == "transmission":
-            self.tr = Transmission()
+
             if self.tr.is_inactive():
                 self.__log_and_notify_error("站点刷流任务出错：Transmission未连接")
                 return False
