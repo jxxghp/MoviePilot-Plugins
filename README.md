@@ -438,7 +438,7 @@ class EventType(Enum):
                 'doubanid': doubanid
             }
         }
-    },
+    }
 }
 ```
 - 每次API调用完成后，均会自动刷新一次插件数据页。
