@@ -202,12 +202,13 @@
     "CrossSeed": {
         "name": "青蛙辅种助手",
         "description": "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙、AGSVPT、麒麟、UBits、聆音、憨憨等。",
-        "version": "2.2",
+        "version": "2.3",
         "icon": "qingwa.png",
         "author": "233@qingwa",
         "level": 2,
         "history": {
-            "v2.2": "站点停用后会同步暂停对该站点的辅种"
+            "v2.2": "站点停用后会同步暂停对该站点的辅种",
+            "v2.3": "站点辅种支持代理"
         }
     },
     "VCBAnimeMonitor": {
@@ -245,11 +246,12 @@
     "BrushFlow": {
         "name": "站点刷流",
         "description": "自动托管刷流，将会提高对应站点的访问频率。",
-        "version": "2.8",
+        "version": "2.9",
         "icon": "brush.jpg",
         "author": "jxxghp,InfinityPacer",
         "level": 2,
         "history": {
+            "v2.9": "优化动态删除消息推送，优化配置页UI显示及部分配置项，支持配置种子分类以及开启自动分类管理，取消单独适配站点时区逻辑，可通过配置项「pubtime」自行适配",
             "v2.8": "优化UI显示以及提升性能",
             "v2.7": "动态删除种子规则调整（请注意查阅插件文档），站点独立配置样式优化、日志优化，修复部分配置项无法配置小数的问题，修复部分场景可能导致重复下载的问题",
             "v2.6": "修复排除订阅功能",
@@ -530,7 +532,7 @@
     "PluginAutoUpgrade": {
         "name": "插件自动升级",
         "description": "定时检测、升级插件。",
-        "version": "1.2",
+        "version": "1.4",
         "icon": "PluginAutoUpgrade.png",
         "author": "hotlcc",
         "level": 1
