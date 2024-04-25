@@ -43,11 +43,12 @@
     "DoubanSync": {
         "name": "豆瓣想看",
         "description": "同步豆瓣想看数据，自动添加订阅。",
-        "version": "1.5",
+        "version": "1.6",
         "icon": "douban.png",
         "author": "jxxghp",
         "level": 2,
         "history": {
+            "v1.6": "同步历史记录支持手动删除，需要主程序升级至v1.8.4+版本",
             "v1.5": "豆瓣信息识别后直接添加订阅，不进行搜索下载"
         }
     },

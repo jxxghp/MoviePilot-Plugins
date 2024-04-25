@@ -424,7 +424,28 @@ class EventType(Enum):
 - 需要注意的是，如果你没有完成用户认证，通过插件配置进去的索引站点也是无法正常使用的。
 - **请不要添加对黄赌毒站点的支持，否则随时封闭接口。** 
 
-### 7. 如何发布插件版本？
+### 7. 如何在插件中调用API接口？
+- 目前仅在插件的数据页面支持`GET/POST`API接口调用，可调用插件自身、主程序或其它插件的API（v1.8.4+）。
+- 在`get_page`中定义好元素的事件，以及相应的API参数，具体可参考插件`豆瓣想看`：
+```json
+{
+    "component": "VDialogCloseBtn", // 触发事件的元素
+    'events': {
+        // 点击事件
+        'click': {
+            'api': 'plugin/DoubanSync/delete_history', // API的相对路径
+            'method': 'get', // GET/POST
+            // API上送参数
+            'params': {
+                'doubanid': doubanid
+            }
+        }
+    },
+}
+```
+- 每次API调用完成后，均会自动刷新一次插件数据页。
+
+### 8. 如何发布插件版本？
 - 修改插件代码后，需要修改`package.json`中的`version`版本号，MoviePilot才会提示用户有更新，注意版本号需要与`__init__.py`文件中的`plugin_version`保持一致。
 - `package.json`中的`level`用于定义插件用户可见权限，`1`为所有用户可见，`2`为仅认证用户可见，`3`为需要密钥才可见（一般用于测试）。如果插件功能需要使用到站点则应该为2，否则即使插件对用户可见但因为用户未认证相关功能也无法正常使用。
 - `package.json`中的`history`用于记录插件更新日志，格式如下：
