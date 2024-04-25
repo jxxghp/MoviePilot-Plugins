@@ -10,7 +10,7 @@ from watchdog.observers import Observer
 
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas import Notification, NotificationType
+from app.schemas import NotificationType
 
 state_lock = threading.Lock()
 
@@ -375,7 +375,8 @@ class RemoveLink(_PluginBase):
                 return True
         return False
 
-    def scrape_files_left(self, path):
+    @staticmethod
+    def scrape_files_left(path):
         """
         检查path目录是否只包含刮削文件
         """
@@ -415,6 +416,7 @@ class RemoveLink(_PluginBase):
                     logger.info(f'删除刮削文件：{file}')
         # 清理空目录
         self.delete_empty_folders(path)
+
     def delete_empty_folders(self, path):
         """
         从指定路径开始，逐级向上层目录检测并删除空目录，直到遇到非空目录或到达指定监控目录为止
@@ -485,7 +487,7 @@ class RemoveLink(_PluginBase):
                                 mtype=NotificationType.SiteMessage,
                                 title=f"【清理硬链接】",
                                 text=f"监控到删除源文件：[{file_path}]\n"
-                                f"同步删除硬链接文件：[{path}]",
+                                     f"同步删除硬链接文件：[{path}]",
                             )
             except Exception as e:
                 logger.error(

@@ -67,7 +67,7 @@ class PluginAutoUpgrade(_PluginBase):
         self.stop_service()
         # 如果需要立即运行一次
         if self.__get_config_item(config_key='run_once'):
-            if (self.__start_scheduler()):
+            if self.__start_scheduler():
                 self.__scheduler.add_job(func=self.__try_run,
                                          trigger='date',
                                          run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
@@ -81,9 +81,8 @@ class PluginAutoUpgrade(_PluginBase):
         """
         获取插件状态
         """
-        state = True if self.__get_config_item(config_key='enable') \
-                        and self.__get_config_item(config_key='cron') \
-                     else False
+        state = True if self.__get_config_item(config_key='enable') and self.__get_config_item(config_key='cron') \
+            else False
         return state
 
     @staticmethod
@@ -133,7 +132,7 @@ class PluginAutoUpgrade(_PluginBase):
         installed_online_plugin_options = self.__get_installed_online_plugin_options()
         form = [{
             'component': 'VForm',
-            'content': [{ # 业务无关总控
+            'content': [{  # 业务无关总控
                 'component': 'VRow',
                 'content': [{
                     'component': 'VCol',
@@ -386,11 +385,12 @@ class PluginAutoUpgrade(_PluginBase):
         获取所有已安装的本地插件信息
         """
         local_plugins = cls.__get_local_plugins()
-        installed_local_plugins = [local_plugin for local_plugin in local_plugins if local_plugin and local_plugin.installed]
+        installed_local_plugins = [local_plugin for local_plugin in local_plugins if
+                                   local_plugin and local_plugin.installed]
         return installed_local_plugins
 
     @classmethod
-    def __get_installed_local_plugin(cls, plugin_id: str) -> List[schemas.Plugin]:
+    def __get_installed_local_plugin(cls, plugin_id: str) -> Optional[schemas.Plugin]:
         """
         获取指定的已安装的本地插件信息
         """
@@ -417,11 +417,12 @@ class PluginAutoUpgrade(_PluginBase):
         获取所有已安装的在线插件
         """
         online_plugins = cls.__get_online_plugins()
-        installed_online_plugins = [online_plugin for online_plugin in online_plugins if online_plugin and online_plugin.installed]
+        installed_online_plugins = [online_plugin for online_plugin in online_plugins if
+                                    online_plugin and online_plugin.installed]
         return installed_online_plugins
 
     @classmethod
-    def __get_installed_online_plugin_options(cls) -> Dict[str, Any]:
+    def __get_installed_online_plugin_options(cls) -> list:
         """
         获取所有已安装的在线插件的选项数据
         """
@@ -437,14 +438,15 @@ class PluginAutoUpgrade(_PluginBase):
         return installed_online_plugin_options
 
     @classmethod
-    def __get_has_update_online_plugins(cls) -> List[schemas.Plugin]:
+    def __get_has_update_online_plugins(cls) -> Optional[List[schemas.Plugin]]:
         """
         获取所有可升级的在线插件
         """
         installed_online_plugins = cls.__get_installed_online_plugins()
         if not installed_online_plugins:
             return None
-        has_update_online_plugins = [installed_online_plugin for installed_online_plugin in installed_online_plugins if installed_online_plugin and installed_online_plugin.has_update]
+        has_update_online_plugins = [installed_online_plugin for installed_online_plugin in installed_online_plugins if
+                                     installed_online_plugin and installed_online_plugin.has_update]
         return has_update_online_plugins
 
     def __start_scheduler(self, timezone=None) -> bool:
@@ -500,7 +502,7 @@ class PluginAutoUpgrade(_PluginBase):
             return False
 
     @staticmethod
-    def __install_plugin(plugin_id: str, repo_url: str = "", force: bool = False) -> Tuple[bool, str]:
+    def __install_plugin(plugin_id: str, repo_url: str = "", force: bool = False) -> Tuple[bool, Optional[str]]:
         """
         安装插件，参考：app.api.endpoints.plugin.install
         :param plugin_id: 插件ID
@@ -560,17 +562,20 @@ class PluginAutoUpgrade(_PluginBase):
         # 发送通知
         self.__send_notify(results=upgrade_results)
 
-    def __upgrade_single(self, online_plugin: schemas.Plugin) -> Dict[str, Any]:
+    def __upgrade_single(self, online_plugin: schemas.Plugin) -> Optional[Dict[str, Any]]:
         """
         单个升级
         """
-        if not online_plugin or not online_plugin.has_update or not online_plugin.id or not online_plugin.repo_url or not self.__check_allow_upgrade(plugin_id=online_plugin.id):
+        if not online_plugin or not online_plugin.has_update or not online_plugin.id or not online_plugin.repo_url or not self.__check_allow_upgrade(
+                plugin_id=online_plugin.id):
             return None
         installed_local_plugin = self.__get_installed_local_plugin(plugin_id=online_plugin.id)
         if not installed_local_plugin:
             return None
-        success, message = self.__install_plugin(plugin_id=online_plugin.id, repo_url=online_plugin.repo_url, force=True)
-        logger.info(f"插件升级结果: plugin_name = {online_plugin.plugin_name}, plugin_version = v{installed_local_plugin.plugin_version} -> v{online_plugin.plugin_version}, success = {success}, message = {message}")
+        success, message = self.__install_plugin(plugin_id=online_plugin.id, repo_url=online_plugin.repo_url,
+                                                 force=True)
+        logger.info(
+            f"插件升级结果: plugin_name = {online_plugin.plugin_name}, plugin_version = v{installed_local_plugin.plugin_version} -> v{online_plugin.plugin_version}, success = {success}, message = {message}")
         return {
             'success': success,
             'message': message,
@@ -578,7 +583,7 @@ class PluginAutoUpgrade(_PluginBase):
             'plugin_name': online_plugin.plugin_name,
             'new_plugin_version': online_plugin.plugin_version,
             'old_plugin_version': installed_local_plugin.plugin_version,
-            'datetime_str':  datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'datetime_str': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'upgrade_info': self.__extract_upgrade_history(online_plugin)
         }
 
@@ -627,7 +632,7 @@ class PluginAutoUpgrade(_PluginBase):
         self.save_data(self.__data_key_upgrade_records, upgrade_records)
 
     @staticmethod
-    def __convert_upgrade_record_to_page_data(upgrade_record: Dict[str, Any]) -> Dict[str, Any]:
+    def __convert_upgrade_record_to_page_data(upgrade_record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if not upgrade_record:
             return None
         info = "成功" if upgrade_record.get("success") else upgrade_record.get("message")
@@ -643,13 +648,14 @@ class PluginAutoUpgrade(_PluginBase):
             return []
         # 只展示最近10条
         upgrade_records = upgrade_records[-10:]
-        page_data = [self.__convert_upgrade_record_to_page_data(upgrade_record) for upgrade_record in upgrade_records if upgrade_record]
+        page_data = [self.__convert_upgrade_record_to_page_data(upgrade_record) for upgrade_record in upgrade_records if
+                     upgrade_record]
         # 按时间倒序
         page_data = sorted(page_data, key=lambda item: item.get("datetime_str"), reverse=True)
         return page_data
 
     @staticmethod
-    def __extract_upgrade_history(plugin: schemas.Plugin, version: str = None) -> str:
+    def __extract_upgrade_history(plugin: schemas.Plugin, version: str = None) -> Optional[str]:
         """
         提取指定版本的升级历史信息
         """

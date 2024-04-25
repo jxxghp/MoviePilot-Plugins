@@ -32,7 +32,7 @@ class CloudflareSpeedTest(_PluginBase):
     # 插件图标
     plugin_icon = "cloudflare.jpg"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -750,10 +750,12 @@ class CloudflareSpeedTest(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
-    def cloudflare_speedtest(self) -> schemas.Response:
+    def cloudflare_speedtest(self, apikey: str) -> schemas.Response:
         """
         API调用CloudflareSpeedTest IP优选
         """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
         self.__cloudflareSpeedTest()
         return schemas.Response(success=True)
 

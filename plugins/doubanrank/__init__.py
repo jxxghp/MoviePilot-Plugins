@@ -29,7 +29,7 @@ class DoubanRank(_PluginBase):
     # 插件图标
     plugin_icon = "movie.jpg"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -395,7 +395,8 @@ class DoubanRank(_PluginBase):
                                     'api': 'plugin/DoubanRank/delete_history',
                                     'method': 'get',
                                     'params': {
-                                        'key': f"doubanrank: {title} (DB:{doubanid})"
+                                        'key': f"doubanrank: {title} (DB:{doubanid})",
+                                        'apikey': settings.API_TOKEN
                                     }
                                 }
                             },
@@ -488,10 +489,12 @@ class DoubanRank(_PluginBase):
         except Exception as e:
             print(str(e))
 
-    def delete_history(self, key: str):
+    def delete_history(self, key: str, apikey: str):
         """
         删除同步历史记录
         """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
         # 历史记录
         historys = self.get_data('history')
         if not historys:

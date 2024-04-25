@@ -1,4 +1,5 @@
-import json,re
+import json
+import re
 from datetime import datetime, timedelta
 
 from app.modules.emby import Emby
@@ -347,10 +348,10 @@ class DiagParamAdjust(_PluginBase):
             return False
 
         # 符合所有情况
-        if (('repeatlast' in replaceText \
-                and 'x=(W-w)/2:y=(H-h):repeatlast=0' in searchText \
-                and result['Object']['TranscodingOptions']['DisableHardwareSubtitleOverlay'] is True) \
-                or (searchText == "" and replaceText == "")) \
+        if (('repeatlast' in replaceText
+             and 'x=(W-w)/2:y=(H-h):repeatlast=0' in searchText
+             and result['Object']['TranscodingOptions']['DisableHardwareSubtitleOverlay'] is True)
+            or (searchText == "" and replaceText == "")) \
                 and self._resolution == self._last_resolution:
             # (A or B) and C
             return True

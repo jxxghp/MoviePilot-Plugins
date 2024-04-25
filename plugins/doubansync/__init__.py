@@ -34,7 +34,7 @@ class DoubanSync(_PluginBase):
     # 插件图标
     plugin_icon = "douban.png"
     # 插件版本
-    plugin_version = "1.6"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -371,7 +371,8 @@ class DoubanSync(_PluginBase):
                                     'api': 'plugin/DoubanSync/delete_history',
                                     'method': 'get',
                                     'params': {
-                                        'doubanid': doubanid
+                                        'doubanid': doubanid,
+                                        'apikey': settings.API_TOKEN
                                     }
                                 }
                             },
@@ -463,10 +464,12 @@ class DoubanSync(_PluginBase):
             "clear": self._clear
         })
 
-    def delete_history(self, doubanid: str):
+    def delete_history(self, doubanid: str, apikey: str):
         """
         删除同步历史记录
         """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
         # 历史记录
         historys = self.get_data('history')
         if not historys:

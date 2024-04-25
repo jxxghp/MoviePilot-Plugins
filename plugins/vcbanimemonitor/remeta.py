@@ -2,8 +2,9 @@ import concurrent
 import re
 from pathlib import Path
 from typing import List
-import threading
+
 import roman
+
 from app.chain.media import MediaChain
 from app.chain.tmdb import TmdbChain
 from app.core.metainfo import MetaInfoPath
@@ -11,7 +12,7 @@ from app.log import logger
 from app.schemas import MediaType
 
 
-class ReMeta():
+class ReMeta:
     # 解析之后的标题：
     title: str = None
     # 识别出来的集数
@@ -40,7 +41,7 @@ class ReMeta():
     ]
     _ova_patterns = [re.compile(r"\[.*?(OVA|OAD).*?]"),
                      re.compile(r"\[\d+\.5]"),
-                     re.compile(r"\[00\]")]
+                     re.compile(r"\[00]")]
 
     final_season_patterns = [re.compile('final season', re.IGNORECASE),
                              re.compile('The Final', re.IGNORECASE),
@@ -49,7 +50,7 @@ class ReMeta():
     # 自定义添加的季度正则表达式
     _custom_season_patterns = []
 
-    def __init__(self, ova_switch: bool = False,high_performance: bool = False):
+    def __init__(self, ova_switch: bool = False, high_performance: bool = False):
         self.ova_switch = ova_switch
         self.high_performance = high_performance
 
@@ -62,7 +63,7 @@ class ReMeta():
         if meta.title.count("[") != 4 and meta.title.count("]") != 4:
             # 可能是电影，电影只有三组[]，因此去除所有[]后只剩下电影名
             logger.warn("不符合VCB-Studio的剧集命名规范，跳过剧集模块处理！交给默认处理逻辑")
-            meta.title = re.sub(r'\[.*?\]', '', meta.title).strip()
+            meta.title = re.sub(r'\[.*?]', '', meta.title).strip()
             meta.en_name = meta.title
             return meta
         split_title: List[str] | None = self.split_season_ep(self.title)
@@ -83,12 +84,13 @@ class ReMeta():
         return meta
 
     # 分离季度部分和集数部分
-    def split_season_ep(self, pre_title: str):
+    @staticmethod
+    def split_season_ep(pre_title: str):
         split_ep = re.findall(r"(\[.*?])", pre_title)[1]
         if not split_ep:
             logger.warn("未识别出集数位置信息，结束识别！")
             return None
-        split_title = re.sub(r"\[.*?\]", "", pre_title).strip()
+        split_title = re.sub(r"\[.*?]", "", pre_title).strip()
         logger.info(f"分离出包含季度的部分：{split_title} \n 分离出包含集数的部分： {split_ep}")
         return [split_title, split_ep]
 
@@ -96,7 +98,7 @@ class ReMeta():
         if self.high_performance:
             with concurrent.futures.ProcessPoolExecutor(max_workers=2) as executor:
                 title_season_result = executor.submit(self.handle_season, title[0])
-                ep_result = executor.submit(self.re_ep, title[1],)
+                ep_result = executor.submit(self.re_ep, title[1], )
             try:
                 title_season_result = title_season_result.result()  # Blocks until the task is complete.
                 ep_result = ep_result.result()  # Blocks until the task is complete.
@@ -140,7 +142,8 @@ class ReMeta():
         return title_season
 
     # 处理存在“Final”字样命名的季度
-    def handle_final_season(self, title: str) -> int | None:
+    @staticmethod
+    def handle_final_season(title: str) -> int | None:
         medias = MediaChain().search(title=title)[1]
         if not medias:
             logger.warn("没有找到对应的媒体信息！")
@@ -159,7 +162,7 @@ class ReMeta():
             logger.info(f"获取到最终季，季度为{len(seasons_info)}")
             return len(seasons_info)
 
-    def re_ep(self, ep_title: str,) -> dict:
+    def re_ep(self, ep_title: str, ) -> dict:
         """
         # 集数匹配处理模块
         :param ep_title: 从title解析出的集数,ep_title固定格式[集数]
@@ -182,7 +185,3 @@ class ReMeta():
                 ep_ova["ep"] = int(match.group(group))
                 return ep_ova
         return ep_ova
-
-
-
-

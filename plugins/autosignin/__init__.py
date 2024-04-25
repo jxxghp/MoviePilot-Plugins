@@ -38,7 +38,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -852,10 +852,13 @@ class AutoSignIn(_PluginBase):
                 logger.error("站点模块加载失败：%s" % str(e))
         return None
 
-    def signin_by_domain(self, url: str) -> schemas.Response:
+    def signin_by_domain(self, url: str, apikey: str) -> schemas.Response:
         """
         签到一个站点，可由API调用
         """
+        # 校验
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
         domain = StringUtils.get_url_domain(url)
         site_info = self.sites.get_indexer(domain)
         if not site_info:

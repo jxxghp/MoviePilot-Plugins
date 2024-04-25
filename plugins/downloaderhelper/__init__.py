@@ -171,7 +171,7 @@ class DownloaderHelper(_PluginBase):
 
         return [{
             'component': 'VForm',
-            'content': [{ # 业务无关总控
+            'content': [{  # 业务无关总控
                 'component': 'VRow',
                 'content': [{
                     'component': 'VCol',
@@ -216,7 +216,7 @@ class DownloaderHelper(_PluginBase):
                         }
                     }]
                 }]
-            }, { # 业务相关总控
+            }, {  # 业务相关总控
                 'component': 'VRow',
                 'content': [{
                     'component': 'VCol',

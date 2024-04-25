@@ -5,8 +5,8 @@ import threading
 import time
 import traceback
 from pathlib import Path
-from time import sleep
 from typing import List, Tuple, Dict, Any, Optional
+
 import pytz
 import qbittorrentapi
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -14,13 +14,12 @@ from apscheduler.triggers.cron import CronTrigger
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
+
 from app import schemas
 from app.chain.tmdb import TmdbChain
 from app.chain.transfer import TransferChain
 from app.core.config import settings
 from app.core.context import MediaInfo
-from app.core.event import eventmanager, Event
-from app.core.metainfo import MetaInfoPath
 from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.db.transferhistory_oper import TransferHistoryOper
 from app.log import logger
@@ -212,7 +211,6 @@ class VCBAnimeMonitor(_PluginBase):
                 else:
                     self._dirconf[mon_path] = None
 
-
                 # 转移方式
                 self._transferconf[mon_path] = _transfer_type
 
@@ -253,7 +251,6 @@ class VCBAnimeMonitor(_PluginBase):
                         else:
                             logger.error(f"{mon_path} 启动目录监控失败：{err_msg}")
                         self.systemmessage.put(f"{mon_path} 启动目录监控失败：{err_msg}")
-
 
             # 运行一次定时服务
             if self._onlyonce:
@@ -297,7 +294,6 @@ class VCBAnimeMonitor(_PluginBase):
 
     def __get_data(self, key: str):
         return self.get_data(key)
-
 
     def sync_all(self):
         """
@@ -396,7 +392,7 @@ class VCBAnimeMonitor(_PluginBase):
                     if remeta.is_special and self._switch_ova:
                         logger.info(f"{file_path.name} 为OVA资源,开始处理")
                         if self.get_data(key=f"OVA_{file_meta.title}") is not None:
-                            ova_history_ep = int(self.get_data(key=f"OVA_{file_meta.title}"))+1
+                            ova_history_ep = int(self.get_data(key=f"OVA_{file_meta.title}")) + 1
                             file_meta.begin_episode = ova_history_ep
                             self.save_data(key=f"OVA_{file_meta.title}", value=ova_history_ep)
                         else:
@@ -598,7 +594,6 @@ class VCBAnimeMonitor(_PluginBase):
     def torrent_event(self, event, mon_path: str, text: str):
         """
         处理种子文件
-        :param mon_path: 种子目录
         """
         evc_path = Path(event.src_path)
         if not event.is_directory and (evc_path.suffix == ".torrent" or str(evc_path).split('.')[1] == "torrent"):
@@ -633,7 +628,6 @@ class VCBAnimeMonitor(_PluginBase):
                         continue
         except qbittorrentapi.exceptions.APIError as e:
             logger.error(f"VCB辅助整理模块转移qb文件移动失败：{e}")
-
 
     def send_msg(self):
         """

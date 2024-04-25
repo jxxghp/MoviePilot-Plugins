@@ -17,7 +17,7 @@ from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas import Notification, NotificationType
+from app.schemas import NotificationType
 from app.schemas.types import EventType
 from app.utils.system import SystemUtils
 
@@ -51,7 +51,7 @@ class LinkMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "Linkace_C.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -393,10 +393,12 @@ class LinkMonitor(_PluginBase):
                 "kwargs": {}
             }]
 
-    def sync(self) -> schemas.Response:
+    def sync(self, apikey: str) -> schemas.Response:
         """
         API调用目录同步
         """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
         self.sync_all()
         return schemas.Response(success=True)
 

@@ -121,6 +121,7 @@ class EventType(Enum):
         "description": "刷新对应域名的站点数据", // API描述
     }]
     ```
+  注意：在插件中暴露API接口时注意安全控制，推荐使用`settings.API_TOKEN`进行身份验证。
   
 - 在对应的方法中实现API响应方法逻辑，通过 `http://localhost:3001/docs` 查看API文档和调试
 

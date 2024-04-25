@@ -43,7 +43,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "2.8"
+    plugin_version = "2.9"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -1127,10 +1127,12 @@ class SiteStatistic(_PluginBase):
                 return site_schema(site_name, url, site_cookie, html_text, session=session, ua=ua, proxy=proxy)
             return None
 
-    def refresh_by_domain(self, domain: str) -> schemas.Response:
+    def refresh_by_domain(self, domain: str, apikey: str) -> schemas.Response:
         """
         刷新一个站点数据，可由API调用
         """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
         site_info = self.sites.get_indexer(domain)
         if site_info:
             site_data = self.__refresh_site_data(site_info)
@@ -1309,18 +1311,18 @@ class SiteStatistic(_PluginBase):
                         incUploads += upload
                         incDownloads += download
                         messages[upload + (rand / 1000)] = (
-                            f"【{site}】{updated_date}\n"
-                            + f"上传量：{StringUtils.str_filesize(upload)}\n"
-                            + f"下载量：{StringUtils.str_filesize(download)}\n"
-                            + "————————————"
+                                f"【{site}】{updated_date}\n"
+                                + f"上传量：{StringUtils.str_filesize(upload)}\n"
+                                + f"下载量：{StringUtils.str_filesize(download)}\n"
+                                + "————————————"
                         )
 
                 if incDownloads or incUploads:
                     sorted_messages = [messages[key] for key in sorted(messages.keys(), reverse=True)]
                     sorted_messages.insert(0, f"【汇总】\n"
-                                       f"总上传：{StringUtils.str_filesize(incUploads)}\n"
-                                       f"总下载：{StringUtils.str_filesize(incDownloads)}\n"
-                                       f"————————————")
+                                              f"总上传：{StringUtils.str_filesize(incUploads)}\n"
+                                              f"总下载：{StringUtils.str_filesize(incDownloads)}\n"
+                                              f"————————————")
                     self.post_message(mtype=NotificationType.SiteMessage,
                                       title="站点数据统计", text="\n".join(sorted_messages))
 

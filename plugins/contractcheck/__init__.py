@@ -134,19 +134,19 @@ class ContractCheck(_PluginBase):
                     self._scheduler.start()
 
     def parse_contract_infos(self, infos):
-        if infos == None:
+        if infos is None:
             return
         info_list = infos.split("\n")
         for info in info_list:
             _site_name, _official, _size, _num, _duration, date = info.split("|")
             site_id = self._get_site_id(_site_name)
-            if site_id == None:
+            if site_id is None:
                 logger.error(f"站点{_site_name}不在数据库中，请检查配置！")
                 continue
             date_format = "%Y/%m/%d"
-            date = datetime.strptime(date, date_format).date()
+            date = datetime.strptime(date, date_format)
             _official = True if _official == "是" else False
-            c_info: self.ContractInfo = self.ContractInfo(
+            c_info = self.ContractInfo(
                 _site_name,
                 _official,
                 int(_size) * 1024 * 1024 * 1024,
@@ -622,7 +622,7 @@ class ContractCheck(_PluginBase):
                         i = html_text.find("window.location")
                         if i == -1:
                             return None
-                        tmp_url = url + html_text[i : html_text.find(";")].replace(
+                        tmp_url = url + html_text[i: html_text.find(";")].replace(
                             '"', ""
                         ).replace("+", "").replace(" ", "").replace(
                             "window.location=", ""
@@ -689,8 +689,8 @@ class ContractCheck(_PluginBase):
             return None
 
     # 检查契约达成情况，返回是否达成、差多少体积、差多少数量、还剩多少时间
-    def _check_seed_states(self, contract_info, site_user_info):
-        is_satisfied = False
+    @staticmethod
+    def _check_seed_states(contract_info, site_user_info):
         is_size_satisfied = False
         is_num_satisfied = False
         size_gap = 0

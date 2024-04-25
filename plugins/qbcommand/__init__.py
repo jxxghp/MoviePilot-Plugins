@@ -262,7 +262,8 @@ class QbCommand(_PluginBase):
             return []
         return all_torrents
 
-    def get_torrents_status(self, torrents):
+    @staticmethod
+    def get_torrents_status(torrents):
         downloading_torrents = []
         uploading_torrents = []
         paused_torrents = []
@@ -372,7 +373,7 @@ class QbCommand(_PluginBase):
                 f"暂停操作中请稍等...\n",
             )
         if len(to_be_paused) > 0:
-            if self._qb.stop_torrents(ids=(to_be_paused)):
+            if self._qb.stop_torrents(ids=to_be_paused):
                 logger.info(f"暂停了{len(to_be_paused)}个种子")
             else:
                 logger.error(f"暂停种子失败")
@@ -625,7 +626,6 @@ class QbCommand(_PluginBase):
         if flag:
             logger.info(f"设置QB限速成功")
             if self._notify:
-                text = "QB设置限速成功\n"
                 if upload_limit == 0:
                     text = f"上传无限速"
                 else:
@@ -639,7 +639,7 @@ class QbCommand(_PluginBase):
                     title=f"【QB远程操作】",
                     text=text,
                 )
-        elif flag == False:
+        elif not flag:
             logger.error(f"QB设置限速失败")
             if self._notify:
                 self.post_message(

@@ -200,7 +200,8 @@ class TrCommand(_PluginBase):
             return []
         return all_torrents
 
-    def get_torrents_status(self, torrents):
+    @staticmethod
+    def get_torrents_status(torrents):
         downloading_torrents = []
         uploading_torrents = []
         paused_torrents = []
@@ -265,15 +266,15 @@ class TrCommand(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【TR暂停任务启动】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                f"做种数量:  {len(hash_uploading)}\n"
-                f"下载数量:  {len(hash_downloading)}\n"
-                f"检查数量:  {len(hash_checking)}\n"
-                f"暂停数量:  {len(hash_paused)}\n"
-                f"错误数量:  {len(hash_error)}\n"
-                f"暂停操作中请稍等...\n",
+                     f"做种数量:  {len(hash_uploading)}\n"
+                     f"下载数量:  {len(hash_downloading)}\n"
+                     f"检查数量:  {len(hash_checking)}\n"
+                     f"暂停数量:  {len(hash_paused)}\n"
+                     f"错误数量:  {len(hash_error)}\n"
+                     f"暂停操作中请稍等...\n",
             )
         if len(to_be_paused) > 0:
-            if self._tr.stop_torrents(ids=(to_be_paused)):
+            if self._tr.stop_torrents(ids=to_be_paused):
                 logger.info(f"暂停了{len(to_be_paused)}个种子")
             else:
                 logger.error(f"暂停种子失败")
@@ -305,11 +306,11 @@ class TrCommand(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【TR暂停任务完成】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                f"做种数量:  {len(hash_uploading)}\n"
-                f"下载数量:  {len(hash_downloading)}\n"
-                f"检查数量:  {len(hash_checking)}\n"
-                f"暂停数量:  {len(hash_paused)}\n"
-                f"错误数量:  {len(hash_error)}\n",
+                     f"做种数量:  {len(hash_uploading)}\n"
+                     f"下载数量:  {len(hash_downloading)}\n"
+                     f"检查数量:  {len(hash_checking)}\n"
+                     f"暂停数量:  {len(hash_paused)}\n"
+                     f"错误数量:  {len(hash_error)}\n",
             )
 
     @eventmanager.register(EventType.PluginAction)
@@ -345,12 +346,12 @@ class TrCommand(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【TR开始任务启动】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                f"做种数量:  {len(hash_uploading)}\n"
-                f"下载数量:  {len(hash_downloading)}\n"
-                f"检查数量:  {len(hash_checking)}\n"
-                f"暂停数量:  {len(hash_paused)}\n"
-                f"错误数量:  {len(hash_error)}\n"
-                f"开始操作中请稍等...\n",
+                     f"做种数量:  {len(hash_uploading)}\n"
+                     f"下载数量:  {len(hash_downloading)}\n"
+                     f"检查数量:  {len(hash_checking)}\n"
+                     f"暂停数量:  {len(hash_paused)}\n"
+                     f"错误数量:  {len(hash_error)}\n"
+                     f"开始操作中请稍等...\n",
             )
         if not self._tr.start_torrents(ids=hash_paused):
             logger.error(f"开始种子失败")
@@ -382,11 +383,11 @@ class TrCommand(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【TR开始任务完成】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                f"做种数量:  {len(hash_uploading)}\n"
-                f"下载数量:  {len(hash_downloading)}\n"
-                f"检查数量:  {len(hash_checking)}\n"
-                f"暂停数量:  {len(hash_paused)}\n"
-                f"错误数量:  {len(hash_error)}\n",
+                     f"做种数量:  {len(hash_uploading)}\n"
+                     f"下载数量:  {len(hash_downloading)}\n"
+                     f"检查数量:  {len(hash_checking)}\n"
+                     f"暂停数量:  {len(hash_paused)}\n"
+                     f"错误数量:  {len(hash_error)}\n",
             )
 
     @eventmanager.register(EventType.PluginAction)
@@ -409,7 +410,6 @@ class TrCommand(_PluginBase):
             if not event_data or event_data.get("action") != "toggle_download_limit":
                 return
         self.set_limit(self._upload_limit, self._download_limit)
-
 
     def set_both_limit(self, upload_limit, download_limit):
         if not self._enable_upload_limit or not self._enable_upload_limit:
@@ -461,7 +461,6 @@ class TrCommand(_PluginBase):
             download_limit=int(download_limit), upload_limit=int(upload_limit_current_val)
         )
 
-
     def set_limit(self, upload_limit, download_limit):
         # 限速，满足以下三种情况设置限速
         # 1. 插件启用 && download_limit启用
@@ -481,7 +480,6 @@ class TrCommand(_PluginBase):
         if flag:
             logger.info(f"设置TR限速成功")
             if self._notify:
-                text = "TR设置限速成功\n"
                 if upload_limit == 0:
                     text = f"上传无限速"
                 else:
@@ -495,7 +493,7 @@ class TrCommand(_PluginBase):
                     title=f"【TR远程操作】",
                     text=text,
                 )
-        elif flag == False:
+        elif not flag:
             logger.error(f"TR设置限速失败")
             if self._notify:
                 self.post_message(

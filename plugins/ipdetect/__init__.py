@@ -1,17 +1,19 @@
-import socket
-from typing import List, Tuple, Dict, Any
 import re
+import socket
+from datetime import datetime, timedelta
+from typing import List, Tuple, Dict, Any
+
+import pytz
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from dotenv import set_key
+
+from app.core.config import settings
+from app.core.module import ModuleManager
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas import Notification, NotificationType
-from app.core.config import settings
-from dotenv import set_key
-from app.core.module import ModuleManager
 from app.scheduler import Scheduler
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.schedulers.background import BackgroundScheduler
-from datetime import datetime, timedelta
-import pytz
+from app.schemas import NotificationType
 
 
 class IpDetect(_PluginBase):
@@ -218,7 +220,8 @@ class IpDetect(_PluginBase):
             set_key(settings.CONFIG_PATH / "app.env", k, v)
             logger.info(f"重新设置服务地址{k}成功！")
 
-    def get_value(self, key):
+    @staticmethod
+    def get_value(key):
         if key == "QB_HOST":
             return settings.QB_HOST
         elif key == "TR_HOST":
@@ -238,7 +241,8 @@ class IpDetect(_PluginBase):
         else:
             return None
 
-    def parse_ip(self, ip):
+    @staticmethod
+    def parse_ip(ip):
         ip_pattern = r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"
         match = re.search(ip_pattern, ip)
         if match:
@@ -268,7 +272,8 @@ class IpDetect(_PluginBase):
                 }
             ]
 
-    def get_local_ip(self):
+    @staticmethod
+    def get_local_ip():
         try:
             # 创建一个 UDP 套接字
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

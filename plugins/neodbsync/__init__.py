@@ -4,10 +4,9 @@ from threading import Lock
 from typing import Optional, Any, List, Dict, Tuple
 
 import pytz
+import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-import requests
-from app.schemas.types import MediaType
 
 from app.chain.download import DownloadChain
 from app.chain.search import SearchChain
@@ -19,7 +18,7 @@ from app.core.metainfo import MetaInfo
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import EventType
-from app.utils.http import RequestUtils
+from app.schemas.types import MediaType
 
 lock = Lock()
 
@@ -308,7 +307,7 @@ class NeoDBSync(_PluginBase):
                             }
                         ]
                     },
-                                        {
+                    {
                         'component': 'VRow',
                         'content': [
                             {
@@ -445,7 +444,6 @@ class NeoDBSync(_PluginBase):
             }
         ]
 
-
     def __update_config(self):
         """
         更新配置
@@ -494,7 +492,6 @@ class NeoDBSync(_PluginBase):
             username = self.__get_username(token)
             # 同步每个 NeoDB 用户的数据
             logger.info(f"开始同步 NeoDB 用户 {username} 的想看数据 ...")
-            results = []
             try:
                 movie_response = requests.get(self._movie_url, headers=headers)
                 movie_response.raise_for_status()
@@ -545,7 +542,6 @@ class NeoDBSync(_PluginBase):
                     exist_flag, no_exists = self.downloadchain.get_no_exists_info(meta=meta, mediainfo=mediainfo)
                     if exist_flag:
                         logger.info(f'{mediainfo.title_year} 媒体库中已存在')
-                        action = "exist"
                     else:
                         # 添加订阅
                         logger.info(f'{mediainfo.title_year} 媒体库中不存在或不完整，添加订阅 ...')
@@ -594,12 +590,13 @@ class NeoDBSync(_PluginBase):
                 return False
         return True
 
-    def __get_username(self, token: str):
+    @staticmethod
+    def __get_username(token: str):
         """
         获取 NeoDB 用户名
         """
         try:
-            user_info = requests.get(f"https://neodb.social/api/me", headers= {"Authorization": f"Bearer {token}"})
+            user_info = requests.get(f"https://neodb.social/api/me", headers={"Authorization": f"Bearer {token}"})
             user_info.raise_for_status()
             try:
                 username = user_info.json().get("username")
