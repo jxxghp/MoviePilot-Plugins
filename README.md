@@ -431,12 +431,10 @@ class EventType(Enum):
 {
     "component": "VDialogCloseBtn", // 触发事件的元素
     'events': {
-        // 点击事件
-        'click': {
+        'click': { // 点击事件
             'api': 'plugin/DoubanSync/delete_history', // API的相对路径
             'method': 'get', // GET/POST
-            // API上送参数
-            'params': {
+            'params': { // API上送参数
                 'doubanid': doubanid
             }
         }
