@@ -405,7 +405,7 @@ class DoubanSync(_PluginBase):
                                         {
                                             'component': 'VCardTitle',
                                             'props': {
-                                                'class': 'ps-1 break-words whitespace-break-spaces'
+                                                'class': 'ps-1 pe-5 break-words whitespace-break-spaces'
                                             },
                                             'content': [
                                                 {

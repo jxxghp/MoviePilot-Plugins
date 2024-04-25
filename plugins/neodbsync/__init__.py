@@ -397,9 +397,9 @@ class NeoDBSync(_PluginBase):
                                     'component': 'div',
                                     'content': [
                                         {
-                                            'component': 'VCardSubtitle',
+                                            'component': 'VCardTitle',
                                             'props': {
-                                                'class': 'pa-2 font-bold break-words whitespace-break-spaces'
+                                                'class': 'ps-1 pe-5 break-words whitespace-break-spaces'
                                             },
                                             'content': [
                                                 {

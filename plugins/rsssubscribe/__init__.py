@@ -9,6 +9,7 @@ import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app import schemas
 from app.chain.download import DownloadChain
 from app.chain.search import SearchChain
 from app.chain.subscribe import SubscribeChain
@@ -31,7 +32,7 @@ class RssSubscribe(_PluginBase):
     # 插件图标
     plugin_icon = "rss.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -134,7 +135,14 @@ class RssSubscribe(_PluginBase):
             "summary": "API说明"
         }]
         """
-        pass
+        return [
+            {
+                "path": "/delete_history",
+                "endpoint": self.delete_history,
+                "methods": ["GET"],
+                "summary": "删除自定义订阅历史记录"
+            }
+        ]
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
@@ -450,6 +458,22 @@ class RssSubscribe(_PluginBase):
                     'component': 'VCard',
                     'content': [
                         {
+                            "component": "VDialogCloseBtn",
+                            "props": {
+                                'innerClass': 'absolute top-0 right-0',
+                            },
+                            'events': {
+                                'click': {
+                                    'api': 'plugin/RssSubscribe/delete_history',
+                                    'method': 'get',
+                                    'params': {
+                                        'key': title,
+                                        'apikey': settings.API_TOKEN
+                                    }
+                                }
+                            },
+                        },
+                        {
                             'component': 'div',
                             'props': {
                                 'class': 'd-flex justify-space-start flex-nowrap flex-row',
@@ -475,9 +499,9 @@ class RssSubscribe(_PluginBase):
                                     'component': 'div',
                                     'content': [
                                         {
-                                            'component': 'VCardSubtitle',
+                                            'component': 'VCardTitle',
                                             'props': {
-                                                'class': 'pa-2 font-bold break-words whitespace-break-spaces'
+                                                'class': 'pa-1 pe-5 break-words whitespace-break-spaces'
                                             },
                                             'text': title
                                         },
@@ -525,6 +549,21 @@ class RssSubscribe(_PluginBase):
                 self._scheduler = None
         except Exception as e:
             logger.error("退出插件失败：%s" % str(e))
+
+    def delete_history(self, key: str, apikey: str):
+        """
+        删除同步历史记录
+        """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
+        # 历史记录
+        historys = self.get_data('history')
+        if not historys:
+            return schemas.Response(success=False, message="未找到历史记录")
+        # 删除指定记录
+        historys = [h for h in historys if h.get("title") != key]
+        self.save_data('history', historys)
+        return schemas.Response(success=True, message="删除成功")
 
     def __update_config(self):
         """
