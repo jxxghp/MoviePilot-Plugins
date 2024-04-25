@@ -8,6 +8,7 @@ import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app import schemas
 from app.chain.download import DownloadChain
 from app.chain.media import MediaChain
 from app.chain.subscribe import SubscribeChain
@@ -28,7 +29,7 @@ class DoubanRank(_PluginBase):
     # 插件图标
     plugin_icon = "movie.jpg"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -125,7 +126,23 @@ class DoubanRank(_PluginBase):
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
-        pass
+        """
+        获取插件API
+        [{
+            "path": "/xx",
+            "endpoint": self.xxx,
+            "methods": ["GET", "POST"],
+            "summary": "API说明"
+        }]
+        """
+        return [
+            {
+                "path": "/delete_history",
+                "endpoint": self.delete_history,
+                "methods": ["GET"],
+                "summary": "删除豆瓣榜单订阅历史记录"
+            }
+        ]
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
@@ -369,6 +386,21 @@ class DoubanRank(_PluginBase):
                     'component': 'VCard',
                     'content': [
                         {
+                            "component": "VDialogCloseBtn",
+                            "props": {
+                                'innerClass': 'absolute top-0 right-0',
+                            },
+                            'events': {
+                                'click': {
+                                    'api': 'plugin/DoubanRank/delete_history',
+                                    'method': 'get',
+                                    'params': {
+                                        'key': f"doubanrank: {title} (DB:{doubanid})"
+                                    }
+                                }
+                            },
+                        },
+                        {
                             'component': 'div',
                             'props': {
                                 'class': 'd-flex justify-space-start flex-nowrap flex-row',
@@ -394,9 +426,9 @@ class DoubanRank(_PluginBase):
                                     'component': 'div',
                                     'content': [
                                         {
-                                            'component': 'VCardSubtitle',
+                                            'component': 'VCardTitle',
                                             'props': {
-                                                'class': 'pa-2 font-bold break-words whitespace-break-spaces'
+                                                'class': 'pa-1 break-words whitespace-break-spaces'
                                             },
                                             'content': [
                                                 {
@@ -455,6 +487,19 @@ class DoubanRank(_PluginBase):
                 self._scheduler = None
         except Exception as e:
             print(str(e))
+
+    def delete_history(self, key: str):
+        """
+        删除同步历史记录
+        """
+        # 历史记录
+        historys = self.get_data('history')
+        if not historys:
+            return schemas.Response(success=False, message="未找到历史记录")
+        # 删除指定记录
+        historys = [h for h in historys if h.get("unique") != key]
+        self.save_data('history', historys)
+        return schemas.Response(success=True, message="删除成功")
 
     def __update_config(self):
         """

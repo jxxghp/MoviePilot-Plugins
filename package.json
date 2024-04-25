@@ -74,10 +74,13 @@
     "DoubanRank": {
         "name": "豆瓣榜单订阅",
         "description": "监控豆瓣热门榜单，自动添加订阅。",
-        "version": "1.7",
+        "version": "1.8",
         "icon": "movie.jpg",
         "author": "jxxghp",
-        "level": 2
+        "level": 2,
+        "history": {
+            "v1.8": "订阅历史记录支持手动删除，需要主程序升级至v1.8.4+版本"
+        }
     },
     "LibraryScraper": {
         "name": "媒体库刮削",
