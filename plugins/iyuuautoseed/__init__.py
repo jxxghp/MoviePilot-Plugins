@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -892,7 +892,35 @@ class IYUUAutoSeed(_PluginBase):
         拼装种子下载链接
         """
 
-        def __is_special_site(url):
+        def __is_mteam(url: str):
+            """
+            判断是否为mteam站点
+            """
+            return True if "m-team." in url else False
+
+        def __get_mteam_enclosure(tid: str):
+            """
+            获取mteam种子下载链接
+            """
+            _apikey = self.systemconfig.get(f"site.m-team.apikey")
+            if not _apikey:
+                logger.error("m-team站点的apikey未配置")
+                return None
+            with RequestUtils(
+                    headers={
+                        'Content-Type': 'application/json',
+                        'User-Agent': f'{site.get("ua")}',
+                        'Accept': 'application/json, text/plain, */*',
+                        'x-api-key': _apikey
+                    }
+            ).post_res(f"{site.get('url')}api/torrent/genDlToken", params={
+                'id': tid
+            }) as res:
+                if not res:
+                    logger.warn(f"m-team 获取种子下载链接失败：{tid}")
+                    return None
+
+        def __is_special_site(url: str):
             """
             判断是否为特殊站点
             """
@@ -910,7 +938,10 @@ class IYUUAutoSeed(_PluginBase):
             return False
 
         try:
-            if __is_special_site(site.get('url')):
+            if __is_mteam(site.get('url')):
+                # 调用mteam接口获取下载链接
+                return __get_mteam_enclosure(seed.get("torrent_id"))
+            elif __is_special_site(site.get('url')):
                 # 从详情页面获取下载链接
                 return self.__get_torrent_url_from_page(seed=seed, site=site)
             else:
