@@ -316,10 +316,13 @@
     "MoviePilotUpdateNotify": {
         "name": "MoviePilot更新推送",
         "description": "MoviePilot推送release更新通知、自动重启。",
-        "version": "1.2",
+        "version": "1.3",
         "icon": "Moviepilot_A.png",
         "author": "thsrite",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.3": "增加前端版本更新检查，需要主程序升级至v1.8.4+版本"
+        }
     },
     "CloudDiskDel": {
         "name": "云盘文件删除",
