@@ -19,7 +19,7 @@ from app.log import logger
 from app.modules.qbittorrent.qbittorrent import Qbittorrent
 from app.modules.transmission.transmission import Transmission
 from app.plugins import _PluginBase
-from app.plugins.downloaderhelper.module import Constants, TaskContext, TaskResult
+from app.plugins.downloaderhelper.module import TaskContext, TaskResult
 from app.schemas.types import EventType
 from app.utils.string import StringUtils
 
@@ -32,7 +32,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -497,9 +497,16 @@ class DownloaderHelper(_PluginBase):
                         'component': 'VAlert',
                         'props': {
                             'type': 'info',
-                            'variant': 'tonal',
-                            'text': f'插件使用说明见: {self.__help_url}'
-                        }
+                            'variant': 'tonal'
+                        },
+                        'content': [{
+                            'component': 'a',
+                            'props': {
+                                'href': self.__help_url,
+                                'target': '_blank'
+                            },
+                            'text': '点此查看详细的插件使用说明'
+                        }]
                     }]
                 }]
             }]
@@ -1376,7 +1383,7 @@ class DownloaderHelper(_PluginBase):
             # 根据上下文过滤种子
             selected_torrents = context.get_selected_torrents()
             torrents = torrents if selected_torrents is None \
-                else [torrent for torrent in torrents if torrent in selected_torrents]
+                else [torrent for torrent in torrents if torrent and torrent.hashString in selected_torrents]
             if not torrents or len(torrents) <= 0:
                 logger.warn(f'下载器[{downloader_name}]中没有目标种子，任务终止')
                 return context
@@ -1557,7 +1564,10 @@ class DownloaderHelper(_PluginBase):
             return
         # 执行
         logger.info('下载添加事件监听任务执行开始...')
-        context = TaskContext().enable_seeding(False).enable_tagging(True).enable_delete(False)
+        # enable_seeding=True是针对辅种添加种子并跳过校验的场景
+        context = TaskContext().enable_seeding(True) \
+                               .enable_tagging(True) \
+                               .enable_delete(False)
         _hash = event.event_data.get('hash')
         if _hash:
             context.select_torrent(torrent=_hash)
@@ -1584,7 +1594,10 @@ class DownloaderHelper(_PluginBase):
             return
         # 执行
         logger.info('源文件删除事件监听任务执行开始...')
-        context = TaskContext().enable_seeding(False).enable_tagging(False).enable_delete(True).set_deleted_event_data(
-            event.event_data)
+        # 针对源文件监听事件只需要处理删种
+        context = TaskContext().enable_seeding(False) \
+                               .enable_tagging(False) \
+                               .enable_delete(True) \
+                               .set_deleted_event_data(event.event_data)
         self.__block_run(context=context)
         logger.info('源文件删除事件监听任务执行结束')
