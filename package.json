@@ -520,10 +520,13 @@
     "DownloaderHelper": {
         "name": "下载器助手",
         "description": "自动做种、站点标签、自动删种。",
-        "version": "1.5",
+        "version": "1.6",
         "icon": "DownloaderHelper.png",
         "author": "hotlcc",
-        "level": 2
+        "level": 2,
+        "history": {
+            "v1.6": "修复事件触发tr打标问题；表单界面优化。"
+        }
     },
     "FeiShuMsg": {
         "name": "飞书机器人消息通知",
