@@ -971,7 +971,7 @@ class IYUUAutoSeed(_PluginBase):
                                       flags=re.IGNORECASE)
                 return f"{site.get('url')}{download_url}"
         except Exception as e:
-            logger.warn(f"站点 {site.get('name')} Url转换失败：{str(e)}，尝试通过详情页面获取种子下载链接 ...")
+            logger.warn(f"{site.get('name')} {base_url} Url转换失败：{str(e)}，尝试通过详情页面获取种子下载链接 ...")
             return self.__get_torrent_url_from_page(seed=seed, site=site)
 
     def __get_torrent_url_from_page(self, seed: dict, site: dict):
