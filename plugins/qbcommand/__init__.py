@@ -1,5 +1,7 @@
 from typing import List, Tuple, Dict, Any
 from enum import Enum
+from urllib.parse import urlparse
+import urllib
 from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.plugins import _PluginBase
@@ -7,6 +9,13 @@ from app.schemas import NotificationType
 from app.schemas.types import EventType
 from apscheduler.triggers.cron import CronTrigger
 from app.core.event import eventmanager, Event
+from apscheduler.schedulers.background import BackgroundScheduler
+from app.core.config import settings
+from app.helper.sites import SitesHelper
+from app.db.site_oper import SiteOper
+from app.utils.string import StringUtils
+from datetime import datetime, timedelta
+import pytz
 import time
 
 
@@ -18,7 +27,7 @@ class QbCommand(_PluginBase):
     # 插件图标
     plugin_icon = "Qbittorrent_A.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -31,6 +40,8 @@ class QbCommand(_PluginBase):
     auth_level = 1
 
     # 私有属性
+    _sites = None
+    _siteoper = None
     _qb = None
     _enabled: bool = False
     _notify: bool = False
@@ -45,8 +56,14 @@ class QbCommand(_PluginBase):
     _enable_upload_limit = False
     _download_limit = 0
     _enable_download_limit = False
+    _op_site_ids = []
+    _op_sites = []
+    _multi_level_root_domain = ["edu.cn", "com.cn", "net.cn", "org.cn"]
+    _scheduler = None
 
     def init_plugin(self, config: dict = None):
+        self._sites = SitesHelper()
+        self._siteoper = SiteOper()
         # 停止现有任务
         self.stop_service()
         # 读取配置
@@ -65,14 +82,33 @@ class QbCommand(_PluginBase):
             self._enable_download_limit = config.get("enable_download_limit")
             self._enable_upload_limit = config.get("enable_upload_limit")
             self._qb = Qbittorrent()
+            self._op_site_ids = config.get("op_site_ids") or []
+            # 查询所有站点
+            all_sites = [site for site in self._sites.get_indexers() if not site.get("public")] + self.__custom_sites()
+            # 过滤掉没有选中的站点
+            self._op_sites = [site for site in all_sites if site.get("id") in self._op_site_ids]
 
         if self._only_pause_once or self._only_resume_once:
             if self._only_pause_once and self._only_resume_once:
                 logger.warning("只能选择一个: 立即暂停或立即开始所有任务")
             elif self._only_pause_once:
-                self.pause_torrent()
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+                logger.info(f"立即运行一次暂停所有任务")
+                self._scheduler.add_job(
+                    self.pause_torrent,
+                    "date",
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
+                    + timedelta(seconds=3),
+                )
             elif self._only_resume_once:
-                self.resume_torrent()
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+                logger.info(f"立即运行一次开始所有任务")
+                self._scheduler.add_job(
+                    self.resume_torrent,
+                    "date",
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
+                    + timedelta(seconds=3),
+                )
 
             self._only_resume_once = False
             self._only_pause_once = False
@@ -84,16 +120,56 @@ class QbCommand(_PluginBase):
                     "notify": self._notify,
                     "pause_cron": self._pause_cron,
                     "resume_cron": self._resume_cron,
+                    "op_site_ids": self._op_site_ids,
                 }
             )
 
-        if self._only_pause_upload or self._only_pause_download or self._only_pause_checking:
+            # 启动任务
+            if self._scheduler.get_jobs():
+                self._scheduler.print_jobs()
+                self._scheduler.start()
+
+        if (
+            self._only_pause_upload
+            or self._only_pause_download
+            or self._only_pause_checking
+        ):
             if self._only_pause_upload:
-                self.pause_torrent(self.TorrentType.UPLOADING)
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+                logger.info(f"立即运行一次暂停所有上传任务")
+                self._scheduler.add_job(
+                    self.pause_torrent,
+                    "date",
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
+                    + timedelta(seconds=3),
+                    kwargs={
+                        'type': self.TorrentType.UPLOADING
+                    }
+                )
             if self._only_pause_download:
-                self.pause_torrent(self.TorrentType.DOWNLOADING)
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+                logger.info(f"立即运行一次暂停所有下载任务")
+                self._scheduler.add_job(
+                    self.pause_torrent,
+                    "date",
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
+                    + timedelta(seconds=3),
+                    kwargs={
+                        'type': self.TorrentType.DOWNLOADING
+                    }
+                )
             if self._only_pause_checking:
-                self.pause_torrent(self.TorrentType.CHECKING)
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+                logger.info(f"立即运行一次暂停所有检查任务")
+                self._scheduler.add_job(
+                    self.pause_torrent,
+                    "date",
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
+                    + timedelta(seconds=3),
+                    kwargs={
+                        'type': self.TorrentType.CHECKING
+                    }
+                )
 
             self._only_pause_upload = False
             self._only_pause_download = False
@@ -107,8 +183,14 @@ class QbCommand(_PluginBase):
                     "notify": self._notify,
                     "pause_cron": self._pause_cron,
                     "resume_cron": self._resume_cron,
+                    "op_site_ids": self._op_site_ids,
                 }
             )
+
+            # 启动任务
+            if self._scheduler.get_jobs():
+                self._scheduler.print_jobs()
+                self._scheduler.start()
 
         self.set_limit(self._upload_limit, self._download_limit)
 
@@ -185,6 +267,13 @@ class QbCommand(_PluginBase):
                 "data": {"action": "toggle_download_limit"},
             },
         ]
+
+    def __custom_sites(self) -> List[Any]:
+        custom_sites = []
+        custom_sites_config = self.get_config("CustomSites")
+        if custom_sites_config and custom_sites_config.get("enabled"):
+            custom_sites = custom_sites_config.get("sites")
+        return custom_sites
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
@@ -426,6 +515,7 @@ class QbCommand(_PluginBase):
             return
 
         all_torrents = self.get_all_torrents()
+        all_torrents = self.filter_torrents(all_torrents)
         hash_downloading, hash_uploading, hash_paused, hash_checking, hash_error = (
             self.get_torrents_status(all_torrents)
         )
@@ -488,6 +578,41 @@ class QbCommand(_PluginBase):
                 f"错误数量:  {len(hash_error)}\n",
             )
 
+    def filter_torrents(self, all_torrents):
+        """
+        过滤掉不参与保种的种子
+        """
+        if len(self._op_sites) == 0:
+            return all_torrents
+
+        urls = [site.get("url") for site in self._op_sites]
+        op_sites_main_domains = []
+        for url in urls:
+            domain = StringUtils.get_url_netloc(url)
+            main_domain = self.get_main_domain(domain[1])
+            op_sites_main_domains.append(main_domain)
+
+        torrents = []
+        for torrent in all_torrents:
+            if torrent.get("state") == "pausedUP":
+                tracker_url = self.get_torrent_tracker(torrent)
+                if not tracker_url:
+                    logger.info(f"获取种子 {torrent.name} Tracker失败，不过滤该种子")
+                    torrents.append(torrent)
+                _, tracker_domain = StringUtils.get_url_netloc(tracker_url)
+                if not tracker_domain:
+                    logger.info(f"获取种子 {torrent.name} Tracker失败，不过滤该种子")
+                    torrents.append(torrent)
+                tracker_main_domain = self.get_main_domain(domain=tracker_domain)
+                if tracker_main_domain in op_sites_main_domains:
+                    logger.info(
+                        f"种子 {torrent.name} 属于站点{tracker_main_domain}，不执行操作"
+                    )
+                    continue
+
+            torrents.append(torrent)
+        return torrents
+
     @eventmanager.register(EventType.PluginAction)
     def handle_qb_status(self, event: Event):
         if not self._enabled:
@@ -507,14 +632,13 @@ class QbCommand(_PluginBase):
             self.get_torrents_status(all_torrents)
         )
         logger.info(
-            f"QB开始任务启动 \n"
+            f"QB任务状态 \n"
             f"种子总数:  {len(all_torrents)} \n"
             f"做种数量:  {len(hash_uploading)}\n"
             f"下载数量:  {len(hash_downloading)}\n"
             f"检查数量:  {len(hash_checking)}\n"
             f"暂停数量:  {len(hash_paused)}\n"
             f"错误数量:  {len(hash_error)}\n"
-            f"开始操作中请稍等...\n",
         )
         if self._notify:
             self.post_message(
@@ -648,7 +772,67 @@ class QbCommand(_PluginBase):
                     text=f"设置QB限速失败",
                 )
 
+    def get_torrent_tracker(self, torrent):
+        """
+        qb解析 tracker
+        :return: tracker url
+        """
+        if not torrent:
+            return None
+        tracker = torrent.get("tracker")
+        if tracker and len(tracker) > 0:
+            return tracker
+        magnet_uri = torrent.get("magnet_uri")
+        if not magnet_uri or len(magnet_uri) <= 0:
+            return None
+        magnet_uri_obj = urlparse(magnet_uri)
+        query = urllib.parse.parse_qs(magnet_uri_obj.query)
+        tr = query["tr"]
+        if not tr or len(tr) <= 0:
+            return None
+        return tr[0]
+
+    def get_main_domain(self, domain):
+        """
+        获取域名的主域名
+        :param domain: 原域名
+        :return: 主域名
+        """
+        if not domain:
+            return None
+        domain_arr = domain.split(".")
+        domain_len = len(domain_arr)
+        if domain_len < 2:
+            return None
+        root_domain, root_domain_len = self.match_multi_level_root_domain(domain=domain)
+        if root_domain:
+            return f"{domain_arr[-root_domain_len - 1]}.{root_domain}"
+        else:
+            return f"{domain_arr[-2]}.{domain_arr[-1]}"
+
+    def match_multi_level_root_domain(self, domain):
+        """
+        匹配多级根域名
+        :param domain: 被匹配的域名
+        :return: 匹配的根域名, 匹配的根域名长度
+        """
+        if not domain or not self._multi_level_root_domain:
+            return None, 0
+        for root_domain in self._multi_level_root_domain:
+            if domain.endswith("." + root_domain):
+                root_domain_len = len(root_domain.split("."))
+                return root_domain, root_domain_len
+        return None, 0
+
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        customSites = self.__custom_sites()
+
+        site_options = [
+            {"title": site.name, "value": site.id}
+            for site in self._siteoper.list_order_by_pri()
+        ] + [
+            {"title": site.get("name"), "value": site.get("id")} for site in customSites
+        ]
         return [
             {
                 "component": "VForm",
@@ -854,6 +1038,27 @@ class QbCommand(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VSelect",
+                                        "props": {
+                                            "chips": True,
+                                            "multiple": True,
+                                            "model": "op_site_ids",
+                                            "label": "停止保种站点(暂停保种后不会被恢复)",
+                                            "items": site_options,
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
                                 "props": {
                                     "cols": 12,
                                 },
@@ -884,22 +1089,6 @@ class QbCommand(_PluginBase):
                                     }
                                 ],
                             },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                },
-                                "content": [
-                                    {
-                                        "component": "VAlert",
-                                        "props": {
-                                            "type": "info",
-                                            "variant": "tonal",
-                                            "text": "PT精神重在分享，请勿恶意限速，因此导致账号被封禁作者概不负责",
-                                        },
-                                    }
-                                ],
-                            },
                         ],
                     },
                 ],
@@ -916,10 +1105,21 @@ class QbCommand(_PluginBase):
             "download_limit": 0,
             "enable_upload_limit": False,
             "enable_download_limit": False,
+            "op_site_ids": [],
         }
 
     def get_page(self) -> List[dict]:
         pass
 
     def stop_service(self):
-        pass
+        """
+        退出插件
+        """
+        try:
+            if self._scheduler:
+                self._scheduler.remove_all_jobs()
+                if self._scheduler.running:
+                    self._scheduler.shutdown()
+                self._scheduler = None
+        except Exception as e:
+            logger.error("退出插件失败：%s" % str(e))

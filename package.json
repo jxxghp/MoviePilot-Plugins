@@ -450,10 +450,13 @@
     "QbCommand": {
         "name": "QB远程操作",
         "description": "通过定时任务或交互命令远程操作QB暂停/开始/限速等。",
-        "version": "1.3",
+        "version": "1.4",
         "icon": "Qbittorrent_A.png",
         "author": "DzAvril",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.4": "可选某些站点不再做种（暂停做种后不会被恢复）"
+        }
     },
     "TrCommand": {
         "name": "TR远程操作",
