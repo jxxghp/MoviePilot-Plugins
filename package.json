@@ -565,5 +565,13 @@
         "icon": "PluginAutoUpgrade.png",
         "author": "hotlcc",
         "level": 1
+    },
+    "MergeSiteSwitch": {
+        "name": "聚合站点开关",
+        "description": "统一管理所有与站点相关的开关。",
+        "version": "1.0",
+        "icon": "world.png",
+        "author": "hotlcc",
+        "level": 2
     }
 }
