@@ -81,7 +81,7 @@ class MoviePilotUpdateNotify(_PluginBase):
             return False
 
         # 本地版本
-        local_version = SystemChain().get_local_version()
+        local_version = SystemChain().get_server_local_version()
         if local_version and release_version <= local_version:
             logger.info(f"当前后端版本：{local_version} 远程版本：{release_version} 停止运行")
             return False
