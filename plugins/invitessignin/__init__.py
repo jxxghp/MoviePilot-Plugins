@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from datetime import datetime, timedelta
 
 import pytz
@@ -22,7 +23,7 @@ class InvitesSignin(_PluginBase):
     # 插件图标
     plugin_icon = "invites.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -41,6 +42,7 @@ class InvitesSignin(_PluginBase):
     _cookie = None
     _onlyonce = False
     _notify = False
+    _history_days = None
 
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
@@ -55,6 +57,7 @@ class InvitesSignin(_PluginBase):
             self._cookie = config.get("cookie")
             self._notify = config.get("notify")
             self._onlyonce = config.get("onlyonce")
+            self._history_days = config.get("history_days") or 30
 
         if self._onlyonce:
             # 定时服务
@@ -71,6 +74,7 @@ class InvitesSignin(_PluginBase):
                 "enabled": self._enabled,
                 "cookie": self._cookie,
                 "notify": self._notify,
+                "history_days": self._history_days,
             })
 
             # 启动任务
@@ -159,6 +163,11 @@ class InvitesSignin(_PluginBase):
             "totalContinuousCheckIn": totalContinuousCheckIn,
             "money": money
         })
+
+        thirty_days_ago = time.time() - int(self._history_days) * 24 * 60 * 60
+        history = [record for record in history if
+                   datetime.strptime(record["date"],
+                                     '%Y-%m-%d %H:%M:%S').timestamp() >= thirty_days_ago]
         # 保存签到历史
         self.save_data(key="history", value=history)
 
@@ -261,7 +270,7 @@ class InvitesSignin(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -269,6 +278,22 @@ class InvitesSignin(_PluginBase):
                                         'props': {
                                             'model': 'cron',
                                             'label': '签到周期'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'history_days',
+                                            'label': '保留历史天数'
                                         }
                                     }
                                 ]
@@ -319,6 +344,7 @@ class InvitesSignin(_PluginBase):
             "onlyonce": False,
             "notify": False,
             "cookie": "",
+            "history_days": 30,
             "cron": "0 9 * * *"
         }
 

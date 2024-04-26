@@ -297,10 +297,13 @@
     "InvitesSignin": {
         "name": "药丸签到",
         "description": "药丸论坛签到。",
-        "version": "1.3",
+        "version": "1.4",
         "icon": "invites.png",
         "author": "thsrite",
-        "level": 2
+        "level": 2,
+        "history": {
+            "v1.4": "自定义保留消息天数"
+        }
     },
     "PersonMeta": {
         "name": "演职人员刮削",
