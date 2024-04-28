@@ -2,6 +2,7 @@
     "AutoSignIn": {
         "name": "站点自动签到",
         "description": "自动模拟登录、签到站点。",
+        "labels": "站点",
         "version": "2.1",
         "icon": "signin.png",
         "author": "thsrite",
@@ -15,6 +16,7 @@
     "CustomSites": {
         "name": "自定义站点",
         "description": "增加自定义站点为签到和统计使用。",
+        "labels": "站点",
         "version": "1.0",
         "icon": "world.png",
         "author": "lightolly",
@@ -23,6 +25,7 @@
     "SiteStatistic": {
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
+        "labels": "站点",
         "version": "2.9",
         "icon": "statistic.png",
         "author": "lightolly",
@@ -37,6 +40,7 @@
     "SiteRefresh": {
         "name": "站点自动更新",
         "description": "使用浏览器模拟登录站点获取Cookie和UA。",
+        "labels": "站点",
         "version": "1.2",
         "icon": "Chrome_A.png",
         "author": "thsrite",
@@ -45,6 +49,7 @@
     "DoubanSync": {
         "name": "豆瓣想看",
         "description": "同步豆瓣想看数据，自动添加订阅。",
+        "labels": "订阅",
         "version": "1.7",
         "icon": "douban.png",
         "author": "jxxghp",
@@ -58,6 +63,7 @@
     "DirMonitor": {
         "name": "目录监控",
         "description": "监控目录文件发生变化时实时整理到媒体库。",
+        "labels": "文件整理",
         "version": "2.0",
         "icon": "directory.png",
         "author": "jxxghp",
@@ -70,6 +76,7 @@
     "ChineseSubFinder": {
         "name": "ChineseSubFinder",
         "description": "整理入库时通知ChineseSubFinder下载字幕。",
+        "labels": "字幕",
         "version": "1.1",
         "icon": "chinesesubfinder.png",
         "author": "jxxghp",
@@ -78,6 +85,7 @@
     "DoubanRank": {
         "name": "豆瓣榜单订阅",
         "description": "监控豆瓣热门榜单，自动添加订阅。",
+        "labels": "订阅",
         "version": "1.9",
         "icon": "movie.jpg",
         "author": "jxxghp",
@@ -90,6 +98,7 @@
     "LibraryScraper": {
         "name": "媒体库刮削",
         "description": "定时对媒体库进行刮削，补齐缺失元数据和图片。",
+        "labels": "文件整理",
         "version": "1.4",
         "icon": "scraper.png",
         "author": "jxxghp",
@@ -98,6 +107,7 @@
     "TorrentRemover": {
         "name": "自动删种",
         "description": "自动删除下载器中的下载任务。",
+        "labels": "做种",
         "version": "1.2.2",
         "icon": "delete.jpg",
         "author": "jxxghp",
@@ -106,6 +116,7 @@
     "MediaSyncDel": {
         "name": "媒体文件同步删除",
         "description": "同步删除历史记录、源文件和下载任务。",
+        "labels": "文件整理",
         "version": "1.4",
         "icon": "mediasyncdel.png",
         "author": "thsrite",
@@ -114,6 +125,7 @@
     "CustomHosts": {
         "name": "自定义Hosts",
         "description": "修改系统hosts文件，加速网络访问。",
+        "labels": "网络",
         "version": "1.0",
         "icon": "hosts.png",
         "author": "thsrite",
@@ -122,6 +134,7 @@
     "SpeedLimiter": {
         "name": "播放限速",
         "description": "外网播放媒体库视频时，自动对下载器进行限速。",
+        "labels": "网络",
         "version": "1.1",
         "icon": "Librespeed_A.png",
         "author": "Shurelol",
@@ -130,6 +143,7 @@
     "CloudflareSpeedTest": {
         "name": "Cloudflare IP优选",
         "description": "🌩 测试 Cloudflare CDN 延迟和速度，自动优选IP。",
+        "labels": "网络,站点",
         "version": "1.2",
         "icon": "cloudflare.jpg",
         "author": "thsrite",
@@ -141,6 +155,7 @@
     "BestFilmVersion": {
         "name": "收藏洗版",
         "description": "Jellyfin/Emby/Plex点击收藏电影后，自动订阅洗版。",
+        "labels": "订阅",
         "version": "2.1",
         "icon": "like.jpg",
         "author": "wlj",
@@ -149,6 +164,7 @@
     "MediaServerMsg": {
         "name": "媒体库服务器通知",
         "description": "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。",
+        "labels": "消息通知,媒体库",
         "version": "1.1",
         "icon": "mediaplay.png",
         "author": "jxxghp",
@@ -157,6 +173,7 @@
     "MediaServerRefresh": {
         "name": "媒体库服务器刷新",
         "description": "入库后自动刷新Emby/Jellyfin/Plex服务器海报墙。",
+        "labels": "媒体库",
         "version": "1.2",
         "icon": "refresh2.png",
         "author": "jxxghp",
@@ -173,6 +190,7 @@
     "ChatGPT": {
         "name": "ChatGPT",
         "description": "消息交互支持与ChatGPT对话。",
+        "labels": "消息通知,识别",
         "version": "1.3",
         "icon": "Chatgpt_A.png",
         "author": "jxxghp",
@@ -189,6 +207,7 @@
     "MessageForward": {
         "name": "消息转发",
         "description": "根据正则转发通知到其他WeChat应用。",
+        "labels": "消息通知",
         "version": "1.1",
         "icon": "forward.png",
         "author": "thsrite",
@@ -197,6 +216,7 @@
     "AutoBackup": {
         "name": "自动备份",
         "description": "自动备份数据和配置文件。",
+        "labels": "系统设置",
         "version": "1.2",
         "icon": "Time_machine_B.png",
         "author": "thsrite",
@@ -208,6 +228,7 @@
     "IYUUAutoSeed": {
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
+        "labels": "做种",
         "version": "1.5",
         "icon": "IYUU.png",
         "author": "jxxghp",
@@ -219,6 +240,7 @@
     "CrossSeed": {
         "name": "青蛙辅种助手",
         "description": "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙、AGSVPT、麒麟、UBits、聆音、憨憨等。",
+        "labels": "做种",
         "version": "2.3",
         "icon": "qingwa.png",
         "author": "233@qingwa",
@@ -231,6 +253,7 @@
     "VCBAnimeMonitor": {
         "name": "整理VCB动漫压制组作品",
         "description": "提高部分VCB-Studio作品的识别准确率,将VCB-Studio的作品统一转移到指定目录同时进行刮削整理",
+        "labels": "文件整理,识别",
         "version": "1.7",
         "icon": "vcbmonitor.png",
         "author": "pixel@qingwa",
@@ -239,6 +262,7 @@
     "TorrentTransfer": {
         "name": "自动转移做种",
         "description": "定期转移下载器中的做种任务到另一个下载器。",
+        "labels": "做种",
         "version": "1.3",
         "icon": "seed.png",
         "author": "jxxghp",
@@ -247,6 +271,7 @@
     "RssSubscribe": {
         "name": "自定义订阅",
         "description": "定时刷新RSS报文，识别内容后添加订阅或直接下载。",
+        "labels": "订阅",
         "version": "1.3",
         "icon": "rss.png",
         "author": "jxxghp",
@@ -258,6 +283,7 @@
     "SyncDownloadFiles": {
         "name": "下载器文件同步",
         "description": "同步下载器的文件信息到数据库，删除文件时联动删除下载任务。",
+        "labels": "下载管理",
         "version": "1.1",
         "icon": "Youtube-dl_A.png",
         "author": "thsrite",
@@ -266,6 +292,7 @@
     "BrushFlow": {
         "name": "站点刷流",
         "description": "自动托管刷流，将会提高对应站点的访问频率。",
+        "labels": "刷流",
         "version": "2.9",
         "icon": "brush.jpg",
         "author": "jxxghp,InfinityPacer",
@@ -281,6 +308,7 @@
     "DownloadingMsg": {
         "name": "下载进度推送",
         "description": "定时推送正在下载进度。",
+        "labels": "消息通知,下载管理",
         "version": "1.1",
         "icon": "downloadmsg.png",
         "author": "thsrite",
@@ -289,6 +317,7 @@
     "AutoClean": {
         "name": "定时清理媒体库",
         "description": "定时清理用户下载的种子、源文件、媒体库文件。",
+        "labels": "媒体库",
         "version": "1.1",
         "icon": "clean.png",
         "author": "thsrite",
@@ -308,6 +337,7 @@
     "PersonMeta": {
         "name": "演职人员刮削",
         "description": "刮削演职人员图片以及中文名称。",
+        "labels": "媒体库",
         "version": "1.2",
         "icon": "actor.png",
         "author": "jxxghp",
@@ -335,6 +365,7 @@
     "BarkMsg": {
         "name": "Bark消息推送",
         "description": "支持使用Bark发送消息通知。",
+        "labels": "消息通知",
         "version": "1.1",
         "icon": "Bark_A.png",
         "author": "jxxghp",
@@ -343,6 +374,7 @@
     "IyuuMsg": {
         "name": "IYUU消息推送",
         "description": "支持使用IYUU发送消息通知。",
+        "labels": "消息通知",
         "version": "1.2",
         "icon": "Iyuu_A.png",
         "author": "jxxghp",
@@ -351,6 +383,7 @@
     "PushDeerMsg": {
         "name": "PushDeer消息推送",
         "description": "支持使用PushDeer发送消息通知。",
+        "labels": "消息通知",
         "version": "1.1",
         "icon": "pushdeer.png",
         "author": "jxxghp",
@@ -359,6 +392,7 @@
     "ConfigCenter": {
         "name": "配置中心",
         "description": "快速调整部分系统设定。",
+        "labels": "系统设置",
         "version": "2.4",
         "icon": "setting.png",
         "author": "jxxghp",
@@ -367,6 +401,7 @@
     "WorkWechatMsg": {
         "name": "企微机器人消息推送",
         "description": "支持使用企业微信群聊机器人发送消息通知。",
+        "labels": "消息通知",
         "version": "1.0",
         "icon": "Wecom_A.png",
         "author": "叮叮当",
@@ -375,6 +410,7 @@
     "EpisodeGroupMeta": {
         "name": "TMDB剧集组刮削",
         "description": "从TMDB剧集组刮削季集的实际顺序。",
+        "labels": "刮削",
         "version": "1.1",
         "icon": "Element_A.png",
         "author": "叮叮当",
@@ -383,6 +419,7 @@
     "CustomIndexer": {
         "name": "自定义索引站点",
         "description": "修改或扩展内建索引器支持的站点。",
+        "labels": "站点",
         "version": "1.0",
         "icon": "spider.png",
         "author": "jxxghp",
@@ -391,6 +428,7 @@
     "FFmpegThumb": {
         "name": "FFmpeg缩略图",
         "description": "TheMovieDb没有背景图片时使用FFmpeg截取视频文件缩略图",
+        "labels": "刮削",
         "version": "1.2",
         "icon": "ffmpeg.png",
         "author": "jxxghp",
@@ -399,6 +437,7 @@
     "PushPlusMsg": {
         "name": "PushPlus消息推送",
         "description": "支持使用PushPlus发送消息通知。",
+        "labels": "消息通知",
         "version": "1.0",
         "icon": "Pushplus_A.png",
         "author": "cheng",
@@ -407,6 +446,7 @@
     "DownloadSiteTag": {
         "name": "下载任务分类与标签",
         "description": "自动给下载任务分类与打站点标签、剧集名称标签",
+        "labels": "下载管理",
         "version": "2.1",
         "icon": "Youtube-dl_B.png",
         "author": "叮叮当",
@@ -418,6 +458,7 @@
     "RemoveLink": {
         "name": "清理硬链接",
         "description": "监控目录内文件被删除时，同步删除监控目录内所有和它硬链接的文件",
+        "labels": "文件整理",
         "version": "1.9",
         "icon": "Ombi_A.png",
         "author": "DzAvril",
@@ -432,6 +473,7 @@
     "LinkMonitor": {
         "name": "实时硬链接",
         "description": "监控目录文件变化，实时硬链接。",
+        "labels": "文件整理",
         "version": "1.6",
         "icon": "Linkace_C.png",
         "author": "jxxghp",
@@ -443,6 +485,7 @@
     "CategoryEditor": {
         "name": "二级分类策略",
         "description": "编辑下载目录和媒体库目录的二级分类规则。",
+        "labels": "文件整理",
         "version": "1.1",
         "icon": "Bookstack_A.png",
         "author": "jxxghp",
@@ -451,6 +494,7 @@
     "RemoteIdentifiers": {
         "name": "共享识别词",
         "description": "从Github、Etherpad等远程文件中获取共享识别词并应用。",
+        "labels": "识别",
         "version": "2.2",
         "icon": "words.png",
         "author": "honue",
@@ -459,6 +503,7 @@
     "NeoDBSync": {
         "name": "NeoDB 想看",
         "description": "同步 NeoDB 想看条目，自动添加订阅。",
+        "labels": "订阅",
         "version": "1.1",
         "icon": "NeoDB.jpeg",
         "author": "hcplantern",
@@ -470,6 +515,7 @@
     "PlayletCategory": {
         "name": "短剧自动分类",
         "description": "网络短剧自动整理到独立的分类目录。",
+        "labels": "文件整理",
         "version": "1.4",
         "icon": "Amule_A.png",
         "author": "jxxghp",
@@ -486,6 +532,7 @@
     "QbCommand": {
         "name": "QB远程操作",
         "description": "通过定时任务或交互命令远程操作QB暂停/开始/限速等。",
+        "labels": "下载管理",
         "version": "1.4",
         "icon": "Qbittorrent_A.png",
         "author": "DzAvril",
@@ -497,6 +544,7 @@
     "TrCommand": {
         "name": "TR远程操作",
         "description": "通过定时任务或交互命令远程操作TR暂停/开始/限速等。",
+        "labels": "下载管理",
         "version": "1.1",
         "icon": "Transmission_A.png",
         "author": "Hoey",
@@ -513,6 +561,7 @@
     "TrackerEditor": {
         "name": "Tracker替换",
         "description": "批量替换种子tracker，支持周期性巡检（如为TR，仅支持4.0以上版本）。",
+        "labels": "做种",
         "version": "1.5",
         "icon": "trackereditor_A.png",
         "author": "honue",
@@ -521,6 +570,7 @@
     "ContractCheck": {
         "name": "契约检查",
         "description": "定时检查保种契约达成情况。",
+        "labels": "做种",
         "version": "1.1",
         "icon": "contract.png",
         "author": "DzAvril",
@@ -529,6 +579,7 @@
     "DownloaderHelper": {
         "name": "下载器助手",
         "description": "自动做种、站点标签、自动删种。",
+        "labels": "下载管理",
         "version": "1.6",
         "icon": "DownloaderHelper.png",
         "author": "hotlcc",
@@ -540,6 +591,7 @@
     "FeiShuMsg": {
         "name": "飞书机器人消息通知",
         "description": "支持使用飞书群聊机器人发送消息通知。",
+        "labels": "消息通知",
         "version": "1.0",
         "icon": "FeiShu_A.png",
         "author": "InfinityPacer",
@@ -559,6 +611,7 @@
     "NtfyMsg": {
         "name": "ntfy消息推送",
         "description": "支持使用ntfy发送消息通知。",
+        "labels": "消息通知",
         "version": "1.0",
         "icon": "Ntfy_A.png",
         "author": "lethargicScribe",
@@ -575,6 +628,7 @@
     "MergeSiteSwitch": {
         "name": "聚合站点开关",
         "description": "统一管理所有与站点相关的开关。",
+        "labels": "系统设置",
         "version": "1.0",
         "icon": "world.png",
         "author": "hotlcc",
