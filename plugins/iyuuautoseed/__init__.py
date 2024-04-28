@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -919,6 +919,7 @@ class IYUUAutoSeed(_PluginBase):
                 if not res:
                     logger.warn(f"m-team 获取种子下载链接失败：{tid}")
                     return None
+                return res.json().get("data")
 
         def __is_special_site(url: str):
             """
