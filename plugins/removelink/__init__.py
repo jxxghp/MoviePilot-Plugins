@@ -11,6 +11,8 @@ from watchdog.observers import Observer
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import NotificationType
+from app.core.event import eventmanager
+from app.schemas.types import EventType
 
 state_lock = threading.Lock()
 
@@ -106,7 +108,7 @@ class RemoveLink(_PluginBase):
     # 插件图标
     plugin_icon = "Ombi_A.png"
     # 插件版本
-    plugin_version = "1.9"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -125,6 +127,7 @@ class RemoveLink(_PluginBase):
     _enabled = False
     _notify = False
     _delete_scrap_infos = False
+    _delete_torrents = False
     _observer = []
     # 监控目录的文件列表
     state_set: Dict[str, int] = {}
@@ -138,6 +141,7 @@ class RemoveLink(_PluginBase):
             self.exclude_dirs = config.get("exclude_dirs") or ""
             self.exclude_keywords = config.get("exclude_keywords") or ""
             self._delete_scrap_infos = config.get("delete_scrap_infos")
+            self._delete_torrents = config.get("delete_torrents")
 
         # 停止现有任务
         self.stop_service()
@@ -202,7 +206,7 @@ class RemoveLink(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12, "md": 6},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -215,7 +219,7 @@ class RemoveLink(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12, "md": 6},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -226,15 +230,33 @@ class RemoveLink(_PluginBase):
                                     }
                                 ],
                             },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12, "md": 6},
                                 "content": [
                                     {
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "delete_scrap_infos",
                                             "label": "清理刮削文件(beta)",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "delete_torrents",
+                                            "label": "联动删除种子",
                                         },
                                     }
                                 ],
@@ -317,7 +339,7 @@ class RemoveLink(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "监控目录如有多个需换行，源目录和硬链接目录都需要添加到监控目录中；如需实现删除硬链接时不删除源文件，可把源文件目录配置到不删除目录中。",
+                                            "text": "联动删除种子需安装插件[下载器助手]并打开监听源文件事件",
                                         },
                                     }
                                 ],
@@ -334,6 +356,22 @@ class RemoveLink(_PluginBase):
                                             "type": "info",
                                             "variant": "tonal",
                                             "text": "清理刮削文件为测试功能，请谨慎开启。",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "监控目录如有多个需换行，源目录和硬链接目录都需要添加到监控目录中；如需实现删除硬链接时不删除源文件，可把源文件目录配置到不删除目录中。",
                                         },
                                     }
                                 ],
@@ -413,7 +451,7 @@ class RemoveLink(_PluginBase):
             for file in path.parent.iterdir():
                 if file.name.startswith(name_prefix):
                     file.unlink()
-                    logger.info(f'删除刮削文件：{file}')
+                    logger.info(f"删除刮削文件：{file}")
         # 清理空目录
         self.delete_empty_folders(path)
 
@@ -438,7 +476,7 @@ class RemoveLink(_PluginBase):
                 # 清除目录下所有文件
                 for file in parent_path.iterdir():
                     file.unlink()
-                    logger.info(f'删除刮削文件：{file}')
+                    logger.info(f"删除刮削文件：{file}")
 
             if not os.listdir(parent_path):
                 os.rmdir(parent_path)
@@ -462,6 +500,11 @@ class RemoveLink(_PluginBase):
         with state_lock:
             # 清理刮削文件
             self.delete_scrap_infos(file_path)
+            if self._delete_torrents:
+                # 发送事件
+                eventmanager.send_event(
+                    EventType.DownloadFileDeleted, {"src": str(file_path)}
+                )
             # 删除的文件inode
             deleted_inode = self.state_set.get(str(file_path))
             if not deleted_inode:
@@ -482,12 +525,17 @@ class RemoveLink(_PluginBase):
                         file.unlink()
                         # 清理刮削文件
                         self.delete_scrap_infos(file_path)
+                        if self._delete_torrents:
+                            # 发送事件
+                            eventmanager.send_event(
+                                EventType.DownloadFileDeleted, {"src": str(file_path)}
+                            )
                         if self._notify:
                             self.post_message(
                                 mtype=NotificationType.SiteMessage,
                                 title=f"【清理硬链接】",
                                 text=f"监控到删除源文件：[{file_path}]\n"
-                                     f"同步删除硬链接文件：[{path}]",
+                                f"同步删除硬链接文件：[{path}]",
                             )
             except Exception as e:
                 logger.error(
