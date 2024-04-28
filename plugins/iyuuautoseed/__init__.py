@@ -906,6 +906,7 @@ class IYUUAutoSeed(_PluginBase):
             if not _apikey:
                 logger.error("m-team站点的apikey未配置")
                 return None
+            logger.info(f"m-team apikey: ${_apikey}")
             with RequestUtils(
                     headers={
                         'Content-Type': 'application/json',
@@ -919,6 +920,8 @@ class IYUUAutoSeed(_PluginBase):
                 if not res:
                     logger.warn(f"m-team 获取种子下载链接失败：{tid}")
                     return None
+                logger.info(f"m-team res: ${res}")
+                return res.json().get("data")
 
         def __is_special_site(url: str):
             """
