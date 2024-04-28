@@ -337,7 +337,7 @@
     "PersonMeta": {
         "name": "演职人员刮削",
         "description": "刮削演职人员图片以及中文名称。",
-        "labels": "媒体库",
+        "labels": "媒体库,刮削",
         "version": "1.2",
         "icon": "actor.png",
         "author": "jxxghp",
