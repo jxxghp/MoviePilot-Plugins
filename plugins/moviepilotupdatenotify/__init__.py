@@ -22,7 +22,7 @@ class MoviePilotUpdateNotify(_PluginBase):
     # 插件图标
     plugin_icon = "Moviepilot_A.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -89,22 +89,10 @@ class MoviePilotUpdateNotify(_PluginBase):
         logger.info(f"发现MoviePilot后端更新：{release_version} {description} {update_time}")
 
         # 推送更新消息
-        if self._notify:
-            # 将时间字符串转为datetime对象
-            dt = datetime.datetime.strptime(update_time, "%Y-%m-%dT%H:%M:%SZ")
-            # 设置时区
-            timezone = pytz.timezone(settings.TZ)
-            dt = dt.replace(tzinfo=timezone)
-            # 将datetime对象转换为带时区的字符串
-            update_time = dt.strftime("%Y-%m-%d %H:%M:%S")
-            self.post_message(
-                mtype=NotificationType.SiteMessage,
-                title="【MoviePilot后端更新通知】",
-                text=f"{release_version} \n"
-                     f"\n"
-                     f"{description} \n"
-                     f"\n"
-                     f"{update_time}")
+        self.__notify_update(update_time=update_time,
+                             release_version=release_version,
+                             description=description,
+                             mtype="后端")
 
         return True
 
@@ -126,6 +114,18 @@ class MoviePilotUpdateNotify(_PluginBase):
         logger.info(f"发现MoviePilot前端更新：{release_version} {description} {update_time}")
 
         # 推送更新消息
+        self.__notify_update(update_time=update_time,
+                             release_version=release_version,
+                             description=description,
+                             mtype="前端")
+
+        return True
+
+    def __notify_update(self, update_time, release_version, description, mtype):
+        """
+        推送更新消息
+        """
+        # 推送更新消息
         if self._notify:
             # 将时间字符串转为datetime对象
             dt = datetime.datetime.strptime(update_time, "%Y-%m-%dT%H:%M:%SZ")
@@ -134,16 +134,12 @@ class MoviePilotUpdateNotify(_PluginBase):
             dt = dt.replace(tzinfo=timezone)
             # 将datetime对象转换为带时区的字符串
             update_time = dt.strftime("%Y-%m-%d %H:%M:%S")
+            if not description.startswith(release_version):
+                description = f"{release_version}\n\n{description}"
             self.post_message(
                 mtype=NotificationType.SiteMessage,
-                title="【MoviePilot前端更新通知】",
-                text=f"{release_version} \n"
-                     f"\n"
-                     f"{description} \n"
-                     f"\n"
-                     f"{update_time}")
-
-        return True
+                title=f"【MoviePilot{mtype}更新通知】",
+                text=f"{description}\n\n{update_time}")
 
     @staticmethod
     def __get_release_version():
