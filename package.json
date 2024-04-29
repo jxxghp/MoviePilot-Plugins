@@ -230,11 +230,12 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "labels": "做种,IYUU",
-        "version": "1.5",
+        "version": "1.6",
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2,
         "history": {
+            "v1.6": "增加不辅种小体积种子功能",
             "v1.5": "支持馒头新架构辅种"
         }
     },
