@@ -34,7 +34,7 @@ class DoubanSync(_PluginBase):
     # 插件图标
     plugin_icon = "douban.png"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -520,8 +520,8 @@ class DoubanSync(_PluginBase):
                 try:
                     dtype = result.get("title", "")[:2]
                     title = result.get("title", "")[2:]
-                    if dtype not in ["想看", "在看"]:
-                        logger.info(f'标题：{title}，非想看/在看数据，跳过')
+                    if dtype not in ["想看"]:
+                        logger.info(f'标题：{title}，非想看数据，跳过')
                         continue
                     if not result.get("link"):
                         logger.warn(f'标题：{title}，未获取到链接，跳过')

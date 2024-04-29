@@ -64,6 +64,7 @@ class IYUUAutoSeed(_PluginBase):
     _notify = False
     _nolabels = None
     _nopaths = None
+    _size = None
     _clearcache = False
     # 退出事件
     _event = Event()
@@ -107,6 +108,7 @@ class IYUUAutoSeed(_PluginBase):
             self._notify = config.get("notify")
             self._nolabels = config.get("nolabels")
             self._nopaths = config.get("nopaths")
+            self._size = float(config.get("size")) if config.get("size") else 0
             self._clearcache = config.get("clearcache")
             self._permanent_error_caches = [] if self._clearcache else config.get("permanent_error_caches") or []
             self._error_caches = [] if self._clearcache else config.get("error_caches") or []
@@ -329,7 +331,23 @@ class IYUUAutoSeed(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12
+                                    'cols': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'size',
+                                            'label': '辅种体积大于(GB)',
+                                            'placeholder': '只有大于该值的才辅种'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 6
                                 },
                                 'content': [
                                     {
@@ -410,7 +428,8 @@ class IYUUAutoSeed(_PluginBase):
             "downloaders": [],
             "sites": [],
             "nopaths": "",
-            "nolabels": ""
+            "nolabels": "",
+            "size": ""
         }
 
     def get_page(self) -> List[dict]:
@@ -428,6 +447,7 @@ class IYUUAutoSeed(_PluginBase):
             "notify": self._notify,
             "nolabels": self._nolabels,
             "nopaths": self._nopaths,
+            "size": self._size,
             "success_caches": self._success_caches,
             "error_caches": self._error_caches,
             "permanent_error_caches": self._permanent_error_caches
@@ -504,6 +524,13 @@ class IYUUAutoSeed(_PluginBase):
                             break
                     if is_skip:
                         continue
+
+                # 体积排除辅种
+                torrent_size = self.__get_torrent_size(torrent, downloader) / 1024 / 1024 / 1024
+                if self._size and torrent_size < self._size:
+                    logger.info(f"种子 {hash_str} 大小:{torrent_size:.2f}GB，小于设定 {self._size}GB，跳过 ...")
+                    continue
+
                 hash_strs.append({
                     "hash": hash_str,
                     "save_path": save_path
@@ -887,6 +914,17 @@ class IYUUAutoSeed(_PluginBase):
             print(str(e))
             return ""
 
+    @staticmethod
+    def __get_torrent_size(torrent: Any, dl_type: str):
+        """
+        获取种子大小 int bytes
+        """
+        try:
+            return torrent.get("total_size") if dl_type == "qbittorrent" else torrent.total_size
+        except Exception as e:
+            print(str(e))
+            return ""
+
     def __get_download_url(self, seed: dict, site: CommentedMap, base_url: str):
         """
         拼装种子下载链接
@@ -971,7 +1009,8 @@ class IYUUAutoSeed(_PluginBase):
                                       flags=re.IGNORECASE)
                 return f"{site.get('url')}{download_url}"
         except Exception as e:
-            logger.warn(f"{site.get('name')} Url转换失败，{str(e)}：site_url={site.get('url')}，base_url={base_url}, seed={seed}")
+            logger.warn(
+                f"{site.get('name')} Url转换失败，{str(e)}：site_url={site.get('url')}，base_url={base_url}, seed={seed}")
             return self.__get_torrent_url_from_page(seed=seed, site=site)
 
     def __get_torrent_url_from_page(self, seed: dict, site: dict):

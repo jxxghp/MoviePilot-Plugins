@@ -51,11 +51,12 @@
         "name": "豆瓣想看",
         "description": "同步豆瓣想看数据，自动添加订阅。",
         "labels": "订阅",
-        "version": "1.7",
+        "version": "1.8",
         "icon": "douban.png",
         "author": "jxxghp",
         "level": 2,
         "history": {
+            "v1.8": "不同步在看条目",
             "v1.7": "增强API安全性",
             "v1.6": "同步历史记录支持手动删除，需要主程序升级至v1.8.4+版本",
             "v1.5": "豆瓣信息识别后直接添加订阅，不进行搜索下载"
@@ -230,12 +231,13 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "labels": "做种,IYUU",
-        "version": "1.6",
+        "version": "1.7",
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2,
         "history": {
-            "v1.6": "适配馒头最新变化，需要升级至v1.8.5+版本且维护好Authorization",
+            "v1.7": "适配馒头最新变化，需要升级至v1.8.5+版本且维护好Authorization",
+            "v1.6": "增加不辅种小体积种子功能",
             "v1.5": "支持馒头新架构辅种"
         }
     },
@@ -350,11 +352,12 @@
         "name": "MoviePilot更新推送",
         "description": "MoviePilot推送release更新通知、自动重启。",
         "labels": "消息通知,自动更新",
-        "version": "1.3",
+        "version": "1.4",
         "icon": "Moviepilot_A.png",
         "author": "thsrite",
         "level": 1,
         "history": {
+            "v1.4": "兼容更新内容带版本号的情况",
             "v1.3": "增加前端版本更新检查，需要主程序升级至v1.8.4+版本"
         }
     },
@@ -464,11 +467,12 @@
         "name": "清理硬链接",
         "description": "监控目录内文件被删除时，同步删除监控目录内所有和它硬链接的文件",
         "labels": "文件整理",
-        "version": "1.9",
+        "version": "2.0",
         "icon": "Ombi_A.png",
         "author": "DzAvril",
         "level": 1,
         "history": {
+            "v2.0": "联动删除种子，需安装插件[下载器助手]并打开监听源文件事件",
             "v1.9": "增加清理刮削文件功能（beta）",
             "v1.8": "增加清理空目录功能（beta）",
             "v1.7": "修复因未监测重命名事件导致的清理硬链接失败的问题",
