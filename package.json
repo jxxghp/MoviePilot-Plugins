@@ -226,6 +226,18 @@
             "v1.2": "增强API安全性"
         }
     },
+    "MTeamHelper": {
+        "name": "馒头辅助工具",
+        "description": "用于解决MP不支持馒头新架构更新导致的一些异常。",
+        "labels": "馒头,MTeam",
+        "version": "1.0",
+        "icon": "m-team.png",
+        "author": "goo4it",
+        "level": 1,
+        "history": {
+            "v1.0": "支持馒头新架构辅种"
+        }
+    },
     "IYUUAutoSeed": {
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
