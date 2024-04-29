@@ -37,6 +37,7 @@ class MTorrent(_ISiteSigninHandler):
         proxy = site_info.get("proxy")
         render = site_info.get("render")
         url = site_info.get("url")
+        token = site_info.get("token")
         if render:
             # 获取页面html
             html_text = self.get_page_source(url=url,
@@ -52,8 +53,13 @@ class MTorrent(_ISiteSigninHandler):
                 return False, '模拟登录失败，Cookie已失效'
             return True, '模拟登录成功'
         else:
-            res = RequestUtils(cookies=site_cookie,
-                               ua=ua,
+            headers = {
+                "Content-Type": "application/json",
+                "User-Agent": ua,
+                "Accept": "application/json, text/plain, */*",
+                "Authorization": token
+            }
+            res = RequestUtils(headers=headers,
                                timeout=60,
                                proxies=settings.PROXY if proxy else None
                                ).post_res(url=urljoin(url, "api/member/updateLastBrowse"))

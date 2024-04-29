@@ -38,7 +38,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -988,9 +988,14 @@ class AutoSignIn(_PluginBase):
         """
         mteam登录
         """
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": site.get("ua"),
+            "Accept": "application/json, text/plain, */*",
+            "Authorization": site.get("token")
+        }
         # 更新最后访问时间
-        res = RequestUtils(cookies=site.get("cookie"),
-                           ua=site.get("ua"),
+        res = RequestUtils(headers=headers,
                            timeout=60,
                            proxies=settings.PROXY if site.get("proxy") else None,
                            referer=f"{site.get('url')}index"
