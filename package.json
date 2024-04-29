@@ -4,7 +4,7 @@
     "description": "用于解决MP不支持馒头新架构更新导致的一些异常。",
     "labels": "馒头,MTeam",
     "version": "1.0",
-    "icon": "m-team.png",
+    "icon": "https://raw.githubusercontent.com/goo4it/MoviePilot-Plugins/main/icons/m-team.png",
     "author": "goo4it",
     "level": 1,
     "history": {

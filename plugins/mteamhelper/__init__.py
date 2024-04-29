@@ -13,13 +13,13 @@ class MTeamHelper(_PluginBase):
     # 插件描述
     plugin_desc = "用于解决MP不支持馒头新架构更新导致的一些异常。"
     # 插件图标
-    plugin_icon = "m-team.png"
+    plugin_icon = "https://raw.githubusercontent.com/goo4it/MoviePilot-Plugins/main/icons/m-team.png"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者
     plugin_author = "goo4it"
     # 作者主页
-    author_url = "https://github.com/goo4it"
+    author_url = "https://github.com/goo4it/MoviePilot-Plugins"
     # 插件配置项ID前缀
     plugin_config_prefix = "mteamhelper_"
     # 加载顺序
@@ -38,7 +38,7 @@ class MTeamHelper(_PluginBase):
             return
         logger.info(f"正在应用馒头配置：{config}")
         self._enabled = config.get("enabled")
-        self._apikey = config.get("apikey")
+        self._apikey = config.get("apiKey")
         if not self._enabled:
             return
 
@@ -105,7 +105,7 @@ class MTeamHelper(_PluginBase):
             }
         ], {
             "enabled": False,
-            "apikey": ""
+            "apiKey": ""
         }
 
     def get_page(self) -> List[dict]:
