@@ -641,11 +641,14 @@ class ContractCheck(_PluginBase):
                             html_text = res.text
                             if not html_text:
                                 return None
-                        else:
+                        elif res is not None:
                             logger.error(
                                 "站点 %s 被反爬限制：%s, 状态码：%s"
                                 % (site_name, url, res.status_code)
                             )
+                            return None
+                        else:
+                            logger.error(f"站点 {site_name} 无法访问：{url}")
                             return None
 
                     # 兼容假首页情况，假首页通常没有 <link rel="search" 属性
