@@ -344,10 +344,13 @@
         "name": "演职人员刮削",
         "description": "刮削演职人员图片以及中文名称。",
         "labels": "媒体库,刮削",
-        "version": "1.2",
+        "version": "1.3",
         "icon": "actor.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.3": "修复v1.8.5版本后刮削报错问题"
+        }
     },
     "MoviePilotUpdateNotify": {
         "name": "MoviePilot更新推送",
