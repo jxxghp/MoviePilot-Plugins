@@ -456,3 +456,4 @@ class EventType(Enum):
   }
 }
 ```
+- 新增加的插件请配置在`package.json`中的末尾，这样可被识别为最新增加，可用于用户排序。
