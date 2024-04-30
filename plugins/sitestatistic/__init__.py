@@ -43,7 +43,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "2.9"
+    plugin_version = "3.0"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -1041,6 +1041,8 @@ class SiteStatistic(_PluginBase):
         if not site_cookie:
             return None
         site_name = site_info.get("name")
+        apikey = site_info.get("apikey")
+        token = site_info.get("token")
         url = site_info.get("url")
         proxy = site_info.get("proxy")
         ua = site_info.get("ua")
@@ -1124,7 +1126,16 @@ class SiteStatistic(_PluginBase):
                 if not site_schema:
                     logger.error("站点 %s 无法识别站点类型" % site_name)
                     return None
-                return site_schema(site_name, url, site_cookie, html_text, session=session, ua=ua, proxy=proxy)
+                return site_schema(
+                    site_name=site_name,
+                    url=url,
+                    site_cookie=site_cookie,
+                    apikey=apikey,
+                    token=token,
+                    index_html=html_text,
+                    session=session,
+                    ua=ua,
+                    proxy=proxy)
             return None
 
     def refresh_by_domain(self, domain: str, apikey: str) -> schemas.Response:
