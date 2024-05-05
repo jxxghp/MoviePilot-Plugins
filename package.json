@@ -259,10 +259,13 @@
         "name": "整理VCB动漫压制组作品",
         "description": "提高部分VCB-Studio作品的识别准确率,将VCB-Studio的作品统一转移到指定目录同时进行刮削整理",
         "labels": "文件整理,识别",
-        "version": "1.7",
+        "version": "1.7.1",
         "icon": "vcbmonitor.png",
         "author": "pixel@qingwa",
-        "level": 2
+        "level": 2,
+        "history": {
+            "v1.7.1": "修复偶尔安装失败问题"
+        }
     },
     "TorrentTransfer": {
         "name": "自动转移做种",
