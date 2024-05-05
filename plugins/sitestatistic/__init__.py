@@ -1038,9 +1038,9 @@ class SiteStatistic(_PluginBase):
         构建站点信息
         """
         site_cookie = site_info.get("cookie")
-        if not site_cookie:
-            return None
         site_name = site_info.get("name")
+        if '馒头' != site_name and not site_cookie:
+            return None
         apikey = site_info.get("apikey")
         token = site_info.get("token")
         url = site_info.get("url")
@@ -1060,6 +1060,8 @@ class SiteStatistic(_PluginBase):
                                                                ua=ua,
                                                                proxies=proxy_server)
             else:
+                if '馒头' == site_name:
+                    return self.get_mteam_schema(site_info)
                 # 普通模式
                 res = RequestUtils(cookies=site_cookie,
                                    session=session,
@@ -1394,3 +1396,17 @@ class SiteStatistic(_PluginBase):
                 self._statistic_sites = statistic_sites
                 # 保存配置
                 self.__update_config()
+
+    def get_mteam_schema(self, site_info):
+        html_text = '<!doctype html><html lang="en"><head><meta ' \
+                    'charset="utf-8"/><title>M-Team</title></head><body>logout</body></html>'
+        site_schema = self.__build_class(html_text)
+        return site_schema(
+            site_name=site_info.get('name'),
+            url=site_info.get('url'),
+            apikey=site_info.get('apikey'),
+            token=site_info.get('token'),
+            index_html=html_text,
+            ua=site_info.get('ua'),
+            site_cookie='',
+            proxy=site_info.get('proxy'))
