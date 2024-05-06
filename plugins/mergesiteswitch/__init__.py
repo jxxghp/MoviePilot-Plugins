@@ -3,11 +3,12 @@ import os
 from typing import Any, List, Dict, Tuple
 
 from app.core.event import eventmanager, Event
-from app.db.models.site import Site
+from app.core.plugin import PluginManager
 from app.db.site_oper import SiteOper
 from app.db.systemconfig_oper import SystemConfigOper
 from app.log import logger
 from app.plugins import _PluginBase
+from app.scheduler import Scheduler
 from app.schemas.types import SystemConfigKey, EventType
 
 
@@ -687,6 +688,19 @@ class MergeSiteSwitch(_PluginBase):
             return None
         return config.get(config_key)
 
+    def __reload_plugin_config(self, plugin_id: str, config: dict = None):
+        """
+        重载插件配置
+        """
+        if not plugin_id:
+            return
+        if not config:
+            config = self.get_config(plugin_id)
+        # 重新生效插件
+        PluginManager().init_plugin(plugin_id, config)
+        # 注册插件服务
+        Scheduler().update_plugin_job(plugin_id)
+
     def __set_plugin_config_value(self, plugin_id: str, config_key: str, config_value: Any) -> Any:
         """
         设置插件配置值
@@ -698,6 +712,7 @@ class MergeSiteSwitch(_PluginBase):
             config = {}
         config.update({config_key: config_value})
         self.update_config(plugin_id=plugin_id, config=config)
+        self.__reload_plugin_config(plugin_id=plugin_id, config=config)
 
     def __get_signin_site_ids(self) -> List[int]:
         """
