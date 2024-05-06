@@ -3,11 +3,12 @@ import os
 from typing import Any, List, Dict, Tuple
 
 from app.core.event import eventmanager, Event
-from app.db.models.site import Site
+from app.core.plugin import PluginManager
 from app.db.site_oper import SiteOper
 from app.db.systemconfig_oper import SystemConfigOper
 from app.log import logger
 from app.plugins import _PluginBase
+from app.scheduler import Scheduler
 from app.schemas.types import SystemConfigKey, EventType
 
 
@@ -19,7 +20,7 @@ class MergeSiteSwitch(_PluginBase):
     # 插件图标
     plugin_icon = "world.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -46,6 +47,8 @@ class MergeSiteSwitch(_PluginBase):
     __plugin_id_iyuu_auto_seed: str = 'IYUUAutoSeed'
     # 站点刷流
     __plugin_id_brush_flow: str = 'BrushFlow'
+    # 青蛙辅种助手
+    __plugin_id_cross_seed: str = 'CrossSeed'
 
     # 配置相关
     # 插件缺省配置
@@ -369,6 +372,43 @@ class MergeSiteSwitch(_PluginBase):
                     }]
                 }]
             })
+        # 青蛙辅种助手
+        if self.__plugin_id_cross_seed in installed_plugin_ids:
+            form_content.append({
+                'component': 'VRow',
+                'content': [{
+                    'component': 'VCol',
+                    'props': {
+                        'cols': 12,
+                        'xxl': 9, 'xl': 9, 'lg': 9, 'md': 9, 'sm': 8, 'xs': 12
+                    },
+                    'content': [{
+                        'component': 'VSelect',
+                        'props': {
+                            'model': 'cross_seed_sites',
+                            'label': '插件 / 青蛙辅种助手 / 辅种站点',
+                            'multiple': True,
+                            'chips': True,
+                            'items': site_options,
+                            'hint': '只有选中的站点才会在辅种中使用。'
+                        }
+                    }]
+                }, {
+                    'component': 'VCol',
+                    'props': {
+                        'cols': 12,
+                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 4, 'xs': 12
+                    },
+                    'content': [{
+                        'component': 'VSwitch',
+                        'props': {
+                            'model': 'cross_seed_follow_enable_sites',
+                            'label': '跟随启用的站点',
+                            'hint': '与站点的启用状态保持一致，保存时会立即生效，并在后台监听站点状态变化实时生效。'
+                        }
+                    }]
+                }]
+            })
         # 提示信息
         form_content.append({
             'component': 'VRow',
@@ -500,6 +540,12 @@ class MergeSiteSwitch(_PluginBase):
         """
         return self.__check_follow_enable_sites(config_key='brush_flow_follow_enable_sites', plugin_id=self.__plugin_id_brush_flow, installed_plugin_ids=installed_plugin_ids)
 
+    def __check_cross_seed_follow_enable_sites(self, installed_plugin_ids: List[str] = None) -> bool:
+        """
+        判断青蛙辅种站点的跟随按钮是否打开
+        """
+        return self.__check_follow_enable_sites(config_key='cross_seed_follow_enable_sites', plugin_id=self.__plugin_id_cross_seed, installed_plugin_ids=installed_plugin_ids)
+
     def __check_any_follow_enable_sites(self) -> bool:
         """
         判断是否开启任意跟随按钮
@@ -564,6 +610,10 @@ class MergeSiteSwitch(_PluginBase):
             config.update({
                 'brush_flow_sites': self.__get_brush_flow_site_ids(),
             })
+        if self.__plugin_id_cross_seed in installed_plugin_ids:
+            config.update({
+                'cross_seed_sites': self.__get_cross_seed_site_ids(),
+            })
         self.update_config(config=config)
         return config
 
@@ -588,6 +638,8 @@ class MergeSiteSwitch(_PluginBase):
             config.update({"iyuu_seed_sites": enable_sites.copy()})
         if config.get('brush_flow_follow_enable_sites'):
             config.update({"brush_flow_sites": enable_sites.copy()})
+        if config.get('cross_seed_follow_enable_sites'):
+            config.update({"cross_seed_sites": enable_sites.copy()})
         return config
 
     def __pre_config(self, config: dict) -> dict:
@@ -621,6 +673,8 @@ class MergeSiteSwitch(_PluginBase):
             self.__set_iyuu_seed_site_ids(config.get('iyuu_seed_sites'))
         if self.__plugin_id_brush_flow in installed_plugin_ids:
             self.__set_brush_flow_site_ids(config.get('brush_flow_sites'))
+        if self.__plugin_id_cross_seed in installed_plugin_ids:
+            self.__set_cross_seed_site_ids(config.get('cross_seed_sites'))
         return config
 
     def __get_enable_site_ids(self) -> List[int]:
@@ -687,6 +741,19 @@ class MergeSiteSwitch(_PluginBase):
             return None
         return config.get(config_key)
 
+    def __reload_plugin_config(self, plugin_id: str, config: dict = None):
+        """
+        重载插件配置
+        """
+        if not plugin_id:
+            return
+        if not config:
+            config = self.get_config(plugin_id)
+        # 重新生效插件
+        PluginManager().init_plugin(plugin_id, config)
+        # 注册插件服务
+        Scheduler().update_plugin_job(plugin_id)
+
     def __set_plugin_config_value(self, plugin_id: str, config_key: str, config_value: Any) -> Any:
         """
         设置插件配置值
@@ -698,6 +765,7 @@ class MergeSiteSwitch(_PluginBase):
             config = {}
         config.update({config_key: config_value})
         self.update_config(plugin_id=plugin_id, config=config)
+        self.__reload_plugin_config(plugin_id=plugin_id, config=config)
 
     def __get_signin_site_ids(self) -> List[int]:
         """
@@ -768,6 +836,20 @@ class MergeSiteSwitch(_PluginBase):
         """
         self.__set_plugin_config_value(self.__plugin_id_brush_flow, 'brushsites', site_ids)
         logger.info("刷流站点配置完成")
+
+    def __get_cross_seed_site_ids(self) -> List[int]:
+        """
+        获取青蛙辅种站点IDs
+        """
+        sites = self.__get_plugin_config_value(self.__plugin_id_cross_seed, 'sites')
+        return sites if sites else []
+
+    def __set_cross_seed_site_ids(self, site_ids: List[int]):
+        """
+        设置青蛙辅种站点IDs
+        """
+        self.__set_plugin_config_value(self.__plugin_id_cross_seed, 'sites', site_ids)
+        logger.info("青蛙辅种站点配置完成")
 
     def __update_search_site_ids_by_site(self, site_id: int, site_status: bool):
         if site_id == None:
@@ -846,6 +928,17 @@ class MergeSiteSwitch(_PluginBase):
             site_ids.remove(site_id)
             self.__set_brush_flow_site_ids(site_ids=site_ids)
 
+    def __update_cross_seed_site_ids_by_site(self, site_id: int, site_status: bool):
+        if site_id == None:
+            return
+        site_ids = self.__get_cross_seed_site_ids() or []
+        if site_id not in site_ids and site_status:
+            site_ids.append(site_id)
+            self.__set_cross_seed_site_ids(site_ids=site_ids)
+        elif site_id in site_ids and not site_status:
+            site_ids.remove(site_id)
+            self.__set_cross_seed_site_ids(site_ids=site_ids)
+
     def __update_site_ids_for_site_event(self, site_id: int, site_status: bool):
         """
         针对站点事件更新各项配置
@@ -868,6 +961,8 @@ class MergeSiteSwitch(_PluginBase):
             self.__update_iyuu_seed_site_ids_by_site(site_id=site_id, site_status=site_status)
         if self.__check_brush_flow_follow_enable_sites(installed_plugin_ids=installed_plugin_ids):
             self.__update_brush_flow_site_ids_by_site(site_id=site_id, site_status=site_status)
+        if self.__check_cross_seed_follow_enable_sites(installed_plugin_ids=installed_plugin_ids):
+            self.__update_cross_seed_site_ids_by_site(site_id=site_id, site_status=site_status)
 
     @eventmanager.register(EventType.SiteUpdated)
     def listen_site_updated_event(self, event: Event = None):
