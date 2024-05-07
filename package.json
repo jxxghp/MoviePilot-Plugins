@@ -27,11 +27,12 @@
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
         "labels": "站点",
-        "version": "3.0",
+        "version": "3.1",
         "icon": "statistic.png",
         "author": "lightolly",
         "level": 2,
         "history": {
+            "v3.1": "修复观众无法统计做总数和做种体积的bug",
             "v3.0": "适配馒头数据统计，需要升级至v1.8.5+版本，且在站点信息中维护好API Key",
             "v2.9": "增强API安全性",
             "v2.8": "修复馒头未读消息统计",

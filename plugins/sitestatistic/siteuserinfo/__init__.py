@@ -26,6 +26,7 @@ class SiteSchema(Enum):
     NexusProject = "NexusProject"
     NexusRabbit = "NexusRabbit"
     NexusHhanclub = "NexusHhanclub"
+    NexusAudiences = "NexusAudiences"
     SmallHorse = "Small Horse"
     Unit3d = "Unit3d"
     TorrentLeech = "TorrentLeech"
