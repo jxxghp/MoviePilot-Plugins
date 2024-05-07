@@ -551,11 +551,12 @@
         "name": "QB远程操作",
         "description": "通过定时任务或交互命令远程操作QB暂停/开始/限速等。",
         "labels": "下载管理,Qbittorrent",
-        "version": "1.4",
+        "version": "1.5",
         "icon": "Qbittorrent_A.png",
         "author": "DzAvril",
         "level": 1,
         "history": {
+            "v1.5": "可选特定路径下的做种不会被暂停",
             "v1.4": "可选某些站点不再做种（暂停做种后不会被恢复）"
         }
     },
