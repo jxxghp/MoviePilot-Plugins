@@ -438,8 +438,7 @@ class EventType(Enum):
       "params": {
         // API上送参数
         "doubanid": ""
-      },
-      "autorefresh": 60 // 自动刷新间隔，单位秒，设置后API会定时重复调用
+      }
     }
   }
 }
