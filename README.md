@@ -450,9 +450,18 @@ class EventType(Enum):
 - 1. 在插件中设置是否在仪表板中显示插件内容的开关。
 - 2. 实现 `get_dashboard` 方法，返回仪表盘的配置信息，包括仪表盘的col列配置（适配不同屏幕），以及仪表盘的页面配置json，具体可参考插件`站点数据统计`：
 ```python
-def get_dashboard(self) -> Tuple[dict, List[dict]]:
+def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
     """
-    获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、页面配置json（含vuetify UI配置及数据）
+    获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、仪表板页面元素配置json（含数据）；3、全局配置（自动刷新等）
+    1、col配置参考：
+    {
+        "cols": 12, "md": 6
+    }
+    2、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
+    3、全局配置参考：
+    {
+        "refresh": 10 // 自动刷新时间，单位秒
+    }
     """
     pass
 ```
