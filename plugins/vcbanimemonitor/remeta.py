@@ -2,14 +2,31 @@ import concurrent
 import re
 from pathlib import Path
 from typing import List
-
-import roman
-
 from app.chain.media import MediaChain
 from app.chain.tmdb import TmdbChain
 from app.core.metainfo import MetaInfoPath
 from app.log import logger
 from app.schemas import MediaType
+
+
+def roman_to_int(s) -> int:
+    """
+    :param s: 罗马数字字符串
+    罗马数字转整数
+    """
+    roman_dict = {'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000}
+    total = 0
+    prev_value = 0
+
+    for char in reversed(s):  # 反向遍历罗马数字字符串
+        current_value = roman_dict[char]
+        if current_value >= prev_value:
+            total += current_value  # 如果当前值大于等于前一个值，加上当前值
+        else:
+            total -= current_value  # 如果当前值小于前一个值，减去当前值
+        prev_value = current_value
+
+    return total
 
 
 class ReMeta:
@@ -41,7 +58,7 @@ class ReMeta:
     ]
     _ova_patterns = [re.compile(r"\[.*?(OVA|OAD).*?]"),
                      re.compile(r"\[\d+\.5]"),
-                     re.compile(r"\[00]")]
+                     re.compile(r"\[00\]")]
 
     final_season_patterns = [re.compile('final season', re.IGNORECASE),
                              re.compile('The Final', re.IGNORECASE),
@@ -57,13 +74,14 @@ class ReMeta:
     def handel_file(self, file_path: Path):
         meta = MetaInfoPath(file_path)
         self.title = meta.title
+        self.title = Path(self.title).stem.strip()
         if 'VCB-Studio' not in meta.title:
             logger.warn("不属于VCB的作品，不处理！")
             return None
         if meta.title.count("[") != 4 and meta.title.count("]") != 4:
             # 可能是电影，电影只有三组[]，因此去除所有[]后只剩下电影名
             logger.warn("不符合VCB-Studio的剧集命名规范，跳过剧集模块处理！交给默认处理逻辑")
-            meta.title = re.sub(r'\[.*?]', '', meta.title).strip()
+            meta.title = re.sub(r'\[.*?\]', '', meta.title).strip()
             meta.en_name = meta.title
             return meta
         split_title: List[str] | None = self.split_season_ep(self.title)
@@ -84,13 +102,12 @@ class ReMeta:
         return meta
 
     # 分离季度部分和集数部分
-    @staticmethod
-    def split_season_ep(pre_title: str):
+    def split_season_ep(self, pre_title: str):
         split_ep = re.findall(r"(\[.*?])", pre_title)[1]
         if not split_ep:
             logger.warn("未识别出集数位置信息，结束识别！")
             return None
-        split_title = re.sub(r"\[.*?]", "", pre_title).strip()
+        split_title = re.sub(r"\[.*?\]", "", pre_title).strip()
         logger.info(f"分离出包含季度的部分：{split_title} \n 分离出包含集数的部分： {split_ep}")
         return [split_title, split_ep]
 
@@ -126,7 +143,7 @@ class ReMeta:
             match = pattern.search(pre_title)
             if match:
                 if type(group) == str:
-                    title_season["season"] = int(roman.fromRoman(match.group(int(group))))
+                    title_season["season"] = roman_to_int(match.group(int(group)))
                     title_season["title"] = re.sub(pattern, "", pre_title).strip()
                 else:
                     title_season["season"] = int(match.group(group))
@@ -142,8 +159,7 @@ class ReMeta:
         return title_season
 
     # 处理存在“Final”字样命名的季度
-    @staticmethod
-    def handle_final_season(title: str) -> int | None:
+    def handle_final_season(self, title: str) -> int | None:
         medias = MediaChain().search(title=title)[1]
         if not medias:
             logger.warn("没有找到对应的媒体信息！")

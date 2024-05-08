@@ -39,7 +39,7 @@ class ContractCheck(_PluginBase):
     # 插件图标
     plugin_icon = "contract.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -713,7 +713,7 @@ class ContractCheck(_PluginBase):
         else:
             num_gap = contract_info.num - current_seeding_size[0]
         is_satisfied = is_size_satisfied and is_num_satisfied
-        duration = (datetime.now().date() - contract_info.date).days
+        duration = (datetime.now() - contract_info.date).days
         if duration < contract_info.duration:
             duration_gap = contract_info.duration - duration
         return is_satisfied, size_gap, num_gap, duration_gap

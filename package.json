@@ -27,11 +27,12 @@
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
         "labels": "站点",
-        "version": "3.0",
+        "version": "3.1",
         "icon": "statistic.png",
         "author": "lightolly",
         "level": 2,
         "history": {
+            "v3.1": "修复观众无法统计做总数和做种体积的bug",
             "v3.0": "适配馒头数据统计，需要升级至v1.8.5+版本，且在站点信息中维护好API Key",
             "v2.9": "增强API安全性",
             "v2.8": "修复馒头未读消息统计",
@@ -259,10 +260,13 @@
         "name": "整理VCB动漫压制组作品",
         "description": "提高部分VCB-Studio作品的识别准确率,将VCB-Studio的作品统一转移到指定目录同时进行刮削整理",
         "labels": "文件整理,识别",
-        "version": "1.7",
+        "version": "1.7.1",
         "icon": "vcbmonitor.png",
         "author": "pixel@qingwa",
-        "level": 2
+        "level": 2,
+        "history": {
+            "v1.7.1": "修复偶尔安装失败问题"
+        }
     },
     "TorrentTransfer": {
         "name": "自动转移做种",
@@ -298,11 +302,12 @@
         "name": "站点刷流",
         "description": "自动托管刷流，将会提高对应站点的访问频率。",
         "labels": "刷流",
-        "version": "2.9",
+        "version": "3.0",
         "icon": "brush.jpg",
         "author": "jxxghp,InfinityPacer",
         "level": 2,
         "history": {
+            "v3.0": "优化不同站点刷流到相同种子的逻辑，修复数据页滚动闪烁，部分日志优化",
             "v2.9": "优化动态删除消息推送，优化配置页UI显示及部分配置项，支持配置种子分类以及开启自动分类管理，取消单独适配站点时区逻辑，可通过配置项「pubtime」自行适配",
             "v2.8": "优化UI显示以及提升性能",
             "v2.7": "动态删除种子规则调整（请注意查阅插件文档），站点独立配置样式优化、日志优化，修复部分配置项无法配置小数的问题，修复部分场景可能导致重复下载的问题",
@@ -547,11 +552,12 @@
         "name": "QB远程操作",
         "description": "通过定时任务或交互命令远程操作QB暂停/开始/限速等。",
         "labels": "下载管理,Qbittorrent",
-        "version": "1.4",
+        "version": "1.5",
         "icon": "Qbittorrent_A.png",
         "author": "DzAvril",
         "level": 1,
         "history": {
+            "v1.5": "可选特定路径下的做种不会被暂停",
             "v1.4": "可选某些站点不再做种（暂停做种后不会被恢复）"
         }
     },
@@ -586,10 +592,13 @@
         "name": "契约检查",
         "description": "定时检查保种契约达成情况。",
         "labels": "做种",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "contract.png",
         "author": "DzAvril",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.2": "修复契约检查无数据返回的问题"
+        }
     },
     "DownloaderHelper": {
         "name": "下载器助手",
@@ -646,10 +655,13 @@
         "name": "聚合站点开关",
         "description": "统一管理所有与站点相关的开关。",
         "labels": "系统设置",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "world.png",
         "author": "hotlcc",
-        "level": 2
+        "level": 2,
+        "history": {
+            "v1.1": "优化插件配置生效；支持青蛙辅种助手。"
+        }
     },
     "TmdbWallpaper": {
         "name": "登录壁纸本地化",
