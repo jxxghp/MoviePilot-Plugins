@@ -452,16 +452,16 @@ class EventType(Enum):
 ```python
 def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
     """
-    获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、仪表板页面元素配置json（含数据）；3、全局配置（自动刷新等）
+    获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、全局配置（自动刷新等）；2、仪表板页面元素配置json（含数据）
     1、col配置参考：
     {
         "cols": 12, "md": 6
     }
-    2、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
-    3、全局配置参考：
+    2、全局配置参考：
     {
         "refresh": 10 // 自动刷新时间，单位秒
     }
+    3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
     """
     pass
 ```
