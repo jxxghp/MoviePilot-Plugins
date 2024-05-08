@@ -435,16 +435,30 @@ class EventType(Enum):
     "click": { // 点击事件
       "api": "plugin/DoubanSync/delete_history", // API的相对路径
       "method": "get", // GET/POST
-      "params": { // API上送参数
-         "doubanid": ""
-      }
+      "params": {
+        // API上送参数
+        "doubanid": ""
+      },
+      "autorefresh": 60 // 自动刷新间隔，单位秒，设置后API会定时重复调用
     }
   }
 }
 ```
 - 每次API调用完成后，均会自动刷新一次插件数据页。
 
-### 8. 如何发布插件版本？
+### 8. 如何将插件内容显示到仪表板？
+- `v1.8.7+` 支持将插件的内容显示到仪表盘，并支持定义占据的单元格大小，插件产生的仪表板仅管理员可见。
+- 1. 在插件中设置是否在仪表板中显示插件内容的开关。
+- 2. 实现 `get_dashboard` 方法，返回仪表盘的配置信息，包括仪表盘的col列配置（适配不同屏幕），以及仪表盘的页面配置json，具体可参考插件`站点数据统计`：
+```python
+def get_dashboard(self) -> Tuple[dict, List[dict]]:
+    """
+    获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、页面配置json（含vuetify UI配置及数据）
+    """
+    pass
+```
+
+### 9. 如何发布插件版本？
 - 修改插件代码后，需要修改`package.json`中的`version`版本号，MoviePilot才会提示用户有更新，注意版本号需要与`__init__.py`文件中的`plugin_version`保持一致。
 - `package.json`中的`level`用于定义插件用户可见权限，`1`为所有用户可见，`2`为仅认证用户可见，`3`为需要密钥才可见（一般用于测试）。如果插件功能需要使用到站点则应该为2，否则即使插件对用户可见但因为用户未认证相关功能也无法正常使用。
 - `package.json`中的`history`用于记录插件更新日志，格式如下：
