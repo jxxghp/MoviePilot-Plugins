@@ -20,7 +20,7 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 - 可在插件目录中放置`requirements.txt`文件，用于指定插件依赖的第三方库，MoviePilot会在插件安装时自动安装依赖库。
 
 ### 5. 界面开发
-- 插件支持`插件配置`及`详情展示`两个展示页面，通过配置化的方式组装，使用 [Vuetify](https://vuetifyjs.com/) 组件库，所有该组件库有的组件都可以通过Json配置使用。
+- 插件支持`插件配置`、`详情展示`、`仪表板Widget`三个展示页面，通过配置化的方式组装，使用 [Vuetify](https://vuetifyjs.com/) 组件库，所有该组件库有的组件都可以通过Json配置使用。
 
 
 ## 常见问题
