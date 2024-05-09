@@ -43,7 +43,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "3.1"
+    plugin_version = "3.2"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -66,7 +66,6 @@ class SiteStatistic(_PluginBase):
     # 配置属性
     _enabled: bool = False
     _onlyonce: bool = False
-    _dashboard: bool = True
     _sitemsg: bool = True
     _cron: str = ""
     _notify: bool = False
@@ -85,7 +84,6 @@ class SiteStatistic(_PluginBase):
         if config:
             self._enabled = config.get("enabled")
             self._onlyonce = config.get("onlyonce")
-            self._dashboard = True if config.get("dashboard") is None else config.get("dashboard")
             self._cron = config.get("cron")
             self._notify = config.get("notify")
             self._sitemsg = config.get("sitemsg")
@@ -231,7 +229,7 @@ class SiteStatistic(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 3
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -247,7 +245,7 @@ class SiteStatistic(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 3
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -263,7 +261,7 @@ class SiteStatistic(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 3
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -271,22 +269,6 @@ class SiteStatistic(_PluginBase):
                                         'props': {
                                             'model': 'onlyonce',
                                             'label': '立即运行一次',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 3
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'dashboard',
-                                            'label': '在仪表板中显示',
                                         }
                                     }
                                 ]
@@ -414,7 +396,6 @@ class SiteStatistic(_PluginBase):
             "enabled": False,
             "onlyonce": False,
             "notify": True,
-            "dashboard": True,
             "sitemsg": True,
             "cron": "5 1 * * *",
             "queue_cnt": 5,
@@ -899,8 +880,6 @@ class SiteStatistic(_PluginBase):
             "refresh": 10 // 自动刷新时间，单位秒
         }
         """
-        if not self._dashboard:
-            return None
         # 列配置
         cols = {
             "cols": 12
