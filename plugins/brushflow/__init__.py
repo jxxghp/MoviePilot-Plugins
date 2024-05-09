@@ -40,6 +40,7 @@ class BrushConfig:
         self.enabled = config.get("enabled", False)
         self.notify = config.get("notify", True)
         self.onlyonce = config.get("onlyonce", False)
+        self.dashboard = config.get("dashboard", True)
         self.brushsites = config.get("brushsites", [])
         self.downloader = config.get("downloader", "qbittorrent")
         self.disksize = self.__parse_number(config.get("disksize"))
@@ -251,7 +252,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "3.0"
+    plugin_version = "3.1"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -442,6 +443,342 @@ class BrushFlow(_PluginBase):
 
         return services
 
+    def __get_total_elements(self) -> List[dict]:
+        """
+        组装汇总元素
+        """
+        # 统计数据
+        statistic_info = self.__get_statistic_info()
+        # 总上传量
+        total_uploaded = StringUtils.str_filesize(statistic_info.get("uploaded") or 0)
+        # 总下载量
+        total_downloaded = StringUtils.str_filesize(statistic_info.get("downloaded") or 0)
+        # 下载种子数
+        total_count = statistic_info.get("count") or 0
+        # 删除种子数
+        total_deleted = statistic_info.get("deleted") or 0
+        # 待归档种子数
+        total_unarchived = statistic_info.get("unarchived") or 0
+        # 活跃种子数
+        total_active = statistic_info.get("active") or 0
+        # 活跃上传量
+        total_active_uploaded = StringUtils.str_filesize(statistic_info.get("active_uploaded") or 0)
+        # 活跃下载量
+        total_active_downloaded = StringUtils.str_filesize(statistic_info.get("active_downloaded") or 0)
+
+        return [
+            # 总上传量
+            {
+                'component': 'VCol',
+                'props': {
+                    'cols': 12,
+                    'md': 3,
+                    'sm': 6
+                },
+                'content': [
+                    {
+                        'component': 'VCard',
+                        'props': {
+                            'variant': 'tonal',
+                        },
+                        'content': [
+                            {
+                                'component': 'VCardText',
+                                'props': {
+                                    'class': 'd-flex align-center',
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAvatar',
+                                        'props': {
+                                            'rounded': True,
+                                            'variant': 'text',
+                                            'class': 'me-3'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VImg',
+                                                'props': {
+                                                    'src': '/plugin_icon/upload.png'
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'div',
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'props': {
+                                                    'class': 'text-caption'
+                                                },
+                                                'text': '总上传量 / 活跃'
+                                            },
+                                            {
+                                                'component': 'div',
+                                                'props': {
+                                                    'class': 'd-flex align-center flex-wrap'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'span',
+                                                        'props': {
+                                                            'class': 'text-h6'
+                                                        },
+                                                        'text': f"{total_uploaded} / {total_active_uploaded}"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                ]
+            },
+            # 总下载量
+            {
+                'component': 'VCol',
+                'props': {
+                    'cols': 12,
+                    'md': 3,
+                    'sm': 6
+                },
+                'content': [
+                    {
+                        'component': 'VCard',
+                        'props': {
+                            'variant': 'tonal',
+                        },
+                        'content': [
+                            {
+                                'component': 'VCardText',
+                                'props': {
+                                    'class': 'd-flex align-center',
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAvatar',
+                                        'props': {
+                                            'rounded': True,
+                                            'variant': 'text',
+                                            'class': 'me-3'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VImg',
+                                                'props': {
+                                                    'src': '/plugin_icon/download.png'
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'div',
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'props': {
+                                                    'class': 'text-caption'
+                                                },
+                                                'text': '总下载量 / 活跃'
+                                            },
+                                            {
+                                                'component': 'div',
+                                                'props': {
+                                                    'class': 'd-flex align-center flex-wrap'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'span',
+                                                        'props': {
+                                                            'class': 'text-h6'
+                                                        },
+                                                        'text': f"{total_downloaded} / {total_active_downloaded}"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                ]
+            },
+            # 下载种子数
+            {
+                'component': 'VCol',
+                'props': {
+                    'cols': 12,
+                    'md': 3,
+                    'sm': 6
+                },
+                'content': [
+                    {
+                        'component': 'VCard',
+                        'props': {
+                            'variant': 'tonal',
+                        },
+                        'content': [
+                            {
+                                'component': 'VCardText',
+                                'props': {
+                                    'class': 'd-flex align-center',
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAvatar',
+                                        'props': {
+                                            'rounded': True,
+                                            'variant': 'text',
+                                            'class': 'me-3'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VImg',
+                                                'props': {
+                                                    'src': '/plugin_icon/seed.png'
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'div',
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'props': {
+                                                    'class': 'text-caption'
+                                                },
+                                                'text': '下载种子数 / 活跃'
+                                            },
+                                            {
+                                                'component': 'div',
+                                                'props': {
+                                                    'class': 'd-flex align-center flex-wrap'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'span',
+                                                        'props': {
+                                                            'class': 'text-h6'
+                                                        },
+                                                        'text': f"{total_count} / {total_active}"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                ]
+            },
+            # 删除种子数
+            {
+                'component': 'VCol',
+                'props': {
+                    'cols': 12,
+                    'md': 3,
+                    'sm': 6
+                },
+                'content': [
+                    {
+                        'component': 'VCard',
+                        'props': {
+                            'variant': 'tonal',
+                        },
+                        'content': [
+                            {
+                                'component': 'VCardText',
+                                'props': {
+                                    'class': 'd-flex align-center',
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAvatar',
+                                        'props': {
+                                            'rounded': True,
+                                            'variant': 'text',
+                                            'class': 'me-3'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VImg',
+                                                'props': {
+                                                    'src': '/plugin_icon/delete.png'
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'div',
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'props': {
+                                                    'class': 'text-caption'
+                                                },
+                                                'text': '删除种子数 / 待归档'
+                                            },
+                                            {
+                                                'component': 'div',
+                                                'props': {
+                                                    'class': 'd-flex align-center flex-wrap'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'span',
+                                                        'props': {
+                                                            'class': 'text-h6'
+                                                        },
+                                                        'text': f"{total_deleted} / {total_unarchived}"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+        ]
+
+    def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+        """
+        获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、全局配置（自动刷新等）；3、仪表板页面元素配置json（含数据）
+        1、col配置参考：
+        {
+            "cols": 12, "md": 6
+        }
+        2、全局配置参考：
+        {
+            "refresh": 10 // 自动刷新时间，单位秒
+        }
+        3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
+        """
+        if not self._brush_config.dashboard:
+            return None
+        # 列配置
+        cols = {
+            "cols": 12
+        }
+        # 全局配置
+        attrs = {}
+        # 拼装页面元素
+        elements = [
+            {
+                'component': 'VRow',
+                'content': self.__get_total_elements()
+            }
+        ]
+        return cols, attrs, elements
+
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
@@ -461,7 +798,7 @@ class BrushFlow(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -477,7 +814,7 @@ class BrushFlow(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -493,7 +830,7 @@ class BrushFlow(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -501,6 +838,22 @@ class BrushFlow(_PluginBase):
                                         'props': {
                                             'model': 'onlyonce',
                                             'label': '立即运行一次',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'dashboard',
+                                            'label': '在仪表板中显示',
                                         }
                                     }
                                 ]
@@ -1503,8 +1856,6 @@ class BrushFlow(_PluginBase):
     def get_page(self) -> List[dict]:
         # 种子明细
         torrents = self.get_data("torrents") or {}
-        # 统计数据
-        statistic_info = self.__get_statistic_info()
 
         if not torrents:
             return [
@@ -1520,22 +1871,7 @@ class BrushFlow(_PluginBase):
             data_list = torrents.values()
             # 按time倒序排序
             data_list = sorted(data_list, key=lambda x: x.get("time") or 0, reverse=True)
-        # 总上传量
-        total_uploaded = StringUtils.str_filesize(statistic_info.get("uploaded") or 0)
-        # 总下载量
-        total_downloaded = StringUtils.str_filesize(statistic_info.get("downloaded") or 0)
-        # 下载种子数
-        total_count = statistic_info.get("count") or 0
-        # 删除种子数
-        total_deleted = statistic_info.get("deleted") or 0
-        # 待归档种子数
-        total_unarchived = statistic_info.get("unarchived") or 0
-        # 活跃种子数
-        total_active = statistic_info.get("active") or 0
-        # 活跃上传量
-        total_active_uploaded = StringUtils.str_filesize(statistic_info.get("active_uploaded") or 0)
-        # 活跃下载量
-        total_active_downloaded = StringUtils.str_filesize(statistic_info.get("active_downloaded") or 0)
+
         # 表格标题
         headers = [
             {'title': '站点', 'key': 'site', 'sortable': True},
@@ -1568,287 +1904,7 @@ class BrushFlow(_PluginBase):
                         'overflow': 'hidden',
                     }
                 },
-                'content': [
-                    # 总上传量
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
-                        },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VAvatar',
-                                                'props': {
-                                                    'rounded': True,
-                                                    'variant': 'text',
-                                                    'class': 'me-3'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VImg',
-                                                        'props': {
-                                                            'src': '/plugin_icon/upload.png'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '总上传量 / 活跃'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': f"{total_uploaded} / {total_active_uploaded}"
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    # 总下载量
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
-                        },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VAvatar',
-                                                'props': {
-                                                    'rounded': True,
-                                                    'variant': 'text',
-                                                    'class': 'me-3'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VImg',
-                                                        'props': {
-                                                            'src': '/plugin_icon/download.png'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '总下载量 / 活跃'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': f"{total_downloaded} / {total_active_downloaded}"
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    # 下载种子数
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
-                        },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VAvatar',
-                                                'props': {
-                                                    'rounded': True,
-                                                    'variant': 'text',
-                                                    'class': 'me-3'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VImg',
-                                                        'props': {
-                                                            'src': '/plugin_icon/seed.png'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '下载种子数 / 活跃'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': f"{total_count} / {total_active}"
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    # 删除种子数
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
-                        },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VAvatar',
-                                                'props': {
-                                                    'rounded': True,
-                                                    'variant': 'text',
-                                                    'class': 'me-3'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VImg',
-                                                        'props': {
-                                                            'src': '/plugin_icon/delete.png'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '删除种子数 / 待归档'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': f"{total_deleted} / {total_unarchived}"
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
-                        ]
-                    },
+                'content': self.__get_total_elements() + [
                     # 种子明细
                     {
                         'component': 'VRow',
@@ -2926,6 +2982,7 @@ class BrushFlow(_PluginBase):
             "onlyonce": brush_config.onlyonce,
             "enabled": brush_config.enabled,
             "notify": brush_config.notify,
+            "dashboard": brush_config.dashboard,
             "brushsites": brush_config.brushsites,
             "downloader": brush_config.downloader,
             "disksize": brush_config.disksize,

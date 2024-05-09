@@ -43,7 +43,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "3.1"
+    plugin_version = "3.2"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -1450,6 +1450,7 @@ class SiteStatistic(_PluginBase):
         self.update_config({
             "enabled": self._enabled,
             "onlyonce": self._onlyonce,
+            "dashboard": self._dashboard,
             "cron": self._cron,
             "notify": self._notify,
             "sitemsg": self._sitemsg,
