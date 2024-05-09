@@ -40,7 +40,6 @@ class BrushConfig:
         self.enabled = config.get("enabled", False)
         self.notify = config.get("notify", True)
         self.onlyonce = config.get("onlyonce", False)
-        self.dashboard = config.get("dashboard", True)
         self.brushsites = config.get("brushsites", [])
         self.downloader = config.get("downloader", "qbittorrent")
         self.disksize = self.__parse_number(config.get("disksize"))
@@ -762,8 +761,6 @@ class BrushFlow(_PluginBase):
         }
         3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
         """
-        if not self._brush_config.dashboard:
-            return None
         # 列配置
         cols = {
             "cols": 12
@@ -798,7 +795,7 @@ class BrushFlow(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 3
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -814,7 +811,7 @@ class BrushFlow(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 3
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -830,7 +827,7 @@ class BrushFlow(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 3
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -838,22 +835,6 @@ class BrushFlow(_PluginBase):
                                         'props': {
                                             'model': 'onlyonce',
                                             'label': '立即运行一次',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 3
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'dashboard',
-                                            'label': '在仪表板中显示',
                                         }
                                     }
                                 ]
@@ -2982,7 +2963,6 @@ class BrushFlow(_PluginBase):
             "onlyonce": brush_config.onlyonce,
             "enabled": brush_config.enabled,
             "notify": brush_config.notify,
-            "dashboard": brush_config.dashboard,
             "brushsites": brush_config.brushsites,
             "downloader": brush_config.downloader,
             "disksize": brush_config.disksize,
