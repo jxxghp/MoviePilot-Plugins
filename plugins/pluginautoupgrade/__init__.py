@@ -23,7 +23,7 @@ class PluginAutoUpgrade(_PluginBase):
     # 插件图标
     plugin_icon = "PluginAutoUpgrade.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -63,6 +63,8 @@ class PluginAutoUpgrade(_PluginBase):
         """
         初始化插件
         """
+        # 修正配置
+        config = self.__fix_config(config=config)
         # 加载插件配置
         self.__config = config
         # 停止现有服务
@@ -396,6 +398,19 @@ class PluginAutoUpgrade(_PluginBase):
         finally:
             self.__exit_event.clear()
 
+    def __fix_config(self, config: dict) -> dict:
+        """
+        修正配置
+        """
+        if not config:
+            config = {}
+        save_record_quantity = config.get("save_record_quantity")
+        config['save_record_quantity'] = int(save_record_quantity) if save_record_quantity else None
+        display_record_quantity = config.get("display_record_quantity")
+        config['display_record_quantity'] = int(display_record_quantity) if display_record_quantity else None
+        self.update_config(config=config)
+        return config
+
     def __get_config_item(self, config_key: str, use_default: bool = True) -> Any:
         """
         获取插件配置项
@@ -407,7 +422,7 @@ class PluginAutoUpgrade(_PluginBase):
             return None
         config = self.__config if self.__config else {}
         config_value = config.get(config_key)
-        if config_value is None and use_default:
+        if (config_value is None or config_value == '') and use_default:
             config_default = self.__config_default if self.__config_default else {}
             config_value = config_default.get(config_key)
         return config_value
