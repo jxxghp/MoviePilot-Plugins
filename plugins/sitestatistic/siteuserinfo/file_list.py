@@ -58,7 +58,15 @@ class FileListSiteUserInfo(ISiteUserInfo):
         if download_html:
             self.download = StringUtils.num_filesize(download_html[0])
 
-        self.ratio = 0 if self.download == 0 else self.upload / self.download
+        ratio_html = html.xpath('//table//tr/td[text()="Share ratio"]/following-sibling::td//text()')
+        if ratio_html:
+            share_ratio = StringUtils.str_float(ratio_html[0])
+        self.ratio = 0 if self.download == 0 else share_ratio
+
+        seed_html = html.xpath('//table//tr/td[text()="Seed bonus"]/following-sibling::td//text()')
+        if seed_html:
+            self.seeding = StringUtils.str_int(seed_html[1])
+            self.seeding_size = StringUtils.num_filesize(seed_html[3])
 
         user_level_html = html.xpath('//table//tr/td[text()="Class"]/following-sibling::td//text()')
         if user_level_html:
@@ -66,7 +74,8 @@ class FileListSiteUserInfo(ISiteUserInfo):
 
         join_at_html = html.xpath('//table//tr/td[contains(text(), "Join")]/following-sibling::td//text()')
         if join_at_html:
-            self.join_at = StringUtils.unify_datetime_str(join_at_html[0].strip())
+            join_at = (join_at_html[0].split("("))[0].strip()
+            self.join_at = StringUtils.unify_datetime_str(join_at)
 
         bonus_html = html.xpath('//a[contains(@href, "shop.php")]')
         if bonus_html:
@@ -102,8 +111,8 @@ class FileListSiteUserInfo(ISiteUserInfo):
                 page_seeding_size += size
                 page_seeding_info.append([seeders, size])
 
-        self.seeding += page_seeding
-        self.seeding_size += page_seeding_size
+        # self.seeding += page_seeding
+        # self.seeding_size += page_seeding_size
         self.seeding_info.extend(page_seeding_info)
 
         # 是否存在下页数据
