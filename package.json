@@ -650,10 +650,13 @@
         "name": "插件自动升级",
         "description": "定时检测、升级插件。",
         "labels": "自动更新",
-        "version": "1.4",
+        "version": "1.5",
         "icon": "PluginAutoUpgrade.png",
         "author": "hotlcc",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.5": "支持配置升级记录最大保存数量和最大展示数量。"
+        }
     },
     "MergeSiteSwitch": {
         "name": "聚合站点开关",
