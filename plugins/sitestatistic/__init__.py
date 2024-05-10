@@ -43,7 +43,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "3.3"
+    plugin_version = "3.4"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -1133,12 +1133,12 @@ class SiteStatistic(_PluginBase):
         """
         构建站点信息
         """
-        site_cookie = site_info.get("cookie")
-        if not site_cookie:
-            return None
         site_name = site_info.get("name")
+        site_cookie = site_info.get("cookie")
         apikey = site_info.get("apikey")
         token = site_info.get("token")
+        if not site_cookie and not apikey and not token:
+            return None
         url = site_info.get("url")
         proxy = site_info.get("proxy")
         ua = site_info.get("ua")
@@ -1147,8 +1147,7 @@ class SiteStatistic(_PluginBase):
             proxies = settings.PROXY if proxy else None
             proxy_server = settings.PROXY_SERVER if proxy else None
             render = site_info.get("render")
-
-            logger.debug(f"站点 {site_name} url={url} site_cookie={site_cookie} ua={ua}")
+            logger.debug(f"站点 {site_name} url={url}，site_cookie={site_cookie}，ua={ua}，api_key={apikey}，token={token}，proxy={proxy}")
             if render:
                 # 演染模式
                 html_text = PlaywrightHelper().get_page_source(url=url,
