@@ -21,7 +21,7 @@ class TmdbWallpaper(_PluginBase):
     # 插件图标
     plugin_icon = "Macos_Sierra.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -224,12 +224,13 @@ class TmdbWallpaper(_PluginBase):
             return
         if settings.WALLPAPER == "tmdb":
             url = TmdbChain().get_random_wallpager()
+            filename = url.split("/")[-1]
         else:
             url = WebUtils.get_bing_wallpaper()
+            filename = f"{datetime.now().strftime('%Y%m%d')}.jpg"
         # 下载壁纸
         if url:
             try:
-                filename = url.split("/")[-1]
                 savepath = Path(self._savepath)
                 logger.info(f"下载壁纸：{url}")
                 with RequestUtils().get_res(url) as r:
