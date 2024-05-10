@@ -650,11 +650,12 @@
         "name": "插件自动升级",
         "description": "定时检测、升级插件。",
         "labels": "自动更新",
-        "version": "1.5",
+        "version": "1.6",
         "icon": "PluginAutoUpgrade.png",
         "author": "hotlcc",
         "level": 1,
         "history": {
+            "v1.6": "修正数字配置值提交为字符串导致的问题。",
             "v1.5": "支持配置升级记录最大保存数量和最大展示数量。"
         }
     },
