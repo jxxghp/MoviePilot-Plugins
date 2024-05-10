@@ -27,11 +27,12 @@
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
         "labels": "站点",
-        "version": "3.2",
+        "version": "3.3",
         "icon": "statistic.png",
         "author": "lightolly",
         "level": 2,
         "history": {
+            "v3.3": "支持选择仪表板组件规格",
             "v3.2": "支持在仪表板中显示站点统计信息，需要主程序升级至v1.8.7+版本",
             "v3.1": "修复观众无法统计做总数和做种体积的bug",
             "v3.0": "适配馒头数据统计，需要升级至v1.8.5+版本，且在站点信息中维护好API Key",
@@ -594,11 +595,12 @@
         "name": "契约检查",
         "description": "定时检查保种契约达成情况。",
         "labels": "做种",
-        "version": "1.2",
+        "version": "1.3",
         "icon": "contract.png",
         "author": "DzAvril",
         "level": 1,
         "history": {
+            "v1.3": "修复观众做种数据异常问题",
             "v1.2": "修复契约检查无数据返回的问题"
         }
     },
@@ -648,10 +650,13 @@
         "name": "插件自动升级",
         "description": "定时检测、升级插件。",
         "labels": "自动更新",
-        "version": "1.4",
+        "version": "1.5",
         "icon": "PluginAutoUpgrade.png",
         "author": "hotlcc",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.5": "支持配置升级记录最大保存数量和最大展示数量。"
+        }
     },
     "MergeSiteSwitch": {
         "name": "聚合站点开关",

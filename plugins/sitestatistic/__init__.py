@@ -43,7 +43,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "3.2"
+    plugin_version = "3.3"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -73,6 +73,7 @@ class SiteStatistic(_PluginBase):
     _remove_failed: bool = False
     _statistic_type: str = None
     _statistic_sites: list = []
+    _dashboard_type: str = "today"
 
     def init_plugin(self, config: dict = None):
         self.sites = SitesHelper()
@@ -91,6 +92,7 @@ class SiteStatistic(_PluginBase):
             self._remove_failed = config.get("remove_failed")
             self._statistic_type = config.get("statistic_type") or "all"
             self._statistic_sites = config.get("statistic_sites") or []
+            self._dashboard_type = config.get("dashboard_type") or "today"
 
             # 过滤掉已删除的站点
             all_sites = [site.id for site in self.siteoper.list_order_by_pri()] + [site.get("id") for site in
@@ -282,7 +284,7 @@ class SiteStatistic(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -299,7 +301,7 @@ class SiteStatistic(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -315,7 +317,7 @@ class SiteStatistic(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -326,6 +328,27 @@ class SiteStatistic(_PluginBase):
                                             'items': [
                                                 {'title': '全量', 'value': 'all'},
                                                 {'title': '增量', 'value': 'add'}
+                                            ]
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'dashboard_type',
+                                            'label': '仪表板组件',
+                                            'items': [
+                                                {'title': '今日数据', 'value': 'today'},
+                                                {'title': '汇总数据', 'value': 'total'},
+                                                {'title': '所有数据', 'value': 'all'}
                                             ]
                                         }
                                     }
@@ -401,7 +424,8 @@ class SiteStatistic(_PluginBase):
             "queue_cnt": 5,
             "remove_failed": False,
             "statistic_type": "all",
-            "statistic_sites": []
+            "statistic_sites": [],
+            "dashboard_type": 'today'
         }
 
     def __get_data(self) -> Tuple[str, dict, dict]:
@@ -437,7 +461,7 @@ class SiteStatistic(_PluginBase):
 
     @staticmethod
     def __get_total_elements(today: str, stattistic_data: dict, yesterday_sites_data: dict,
-                             dashboard: bool = False) -> List[dict]:
+                             dashboard: str = "today") -> List[dict]:
         """
         获取统计元素
         """
@@ -466,7 +490,7 @@ class SiteStatistic(_PluginBase):
                     d[k] = 0
             return d
 
-        if not dashboard:
+        if dashboard in ['total', 'all']:
             # 总上传量
             total_upload = sum([int(data.get("upload"))
                                 for data in stattistic_data.values() if data.get("upload")])
@@ -485,9 +509,8 @@ class SiteStatistic(_PluginBase):
                 {
                     'component': 'VCol',
                     'props': {
-                        'cols': 12,
-                        'md': 3,
-                        'sm': 6
+                        'cols': 6,
+                        'md': 3
                     },
                     'content': [
                         {
@@ -555,9 +578,8 @@ class SiteStatistic(_PluginBase):
                 {
                     'component': 'VCol',
                     'props': {
-                        'cols': 12,
+                        'cols': 6,
                         'md': 3,
-                        'sm': 6
                     },
                     'content': [
                         {
@@ -625,9 +647,8 @@ class SiteStatistic(_PluginBase):
                 {
                     'component': 'VCol',
                     'props': {
-                        'cols': 12,
-                        'md': 3,
-                        'sm': 6
+                        'cols': 6,
+                        'md': 3
                     },
                     'content': [
                         {
@@ -695,9 +716,8 @@ class SiteStatistic(_PluginBase):
                 {
                     'component': 'VCol',
                     'props': {
-                        'cols': 12,
-                        'md': 3,
-                        'sm': 6
+                        'cols': 6,
+                        'md': 3
                     },
                     'content': [
                         {
@@ -765,105 +785,108 @@ class SiteStatistic(_PluginBase):
         else:
             total_elements = []
 
-        # 计算增量数据集
-        inc_data = {}
-        for site, data in stattistic_data.items():
-            inc = __sub_dict(data, yesterday_sites_data.get(site))
-            if inc:
-                inc_data[site] = inc
-        # 今日上传
-        uploads = {k: v for k, v in inc_data.items() if v.get("upload")}
-        # 今日上传站点
-        upload_sites = [site for site in uploads.keys()]
-        # 今日上传数据
-        upload_datas = [__gb(data.get("upload")) for data in uploads.values()]
-        # 今日上传总量
-        today_upload = round(sum(upload_datas), 2)
-        # 今日下载
-        downloads = {k: v for k, v in inc_data.items() if v.get("download")}
-        # 今日下载站点
-        download_sites = [site for site in downloads.keys()]
-        # 今日下载数据
-        download_datas = [__gb(data.get("download")) for data in downloads.values()]
-        # 今日下载总量
-        today_download = round(sum(download_datas), 2)
-        # 今日上传下载元素
-        today_elements = [
-            # 上传量图表
-            {
-                'component': 'VCol',
-                'props': {
-                    'cols': 12,
-                    'md': 6
-                },
-                'content': [
-                    {
-                        'component': 'VApexChart',
-                        'props': {
-                            'height': 300,
-                            'options': {
-                                'chart': {
-                                    'type': 'pie',
-                                },
-                                'labels': upload_sites,
-                                'title': {
-                                    'text': f'今日上传（{today}）共 {today_upload} GB'
-                                },
-                                'legend': {
-                                    'show': True
-                                },
-                                'plotOptions': {
-                                    'pie': {
-                                        'expandOnClick': False
+        if dashboard in ["today", "all"]:
+            # 计算增量数据集
+            inc_data = {}
+            for site, data in stattistic_data.items():
+                inc = __sub_dict(data, yesterday_sites_data.get(site))
+                if inc:
+                    inc_data[site] = inc
+            # 今日上传
+            uploads = {k: v for k, v in inc_data.items() if v.get("upload")}
+            # 今日上传站点
+            upload_sites = [site for site in uploads.keys()]
+            # 今日上传数据
+            upload_datas = [__gb(data.get("upload")) for data in uploads.values()]
+            # 今日上传总量
+            today_upload = round(sum(upload_datas), 2)
+            # 今日下载
+            downloads = {k: v for k, v in inc_data.items() if v.get("download")}
+            # 今日下载站点
+            download_sites = [site for site in downloads.keys()]
+            # 今日下载数据
+            download_datas = [__gb(data.get("download")) for data in downloads.values()]
+            # 今日下载总量
+            today_download = round(sum(download_datas), 2)
+            # 今日上传下载元素
+            today_elements = [
+                # 上传量图表
+                {
+                    'component': 'VCol',
+                    'props': {
+                        'cols': 12,
+                        'md': 6
+                    },
+                    'content': [
+                        {
+                            'component': 'VApexChart',
+                            'props': {
+                                'height': 300,
+                                'options': {
+                                    'chart': {
+                                        'type': 'pie',
+                                    },
+                                    'labels': upload_sites,
+                                    'title': {
+                                        'text': f'今日上传（{today}）共 {today_upload} GB'
+                                    },
+                                    'legend': {
+                                        'show': True
+                                    },
+                                    'plotOptions': {
+                                        'pie': {
+                                            'expandOnClick': False
+                                        }
+                                    },
+                                    'noData': {
+                                        'text': '暂无数据'
                                     }
                                 },
-                                'noData': {
-                                    'text': '暂无数据'
-                                }
-                            },
-                            'series': upload_datas
+                                'series': upload_datas
+                            }
                         }
-                    }
-                ]
-            },
-            # 下载量图表
-            {
-                'component': 'VCol',
-                'props': {
-                    'cols': 12,
-                    'md': 6
+                    ]
                 },
-                'content': [
-                    {
-                        'component': 'VApexChart',
-                        'props': {
-                            'height': 300,
-                            'options': {
-                                'chart': {
-                                    'type': 'pie',
-                                },
-                                'labels': download_sites,
-                                'title': {
-                                    'text': f'今日下载（{today}）共 {today_download} GB'
-                                },
-                                'legend': {
-                                    'show': True
-                                },
-                                'plotOptions': {
-                                    'pie': {
-                                        'expandOnClick': False
+                # 下载量图表
+                {
+                    'component': 'VCol',
+                    'props': {
+                        'cols': 12,
+                        'md': 6
+                    },
+                    'content': [
+                        {
+                            'component': 'VApexChart',
+                            'props': {
+                                'height': 300,
+                                'options': {
+                                    'chart': {
+                                        'type': 'pie',
+                                    },
+                                    'labels': download_sites,
+                                    'title': {
+                                        'text': f'今日下载（{today}）共 {today_download} GB'
+                                    },
+                                    'legend': {
+                                        'show': True
+                                    },
+                                    'plotOptions': {
+                                        'pie': {
+                                            'expandOnClick': False
+                                        }
+                                    },
+                                    'noData': {
+                                        'text': '暂无数据'
                                     }
                                 },
-                                'noData': {
-                                    'text': '暂无数据'
-                                }
-                            },
-                            'series': download_datas
+                                'series': download_datas
+                            }
                         }
-                    }
-                ]
-            }
-        ]
+                    ]
+                }
+            ]
+        else:
+            today_elements = []
         # 合并返回
         return total_elements + today_elements
 
@@ -888,7 +911,8 @@ class SiteStatistic(_PluginBase):
         attrs = {}
         # 获取数据
         today, stattistic_data, yesterday_sites_data = self.__get_data()
-        # 拼装页面元素
+        # 汇总
+        # 站点统计
         elements = [
             {
                 'component': 'VRow',
@@ -896,7 +920,7 @@ class SiteStatistic(_PluginBase):
                     today=today,
                     stattistic_data=stattistic_data,
                     yesterday_sites_data=yesterday_sites_data,
-                    dashboard=True
+                    dashboard=self._dashboard_type
                 )
             }
         ]
@@ -924,7 +948,8 @@ class SiteStatistic(_PluginBase):
         site_totals = self.__get_total_elements(
             today=today,
             stattistic_data=stattistic_data,
-            yesterday_sites_data=yesterday_sites_data
+            yesterday_sites_data=yesterday_sites_data,
+            dashboard='all'
         )
 
         # 站点数据明细
@@ -1438,6 +1463,7 @@ class SiteStatistic(_PluginBase):
             "remove_failed": self._remove_failed,
             "statistic_type": self._statistic_type,
             "statistic_sites": self._statistic_sites,
+            "dashboard_type": self._dashboard_type
         })
 
     @eventmanager.register(EventType.SiteDeleted)
