@@ -422,7 +422,7 @@ class PluginAutoUpgrade(_PluginBase):
             return None
         config = self.__config if self.__config else {}
         config_value = config.get(config_key)
-        if config_value is None and use_default:
+        if (config_value is None or config_value == '') and use_default:
             config_default = self.__config_default if self.__config_default else {}
             config_value = config_default.get(config_key)
         return config_value
