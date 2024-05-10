@@ -60,12 +60,12 @@ class FileListSiteUserInfo(ISiteUserInfo):
 
         ratio_html = html.xpath('//table//tr/td[text()="Share ratio"]/following-sibling::td//text()')
         if ratio_html:
-            share_ratio = ratio_html[0]
+            share_ratio = StringUtils.str_float(ratio_html[0])
         self.ratio = 0 if self.download == 0 else share_ratio
 
         seed_html = html.xpath('//table//tr/td[text()="Seed bonus"]/following-sibling::td//text()')
         if seed_html:
-            self.seeding = seed_html[1]
+            self.seeding = StringUtils.str_int(seed_html[1])
             self.seeding_size = StringUtils.num_filesize(seed_html[3])
 
         user_level_html = html.xpath('//table//tr/td[text()="Class"]/following-sibling::td//text()')
