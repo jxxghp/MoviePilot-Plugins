@@ -1,3 +1,4 @@
+import re
 import time
 from typing import List, Tuple, Dict, Any, Optional
 
@@ -8,9 +9,9 @@ from app.utils.http import RequestUtils
 
 class MPServerStatus(_PluginBase):
     # 插件名称
-    plugin_name = "MoviePilot服务器状态"
+    plugin_name = "MoviePilot服务监控"
     # 插件描述
-    plugin_desc = "在仪表板中实时显示MoviePilot公共服务器状态（https://movie-pilot.org）"
+    plugin_desc = "在仪表板中实时显示MoviePilot公共服务器状态。"
     # 插件图标
     plugin_icon = "Duplicati_A.png"
     # 插件版本
@@ -89,7 +90,8 @@ class MPServerStatus(_PluginBase):
         """
         # 列配置
         cols = {
-            "cols": 12
+            "cols": 12,
+            "md": 6
         }
         # 全局配置
         attrs = {
@@ -121,330 +123,326 @@ class MPServerStatus(_PluginBase):
             """
             status_lines = res.text.strip().split('\n')
             active_connections = int(status_lines[0].split(':')[1].strip())
-            accepts, handled, requests = map(int, status_lines[1].split())
-            reading, writing, waiting = map(int, status_lines[2].split(':')[1].split())
+            accepts, handled, requests = map(int, status_lines[2].split())
+            reading, writing, waiting = map(int, re.findall(r'\d+', status_lines[3]))
             elements = [
-            {
-                'component': 'VRow',
-                'content': [
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 6,
-                            'md': 3
-                        },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '连接耗时'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': f"{seconds:.2f} 秒"
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
+                {
+                    'component': 'VRow',
+                    'content': [
+                        {
+                            'component': 'VCol',
+                            'props': {
+                                'cols': 6,
+                                'md': 3
                             },
-                        ]
-                    },
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 6,
-                            'md': 3
-                        },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
+                            'content': [
+                                {
+                                    'component': 'VCard',
+                                    'props': {
+                                        'variant': 'tonal',
+                                    },
+                                    'content': [
+                                        {
+                                            'component': 'VCardText',
+                                            'props': {
+                                                'class': 'd-flex align-center',
+                                            },
+                                            'content': [
+                                                {
+                                                    'component': 'div',
+                                                    'content': [
+                                                        {
+                                                            'component': 'span',
+                                                            'props': {
+                                                                'class': 'text-caption'
+                                                            },
+                                                            'text': '连接耗时'
+                                                        },
+                                                        {
+                                                            'component': 'div',
+                                                            'props': {
+                                                                'class': 'd-flex align-center flex-wrap'
+                                                            },
+                                                            'content': [
+                                                                {
+                                                                    'component': 'span',
+                                                                    'props': {
+                                                                        'class': 'text-h6'
+                                                                    },
+                                                                    'text': f"{seconds:.2f} 秒"
+                                                                }
+                                                            ]
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ]
                                 },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '活跃连接'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': active_connections
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
+                            ]
                         },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '等待连接'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': waiting
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
+                        {
+                            'component': 'VCol',
+                            'props': {
+                                'cols': 6,
+                                'md': 3
                             },
-                        ]
-                    },
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
+                            'content': [
+                                {
+                                    'component': 'VCard',
+                                    'props': {
+                                        'variant': 'tonal',
+                                    },
+                                    'content': [
+                                        {
+                                            'component': 'VCardText',
+                                            'props': {
+                                                'class': 'd-flex align-center',
+                                            },
+                                            'content': [
+                                                {
+                                                    'component': 'div',
+                                                    'content': [
+                                                        {
+                                                            'component': 'span',
+                                                            'props': {
+                                                                'class': 'text-caption'
+                                                            },
+                                                            'text': '活跃连接'
+                                                        },
+                                                        {
+                                                            'component': 'div',
+                                                            'props': {
+                                                                'class': 'd-flex align-center flex-wrap'
+                                                            },
+                                                            'content': [
+                                                                {
+                                                                    'component': 'span',
+                                                                    'props': {
+                                                                        'class': 'text-h6'
+                                                                    },
+                                                                    'text': active_connections
+                                                                }
+                                                            ]
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                },
+                            ]
                         },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '处理中连接'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': reading + writing
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
+                        {
+                            'component': 'VCol',
+                            'props': {
+                                'cols': 6,
+                                'md': 3
                             },
-                        ]
-                    },
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
+                            'content': [
+                                {
+                                    'component': 'VCard',
+                                    'props': {
+                                        'variant': 'tonal',
+                                    },
+                                    'content': [
+                                        {
+                                            'component': 'VCardText',
+                                            'props': {
+                                                'class': 'd-flex align-center',
+                                            },
+                                            'content': [
+                                                {
+                                                    'component': 'div',
+                                                    'content': [
+                                                        {
+                                                            'component': 'span',
+                                                            'props': {
+                                                                'class': 'text-caption'
+                                                            },
+                                                            'text': '等待连接'
+                                                        },
+                                                        {
+                                                            'component': 'div',
+                                                            'props': {
+                                                                'class': 'd-flex align-center flex-wrap'
+                                                            },
+                                                            'content': [
+                                                                {
+                                                                    'component': 'span',
+                                                                    'props': {
+                                                                        'class': 'text-h6'
+                                                                    },
+                                                                    'text': waiting
+                                                                }
+                                                            ]
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                },
+                            ]
                         },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '总请求数'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': requests
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
+                        {
+                            'component': 'VCol',
+                            'props': {
+                                'cols': 6,
+                                'md': 3
                             },
-                        ]
-                    },
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
+                            'content': [
+                                {
+                                    'component': 'VCard',
+                                    'props': {
+                                        'variant': 'tonal',
+                                    },
+                                    'content': [
+                                        {
+                                            'component': 'VCardText',
+                                            'props': {
+                                                'class': 'd-flex align-center',
+                                            },
+                                            'content': [
+                                                {
+                                                    'component': 'div',
+                                                    'content': [
+                                                        {
+                                                            'component': 'span',
+                                                            'props': {
+                                                                'class': 'text-caption'
+                                                            },
+                                                            'text': '处理中连接'
+                                                        },
+                                                        {
+                                                            'component': 'div',
+                                                            'props': {
+                                                                'class': 'd-flex align-center flex-wrap'
+                                                            },
+                                                            'content': [
+                                                                {
+                                                                    'component': 'span',
+                                                                    'props': {
+                                                                        'class': 'text-h6'
+                                                                    },
+                                                                    'text': reading + writing
+                                                                }
+                                                            ]
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                },
+                            ]
                         },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '总连接数'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': accepts
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
+                        {
+                            'component': 'VCol',
+                            'props': {
+                                'cols': 6,
+                                'md': 3
                             },
-                        ]
-                    }
-                ]
-            }]
+                            'content': [
+                                {
+                                    'component': 'VCard',
+                                    'props': {
+                                        'variant': 'tonal',
+                                    },
+                                    'content': [
+                                        {
+                                            'component': 'VCardText',
+                                            'props': {
+                                                'class': 'd-flex align-center',
+                                            },
+                                            'content': [
+                                                {
+                                                    'component': 'div',
+                                                    'content': [
+                                                        {
+                                                            'component': 'span',
+                                                            'props': {
+                                                                'class': 'text-caption'
+                                                            },
+                                                            'text': '总请求数'
+                                                        },
+                                                        {
+                                                            'component': 'div',
+                                                            'props': {
+                                                                'class': 'd-flex align-center flex-wrap'
+                                                            },
+                                                            'content': [
+                                                                {
+                                                                    'component': 'span',
+                                                                    'props': {
+                                                                        'class': 'text-h6'
+                                                                    },
+                                                                    'text': requests
+                                                                }
+                                                            ]
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                },
+                            ]
+                        },
+                        {
+                            'component': 'VCol',
+                            'props': {
+                                'cols': 6,
+                                'md': 3
+                            },
+                            'content': [
+                                {
+                                    'component': 'VCard',
+                                    'props': {
+                                        'variant': 'tonal',
+                                    },
+                                    'content': [
+                                        {
+                                            'component': 'VCardText',
+                                            'props': {
+                                                'class': 'd-flex align-center',
+                                            },
+                                            'content': [
+                                                {
+                                                    'component': 'div',
+                                                    'content': [
+                                                        {
+                                                            'component': 'span',
+                                                            'props': {
+                                                                'class': 'text-caption'
+                                                            },
+                                                            'text': '总连接数'
+                                                        },
+                                                        {
+                                                            'component': 'div',
+                                                            'props': {
+                                                                'class': 'd-flex align-center flex-wrap'
+                                                            },
+                                                            'content': [
+                                                                {
+                                                                    'component': 'span',
+                                                                    'props': {
+                                                                        'class': 'text-h6'
+                                                                    },
+                                                                    'text': accepts
+                                                                }
+                                                            ]
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                },
+                            ]
+                        }
+                    ]
+                }]
 
         return cols, attrs, elements
 
