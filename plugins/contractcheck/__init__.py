@@ -39,7 +39,7 @@ class ContractCheck(_PluginBase):
     # 插件图标
     plugin_icon = "contract.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -84,6 +84,7 @@ class ContractCheck(_PluginBase):
     _notify: bool = False
     _queue_cnt: int = 5
     _contract_infos: str = ""
+    _dashboard_type: str = "brief"
 
     def init_plugin(self, config: dict = None):
         self.sites = SitesHelper()
@@ -99,7 +100,10 @@ class ContractCheck(_PluginBase):
             self._queue_cnt = config.get("queue_cnt")
             self._contract_infos = config.get("contract_infos")
             self.parse_contract_infos(self._contract_infos)
+            self._dashboard_type = config.get("dashboard_type") or "brief"
 
+        # 获取历史数据
+        self._sites_data = self.get_data("contractcheck")
         if self._enabled or self._onlyonce:
             # 加载模块
             self._site_schema = ModuleHelper.load(
@@ -240,6 +244,295 @@ class ContractCheck(_PluginBase):
             return ret_jobs
         return []
 
+    def __get_total_elements(self, dashboard_type: str) -> List[dict]:
+        if dashboard_type == "detail":
+            return self.__get_detail_report()
+        else:
+            return self.__get_brief_report()
+
+    def __get_detail_report(self):
+        """
+        拼装插件详情页面，需要返回页面配置，同时附带数据
+        """
+        logger.info(f"self._sites_data: {self._sites_data} ")
+        if not self._sites_data:
+            return [
+                {
+                    "component": "div",
+                    "text": "暂无数据",
+                    "props": {
+                        "class": "text-center",
+                    },
+                }
+            ]
+
+        # 站点数据明细
+        site_trs = [
+            {
+                "component": "tr",
+                "props": {"class": "text-sm"},
+                "content": [
+                    {
+                        "component": "td",
+                        "props": {
+                            "class": "whitespace-nowrap break-keep text-high-emphasis"
+                        },
+                        "text": site,
+                    },
+                    {"component": "td", "text": data.get("is_official")},
+                    {"component": "td", "text": data.get("contract_size")},
+                    {"component": "td", "text": data.get("contract_num")},
+                    {
+                        "component": "td",
+                        "text": str(data.get("contract_duration")) + " 天",
+                    },
+                    {"component": "td", "text": data.get("contract_start_on")},
+                    {"component": "td", "text": data.get("total_seed_size")},
+                    {"component": "td", "text": data.get("total_seed_num")},
+                    {"component": "td", "text": data.get("official_seed_size")},
+                    {"component": "td", "text": data.get("official_seed_num")},
+                    {
+                        "component": "td",
+                        "props": {
+                            "class": (
+                                "text-success"
+                                if data.get("is_satisfied")
+                                else "text-error"
+                            )
+                        },
+                        "text": "是" if data.get("is_satisfied") else "否",
+                    },
+                    {"component": "td", "text": data.get("size_gap")},
+                    {"component": "td", "text": data.get("num_gap")},
+                    {"component": "td", "text": str(data.get("duration_gap")) + " 天"},
+                ],
+            }
+            for site, data in self._sites_data.items()
+            if not data.get("err_msg")
+        ]
+
+        # 拼装页面
+        return [
+            # 各站点数据明细
+            {
+                "component": "VCol",
+                "props": {
+                    "cols": 12,
+                },
+                "content": [
+                    {
+                        "component": "VTable",
+                        "props": {"hover": True},
+                        "content": [
+                            {
+                                "component": "thead",
+                                "content": [
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "契约站点",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "是否官种",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "契约体积",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "契约数量",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "契约周期",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "开始时间",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "保种体积",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "保种数量",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "官种体积",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "官种数量",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "是否满足",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "需增体积",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "需增数量",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "剩余时间",
+                                    },
+                                ],
+                            },
+                            {"component": "tbody", "content": site_trs},
+                        ],
+                    }
+                ],
+            }
+        ]
+
+    def __get_brief_report(self):
+        """
+        拼装插件详情页面，需要返回页面配置，同时附带数据
+        """
+        logger.info(f"self._sites_data: {self._sites_data} ")
+        if not self._sites_data:
+            return [
+                {
+                    "component": "div",
+                    "text": "暂无数据",
+                    "props": {
+                        "class": "text-center",
+                    },
+                }
+            ]
+
+        # 站点数据明细
+        site_trs = [
+            {
+                "component": "tr",
+                "props": {"class": "text-sm"},
+                "content": [
+                    {
+                        "component": "td",
+                        "props": {
+                            "class": "whitespace-nowrap break-keep text-high-emphasis"
+                        },
+                        "text": site,
+                    },
+                    {
+                        "component": "td",
+                        "props": {
+                            "class": (
+                                "text-success"
+                                if data.get("is_satisfied")
+                                else "text-error"
+                            )
+                        },
+                        "text": "是" if data.get("is_satisfied") else "否",
+                    },
+                    {"component": "td", "text": data.get("size_gap")},
+                    {"component": "td", "text": data.get("num_gap")},
+                    {"component": "td", "text": str(data.get("duration_gap")) + " 天"},
+                ],
+            }
+            for site, data in self._sites_data.items()
+            if not data.get("err_msg")
+        ]
+
+        # 拼装页面
+        return [
+            # 各站点数据明细
+            {
+                "component": "VCol",
+                "props": {
+                    "cols": 12,
+                },
+                "content": [
+                    {
+                        "component": "VTable",
+                        "props": {"hover": True},
+                        "content": [
+                            {
+                                "component": "thead",
+                                "content": [
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "契约站点",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "是否满足",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "需增体积",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "需增数量",
+                                    },
+                                    {
+                                        "component": "th",
+                                        "props": {"class": "text-start ps-4"},
+                                        "text": "剩余时间",
+                                    },
+                                ],
+                            },
+                            {"component": "tbody", "content": site_trs},
+                        ],
+                    }
+                ],
+            }
+        ]
+
+    def get_dashboard(
+        self,
+    ) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+        """
+        获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、全局配置（自动刷新等）；3、仪表板页面元素配置json（含数据）
+        1、col配置参考：
+        {
+            "cols": 12, "md": 6
+        }
+        2、全局配置参考：
+        {
+            "refresh": 10 // 自动刷新时间，单位秒
+        }
+        3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
+        """
+        # 列配置
+        cols = {"cols": 12}
+        # 全局配置
+        attrs = {}
+        # 拼装页面元素
+        elements = [
+            {
+                "component": "VRow",
+                "content": self.__get_total_elements(self._dashboard_type),
+            }
+        ]
+        return cols, attrs, elements
+
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
@@ -293,7 +586,7 @@ class ContractCheck(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -307,13 +600,33 @@ class ContractCheck(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VTextField",
                                         "props": {
                                             "model": "queue_cnt",
                                             "label": "队列数量",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VSelect",
+                                        "props": {
+                                            "model": "dashboard_type",
+                                            "label": "仪表板组件",
+                                            "items": [
+                                                {
+                                                    "title": "详细数据",
+                                                    "value": "detail",
+                                                },
+                                                {"title": "简洁数据", "value": "brief"},
+                                            ],
                                         },
                                     }
                                 ],
@@ -396,168 +709,16 @@ class ContractCheck(_PluginBase):
             "notify": True,
             "cron": "5 1 * * *",
             "queue_cnt": 5,
+            "dashboard_type": "brief",
         }
 
     def get_page(self) -> List[dict]:
         """
         拼装插件详情页面，需要返回页面配置，同时附带数据
         """
-        logger.info(f"self._sites_data: {self._sites_data} ")
-        if not self._sites_data:
-            return [
-                {
-                    "component": "div",
-                    "text": "暂无数据",
-                    "props": {
-                        "class": "text-center",
-                    },
-                }
-            ]
-
-        # 站点数据明细
-        site_trs = [
-            {
-                "component": "tr",
-                "props": {"class": "text-sm"},
-                "content": [
-                    {
-                        "component": "td",
-                        "props": {
-                            "class": "whitespace-nowrap break-keep text-high-emphasis"
-                        },
-                        "text": site,
-                    },
-                    {"component": "td", "text": data.get("is_official")},
-                    {"component": "td", "text": data.get("contract_size")},
-                    {"component": "td", "text": data.get("contract_num")},
-                    {
-                        "component": "td",
-                        "text": str(data.get("contract_duration")) + " 天",
-                    },
-                    {"component": "td", "text": data.get("contract_start_on")},
-                    {"component": "td", "text": data.get("total_seed_size")},
-                    {"component": "td", "text": data.get("total_seed_num")},
-                    {"component": "td", "text": data.get("official_seed_size")},
-                    {"component": "td", "text": data.get("official_seed_num")},
-                    {
-                        "component": "td",
-                        "props": {
-                            "class": (
-                                "text-success"
-                                if data.get("is_satisfied")
-                                else "text-error"
-                            )
-                        },
-                        "text": "是" if data.get("is_satisfied") else "否",
-                    },
-                    {"component": "td", "text": data.get("size_gap")},
-                    {"component": "td", "text": data.get("num_gap")},
-                    {"component": "td", "text": str(data.get("duration_gap")) + " 天"},
-                ],
-            }
-            for site, data in self._sites_data.items()
-            if not data.get("err_msg")
-        ]
 
         # 拼装页面
-        return [
-            {
-                "component": "VRow",
-                "content": [
-                    # 各站点数据明细
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                        },
-                        "content": [
-                            {
-                                "component": "VTable",
-                                "props": {"hover": True},
-                                "content": [
-                                    {
-                                        "component": "thead",
-                                        "content": [
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "契约站点",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "是否官种",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "契约体积",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "契约数量",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "契约周期",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "开始时间",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "保种体积",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "保种数量",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "官种体积",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "官种数量",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "是否满足",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "需增体积",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "需增数量",
-                                            },
-                                            {
-                                                "component": "th",
-                                                "props": {"class": "text-start ps-4"},
-                                                "text": "剩余时间",
-                                            },
-                                        ],
-                                    },
-                                    {"component": "tbody", "content": site_trs},
-                                ],
-                            }
-                        ],
-                    }
-                ],
-            }
-        ]
+        return [{"component": "VRow", "content": self.__get_detail_report()}]
 
     def stop_service(self):
         """
@@ -622,7 +783,7 @@ class ContractCheck(_PluginBase):
                         i = html_text.find("window.location")
                         if i == -1:
                             return None
-                        tmp_url = url + html_text[i: html_text.find(";")].replace(
+                        tmp_url = url + html_text[i : html_text.find(";")].replace(
                             '"', ""
                         ).replace("+", "").replace(" ", "").replace(
                             "window.location=", ""
@@ -762,7 +923,7 @@ class ContractCheck(_PluginBase):
                             ),
                             "contract_num": contract_info.num,
                             "contract_duration": contract_info.duration,
-                            "contract_start_on": contract_info.date,
+                            "contract_start_on": str(contract_info.date),
                             "total_seed_num": site_user_info.total_seeding_size[0],
                             "total_seed_size": StringUtils.str_filesize(
                                 site_user_info.total_seeding_size[1]
@@ -838,6 +999,9 @@ class ContractCheck(_PluginBase):
             with ThreadPool(min(len(refresh_sites), int(self._queue_cnt or 5))) as p:
                 p.map(self.__refresh_site_data, refresh_sites)
 
+            # 保存数据
+            self.save_data("contractcheck", self._sites_data)
+
             # 通知刷新完成
             if self._notify:
                 notify_message = ""
@@ -885,5 +1049,6 @@ class ContractCheck(_PluginBase):
                 "notify": self._notify,
                 "queue_cnt": self._queue_cnt,
                 "contract_infos": self._contract_infos,
+                "dashboard_type": self._dashboard_type,
             }
         )
