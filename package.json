@@ -596,11 +596,12 @@
         "name": "契约检查",
         "description": "定时检查保种契约达成情况。",
         "labels": "做种",
-        "version": "1.3",
+        "version": "1.4",
         "icon": "contract.png",
         "author": "DzAvril",
         "level": 1,
         "history": {
+            "v1.4": "支持仪表板组件显示",
             "v1.3": "修复观众做种数据异常问题",
             "v1.2": "修复契约检查无数据返回的问题"
         }
