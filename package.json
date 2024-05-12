@@ -684,5 +684,14 @@
         "history": {
             "v1.1": "修复下载Bing每日壁纸时文件名错乱的问题"
         }
+    },
+    "MPServerStatus": {
+        "name": "MoviePilot服务器状态",
+        "description": "在仪表板中实时显示MoviePilot公共服务器状态（https://movie-pilot.org）",
+        "labels": "工具",
+        "version": "1.0",
+        "icon": "Duplicati_A.png",
+        "author": "jxxghp",
+        "level": 1
     }
 }
