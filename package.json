@@ -686,8 +686,8 @@
         }
     },
     "MPServerStatus": {
-        "name": "MoviePilot服务器状态",
-        "description": "在仪表板中实时显示MoviePilot公共服务器状态（https://movie-pilot.org）",
+        "name": "MoviePilot服务器监控",
+        "description": "在仪表板中实时显示MoviePilot公共服务器状态。",
         "labels": "工具",
         "version": "1.0",
         "icon": "Duplicati_A.png",
