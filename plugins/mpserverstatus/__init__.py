@@ -91,7 +91,7 @@ class MPServerStatus(_PluginBase):
         # 列配置
         cols = {
             "cols": 12,
-            "md": 6
+            "md": 8
         }
         # 全局配置
         attrs = {
