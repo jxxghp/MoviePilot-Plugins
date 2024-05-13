@@ -20,7 +20,7 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 - 可在插件目录中放置`requirements.txt`文件，用于指定插件依赖的第三方库，MoviePilot会在插件安装时自动安装依赖库。
 
 ### 5. 界面开发
-- 插件支持`插件配置`及`详情展示`两个展示页面，通过配置化的方式组装，使用 [Vuetify](https://vuetifyjs.com/) 组件库，所有该组件库有的组件都可以通过Json配置使用。
+- 插件支持`插件配置`、`详情展示`、`仪表板Widget`三个展示页面，通过配置化的方式组装，使用 [Vuetify](https://vuetifyjs.com/) 组件库，所有该组件库有的组件都可以通过Json配置使用。
 
 
 ## 常见问题
@@ -435,8 +435,9 @@ class EventType(Enum):
     "click": { // 点击事件
       "api": "plugin/DoubanSync/delete_history", // API的相对路径
       "method": "get", // GET/POST
-      "params": { // API上送参数
-         "doubanid": ""
+      "params": {
+        // API上送参数
+        "doubanid": ""
       }
     }
   }
@@ -444,7 +445,29 @@ class EventType(Enum):
 ```
 - 每次API调用完成后，均会自动刷新一次插件数据页。
 
-### 8. 如何发布插件版本？
+### 8. 如何将插件内容显示到仪表板？
+- `v1.8.7+` 支持将插件的内容显示到仪表盘，并支持定义占据的单元格大小，插件产生的仪表板仅管理员可见。
+- 1. 根据插件需要展示的Widget内容规划展示内容的样式和规格，也可设计多个规格样式并提供配置项供用户选择。
+- 2. 实现 `get_dashboard` 方法，返回仪表盘的配置信息，包括仪表盘的cols列配置（适配不同屏幕），以及仪表盘的页面配置json，具体可参考插件`站点数据统计`：
+```python
+def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+    """
+    获取插件仪表盘页面，需要返回：1、仪表板cols配置字典；2、全局配置（自动刷新等）；2、仪表板页面元素配置json（含数据）
+    1、col配置参考：
+    {
+        "cols": 12, "md": 6
+    }
+    2、全局配置参考：
+    {
+        "refresh": 10, // 自动刷新时间，单位秒
+        "border": True, // 是否显示边框，默认True，为False时取消组件边框和边距，由插件自行控制
+    }
+    3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
+    """
+    pass
+```
+
+### 9. 如何发布插件版本？
 - 修改插件代码后，需要修改`package.json`中的`version`版本号，MoviePilot才会提示用户有更新，注意版本号需要与`__init__.py`文件中的`plugin_version`保持一致。
 - `package.json`中的`level`用于定义插件用户可见权限，`1`为所有用户可见，`2`为仅认证用户可见，`3`为需要密钥才可见（一般用于测试）。如果插件功能需要使用到站点则应该为2，否则即使插件对用户可见但因为用户未认证相关功能也无法正常使用。
 - `package.json`中的`history`用于记录插件更新日志，格式如下：
@@ -456,3 +479,4 @@ class EventType(Enum):
   }
 }
 ```
+- 新增加的插件请配置在`package.json`中的末尾，这样可被识别为最新增加，可用于用户排序。

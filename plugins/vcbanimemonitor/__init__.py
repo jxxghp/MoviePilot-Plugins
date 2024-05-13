@@ -5,8 +5,8 @@ import threading
 import time
 import traceback
 from pathlib import Path
+from time import sleep
 from typing import List, Tuple, Dict, Any, Optional
-
 import pytz
 import qbittorrentapi
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -14,12 +14,13 @@ from apscheduler.triggers.cron import CronTrigger
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
-
 from app import schemas
 from app.chain.tmdb import TmdbChain
 from app.chain.transfer import TransferChain
 from app.core.config import settings
 from app.core.context import MediaInfo
+from app.core.event import eventmanager, Event
+from app.core.metainfo import MetaInfoPath
 from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.db.transferhistory_oper import TransferHistoryOper
 from app.log import logger
@@ -76,7 +77,7 @@ class VCBAnimeMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "vcbmonitor.png"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.7.1"
     # 插件作者
     plugin_author = "pixel@qingwa"
     # 作者主页
@@ -155,15 +156,20 @@ class VCBAnimeMonitor(_PluginBase):
             self._scheduler.add_job(self.send_msg, trigger='interval', seconds=15)
             self.qb = Qbittorrent()
 
+            # 读取目录配置
+            monitor_dirs = self._monitor_dirs.split("\n")
+            if not monitor_dirs:
+                return
+
             # 启用种子目录监控
             if self._torrents_path is not None and Path(self._torrents_path).exists() and self._enabled:
                 # 只取第一个目录作为新的保存
+                first_path = monitor_dirs[0]
                 if SystemUtils.is_windows():
-                    self.new_save_path = self._monitor_dirs.split(':')[0] + ":" + self._monitor_dirs.split(':')[1]
+                    self.new_save_path = first_path.split(':')[0] + ":" + first_path.split(':')[1]
                 else:
-                    self.new_save_path = self._monitor_dirs.split(':')[0]
-                print(self.new_save_path)
-
+                    self.new_save_path = first_path.split(':')[0]
+                # print(self.new_save_path)
                 try:
                     observer = Observer()
                     self._observer.append(observer)
@@ -177,10 +183,6 @@ class VCBAnimeMonitor(_PluginBase):
             else:
                 logger.info("种子目录为空，不转移qb中正在下载的VCB-Studio文件")
 
-            # 读取目录配置
-            monitor_dirs = self._monitor_dirs.split("\n")
-            if not monitor_dirs:
-                return
             for mon_path in monitor_dirs:
                 # 格式源目录:目的目录
                 if not mon_path:
@@ -594,6 +596,7 @@ class VCBAnimeMonitor(_PluginBase):
     def torrent_event(self, event, mon_path: str, text: str):
         """
         处理种子文件
+        :param mon_path: 种子目录
         """
         evc_path = Path(event.src_path)
         if not event.is_directory and (evc_path.suffix == ".torrent" or str(evc_path).split('.')[1] == "torrent"):
@@ -1009,8 +1012,7 @@ class VCBAnimeMonitor(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '核心用法与目录同步插件相同，不同点在于只识别处理VCB-Studio资源,'
-                                                    '避免与目录同步插件的监控目录相同(否则会同时进行识别)'
+                                            'text': '核心用法与目录同步插件相同，不同点在于只识别处理VCB-Studio资源,\n'
                                                     '不处理SPs目录下的文件,OVA/OAD集数根据入库顺序累加命名,不保证与TMDB集数匹配'
                                         }
                                     }

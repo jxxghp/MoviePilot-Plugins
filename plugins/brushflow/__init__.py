@@ -10,6 +10,9 @@ from typing import Any, List, Dict, Tuple, Optional, Union, Set
 from urllib.parse import urlparse, parse_qs, unquote
 
 import pytz
+from app.helper.sites import SitesHelper
+from apscheduler.schedulers.background import BackgroundScheduler
+
 from app import schemas
 from app.chain.torrents import TorrentsChain
 from app.core.config import settings
@@ -17,7 +20,6 @@ from app.core.context import MediaInfo
 from app.core.metainfo import MetaInfo
 from app.db.site_oper import SiteOper
 from app.db.subscribe_oper import SubscribeOper
-from app.helper.sites import SitesHelper
 from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
@@ -25,7 +27,6 @@ from app.plugins import _PluginBase
 from app.schemas import NotificationType, TorrentInfo, MediaType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
-from apscheduler.schedulers.background import BackgroundScheduler
 
 lock = threading.Lock()
 
@@ -146,9 +147,10 @@ class BrushConfig:
 
     @staticmethod
     def get_demo_site_config() -> str:
-        desc = ("// 以下为配置示例，请参考：https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md 进行配置\n"
-                "// 如与全局保持一致的配置项，请勿在站点配置中配置\n"
-                "// 注意无关内容需使用 // 注释\n")
+        desc = (
+            "// 以下为配置示例，请参考：https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins/brushflowlowfreq/README.md 进行配置\n"
+            "// 如与全局保持一致的配置项，请勿在站点配置中配置\n"
+            "// 注意无关内容需使用 // 注释\n")
         config = """[{
     "sitename": "站点1",
     "seed_time": 96,
@@ -249,7 +251,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "2.9"
+    plugin_version = "3.1"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -439,6 +441,340 @@ class BrushFlow(_PluginBase):
             logger.info("站点刷流服务未开启")
 
         return services
+
+    def __get_total_elements(self) -> List[dict]:
+        """
+        组装汇总元素
+        """
+        # 统计数据
+        statistic_info = self.__get_statistic_info()
+        # 总上传量
+        total_uploaded = StringUtils.str_filesize(statistic_info.get("uploaded") or 0)
+        # 总下载量
+        total_downloaded = StringUtils.str_filesize(statistic_info.get("downloaded") or 0)
+        # 下载种子数
+        total_count = statistic_info.get("count") or 0
+        # 删除种子数
+        total_deleted = statistic_info.get("deleted") or 0
+        # 待归档种子数
+        total_unarchived = statistic_info.get("unarchived") or 0
+        # 活跃种子数
+        total_active = statistic_info.get("active") or 0
+        # 活跃上传量
+        total_active_uploaded = StringUtils.str_filesize(statistic_info.get("active_uploaded") or 0)
+        # 活跃下载量
+        total_active_downloaded = StringUtils.str_filesize(statistic_info.get("active_downloaded") or 0)
+
+        return [
+            # 总上传量
+            {
+                'component': 'VCol',
+                'props': {
+                    'cols': 12,
+                    'md': 3,
+                    'sm': 6
+                },
+                'content': [
+                    {
+                        'component': 'VCard',
+                        'props': {
+                            'variant': 'tonal',
+                        },
+                        'content': [
+                            {
+                                'component': 'VCardText',
+                                'props': {
+                                    'class': 'd-flex align-center',
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAvatar',
+                                        'props': {
+                                            'rounded': True,
+                                            'variant': 'text',
+                                            'class': 'me-3'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VImg',
+                                                'props': {
+                                                    'src': '/plugin_icon/upload.png'
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'div',
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'props': {
+                                                    'class': 'text-caption'
+                                                },
+                                                'text': '总上传量 / 活跃'
+                                            },
+                                            {
+                                                'component': 'div',
+                                                'props': {
+                                                    'class': 'd-flex align-center flex-wrap'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'span',
+                                                        'props': {
+                                                            'class': 'text-h6'
+                                                        },
+                                                        'text': f"{total_uploaded} / {total_active_uploaded}"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                ]
+            },
+            # 总下载量
+            {
+                'component': 'VCol',
+                'props': {
+                    'cols': 12,
+                    'md': 3,
+                    'sm': 6
+                },
+                'content': [
+                    {
+                        'component': 'VCard',
+                        'props': {
+                            'variant': 'tonal',
+                        },
+                        'content': [
+                            {
+                                'component': 'VCardText',
+                                'props': {
+                                    'class': 'd-flex align-center',
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAvatar',
+                                        'props': {
+                                            'rounded': True,
+                                            'variant': 'text',
+                                            'class': 'me-3'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VImg',
+                                                'props': {
+                                                    'src': '/plugin_icon/download.png'
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'div',
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'props': {
+                                                    'class': 'text-caption'
+                                                },
+                                                'text': '总下载量 / 活跃'
+                                            },
+                                            {
+                                                'component': 'div',
+                                                'props': {
+                                                    'class': 'd-flex align-center flex-wrap'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'span',
+                                                        'props': {
+                                                            'class': 'text-h6'
+                                                        },
+                                                        'text': f"{total_downloaded} / {total_active_downloaded}"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                ]
+            },
+            # 下载种子数
+            {
+                'component': 'VCol',
+                'props': {
+                    'cols': 12,
+                    'md': 3,
+                    'sm': 6
+                },
+                'content': [
+                    {
+                        'component': 'VCard',
+                        'props': {
+                            'variant': 'tonal',
+                        },
+                        'content': [
+                            {
+                                'component': 'VCardText',
+                                'props': {
+                                    'class': 'd-flex align-center',
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAvatar',
+                                        'props': {
+                                            'rounded': True,
+                                            'variant': 'text',
+                                            'class': 'me-3'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VImg',
+                                                'props': {
+                                                    'src': '/plugin_icon/seed.png'
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'div',
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'props': {
+                                                    'class': 'text-caption'
+                                                },
+                                                'text': '下载种子数 / 活跃'
+                                            },
+                                            {
+                                                'component': 'div',
+                                                'props': {
+                                                    'class': 'd-flex align-center flex-wrap'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'span',
+                                                        'props': {
+                                                            'class': 'text-h6'
+                                                        },
+                                                        'text': f"{total_count} / {total_active}"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                ]
+            },
+            # 删除种子数
+            {
+                'component': 'VCol',
+                'props': {
+                    'cols': 12,
+                    'md': 3,
+                    'sm': 6
+                },
+                'content': [
+                    {
+                        'component': 'VCard',
+                        'props': {
+                            'variant': 'tonal',
+                        },
+                        'content': [
+                            {
+                                'component': 'VCardText',
+                                'props': {
+                                    'class': 'd-flex align-center',
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAvatar',
+                                        'props': {
+                                            'rounded': True,
+                                            'variant': 'text',
+                                            'class': 'me-3'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VImg',
+                                                'props': {
+                                                    'src': '/plugin_icon/delete.png'
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'div',
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'props': {
+                                                    'class': 'text-caption'
+                                                },
+                                                'text': '删除种子数 / 待归档'
+                                            },
+                                            {
+                                                'component': 'div',
+                                                'props': {
+                                                    'class': 'd-flex align-center flex-wrap'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'span',
+                                                        'props': {
+                                                            'class': 'text-h6'
+                                                        },
+                                                        'text': f"{total_deleted} / {total_unarchived}"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+        ]
+
+    def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+        """
+        获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、全局配置（自动刷新等）；3、仪表板页面元素配置json（含数据）
+        1、col配置参考：
+        {
+            "cols": 12, "md": 6
+        }
+        2、全局配置参考：
+        {
+            "refresh": 10 // 自动刷新时间，单位秒
+        }
+        3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
+        """
+        # 列配置
+        cols = {
+            "cols": 12
+        }
+        # 全局配置
+        attrs = {}
+        # 拼装页面元素
+        elements = [
+            {
+                'component': 'VRow',
+                'content': self.__get_total_elements()
+            }
+        ]
+        return cols, attrs, elements
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -1239,7 +1575,7 @@ class BrushFlow(_PluginBase):
                                                         "component": "VSwitch",
                                                         "props": {
                                                             "model": "dialog_closed",
-                                                            "label": "设置站点"
+                                                            "label": "打开站点配置窗口"
                                                         }
                                                     }
                                                 ]
@@ -1342,15 +1678,20 @@ class BrushFlow(_PluginBase):
                                         'content': [
                                             {
                                                 'component': 'span',
-                                                'text': '部分配置项以及细节请参考：'
+                                                'text': '注意：详细配置说明以及刷流规则请参考：'
                                             },
                                             {
                                                 'component': 'a',
                                                 'props': {
-                                                    'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md',
+                                                    'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins/brushflowlowfreq/README.md',
                                                     'target': '_blank'
                                                 },
-                                                'text': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md'
+                                                'content': [
+                                                    {
+                                                        'component': 'u',
+                                                        'text': 'README'
+                                                    }
+                                                ]
                                             }
                                         ]
                                     }
@@ -1449,10 +1790,15 @@ class BrushFlow(_PluginBase):
                                                                     {
                                                                         'component': 'a',
                                                                         'props': {
-                                                                            'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md',
+                                                                            'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins/brushflowlowfreq/README.md',
                                                                             'target': '_blank'
                                                                         },
-                                                                        'text': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md'
+                                                                        'content': [
+                                                                            {
+                                                                                'component': 'u',
+                                                                                'text': 'README'
+                                                                            }
+                                                                        ]
                                                                     }
                                                                 ]
                                                             }
@@ -1491,8 +1837,6 @@ class BrushFlow(_PluginBase):
     def get_page(self) -> List[dict]:
         # 种子明细
         torrents = self.get_data("torrents") or {}
-        # 统计数据
-        statistic_info = self.__get_statistic_info()
 
         if not torrents:
             return [
@@ -1508,22 +1852,7 @@ class BrushFlow(_PluginBase):
             data_list = torrents.values()
             # 按time倒序排序
             data_list = sorted(data_list, key=lambda x: x.get("time") or 0, reverse=True)
-        # 总上传量
-        total_uploaded = StringUtils.str_filesize(statistic_info.get("uploaded") or 0)
-        # 总下载量
-        total_downloaded = StringUtils.str_filesize(statistic_info.get("downloaded") or 0)
-        # 下载种子数
-        total_count = statistic_info.get("count") or 0
-        # 删除种子数
-        total_deleted = statistic_info.get("deleted") or 0
-        # 待归档种子数
-        total_unarchived = statistic_info.get("unarchived") or 0
-        # 活跃种子数
-        total_active = statistic_info.get("active") or 0
-        # 活跃上传量
-        total_active_uploaded = StringUtils.str_filesize(statistic_info.get("active_uploaded") or 0)
-        # 活跃下载量
-        total_active_downloaded = StringUtils.str_filesize(statistic_info.get("active_downloaded") or 0)
+
         # 表格标题
         headers = [
             {'title': '站点', 'key': 'site', 'sortable': True},
@@ -1551,287 +1880,12 @@ class BrushFlow(_PluginBase):
         return [
             {
                 'component': 'VRow',
-                'content': [
-                    # 总上传量
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
-                        },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VAvatar',
-                                                'props': {
-                                                    'rounded': True,
-                                                    'variant': 'text',
-                                                    'class': 'me-3'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VImg',
-                                                        'props': {
-                                                            'src': '/plugin_icon/upload.png'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '总上传量 / 活跃'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': f"{total_uploaded} / {total_active_uploaded}"
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    # 总下载量
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
-                        },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VAvatar',
-                                                'props': {
-                                                    'rounded': True,
-                                                    'variant': 'text',
-                                                    'class': 'me-3'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VImg',
-                                                        'props': {
-                                                            'src': '/plugin_icon/download.png'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '总下载量 / 活跃'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': f"{total_downloaded} / {total_active_downloaded}"
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    # 下载种子数
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
-                        },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VAvatar',
-                                                'props': {
-                                                    'rounded': True,
-                                                    'variant': 'text',
-                                                    'class': 'me-3'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VImg',
-                                                        'props': {
-                                                            'src': '/plugin_icon/seed.png'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '下载种子数 / 活跃'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': f"{total_count} / {total_active}"
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    # 删除种子数
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
-                        },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VAvatar',
-                                                'props': {
-                                                    'rounded': True,
-                                                    'variant': 'text',
-                                                    'class': 'me-3'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VImg',
-                                                        'props': {
-                                                            'src': '/plugin_icon/delete.png'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '删除种子数 / 待归档'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': f"{total_deleted} / {total_unarchived}"
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
-                        ]
-                    },
+                'props': {
+                    'style': {
+                        'overflow': 'hidden',
+                    }
+                },
+                'content': self.__get_total_elements() + [
                     # 种子明细
                     {
                         'component': 'VRow',
@@ -2149,6 +2203,12 @@ class BrushFlow(_PluginBase):
                    torrent_tasks.values()):
                 return False, "重复种子"
 
+        # 不同站点如果遇到相同种子，判断前一个种子是否已经在做种，否则排除处理
+        if torrent.title:
+            if any(torrent.site_name != f"{task.get('site_name')}" and torrent.title == f"{task.get('title')}"
+                   and not task.get("seed_time") for task in torrent_tasks.values()):
+                return False, "其他站点存在尚未下载完成的相同种子"
+
         # 促销条件
         if brush_config.freeleech and torrent.downloadvolumefactor != 0:
             return False, "非免费种子"
@@ -2286,15 +2346,15 @@ class BrushFlow(_PluginBase):
             # 如果配置了动态删除以及删种阈值，则根据动态删种进行分组处理
             if brush_config.proxy_delete and brush_config.delete_size_range:
                 logger.info("已开启动态删种，按系统默认动态删种条件开始检查任务")
-                proxy_delete_hashs = self.__delete_torrent_for_proxy(torrents=check_torrents,
-                                                                     torrent_tasks=torrent_tasks) or []
-                need_delete_hashes.extend(proxy_delete_hashs)
+                proxy_delete_hashes = self.__delete_torrent_for_proxy(torrents=check_torrents,
+                                                                      torrent_tasks=torrent_tasks) or []
+                need_delete_hashes.extend(proxy_delete_hashes)
             # 否则均认为是没有开启动态删种
             else:
                 logger.info("没有开启动态删种，按用户设置删种条件开始检查任务")
-                not_proxy_delete_hashs = self.__delete_torrent_for_evaluate_conditions(torrents=check_torrents,
-                                                                                       torrent_tasks=torrent_tasks) or []
-                need_delete_hashes.extend(not_proxy_delete_hashs)
+                not_proxy_delete_hashes = self.__delete_torrent_for_evaluate_conditions(torrents=check_torrents,
+                                                                                        torrent_tasks=torrent_tasks) or []
+                need_delete_hashes.extend(not_proxy_delete_hashes)
 
             if need_delete_hashes:
                 if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
@@ -2493,7 +2553,7 @@ class BrushFlow(_PluginBase):
         根据条件删除种子并获取已删除列表
         """
         brush_config = self.__get_brush_config()
-        delete_hashs = []
+        delete_hashes = []
 
         for torrent in torrents:
             torrent_hash = self.__get_hash(torrent)
@@ -2512,8 +2572,8 @@ class BrushFlow(_PluginBase):
                                                                           torrent_info=torrent_info,
                                                                           torrent_task=torrent_task)
             if should_delete:
-                delete_hashs.append(torrent_hash)
-                reason = "触发动态删除，" + reason if proxy_delete else reason
+                delete_hashes.append(torrent_hash)
+                reason = "触发动态删除阈值，" + reason if proxy_delete else reason
                 self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc,
                                            reason=reason)
                 logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
@@ -2521,7 +2581,7 @@ class BrushFlow(_PluginBase):
                 if brush_config.log_more:
                     logger.info(f"站点：{site_name}，{reason}，不删除种子：{torrent_title}|{torrent_desc}")
 
-        return delete_hashs
+        return delete_hashes
 
     def __delete_torrent_for_evaluate_proxy_pre_conditions(self, torrents: List[Any],
                                                            torrent_tasks: Dict[str, dict]) -> List:
@@ -2529,7 +2589,7 @@ class BrushFlow(_PluginBase):
         根据动态删除前置条件排除H&R种子后删除种子并获取已删除列表
         """
         brush_config = self.__get_brush_config()
-        delete_hashs = []
+        delete_hashes = []
 
         for torrent in torrents:
             torrent_hash = self.__get_hash(torrent)
@@ -2552,7 +2612,7 @@ class BrushFlow(_PluginBase):
             should_delete, reason = self.__evaluate_proxy_pre_conditions_for_delete(site_name=site_name,
                                                                                     torrent_info=torrent_info)
             if should_delete:
-                delete_hashs.append(torrent_hash)
+                delete_hashes.append(torrent_hash)
                 self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc,
                                            reason=reason)
                 logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
@@ -2560,7 +2620,7 @@ class BrushFlow(_PluginBase):
                 if brush_config.log_more:
                     logger.info(f"站点：{site_name}，{reason}，不删除种子：{torrent_title}|{torrent_desc}")
 
-        return delete_hashs
+        return delete_hashes
 
     def __delete_torrent_for_proxy(self, torrents: List[Any], torrent_tasks: Dict[str, dict]) -> List:
         """
@@ -3557,7 +3617,7 @@ class BrushFlow(_PluginBase):
             now = datetime.now()
             return (now - pubdate).total_seconds() // 60
         except Exception as e:
-            print(str(e))
+            logger.error(f"发布时间 {pubdate} 获取分钟失败，错误详情: {e}")
             return 0
 
     @staticmethod

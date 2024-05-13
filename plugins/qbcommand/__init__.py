@@ -27,7 +27,7 @@ class QbCommand(_PluginBase):
     # 插件图标
     plugin_icon = "Qbittorrent_A.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -60,7 +60,7 @@ class QbCommand(_PluginBase):
     _op_sites = []
     _multi_level_root_domain = ["edu.cn", "com.cn", "net.cn", "org.cn"]
     _scheduler = None
-
+    _exclude_dirs = ""
     def init_plugin(self, config: dict = None):
         self._sites = SitesHelper()
         self._siteoper = SiteOper()
@@ -87,6 +87,7 @@ class QbCommand(_PluginBase):
             all_sites = [site for site in self._sites.get_indexers() if not site.get("public")] + self.__custom_sites()
             # 过滤掉没有选中的站点
             self._op_sites = [site for site in all_sites if site.get("id") in self._op_site_ids]
+            self._exclude_dirs = config.get("exclude_dirs") or ""
 
         if self._only_pause_once or self._only_resume_once:
             if self._only_pause_once and self._only_resume_once:
@@ -121,6 +122,7 @@ class QbCommand(_PluginBase):
                     "pause_cron": self._pause_cron,
                     "resume_cron": self._resume_cron,
                     "op_site_ids": self._op_site_ids,
+                    "exclude_dirs": self._exclude_dirs,
                 }
             )
 
@@ -430,14 +432,6 @@ class QbCommand(_PluginBase):
         hash_downloading, hash_uploading, hash_paused, hash_checking, hash_error = (
             self.get_torrents_status(all_torrents)
         )
-        if type == self.TorrentType.DOWNLOADING:
-            to_be_paused = hash_downloading
-        elif type == self.TorrentType.UPLOADING:
-            to_be_paused = hash_uploading
-        elif type == self.TorrentType.CHECKING:
-            to_be_paused = hash_checking
-        else:
-            to_be_paused = hash_downloading + hash_uploading + hash_checking
 
         logger.info(
             f"暂定任务启动 \n"
@@ -461,6 +455,19 @@ class QbCommand(_PluginBase):
                 f"错误数量:  {len(hash_error)}\n"
                 f"暂停操作中请稍等...\n",
             )
+        pause_torrents = self.filter_pause_torrents(all_torrents)
+        hash_downloading, hash_uploading, hash_paused, hash_checking, hash_error = (
+            self.get_torrents_status(pause_torrents)
+        )
+        if type == self.TorrentType.DOWNLOADING:
+            to_be_paused = hash_downloading
+        elif type == self.TorrentType.UPLOADING:
+            to_be_paused = hash_uploading
+        elif type == self.TorrentType.CHECKING:
+            to_be_paused = hash_checking
+        else:
+            to_be_paused = hash_downloading + hash_uploading + hash_checking
+
         if len(to_be_paused) > 0:
             if self._qb.stop_torrents(ids=to_be_paused):
                 logger.info(f"暂停了{len(to_be_paused)}个种子")
@@ -501,6 +508,22 @@ class QbCommand(_PluginBase):
                 f"错误数量:  {len(hash_error)}\n",
             )
 
+    def __is_excluded(self, file_path) -> bool:
+        """
+        是否排除目录
+        """
+        for exclude_dir in self._exclude_dirs.split("\n"):
+            if exclude_dir and exclude_dir in str(file_path):
+                return True
+        return False
+    def filter_pause_torrents(self, all_torrents):
+        torrents = []
+        for torrent in all_torrents:
+            if self.__is_excluded(torrent.get("content_path")):
+                continue
+            torrents.append(torrent)
+        return torrents
+
     @eventmanager.register(EventType.PluginAction)
     def handle_resume_torrent(self, event: Event):
         if not self._enabled:
@@ -516,7 +539,6 @@ class QbCommand(_PluginBase):
             return
 
         all_torrents = self.get_all_torrents()
-        all_torrents = self.filter_torrents(all_torrents)
         hash_downloading, hash_uploading, hash_paused, hash_checking, hash_error = (
             self.get_torrents_status(all_torrents)
         )
@@ -542,6 +564,11 @@ class QbCommand(_PluginBase):
                 f"错误数量:  {len(hash_error)}\n"
                 f"开始操作中请稍等...\n",
             )
+
+        resume_torrents = self.filter_resume_torrents(all_torrents)
+        hash_downloading, hash_uploading, hash_paused, hash_checking, hash_error = (
+            self.get_torrents_status(resume_torrents)
+        )
         if not self._qb.start_torrents(ids=hash_paused):
             logger.error(f"开始种子失败")
             if self._notify:
@@ -579,7 +606,7 @@ class QbCommand(_PluginBase):
                 f"错误数量:  {len(hash_error)}\n",
             )
 
-    def filter_torrents(self, all_torrents):
+    def filter_resume_torrents(self, all_torrents):
         """
         过滤掉不参与保种的种子
         """
@@ -644,14 +671,13 @@ class QbCommand(_PluginBase):
         if self._notify:
             self.post_message(
                 mtype=NotificationType.SiteMessage,
-                title=f"【QB开始任务启动】",
+                title=f"【QB任务状态】",
                 text=f"种子总数:  {len(all_torrents)} \n"
                 f"做种数量:  {len(hash_uploading)}\n"
                 f"下载数量:  {len(hash_downloading)}\n"
                 f"检查数量:  {len(hash_checking)}\n"
                 f"暂停数量:  {len(hash_paused)}\n"
                 f"错误数量:  {len(hash_error)}\n"
-                f"开始操作中请稍等...\n",
             )
 
     @eventmanager.register(EventType.PluginAction)
@@ -747,7 +773,7 @@ class QbCommand(_PluginBase):
         elif flag is None and self._enabled and self._enable_upload_limit:
             flag = self.set_upload_limit(upload_limit)
 
-        if flag:
+        if flag == True:
             logger.info(f"设置QB限速成功")
             if self._notify:
                 if upload_limit == 0:
@@ -763,7 +789,7 @@ class QbCommand(_PluginBase):
                     title=f"【QB远程操作】",
                     text=text,
                 )
-        elif not flag:
+        elif flag == False:
             logger.error(f"QB设置限速失败")
             if self._notify:
                 self.post_message(
@@ -1048,6 +1074,26 @@ class QbCommand(_PluginBase):
                                             "model": "op_site_ids",
                                             "label": "停止保种站点(暂停保种后不会被恢复)",
                                             "items": site_options,
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "exclude_dirs",
+                                            "label": "不暂停保种目录",
+                                            "rows": 5,
+                                            "placeholder": "该目录下的做种不会暂停，一行一个目录",
                                         },
                                     }
                                 ],

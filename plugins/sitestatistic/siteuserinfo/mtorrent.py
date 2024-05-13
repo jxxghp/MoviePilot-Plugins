@@ -65,13 +65,12 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
             "pageSize": 100
         }
         self._torrent_seeding_page = "api/member/getUserTorrentList"
-        domain = StringUtils.get_url_host(self.site_url)
         self._torrent_seeding_headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/plain, */*"
         }
         self._addition_headers = {
-            "x-api-key": SystemConfigOper().get(f"site.{domain}.apikey"),
+            "x-api-key": self.apikey,
         }
 
     def _parse_logged_in(self, html_text):

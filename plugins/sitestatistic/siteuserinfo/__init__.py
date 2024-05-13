@@ -26,6 +26,7 @@ class SiteSchema(Enum):
     NexusProject = "NexusProject"
     NexusRabbit = "NexusRabbit"
     NexusHhanclub = "NexusHhanclub"
+    NexusAudiences = "NexusAudiences"
     SmallHorse = "Small Horse"
     Unit3d = "Unit3d"
     TorrentLeech = "TorrentLeech"
@@ -45,6 +46,8 @@ class ISiteUserInfo(metaclass=ABCMeta):
     def __init__(self, site_name: str,
                  url: str,
                  site_cookie: str,
+                 apikey: str,
+                 token: str,
                  index_html: str,
                  session: Session = None,
                  ua: str = None,
@@ -54,6 +57,8 @@ class ISiteUserInfo(metaclass=ABCMeta):
         # 站点信息
         self.site_name = None
         self.site_url = None
+        self.apikey = apikey
+        self.token = token
         # 用户信息
         self.username = None
         self.userid = None

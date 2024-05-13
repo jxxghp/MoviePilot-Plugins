@@ -1,14 +1,699 @@
 {
-  "MTeamHelper": {
-    "name": "馒头辅助工具",
-    "description": "用于解决MP不支持馒头新架构更新导致的一些异常。",
-    "labels": "馒头,MTeam",
-    "version": "1.0",
-    "icon": "https://raw.githubusercontent.com/goo4it/MoviePilot-Plugins/main/icons/m-team.png",
-    "author": "goo4it",
-    "level": 1,
-    "history": {
-      "v1.0": "支持馒头新架构辅种"
+    "AutoSignIn": {
+        "name": "站点自动签到",
+        "description": "自动模拟登录、签到站点。",
+        "labels": "站点",
+        "version": "2.2",
+        "icon": "signin.png",
+        "author": "thsrite",
+        "level": 2,
+        "history": {
+            "v2.2": "适配馒头最新变化，需要升级至v1.8.5+版本且维护好Authorization",
+            "v2.1": "增强API安全性",
+            "v2.0": "站点签到时更新站点使用统计信息，需要主程序升级至v1.8.3+版本",
+            "v1.9": "支持馒头新架构自动签到"
+        }
+    },
+    "CustomSites": {
+        "name": "自定义站点",
+        "description": "增加自定义站点为签到和统计使用。",
+        "labels": "站点",
+        "version": "1.0",
+        "icon": "world.png",
+        "author": "lightolly",
+        "level": 2
+    },
+    "SiteStatistic": {
+        "name": "站点数据统计",
+        "description": "自动统计和展示站点数据。",
+        "labels": "站点",
+        "version": "3.4",
+        "icon": "statistic.png",
+        "author": "lightolly",
+        "level": 2,
+        "history": {
+            "v3.4": "修复馒头站点数据统计",
+            "v3.3": "支持选择仪表板组件规格",
+            "v3.2": "支持在仪表板中显示站点统计信息，需要主程序升级至v1.8.7+版本",
+            "v3.1": "修复观众无法统计做总数和做种体积的bug",
+            "v3.0": "适配馒头数据统计，需要升级至v1.8.5+版本，且在站点信息中维护好API Key",
+            "v2.9": "增强API安全性",
+            "v2.8": "修复馒头未读消息统计",
+            "v2.7": "修复憨憨种子信息只统计第一页的问题，增加移除失效统计选项",
+            "v2.6": "支持馒头新架构数据统计"
+        }
+    },
+    "SiteRefresh": {
+        "name": "站点自动更新",
+        "description": "使用浏览器模拟登录站点获取Cookie和UA。",
+        "labels": "站点",
+        "version": "1.2",
+        "icon": "Chrome_A.png",
+        "author": "thsrite",
+        "level": 2
+    },
+    "DoubanSync": {
+        "name": "豆瓣想看",
+        "description": "同步豆瓣想看数据，自动添加订阅。",
+        "labels": "订阅",
+        "version": "1.8",
+        "icon": "douban.png",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v1.8": "不同步在看条目",
+            "v1.7": "增强API安全性",
+            "v1.6": "同步历史记录支持手动删除，需要主程序升级至v1.8.4+版本",
+            "v1.5": "豆瓣信息识别后直接添加订阅，不进行搜索下载"
+        }
+    },
+    "DirMonitor": {
+        "name": "目录监控",
+        "description": "监控目录文件发生变化时实时整理到媒体库。",
+        "labels": "文件整理",
+        "version": "2.0",
+        "icon": "directory.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0": "增强API安全性",
+            "v1.9": "修复目录监控不能正确获取下载历史记录进行识别的问题"
+        }
+    },
+    "ChineseSubFinder": {
+        "name": "ChineseSubFinder",
+        "description": "整理入库时通知ChineseSubFinder下载字幕。",
+        "labels": "字幕",
+        "version": "1.1",
+        "icon": "chinesesubfinder.png",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "DoubanRank": {
+        "name": "豆瓣榜单订阅",
+        "description": "监控豆瓣热门榜单，自动添加订阅。",
+        "labels": "订阅",
+        "version": "1.9",
+        "icon": "movie.jpg",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v1.9": "增强API安全性",
+            "v1.8": "订阅历史记录支持手动删除，需要主程序升级至v1.8.4+版本"
+        }
+    },
+    "LibraryScraper": {
+        "name": "媒体库刮削",
+        "description": "定时对媒体库进行刮削，补齐缺失元数据和图片。",
+        "labels": "刮削",
+        "version": "1.4",
+        "icon": "scraper.png",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "TorrentRemover": {
+        "name": "自动删种",
+        "description": "自动删除下载器中的下载任务。",
+        "labels": "做种",
+        "version": "1.2.2",
+        "icon": "delete.jpg",
+        "author": "jxxghp",
+        "level": 2
+    },
+    "MediaSyncDel": {
+        "name": "媒体文件同步删除",
+        "description": "同步删除历史记录、源文件和下载任务。",
+        "labels": "文件整理",
+        "version": "1.4",
+        "icon": "mediasyncdel.png",
+        "author": "thsrite",
+        "level": 1
+    },
+    "CustomHosts": {
+        "name": "自定义Hosts",
+        "description": "修改系统hosts文件，加速网络访问。",
+        "labels": "网络",
+        "version": "1.0",
+        "icon": "hosts.png",
+        "author": "thsrite",
+        "level": 1
+    },
+    "SpeedLimiter": {
+        "name": "播放限速",
+        "description": "外网播放媒体库视频时，自动对下载器进行限速。",
+        "labels": "网络",
+        "version": "1.1",
+        "icon": "Librespeed_A.png",
+        "author": "Shurelol",
+        "level": 1
+    },
+    "CloudflareSpeedTest": {
+        "name": "Cloudflare IP优选",
+        "description": "🌩 测试 Cloudflare CDN 延迟和速度，自动优选IP。",
+        "labels": "网络,站点",
+        "version": "1.2",
+        "icon": "cloudflare.jpg",
+        "author": "thsrite",
+        "level": 1,
+        "history": {
+            "v1.2": "增强API安全性"
+        }
+    },
+    "BestFilmVersion": {
+        "name": "收藏洗版",
+        "description": "Jellyfin/Emby/Plex点击收藏电影后，自动订阅洗版。",
+        "labels": "订阅",
+        "version": "2.1",
+        "icon": "like.jpg",
+        "author": "wlj",
+        "level": 2
+    },
+    "MediaServerMsg": {
+        "name": "媒体库服务器通知",
+        "description": "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。",
+        "labels": "消息通知,媒体库",
+        "version": "1.1",
+        "icon": "mediaplay.png",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "MediaServerRefresh": {
+        "name": "媒体库服务器刷新",
+        "description": "入库后自动刷新Emby/Jellyfin/Plex服务器海报墙。",
+        "labels": "媒体库",
+        "version": "1.2",
+        "icon": "refresh2.png",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "WebHook": {
+        "name": "Webhook",
+        "description": "事件发生时向第三方地址发送请求。",
+        "version": "1.0",
+        "icon": "webhook.png",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "ChatGPT": {
+        "name": "ChatGPT",
+        "description": "消息交互支持与ChatGPT对话。",
+        "labels": "消息通知,识别",
+        "version": "1.3",
+        "icon": "Chatgpt_A.png",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "NAStoolSync": {
+        "name": "历史记录同步",
+        "description": "同步NAStool历史记录、下载记录、插件记录到MoviePilot。",
+        "version": "1.0",
+        "icon": "Nastools_A.png",
+        "author": "thsrite",
+        "level": 1
+    },
+    "MessageForward": {
+        "name": "消息转发",
+        "description": "根据正则转发通知到其他WeChat应用。",
+        "labels": "消息通知",
+        "version": "1.1",
+        "icon": "forward.png",
+        "author": "thsrite",
+        "level": 1
+    },
+    "AutoBackup": {
+        "name": "自动备份",
+        "description": "自动备份数据和配置文件。",
+        "labels": "系统设置",
+        "version": "1.2",
+        "icon": "Time_machine_B.png",
+        "author": "thsrite",
+        "level": 1,
+        "history": {
+            "v1.2": "增强API安全性"
+        }
+    },
+    "IYUUAutoSeed": {
+        "name": "IYUU自动辅种",
+        "description": "基于IYUU官方Api实现自动辅种。",
+        "labels": "做种,IYUU",
+        "version": "1.7",
+        "icon": "IYUU.png",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v1.7": "适配馒头最新变化，需要升级至v1.8.5+版本且维护好Authorization",
+            "v1.6": "增加不辅种小体积种子功能",
+            "v1.5": "支持馒头新架构辅种"
+        }
+    },
+    "CrossSeed": {
+        "name": "青蛙辅种助手",
+        "description": "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙、AGSVPT、麒麟、UBits、聆音、憨憨等。",
+        "labels": "做种",
+        "version": "2.3",
+        "icon": "qingwa.png",
+        "author": "233@qingwa",
+        "level": 2,
+        "history": {
+            "v2.2": "站点停用后会同步暂停对该站点的辅种",
+            "v2.3": "站点辅种支持代理"
+        }
+    },
+    "VCBAnimeMonitor": {
+        "name": "整理VCB动漫压制组作品",
+        "description": "提高部分VCB-Studio作品的识别准确率,将VCB-Studio的作品统一转移到指定目录同时进行刮削整理",
+        "labels": "文件整理,识别",
+        "version": "1.7.1",
+        "icon": "vcbmonitor.png",
+        "author": "pixel@qingwa",
+        "level": 2,
+        "history": {
+            "v1.7.1": "修复偶尔安装失败问题"
+        }
+    },
+    "TorrentTransfer": {
+        "name": "自动转移做种",
+        "description": "定期转移下载器中的做种任务到另一个下载器。",
+        "labels": "做种",
+        "version": "1.3",
+        "icon": "seed.png",
+        "author": "jxxghp",
+        "level": 2
+    },
+    "RssSubscribe": {
+        "name": "自定义订阅",
+        "description": "定时刷新RSS报文，识别内容后添加订阅或直接下载。",
+        "labels": "订阅",
+        "version": "1.3",
+        "icon": "rss.png",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v1.3": "支持手动删除订阅历史记录"
+        }
+    },
+    "SyncDownloadFiles": {
+        "name": "下载器文件同步",
+        "description": "同步下载器的文件信息到数据库，删除文件时联动删除下载任务。",
+        "labels": "下载管理",
+        "version": "1.1",
+        "icon": "Youtube-dl_A.png",
+        "author": "thsrite",
+        "level": 1
+    },
+    "BrushFlow": {
+        "name": "站点刷流",
+        "description": "自动托管刷流，将会提高对应站点的访问频率。",
+        "labels": "刷流",
+        "version": "3.1",
+        "icon": "brush.jpg",
+        "author": "jxxghp,InfinityPacer",
+        "level": 2,
+        "history": {
+            "v3.1": "支持仪表板显示站点刷流数据，需要主程序升级v1.8.7+版本",
+            "v3.0": "优化不同站点刷流到相同种子的逻辑，修复数据页滚动闪烁，部分日志优化",
+            "v2.9": "优化动态删除消息推送，优化配置页UI显示及部分配置项，支持配置种子分类以及开启自动分类管理，取消单独适配站点时区逻辑，可通过配置项「pubtime」自行适配",
+            "v2.8": "优化UI显示以及提升性能",
+            "v2.7": "动态删除种子规则调整（请注意查阅插件文档），站点独立配置样式优化、日志优化，修复部分配置项无法配置小数的问题，修复部分场景可能导致重复下载的问题",
+            "v2.6": "修复排除订阅功能",
+            "v2.5": "增加H&R做种时间、下载器监控配置项，刷流前置条件逻辑调整，代理下载种子默认为关闭"
+        }
+    },
+    "DownloadingMsg": {
+        "name": "下载进度推送",
+        "description": "定时推送正在下载进度。",
+        "labels": "消息通知,下载管理",
+        "version": "1.1",
+        "icon": "downloadmsg.png",
+        "author": "thsrite",
+        "level": 2
+    },
+    "AutoClean": {
+        "name": "定时清理媒体库",
+        "description": "定时清理用户下载的种子、源文件、媒体库文件。",
+        "labels": "媒体库",
+        "version": "1.1",
+        "icon": "clean.png",
+        "author": "thsrite",
+        "level": 2
+    },
+    "InvitesSignin": {
+        "name": "药丸签到",
+        "description": "药丸论坛签到。",
+        "labels": "站点",
+        "version": "1.4",
+        "icon": "invites.png",
+        "author": "thsrite",
+        "level": 2,
+        "history": {
+            "v1.4": "自定义保留消息天数"
+        }
+    },
+    "PersonMeta": {
+        "name": "演职人员刮削",
+        "description": "刮削演职人员图片以及中文名称。",
+        "labels": "媒体库,刮削",
+        "version": "1.3",
+        "icon": "actor.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v1.3": "修复v1.8.5版本后刮削报错问题"
+        }
+    },
+    "MoviePilotUpdateNotify": {
+        "name": "MoviePilot更新推送",
+        "description": "MoviePilot推送release更新通知、自动重启。",
+        "labels": "消息通知,自动更新",
+        "version": "1.4",
+        "icon": "Moviepilot_A.png",
+        "author": "thsrite",
+        "level": 1,
+        "history": {
+            "v1.4": "兼容更新内容带版本号的情况",
+            "v1.3": "增加前端版本更新检查，需要主程序升级至v1.8.4+版本"
+        }
+    },
+    "CloudDiskDel": {
+        "name": "云盘文件删除",
+        "description": "媒体库删除strm文件后同步删除云盘资源。",
+        "labels": "媒体库",
+        "version": "1.3",
+        "icon": "clouddisk.png",
+        "author": "thsrite",
+        "level": 1
+    },
+    "BarkMsg": {
+        "name": "Bark消息推送",
+        "description": "支持使用Bark发送消息通知。",
+        "labels": "消息通知",
+        "version": "1.1",
+        "icon": "Bark_A.png",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "IyuuMsg": {
+        "name": "IYUU消息推送",
+        "description": "支持使用IYUU发送消息通知。",
+        "labels": "消息通知,IYUU",
+        "version": "1.2",
+        "icon": "Iyuu_A.png",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "PushDeerMsg": {
+        "name": "PushDeer消息推送",
+        "description": "支持使用PushDeer发送消息通知。",
+        "labels": "消息通知",
+        "version": "1.1",
+        "icon": "pushdeer.png",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "ConfigCenter": {
+        "name": "配置中心",
+        "description": "快速调整部分系统设定。",
+        "labels": "系统设置",
+        "version": "2.4",
+        "icon": "setting.png",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "WorkWechatMsg": {
+        "name": "企微机器人消息推送",
+        "description": "支持使用企业微信群聊机器人发送消息通知。",
+        "labels": "消息通知",
+        "version": "1.0",
+        "icon": "Wecom_A.png",
+        "author": "叮叮当",
+        "level": 1
+    },
+    "EpisodeGroupMeta": {
+        "name": "TMDB剧集组刮削",
+        "description": "从TMDB剧集组刮削季集的实际顺序。",
+        "labels": "刮削",
+        "version": "1.1",
+        "icon": "Element_A.png",
+        "author": "叮叮当",
+        "level": 1
+    },
+    "CustomIndexer": {
+        "name": "自定义索引站点",
+        "description": "修改或扩展内建索引器支持的站点。",
+        "labels": "站点",
+        "version": "1.0",
+        "icon": "spider.png",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "FFmpegThumb": {
+        "name": "FFmpeg缩略图",
+        "description": "TheMovieDb没有背景图片时使用FFmpeg截取视频文件缩略图",
+        "labels": "刮削",
+        "version": "1.2",
+        "icon": "ffmpeg.png",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "PushPlusMsg": {
+        "name": "PushPlus消息推送",
+        "description": "支持使用PushPlus发送消息通知。",
+        "labels": "消息通知",
+        "version": "1.0",
+        "icon": "Pushplus_A.png",
+        "author": "cheng",
+        "level": 1
+    },
+    "DownloadSiteTag": {
+        "name": "下载任务分类与标签",
+        "description": "自动给下载任务分类与打站点标签、剧集名称标签",
+        "labels": "下载管理",
+        "version": "2.1",
+        "icon": "Youtube-dl_B.png",
+        "author": "叮叮当",
+        "level": 1,
+        "history": {
+            "v2.1": "修复错误的TmdbHelper模块引用"
+        }
+    },
+    "RemoveLink": {
+        "name": "清理硬链接",
+        "description": "监控目录内文件被删除时，同步删除监控目录内所有和它硬链接的文件",
+        "labels": "文件整理",
+        "version": "2.0",
+        "icon": "Ombi_A.png",
+        "author": "DzAvril",
+        "level": 1,
+        "history": {
+            "v2.1": "联动删除历史记录",
+            "v2.0": "联动删除种子，需安装插件[下载器助手]并打开监听源文件事件",
+            "v1.9": "增加清理刮削文件功能（beta）",
+            "v1.8": "增加清理空目录功能（beta）",
+            "v1.7": "修复因未监测重命名事件导致的清理硬链接失败的问题",
+            "v1.6": "提升插件性能"
+        }
+    },
+    "LinkMonitor": {
+        "name": "实时硬链接",
+        "description": "监控目录文件变化，实时硬链接。",
+        "labels": "文件整理",
+        "version": "1.6",
+        "icon": "Linkace_C.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v1.6": "增强API安全性"
+        }
+    },
+    "CategoryEditor": {
+        "name": "二级分类策略",
+        "description": "编辑下载目录和媒体库目录的二级分类规则。",
+        "labels": "文件整理",
+        "version": "1.1",
+        "icon": "Bookstack_A.png",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "RemoteIdentifiers": {
+        "name": "共享识别词",
+        "description": "从Github、Etherpad等远程文件中获取共享识别词并应用。",
+        "labels": "识别",
+        "version": "2.2",
+        "icon": "words.png",
+        "author": "honue",
+        "level": 1
+      },
+    "NeoDBSync": {
+        "name": "NeoDB 想看",
+        "description": "同步 NeoDB 想看条目，自动添加订阅。",
+        "labels": "订阅",
+        "version": "1.1",
+        "icon": "NeoDB.jpeg",
+        "author": "hcplantern",
+        "level": 1,
+        "history": {
+            "v1.1": "直接添加订阅，不提前进行搜索下载"
+        }
+    },
+    "PlayletCategory": {
+        "name": "短剧自动分类",
+        "description": "网络短剧自动整理到独立的分类目录。",
+        "labels": "文件整理",
+        "version": "1.4",
+        "icon": "Amule_A.png",
+        "author": "jxxghp",
+        "level": 1
+    },
+    "DiagParamAdjust": {
+        "name": "诊断参数调整",
+        "description": "Emby专用插件|暂时性解决emby字幕偏移问题，需要emby安装Diagnostics插件。",
+        "labels": "Emby",
+        "version": "1.3",
+        "icon": "Gatus_A.png",
+        "author": "jeblove",
+        "level": 1
+    },
+    "QbCommand": {
+        "name": "QB远程操作",
+        "description": "通过定时任务或交互命令远程操作QB暂停/开始/限速等。",
+        "labels": "下载管理,Qbittorrent",
+        "version": "1.5",
+        "icon": "Qbittorrent_A.png",
+        "author": "DzAvril",
+        "level": 1,
+        "history": {
+            "v1.5": "可选特定路径下的做种不会被暂停",
+            "v1.4": "可选某些站点不再做种（暂停做种后不会被恢复）"
+        }
+    },
+    "TrCommand": {
+        "name": "TR远程操作",
+        "description": "通过定时任务或交互命令远程操作TR暂停/开始/限速等。",
+        "labels": "下载管理,Transmission",
+        "version": "1.1",
+        "icon": "Transmission_A.png",
+        "author": "Hoey",
+        "level": 1
+    },
+    "IpDetect": {
+        "name": "本地IP检测",
+        "description": "如果QB、TR等服务在本地部署，当本地IP改变时自动修改其Server IP。",
+        "labels": "系统设置",
+        "version": "1.1",
+        "icon": "ipAddress.png",
+        "author": "DzAvril",
+        "level": 1
+    },
+    "TrackerEditor": {
+        "name": "Tracker替换",
+        "description": "批量替换种子tracker，支持周期性巡检（如为TR，仅支持4.0以上版本）。",
+        "labels": "做种",
+        "version": "1.5",
+        "icon": "trackereditor_A.png",
+        "author": "honue",
+        "level": 1
+    },
+    "ContractCheck": {
+        "name": "契约检查",
+        "description": "定时检查保种契约达成情况。",
+        "labels": "做种",
+        "version": "1.4",
+        "icon": "contract.png",
+        "author": "DzAvril",
+        "level": 1,
+        "history": {
+            "v1.4": "支持仪表板组件显示",
+            "v1.3": "修复观众做种数据异常问题",
+            "v1.2": "修复契约检查无数据返回的问题"
+        }
+    },
+    "DownloaderHelper": {
+        "name": "下载器助手",
+        "description": "自动做种、站点标签、自动删种。",
+        "labels": "下载管理",
+        "version": "1.7",
+        "icon": "DownloaderHelper.png",
+        "author": "hotlcc",
+        "level": 2,
+        "history": {
+            "v1.7": "优化了表单界面和一些逻辑。",
+            "v1.6": "修复事件触发tr打标问题；表单界面优化。"
+        }
+    },
+    "FeiShuMsg": {
+        "name": "飞书机器人消息通知",
+        "description": "支持使用飞书群聊机器人发送消息通知。",
+        "labels": "消息通知",
+        "version": "1.0",
+        "icon": "FeiShu_A.png",
+        "author": "InfinityPacer",
+        "level": 2
+    },
+    "IyuuAuth": {
+        "name": "IYUU站点绑定",
+        "description": "为IYUU账号绑定认证站点，以便用于用户认证和辅种。",
+        "labels": "IYUU",
+        "version": "1.1",
+        "icon": "Iyuu_A.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v1.1": "修复IYUU站点绑定失败问题"
+        }
+    },
+    "NtfyMsg": {
+        "name": "ntfy消息推送",
+        "description": "支持使用ntfy发送消息通知。",
+        "labels": "消息通知",
+        "version": "1.0",
+        "icon": "Ntfy_A.png",
+        "author": "lethargicScribe",
+        "level": 1
+    },
+    "PluginAutoUpgrade": {
+        "name": "插件自动升级",
+        "description": "定时检测、升级插件。",
+        "labels": "自动更新",
+        "version": "1.6",
+        "icon": "PluginAutoUpgrade.png",
+        "author": "hotlcc",
+        "level": 1,
+        "history": {
+            "v1.6": "修正数字配置值提交为字符串导致的问题。",
+            "v1.5": "支持配置升级记录最大保存数量和最大展示数量。"
+        }
+    },
+    "MergeSiteSwitch": {
+        "name": "聚合站点开关",
+        "description": "统一管理所有与站点相关的开关。",
+        "labels": "系统设置",
+        "version": "1.1",
+        "icon": "world.png",
+        "author": "hotlcc",
+        "level": 2,
+        "history": {
+            "v1.1": "优化插件配置生效；支持青蛙辅种助手。"
+        }
+    },
+    "TmdbWallpaper": {
+        "name": "登录壁纸本地化",
+        "description": "将MoviePilot的登录壁纸下载到本地。",
+        "labels": "工具",
+        "version": "1.1",
+        "icon": "Macos_Sierra.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v1.1": "修复下载Bing每日壁纸时文件名错乱的问题"
+        }
+    },
+    "MPServerStatus": {
+        "name": "MoviePilot服务器监控",
+        "description": "在仪表板中实时显示MoviePilot公共服务器状态。",
+        "labels": "工具",
+        "version": "1.0",
+        "icon": "Duplicati_A.png",
+        "author": "jxxghp",
+        "level": 1
     }
-  }
 }

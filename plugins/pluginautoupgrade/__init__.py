@@ -23,7 +23,7 @@ class PluginAutoUpgrade(_PluginBase):
     # 插件图标
     plugin_icon = "PluginAutoUpgrade.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -52,7 +52,9 @@ class PluginAutoUpgrade(_PluginBase):
     # 配置相关
     # 插件缺省配置
     __config_default: Dict[str, Any] = {
-        'cron': '* 0/4 * * *'
+        'cron': '* 0/4 * * *',
+        'save_record_quantity': 100,
+        'display_record_quantity': 10,
     }
     # 插件用户配置
     __config: Dict[str, Any] = {}
@@ -61,6 +63,8 @@ class PluginAutoUpgrade(_PluginBase):
         """
         初始化插件
         """
+        # 修正配置
+        config = self.__fix_config(config=config)
         # 加载插件配置
         self.__config = config
         # 停止现有服务
@@ -128,6 +132,10 @@ class PluginAutoUpgrade(_PluginBase):
         config_suggest.update(self.__config_default)
         # 定时周期
         cron = self.__config_default.get('cron')
+        # 保存记录数量
+        save_record_quantity = self.__config_default.get('save_record_quantity')
+        # 展示记录数量
+        display_record_quantity = self.__config_default.get('display_record_quantity')
         # 已安装的在线插件下拉框数据
         installed_online_plugin_options = self.__get_installed_online_plugin_options()
         form = [{
@@ -201,6 +209,41 @@ class PluginAutoUpgrade(_PluginBase):
                         'xxl': 4, 'xl': 4, 'lg': 4, 'md': 4, 'sm': 6, 'xs': 12
                     },
                     'content': [{
+                        'component': 'VTextField',
+                        'props': {
+                            'model': 'save_record_quantity',
+                            'label': '保存记录数量',
+                            'type': 'number',
+                            'placeholder': save_record_quantity,
+                            'hint': f'设置插件最多保存多少条插件升级记录。缺省时为{save_record_quantity}。'
+                        }
+                    }]
+                }, {
+                    'component': 'VCol',
+                    'props': {
+                        'cols': 12,
+                        'xxl': 4, 'xl': 4, 'lg': 4, 'md': 4, 'sm': 6, 'xs': 12
+                    },
+                    'content': [{
+                        'component': 'VTextField',
+                        'props': {
+                            'model': 'display_record_quantity',
+                            'label': '展示记录数量',
+                            'type': 'number',
+                            'placeholder': display_record_quantity,
+                            'hint': f'设置插件数据页最多展示多少条插件升级记录。缺省时为{display_record_quantity}。'
+                        }
+                    }]
+                }]
+            }, {
+                'component': 'VRow',
+                'content': [{
+                    'component': 'VCol',
+                    'props': {
+                        'cols': 12,
+                        'xxl': 6, 'xl': 6, 'lg': 6, 'md': 6, 'sm': 6, 'xs': 12
+                    },
+                    'content': [{
                         'component': 'VSelect',
                         'props': {
                             'model': 'include_plugins',
@@ -215,7 +258,7 @@ class PluginAutoUpgrade(_PluginBase):
                     'component': 'VCol',
                     'props': {
                         'cols': 12,
-                        'xxl': 4, 'xl': 4, 'lg': 4, 'md': 4, 'sm': 6, 'xs': 12
+                        'xxl': 6, 'xl': 6, 'lg': 6, 'md': 6, 'sm': 6, 'xs': 12
                     },
                     'content': [{
                         'component': 'VSelect',
@@ -355,6 +398,19 @@ class PluginAutoUpgrade(_PluginBase):
         finally:
             self.__exit_event.clear()
 
+    def __fix_config(self, config: dict) -> dict:
+        """
+        修正配置
+        """
+        if not config:
+            config = {}
+        save_record_quantity = config.get("save_record_quantity")
+        config['save_record_quantity'] = int(save_record_quantity) if save_record_quantity else None
+        display_record_quantity = config.get("display_record_quantity")
+        config['display_record_quantity'] = int(display_record_quantity) if display_record_quantity else None
+        self.update_config(config=config)
+        return config
+
     def __get_config_item(self, config_key: str, use_default: bool = True) -> Any:
         """
         获取插件配置项
@@ -366,7 +422,7 @@ class PluginAutoUpgrade(_PluginBase):
             return None
         config = self.__config if self.__config else {}
         config_value = config.get(config_key)
-        if config_value is None and use_default:
+        if (config_value is None or config_value == '') and use_default:
             config_default = self.__config_default if self.__config_default else {}
             config_value = config_default.get(config_key)
         return config_value
@@ -627,8 +683,9 @@ class PluginAutoUpgrade(_PluginBase):
         if not upgrade_records:
             upgrade_records = []
         upgrade_records.extend(records)
-        # 最多保存100条
-        upgrade_records = upgrade_records[-100:]
+        # 最多保存多少条
+        save_record_quantity = self.__get_config_item('save_record_quantity')
+        upgrade_records = upgrade_records[-save_record_quantity:]
         self.save_data(self.__data_key_upgrade_records, upgrade_records)
 
     @staticmethod
@@ -646,8 +703,9 @@ class PluginAutoUpgrade(_PluginBase):
         upgrade_records = self.get_data(self.__data_key_upgrade_records)
         if not upgrade_records:
             return []
-        # 只展示最近10条
-        upgrade_records = upgrade_records[-10:]
+        # 只展示最近多少条
+        display_record_quantity = self.__get_config_item('display_record_quantity')
+        upgrade_records = upgrade_records[-display_record_quantity:]
         page_data = [self.__convert_upgrade_record_to_page_data(upgrade_record) for upgrade_record in upgrade_records if
                      upgrade_record]
         # 按时间倒序
