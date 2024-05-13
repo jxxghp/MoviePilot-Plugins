@@ -19,7 +19,7 @@ from app.log import logger
 from app.modules.qbittorrent.qbittorrent import Qbittorrent
 from app.modules.transmission.transmission import Transmission
 from app.plugins import _PluginBase
-from app.plugins.downloaderhelper.module import TaskContext, TaskResult
+from app.plugins.downloaderhelper.module import TaskContext, TaskResult, Downloader
 from app.schemas.types import EventType
 from app.utils.string import StringUtils
 
@@ -32,7 +32,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "1.6"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -168,7 +168,82 @@ class DownloaderHelper(_PluginBase):
         }
         # 合并默认配置
         config_suggest.update(self.__config_default)
-
+        # 下载器tabs
+        downloader_tabs = [{
+            'component': 'VTab',
+            'props': {
+                'value': d.id
+            },
+            'text': d.name_
+        } for d in Downloader if d]
+        # 下载器tab items
+        downloader_tab_items = [{
+            'component': 'VWindowItem',
+            'props': {
+                'value': d.id
+            },
+            'content': [{
+                'component': 'VRow',
+                'content': [{
+                    'component': 'VCol',
+                    'props': {
+                        'cols': 12,
+                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
+                    },
+                    'content': [{
+                        'component': 'VSwitch',
+                        'props': {
+                            'model': f'{d.short_id}_enable',
+                            'label': '任务开关',
+                            'hint': '该下载器子任务的开关'
+                        }
+                    }]
+                }, {
+                    'component': 'VCol',
+                    'props': {
+                        'cols': 12,
+                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
+                    },
+                    'content': [{
+                        'component': 'VSwitch',
+                        'props': {
+                            'model': f'{d.short_id}_enable_seeding',
+                            'label': '自动做种',
+                            'hint': '是否开启自动做种功能'
+                        }
+                    }]
+                }, {
+                    'component': 'VCol',
+                    'props': {
+                        'cols': 12,
+                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
+                    },
+                    'content': [{
+                        'component': 'VSwitch',
+                        'props': {
+                            'model': f'{d.short_id}_enable_tagging',
+                            'label': '站点标签',
+                            'hint': '是否开启站点标签功能'
+                        }
+                    }]
+                }, {
+                    'component': 'VCol',
+                    'props': {
+                        'cols': 12,
+                        'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
+                    },
+                    'content': [{
+                        'component': 'VSwitch',
+                        'props': {
+                            'model': f'{d.short_id}_enable_delete',
+                            'label': '自动删种',
+                            'hint': '是否开启自动删种功能'
+                        }
+                    }]
+                }]
+            }]
+        } for d in Downloader if d]
+        # 返回form
         return [{
             'component': 'VForm',
             'content': [{  # 业务无关总控
@@ -313,174 +388,83 @@ class DownloaderHelper(_PluginBase):
                 'content': [{
                     'component': 'VCol',
                     'props': {
-                        'cols': 12
+                        'cols': 12,
+                        'xxl': 4, 'xl': 4, 'lg': 4, 'md': 4, 'sm': 6, 'xs': 12
                     },
                     'content': [{
-                        'component': 'VTextarea',
+                        'component': 'VSwitch',
                         'props': {
-                            'model': 'tracker_mappings',
-                            'label': 'Tracker映射',
-                            'placeholder': '格式：\n'
-                                           '<tracker-domain>:<site-domain>\n\n'
-                                           '例如：\n'
-                                           'chdbits.xyz:ptchdbits.co',
-                            'hint': 'Tracker映射。用于在站点打标签时，指定tracker和站点域名不同的种子的域名对应关系；前面为tracker域名（完整域名或者主域名皆可），中间是英文冒号，后面是站点域名。'
+                            'model': '_config_tracker_mappings_dialog_closed',
+                            'label': '配置Tracker映射',
+                            'hint': '点击展开Tracker映射配置窗口。'
                         }
                     }]
                 }]
             }, {
-                'component': 'VTabs',
+                'component': 'VDialog',
                 'props': {
-                    'model': '_tabs',
-                    'height': 72,
-                    'style': {
-                        'margin-top': '20px',
-                        'margin-bottom': '20px'
-                    }
+                    'model': '_config_tracker_mappings_dialog_closed',
+                    'max-width': '60rem'
                 },
                 'content': [{
-                    'component': 'VTab',
+                    'component': 'VCard',
                     'props': {
-                        'value': 'qbittorrent'
-                    },
-                    'text': 'qbittorrent'
-                }, {
-                    'component': 'VTab',
-                    'props': {
-                        'value': 'transmission'
-                    },
-                    'text': 'transmission'
-                }]
-            }, {
-                'component': 'VWindow',
-                'props': {
-                    'model': '_tabs'
-                },
-                'content': [{
-                    'component': 'VWindowItem',
-                    'props': {
-                        'value': 'qbittorrent'
+                        'title': '配置Tracker映射',
+                        'style': {
+                            'padding': '0 20px 20px 20px'
+                        }
                     },
                     'content': [{
+                        'component': 'VDialogCloseBtn',
+                        'props': {
+                            'model': '_config_tracker_mappings_dialog_closed'
+                        }
+                    }, {
                         'component': 'VRow',
                         'content': [{
                             'component': 'VCol',
                             'props': {
-                                'cols': 12,
-                                'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
+                                'cols': 12
                             },
                             'content': [{
-                                'component': 'VSwitch',
+                                'component': 'VTextarea',
                                 'props': {
-                                    'model': 'qb_enable',
-                                    'label': '任务开关',
-                                    'hint': '该下载器子任务的开关'
-                                }
-                            }]
-                        }, {
-                            'component': 'VCol',
-                            'props': {
-                                'cols': 12,
-                                'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
-                            },
-                            'content': [{
-                                'component': 'VSwitch',
-                                'props': {
-                                    'model': 'qb_enable_seeding',
-                                    'label': '自动做种',
-                                    'hint': '是否开启自动做种功能'
-                                }
-                            }]
-                        }, {
-                            'component': 'VCol',
-                            'props': {
-                                'cols': 12,
-                                'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
-                            },
-                            'content': [{
-                                'component': 'VSwitch',
-                                'props': {
-                                    'model': 'qb_enable_tagging',
-                                    'label': '站点标签',
-                                    'hint': '是否开启站点标签功能'
-                                }
-                            }]
-                        }, {
-                            'component': 'VCol',
-                            'props': {
-                                'cols': 12,
-                                'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
-                            },
-                            'content': [{
-                                'component': 'VSwitch',
-                                'props': {
-                                    'model': 'qb_enable_delete',
-                                    'label': '自动删种',
-                                    'hint': '是否开启自动删种功能'
+                                    'model': 'tracker_mappings',
+                                    'label': 'Tracker映射',
+                                    'placeholder': '格式：\n'
+                                                '<tracker-domain>:<site-domain>\n\n'
+                                                '例如：\n'
+                                                'chdbits.xyz:ptchdbits.co',
+                                    'hint': 'Tracker映射。用于在站点打标签时，指定tracker和站点域名不同的种子的域名对应关系；前面为tracker域名（完整域名或者主域名皆可），中间是英文冒号，后面是站点域名。'
                                 }
                             }]
                         }]
                     }]
-                }, {
-                    'component': 'VWindowItem',
+                }]
+            }, {
+                'component': 'VRow',
+                'content': [{
+                    'component': 'VCol',
                     'props': {
-                        'value': 'transmission'
+                        'cols': 12
                     },
                     'content': [{
-                        'component': 'VRow',
-                        'content': [{
-                            'component': 'VCol',
-                            'props': {
-                                'cols': 12,
-                                'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
-                            },
-                            'content': [{
-                                'component': 'VSwitch',
-                                'props': {
-                                    'model': 'tr_enable',
-                                    'label': '任务开关'
-                                }
-                            }]
-                        }, {
-                            'component': 'VCol',
-                            'props': {
-                                'cols': 12,
-                                'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
-                            },
-                            'content': [{
-                                'component': 'VSwitch',
-                                'props': {
-                                    'model': 'tr_enable_seeding',
-                                    'label': '自动做种'
-                                }
-                            }]
-                        }, {
-                            'component': 'VCol',
-                            'props': {
-                                'cols': 12,
-                                'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
-                            },
-                            'content': [{
-                                'component': 'VSwitch',
-                                'props': {
-                                    'model': 'tr_enable_tagging',
-                                    'label': '站点标签'
-                                }
-                            }]
-                        }, {
-                            'component': 'VCol',
-                            'props': {
-                                'cols': 12,
-                                'xxl': 3, 'xl': 3, 'lg': 3, 'md': 3, 'sm': 6, 'xs': 12
-                            },
-                            'content': [{
-                                'component': 'VSwitch',
-                                'props': {
-                                    'model': 'tr_enable_delete',
-                                    'label': '自动删种'
-                                }
-                            }]
-                        }]
+                        'component': 'VTabs',
+                        'props': {
+                            'model': '_tabs',
+                            'height': 72,
+                            'style': {
+                                'margin-top-': '20px',
+                                'margin-bottom-': '20px'
+                            }
+                        },
+                        'content': downloader_tabs
+                    }, {
+                        'component': 'VWindow',
+                        'props': {
+                            'model': '_tabs'
+                        },
+                        'content': downloader_tab_items
                     }]
                 }]
             }, {

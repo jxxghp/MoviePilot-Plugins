@@ -1,15 +1,19 @@
 from typing import Set, List, Optional
+from enum import Enum
 
 
-class Constants:
+class Downloader(Enum):
     """
-    常量
+    下载器枚举
     """
-    # 下载器ID
-    # qb下载器id
-    qb_downloader_id: str = 'qbittorrent'
-    # tr下载器id
-    tr_downloader_id: str = 'transmission'
+    QB = ('qbittorrent', 'qBittorrent', 'qb', 'QB')
+    TR = ('transmission', 'Transmission', 'tr', 'TR')
+
+    def __init__(self, id: str, name_: str, short_id: str, short_name: str):
+        self.id: str = id
+        self.name_: str = name_
+        self.short_id: str = short_id
+        self.short_name: str = short_name
 
 
 class TaskResult:
@@ -133,14 +137,14 @@ class TaskContext:
         是否选择了qb下载器
         :return: 是否选择了qb下载器
         """
-        return self.__is_selected_the_downloader(Constants.qb_downloader_id)
+        return self.__is_selected_the_downloader(Downloader.QB.id)
 
     def is_selected_tr_downloader(self) -> bool:
         """
         是否选择了tr下载器
         :return: 是否选择了tr下载器
         """
-        return self.__is_selected_the_downloader(Constants.tr_downloader_id)
+        return self.__is_selected_the_downloader(Downloader.TR.id)
 
     def enable_seeding(self, enable_seeding: bool = True):
         """

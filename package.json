@@ -485,6 +485,7 @@
         "author": "DzAvril",
         "level": 1,
         "history": {
+            "v2.1": "联动删除历史记录",
             "v2.0": "联动删除种子，需安装插件[下载器助手]并打开监听源文件事件",
             "v1.9": "增加清理刮削文件功能（beta）",
             "v1.8": "增加清理空目录功能（beta）",
@@ -610,11 +611,12 @@
         "name": "下载器助手",
         "description": "自动做种、站点标签、自动删种。",
         "labels": "下载管理",
-        "version": "1.6",
+        "version": "1.7",
         "icon": "DownloaderHelper.png",
         "author": "hotlcc",
         "level": 2,
         "history": {
+            "v1.7": "优化了表单界面和一些逻辑。",
             "v1.6": "修复事件触发tr打标问题；表单界面优化。"
         }
     },
@@ -686,8 +688,8 @@
         }
     },
     "MPServerStatus": {
-        "name": "MoviePilot服务器状态",
-        "description": "在仪表板中实时显示MoviePilot公共服务器状态（https://movie-pilot.org）",
+        "name": "MoviePilot服务器监控",
+        "description": "在仪表板中实时显示MoviePilot公共服务器状态。",
         "labels": "工具",
         "version": "1.0",
         "icon": "Duplicati_A.png",
