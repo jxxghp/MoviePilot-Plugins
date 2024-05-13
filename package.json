@@ -697,7 +697,7 @@
         "author": "jxxghp",
         "level": 1
     },
-    "CleanInvalidSeeds": {
+    "CleanInvalidSeed": {
         "name": "清理QB无效做种",
         "description": "清理已经被站点删除的种子及对应源文件，仅支持QB",
         "labels": "Qbittorrent",
