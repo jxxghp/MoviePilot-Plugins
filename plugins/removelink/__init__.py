@@ -7,7 +7,7 @@ from typing import List, Tuple, Dict, Any
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
-
+from app.db.transferhistory_oper import TransferHistoryOper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import NotificationType
@@ -60,9 +60,16 @@ class FileMonitorHandler(FileSystemEventHandler):
             self.sync.state_set[str(file_path)] = file_path.stat().st_ino
 
     def on_deleted(self, event):
-        if event.is_directory:
-            return
         file_path = Path(event.src_path)
+        if event.is_directory:
+            # 单独处理文件夹删除触发删除种子
+            if self.sync._delete_torrents:
+                # 发送事件
+                logger.info(f"监测到删除文件夹：{file_path}")
+                eventmanager.send_event(
+                    EventType.DownloadFileDeleted, {"src": str(file_path)}
+                )
+            return
         if file_path.suffix in [".!qB", ".part", ".mp"]:
             return
         logger.info(f"监测到删除文件：{file_path}")
@@ -108,7 +115,7 @@ class RemoveLink(_PluginBase):
     # 插件图标
     plugin_icon = "Ombi_A.png"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -128,12 +135,15 @@ class RemoveLink(_PluginBase):
     _notify = False
     _delete_scrap_infos = False
     _delete_torrents = False
+    _delete_history = False
+    _transferhistory = None
     _observer = []
     # 监控目录的文件列表
     state_set: Dict[str, int] = {}
 
     def init_plugin(self, config: dict = None):
         logger.info(f"Hello, RemoveLink! config {config}")
+        self._transferhistory = TransferHistoryOper()
         if config:
             self._enabled = config.get("enabled")
             self._notify = config.get("notify")
@@ -142,6 +152,7 @@ class RemoveLink(_PluginBase):
             self.exclude_keywords = config.get("exclude_keywords") or ""
             self._delete_scrap_infos = config.get("delete_scrap_infos")
             self._delete_torrents = config.get("delete_torrents")
+            self._delete_history = config.get("delete_history")
 
         # 停止现有任务
         self.stop_service()
@@ -206,7 +217,7 @@ class RemoveLink(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -219,7 +230,7 @@ class RemoveLink(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -237,7 +248,7 @@ class RemoveLink(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -250,13 +261,26 @@ class RemoveLink(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "delete_torrents",
                                             "label": "联动删除种子",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "delete_history",
+                                            "label": "删除历史记录",
                                         },
                                     }
                                 ],
@@ -441,7 +465,7 @@ class RemoveLink(_PluginBase):
         # 文件所在目录已被删除则退出
         if not os.path.exists(path.parent):
             return
-        logger.info(f"清理刮削文件: {path}")
+        # logger.info(f"清理刮削文件: {path}")
         if not path.suffix.lower() in [
             ".jpg",
             ".nfo",
@@ -455,11 +479,25 @@ class RemoveLink(_PluginBase):
         # 清理空目录
         self.delete_empty_folders(path)
 
+    def delete_history(self, path):
+        """
+        清理path相关的历史记录
+        """
+        if not self._delete_history:
+            return
+        # 查找历史记录
+        transfer_history = self._transferhistory.get_by_src(path)
+        if transfer_history:
+            # 删除历史记录
+            self._transferhistory.delete(transfer_history.id)
+            logger.info(f"删除历史记录：{transfer_history.id}")
+
+
     def delete_empty_folders(self, path):
         """
         从指定路径开始，逐级向上层目录检测并删除空目录，直到遇到非空目录或到达指定监控目录为止
         """
-        logger.info(f"清理空目录: {path}")
+        # logger.info(f"清理空目录: {path}")
         while True:
             parent_path = path.parent
             if self.__is_excluded(parent_path):
@@ -505,6 +543,8 @@ class RemoveLink(_PluginBase):
                 eventmanager.send_event(
                     EventType.DownloadFileDeleted, {"src": str(file_path)}
                 )
+            # 删除历史记录
+            self.delete_history(str(file_path))
             # 删除的文件inode
             deleted_inode = self.state_set.get(str(file_path))
             if not deleted_inode:
@@ -530,6 +570,8 @@ class RemoveLink(_PluginBase):
                             eventmanager.send_event(
                                 EventType.DownloadFileDeleted, {"src": str(file_path)}
                             )
+                        # 删除历史记录
+                        self.delete_history(str(file_path))
                         if self._notify:
                             self.post_message(
                                 mtype=NotificationType.SiteMessage,
