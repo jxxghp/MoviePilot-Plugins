@@ -100,8 +100,6 @@ class IyuuHelper(object):
         info_hashs.sort()
         json_data = json.dumps(info_hashs, separators=(',', ':'), ensure_ascii=False)
         sha1 = self.get_sha1(json_data)
-        logger.info(f'{json_data}')
-        logger.info(f'{sha1}')
         result, msg = self.__request_iyuu(url='/reseed/index/index', method='post', params={
             'hash': json_data,
             'sha1': sha1,
