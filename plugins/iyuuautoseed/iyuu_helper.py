@@ -8,6 +8,9 @@ from app.utils.http import RequestUtils
 
 
 class IyuuHelper(object):
+    """
+    适配新版本IYUU开发版
+    """
     _version = "8.2.0"
     _api_base = "https://dev.iyuu.cn"
     _sites = {}
