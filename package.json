@@ -522,7 +522,7 @@
         "icon": "words.png",
         "author": "honue",
         "level": 1
-      },
+    },
     "NeoDBSync": {
         "name": "NeoDB 想看",
         "description": "同步 NeoDB 想看条目，自动添加订阅。",
@@ -695,5 +695,17 @@
         "icon": "Duplicati_A.png",
         "author": "jxxghp",
         "level": 1
+    },
+    "CleanInvalidSeeds": {
+        "name": "清理QB无效做种",
+        "description": "清理已经被站点删除的种子及对应源文件，仅支持QB",
+        "labels": "Qbittorrent",
+        "version": "1.0",
+        "icon": "clean_a.png",
+        "author": "DzAvril",
+        "level": 1,
+        "history": {
+            "v1.0": "定时清理已经被站点删除的种子及对应源文件"
+        }
     }
 }
