@@ -331,7 +331,8 @@ class IYUUAutoSeed(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 6
+                                    'cols': 12,
+                                    'md': 6
                                 },
                                 'content': [
                                     {
@@ -347,7 +348,8 @@ class IYUUAutoSeed(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 6
+                                    'cols': 12,
+                                    'md': 6
                                 },
                                 'content': [
                                     {
