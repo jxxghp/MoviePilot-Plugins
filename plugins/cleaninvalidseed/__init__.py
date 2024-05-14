@@ -27,7 +27,7 @@ class CleanInvalidSeed(_PluginBase):
     # 插件图标
     plugin_icon = "clean_a.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -331,7 +331,7 @@ class CleanInvalidSeed(_PluginBase):
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "delete_invalid_torrents",
-                                            "label": "删除无效种子",
+                                            "label": "删除无效种子(确认无误后再开启)",
                                         },
                                     }
                                 ],
@@ -357,7 +357,7 @@ class CleanInvalidSeed(_PluginBase):
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "delete_invalid_files",
-                                            "label": "删除无效源文件",
+                                            "label": "删除无效源文件(确认无误后再开启)",
                                         },
                                     }
                                 ],
@@ -431,9 +431,9 @@ class CleanInvalidSeed(_PluginBase):
                                     {
                                         "component": "VAlert",
                                         "props": {
-                                            "type": "info",
+                                            "type": "error",
                                             "variant": "tonal",
-                                            "text": "要监控的源文件目录填入源文件所在目录，并设置MP和QB的目录映射关系，如/mp/download:/qb/download，多个目录请换行。映射主要不要有多余的'/'",
+                                            "text": "谨慎起见删除种子/源文件功能做了开关，请确认无误后再开启删除功能",
                                         },
                                     }
                                 ],
@@ -449,7 +449,7 @@ class CleanInvalidSeed(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "谨慎起见删除种子/源文件功能做了开关，请确认无误后再开启删除功能",
+                                            "text": "下载目录映射填入源文件根目录，并设置MP和QB的目录映射关系。如某种子下载的源文件A存放路径为/qb/download/A，则目录映射填入/mp/download:/qb/download，多个目录请换行。注意映射目录不要有多余的'/'",
                                         },
                                     }
                                 ],
