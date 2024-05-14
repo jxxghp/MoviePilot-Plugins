@@ -164,10 +164,13 @@
         "name": "收藏洗版",
         "description": "Jellyfin/Emby/Plex点击收藏电影后，自动订阅洗版。",
         "labels": "订阅",
-        "version": "2.1",
+        "version": "2.2",
         "icon": "like.jpg",
         "author": "wlj",
-        "level": 2
+        "level": 2,
+        "history": {
+            "v2.2": "修复运行报错问题"
+        }
     },
     "MediaServerMsg": {
         "name": "媒体库服务器通知",
