@@ -617,11 +617,12 @@
         "name": "下载器助手",
         "description": "自动做种、站点标签、自动删种。",
         "labels": "下载管理",
-        "version": "1.7",
+        "version": "1.8",
         "icon": "DownloaderHelper.png",
         "author": "hotlcc",
         "level": 2,
         "history": {
+            "v1.8": "新增仪表板活动种子组件，qb完美支持，tr尚未测试，有问题提Issue并@hotlcc",
             "v1.7": "优化了表单界面和一些逻辑。",
             "v1.6": "修复事件触发tr打标问题；表单界面优化。"
         }
