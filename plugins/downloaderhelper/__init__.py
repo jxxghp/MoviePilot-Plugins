@@ -3,14 +3,14 @@ import re
 import urllib
 from datetime import datetime, timedelta
 from threading import Event as ThreadEvent, RLock
-from typing import Any, List, Dict, Tuple, Optional, Set
+from typing import Any, List, Dict, Tuple, Optional, Set, Union
 from urllib.parse import urlparse
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from qbittorrentapi import TorrentDictionary
-from transmission_rpc import Torrent
+from qbittorrentapi import TorrentDictionary, TorrentState
+from transmission_rpc.torrent import Torrent, Status as TorrentStatus
 
 from app.core.config import settings
 from app.core.event import eventmanager, Event
@@ -19,7 +19,7 @@ from app.log import logger
 from app.modules.qbittorrent.qbittorrent import Qbittorrent
 from app.modules.transmission.transmission import Transmission
 from app.plugins import _PluginBase
-from app.plugins.downloaderhelper.module import TaskContext, TaskResult, Downloader
+from app.plugins.downloaderhelper.module import TaskContext, TaskResult, Downloader, TorrentField, TorrentFieldMap
 from app.schemas.types import EventType
 from app.utils.string import StringUtils
 
@@ -32,7 +32,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -63,7 +63,22 @@ class DownloaderHelper(_PluginBase):
     # 插件缺省配置
     __config_default: Dict[str, Any] = {
         'site_name_priority': True,
-        'tag_prefix': '站点/'
+        'tag_prefix': '站点/',
+        'dashboard_widget_size': 12,
+        'dashboard_widget_target_downloader': 'default',
+        'dashboard_widget_display_fields': [
+            TorrentField.NAME.name,
+            TorrentField.SELECT_SIZE.name,
+            TorrentField.COMPLETED.name,
+            TorrentField.STATE.name,
+            TorrentField.DOWNLOAD_SPEED.name,
+            TorrentField.UPLOAD_SPEED.name,
+            TorrentField.REMAINING_TIME.name,
+            TorrentField.RATIO.name,
+            TorrentField.TAGS.name,
+            TorrentField.ADD_TIME.name,
+            TorrentField.UPLOADED.name,
+        ]
     }
     # 插件用户配置
     __config: Dict[str, Any] = {}
@@ -84,6 +99,8 @@ class DownloaderHelper(_PluginBase):
         """
         初始化插件
         """
+        # 修正配置
+        config = self.__fix_config(config=config)
         # 加载插件配置
         self.__config = config
         # 解析tracker映射
@@ -117,9 +134,15 @@ class DownloaderHelper(_PluginBase):
         获取插件状态
         """
         state = True if self.__get_config_item(config_key='enable') and (
-                self.__get_config_item(config_key='cron') or self.__check_enable_listen()
-        ) and self.__check_enable_any_task() \
-            else False
+            (
+                (
+                    self.__get_config_item(config_key='cron')
+                    or self.__check_enable_listen()
+                )
+                and self.__check_enable_any_task()
+            )
+            or self.__check_enable_dashboard_widget()
+        ) else False
         return state
 
     @staticmethod
@@ -243,6 +266,11 @@ class DownloaderHelper(_PluginBase):
                 }]
             }]
         } for d in Downloader if d]
+        # 下载器字段选项
+        downloader_field_options = [{
+            'title': field.name_,
+            'value': field.name
+        } for field in TorrentField if field]
         # 返回form
         return [{
             'component': 'VForm',
@@ -399,6 +427,20 @@ class DownloaderHelper(_PluginBase):
                             'hint': '点击展开Tracker映射配置窗口。'
                         }
                     }]
+                }, {
+                    'component': 'VCol',
+                    'props': {
+                        'cols': 12,
+                        'xxl': 4, 'xl': 4, 'lg': 4, 'md': 4, 'sm': 6, 'xs': 12
+                    },
+                    'content': [{
+                        'component': 'VSwitch',
+                        'props': {
+                            'model': '_config_dashboard_dialog_closed',
+                            'label': '配置仪表板活动种子组件',
+                            'hint': '点击展开仪表板组件配置窗口。'
+                        }
+                    }]
                 }]
             }, {
                 'component': 'VDialog',
@@ -436,6 +478,116 @@ class DownloaderHelper(_PluginBase):
                                                 '例如：\n'
                                                 'chdbits.xyz:ptchdbits.co',
                                     'hint': 'Tracker映射。用于在站点打标签时，指定tracker和站点域名不同的种子的域名对应关系；前面为tracker域名（完整域名或者主域名皆可），中间是英文冒号，后面是站点域名。'
+                                }
+                            }]
+                        }]
+                    }]
+                }]
+            }, {
+                'component': 'VDialog',
+                'props': {
+                    'model': '_config_dashboard_dialog_closed',
+                    'max-width': '40rem'
+                },
+                'content': [{
+                    'component': 'VCard',
+                    'props': {
+                        'title': '配置仪表板活动种子组件',
+                        'style': {
+                            'padding': '0 20px 20px 20px'
+                        }
+                    },
+                    'content': [{
+                        'component': 'VDialogCloseBtn',
+                        'props': {
+                            'model': '_config_dashboard_dialog_closed'
+                        }
+                    }, {
+                        'component': 'VRow',
+                        'content': [{
+                            'component': 'VCol',
+                            'props': {
+                                'cols': 12,
+                                'xxl': 6, 'xl': 6, 'lg': 6, 'md': 6, 'sm': 6, 'xs': 12
+                            },
+                            'content': [{
+                                'component': 'VSwitch',
+                                'props': {
+                                    'model': 'enable_dashboard_widget',
+                                    'label': '启用仪表板组件',
+                                    'hint': '是否启用仪表板组件。'
+                                }
+                            }]
+                        }, {
+                            'component': 'VCol',
+                            'props': {
+                                'cols': 12,
+                                'xxl': 6, 'xl': 6, 'lg': 6, 'md': 6, 'sm': 6, 'xs': 12
+                            },
+                            'content': [{
+                                'component': 'VSelect',
+                                'props': {
+                                    'model': 'dashboard_widget_size',
+                                    'label': '组件尺寸',
+                                    'items': [
+                                        {'title': '100%', 'value': 12},
+                                        {'title': '2/3', 'value': 8},
+                                        {'title': '50%', 'value': 6},
+                                        {'title': '1/3', 'value': 4}
+                                    ],
+                                    'hint': '选择仪表板组件尺寸。'
+                                }
+                            }]
+                        }, {
+                            'component': 'VCol',
+                            'props': {
+                                'cols': 12,
+                                'xxl': 6, 'xl': 6, 'lg': 6, 'md': 6, 'sm': 6, 'xs': 12
+                            },
+                            'content': [{
+                                'component': 'VTextField',
+                                'props': {
+                                    'model': 'dashboard_widget_refresh',
+                                    'label': '刷新间隔(秒)',
+                                    'placeholder': '5',
+                                    'type': 'number',
+                                    'hint': '组件刷新时间间隔，单位为秒，缺省时不刷新。请合理配置，间隔太短可能会导致下载器假死。'
+                                }
+                            }]
+                        }, {
+                            'component': 'VCol',
+                            'props': {
+                                'cols': 12,
+                                'xxl': 6, 'xl': 6, 'lg': 6, 'md': 6, 'sm': 6, 'xs': 12
+                            },
+                            'content': [{
+                                'component': 'VSelect',
+                                'props': {
+                                    'model': 'dashboard_widget_target_downloader',
+                                    'label': '目标下载器',
+                                    'items': [
+                                        {'title': '系统默认下载器', 'value': 'default'},
+                                        {'title': Downloader.QB.name_, 'value': Downloader.QB.id},
+                                        {'title': Downloader.TR.name_, 'value': Downloader.TR.id}
+                                    ],
+                                    'hint': '选择要展示的目标下载器。'
+                                }
+                            }]
+                        }, {
+                            'component': 'VCol',
+                            'props': {
+                                'cols': 12,
+                                'xxl': 12, 'xl': 12, 'lg': 12, 'md': 12, 'sm': 12, 'xs': 12
+                            },
+                            'content': [{
+                                'component': 'VSelect',
+                                'props': {
+                                    'model': 'dashboard_widget_display_fields',
+                                    'label': '展示的字段',
+                                    'multiple': True,
+                                    'chips': True,
+                                    'items': downloader_field_options,
+                                    'hint': '选择要展示的字段，展示顺序以选择的顺序为准。'
                                 }
                             }]
                         }]
@@ -498,6 +650,41 @@ class DownloaderHelper(_PluginBase):
 
     def get_page(self) -> List[dict]:
         pass
+
+    def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+        """
+        获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、全局配置（自动刷新等）；3、仪表板页面元素配置json（含数据）
+        1、col配置参考：
+        {
+            "cols": 12, "md": 6
+        }
+        2、全局配置参考：
+        {
+            "refresh": 10 // 自动刷新时间，单位秒
+        }
+        3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
+        """
+        if not self.get_state() or not self.__check_enable_dashboard_widget():
+            return None
+        dashboard_widget_size = self.__get_config_item('dashboard_widget_size')
+        # 列配置
+        cols = {
+            'cols': 12,
+            'xxl': dashboard_widget_size,
+            'xl': dashboard_widget_size,
+            'lg': dashboard_widget_size,
+            'md': dashboard_widget_size,
+            'sm': 12,
+            'xs': 12
+        }
+        # 全局配置
+        attrs = {
+            'refresh': self.__get_config_item('dashboard_widget_refresh'),
+            'subtitle': '活动种子'
+        }
+        # 页面元素
+        elements = self.__get_dashboard_elememts()
+        return cols, attrs, elements
 
     def stop_service(self):
         """
@@ -603,6 +790,21 @@ class DownloaderHelper(_PluginBase):
         except Exception as e:
             logger.error(f"插件服务调度器停止异常: {str(e)}", exc_info=True)
 
+    def __fix_config(self, config: dict) -> dict:
+        """
+        修正配置
+        """
+        if not config:
+            config = {}
+        dashboard_widget_size = config.get('dashboard_widget_size')
+        config['dashboard_widget_size'] = int(dashboard_widget_size) if dashboard_widget_size else None
+        dashboard_widget_refresh = config.get('dashboard_widget_refresh')
+        config['dashboard_widget_refresh'] = int(dashboard_widget_refresh) if dashboard_widget_refresh else None
+        dashboard_widget_display_fields = config.get('dashboard_widget_display_fields')
+        config['dashboard_widget_display_fields'] = list(filter(lambda field: TorrentFieldMap.get(field), dashboard_widget_display_fields)) if dashboard_widget_display_fields else []
+        self.update_config(config=config)
+        return config
+
     def __get_config_item(self, config_key: str, use_default: bool = True) -> Any:
         """
         获取插件配置项
@@ -705,6 +907,13 @@ class DownloaderHelper(_PluginBase):
         """
         return True if self.__check_enable_qb_task() \
                        or self.__check_enable_tr_task() else False
+
+    def __check_enable_dashboard_widget(self) -> bool:
+        """
+        判断是否启用了仪表板组件
+        :return: 是否启用了仪表板组件
+        """
+        return True if self.__get_config_item('enable_dashboard_widget') else False
 
     @classmethod
     def __parse_tracker_for_qbittorrent(cls, torrent: TorrentDictionary) -> Optional[str]:
@@ -1530,6 +1739,304 @@ class DownloaderHelper(_PluginBase):
         transmission.delete_torrents(True, torrent.hashString)
         logger.info(f"'[TR]单个删种完成: hash = {torrent.hashString}, name = {torrent.get('name')}")
         return True
+
+    @staticmethod
+    def __ensure_torrent_fields(fields: List[Union[str, TorrentField]]) -> List[TorrentField]:
+        """
+        确保种子字段类型
+        """
+        result = []
+        if not fields:
+            return result
+        for field in fields:
+            if not field:
+                continue
+            if isinstance(field, str):
+                field = TorrentFieldMap.get(field)
+            if not field:
+                continue
+            if isinstance(field, TorrentField):
+                result.append(field)
+        return result
+
+    def __build_dashboard_widget_table_head_content(self, fields: List[Union[str, TorrentField]] = None) -> list:
+        """
+        构造仪表板组件表头内容
+        """
+        if not fields:
+            fields = self.__get_config_item('dashboard_widget_display_fields')
+        fields = self.__ensure_torrent_fields(fields=fields)
+        if not fields:
+            return []
+        return [{
+            'component': 'th',
+            'props': {
+                'class': 'text-start ps-4'
+            },
+            'text': field.name_
+        } for field in fields]
+
+    def __build_dashboard_widget_table_head(self, fields: List[Union[str, TorrentField]] = None) -> dict:
+        """
+        构造仪表板组件表头
+        """
+        return {
+            'component': 'thead',
+            'content': self.__build_dashboard_widget_table_head_content(fields=fields)
+        }
+
+    def __build_dashboard_widget_table_body_content(self, data: List[List[Any]], fields: List[Union[str, TorrentField]] = None) -> list:
+        """
+        构造仪表板组件表体内容
+        """
+        if data:
+            return [{
+                'component': 'tr',
+                'props': {
+                    'class': 'text-sm'
+                },
+                'content': [{
+                    'component': 'td',
+                    'props': {
+                        'class': 'whitespace-nowrap'
+                    },
+                    'text': col
+                } for col in row]
+            } for row in data if row]
+        else:
+            return [{
+                'component': 'tr',
+                'props': {
+                    'class': 'text-sm'
+                },
+                'content': [{
+                    'component': 'td',
+                    'props': {
+                        'colspan': len(fields),
+                        'class': 'text-center'
+                    },
+                    'text': '暂无数据'
+                }]
+            }]
+
+    def __build_dashboard_widget_table_body(self, data: List[List[Any]], fields: List[Union[str, TorrentField]] = None) -> dict:
+        """
+        构造仪表板组件表体内容
+        """
+        return {
+            'component': 'tbody',
+            'content': self.__build_dashboard_widget_table_body_content(data=data, fields=fields)
+        }
+
+    def __get_downloader_torrent_data(self, fields: List[Union[str, TorrentField]] = None):
+        """
+        获取下载器种子数据
+        """
+         # 目标下载器
+        target_downloader = self.__get_config_item('dashboard_widget_target_downloader')
+        if target_downloader == 'default':
+            target_downloader = settings.DEFAULT_DOWNLOADER
+        if not target_downloader:
+            return None
+        # 字段
+        if not fields:
+            fields = self.__get_config_item('dashboard_widget_display_fields')
+        fields = self.__ensure_torrent_fields(fields=fields)
+        if target_downloader == Downloader.QB.id:
+            return self.__get_qbittorrent_torrent_data(fields=fields)
+        elif target_downloader == Downloader.TR.id:
+            return self.__get_transmission_torrent_data(fields=fields)
+        else:
+            return None
+
+    def __get_qbittorrent_torrent_data(self, fields: List[Union[str, TorrentField]] = None):
+        """
+        获取qb种子数据
+        """
+        qbittorrent = Qbittorrent()
+        if not qbittorrent.qbc:
+            return None
+        # 字段
+        if not fields:
+            fields = self.__get_config_item('dashboard_widget_display_fields')
+        fields = self.__ensure_torrent_fields(fields=fields)
+        status = [TorrentState.DOWNLOADING.value, TorrentState.UPLOADING.value]
+        torrents, _ = qbittorrent.get_torrents(status=status)
+        if not torrents:
+            return None
+        # 按状态过滤
+        torrents = list(filter(lambda torrent: torrent.get(TorrentField.STATE.qb) in status, torrents))
+        # 按添加时间倒序排序
+        torrents = sorted(torrents, key=lambda torrent: torrent.get(TorrentField.ADD_TIME.qb), reverse=True)
+        return self.__convert_qbittorrent_torrents_data(torrents=torrents, fields=fields)
+
+    def __convert_qbittorrent_torrents_data(self, torrents: List[TorrentDictionary], fields: List[TorrentField]) -> List[List[Any]]:
+        """
+        转换qb种子数据
+        """
+        if not torrents or not fields:
+            return None
+        return [self.__convert_qbittorrent_torrent_data(torrent=torrent, fields=fields) for torrent in torrents if torrent]
+
+    def __process_torrent_for_qbittorrent(self, torrent: TorrentDictionary):
+        """
+        加工qb种子
+        """
+        if not torrent:
+            return
+        try:
+            # 剩余大小
+            remaining_size = torrent.get(TorrentField.SELECT_SIZE.qb) - torrent.get(TorrentField.COMPLETED.qb)
+            torrent[TorrentField.REMAINING.qb] = remaining_size
+            # 剩余时间
+            if torrent.get(TorrentField.STATE.qb) == TorrentState.DOWNLOADING.value:
+                download_speed = torrent.get(TorrentField.DOWNLOAD_SPEED.qb)
+                if download_speed <= 0:
+                    remaining_time = -1
+                remaining_time = remaining_size / download_speed
+            else:
+                remaining_time = 0
+            torrent[TorrentField.REMAINING_TIME.qb] = remaining_time
+        except Exception as e:
+            logger.error(f'加工qb种子: {str(e)}, torrent = {str(torrent)}', exc_info=True)
+            return None
+
+    def __convert_qbittorrent_torrent_data(self, torrent: TorrentDictionary, fields: List[TorrentField]) -> List[Any]:
+        """
+        转换qb种子数据
+        """
+        if not torrent or not fields:
+            return None
+        # 加工qb种子
+        self.__process_torrent_for_qbittorrent(torrent=torrent)
+        data = []
+        for field in fields:
+            value = self.__extract_torrent_value_for_qbittorrent(torrent=torrent, field=field)
+            data.append(value)
+        return data
+
+    def __extract_torrent_value_for_qbittorrent(self, torrent: TorrentDictionary, field: TorrentField) -> Any:
+        """
+        从qb种子中提取值
+        """
+        if not torrent or not field:
+            return None
+        try:
+            if not field.qb:
+                return None
+            value = torrent.get(field.qb)
+            if field.convertor:
+                value = field.convertor.convert(value)
+            return value
+        except Exception as e:
+            logger.error(f'从qb种子中提取值异常: {str(e)}, torrent = {str(torrent)}', exc_info=True)
+            return None
+
+    def __get_transmission_torrent_data(self, fields: List[Union[str, TorrentField]] = None):
+        """
+        获取tr种子数据
+        """
+        transmission = Transmission()
+        if not transmission.trc:
+            return None
+        # 字段
+        if not fields:
+            fields = self.__get_config_item('dashboard_widget_display_fields')
+        fields = self.__ensure_torrent_fields(fields=fields)
+        status = [TorrentStatus.DOWNLOADING.value, TorrentStatus.SEEDING.value]
+        torrents, _ = transmission.get_torrents(status=status)
+        if not torrents:
+            return None
+        # 按添加时间倒序排序
+        torrents = sorted(torrents, key=lambda torrent: torrent.fields.get(TorrentField.ADD_TIME.tr), reverse=True)
+        return self.__convert_transmission_torrents_data(torrents=torrents, fields=fields)
+
+    def __convert_transmission_torrents_data(self, torrents: List[Torrent], fields: List[TorrentField]) -> List[List[Any]]:
+        """
+        转换tr种子数据
+        """
+        if not torrents or not fields:
+            return None
+        return [self.__convert_transmission_torrent_data(torrent=torrent, fields=fields) for torrent in torrents if torrent]
+
+    def __process_torrent_for_transmission(self, torrent: Torrent):
+        """
+        加工tr种子
+        """
+        try:
+            # 选定大小
+            select_size = sum(x["bytesCompleted"] for x in torrent.fields["wanted"])
+            torrent.fields[TorrentField.SELECT_SIZE.tr] = select_size
+            # 已完成大小
+            completed = sum(x["bytesCompleted"] for x in torrent.fields["fileStats"])
+            torrent.fields[TorrentField.COMPLETED.tr] = completed
+            # 剩余大小
+            remaining_size = select_size - completed
+            torrent[TorrentField.REMAINING.tr] = remaining_size
+            # 剩余时间
+            if torrent.get(TorrentField.STATE.tr) == TorrentStatus.DOWNLOADING.value:
+                download_speed = torrent.get(TorrentField.DOWNLOAD_SPEED.qb)
+                if download_speed <= 0:
+                    remaining_time = -1
+                remaining_time = remaining_size / download_speed
+            else:
+                remaining_time = 0
+            torrent[TorrentField.REMAINING_TIME.tr] = remaining_time
+        except Exception as e:
+            logger.error(f'加工tr种子异常: {str(e)}, torrent = {str(torrent.fields)}', exc_info=True)
+            return None
+
+    def __convert_transmission_torrent_data(self, torrent: Torrent, fields: List[TorrentField]) -> List[Any]:
+        """
+        转换tr种子数据
+        """
+        if not torrent or not fields:
+            return None
+        # 加工tr种子
+        self.__process_torrent_for_transmission(torrent=torrent)
+        data = []
+        for field in fields:
+            value = self.__extract_torrent_value_for_transmission(torrent=torrent, field=field)
+            data.append(value)
+        return data
+
+    def __extract_torrent_value_for_transmission(self, torrent: Torrent, field: TorrentField) -> Any:
+        """
+        从tr种子中提取值
+        """
+        if not torrent or not field:
+            return None
+        try:
+            if not field.tr:
+                return None
+            value = torrent.get(field.tr)
+            if field.convertor:
+                value = field.convertor.convert(value)
+            return value
+        except Exception as e:
+            logger.error(f'从tr种子中提取值异常: {str(e)}, torrent = {str(torrent.fields)}', exc_info=True)
+            return None
+
+    def __get_dashboard_elememts(self) -> list:
+        """
+        获取仪表板元素
+        """
+        fields = self.__get_config_item('dashboard_widget_display_fields')
+        fields = self.__ensure_torrent_fields(fields=fields)
+        data = self.__get_downloader_torrent_data(fields=fields)
+        return [{
+            'component': 'VTable',
+            'props': {
+                'hover': True,
+                'style': {
+                    'height': '230px'
+                }
+            },
+            'content': [
+                self.__build_dashboard_widget_table_head(fields=fields),
+                self.__build_dashboard_widget_table_body(data=data, fields=fields)
+            ]
+        }]
 
     @eventmanager.register(EventType.DownloadAdded)
     def listen_download_added_event(self, event: Event = None):

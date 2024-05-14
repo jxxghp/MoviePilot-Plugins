@@ -1,5 +1,6 @@
 from typing import Set, List, Optional
 from enum import Enum
+from app.plugins.downloaderhelper.convertor import IConvertor, ByteSizeConvertor, PercentageConvertor, StateConvertor, SpeedConvertor, RatioConvertor, TimestampConvertor, LimitSpeedConvertor, LimitRatioConvertor, TimeIntervalConvertor
 
 
 class Downloader(Enum):
@@ -264,3 +265,42 @@ class TaskContext:
         获取操作用户名
         """
         return self.__username
+
+
+class TorrentField(Enum):
+    """
+    种子字段枚举
+    """
+    NAME = ('名称', 'name', 'name', None)
+    SELECT_SIZE = ('选定大小', 'size', '#SELECT_SIZE', ByteSizeConvertor())
+    TOTAL_SIZE = ('总大小', 'total_size', 'totalSize', ByteSizeConvertor())
+    PROGRESS = ('已完成', 'progress', 'percentDone', PercentageConvertor())
+    STATE = ('状态', 'state', '_status_str', StateConvertor())
+    DOWNLOAD_SPEED = ('下载速度', 'dlspeed', 'rateDownload', SpeedConvertor())
+    UPLOAD_SPEED = ('上传速度', 'upspeed', 'rateUpload', SpeedConvertor())
+    REMAINING_TIME = ('剩余时间', '#REMAINING_TIME', '#REMAINING_TIME', TimeIntervalConvertor())
+    RATIO = ('比率', 'ratio', 'uploadRatio', RatioConvertor())
+    CATEGORY = ('分类', 'category', None, None)
+    TAGS = ('标签', 'tags', 'labels', None)
+    ADD_TIME = ('添加时间', 'added_on', 'addedDate', TimestampConvertor())
+    COMPLETE_TIME = ('完成时间', 'completion_on', 'doneDate', TimestampConvertor())
+    DOWNLOAD_LIMIT = ('下载限制', 'dl_limit', 'downloadLimit', LimitSpeedConvertor())
+    UPLOAD_LIMIT = ('上传限制', 'up_limit', 'uploadLimit', LimitSpeedConvertor())
+    DOWNLOADED = ('已下载', 'downloaded', 'downloadedEver', ByteSizeConvertor())
+    UPLOADED = ('已上传', 'uploaded', 'uploadedEver', ByteSizeConvertor())
+    DOWNLOADED_SESSION = ('本次会话下载', 'downloaded_session', None, ByteSizeConvertor())
+    UPLOADED_SESSION = ('本次会话上传', 'uploaded_session', None, ByteSizeConvertor())
+    REMAINING = ('剩余', '#REMAINING', '#REMAINING', ByteSizeConvertor())
+    SAVE_PATH = ('保存路径', 'save_path', 'downloadDir', None)
+    COMPLETED = ('完成', 'completed', '#COMPLETED', ByteSizeConvertor())
+    RATIO_LIMIT = ('比率限制', 'ratio_limit', 'seedRatioLimit', LimitRatioConvertor())
+
+    def __init__(self, name_: str, qb: str, tr: str, convertor: IConvertor):
+        self.name_ = name_
+        self.qb = qb
+        self.tr = tr
+        self.convertor = convertor
+
+
+# TorrentField 映射
+TorrentFieldMap = dict((field.name, field) for field in TorrentField)
