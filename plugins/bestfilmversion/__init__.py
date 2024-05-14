@@ -448,7 +448,7 @@ class BestFilmVersion(_PluginBase):
                         continue
 
                     # 获取tmdb_id
-                    tmdb_id = item_info_resp.get("tmdbid")
+                    tmdb_id = item_info_resp.get("tmdbid") if server == 'plex' else item_info_resp.tmdbid
                     if not tmdb_id:
                         continue
                     # 识别媒体信息
@@ -597,7 +597,6 @@ class BestFilmVersion(_PluginBase):
     def plex_get_iteminfo(itemid) -> dict:
         url = f"https://metadata.provider.plex.tv/library/metadata/{itemid}" \
               f"?X-Plex-Token={settings.PLEX_TOKEN}"
-        ids = []
         try:
             resp = RequestUtils(accept_type="application/json, text/plain, */*").get_res(url=url)
             if resp:
@@ -611,11 +610,9 @@ class BestFilmVersion(_PluginBase):
                     if not id_list:
                         continue
 
-                    ids.append({'Name': 'TheMovieDb', 'Url': id_list[0]})
+                    return {'tmdbid': id_list[0].split("/")[-1]}
 
-                if not ids:
-                    return {}
-                return {'ExternalUrls': ids}
+                return {}
             else:
                 logger.error(f"Plex/Items 未获取到返回数据")
                 return {}
@@ -662,7 +659,7 @@ class BestFilmVersion(_PluginBase):
                 if info.item_type not in ['Movie', 'MOV', 'movie']:
                     return
                 # 获取tmdb_id
-                tmdb_id = info.get("tmdbid")
+                tmdb_id = info.tmdbid
             else:
                 tmdb_id = data.tmdb_id
                 if (data.channel == 'jellyfin'
