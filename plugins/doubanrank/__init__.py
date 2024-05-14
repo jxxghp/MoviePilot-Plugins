@@ -17,6 +17,7 @@ from app.core.context import MediaInfo
 from app.core.metainfo import MetaInfo
 from app.log import logger
 from app.plugins import _PluginBase
+from app.schemas import MediaType
 from app.utils.dom import DomUtils
 from app.utils.http import RequestUtils
 
@@ -29,7 +30,7 @@ class DoubanRank(_PluginBase):
     # 插件图标
     plugin_icon = "movie.jpg"
     # 插件版本
-    plugin_version = "1.9"
+    plugin_version = "1.9.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -551,10 +552,15 @@ class DoubanRank(_PluginBase):
                     if self._event.is_set():
                         logger.info(f"订阅服务停止")
                         return
-
+                    mtype = None
                     title = rss_info.get('title')
                     douban_id = rss_info.get('doubanid')
                     year = rss_info.get('year')
+                    type_str = rss_info.get('type')
+                    if type_str == "movie":
+                        mtype = MediaType.MOVIE
+                    elif type_str:
+                        mtype = MediaType.TV
                     unique_flag = f"doubanrank: {title} (DB:{douban_id})"
                     # 检查是否已处理过
                     if unique_flag in [h.get("unique") for h in history]:
@@ -562,6 +568,8 @@ class DoubanRank(_PluginBase):
                     # 元数据
                     meta = MetaInfo(title)
                     meta.year = year
+                    if mtype:
+                        meta.type = mtype
                     # 识别媒体信息
                     if douban_id:
                         # 识别豆瓣信息

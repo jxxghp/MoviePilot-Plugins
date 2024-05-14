@@ -93,11 +93,12 @@
         "name": "豆瓣榜单订阅",
         "description": "监控豆瓣热门榜单，自动添加订阅。",
         "labels": "订阅",
-        "version": "1.9",
+        "version": "1.9.1",
         "icon": "movie.jpg",
         "author": "jxxghp",
         "level": 2,
         "history": {
+            "v1.9.1": "优化媒体类型的判断处理",
             "v1.9": "增强API安全性",
             "v1.8": "订阅历史记录支持手动删除，需要主程序升级至v1.8.4+版本"
         }

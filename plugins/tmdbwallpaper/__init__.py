@@ -233,10 +233,10 @@ class TmdbWallpaper(_PluginBase):
             try:
                 savepath = Path(self._savepath)
                 logger.info(f"下载壁纸：{url}")
-                with RequestUtils().get_res(url) as r:
-                    if r and r.status_code == 200:
-                        with open(savepath / filename, "wb") as f:
-                            f.write(r.content)
+                r = RequestUtils().get_res(url)
+                if r and r.status_code == 200:
+                    with open(savepath / filename, "wb") as f:
+                        f.write(r.content)
             except Exception as e:
                 logger.error(f"下载壁纸失败：{str(e)}")
         else:

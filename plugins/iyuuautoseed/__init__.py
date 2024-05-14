@@ -945,7 +945,7 @@ class IYUUAutoSeed(_PluginBase):
             if not apikey:
                 logger.error("m-team站点的apikey未配置")
                 return None
-            with RequestUtils(
+            res = RequestUtils(
                     headers={
                         'Content-Type': 'application/json',
                         'User-Agent': f'{site.get("ua")}',
@@ -954,11 +954,11 @@ class IYUUAutoSeed(_PluginBase):
                     }
             ).post_res(f"{site.get('url')}api/torrent/genDlToken", params={
                 'id': tid
-            }) as res:
-                if not res:
-                    logger.warn(f"m-team 获取种子下载链接失败：{tid}")
-                    return None
-                return res.json().get("data")
+            })
+            if not res:
+                logger.warn(f"m-team 获取种子下载链接失败：{tid}")
+                return None
+            return res.json().get("data")
 
         def __is_special_site(url: str):
             """
