@@ -134,14 +134,14 @@ class DownloaderHelper(_PluginBase):
         获取插件状态
         """
         state = True if self.__get_config_item(config_key='enable') and (
-            (
                 (
-                    self.__get_config_item(config_key='cron')
-                    or self.__check_enable_listen()
+                        (
+                                self.__get_config_item(config_key='cron')
+                                or self.__check_enable_listen()
+                        )
+                        and self.__check_enable_any_task()
                 )
-                and self.__check_enable_any_task()
-            )
-            or self.__check_enable_dashboard_widget()
+                or self.__check_enable_dashboard_widget()
         ) else False
         return state
 
@@ -474,9 +474,9 @@ class DownloaderHelper(_PluginBase):
                                     'model': 'tracker_mappings',
                                     'label': 'Tracker映射',
                                     'placeholder': '格式：\n'
-                                                '<tracker-domain>:<site-domain>\n\n'
-                                                '例如：\n'
-                                                'chdbits.xyz:ptchdbits.co',
+                                                   '<tracker-domain>:<site-domain>\n\n'
+                                                   '例如：\n'
+                                                   'chdbits.xyz:ptchdbits.co',
                                     'hint': 'Tracker映射。用于在站点打标签时，指定tracker和站点域名不同的种子的域名对应关系；前面为tracker域名（完整域名或者主域名皆可），中间是英文冒号，后面是站点域名。'
                                 }
                             }]
@@ -801,7 +801,8 @@ class DownloaderHelper(_PluginBase):
         dashboard_widget_refresh = config.get('dashboard_widget_refresh')
         config['dashboard_widget_refresh'] = int(dashboard_widget_refresh) if dashboard_widget_refresh else None
         dashboard_widget_display_fields = config.get('dashboard_widget_display_fields')
-        config['dashboard_widget_display_fields'] = list(filter(lambda field: TorrentFieldMap.get(field), dashboard_widget_display_fields)) if dashboard_widget_display_fields else []
+        config['dashboard_widget_display_fields'] = list(filter(lambda field: TorrentFieldMap.get(field),
+                                                                dashboard_widget_display_fields)) if dashboard_widget_display_fields else []
         self.update_config(config=config)
         return config
 
@@ -1785,7 +1786,9 @@ class DownloaderHelper(_PluginBase):
             'content': self.__build_dashboard_widget_table_head_content(fields=fields)
         }
 
-    def __build_dashboard_widget_table_body_content(self, data: List[List[Any]], fields: List[Union[str, TorrentField]] = None) -> list:
+    @staticmethod
+    def __build_dashboard_widget_table_body_content(data: List[List[Any]],
+                                                    fields: List[Union[str, TorrentField]] = None) -> list:
         """
         构造仪表板组件表体内容
         """
@@ -1819,7 +1822,8 @@ class DownloaderHelper(_PluginBase):
                 }]
             }]
 
-    def __build_dashboard_widget_table_body(self, data: List[List[Any]], fields: List[Union[str, TorrentField]] = None) -> dict:
+    def __build_dashboard_widget_table_body(self, data: List[List[Any]],
+                                            fields: List[Union[str, TorrentField]] = None) -> dict:
         """
         构造仪表板组件表体内容
         """
@@ -1832,7 +1836,7 @@ class DownloaderHelper(_PluginBase):
         """
         获取下载器种子数据
         """
-         # 目标下载器
+        # 目标下载器
         target_downloader = self.__get_config_item('dashboard_widget_target_downloader')
         if target_downloader == 'default':
             target_downloader = settings.DEFAULT_DOWNLOADER
@@ -1870,15 +1874,18 @@ class DownloaderHelper(_PluginBase):
         torrents = sorted(torrents, key=lambda torrent: torrent.get(TorrentField.ADD_TIME.qb), reverse=True)
         return self.__convert_qbittorrent_torrents_data(torrents=torrents, fields=fields)
 
-    def __convert_qbittorrent_torrents_data(self, torrents: List[TorrentDictionary], fields: List[TorrentField]) -> List[List[Any]]:
+    def __convert_qbittorrent_torrents_data(self, torrents: List[TorrentDictionary],
+                                            fields: List[TorrentField]) -> Optional[List[List[Any]]]:
         """
         转换qb种子数据
         """
         if not torrents or not fields:
             return None
-        return [self.__convert_qbittorrent_torrent_data(torrent=torrent, fields=fields) for torrent in torrents if torrent]
+        return [self.__convert_qbittorrent_torrent_data(torrent=torrent, fields=fields) for torrent in torrents if
+                torrent]
 
-    def __process_torrent_for_qbittorrent(self, torrent: TorrentDictionary):
+    @staticmethod
+    def __process_torrent_for_qbittorrent(torrent: TorrentDictionary):
         """
         加工qb种子
         """
@@ -1893,7 +1900,8 @@ class DownloaderHelper(_PluginBase):
                 download_speed = torrent.get(TorrentField.DOWNLOAD_SPEED.qb)
                 if download_speed <= 0:
                     remaining_time = -1
-                remaining_time = remaining_size / download_speed
+                else:
+                    remaining_time = remaining_size / download_speed
             else:
                 remaining_time = 0
             torrent[TorrentField.REMAINING_TIME.qb] = remaining_time
@@ -1901,7 +1909,8 @@ class DownloaderHelper(_PluginBase):
             logger.error(f'加工qb种子: {str(e)}, torrent = {str(torrent)}', exc_info=True)
             return None
 
-    def __convert_qbittorrent_torrent_data(self, torrent: TorrentDictionary, fields: List[TorrentField]) -> List[Any]:
+    def __convert_qbittorrent_torrent_data(self, torrent: TorrentDictionary,
+                                           fields: List[TorrentField]) -> Optional[List[Any]]:
         """
         转换qb种子数据
         """
@@ -1915,7 +1924,8 @@ class DownloaderHelper(_PluginBase):
             data.append(value)
         return data
 
-    def __extract_torrent_value_for_qbittorrent(self, torrent: TorrentDictionary, field: TorrentField) -> Any:
+    @staticmethod
+    def __extract_torrent_value_for_qbittorrent(torrent: TorrentDictionary, field: TorrentField) -> Any:
         """
         从qb种子中提取值
         """
@@ -1951,15 +1961,18 @@ class DownloaderHelper(_PluginBase):
         torrents = sorted(torrents, key=lambda torrent: torrent.fields.get(TorrentField.ADD_TIME.tr), reverse=True)
         return self.__convert_transmission_torrents_data(torrents=torrents, fields=fields)
 
-    def __convert_transmission_torrents_data(self, torrents: List[Torrent], fields: List[TorrentField]) -> List[List[Any]]:
+    def __convert_transmission_torrents_data(self, torrents: List[Torrent],
+                                             fields: List[TorrentField]) -> Optional[List[List[Any]]]:
         """
         转换tr种子数据
         """
         if not torrents or not fields:
             return None
-        return [self.__convert_transmission_torrent_data(torrent=torrent, fields=fields) for torrent in torrents if torrent]
+        return [self.__convert_transmission_torrent_data(torrent=torrent, fields=fields) for torrent in torrents if
+                torrent]
 
-    def __process_torrent_for_transmission(self, torrent: Torrent):
+    @staticmethod
+    def __process_torrent_for_transmission(torrent: Torrent):
         """
         加工tr种子
         """
@@ -1972,21 +1985,23 @@ class DownloaderHelper(_PluginBase):
             torrent.fields[TorrentField.COMPLETED.tr] = completed
             # 剩余大小
             remaining_size = select_size - completed
-            torrent[TorrentField.REMAINING.tr] = remaining_size
+            torrent.fields[TorrentField.REMAINING.tr] = remaining_size
             # 剩余时间
             if torrent.get(TorrentField.STATE.tr) == TorrentStatus.DOWNLOADING.value:
                 download_speed = torrent.get(TorrentField.DOWNLOAD_SPEED.qb)
                 if download_speed <= 0:
                     remaining_time = -1
-                remaining_time = remaining_size / download_speed
+                else:
+                    remaining_time = remaining_size / download_speed
             else:
                 remaining_time = 0
-            torrent[TorrentField.REMAINING_TIME.tr] = remaining_time
+            torrent.fields[TorrentField.REMAINING_TIME.tr] = remaining_time
         except Exception as e:
             logger.error(f'加工tr种子异常: {str(e)}, torrent = {str(torrent.fields)}', exc_info=True)
             return None
 
-    def __convert_transmission_torrent_data(self, torrent: Torrent, fields: List[TorrentField]) -> List[Any]:
+    def __convert_transmission_torrent_data(self, torrent: Torrent,
+                                            fields: List[TorrentField]) -> Optional[List[Any]]:
         """
         转换tr种子数据
         """
@@ -2000,7 +2015,8 @@ class DownloaderHelper(_PluginBase):
             data.append(value)
         return data
 
-    def __extract_torrent_value_for_transmission(self, torrent: Torrent, field: TorrentField) -> Any:
+    @staticmethod
+    def __extract_torrent_value_for_transmission(torrent: Torrent, field: TorrentField) -> Any:
         """
         从tr种子中提取值
         """
@@ -2057,8 +2073,8 @@ class DownloaderHelper(_PluginBase):
         logger.info('下载添加事件监听任务执行开始...')
         # enable_seeding=True是针对辅种添加种子并跳过校验的场景
         context = TaskContext().enable_seeding(True) \
-                               .enable_tagging(True) \
-                               .enable_delete(False)
+            .enable_tagging(True) \
+            .enable_delete(False)
         _hash = event.event_data.get('hash')
         if _hash:
             context.select_torrent(torrent=_hash)
@@ -2087,8 +2103,8 @@ class DownloaderHelper(_PluginBase):
         logger.info('源文件删除事件监听任务执行开始...')
         # 针对源文件监听事件只需要处理删种
         context = TaskContext().enable_seeding(False) \
-                               .enable_tagging(False) \
-                               .enable_delete(True) \
-                               .set_deleted_event_data(event.event_data)
+            .enable_tagging(False) \
+            .enable_delete(True) \
+            .set_deleted_event_data(event.event_data)
         self.__block_run(context=context)
         logger.info('源文件删除事件监听任务执行结束')

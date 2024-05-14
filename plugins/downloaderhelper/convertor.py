@@ -6,10 +6,12 @@ from app.utils.string import StringUtils
 from app.utils.singleton import Singleton
 from app.log import logger
 
+
 class IConvertor(metaclass=ABCMeta):
     """
     转换器接口
     """
+
     @abstractmethod
     def convert(self, data: any) -> any:
         """
@@ -17,10 +19,12 @@ class IConvertor(metaclass=ABCMeta):
         """
         pass
 
+
 class ByteSizeConvertor(IConvertor, metaclass=Singleton):
     """
     byte size 转换器
     """
+
     def convert(self, data: any) -> any:
         if data is None:
             return None
@@ -30,10 +34,12 @@ class ByteSizeConvertor(IConvertor, metaclass=Singleton):
             logger.error(f'{__name__} Error: {str(e)}, data = {data}', exc_info=True)
             return None
 
+
 class PercentageConvertor(IConvertor, metaclass=Singleton):
     """
     百分比转换器
     """
+
     def convert(self, data: any) -> any:
         if data is None:
             return None
@@ -43,10 +49,12 @@ class PercentageConvertor(IConvertor, metaclass=Singleton):
             logger.error(f'{__name__} Error: {str(e)}, data = {data}', exc_info=True)
             return None
 
+
 class StateConvertor(IConvertor, metaclass=Singleton):
     """
     状态转换器
     """
+
     def convert(self, data: any) -> any:
         if data is None:
             return None
@@ -66,10 +74,12 @@ class StateConvertor(IConvertor, metaclass=Singleton):
             logger.error(f'{__name__} Error: {str(e)}, data = {data}', exc_info=True)
             return None
 
+
 class SpeedConvertor(IConvertor, metaclass=Singleton):
     """
     速度转换器
     """
+
     def convert(self, data: any) -> any:
         if data is None:
             return None
@@ -82,10 +92,12 @@ class SpeedConvertor(IConvertor, metaclass=Singleton):
             logger.error(f'{__name__} Error: {str(e)}, data = {data}', exc_info=True)
             return None
 
+
 class RatioConvertor(IConvertor, metaclass=Singleton):
     """
     比率(分享率)转换器
     """
+
     def convert(self, data: any) -> any:
         if data is None:
             return None
@@ -95,10 +107,12 @@ class RatioConvertor(IConvertor, metaclass=Singleton):
             logger.error(f'{__name__} Error: {str(e)}, data = {data}', exc_info=True)
             return None
 
+
 class TimestampConvertor(IConvertor, metaclass=Singleton):
     """
     时间戳转换器
     """
+
     def convert(self, data: any) -> any:
         if data is None:
             return None
@@ -108,10 +122,12 @@ class TimestampConvertor(IConvertor, metaclass=Singleton):
             logger.error(f'{__name__} Error: {str(e)}, data = {data}', exc_info=True)
             return None
 
+
 class TimeIntervalConvertor(IConvertor, metaclass=Singleton):
     """
     时间间隔转换器
     """
+
     def convert(self, data: any) -> any:
         if data is None:
             return None
@@ -125,10 +141,12 @@ class TimeIntervalConvertor(IConvertor, metaclass=Singleton):
             logger.error(f'{__name__} Error: {str(e)}, data = {data}', exc_info=True)
             return None
 
+
 class LimitSpeedConvertor(IConvertor, metaclass=Singleton):
     """
     限制速度转换器
     """
+
     def convert(self, data: any) -> any:
         if data is None:
             return None
@@ -140,10 +158,12 @@ class LimitSpeedConvertor(IConvertor, metaclass=Singleton):
             logger.error(f'{__name__} Error: {str(e)}, data = {data}', exc_info=True)
             return None
 
+
 class LimitRatioConvertor(IConvertor, metaclass=Singleton):
     """
     限制比率(分享率)转换器
     """
+
     def convert(self, data: any) -> any:
         if data is None:
             return None
