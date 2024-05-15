@@ -275,7 +275,7 @@ class TorrentField(Enum):
     SELECT_SIZE = ('选定大小', 'size', '#SELECT_SIZE', ByteSizeConvertor())
     TOTAL_SIZE = ('总大小', 'total_size', 'totalSize', ByteSizeConvertor())
     PROGRESS = ('已完成', 'progress', 'percentDone', PercentageConvertor())
-    STATE = ('状态', 'state', '_status_str', StateConvertor())
+    STATE = ('状态', 'state', 'status', StateConvertor())
     DOWNLOAD_SPEED = ('下载速度', 'dlspeed', 'rateDownload', SpeedConvertor())
     UPLOAD_SPEED = ('上传速度', 'upspeed', 'rateUpload', SpeedConvertor())
     REMAINING_TIME = ('剩余时间', '#REMAINING_TIME', '#REMAINING_TIME', TimeIntervalConvertor())

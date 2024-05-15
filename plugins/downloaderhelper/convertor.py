@@ -1,7 +1,6 @@
-from qbittorrentapi import TorrentState
-from transmission_rpc.torrent import Status as TorrentStatus
-
 from abc import ABCMeta, abstractmethod
+from qbittorrentapi import TorrentState
+
 from app.utils.string import StringUtils
 from app.utils.singleton import Singleton
 from app.log import logger
@@ -64,11 +63,19 @@ class StateConvertor(IConvertor, metaclass=Singleton):
                 return '做种'
             if data == TorrentState.DOWNLOADING.value:
                 return '下载中'
+            if data == TorrentState.PAUSED_DOWNLOAD.value:
+                return '暂停'
+            if data == TorrentState.STALLED_DOWNLOAD.value:
+                return '等待'
             # tr
-            if data == TorrentStatus.SEEDING.value:
+            if data == 6:
                 return '做种'
-            if data == TorrentStatus.DOWNLOADING.value:
+            if data == 4:
                 return '下载中'
+            if data == 0:
+                return '暂停'
+            if data == 3:
+                return '等待'
             return data
         except Exception as e:
             logger.error(f'{__name__} Error: {str(e)}, data = {data}', exc_info=True)
