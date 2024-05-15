@@ -702,11 +702,12 @@
         "name": "清理QB无效做种",
         "description": "清理已经被站点删除的种子及对应源文件，仅支持QB",
         "labels": "Qbittorrent",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "clean_a.png",
         "author": "DzAvril",
         "level": 1,
         "history": {
+            "v1.2": "修复配置页空白的问题",
             "v1.1": "更新使用说明，以防使用不当误删文件",
             "v1.0": "定时清理已经被站点删除的种子及对应源文件"
         }
