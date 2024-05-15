@@ -14,6 +14,7 @@ from transmission_rpc.torrent import Torrent, Status as TorrentStatus
 
 from app.core.config import settings
 from app.core.event import eventmanager, Event
+from app.core.module import ModuleManager
 from app.helper.sites import SitesHelper
 from app.log import logger
 from app.modules.qbittorrent.qbittorrent import Qbittorrent
@@ -32,7 +33,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -54,10 +55,6 @@ class DownloaderHelper(_PluginBase):
     __exit_event: ThreadEvent = ThreadEvent()
     # 任务锁
     __task_lock: RLock = RLock()
-
-    # 依赖组件
-    # 站点帮助组件
-    __sites_helper: SitesHelper = SitesHelper()
 
     # 配置相关
     # 插件缺省配置
@@ -99,6 +96,9 @@ class DownloaderHelper(_PluginBase):
         """
         初始化插件
         """
+        # 停止现有服务
+        self.stop_service()
+
         # 修正配置
         config = self.__fix_config(config=config)
         # 加载插件配置
@@ -110,9 +110,6 @@ class DownloaderHelper(_PluginBase):
         exclude_tags = self.__get_config_item(config_key='exclude_tags')
         self.__exclude_tags = self.__split_tags(tags=exclude_tags)
         logger.info(f"插件配置加载完成：{config}")
-
-        # 停止现有服务
-        self.stop_service()
 
         # 如果需要立即运行一次
         if self.__get_config_item(config_key='run_once'):
@@ -666,6 +663,9 @@ class DownloaderHelper(_PluginBase):
         """
         if not self.get_state() or not self.__check_enable_dashboard_widget():
             return None
+        if self.__exit_event.is_set():
+            logger.warn('插件服务正在退出，操作取消')
+            return None
         dashboard_widget_size = self.__get_config_item('dashboard_widget_size')
         # 列配置
         cols = {
@@ -679,9 +679,10 @@ class DownloaderHelper(_PluginBase):
         }
         # 全局配置
         attrs = {
-            'refresh': self.__get_config_item('dashboard_widget_refresh'),
             'subtitle': '活动种子'
         }
+        if self.__check_target_downloader():
+            attrs['refresh'] = self.__get_config_item('dashboard_widget_refresh')
         # 页面元素
         elements = self.__get_dashboard_elememts()
         return cols, attrs, elements
@@ -694,7 +695,7 @@ class DownloaderHelper(_PluginBase):
             logger.info('尝试停止插件服务...')
             self.__exit_event.set()
             self.__stop_scheduler()
-            logger.info('插件服务停止成功')
+            logger.info('插件服务停止完成')
         except Exception as e:
             logger.error(f"插件服务停止异常: {str(e)}", exc_info=True)
         finally:
@@ -855,9 +856,9 @@ class DownloaderHelper(_PluginBase):
         :param site_domain: 站点域名
         :return: 站点信息
         """
-        if not site_domain or not self.__sites_helper:
+        if not site_domain:
             return None
-        return self.__sites_helper.get_indexer(site_domain)
+        return SitesHelper().get_indexer(site_domain)
 
     def __check_enable_listen(self) -> bool:
         """
@@ -1264,6 +1265,43 @@ class DownloaderHelper(_PluginBase):
             text += '\n————————————\n'
         return text
 
+    def __get_system_module_instance(self, module_id: str) -> Union[Qbittorrent, Transmission]:
+        """
+        获取系统模块实例
+        """
+        if not module_id:
+            return None
+        module_manager = ModuleManager()
+        running_modules = module_manager._running_modules
+        if not running_modules:
+            return None
+        module = running_modules.get(module_id)
+        return module if module else None
+
+    def __get_qbittorrent(self) -> Qbittorrent:
+        """
+        获取qb实例
+        """
+        module = self.__get_system_module_instance(module_id='QbittorrentModule')
+        if not module:
+            return None
+        qbittorrent = getattr(module, 'qbittorrent')
+        if not qbittorrent or not getattr(qbittorrent, 'qbc'):
+            return None
+        return qbittorrent
+
+    def __get_transmission(self) -> Transmission:
+        """
+        获取tr实例
+        """
+        module = self.__get_system_module_instance(module_id='TransmissionModule')
+        if not module:
+            return None
+        transmission = getattr(module, 'transmission')
+        if not transmission or not getattr(transmission, 'trc'):
+            return None
+        return transmission
+
     def __try_run(self, context: TaskContext = None):
         """
         尝试运行插件任务
@@ -1342,8 +1380,8 @@ class DownloaderHelper(_PluginBase):
         # 任务结果
         result = TaskResult(downloader_name)
         try:
-            qbittorrent = Qbittorrent()
-            if not qbittorrent.qbc:
+            qbittorrent = self.__get_qbittorrent()
+            if not qbittorrent:
                 return context
 
             logger.info(f'下载器[{downloader_name}]任务执行开始...')
@@ -1553,8 +1591,8 @@ class DownloaderHelper(_PluginBase):
         result = TaskResult(downloader_name)
 
         try:
-            transmission = Transmission()
-            if not transmission.trc:
+            transmission = self.__get_transmission()
+            if not transmission:
                 return context
 
             logger.info(f'下载器[{downloader_name}]任务执行开始...')
@@ -1786,9 +1824,7 @@ class DownloaderHelper(_PluginBase):
             'content': self.__build_dashboard_widget_table_head_content(fields=fields)
         }
 
-    @staticmethod
-    def __build_dashboard_widget_table_body_content(data: List[List[Any]],
-                                                    fields: List[Union[str, TorrentField]] = None) -> list:
+    def __build_dashboard_widget_table_body_content(self, data: List[List[Any]], fields: List[Union[str, TorrentField]] = None) -> list:
         """
         构造仪表板组件表体内容
         """
@@ -1807,6 +1843,7 @@ class DownloaderHelper(_PluginBase):
                 } for col in row]
             } for row in data if row]
         else:
+            empty_text = '暂无数据' if self.__check_target_downloader() else '目标下载器配置无效'
             return [{
                 'component': 'tr',
                 'props': {
@@ -1818,7 +1855,7 @@ class DownloaderHelper(_PluginBase):
                         'colspan': len(fields),
                         'class': 'text-center'
                     },
-                    'text': '暂无数据'
+                    'text': empty_text
                 }]
             }]
 
@@ -1832,14 +1869,37 @@ class DownloaderHelper(_PluginBase):
             'content': self.__build_dashboard_widget_table_body_content(data=data, fields=fields)
         }
 
+    def __get_target_downloader_id(self) -> str:
+        """
+        获取目标下载器id
+        """
+        target_downloader = self.__get_config_item('dashboard_widget_target_downloader')
+        if target_downloader == 'default':
+            target_downloader = settings.DEFAULT_DOWNLOADER
+        if not target_downloader:
+            return None
+        return target_downloader
+
+    def __check_target_downloader(self) -> bool:
+        """
+        检查目标下载器是否有效
+        """
+        target_downloader = self.__get_target_downloader_id()
+        if not target_downloader:
+            return False
+        if target_downloader == Downloader.QB.id:
+            return self.__get_qbittorrent() is not None
+        elif target_downloader == Downloader.TR.id:
+            return self.__get_transmission() is not None
+        else:
+            return False
+
     def __get_downloader_torrent_data(self, fields: List[Union[str, TorrentField]] = None):
         """
         获取下载器种子数据
         """
         # 目标下载器
-        target_downloader = self.__get_config_item('dashboard_widget_target_downloader')
-        if target_downloader == 'default':
-            target_downloader = settings.DEFAULT_DOWNLOADER
+        target_downloader = self.__get_target_downloader_id()
         if not target_downloader:
             return None
         # 字段
@@ -1857,19 +1917,29 @@ class DownloaderHelper(_PluginBase):
         """
         获取qb种子数据
         """
-        qbittorrent = Qbittorrent()
-        if not qbittorrent.qbc:
+        if self.__exit_event.is_set():
+            logger.warn('插件服务正在退出，操作取消')
+            return None
+        qbittorrent = self.__get_qbittorrent()
+        if not qbittorrent:
             return None
         # 字段
         if not fields:
             fields = self.__get_config_item('dashboard_widget_display_fields')
         fields = self.__ensure_torrent_fields(fields=fields)
-        status = [TorrentState.DOWNLOADING.value, TorrentState.UPLOADING.value]
-        torrents, _ = qbittorrent.get_torrents(status=status)
-        if not torrents:
+        # 活动种子
+        torrents, error = qbittorrent.get_torrents(status=['active'])
+        if error:
             return None
-        # 按状态过滤
-        torrents = list(filter(lambda torrent: torrent.get(TorrentField.STATE.qb) in status, torrents))
+        torrent_hashs = set([torrent.get('hash') for torrent in torrents if torrent and torrent.get('hash')])
+        # 未下载完的种子
+        downloading_torrents, _ = qbittorrent.get_torrents(status=['downloading'])
+        if downloading_torrents:
+            for downloading_torrent in downloading_torrents:
+                torrent_hash = downloading_torrent.get('hash')
+                if not torrent_hash or torrent_hash in torrent_hashs:
+                    continue
+                torrents.append(downloading_torrent)
         # 按添加时间倒序排序
         torrents = sorted(torrents, key=lambda torrent: torrent.get(TorrentField.ADD_TIME.qb), reverse=True)
         return self.__convert_qbittorrent_torrents_data(torrents=torrents, fields=fields)
@@ -1942,19 +2012,46 @@ class DownloaderHelper(_PluginBase):
             logger.error(f'从qb种子中提取值异常: {str(e)}, torrent = {str(torrent)}', exc_info=True)
             return None
 
+    def __build_transmission_field_arguments(self, fields: List[TorrentField]) -> List[str]:
+        """
+        构造tr字段查询参数
+        """
+        if not fields:
+            return []
+        arguments = [field.tr for field in fields if field and field.tr and not field.tr.startswith('#')]
+        arguments.append('id')
+        arguments.append(TorrentField.NAME.tr)
+        arguments.append('hashString')
+        # 处理依赖的字段
+        if TorrentField.SELECT_SIZE in fields:
+            arguments.append('wanted')
+        if TorrentField.COMPLETED in fields:
+            arguments.append('fileStats')
+        if TorrentField.REMAINING in fields:
+            arguments.append('wanted')
+            arguments.append('fileStats')
+        if TorrentField.REMAINING_TIME in fields:
+            arguments.append(TorrentField.STATE.tr)
+            arguments.append(TorrentField.DOWNLOAD_SPEED.tr)
+            arguments.append('wanted')
+            arguments.append('fileStats')
+        return list(set(arguments))
+
     def __get_transmission_torrent_data(self, fields: List[Union[str, TorrentField]] = None):
         """
         获取tr种子数据
         """
-        transmission = Transmission()
-        if not transmission.trc:
+        if self.__exit_event.is_set():
+            logger.warn('插件服务正在退出，操作取消')
+            return None
+        transmission = self.__get_transmission()
+        if not transmission:
             return None
         # 字段
         if not fields:
             fields = self.__get_config_item('dashboard_widget_display_fields')
         fields = self.__ensure_torrent_fields(fields=fields)
-        status = [TorrentStatus.DOWNLOADING.value, TorrentStatus.SEEDING.value]
-        torrents, _ = transmission.get_torrents(status=status)
+        torrents, _ = transmission.trc.get_recently_active_torrents(arguments=self.__build_transmission_field_arguments(fields=fields))
         if not torrents:
             return None
         # 按添加时间倒序排序
@@ -1988,7 +2085,7 @@ class DownloaderHelper(_PluginBase):
             torrent.fields[TorrentField.REMAINING.tr] = remaining_size
             # 剩余时间
             if torrent.get(TorrentField.STATE.tr) == TorrentStatus.DOWNLOADING.value:
-                download_speed = torrent.get(TorrentField.DOWNLOAD_SPEED.qb)
+                download_speed = torrent.get(TorrentField.DOWNLOAD_SPEED.tr)
                 if download_speed <= 0:
                     remaining_time = -1
                 else:
@@ -2037,13 +2134,21 @@ class DownloaderHelper(_PluginBase):
         """
         获取仪表板元素
         """
+        if self.__exit_event.is_set():
+            logger.warn('插件服务正在退出，操作取消')
+            return None
         fields = self.__get_config_item('dashboard_widget_display_fields')
         fields = self.__ensure_torrent_fields(fields=fields)
         data = self.__get_downloader_torrent_data(fields=fields)
+        if self.__exit_event.is_set():
+            logger.warn('插件服务正在退出，操作取消')
+            return None
         return [{
             'component': 'VTable',
             'props': {
                 'hover': True,
+                'fixed-header': True,
+                'density': 'compact',
                 'style': {
                     'height': '230px'
                 }
