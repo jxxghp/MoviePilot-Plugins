@@ -27,7 +27,7 @@ class CleanInvalidSeed(_PluginBase):
     # 插件图标
     plugin_icon = "clean_a.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -40,6 +40,10 @@ class CleanInvalidSeed(_PluginBase):
     auth_level = 1
 
     # 私有属性
+    _enabled = False
+    _cron = None
+    _notify = False
+    _onlyonce = False
     _qb = None
     _detect_invalid_files = False
     _delete_invalid_files = False
