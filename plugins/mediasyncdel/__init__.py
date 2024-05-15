@@ -9,6 +9,7 @@ from typing import List, Tuple, Dict, Any, Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app import schemas
 from app.chain.transfer import TransferChain
 from app.core.config import settings
 from app.core.event import eventmanager, Event
@@ -31,7 +32,7 @@ class MediaSyncDel(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -110,7 +111,7 @@ class MediaSyncDel(_PluginBase):
                 "path": "/delete_history",
                 "endpoint": self.delete_history,
                 "methods": ["GET"],
-                "summary": "删除历史记录"
+                "summary": "删除订阅历史记录"
             }
         ]
 
@@ -125,7 +126,7 @@ class MediaSyncDel(_PluginBase):
         if not historys:
             return schemas.Response(success=False, message="未找到历史记录")
         # 删除指定记录
-        historys = [h for h in historys if f"{h.get("title")}:{h.get("tmdb_id")}" != key]
+        historys = [h for h in historys if f"{h.get('title')}:{h.get('tmdb_id')}" != key]
         self.save_data('history', historys)
         return schemas.Response(success=True, message="删除成功")
 
@@ -470,6 +471,7 @@ class MediaSyncDel(_PluginBase):
         for history in historys:
             htype = history.get("type")
             title = history.get("title")
+            tmdb_id = history.get("tmdb_id")
             year = history.get("year")
             season = history.get("season")
             episode = history.get("episode")
@@ -567,7 +569,7 @@ class MediaSyncDel(_PluginBase):
                                     'api': 'plugin/MediaSyncDel/delete_history',
                                     'method': 'get',
                                     'params': {
-                                        'key': f"{title}:{tmdbid}",
+                                        'key': f"{title}:{tmdb_id}",
                                         'apikey': settings.API_TOKEN
                                     }
                                 }
