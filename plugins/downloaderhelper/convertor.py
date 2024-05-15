@@ -67,6 +67,8 @@ class StateConvertor(IConvertor, metaclass=Singleton):
                 return '暂停'
             if data == TorrentState.STALLED_DOWNLOAD.value:
                 return '等待'
+            if data == TorrentState.CHECKING_DOWNLOAD.value:
+                return '校验'
             # tr
             if data == 6:
                 return '做种'
@@ -76,6 +78,8 @@ class StateConvertor(IConvertor, metaclass=Singleton):
                 return '暂停'
             if data == 3:
                 return '等待'
+            if data == 2:
+                return '校验'
             return data
         except Exception as e:
             logger.error(f'{__name__} Error: {str(e)}, data = {data}', exc_info=True)
@@ -121,7 +125,7 @@ class TimestampConvertor(IConvertor, metaclass=Singleton):
     """
 
     def convert(self, data: any) -> any:
-        if data is None:
+        if not data or data <= 0:
             return None
         try:
             return StringUtils.format_timestamp(timestamp=data, date_format='%Y/%m/%d %H:%M:%S')
@@ -178,6 +182,23 @@ class LimitRatioConvertor(IConvertor, metaclass=Singleton):
             if data <= 0:
                 return '∞'
             return RatioConvertor().convert(data=data)
+        except Exception as e:
+            logger.error(f'{__name__} Error: {str(e)}, data = {data}', exc_info=True)
+            return None
+
+
+class TagsConvertor(IConvertor, metaclass=Singleton):
+    """
+    标签转换器
+    """
+
+    def convert(self, data: any) -> any:
+        if not data:
+            return None
+        try:
+            if isinstance(data, list):
+                return ', '.join(data)
+            return data
         except Exception as e:
             logger.error(f'{__name__} Error: {str(e)}, data = {data}', exc_info=True)
             return None

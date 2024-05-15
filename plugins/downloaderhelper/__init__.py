@@ -33,7 +33,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "1.9"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -1955,26 +1955,39 @@ class DownloaderHelper(_PluginBase):
                 torrent]
 
     @staticmethod
-    def __process_torrent_for_qbittorrent(torrent: TorrentDictionary):
+    def __process_torrent_for_qbittorrent(torrent: TorrentDictionary, fields: List[TorrentField]):
         """
         加工qb种子
         """
         if not torrent:
             return
+
+        def calculate_remaining_size(torrent: TorrentDictionary):
+            """
+            计算剩余大小
+            """
+            remaining_size = torrent.get(TorrentField.REMAINING.qb)
+            if not remaining_size:
+                remaining_size =  torrent.get(TorrentField.SELECT_SIZE.qb) - torrent.get(TorrentField.COMPLETED.qb)
+                torrent[TorrentField.REMAINING.qb] = remaining_size
+            return remaining_size
+
         try:
             # 剩余大小
-            remaining_size = torrent.get(TorrentField.SELECT_SIZE.qb) - torrent.get(TorrentField.COMPLETED.qb)
-            torrent[TorrentField.REMAINING.qb] = remaining_size
+            if TorrentField.REMAINING in fields:
+                calculate_remaining_size(torrent=torrent)
             # 剩余时间
-            if torrent.get(TorrentField.STATE.qb) == TorrentState.DOWNLOADING.value:
-                download_speed = torrent.get(TorrentField.DOWNLOAD_SPEED.qb)
-                if download_speed <= 0:
-                    remaining_time = -1
+            if TorrentField.REMAINING_TIME in fields:
+                if torrent.get(TorrentField.STATE.qb) == TorrentState.DOWNLOADING.value:
+                    download_speed = torrent.get(TorrentField.DOWNLOAD_SPEED.qb)
+                    if download_speed <= 0:
+                        remaining_time = -1
+                    else:
+                        remaining_size = calculate_remaining_size(torrent=torrent)
+                        remaining_time = remaining_size / download_speed
                 else:
-                    remaining_time = remaining_size / download_speed
-            else:
-                remaining_time = 0
-            torrent[TorrentField.REMAINING_TIME.qb] = remaining_time
+                    remaining_time = 0
+                torrent[TorrentField.REMAINING_TIME.qb] = remaining_time
         except Exception as e:
             logger.error(f'加工qb种子: {str(e)}, torrent = {str(torrent)}', exc_info=True)
             return None
@@ -1987,7 +2000,7 @@ class DownloaderHelper(_PluginBase):
         if not torrent or not fields:
             return None
         # 加工qb种子
-        self.__process_torrent_for_qbittorrent(torrent=torrent)
+        self.__process_torrent_for_qbittorrent(torrent=torrent, fields=fields)
         data = []
         for field in fields:
             value = self.__extract_torrent_value_for_qbittorrent(torrent=torrent, field=field)
@@ -2023,18 +2036,20 @@ class DownloaderHelper(_PluginBase):
         arguments.append(TorrentField.NAME.tr)
         arguments.append('hashString')
         # 处理依赖的字段
-        if TorrentField.SELECT_SIZE in fields:
-            arguments.append('wanted')
         if TorrentField.COMPLETED in fields:
             arguments.append('fileStats')
         if TorrentField.REMAINING in fields:
-            arguments.append('wanted')
+            arguments.append(TorrentField.SELECT_SIZE.tr)
             arguments.append('fileStats')
         if TorrentField.REMAINING_TIME in fields:
             arguments.append(TorrentField.STATE.tr)
             arguments.append(TorrentField.DOWNLOAD_SPEED.tr)
-            arguments.append('wanted')
+            arguments.append(TorrentField.SELECT_SIZE.tr)
             arguments.append('fileStats')
+        if TorrentField.DOWNLOAD_LIMIT in fields:
+            arguments.append('downloadLimited')
+        if TorrentField.UPLOAD_LIMIT in fields:
+            arguments.append('uploadLimited')
         return list(set(arguments))
 
     def __get_transmission_torrent_data(self, fields: List[Union[str, TorrentField]] = None):
@@ -2069,30 +2084,62 @@ class DownloaderHelper(_PluginBase):
                 torrent]
 
     @staticmethod
-    def __process_torrent_for_transmission(torrent: Torrent):
+    def __process_torrent_for_transmission(torrent: Torrent, fields: List[TorrentField]):
         """
         加工tr种子
         """
+        if not torrent or not fields:
+            return
+        
+        def calculate_completed(torrent: Torrent):
+            """
+            计算已完成大小
+            """
+            completed = torrent.get(TorrentField.COMPLETED.tr)
+            if not completed:
+                completed = sum(x["bytesCompleted"] for x in torrent.fields["fileStats"])
+                torrent.fields[TorrentField.COMPLETED.tr] = completed
+            return completed
+
+        def calculate_remaining_size(torrent: Torrent):
+            """
+            计算剩余大小
+            """
+            remaining_size = torrent.get(TorrentField.REMAINING.tr)
+            if not remaining_size:
+                select_size = torrent.get(TorrentField.SELECT_SIZE.tr)
+                completed = calculate_completed(torrent=torrent)
+                remaining_size = select_size - completed
+                torrent.fields[TorrentField.REMAINING.tr] = remaining_size
+            return remaining_size
+
         try:
-            # 选定大小
-            select_size = sum(x["bytesCompleted"] for x in torrent.fields["wanted"])
-            torrent.fields[TorrentField.SELECT_SIZE.tr] = select_size
             # 已完成大小
-            completed = sum(x["bytesCompleted"] for x in torrent.fields["fileStats"])
-            torrent.fields[TorrentField.COMPLETED.tr] = completed
+            if TorrentField.COMPLETED in fields:
+                calculate_completed(torrent=torrent)
             # 剩余大小
-            remaining_size = select_size - completed
-            torrent.fields[TorrentField.REMAINING.tr] = remaining_size
+            if TorrentField.REMAINING in fields:
+                calculate_remaining_size(torrent=torrent)
             # 剩余时间
-            if torrent.get(TorrentField.STATE.tr) == TorrentStatus.DOWNLOADING.value:
-                download_speed = torrent.get(TorrentField.DOWNLOAD_SPEED.tr)
-                if download_speed <= 0:
-                    remaining_time = -1
+            if TorrentField.REMAINING_TIME in fields:
+                if torrent.get(TorrentField.STATE.tr) == TorrentStatus.DOWNLOADING.value:
+                    download_speed = torrent.get(TorrentField.DOWNLOAD_SPEED.tr)
+                    if download_speed <= 0:
+                        remaining_time = -1
+                    else:
+                        remaining_size = calculate_remaining_size(torrent=torrent)
+                        remaining_time = remaining_size / download_speed
                 else:
-                    remaining_time = remaining_size / download_speed
-            else:
-                remaining_time = 0
-            torrent.fields[TorrentField.REMAINING_TIME.tr] = remaining_time
+                    remaining_time = 0
+                torrent.fields[TorrentField.REMAINING_TIME.tr] = remaining_time
+            # 下载限速
+            if TorrentField.DOWNLOAD_LIMIT in fields:
+                if not torrent.get('downloadLimited'):
+                    torrent.fields[TorrentField.DOWNLOAD_LIMIT.tr] = None
+            # 上传限速
+            if TorrentField.UPLOAD_LIMIT in fields:
+                if not torrent.get('uploadLimited'):
+                    torrent.fields[TorrentField.UPLOAD_LIMIT.tr] = None
         except Exception as e:
             logger.error(f'加工tr种子异常: {str(e)}, torrent = {str(torrent.fields)}', exc_info=True)
             return None
@@ -2105,7 +2152,7 @@ class DownloaderHelper(_PluginBase):
         if not torrent or not fields:
             return None
         # 加工tr种子
-        self.__process_torrent_for_transmission(torrent=torrent)
+        self.__process_torrent_for_transmission(torrent=torrent,fields=fields)
         data = []
         for field in fields:
             value = self.__extract_torrent_value_for_transmission(torrent=torrent, field=field)
