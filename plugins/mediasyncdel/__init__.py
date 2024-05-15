@@ -126,7 +126,7 @@ class MediaSyncDel(_PluginBase):
         if not historys:
             return schemas.Response(success=False, message="未找到历史记录")
         # 删除指定记录
-        historys = [h for h in historys if f"{h.get('title')}:{h.get('tmdb_id')}" != key]
+        historys = [h for h in historys if h.get("unique") != key]
         self.save_data('history', historys)
         return schemas.Response(success=True, message="删除成功")
 
@@ -471,7 +471,7 @@ class MediaSyncDel(_PluginBase):
         for history in historys:
             htype = history.get("type")
             title = history.get("title")
-            tmdb_id = history.get("tmdb_id")
+            unique = history.get("unique")
             year = history.get("year")
             season = history.get("season")
             episode = history.get("episode")
@@ -569,7 +569,7 @@ class MediaSyncDel(_PluginBase):
                                     'api': 'plugin/MediaSyncDel/delete_history',
                                     'method': 'get',
                                     'params': {
-                                        'key': f"{title}:{tmdb_id}",
+                                        'key': unique,
                                         'apikey': settings.API_TOKEN
                                     }
                                 }
@@ -874,7 +874,7 @@ class MediaSyncDel(_PluginBase):
             "episode": episode_num if episode_num and str(episode_num).isdigit() else None,
             "image": poster_image,
             "del_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time())),
-            "tmdb_id": tmdb_id
+            "unique": f"{media_name}:{tmdb_id}:{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}"
         })
 
         # 保存历史
