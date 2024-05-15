@@ -1,6 +1,6 @@
 from typing import Set, List, Optional
 from enum import Enum
-from app.plugins.downloaderhelper.convertor import IConvertor, ByteSizeConvertor, PercentageConvertor, StateConvertor, SpeedConvertor, RatioConvertor, TimestampConvertor, LimitSpeedConvertor, LimitRatioConvertor, TimeIntervalConvertor
+from app.plugins.downloaderhelper.convertor import IConvertor, ByteSizeConvertor, PercentageConvertor, StateConvertor, SpeedConvertor, RatioConvertor, TimestampConvertor, LimitSpeedConvertor, LimitRatioConvertor, TimeIntervalConvertor, TagsConvertor
 
 
 class Downloader(Enum):
@@ -272,7 +272,7 @@ class TorrentField(Enum):
     种子字段枚举
     """
     NAME = ('名称', 'name', 'name', None)
-    SELECT_SIZE = ('选定大小', 'size', '#SELECT_SIZE', ByteSizeConvertor())
+    SELECT_SIZE = ('选定大小', 'size', 'sizeWhenDone', ByteSizeConvertor())
     TOTAL_SIZE = ('总大小', 'total_size', 'totalSize', ByteSizeConvertor())
     PROGRESS = ('已完成', 'progress', 'percentDone', PercentageConvertor())
     STATE = ('状态', 'state', 'status', StateConvertor())
@@ -281,7 +281,7 @@ class TorrentField(Enum):
     REMAINING_TIME = ('剩余时间', '#REMAINING_TIME', '#REMAINING_TIME', TimeIntervalConvertor())
     RATIO = ('比率', 'ratio', 'uploadRatio', RatioConvertor())
     CATEGORY = ('分类', 'category', None, None)
-    TAGS = ('标签', 'tags', 'labels', None)
+    TAGS = ('标签', 'tags', 'labels', TagsConvertor())
     ADD_TIME = ('添加时间', 'added_on', 'addedDate', TimestampConvertor())
     COMPLETE_TIME = ('完成时间', 'completion_on', 'doneDate', TimestampConvertor())
     DOWNLOAD_LIMIT = ('下载限制', 'dl_limit', 'downloadLimit', LimitSpeedConvertor())
