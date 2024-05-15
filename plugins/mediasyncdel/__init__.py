@@ -9,6 +9,7 @@ from typing import List, Tuple, Dict, Any, Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app import schemas
 from app.chain.transfer import TransferChain
 from app.core.config import settings
 from app.core.event import eventmanager, Event
@@ -105,7 +106,29 @@ class MediaSyncDel(_PluginBase):
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
-        pass
+        return [
+            {
+                "path": "/delete_history",
+                "endpoint": self.delete_history,
+                "methods": ["GET"],
+                "summary": "删除订阅历史记录"
+            }
+        ]
+
+    def delete_history(self, key: str, apikey: str):
+        """
+        删除历史记录
+        """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
+        # 历史记录
+        historys = self.get_data('history')
+        if not historys:
+            return schemas.Response(success=False, message="未找到历史记录")
+        # 删除指定记录
+        historys = [h for h in historys if h.get("unique") != key]
+        self.save_data('history', historys)
+        return schemas.Response(success=True, message="删除成功")
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
@@ -448,6 +471,7 @@ class MediaSyncDel(_PluginBase):
         for history in historys:
             htype = history.get("type")
             title = history.get("title")
+            unique = history.get("unique")
             year = history.get("year")
             season = history.get("season")
             episode = history.get("episode")
@@ -535,6 +559,22 @@ class MediaSyncDel(_PluginBase):
                 {
                     'component': 'VCard',
                     'content': [
+                        {
+                            "component": "VDialogCloseBtn",
+                            "props": {
+                                'innerClass': 'absolute top-0 right-0',
+                            },
+                            'events': {
+                                'click': {
+                                    'api': 'plugin/MediaSyncDel/delete_history',
+                                    'method': 'get',
+                                    'params': {
+                                        'key': unique,
+                                        'apikey': settings.API_TOKEN
+                                    }
+                                }
+                            },
+                        },
                         {
                             'component': 'div',
                             'props': {
@@ -833,7 +873,8 @@ class MediaSyncDel(_PluginBase):
             "season": season_num if season_num and str(season_num).isdigit() else None,
             "episode": episode_num if episode_num and str(episode_num).isdigit() else None,
             "image": poster_image,
-            "del_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))
+            "del_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time())),
+            "unique": f"{media_name}:{tmdb_id}:{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}"
         })
 
         # 保存历史

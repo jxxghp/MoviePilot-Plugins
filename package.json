@@ -125,10 +125,13 @@
         "name": "媒体文件同步删除",
         "description": "同步删除历史记录、源文件和下载任务。",
         "labels": "文件整理",
-        "version": "1.4",
+        "version": "1.5",
         "icon": "mediasyncdel.png",
         "author": "thsrite",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.5": "支持手动删除订阅历史记录（本次更新之后的历史）"
+        }
     },
     "CustomHosts": {
         "name": "自定义Hosts",
