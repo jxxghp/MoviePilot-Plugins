@@ -23,7 +23,7 @@ class PluginAutoUpgrade(_PluginBase):
     # 插件图标
     plugin_icon = "PluginAutoUpgrade.png"
     # 插件版本
-    plugin_version = "1.6"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -501,8 +501,7 @@ class PluginAutoUpgrade(_PluginBase):
         installed_online_plugins = cls.__get_installed_online_plugins()
         if not installed_online_plugins:
             return None
-        has_update_online_plugins = [installed_online_plugin for installed_online_plugin in installed_online_plugins if
-                                     installed_online_plugin and installed_online_plugin.has_update]
+        has_update_online_plugins = [installed_online_plugin for installed_online_plugin in installed_online_plugins if installed_online_plugin and installed_online_plugin.has_update]
         return has_update_online_plugins
 
     def __start_scheduler(self, timezone=None) -> bool:
@@ -608,6 +607,8 @@ class PluginAutoUpgrade(_PluginBase):
         批量升级
         """
         has_update_online_plugins = self.__get_has_update_online_plugins()
+        if not has_update_online_plugins:
+            return
         upgrade_results = []
         for has_update_online_plugin in has_update_online_plugins:
             upgrade_result = self.__upgrade_single(has_update_online_plugin)
