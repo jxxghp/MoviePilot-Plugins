@@ -461,6 +461,7 @@ def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[d
     {
         "refresh": 10, // 自动刷新时间，单位秒
         "border": True, // 是否显示边框，默认True，为False时取消组件边框和边距，由插件自行控制
+        "subtitle": "子标题", // 组件子标题，缺省时不展示子标题，否则展示为“插件名称 - 子标题”
     }
     3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
     """
