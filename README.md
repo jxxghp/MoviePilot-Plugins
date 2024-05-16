@@ -450,7 +450,7 @@ class EventType(Enum):
 - 1. 根据插件需要展示的Widget内容规划展示内容的样式和规格，也可设计多个规格样式并提供配置项供用户选择。
 - 2. 实现 `get_dashboard` 方法，返回仪表盘的配置信息，包括仪表盘的cols列配置（适配不同屏幕），以及仪表盘的页面配置json，具体可参考插件`站点数据统计`：
 ```python
-def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+def get_dashboard(self, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
     """
     获取插件仪表盘页面，需要返回：1、仪表板cols配置字典；2、全局配置（自动刷新等）；2、仪表板页面元素配置json（含数据）
     1、col配置参考：
@@ -461,9 +461,11 @@ def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[d
     {
         "refresh": 10, // 自动刷新时间，单位秒
         "border": True, // 是否显示边框，默认True，为False时取消组件边框和边距，由插件自行控制
-        "subtitle": "子标题", // 组件子标题，缺省时不展示子标题，否则展示为“插件名称 - 子标题”
+        "subtitle": "子标题", // 组件子标题，缺省时不展示子标题
     }
     3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
+    
+    kwargs参数可获取的值：1、user_agent：浏览器UA
     """
     pass
 ```
