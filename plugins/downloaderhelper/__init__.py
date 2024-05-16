@@ -33,7 +33,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -184,7 +184,8 @@ class DownloaderHelper(_PluginBase):
             'listen_download_event': True,
             'listen_source_file_event': True,
             'cron': '0/30 * * * *',
-            'exclude_tags': 'BT,刷流'
+            'exclude_tags': 'BT,刷流',
+            'dashboard_widget_refresh': 5,
         }
         # 合并默认配置
         config_suggest.update(self.__config_default)
@@ -443,7 +444,7 @@ class DownloaderHelper(_PluginBase):
                 'component': 'VDialog',
                 'props': {
                     'model': '_config_tracker_mappings_dialog_closed',
-                    'max-width': '60rem'
+                    'max-width': '40rem'
                 },
                 'content': [{
                     'component': 'VCard',
@@ -796,14 +797,24 @@ class DownloaderHelper(_PluginBase):
         修正配置
         """
         if not config:
-            config = {}
-        dashboard_widget_size = config.get('dashboard_widget_size')
-        config['dashboard_widget_size'] = int(dashboard_widget_size) if dashboard_widget_size else None
-        dashboard_widget_refresh = config.get('dashboard_widget_refresh')
-        config['dashboard_widget_refresh'] = int(dashboard_widget_refresh) if dashboard_widget_refresh else None
-        dashboard_widget_display_fields = config.get('dashboard_widget_display_fields')
-        config['dashboard_widget_display_fields'] = list(filter(lambda field: TorrentFieldMap.get(field),
-                                                                dashboard_widget_display_fields)) if dashboard_widget_display_fields else []
+            return None
+        # 移除主程序在reset时赋予的内容
+        config.pop('enabled', None)
+        config.pop('enable', None)
+        if not config:
+            return None
+
+        config_keys = config.keys()
+        if 'dashboard_widget_size' in config_keys:
+            dashboard_widget_size = config.get('dashboard_widget_size')
+            config['dashboard_widget_size'] = int(dashboard_widget_size) if dashboard_widget_size else None
+        if 'dashboard_widget_refresh' in config_keys:
+            dashboard_widget_refresh = config.get('dashboard_widget_refresh')
+            config['dashboard_widget_refresh'] = int(dashboard_widget_refresh) if dashboard_widget_refresh else None
+        if 'dashboard_widget_display_fields' in config_keys:
+            dashboard_widget_display_fields = config.get('dashboard_widget_display_fields')
+            config['dashboard_widget_display_fields'] = list(filter(lambda field: TorrentFieldMap.get(field),
+                                                                    dashboard_widget_display_fields)) if dashboard_widget_display_fields else []
         self.update_config(config=config)
         return config
 
