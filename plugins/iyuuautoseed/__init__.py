@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.8.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -625,7 +625,11 @@ class IYUUAutoSeed(_PluginBase):
         # 查询可辅种数据
         seed_list, msg = self.iyuuhelper.get_seed_info(hashs)
         if not isinstance(seed_list, dict):
-            logger.warn(f"当前种子列表没有可辅种的站点：{msg}")
+            # 判断辅种异常是否是由于Token未认证导致的，由于没有解决接口，只能从返回值来判断
+            if self._token and msg == '请求缺少token':
+                logger.warn(f'IYUU辅种失败，疑似站点未绑定插件配置不完整，请先检查是否完成站点绑定！{msg}')
+            else:
+                logger.warn(f"当前种子列表没有可辅种的站点：{msg}")
             return
         else:
             logger.info(f"IYUU返回可辅种数：{len(seed_list)}")
@@ -946,12 +950,12 @@ class IYUUAutoSeed(_PluginBase):
                 logger.error("m-team站点的apikey未配置")
                 return None
             res = RequestUtils(
-                    headers={
-                        'Content-Type': 'application/json',
-                        'User-Agent': f'{site.get("ua")}',
-                        'Accept': 'application/json, text/plain, */*',
-                        'x-api-key': apikey
-                    }
+                headers={
+                    'Content-Type': 'application/json',
+                    'User-Agent': f'{site.get("ua")}',
+                    'Accept': 'application/json, text/plain, */*',
+                    'x-api-key': apikey
+                }
             ).post_res(f"{site.get('url')}api/torrent/genDlToken", params={
                 'id': tid
             })
