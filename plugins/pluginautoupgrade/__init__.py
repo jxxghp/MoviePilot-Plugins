@@ -23,7 +23,7 @@ class PluginAutoUpgrade(_PluginBase):
     # 插件图标
     plugin_icon = "PluginAutoUpgrade.png"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -403,11 +403,22 @@ class PluginAutoUpgrade(_PluginBase):
         修正配置
         """
         if not config:
-            config = {}
-        save_record_quantity = config.get("save_record_quantity")
-        config['save_record_quantity'] = int(save_record_quantity) if save_record_quantity else None
-        display_record_quantity = config.get("display_record_quantity")
-        config['display_record_quantity'] = int(display_record_quantity) if display_record_quantity else None
+            return None
+        # 忽略主程序在reset时赋予的内容
+        reset_config = {
+            "enabled": False,
+            "enable": False
+        }
+        if config == reset_config:
+            return None
+
+        config_keys = config.keys()
+        if 'save_record_quantity' in config_keys:
+            save_record_quantity = config.get("save_record_quantity")
+            config['save_record_quantity'] = int(save_record_quantity) if save_record_quantity else None
+        if 'display_record_quantity' in config_keys:
+            display_record_quantity = config.get("display_record_quantity")
+            config['display_record_quantity'] = int(display_record_quantity) if display_record_quantity else None
         self.update_config(config=config)
         return config
 
