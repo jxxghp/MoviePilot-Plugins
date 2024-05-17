@@ -10,8 +10,9 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from app.modules.qbittorrent import Qbittorrent
 from app.utils.string import StringUtils
+from app.schemas.types import EventType
+from app.core.event import eventmanager, Event
 
-from app import schemas
 from app.core.config import settings
 from app.plugins import _PluginBase
 from typing import Any, List, Dict, Tuple, Optional
@@ -27,7 +28,7 @@ class CleanInvalidSeed(_PluginBase):
     # 插件图标
     plugin_icon = "clean_a.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -52,6 +53,11 @@ class CleanInvalidSeed(_PluginBase):
     _exclude_keywords = ""
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
+    _error_msg = [
+        "torrent not registered with this tracker",
+        "Torrent not registered with this tracker",
+        "torrent banned",
+    ]
 
     def init_plugin(self, config: dict = None):
         # 停止现有任务
@@ -106,7 +112,80 @@ class CleanInvalidSeed(_PluginBase):
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
-        pass
+        """
+        定义远程控制命令
+        :return: 命令关键字、事件、描述、附带数据
+        """
+        return [
+            {
+                "cmd": "/detect_invalid_torrents",
+                "event": EventType.PluginAction,
+                "desc": "检测无效做种",
+                "category": "QB",
+                "data": {"action": "detect_invalid_torrents"},
+            },
+            {
+                "cmd": "/delete_invalid_torrents",
+                "event": EventType.PluginAction,
+                "desc": "清理无效做种",
+                "category": "QB",
+                "data": {"action": "delete_invalid_torrents"},
+            },
+            {
+                "cmd": "/detect_invalid_files",
+                "event": EventType.PluginAction,
+                "desc": "检测无效源文件",
+                "category": "QB",
+                "data": {"action": "detect_invalid_files"},
+            },
+            {
+                "cmd": "/delete_invalid_files",
+                "event": EventType.PluginAction,
+                "desc": "清理无效源文件",
+                "category": "QB",
+                "data": {"action": "delete_invalid_files"},
+            }
+        ]
+
+    @eventmanager.register(EventType.PluginAction)
+    def handle_commands(self, event: Event):
+        if event:
+            event_data = event.event_data
+            if event_data:
+                old_delete_invalid_torrents = self._delete_invalid_torrents
+                old_detect_invalid_files = self._detect_invalid_files
+                old_delete_invalid_files = self._delete_invalid_files
+                if event_data.get("action") == "detect_invalid_torrents":
+                    logger.info("收到远程命令，开始检测无效做种")
+                    self._delete_invalid_torrents = False
+                    self._detect_invalid_files = False
+                    self._delete_invalid_files = False
+                elif event_data.get("action") == "delete_invalid_torrents":
+                    logger.info("收到远程命令，开始清理无效做种")
+                    self._delete_invalid_torrents = True
+                    self._detect_invalid_files = False
+                    self._delete_invalid_files = False
+                elif event_data.get("action") == "detect_invalid_files":
+                    logger.info("收到远程命令，开始检测无效源文件")
+                    self._delete_invalid_torrents = False
+                    self._detect_invalid_files = True
+                    self._delete_invalid_files = False
+                elif event_data.get("action") == "delete_invalid_files":
+                    logger.info("收到远程命令，开始清理无效源文件")
+                    self._delete_invalid_torrents = False
+                    self._detect_invalid_files = True
+                    self._delete_invalid_files = True
+                else:
+                    logger.error("收到未知远程命令")
+                    return
+                self.clean_invalid_seed()
+                self._delete_invalid_torrents = old_delete_invalid_torrents
+                self._detect_invalid_files = old_detect_invalid_files
+                self._delete_invalid_files = old_delete_invalid_files
+                self.post_message(channel=event.event_data.get("channel"),
+                    title="远程命令执行完成！", userid=event.event_data.get("user"))
+
+                    
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
@@ -133,7 +212,6 @@ class CleanInvalidSeed(_PluginBase):
                 }
             ]
 
-
     def get_all_torrents(self):
         all_torrents, error = self._qb.get_torrents()
         if error:
@@ -156,7 +234,7 @@ class CleanInvalidSeed(_PluginBase):
                 )
             return []
         return all_torrents
-    
+
     def clean_invalid_seed(self):
         all_torrents = self.get_all_torrents()
         temp_invalid_torrents = []
@@ -166,11 +244,15 @@ class CleanInvalidSeed(_PluginBase):
             trackers = torrent.trackers
             is_invalid = True
             for tracker in trackers:
-                if tracker.get('tier') == -1:
+                if tracker.get("tier") == -1:
                     continue
-                if not (tracker.get('status') == 4):
+                if tracker.get("status") == 4:
+                    # 仅调试用
+                    logger.info(f"tracker未工作的种子：{torrent.name}，Tracker: {tracker_domian}，大小：{StringUtils.str_filesize(torrent.size)}，原因：{tracker.msg}\n")
+
+                if not ((tracker.get("status") == 4) and (tracker.get("msg") in self._error_msg)):
                     is_invalid = False
-                    tracker_domian = StringUtils.get_url_netloc((tracker.get('url')))[1]
+                    tracker_domian = StringUtils.get_url_netloc((tracker.get("url")))[1]
                     working_tracker_set.add(tracker_domian)
             if is_invalid:
                 temp_invalid_torrents.append(torrent)
@@ -182,22 +264,22 @@ class CleanInvalidSeed(_PluginBase):
             trackers = torrent.trackers
             is_invalid = False
             for tracker in trackers:
-                if tracker.get('tier') == -1:
+                if tracker.get("tier") == -1:
                     continue
-                tracker_domian = StringUtils.get_url_netloc((tracker.get('url')))[1]
+                tracker_domian = StringUtils.get_url_netloc((tracker.get("url")))[1]
                 if tracker_domian in working_tracker_set:
                     # tracker是正常的，说明该种子是无效的
                     is_invalid = True
-                    message += f'失效种子：{torrent.name}，Tracker: {tracker_domian}，大小：{StringUtils.str_filesize(torrent.size)}，原因：{tracker.msg}\n'
+                    message += f"失效种子：{torrent.name}，Tracker: {tracker_domian}，大小：{StringUtils.str_filesize(torrent.size)}，原因：{tracker.msg}\n"
                     if self._delete_invalid_torrents:
                         # 只删除种子不删除文件，以防其它站点辅种
-                        self._qb.delete_torrents(False, torrent.get('hash'))
+                        self._qb.delete_torrents(False, torrent.get("hash"))
                     break
             if is_invalid:
                 invalid_torrents.append(torrent)
-        message += f'共筛选出{len(invalid_torrents)}个无效种子\n'
+        message += f"共筛选出{len(invalid_torrents)}个无效种子\n"
         if self._delete_invalid_torrents:
-            message += f'***已成功清理！***\n'
+            message += f"***已成功清理！***\n"
         logger.info(message)
         if self._notify and len(invalid_torrents) != 0:
             self.post_message(
@@ -225,7 +307,7 @@ class CleanInvalidSeed(_PluginBase):
         for torrent in all_torrents:
             content_path_set.add(torrent.content_path)
 
-        message = '检测到未做种无效源文件：\n'
+        message = "检测到未做种无效源文件：\n"
         for source_path_str in source_paths:
             source_path = Path(source_path_str)
             source_files = []
@@ -242,7 +324,9 @@ class CleanInvalidSeed(_PluginBase):
                 if skip:
                     continue
                 # 将mp_path替换成 qb_path
-                qb_path = (str(source_file)).replace(source_path_str, source_path_map[source_path_str])
+                qb_path = (str(source_file)).replace(
+                    source_path_str, source_path_map[source_path_str]
+                )
                 # todo: 优化性能
                 is_exist = False
                 for content_path in content_path_set:
@@ -252,7 +336,7 @@ class CleanInvalidSeed(_PluginBase):
 
                 if not is_exist:
                     deleted_file_cnt += 1
-                    message += f'{str(source_file)}\n'
+                    message += f"{str(source_file)}\n"
                     total_size += self.get_size(source_file)
                     if self._delete_invalid_files:
                         if source_file.is_file():
@@ -260,9 +344,9 @@ class CleanInvalidSeed(_PluginBase):
                         elif source_file.is_dir():
                             shutil.rmtree(source_file)
 
-        message += f'检测到{deleted_file_cnt}个未做种的无效源文件，共占用{StringUtils.str_filesize(total_size)}空间。\n'
+        message += f"检测到{deleted_file_cnt}个未做种的无效源文件，共占用{StringUtils.str_filesize(total_size)}空间。\n"
         if self._delete_invalid_files:
-            message += f'***已删除无效源文件，释放{StringUtils.str_filesize(total_size)}空间!***\n'
+            message += f"***已删除无效源文件，释放{StringUtils.str_filesize(total_size)}空间!***\n"
         logger.info(message)
         if self._notify and deleted_file_cnt != 0:
             self.post_message(
@@ -275,11 +359,12 @@ class CleanInvalidSeed(_PluginBase):
         total_size = 0
         if path.is_file():
             return path.stat().st_size
-          # rglob 方法用于递归遍历所有文件和目录
-        for entry in path.rglob('*'):
+        # rglob 方法用于递归遍历所有文件和目录
+        for entry in path.rglob("*"):
             if entry.is_file():
                 total_size += entry.stat().st_size
         return total_size
+
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
             {
