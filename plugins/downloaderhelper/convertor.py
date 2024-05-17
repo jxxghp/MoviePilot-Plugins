@@ -147,7 +147,7 @@ class TimeIntervalConvertor(IConvertor, metaclass=Singleton):
                 return '∞'
             if data == 0:
                 return '0'
-            return StringUtils.str_timelong(time_sec=data)
+            return StringUtils.str_secends(time_sec=data)
         except Exception as e:
             logger.error(f'{__name__} Error: {str(e)}, data = {data}', exc_info=True)
             return None

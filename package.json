@@ -622,11 +622,12 @@
         "name": "下载器助手",
         "description": "自动做种、站点标签、自动删种。",
         "labels": "下载管理",
-        "version": "2.1",
+        "version": "2.2",
         "icon": "DownloaderHelper.png",
         "author": "hotlcc",
         "level": 2,
         "history": {
+            "v2.2": "优化仪表板组件标题；优化仪表板下载剩余时间描述。",
             "v2.1": "优化了初始配置建议；优化了配置Tracker的弹窗大小。",
             "v2.0": "优化了仪表板种子状态；提升仪表板对TR的适配度。",
             "v1.9": "优化了仪表板组件性能。",
