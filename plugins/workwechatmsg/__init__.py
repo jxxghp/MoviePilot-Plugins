@@ -15,7 +15,7 @@ class WorkWechatMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -29,17 +29,19 @@ class WorkWechatMsg(_PluginBase):
 
     # 私有属性
     _enabled = False
-    _webhookurl = None
+    _webhookurls = []
     _msgtypes = []
 
     def init_plugin(self, config: dict = None):
         if config:
             self._enabled = config.get("enabled")
-            self._webhookurl = config.get("webhookurl")
+            webhookurl = config.get("webhookurl")
+            if webhookurl:
+                self._webhookurls = webhookurl.split(';')
             self._msgtypes = config.get("msgtypes") or []
 
     def get_state(self) -> bool:
-        return self._enabled and (True if self._webhookurl else False)
+        return self._enabled and (True if self._webhookurls else False)
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -98,7 +100,7 @@ class WorkWechatMsg(_PluginBase):
                                         'props': {
                                             'model': 'webhookurl',
                                             'label': 'WebHook地址',
-                                            'placeholder': 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxxx',
+                                            'placeholder': 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxxx;https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=yyyyyyyyy',
                                         }
                                     }
                                 ]
@@ -173,44 +175,51 @@ class WorkWechatMsg(_PluginBase):
             logger.info(f"消息类型 {msg_type.value} 未开启消息发送")
             return
 
-        try:
-            if not image:
-                payload = {
-                    "msgtype": "text",
-                    "text": {
-                        "content": title + "\n" + text,
-                    }
-                }
-            else:
-                payload = {
-                    "msgtype": "news",
-                    "news": {
-                        "articles": [
-                            {
-                                "title": title,
-                                "description": text,
-                                "url": "moviepilot",
-                                "picurl": image
-                            }
-                        ]
-                    }
-                }
+        payload = self._build_payload(title, text, image)
 
-            res = RequestUtils().post_res(url=self._webhookurl, json=payload)
-            if res and res.status_code == 200:
-                ret_json = res.json()
-                errno = ret_json.get('errcode')
-                error = ret_json.get('errmsg')
-                if errno == 0:
-                    logger.info("企业微信机器人消息发送成功")
-                else:
-                    logger.warn(f"企业微信机器人消息发送失败，错误码：{errno}，错误原因：{error}")
-            elif res is not None:
-                logger.warn(f"企业微信机器人消息发送失败，错误码：{res.status_code}，错误原因：{res.reason}")
+        for url in self._webhookurls:
+            try:
+                res = RequestUtils().post_res(url=url, json=payload)
+                self._handle_response(res)
+            except Exception as msg_e:
+                logger.error(f"企业微信机器人消息发送失败，{str(msg_e)}")
+
+    def _build_payload(self, title, text, image):
+        if not image:
+            return {
+                "msgtype": "text",
+                "text": {
+                    "content": title + "\n" + text,
+                }
+            }
+        else:
+            return {
+                "msgtype": "news",
+                "news": {
+                    "articles": [
+                        {
+                            "title": title,
+                            "description": text,
+                            "url": "moviepilot",
+                            "picurl": image
+                        }
+                    ]
+                }
+            }
+
+    def _handle_response(self, res):
+        if res and res.status_code == 200:
+            ret_json = res.json()
+            errno = ret_json.get('errcode')
+            error = ret_json.get('errmsg')
+            if errno == 0:
+                logger.info("企业微信机器人消息发送成功")
             else:
-                logger.warn("企业微信机器人消息发送失败，未获取到返回信息")
-        except Exception as msg_e:
-            logger.error(f"企业微信机器人消息发送失败，{str(msg_e)}")
+                logger.warn(f"企业微信机器人消息发送失败，错误码：{errno}，错误原因：{error}")
+        elif res is not None:
+            logger.warn(f"企业微信机器人消息发送失败，错误码：{res.status_code}，错误原因：{res.reason}")
+        else:
+            logger.warn("企业微信机器人消息发送失败，未获取到返回信息")
 
     def stop_service(self):
         """
