@@ -33,7 +33,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -680,7 +680,7 @@ class DownloaderHelper(_PluginBase):
         }
         # 全局配置
         attrs = {
-            'subtitle': '活动种子'
+            'title': '活动种子'
         }
         if self.__check_target_downloader():
             attrs['refresh'] = self.__get_config_item('dashboard_widget_refresh')
