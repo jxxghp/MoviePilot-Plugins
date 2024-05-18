@@ -28,7 +28,7 @@ class CleanInvalidSeed(_PluginBase):
     # 插件图标
     plugin_icon = "clean_a.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -160,25 +160,24 @@ class CleanInvalidSeed(_PluginBase):
                     self._delete_invalid_torrents = False
                     self._detect_invalid_files = False
                     self._delete_invalid_files = False
+                    self.clean_invalid_seed()
                 elif event_data.get("action") == "delete_invalid_torrents":
                     logger.info("收到远程命令，开始清理无效做种")
                     self._delete_invalid_torrents = True
                     self._detect_invalid_files = False
                     self._delete_invalid_files = False
+                    self.clean_invalid_seed()
                 elif event_data.get("action") == "detect_invalid_files":
                     logger.info("收到远程命令，开始检测无效源文件")
-                    self._delete_invalid_torrents = False
-                    self._detect_invalid_files = True
                     self._delete_invalid_files = False
+                    self.detect_invalid_files()
                 elif event_data.get("action") == "delete_invalid_files":
                     logger.info("收到远程命令，开始清理无效源文件")
-                    self._delete_invalid_torrents = False
-                    self._detect_invalid_files = True
                     self._delete_invalid_files = True
+                    self.detect_invalid_files()
                 else:
                     logger.error("收到未知远程命令")
                     return
-                self.clean_invalid_seed()
                 self._delete_invalid_torrents = old_delete_invalid_torrents
                 self._detect_invalid_files = old_detect_invalid_files
                 self._delete_invalid_files = old_delete_invalid_files
@@ -246,13 +245,13 @@ class CleanInvalidSeed(_PluginBase):
             for tracker in trackers:
                 if tracker.get("tier") == -1:
                     continue
+                tracker_domian = StringUtils.get_url_netloc((tracker.get("url")))[1]
                 if tracker.get("status") == 4:
                     # 仅调试用
                     logger.info(f"tracker未工作的种子：{torrent.name}，Tracker: {tracker_domian}，大小：{StringUtils.str_filesize(torrent.size)}，原因：{tracker.msg}\n")
 
                 if not ((tracker.get("status") == 4) and (tracker.get("msg") in self._error_msg)):
                     is_invalid = False
-                    tracker_domian = StringUtils.get_url_netloc((tracker.get("url")))[1]
                     working_tracker_set.add(tracker_domian)
             if is_invalid:
                 temp_invalid_torrents.append(torrent)
