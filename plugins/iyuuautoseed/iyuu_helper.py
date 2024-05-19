@@ -3,7 +3,6 @@ import json
 import time
 from typing import Tuple, Optional
 
-from app.log import logger
 from app.utils.http import RequestUtils
 
 
@@ -29,7 +28,6 @@ class IyuuHelper(object):
         """
         向IYUUApi发送请求
         """
-        ret = None
         if method == "post":
             ret = RequestUtils(
                 accept_type="application/json",
