@@ -28,7 +28,7 @@ class CleanInvalidSeed(_PluginBase):
     # 插件图标
     plugin_icon = "clean_a.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -49,8 +49,11 @@ class CleanInvalidSeed(_PluginBase):
     _detect_invalid_files = False
     _delete_invalid_files = False
     _delete_invalid_torrents = False
+    _notify_all = False
     _download_dirs = ""
     _exclude_keywords = ""
+    _exclude_categories = ""
+    _exclude_labels = ""
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
     _error_msg = [
@@ -71,8 +74,11 @@ class CleanInvalidSeed(_PluginBase):
             self._delete_invalid_torrents = config.get("delete_invalid_torrents")
             self._delete_invalid_files = config.get("delete_invalid_files")
             self._detect_invalid_files = config.get("detect_invalid_files")
+            self._notify_all = config.get("notify_all")
             self._download_dirs = config.get("download_dirs")
             self._exclude_keywords = config.get("exclude_keywords")
+            self._exclude_categories = config.get("exclude_categories")
+            self._exclude_labels = config.get("exclude_labels")
             self._qb = Qbittorrent()
 
             # 加载模块
@@ -97,8 +103,11 @@ class CleanInvalidSeed(_PluginBase):
                     "delete_invalid_torrents": self._delete_invalid_torrents,
                     "delete_invalid_files": self._delete_invalid_files,
                     "detect_invalid_files": self._detect_invalid_files,
+                    "notify_all": self._notify_all,
                     "download_dirs": self._download_dirs,
                     "exclude_keywords": self._exclude_keywords,
+                    "exclude_categories": self._exclude_categories,
+                    "exclude_labels": self._exclude_labels,
                 }
             )
 
@@ -144,7 +153,7 @@ class CleanInvalidSeed(_PluginBase):
                 "desc": "清理无效源文件",
                 "category": "QB",
                 "data": {"action": "delete_invalid_files"},
-            }
+            },
         ]
 
     @eventmanager.register(EventType.PluginAction)
@@ -152,6 +161,11 @@ class CleanInvalidSeed(_PluginBase):
         if event:
             event_data = event.event_data
             if event_data:
+                self.post_message(
+                    channel=event.event_data.get("channel"),
+                    title="开始执行远程命令...",
+                    userid=event.event_data.get("user"),
+                )
                 old_delete_invalid_torrents = self._delete_invalid_torrents
                 old_detect_invalid_files = self._detect_invalid_files
                 old_delete_invalid_files = self._delete_invalid_files
@@ -181,10 +195,11 @@ class CleanInvalidSeed(_PluginBase):
                 self._delete_invalid_torrents = old_delete_invalid_torrents
                 self._detect_invalid_files = old_detect_invalid_files
                 self._delete_invalid_files = old_delete_invalid_files
-                self.post_message(channel=event.event_data.get("channel"),
-                    title="远程命令执行完成！", userid=event.event_data.get("user"))
-
-                    
+                self.post_message(
+                    channel=event.event_data.get("channel"),
+                    title="远程命令执行完成！",
+                    userid=event.event_data.get("user"),
+                )
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
@@ -235,57 +250,183 @@ class CleanInvalidSeed(_PluginBase):
         return all_torrents
 
     def clean_invalid_seed(self):
+        logger.info("开始清理QB无效做种")
         all_torrents = self.get_all_torrents()
         temp_invalid_torrents = []
+        # tracker未工作，但暂时不能判定为失效做种，需人工判断
+        tracker_not_working_torrents = []
         working_tracker_set = set()
+        exclude_categories = self._exclude_categories.split("\n")
+        exclude_labels = self._exclude_labels.split("\n")
         # 第一轮筛选出所有未工作的种子
         for torrent in all_torrents:
             trackers = torrent.trackers
             is_invalid = True
+            is_tracker_working = False
             for tracker in trackers:
                 if tracker.get("tier") == -1:
                     continue
                 tracker_domian = StringUtils.get_url_netloc((tracker.get("url")))[1]
-                if tracker.get("status") == 4:
-                    # 仅调试用
-                    logger.info(f"tracker未工作的种子：{torrent.name}，Tracker: {tracker_domian}，大小：{StringUtils.str_filesize(torrent.size)}，原因：{tracker.msg}\n")
+                # 有一个tracker工作即为有效做种
+                if (tracker.get("status") == 2) or (tracker.get("status") == 3):
+                    is_tracker_working = True
 
-                if not ((tracker.get("status") == 4) and (tracker.get("msg") in self._error_msg)):
+                if not (
+                    (tracker.get("status") == 4)
+                    and (tracker.get("msg") in self._error_msg)
+                ):
                     is_invalid = False
                     working_tracker_set.add(tracker_domian)
+
             if is_invalid:
                 temp_invalid_torrents.append(torrent)
+            elif not is_tracker_working:
+                tracker_not_working_torrents.append(torrent)
+
         logger.info(f"初筛共有{len(temp_invalid_torrents)}个无效做种")
         # 第二轮筛选出tracker有正常工作种子而当前种子未工作的，避免因临时关站或tracker失效导致误删的问题
         invalid_torrents = []
-        message = "检测到失效种子\n"
+        # 失效做种但通过种子分类排除的种子
+        invalid_torrents_exclude_categories = []
+        # 失效做种但通过种子标签排除的种子
+        invalid_torrents_exclude_labels = []
+        deleted_torrents = []
+
         for torrent in temp_invalid_torrents:
             trackers = torrent.trackers
-            is_invalid = False
             for tracker in trackers:
                 if tracker.get("tier") == -1:
                     continue
                 tracker_domian = StringUtils.get_url_netloc((tracker.get("url")))[1]
                 if tracker_domian in working_tracker_set:
                     # tracker是正常的，说明该种子是无效的
-                    is_invalid = True
-                    message += f"失效种子：{torrent.name}，Tracker: {tracker_domian}，大小：{StringUtils.str_filesize(torrent.size)}，原因：{tracker.msg}\n"
+                    invalid_torrents.append(torrent)
                     if self._delete_invalid_torrents:
-                        # 只删除种子不删除文件，以防其它站点辅种
-                        self._qb.delete_torrents(False, torrent.get("hash"))
+                        # 检查种子分类和标签是否排除
+                        is_excluded = False
+                        if torrent.category in exclude_categories:
+                            is_excluded = True
+                            invalid_torrents_exclude_categories.append(torrent)
+                        torrent_labels = torrent.tags.split(",")
+                        for label in torrent_labels:
+                            if label in exclude_labels:
+                                is_excluded = True
+                                invalid_torrents_exclude_labels.append(torrent)
+                        if not is_excluded:
+                            # 只删除种子不删除文件，以防其它站点辅种
+                            self._qb.delete_torrents(False, torrent.get("hash"))
+                            deleted_torrents.append(torrent)
                     break
-            if is_invalid:
-                invalid_torrents.append(torrent)
-        message += f"共筛选出{len(invalid_torrents)}个无效种子\n"
+        invalid_msg = f"检测到{len(invalid_torrents)}个失效做种\n"
+        tracker_not_working_msg = (
+            f"检测到{len(tracker_not_working_torrents)}个tracker未工作做种，请检查种子状态\n"
+        )
         if self._delete_invalid_torrents:
-            message += f"***已成功清理！***\n"
-        logger.info(message)
-        if self._notify and len(invalid_torrents) != 0:
+            deleted_msg = f"删除{len(deleted_torrents)}个失效种子\n"
+            if len(exclude_categories) != 0:
+                exclude_categories_msg = (
+                    f"分类排除{len(invalid_torrents_exclude_categories)}个失效种子未删除，请手动处理\n"
+                )
+            if len(exclude_labels) != 0:
+                exclude_labels_msg = (
+                    f"标签排除{len(invalid_torrents_exclude_labels)}个失效种子未删除，请手动处理\n"
+                )
+        for index in range(len(invalid_torrents)):
+            torrent = invalid_torrents[index]
+            trackers = torrent.trackers
+            tracker_msg = ""
+            for tracker in trackers:
+                if tracker.get("tier") == -1:
+                    continue
+                tracker_domian = StringUtils.get_url_netloc((tracker.get("url")))[1]
+                tracker_msg += f" {tracker_domian}：{tracker.msg} "
+
+            invalid_msg += f"{index + 1}. {torrent.name}，分类：{torrent.category}，标签：{torrent.tags}, 大小：{StringUtils.str_filesize(torrent.size)}，Trackers: {tracker_msg}\n"
+
+        for index in range(len(tracker_not_working_torrents)):
+            torrent = tracker_not_working_torrents[index]
+            trackers = torrent.trackers
+            tracker_msg = ""
+            for tracker in trackers:
+                if tracker.get("tier") == -1:
+                    continue
+                tracker_domian = StringUtils.get_url_netloc((tracker.get("url")))[1]
+                tracker_msg += f" {tracker_domian}：{tracker.msg} "
+            tracker_not_working_msg += f"{index + 1}. {torrent.name}，分类：{torrent.category}，标签：{torrent.tags}, 大小：{StringUtils.str_filesize(torrent.size)}，Trackers: {tracker_msg}\n"
+
+        for index in range(len(invalid_torrents_exclude_categories)):
+            torrent = invalid_torrents_exclude_categories[index]
+            trackers = torrent.trackers
+            tracker_msg = ""
+            for tracker in trackers:
+                if tracker.get("tier") == -1:
+                    continue
+                tracker_domian = StringUtils.get_url_netloc((tracker.get("url")))[1]
+                tracker_msg += f" {tracker_domian}：{tracker.msg} "
+            exclude_categories_msg += f"{index + 1}. {torrent.name}，分类：{torrent.category}，标签：{torrent.tags}, 大小：{StringUtils.str_filesize(torrent.size)}，Trackers: {tracker_msg}\n"
+
+        for index in range(len(invalid_torrents_exclude_labels)):
+            torrent = invalid_torrents_exclude_labels[index]
+            trackers = torrent.trackers
+            tracker_msg = ""
+            for tracker in trackers:
+                if tracker.get("tier") == -1:
+                    continue
+                tracker_domian = StringUtils.get_url_netloc((tracker.get("url")))[1]
+                tracker_msg += f" {tracker_domian}：{tracker.msg} "
+            exclude_labels_msg += f"{index + 1}. {torrent.name}，分类：{torrent.category}，标签：{torrent.tags}, 大小：{StringUtils.str_filesize(torrent.size)}，Trackers: {tracker_msg}\n"
+
+        for index in range(len(deleted_torrents)):
+            torrent = deleted_torrents[index]
+            trackers = torrent.trackers
+            tracker_msg = ""
+            for tracker in trackers:
+                if tracker.get("tier") == -1:
+                    continue
+                tracker_domian = StringUtils.get_url_netloc((tracker.get("url")))[1]
+                tracker_msg += f" {tracker_domian}：{tracker.msg} "
+            deleted_msg += f"{index + 1}. {torrent.name}，分类：{torrent.category}，标签：{torrent.tags}, 大小：{StringUtils.str_filesize(torrent.size)}，Trackers: {tracker_msg}\n"
+
+        # 日志
+        logger.info(invalid_msg)
+        logger.info(tracker_not_working_msg)
+        if self._delete_invalid_torrents:
+            logger.info(deleted_msg)
+            if len(exclude_categories) != 0:
+                logger.info(exclude_categories_msg)
+            if len(exclude_labels) != 0:
+                logger.info(exclude_labels_msg)
+        # 通知
+        if self._notify:
             self.post_message(
                 mtype=NotificationType.SiteMessage,
                 title=f"【清理无效做种】",
-                text=message,
+                text=invalid_msg,
             )
+            if self._notify_all:
+                self.post_message(
+                    mtype=NotificationType.SiteMessage,
+                    title=f"【清理无效做种】",
+                    text=tracker_not_working_msg,
+                )
+            if self._delete_invalid_torrents:
+                self.post_message(
+                    mtype=NotificationType.SiteMessage,
+                    title=f"【清理无效做种】",
+                    text=deleted_msg,
+                )
+                if self._notify_all:
+                    self.post_message(
+                        mtype=NotificationType.SiteMessage,
+                        title=f"【清理无效做种】",
+                        text=exclude_categories_msg,
+                    )
+                    self.post_message(
+                        mtype=NotificationType.SiteMessage,
+                        title=f"【清理无效做种】",
+                        text=exclude_labels_msg,
+                    )
+        logger.info("检测无效做种任务结束")
         if self._detect_invalid_files:
             self.detect_invalid_files()
 
@@ -306,7 +447,7 @@ class CleanInvalidSeed(_PluginBase):
         for torrent in all_torrents:
             content_path_set.add(torrent.content_path)
 
-        message = "检测到未做种无效源文件：\n"
+        message = "检测未做种无效源文件：\n"
         for source_path_str in source_paths:
             source_path = Path(source_path_str)
             source_files = []
@@ -317,7 +458,7 @@ class CleanInvalidSeed(_PluginBase):
                 skip = False
                 for key_word in exclude_key_words:
                     if key_word in source_file.name:
-                        logger.info(f"命中关键字{key_word}，跳过{str(source_file)}")
+                        logger.info(f"{str(source_file)}命中关键字{key_word}，不做处理")
                         skip = True
                         break
                 if skip:
@@ -335,7 +476,7 @@ class CleanInvalidSeed(_PluginBase):
 
                 if not is_exist:
                     deleted_file_cnt += 1
-                    message += f"{str(source_file)}\n"
+                    message += f"{deleted_file_cnt}. {str(source_file)}\n"
                     total_size += self.get_size(source_file)
                     if self._delete_invalid_files:
                         if source_file.is_file():
@@ -347,12 +488,13 @@ class CleanInvalidSeed(_PluginBase):
         if self._delete_invalid_files:
             message += f"***已删除无效源文件，释放{StringUtils.str_filesize(total_size)}空间!***\n"
         logger.info(message)
-        if self._notify and deleted_file_cnt != 0:
+        if self._notify:
             self.post_message(
                 mtype=NotificationType.SiteMessage,
                 title=f"【清理无效做种】",
                 text=message,
             )
+        logger.info("检测无效源文件任务结束")
 
     def get_size(self, path: Path):
         total_size = 0
@@ -450,21 +592,29 @@ class CleanInvalidSeed(_PluginBase):
                                     }
                                 ],
                             },
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "notify_all",
+                                            "label": "全量通知",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VTextField",
                                         "props": {"model": "cron", "label": "执行周期"},
                                     }
                                 ],
-                            }
+                            },
                         ],
                     },
                     {
@@ -489,22 +639,53 @@ class CleanInvalidSeed(_PluginBase):
                     },
                     {
                         "component": "VRow",
+                        "props": {"style": {"margin-top": "0px"}},
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VTextarea",
                                         "props": {
                                             "model": "exclude_keywords",
-                                            "label": "过滤关键字",
+                                            "label": "过滤删源文件关键字",
                                             "rows": 5,
                                             "placeholder": "多个关键字请换行，仅针对删除源文件",
                                         },
                                     }
                                 ],
-                            }
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "exclude_categories",
+                                            "label": "过滤删种分类",
+                                            "rows": 5,
+                                            "placeholder": "多个分类请换行，仅针对删除种子",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "exclude_labels",
+                                            "label": "过滤删种标签",
+                                            "rows": 5,
+                                            "placeholder": "多个标签请换行，仅针对删除删除",
+                                        },
+                                    }
+                                ],
+                            },
                         ],
                     },
                     {
@@ -553,6 +734,7 @@ class CleanInvalidSeed(_PluginBase):
             "delete_invalid_torrents": False,
             "delete_invalid_files": False,
             "detect_invalid_files": False,
+            "notify_all": False,
             "onlyonce": False,
             "cron": "0 0 * * *",
         }
