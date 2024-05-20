@@ -97,7 +97,7 @@ class CloudflareSpeedTest(_PluginBase):
                     self._scheduler.start()
             except Exception as err:
                 logger.error(f"Cloudflare CDN优选服务出错：{str(err)}")
-                self.systemmessage.put(f"Cloudflare CDN优选服务出错：{str(err)}")
+                self.systemmessage.put(f"Cloudflare CDN优选服务出错：{str(err)}", title="Cloudflare IP优选")
                 return
 
     @eventmanager.register(EventType.PluginAction)
@@ -803,7 +803,7 @@ class CloudflareSpeedTest(_PluginBase):
                 err_hosts.append(host + "\n")
                 logger.error(f"[HOST] 格式转换错误：{str(err)}")
                 # 推送实时消息
-                self.systemmessage.put(f"[HOST] 格式转换错误：{str(err)}")
+                self.systemmessage.put(f"[HOST] 格式转换错误：{str(err)}", title="Cloudflare IP优选")
 
         # 写入系统hosts
         if new_entrys:
@@ -818,7 +818,7 @@ class CloudflareSpeedTest(_PluginBase):
                 err_flag = True
                 logger.error(f"更新系统hosts文件失败：{str(err) or '请检查权限'}")
                 # 推送实时消息
-                self.systemmessage.put(f"更新系统hosts文件失败：{str(err) or '请检查权限'}")
+                self.systemmessage.put(f"更新系统hosts文件失败：{str(err) or '请检查权限'}", title="Cloudflare IP优选")
         return err_flag, err_hosts
 
     def stop_service(self):

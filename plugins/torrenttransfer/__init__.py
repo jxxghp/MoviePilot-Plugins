@@ -98,11 +98,11 @@ class TorrentTransfer(_PluginBase):
             # 检查配置
             if self._fromtorrentpath and not Path(self._fromtorrentpath).exists():
                 logger.error(f"源下载器种子文件保存路径不存在：{self._fromtorrentpath}")
-                self.systemmessage.put(f"源下载器种子文件保存路径不存在：{self._fromtorrentpath}")
+                self.systemmessage.put(f"源下载器种子文件保存路径不存在：{self._fromtorrentpath}", title="自动转移做种")
                 return
             if self._fromdownloader == self._todownloader:
                 logger.error(f"源下载器和目的下载器不能相同")
-                self.systemmessage.put(f"源下载器和目的下载器不能相同")
+                self.systemmessage.put(f"源下载器和目的下载器不能相同", title="自动转移做种")
                 return
 
             # 定时服务

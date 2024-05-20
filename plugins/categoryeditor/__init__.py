@@ -40,11 +40,11 @@ class CategoryEditor(_PluginBase):
             if self._enabled:
                 self.user_yaml.write_text(self._content, encoding="utf-8")
                 if not settings.LIBRARY_CATEGORY:
-                    self.systemmessage.put("二级分类未开启，策略已保存但未生效！")
+                    self.systemmessage.put("二级分类未开启，策略已保存但未生效！", title="二级分类策略")
                     return
                 # 立即生效
                 CategoryHelper().init()
-                self.systemmessage.put("二级分类策略已更新！")
+                self.systemmessage.put("二级分类策略已更新！", title="二级分类策略")
 
     def get_state(self) -> bool:
         return self._enabled

@@ -47,15 +47,15 @@ class IyuuAuth(_PluginBase):
             if self._enabled:
                 if not self._token or not self._passkey or not self._uid:
                     logger.warn("IYUU站点绑定插件配置不完整，请检查配置！")
-                    self.systemmessage.put("IYUU站点绑定插件配置不完整，请检查配置！")
+                    self.systemmessage.put("IYUU站点绑定插件配置不完整，请检查配置！", title="IYUU站点绑定")
                     return
                 state, message = self.iyuu.bind_site(site=self._site, passkey=self._passkey, uid=self._uid)
                 if not state:
                     logger.warn(f"IYUU站点绑定失败，错误信息：{message}")
-                    self.systemmessage.put(f"IYUU站点绑定失败，错误信息：{message}")
+                    self.systemmessage.put(f"IYUU站点绑定失败，错误信息：{message}", title="IYUU站点绑定")
                 else:
                     logger.info("IYUU站点绑定成功！")
-                    self.systemmessage.put("IYUU站点绑定成功！")
+                    self.systemmessage.put("IYUU站点绑定成功！", title="IYUU站点绑定")
                     self._enabled = False
                     self.update_config({
                         "enabled": self._enabled,

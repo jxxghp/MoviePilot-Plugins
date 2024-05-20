@@ -221,7 +221,7 @@ class CustomHosts(_PluginBase):
                 err_hosts.append(host + "\n")
                 logger.error(f"[HOST] 格式转换错误：{str(err)}")
                 # 推送实时消息
-                self.systemmessage.put(f"[HOST] 格式转换错误：{str(err)}")
+                self.systemmessage.put(f"[HOST] 格式转换错误：{str(err)}", title="自定义Hosts")
 
         # 写入系统hosts
         if new_entrys:
@@ -236,7 +236,7 @@ class CustomHosts(_PluginBase):
                 err_flag = True
                 logger.error(f"更新系统hosts文件失败：{str(err) or '请检查权限'}")
                 # 推送实时消息
-                self.systemmessage.put(f"更新系统hosts文件失败：{str(err) or '请检查权限'}")
+                self.systemmessage.put(f"更新系统hosts文件失败：{str(err) or '请检查权限'}", title="自定义Hosts")
         return err_flag, err_hosts
 
     def stop_service(self):

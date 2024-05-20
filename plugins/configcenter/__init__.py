@@ -99,7 +99,7 @@ class ConfigCenter(_PluginBase):
                 value = str(value)
             set_key(env_path, key, value)
         logger.info("app.env文件写入完成")
-        self.systemmessage.put("配置中心设置已写入app.env文件，插件关闭")
+        self.systemmessage.put("配置中心设置已写入app.env文件，插件关闭", title="配置中心")
 
     @staticmethod
     def __parse_params(param_str: str) -> dict:

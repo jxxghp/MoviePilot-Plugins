@@ -3493,7 +3493,7 @@ class BrushFlow(_PluginBase):
         记录错误日志并发送系统通知
         """
         logger.error(message)
-        self.systemmessage.put(message)
+        self.systemmessage.put(message, title="站点刷流")
 
     def __send_delete_message(self, site_name: str, torrent_title: str, torrent_desc: str, reason: str,
                               title: str = "【刷流任务种子删除】"):

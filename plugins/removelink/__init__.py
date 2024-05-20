@@ -179,7 +179,7 @@ class RemoveLink(_PluginBase):
                 except Exception as e:
                     err_msg = str(e)
                     logger.error(f"{mon_path} 启动目录监控失败：{err_msg}")
-                    self.systemmessage.put(f"{mon_path} 启动目录监控失败：{err_msg}")
+                    self.systemmessage.put(f"{mon_path} 启动目录监控失败：{err_msg}", title="清理硬链接")
             # 更新监控集合
             with state_lock:
                 self.state_set = updateState(monitor_dirs)

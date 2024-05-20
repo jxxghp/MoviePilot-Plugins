@@ -75,7 +75,7 @@ class FFmpegThumb(_PluginBase):
                                             name="FFmpeg缩略图")
                 except Exception as e:
                     logger.error(f"FFmpeg缩略图服务启动失败，原因：{str(e)}")
-                    self.systemmessage.put(f"FFmpeg缩略图服务启动失败，原因：{str(e)}")
+                    self.systemmessage.put(f"FFmpeg缩略图服务启动失败，原因：{str(e)}", title="FFmpeg缩略图")
             if self._onlyonce:
                 logger.info(f"FFmpeg缩略图服务，立即运行一次")
                 self._scheduler.add_job(func=self.__libraryscan, trigger='date',
