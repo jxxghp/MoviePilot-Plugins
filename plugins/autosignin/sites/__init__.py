@@ -28,7 +28,9 @@ class _ISiteSigninHandler(metaclass=ABCMeta):
         :param url: 站点Url
         :return: 是否匹配，如匹配则会调用该类的signin方法
         """
-        return True if StringUtils.url_equal(url, self.site_url) else False
+        if StringUtils.url_equal(url, self.site_url):
+            return True
+        return False
 
     @abstractmethod
     def signin(self, site_info: CommentedMap) -> Tuple[bool, str]:

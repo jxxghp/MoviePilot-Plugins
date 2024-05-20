@@ -2,12 +2,11 @@
 import json
 from typing import Optional, Tuple
 from urllib.parse import urljoin
+
 from lxml import etree
 
 from app.log import logger
-from app.db.systemconfig_oper import SystemConfigOper
 from app.plugins.sitestatistic.siteuserinfo import ISiteUserInfo, SITE_BASE_ORDER, SiteSchema
-from app.utils.string import StringUtils
 
 
 class MTorrentSiteUserInfo(ISiteUserInfo):

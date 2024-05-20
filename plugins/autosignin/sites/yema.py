@@ -13,7 +13,7 @@ class MTorrent(_ISiteSigninHandler):
     m-team签到
     """
     # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
-    site_url = "m-team"
+    site_url = "yemapt.org"
 
     @classmethod
     def match(cls, url: str) -> bool:
@@ -22,7 +22,7 @@ class MTorrent(_ISiteSigninHandler):
         :param url: 站点Url
         :return: 是否匹配，如匹配则会调用该类的signin方法
         """
-        return True if cls.site_url in url.split(".") else False
+        return True if cls.site_url in url else False
 
     def signin(self, site_info: CommentedMap) -> Tuple[bool, str]:
         """
@@ -34,15 +34,15 @@ class MTorrent(_ISiteSigninHandler):
             "Content-Type": "application/json",
             "User-Agent": site_info.get("ua"),
             "Accept": "application/json, text/plain, */*",
-            "Authorization": site_info.get("token")
         }
         # 更新最后访问时间
         res = RequestUtils(headers=headers,
-                           timeout=60,
+                           timeout=15,
+                           cookies=site_info.get("cookie"),
                            proxies=settings.PROXY if site_info.get("proxy") else None,
-                           referer=f"{site_info.get('url')}index"
-                           ).post_res(url=urljoin(site_info.get('url'), "api/member/updateLastBrowse"))
-        if res:
+                           referer=site_info.get('url')
+                           ).post_res(url=urljoin(site_info.get('url'), "api/user/profile"))
+        if res and res.json().get("success"):
             return True, "模拟登录成功"
         elif res is not None:
             return False, f"模拟登录失败，状态码：{res.status_code}"

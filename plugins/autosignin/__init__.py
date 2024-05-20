@@ -38,7 +38,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "2.2"
+    plugin_version = "2.3"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -75,14 +75,6 @@ class AutoSignIn(_PluginBase):
     _start_time: int = None
     _end_time: int = None
     _auto_cf: int = 0
-
-    def __init__(self):
-        super().__init__()
-        # 特殊模拟登录站点
-        self._special_login_sites = {
-            "m-team.io": self.__mteam_login,
-            "m-team.cc": self.__mteam_login,
-        }
 
     def init_plugin(self, config: dict = None):
         self.sites = SitesHelper()
@@ -978,34 +970,25 @@ class AutoSignIn(_PluginBase):
         """
         模拟登录一个站点
         """
-        domain = StringUtils.get_url_domain(site_info.get("url"))
-        if domain in self._special_login_sites:
-            return site_info.get("name"), self._special_login_sites[domain](site_info)
-        return site_info.get("name"), self.__login_base(site_info)
-
-    @staticmethod
-    def __mteam_login(site: CommentedMap) -> str:
-        """
-        mteam登录
-        """
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": site.get("ua"),
-            "Accept": "application/json, text/plain, */*",
-            "Authorization": site.get("token")
-        }
-        # 更新最后访问时间
-        res = RequestUtils(headers=headers,
-                           timeout=60,
-                           proxies=settings.PROXY if site.get("proxy") else None,
-                           referer=f"{site.get('url')}index"
-                           ).post_res(url=urljoin(site.get('url'), "api/member/updateLastBrowse"))
-        if res:
-            return "模拟登录成功"
-        elif res is not None:
-            return f"模拟登录失败，状态码：{res.status_code}"
+        site_module = self.__build_class(site_info.get("url"))
+        # 开始记时
+        start_time = datetime.now()
+        if site_module and hasattr(site_module, "login"):
+            try:
+                state, message = site_module().login(site_info)
+            except Exception as e:
+                traceback.print_exc()
+                state, message = False, f"模拟登录失败：{str(e)}"
         else:
-            return "模拟登录失败，无法打开网站"
+            state, message = self.__login_base(site_info)
+        # 统计
+        seconds = (datetime.now() - start_time).seconds
+        domain = StringUtils.get_url_domain(site_info.get('url'))
+        if state:
+            self.sitestatistic.success(domain=domain, seconds=seconds)
+        else:
+            self.sitestatistic.fail(domain)
+        return site_info.get("name"), message
 
     @staticmethod
     def __login_base(site_info: CommentedMap) -> str:

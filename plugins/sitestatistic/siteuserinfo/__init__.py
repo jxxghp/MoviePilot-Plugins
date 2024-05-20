@@ -33,6 +33,7 @@ class SiteSchema(Enum):
     FileList = "FileList"
     TNode = "TNode"
     MTorrent = "MTorrent"
+    Yema = "Yema"
 
 
 class ISiteUserInfo(metaclass=ABCMeta):
