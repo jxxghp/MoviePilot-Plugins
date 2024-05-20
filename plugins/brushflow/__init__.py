@@ -77,6 +77,7 @@ class BrushConfig:
         self.qb_category = config.get("qb_category")
         self.auto_qb_category = config.get("auto_qb_category", False)
         self.qb_first_last_piece = config.get("qb_first_last_piece", False)
+        self.site_hr_active = config.get("site_hr_active", False)
 
         self.brush_tag = "刷流"
         # 站点独立配置
@@ -121,6 +122,7 @@ class BrushConfig:
             "qb_category",
             "auto_qb_category",
             "qb_first_last_piece",
+            "site_hr_active"
             # 当新增支持字段时，仅在此处添加字段名
         }
         try:
@@ -188,7 +190,8 @@ class BrushConfig:
     "proxy_delete": false,
     "qb_category": "刷流",
     "auto_qb_category": true,
-    "qb_first_last_piece": true
+    "qb_first_last_piece": true,
+    "site_hr_active": true
 }]"""
         return desc + config
 
@@ -254,7 +257,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "3.2"
+    plugin_version = "3.3"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -2048,6 +2051,12 @@ class BrushFlow(_PluginBase):
 
         brush_config = self.__get_brush_config(sitename=siteinfo.name)
 
+        if brush_config.site_hr_active:
+            logger.info(f"站点 {siteinfo.name} 已开启全站H&R选项，所有种子设置为H&R种子")
+            # 由于缓存原因，这里不能直接改torrents，在后续加入任务中调整
+            # for torrent in torrents:
+            #     torrent.hit_and_run = True
+
         # 排除包含订阅的种子
         if brush_config.except_subscribe:
             torrents = self.__filter_torrents_contains_subscribe(torrents=torrents, subscribe_titles=subscribe_titles)
@@ -2109,7 +2118,7 @@ class BrushFlow(_PluginBase):
                 "freedate": torrent.freedate,
                 "uploadvolumefactor": torrent.uploadvolumefactor,
                 "downloadvolumefactor": torrent.downloadvolumefactor,
-                "hit_and_run": torrent.hit_and_run,
+                "hit_and_run": torrent.hit_and_run or brush_config.site_hr_active,
                 "volume_factor": torrent.volume_factor,
                 "freedate_diff": torrent.freedate_diff,
                 # "labels": torrent.labels,
@@ -2382,6 +2391,10 @@ class BrushFlow(_PluginBase):
                 need_delete_hashes.extend(not_proxy_delete_hashes)
 
             if need_delete_hashes:
+                # 如果是QB，则重新汇报Tracker
+                if brush_config.downloader == "qbittorrent":
+                    self.__qb_torrents_reannounce(torrent_hashes=need_delete_hashes)
+                # 删除种子
                 if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
                     for torrent_hash in need_delete_hashes:
                         torrent_tasks[torrent_hash]["deleted"] = True
@@ -3279,6 +3292,20 @@ class BrushFlow(_PluginBase):
         except Exception as err:
             logger.error(f"添加种子出错：{str(err)}")
             return False
+
+    def __qb_torrents_reannounce(self, torrent_hashes: List[str]):
+        """强制重新汇报"""
+        if not self.qb.qbc:
+            return
+
+        if not torrent_hashes:
+            return
+
+        try:
+            # 重新汇报
+            self.qb.qbc.torrents_reannounce(torrent_hashes=torrent_hashes)
+        except Exception as err:
+            logger.error(f"强制重新汇报失败：{str(err)}")
 
     def __get_hash(self, torrent: Any):
         """
