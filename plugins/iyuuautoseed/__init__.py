@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "1.8.1"
+    plugin_version = "1.8.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -57,6 +57,7 @@ class IYUUAutoSeed(_PluginBase):
     # 开关
     _enabled = False
     _cron = None
+    _skipverify = False
     _onlyonce = False
     _token = None
     _downloaders = []
@@ -100,6 +101,7 @@ class IYUUAutoSeed(_PluginBase):
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
+            self._skipverify = config.get("skipverify")
             self._onlyonce = config.get("onlyonce")
             self._cron = config.get("cron")
             self._token = config.get("token")
@@ -388,7 +390,23 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'skipverify',
+                                            'label': '跳过校验(仅qB有效)',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -404,7 +422,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -422,6 +440,7 @@ class IYUUAutoSeed(_PluginBase):
             }
         ], {
             "enabled": False,
+            "skipverify": False,
             "onlyonce": False,
             "notify": False,
             "clearcache": False,
@@ -440,6 +459,7 @@ class IYUUAutoSeed(_PluginBase):
     def __update_config(self):
         self.update_config({
             "enabled": self._enabled,
+            "skipverify": self._skipverify,
             "onlyonce": self._onlyonce,
             "clearcache": self._clearcache,
             "cron": self._cron,
@@ -738,7 +758,8 @@ class IYUUAutoSeed(_PluginBase):
             state = self.qb.add_torrent(content=content,
                                         download_dir=save_path,
                                         is_paused=True,
-                                        tag=["已整理", "辅种", tag])
+                                        tag=["已整理", "辅种", tag],
+                                        is_skip_checking=self._skipverify)
             if not state:
                 return None
             else:
@@ -859,17 +880,21 @@ class IYUUAutoSeed(_PluginBase):
             return False
         else:
             self.success += 1
-            # 追加校验任务
-            logger.info(f"添加校验检查任务：{download_id} ...")
-            if not self._recheck_torrents.get(downloader):
-                self._recheck_torrents[downloader] = []
-            self._recheck_torrents[downloader].append(download_id)
+            if self._skipverify:
+                # 跳过校验
+                logger.info(f"{download_id} 跳过校验，请自行检查...")
+            else:
+                # 追加校验任务
+                logger.info(f"添加校验检查任务：{download_id} ...")
+                if not self._recheck_torrents.get(downloader):
+                    self._recheck_torrents[downloader] = []
+                self._recheck_torrents[downloader].append(download_id)
+                # TR会自动校验
+                if downloader == "qbittorrent":
+                    # 开始校验种子
+                    downloader_obj.recheck_torrents(ids=[download_id])
             # 下载成功
             logger.info(f"成功添加辅种下载，站点：{site_info.get('name')}，种子链接：{torrent_url}")
-            # TR会自动校验
-            if downloader == "qbittorrent":
-                # 开始校验种子
-                downloader_obj.recheck_torrents(ids=[download_id])
             # 成功也加入缓存，有一些改了路径校验不通过的，手动删除后，下一次又会辅上
             self._success_caches.append(seed.get("info_hash"))
             return True
