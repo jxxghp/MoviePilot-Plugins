@@ -880,17 +880,21 @@ class IYUUAutoSeed(_PluginBase):
             return False
         else:
             self.success += 1
-            # 追加校验任务
-            logger.info(f"添加校验检查任务：{download_id} ...")
-            if not self._recheck_torrents.get(downloader):
-                self._recheck_torrents[downloader] = []
-            self._recheck_torrents[downloader].append(download_id)
+            if self._skipverify:
+                # 跳过校验
+                logger.info(f"{download_id} 跳过校验，请自行检查...")
+            else:
+                # 追加校验任务
+                logger.info(f"添加校验检查任务：{download_id} ...")
+                if not self._recheck_torrents.get(downloader):
+                    self._recheck_torrents[downloader] = []
+                self._recheck_torrents[downloader].append(download_id)
+                # TR会自动校验
+                if downloader == "qbittorrent":
+                    # 开始校验种子
+                    downloader_obj.recheck_torrents(ids=[download_id])
             # 下载成功
             logger.info(f"成功添加辅种下载，站点：{site_info.get('name')}，种子链接：{torrent_url}")
-            # TR会自动校验
-            if downloader == "qbittorrent":
-                # 开始校验种子
-                downloader_obj.recheck_torrents(ids=[download_id])
             # 成功也加入缓存，有一些改了路径校验不通过的，手动删除后，下一次又会辅上
             self._success_caches.append(seed.get("info_hash"))
             return True
