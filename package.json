@@ -287,10 +287,13 @@
         "name": "自动转移做种",
         "description": "定期转移下载器中的做种任务到另一个下载器。",
         "labels": "做种",
-        "version": "1.3",
+        "version": "1.4",
         "icon": "seed.png",
         "author": "jxxghp",
-        "level": 2
+        "level": 2,
+        "history": {
+            "v1.4": "支持自动删除源下载器在目的下载器中存在的种子"
+        }
     },
     "RssSubscribe": {
         "name": "自定义订阅",
