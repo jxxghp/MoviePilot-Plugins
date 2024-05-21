@@ -247,11 +247,12 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "labels": "做种,IYUU",
-        "version": "1.8.2",
+        "version": "1.9",
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2,
         "history": {
+            "v1.9": "支持自定义辅种后标签，支持将站点名作为标签",
             "v1.8.2": "qBittorrent 支持跳过校验",
             "v1.8.1": "判断辅种失败的情况下，是否是由于token未进行站点绑定导致的",
             "v1.8": "适配新版本IYUU开发版",

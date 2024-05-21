@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "1.8.2"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -65,6 +65,8 @@ class IYUUAutoSeed(_PluginBase):
     _notify = False
     _nolabels = None
     _nopaths = None
+    _labelsafterseed = None
+    _addhosttotag = False
     _size = None
     _clearcache = False
     # 退出事件
@@ -76,7 +78,6 @@ class IYUUAutoSeed(_PluginBase):
         "//a[contains(@href, 'download.php?id=')]/@href",
         "//a[@class='index'][contains(@href, '/dl/')]/@href",
     ]
-    _torrent_tags = ["已整理", "辅种"]
     # 待校全种子hash清单
     _recheck_torrents = {}
     _is_recheck_running = False
@@ -110,6 +111,8 @@ class IYUUAutoSeed(_PluginBase):
             self._notify = config.get("notify")
             self._nolabels = config.get("nolabels")
             self._nopaths = config.get("nopaths")
+            self._labelsafterseed = config.get("labelsafterseed") if config.get("labelsafterseed") else "已整理,辅种"
+            self._addhosttotag = config.get("addhosttotag")
             self._size = float(config.get("size")) if config.get("size") else 0
             self._clearcache = config.get("clearcache")
             self._permanent_error_caches = [] if self._clearcache else config.get("permanent_error_caches") or []
@@ -390,6 +393,44 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'labelsafterseed',
+                                            'label': '辅种后增加标签',
+                                            'placeholder': '使用,分隔多个标签,不填写则默认为(已整理,辅种)'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'addhosttotag',
+                                            'label': '将站点名添加到标签中',
+                                        }
+                                    }
+                                ]
+                            },
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
                                     'md': 4
                                 },
                                 'content': [
@@ -444,12 +485,14 @@ class IYUUAutoSeed(_PluginBase):
             "onlyonce": False,
             "notify": False,
             "clearcache": False,
+            "addhosttotag": False,
             "cron": "",
             "token": "",
             "downloaders": [],
             "sites": [],
             "nopaths": "",
             "nolabels": "",
+            "labelsafterseed": "",
             "size": ""
         }
 
@@ -469,6 +512,8 @@ class IYUUAutoSeed(_PluginBase):
             "notify": self._notify,
             "nolabels": self._nolabels,
             "nopaths": self._nopaths,
+            "labelsafterseed": self._labelsafterseed,
+            "addhosttotag": self._addhosttotag,
             "size": self._size,
             "success_caches": self._success_caches,
             "error_caches": self._error_caches,
@@ -748,17 +793,27 @@ class IYUUAutoSeed(_PluginBase):
             print(str(e))
 
     def __download(self, downloader: str, content: bytes,
-                   save_path: str) -> Optional[str]:
+                   save_path: str, site_name: str) -> Optional[str]:
+
+        torrent_tags = self._labelsafterseed.split(',')
+
+        # 辅种 tag 叠加站点名
+        if self._addhosttotag:
+            torrent_tags.append(site_name)
+
         """
         添加下载任务
         """
         if downloader == "qbittorrent":
             # 生成随机Tag
             tag = StringUtils.generate_random_str(10)
+
+            torrent_tags.append(tag)
+
             state = self.qb.add_torrent(content=content,
                                         download_dir=save_path,
                                         is_paused=True,
-                                        tag=["已整理", "辅种", tag],
+                                        tag=torrent_tags,
                                         is_skip_checking=self._skipverify)
             if not state:
                 return None
@@ -774,7 +829,7 @@ class IYUUAutoSeed(_PluginBase):
             torrent = self.tr.add_torrent(content=content,
                                           download_dir=save_path,
                                           is_paused=True,
-                                          labels=["已整理", "辅种"])
+                                          labels=torrent_tags)
             if not torrent:
                 return None
             else:
@@ -871,7 +926,8 @@ class IYUUAutoSeed(_PluginBase):
         logger.info(f"添加下载任务：{torrent_url} ...")
         download_id = self.__download(downloader=downloader,
                                       content=content,
-                                      save_path=save_path)
+                                      save_path=save_path,
+                                      site_name=site_info.get("name"))
         if not download_id:
             # 下载失败
             self.fail += 1
