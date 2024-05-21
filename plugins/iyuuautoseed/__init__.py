@@ -287,7 +287,8 @@ class IYUUAutoSeed(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12
+                                    'cols': 12,
+                                    'md': 6
                                 },
                                 'content': [
                                     {
@@ -301,6 +302,23 @@ class IYUUAutoSeed(_PluginBase):
                                                 {'title': 'Qbittorrent', 'value': 'qbittorrent'},
                                                 {'title': 'Transmission', 'value': 'transmission'}
                                             ]
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'size',
+                                            'label': '辅种体积大于(GB)',
+                                            'placeholder': '只有大于该值的才辅种'
                                         }
                                     }
                                 ]
@@ -343,9 +361,9 @@ class IYUUAutoSeed(_PluginBase):
                                     {
                                         'component': 'VTextField',
                                         'props': {
-                                            'model': 'size',
-                                            'label': '辅种体积大于(GB)',
-                                            'placeholder': '只有大于该值的才辅种'
+                                            'model': 'nolabels',
+                                            'label': '不辅种标签',
+                                            'placeholder': '使用,分隔多个标签'
                                         }
                                     }
                                 ]
@@ -360,9 +378,9 @@ class IYUUAutoSeed(_PluginBase):
                                     {
                                         'component': 'VTextField',
                                         'props': {
-                                            'model': 'nolabels',
-                                            'label': '不辅种标签',
-                                            'placeholder': '使用,分隔多个标签'
+                                            'model': 'labelsafterseed',
+                                            'label': '辅种后增加标签',
+                                            'placeholder': '使用,分隔多个标签,不填写则默认为(已整理,辅种)'
                                         }
                                     }
                                 ]
@@ -393,24 +411,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'labelsafterseed',
-                                            'label': '辅种后增加标签',
-                                            'placeholder': '使用,分隔多个标签,不填写则默认为(已整理,辅种)'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -422,23 +423,18 @@ class IYUUAutoSeed(_PluginBase):
                                     }
                                 ]
                             },
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
                             {
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'skipverify',
-                                            'label': '跳过校验(仅qB有效)',
+                                            'label': '跳过校验(仅QB有效)',
                                         }
                                     }
                                 ]
@@ -447,7 +443,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -463,7 +459,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
