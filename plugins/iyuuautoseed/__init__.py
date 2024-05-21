@@ -213,7 +213,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -229,7 +229,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -237,6 +237,22 @@ class IYUUAutoSeed(_PluginBase):
                                         'props': {
                                             'model': 'notify',
                                             'label': '发送通知',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'onlyonce',
+                                            'label': '立即运行一次',
                                         }
                                     }
                                 ]
@@ -411,7 +427,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 3
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -427,7 +443,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 3
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -443,23 +459,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 3
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'onlyonce',
-                                            'label': '立即运行一次',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 3
+                                    'md': 4
                                 },
                                 'content': [
                                     {
