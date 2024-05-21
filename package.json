@@ -28,7 +28,7 @@
     "SiteStatistic": {
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
-        "labels": "站点",
+        "labels": "站点,仪表板",
         "version": "3.5",
         "icon": "statistic.png",
         "author": "lightolly",
@@ -322,7 +322,7 @@
     "BrushFlow": {
         "name": "站点刷流",
         "description": "自动托管刷流，将会提高对应站点的访问频率。",
-        "labels": "刷流",
+        "labels": "刷流,仪表板",
         "version": "3.3",
         "icon": "brush.jpg",
         "author": "jxxghp,InfinityPacer",
@@ -630,7 +630,7 @@
     "DownloaderHelper": {
         "name": "下载器助手",
         "description": "自动做种、站点标签、自动删种。",
-        "labels": "下载管理",
+        "labels": "下载管理,仪表板",
         "version": "2.2",
         "icon": "DownloaderHelper.png",
         "author": "hotlcc",
@@ -717,7 +717,7 @@
     "MPServerStatus": {
         "name": "MoviePilot服务器监控",
         "description": "在仪表板中实时显示MoviePilot公共服务器状态。",
-        "labels": "工具",
+        "labels": "仪表板",
         "version": "1.0",
         "icon": "Duplicati_A.png",
         "author": "jxxghp",
@@ -739,5 +739,14 @@
             "v1.1": "更新使用说明，以防使用不当误删文件",
             "v1.0": "定时清理已经被站点删除的种子及对应源文件"
         }
+    },
+    "TrendingShow": {
+        "name": "流行趋势轮播",
+        "description": "在仪表板中显示流行趋势海报轮播图。",
+        "labels": "仪表板",
+        "version": "1.0",
+        "icon": "Dsphoto_A.png",
+        "author": "jxxghp",
+        "level": 1
     }
 }
