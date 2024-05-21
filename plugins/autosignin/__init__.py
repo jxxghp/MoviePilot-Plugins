@@ -38,7 +38,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "2.3"
+    plugin_version = "2.3.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -991,14 +991,14 @@ class AutoSignIn(_PluginBase):
         return site_info.get("name"), message
 
     @staticmethod
-    def __login_base(site_info: CommentedMap) -> str:
+    def __login_base(site_info: CommentedMap) -> Tuple[bool, str]:
         """
         模拟登录通用处理
         :param site_info: 站点信息
         :return: 签到结果信息
         """
         if not site_info:
-            return ""
+            return False, ""
         site = site_info.get("name")
         site_url = site_info.get("url")
         site_cookie = site_info.get("cookie")
@@ -1008,7 +1008,7 @@ class AutoSignIn(_PluginBase):
         proxy_server = settings.PROXY_SERVER if site_info.get("proxy") else None
         if not site_url or not site_cookie:
             logger.warn(f"未配置 {site} 的站点地址或Cookie，无法签到")
-            return ""
+            return False, ""
         # 模拟登录
         try:
             # 访问链接
@@ -1021,10 +1021,10 @@ class AutoSignIn(_PluginBase):
                                                                  proxies=proxy_server)
                 if not SiteUtils.is_logged_in(page_source):
                     if under_challenge(page_source):
-                        return f"无法通过Cloudflare！"
-                    return f"仿真登录失败，Cookie已失效！"
+                        return False, f"无法通过Cloudflare！"
+                    return False, f"仿真登录失败，Cookie已失效！"
                 else:
-                    return "模拟登录成功"
+                    return True, "模拟登录成功"
             else:
                 res = RequestUtils(cookies=site_cookie,
                                    ua=ua,
@@ -1040,20 +1040,20 @@ class AutoSignIn(_PluginBase):
                         else:
                             msg = f"状态码：{res.status_code}"
                         logger.warn(f"{site} 模拟登录失败，{msg}")
-                        return f"模拟登录失败，{msg}！"
+                        return False, f"模拟登录失败，{msg}！"
                     else:
                         logger.info(f"{site} 模拟登录成功")
-                        return f"模拟登录成功"
+                        return True, f"模拟登录成功"
                 elif res is not None:
                     logger.warn(f"{site} 模拟登录失败，状态码：{res.status_code}")
-                    return f"模拟登录失败，状态码：{res.status_code}！"
+                    return False, f"模拟登录失败，状态码：{res.status_code}！"
                 else:
                     logger.warn(f"{site} 模拟登录失败，无法打开网站")
-                    return f"模拟登录失败，无法打开网站！"
+                    return False, f"模拟登录失败，无法打开网站！"
         except Exception as e:
             logger.warn("%s 模拟登录失败：%s" % (site, str(e)))
             traceback.print_exc()
-            return f"模拟登录失败：{str(e)}！"
+            return False, f"模拟登录失败：{str(e)}！"
 
     def stop_service(self):
         """
