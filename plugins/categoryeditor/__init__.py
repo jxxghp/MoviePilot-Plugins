@@ -13,7 +13,7 @@ class CategoryEditor(_PluginBase):
     # 插件图标
     plugin_icon = "Bookstack_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -39,12 +39,9 @@ class CategoryEditor(_PluginBase):
             # 写入文件
             if self._enabled:
                 self.user_yaml.write_text(self._content, encoding="utf-8")
-                if not settings.LIBRARY_CATEGORY:
-                    self.systemmessage.put("二级分类未开启，策略已保存但未生效！", title="二级分类策略")
-                    return
                 # 立即生效
                 CategoryHelper().init()
-                self.systemmessage.put("二级分类策略已更新！", title="二级分类策略")
+                self.systemmessage.put("二级分类策略已更新，请注意同步调整目录设置！", title="二级分类策略")
 
     def get_state(self) -> bool:
         return self._enabled
