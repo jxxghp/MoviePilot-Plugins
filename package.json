@@ -74,11 +74,12 @@
         "name": "目录监控",
         "description": "监控目录文件发生变化时实时整理到媒体库。",
         "labels": "文件整理",
-        "version": "2.0",
+        "version": "2.1",
         "icon": "directory.png",
         "author": "jxxghp",
         "level": 1,
         "history": {
+            "v2.1": "增加了元数据刮削开关，升级后需要手动打开，否则默认不刮削",
             "v2.0": "增强API安全性",
             "v1.9": "修复目录监控不能正确获取下载历史记录进行识别的问题"
         }
@@ -278,11 +279,12 @@
         "name": "整理VCB动漫压制组作品",
         "description": "提高部分VCB-Studio作品的识别准确率,将VCB-Studio的作品统一转移到指定目录同时进行刮削整理",
         "labels": "文件整理,识别",
-        "version": "1.7.1",
+        "version": "1.8",
         "icon": "vcbmonitor.png",
         "author": "pixel@qingwa",
         "level": 2,
         "history": {
+            "v1.8": "增加了元数据刮削开关，升级后需要手动打开，否则默认不刮削",
             "v1.7.1": "修复偶尔安装失败问题"
         }
     },
