@@ -87,7 +87,7 @@ class DirMonitor(_PluginBase):
     # 模式 compatibility/fast
     _mode = "fast"
     # 转移方式
-    _transfer_type = settings.TRANSFER_TYPE
+    _transfer_type = "link"
     _monitor_dirs = ""
     _exclude_keywords = ""
     _interval: int = 10
@@ -422,8 +422,7 @@ class DirMonitor(_PluginBase):
                                                                  transfer_type=transfer_type,
                                                                  target=target,
                                                                  meta=file_meta,
-                                                                 episodes_info=episodes_info,
-                                                                 scrape=self._scrape)
+                                                                 episodes_info=episodes_info)
 
                 if not transferinfo:
                     logger.error("文件转移模块运行失败")
@@ -461,7 +460,7 @@ class DirMonitor(_PluginBase):
                 )
 
                 # 刮削单个文件
-                if transferinfo.need_scrape:
+                if self._scrape:
                     self.chain.scrape_metadata(path=transferinfo.target_path,
                                                mediainfo=mediainfo,
                                                transfer_type=transfer_type)
@@ -965,7 +964,7 @@ class DirMonitor(_PluginBase):
             "notify": False,
             "onlyonce": False,
             "mode": "fast",
-            "transfer_type": settings.TRANSFER_TYPE,
+            "transfer_type": "link",
             "monitor_dirs": "",
             "exclude_keywords": "",
             "interval": 10,
