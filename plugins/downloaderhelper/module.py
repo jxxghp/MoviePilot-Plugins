@@ -17,6 +17,10 @@ class Downloader(Enum):
         self.short_name: str = short_name
 
 
+# Downloader 映射
+DownloaderMap = dict((d.id, d) for d in Downloader)
+
+
 class TaskResult:
     """
     任务执行结果
