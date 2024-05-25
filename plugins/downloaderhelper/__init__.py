@@ -33,7 +33,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "2.3"
+    plugin_version = "2.4"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -670,7 +670,7 @@ class DownloaderHelper(_PluginBase):
                 continue
             dashboard_meta.append({
                 "key": downloader.id,
-                "name": f"活动种子[{downloader.short_name}]",
+                "name": f"活动种子 #{downloader.short_name}",
             })
         return dashboard_meta
 
@@ -728,7 +728,7 @@ class DownloaderHelper(_PluginBase):
 
         # 全局配置
         attrs = {
-            'title': f'活动种子[{downloader.short_name}]'
+            'title': f'活动种子 #{downloader.short_name}'
         }
         if self.__check_target_downloader(downloader_id=downloader_id):
             attrs['refresh'] = self.__get_config_item('dashboard_widget_refresh')
@@ -1293,7 +1293,7 @@ class DownloaderHelper(_PluginBase):
         text = self.__build_notify_message(context=context)
         if not text:
             return
-        self.post_message(title=f'{self.plugin_name}任务执行结果', text=text, userid=context.get_username())
+        self.post_message(title=f'{self.plugin_name}任务执行结果', text=text)
 
     @staticmethod
     def __build_notify_message(context: TaskContext):
@@ -2128,6 +2128,7 @@ class DownloaderHelper(_PluginBase):
         arguments.append('id')
         arguments.append(TorrentField.NAME.tr)
         arguments.append('hashString')
+        arguments.append(TorrentField.ADD_TIME.tr)
         # 处理依赖的字段
         if TorrentField.COMPLETED in fields:
             arguments.append('fileStats')
