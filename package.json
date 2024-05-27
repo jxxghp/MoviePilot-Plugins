@@ -307,11 +307,12 @@
         "name": "自定义订阅",
         "description": "定时刷新RSS报文，识别内容后添加订阅或直接下载。",
         "labels": "订阅",
-        "version": "1.3",
+        "version": "1.4",
         "icon": "rss.png",
         "author": "jxxghp",
         "level": 2,
         "history": {
+            "v1.4": "修复剧集本地是否存在的判断错误问题",
             "v1.3": "支持手动删除订阅历史记录"
         }
     },
