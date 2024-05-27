@@ -734,11 +734,12 @@
         "name": "清理QB无效做种",
         "description": "清理已经被站点删除的种子及对应源文件，仅支持QB",
         "labels": "Qbittorrent",
-        "version": "1.5",
+        "version": "1.6",
         "icon": "clean_a.png",
         "author": "DzAvril",
         "level": 1,
         "history": {
+            "v1.6": "修复当种子有多个标签时，通过标签过滤不删除种子会失效的问题",
             "v1.5": "1. 增加通过分类、标签过滤不删除种子功能；2. 全量通知提供更多信息",
             "v1.4": "修复插件功能失效的问题",
             "v1.3": "1. 增加远程命令 2. 根据tracker error_message字段进行过滤,避免误删",
