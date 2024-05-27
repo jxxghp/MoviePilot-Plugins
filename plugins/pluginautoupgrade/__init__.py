@@ -12,6 +12,7 @@ from app.helper.plugin import PluginHelper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.scheduler import Scheduler
+from app.schemas import NotificationType
 from app.schemas.types import SystemConfigKey
 
 
@@ -23,7 +24,7 @@ class PluginAutoUpgrade(_PluginBase):
     # 插件图标
     plugin_icon = "PluginAutoUpgrade.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -665,7 +666,7 @@ class PluginAutoUpgrade(_PluginBase):
         text = self.__build_notify_message(results=results)
         if not text:
             return
-        self.post_message(title=f'{self.plugin_name}任务执行结果', text=text)
+        self.post_message(title=f'{self.plugin_name}任务执行结果', text=text, mtype=NotificationType.Plugin)
 
     @staticmethod
     def __build_notify_message(results: List[Dict[str, Any]]) -> str:

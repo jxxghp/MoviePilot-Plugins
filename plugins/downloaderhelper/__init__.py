@@ -11,6 +11,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from qbittorrentapi import TorrentDictionary, TorrentState
 from transmission_rpc.torrent import Torrent, Status as TorrentStatus
+from ruamel.yaml.comments import CommentedMap
 
 from app.core.config import settings
 from app.core.event import eventmanager, Event
@@ -21,6 +22,7 @@ from app.modules.qbittorrent.qbittorrent import Qbittorrent
 from app.modules.transmission.transmission import Transmission
 from app.plugins import _PluginBase
 from app.plugins.downloaderhelper.module import TaskContext, TaskResult, Downloader, TorrentField, TorrentFieldMap, DownloaderMap
+from app.schemas import NotificationType
 from app.schemas.types import EventType
 from app.utils.string import StringUtils
 
@@ -33,7 +35,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "2.4"
+    plugin_version = "2.5"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -43,7 +45,7 @@ class DownloaderHelper(_PluginBase):
     # 加载顺序
     plugin_order = 66
     # 可使用的用户级别
-    auth_level = 2
+    auth_level = 1
 
     # 插件说明链接
     __help_url = 'https://github.com/jxxghp/MoviePilot-Plugins/tree/main/plugins/downloaderhelper'
@@ -98,6 +100,9 @@ class DownloaderHelper(_PluginBase):
         """
         # 停止现有服务
         self.stop_service()
+
+        # 检查环境
+        self.__check_environment()
 
         # 修正配置
         config = self.__fix_config(config=config)
@@ -358,7 +363,7 @@ class DownloaderHelper(_PluginBase):
                         'props': {
                             'model': 'site_name_priority',
                             'label': '站点名称优先',
-                            'hint': '给种子添加站点标签时，是否优先以站点名称作为标签内容（否则将使用域名关键字）？'
+                            'hint': '给种子添加站点标签时，是否优先以站点名称作为标签内容（否则将使用域名关键字）？MoviePilot需要认证，否则将不生效。'
                         }
                     }]
                 }]
@@ -752,6 +757,14 @@ class DownloaderHelper(_PluginBase):
         finally:
             self.__exit_event.clear()
 
+    @staticmethod
+    def __check_mp_user_auth() -> bool:
+        """
+        检查mp用户认证
+        :return: True表示已认证
+        """
+        return SitesHelper().auth_level >= 2
+
     def __parse_tracker_mappings(self, tracker_mappings: str) -> Dict[str, str]:
         """
         解析配置的tracker映射
@@ -870,6 +883,13 @@ class DownloaderHelper(_PluginBase):
         self.update_config(config=config)
         return config
 
+    def __check_environment(self):
+        """"
+        检查环境
+        """
+        if not self.__check_mp_user_auth():
+            logger.warn("MoviePilot未认证，【站点名称优先】功能将不可用。")
+
     def __get_config_item(self, config_key: str, use_default: bool = True) -> Any:
         """
         获取插件配置项
@@ -913,7 +933,7 @@ class DownloaderHelper(_PluginBase):
                 return value
         return None
 
-    def __get_site_info_by_domain(self, site_domain: str) -> Optional[str]:
+    def __get_site_info_by_domain(self, site_domain: str) -> CommentedMap:
         """
         根据站点域名从索引中获取站点信息
         :param site_domain: 站点域名
@@ -1293,7 +1313,7 @@ class DownloaderHelper(_PluginBase):
         text = self.__build_notify_message(context=context)
         if not text:
             return
-        self.post_message(title=f'{self.plugin_name}任务执行结果', text=text)
+        self.post_message(title=f'{self.plugin_name}任务执行结果', text=text, mtype=NotificationType.Plugin)
 
     @staticmethod
     def __build_notify_message(context: TaskContext):
@@ -1328,24 +1348,11 @@ class DownloaderHelper(_PluginBase):
             text += '\n————————————\n'
         return text
 
-    def __get_system_module_instance(self, module_id: str) -> Union[Qbittorrent, Transmission]:
-        """
-        获取系统模块实例
-        """
-        if not module_id:
-            return None
-        module_manager = ModuleManager()
-        running_modules = module_manager._running_modules
-        if not running_modules:
-            return None
-        module = running_modules.get(module_id)
-        return module if module else None
-
     def __get_qbittorrent(self) -> Qbittorrent:
         """
         获取qb实例
         """
-        module = self.__get_system_module_instance(module_id='QbittorrentModule')
+        module = ModuleManager().get_running_module(module_id='QbittorrentModule')
         if not module:
             return None
         qbittorrent = getattr(module, 'qbittorrent')
@@ -1357,7 +1364,7 @@ class DownloaderHelper(_PluginBase):
         """
         获取tr实例
         """
-        module = self.__get_system_module_instance(module_id='TransmissionModule')
+        module = ModuleManager().get_running_module(module_id='TransmissionModule')
         if not module:
             return None
         transmission = getattr(module, 'transmission')
