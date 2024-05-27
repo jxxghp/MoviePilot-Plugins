@@ -28,7 +28,7 @@ class CleanInvalidSeed(_PluginBase):
     # 插件图标
     plugin_icon = "clean_a.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -307,7 +307,7 @@ class CleanInvalidSeed(_PluginBase):
                         if torrent.category in exclude_categories:
                             is_excluded = True
                             invalid_torrents_exclude_categories.append(torrent)
-                        torrent_labels = torrent.tags.split(",")
+                        torrent_labels = [tag.strip() for tag in torrent.tags.split(",")]
                         for label in torrent_labels:
                             if label in exclude_labels:
                                 is_excluded = True
