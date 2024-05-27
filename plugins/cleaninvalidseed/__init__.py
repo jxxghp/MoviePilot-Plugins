@@ -28,7 +28,7 @@ class CleanInvalidSeed(_PluginBase):
     # 插件图标
     plugin_icon = "clean_a.png"
     # 插件版本
-    plugin_version = "1.6"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -398,29 +398,34 @@ class CleanInvalidSeed(_PluginBase):
                 logger.info(exclude_labels_msg)
         # 通知
         if self._notify:
+            invalid_msg = invalid_msg.replace('_', '\_')
             self.post_message(
                 mtype=NotificationType.SiteMessage,
                 title=f"【清理无效做种】",
                 text=invalid_msg,
             )
             if self._notify_all:
+                tracker_not_working_msg = tracker_not_working_msg.replace('_', '\_')
                 self.post_message(
                     mtype=NotificationType.SiteMessage,
                     title=f"【清理无效做种】",
                     text=tracker_not_working_msg,
                 )
             if self._delete_invalid_torrents:
+                deleted_msg = deleted_msg.replace('_', '\_')
                 self.post_message(
                     mtype=NotificationType.SiteMessage,
                     title=f"【清理无效做种】",
                     text=deleted_msg,
                 )
                 if self._notify_all:
+                    exclude_categories_msg = exclude_categories_msg.replace('_', '\_')
                     self.post_message(
                         mtype=NotificationType.SiteMessage,
                         title=f"【清理无效做种】",
                         text=exclude_categories_msg,
                     )
+                    exclude_labels_msg = exclude_labels_msg.replace('_', '\_')
                     self.post_message(
                         mtype=NotificationType.SiteMessage,
                         title=f"【清理无效做种】",
@@ -489,6 +494,7 @@ class CleanInvalidSeed(_PluginBase):
             message += f"***已删除无效源文件，释放{StringUtils.str_filesize(total_size)}空间!***\n"
         logger.info(message)
         if self._notify:
+            message = message.replace('_', '\_')
             self.post_message(
                 mtype=NotificationType.SiteMessage,
                 title=f"【清理无效做种】",
