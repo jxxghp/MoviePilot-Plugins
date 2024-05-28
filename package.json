@@ -113,10 +113,13 @@
         "name": "媒体库刮削",
         "description": "定时对媒体库进行刮削，补齐缺失元数据和图片。",
         "labels": "刮削",
-        "version": "1.4",
+        "version": "1.4.1",
         "icon": "scraper.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.4.1": "修复nfo文件读取失败时任务中断问题"
+        }
     },
     "TorrentRemover": {
         "name": "自动删种",

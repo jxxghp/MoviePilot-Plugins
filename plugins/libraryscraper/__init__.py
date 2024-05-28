@@ -25,7 +25,7 @@ class LibraryScraper(_PluginBase):
     # 插件图标
     plugin_icon = "scraper.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.4.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -410,14 +410,14 @@ class LibraryScraper(_PluginBase):
             "uniqueid[@type='TMDB']",
             "tmdbid"
         ]
-        reader = NfoReader(file_path)
-        for xpath in xpaths:
-            try:
+        try:
+            reader = NfoReader(file_path)
+            for xpath in xpaths:
                 tmdbid = reader.get_element_value(xpath)
                 if tmdbid:
                     return tmdbid
-            except Exception as err:
-                print(str(err))
+        except Exception as err:
+            logger.warn(f"从nfo文件中获取tmdbid失败：{str(err)}")
         return None
 
     def stop_service(self):
