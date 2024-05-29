@@ -80,6 +80,8 @@ class EventType(Enum):
     SubscribeAdded = "subscribe.added"
     # 订阅已完成
     SubscribeComplete = "subscribe.complete"
+    # 系统错误
+    SystemError = "system.error"
 ```
   
 ### 2. 如何在插件中实现远程命令响应？
@@ -426,7 +428,7 @@ class EventType(Enum):
 - **请不要添加对黄赌毒站点的支持，否则随时封闭接口。** 
 
 ### 7. 如何在插件中调用API接口？
-- 目前仅在插件的数据页面支持`GET/POST`API接口调用，可调用插件自身、主程序或其它插件的API（v1.8.4+）。
+- `v1.8.4+` 在插件的数据页面支持`GET/POST`API接口调用，可调用插件自身、主程序或其它插件的API。
 - 在`get_page`中定义好元素的事件，以及相应的API参数，具体可参考插件`豆瓣想看`：
 ```json
 {
@@ -448,7 +450,7 @@ class EventType(Enum):
 ### 8. 如何将插件内容显示到仪表板？
 - `v1.8.7+` 支持将插件的内容显示到仪表盘，并支持定义占据的单元格大小，插件产生的仪表板仅管理员可见。
 - 1. 根据插件需要展示的Widget内容规划展示内容的样式和规格，也可设计多个规格样式并提供配置项供用户选择。
-- 2. 实现 `get_dashboard_meta` 方法，定义仪表板key及名称，支持一件插件有多个仪表板：
+- 2. 实现 `get_dashboard_meta` 方法，定义仪表板key及名称，支持一个插件有多个仪表板：
 ```python
 def get_dashboard_meta(self) -> Optional[List[Dict[str, str]]]:
     """
