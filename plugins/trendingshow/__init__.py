@@ -183,7 +183,7 @@ class TrendingShow(_PluginBase):
                                 'show-arrows': 'hover',
                                 'hide-delimiters': True,
                                 'cycle': True,
-                                'interval': 5000,
+                                'interval': 10000,
                                 'height': height
                             },
                             'content': [
