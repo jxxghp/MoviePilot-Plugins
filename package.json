@@ -762,7 +762,7 @@
         "description": "在仪表板中显示流行趋势海报轮播图。",
         "labels": "仪表板",
         "version": "1.0",
-        "icon": "Dsphoto_A.png",
+        "icon": "TrendingShow.png",
         "author": "jxxghp",
         "level": 1
     },
