@@ -1,6 +1,6 @@
+from datetime import datetime
+from functools import lru_cache
 from typing import List, Tuple, Dict, Any, Optional
-
-from cachetools import TTLCache, cached
 
 from app.plugins import _PluginBase
 from app.utils.http import RequestUtils
@@ -14,7 +14,7 @@ class DailyWord(_PluginBase):
     # 插件图标
     plugin_icon = "Calibre_B.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -120,8 +120,8 @@ class DailyWord(_PluginBase):
             "name": "每日一言"
         }]
 
-    @cached(cache=TTLCache(maxsize=1, ttl=43200))
-    def __get_youngam(self) -> Optional[dict]:
+    @lru_cache(maxsize=1)
+    def __get_youngam(self, **kwargs) -> Optional[dict]:
         """
         获取每日一言，缓存12小时
         """
@@ -174,7 +174,7 @@ class DailyWord(_PluginBase):
             "border": False
         }
         # 获取流行越势数据
-        data = self.__get_youngam()
+        data = self.__get_youngam(today=datetime.now().strftime("%Y-%m-%d"))
         if not data:
             elements = [
                 {
