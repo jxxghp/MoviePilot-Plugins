@@ -10,7 +10,7 @@ class TrendingShow(_PluginBase):
     # 插件描述
     plugin_desc = "在仪表板中显示流行趋势海报轮播图。"
     # 插件图标
-    plugin_icon = "TrendingShow.png"
+    plugin_icon = "TrendingShow.jpg"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者
