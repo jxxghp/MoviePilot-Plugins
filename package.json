@@ -764,5 +764,14 @@
         "icon": "Dsphoto_A.png",
         "author": "jxxghp",
         "level": 1
+    },
+    "DailyWord": {
+        "name": "每日一言",
+        "description": "在仪表板中显示每日一言卡片。",
+        "labels": "仪表板",
+        "version": "1.0",
+        "icon": "Calibre_B.png",
+        "author": "jxxghp",
+        "level": 1
     }
 }
