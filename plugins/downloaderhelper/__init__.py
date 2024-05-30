@@ -36,7 +36,7 @@ class DownloaderHelper(_PluginBase):
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
-    plugin_version = "2.6"
+    plugin_version = "2.7"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -2609,7 +2609,7 @@ class DownloaderHelper(_PluginBase):
         return {
             'component': 'svg',
             'props': {
-                'class': 'v-icon notranslate v-theme--light v-icon--size-default iconify iconify--mdi',
+                'class': 'v-icon notranslate v-icon--size-default iconify iconify--mdi',
                 'rounded': True,
                 'width': '1em',
                 'height': '1em',
@@ -2648,8 +2648,7 @@ class DownloaderHelper(_PluginBase):
                 'props': {
                     'style': {
                         'grid-area': 'prepend',
-                        'height': '21px',
-                        'color': '#6a6670'
+                        'height': '21px'
                     }
                 },
                 'content': [self.__build_mdi_icon_svg_elememt(mdi_icon=mdi_icon)]
