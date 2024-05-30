@@ -693,11 +693,12 @@
         "name": "插件自动升级",
         "description": "定时检测、升级插件。",
         "labels": "自动更新",
-        "version": "1.9",
+        "version": "2.0",
         "icon": "PluginAutoUpgrade.png",
         "author": "hotlcc",
         "level": 1,
         "history": {
+            "v2.0": "修正了缺省时的cron表达式。",
             "v1.9": "优化通知类型。主程序需升级至v1.9.2及以上版本，否则插件功能异常！",
             "v1.8": "修复重置插件后丢失配置建议的问题。",
             "v1.7": "修复了一些BUG。",

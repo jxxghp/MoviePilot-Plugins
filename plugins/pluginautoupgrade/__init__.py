@@ -24,7 +24,7 @@ class PluginAutoUpgrade(_PluginBase):
     # 插件图标
     plugin_icon = "PluginAutoUpgrade.png"
     # 插件版本
-    plugin_version = "1.9"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "hotlcc"
     # 作者主页
@@ -53,7 +53,7 @@ class PluginAutoUpgrade(_PluginBase):
     # 配置相关
     # 插件缺省配置
     __config_default: Dict[str, Any] = {
-        'cron': '* 0/4 * * *',
+        'cron': '0,5 0/4 * * *',
         'save_record_quantity': 100,
         'display_record_quantity': 10,
     }
