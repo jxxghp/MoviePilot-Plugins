@@ -45,7 +45,7 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
     }
     ```
   
-PS：MoviePilot中的其它事件也是同样方法实现响应：
+- MoviePilot中所有事件清单，可以通过实现这些事情来扩展功能，同时插件之前也可以通过发送和监听事件实现联动。
 ```python
 class EventType(Enum):
     # 插件需要重载
@@ -66,6 +66,8 @@ class EventType(Enum):
     HistoryDeleted = "history.deleted"
     # 删除下载源文件
     DownloadFileDeleted = "downloadfile.deleted"
+    # 删除下载任务
+    DownloadDeleted = "download.deleted"
     # 收到用户外来消息
     UserMessage = "user.message"
     # 收到Webhook消息
