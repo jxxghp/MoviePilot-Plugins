@@ -80,6 +80,8 @@ class EventType(Enum):
     SubscribeAdded = "subscribe.added"
     # 订阅已完成
     SubscribeComplete = "subscribe.complete"
+    # 系统错误
+    SystemError = "system.error"
 ```
   
 ### 2. 如何在插件中实现远程命令响应？
@@ -426,7 +428,7 @@ class EventType(Enum):
 - **请不要添加对黄赌毒站点的支持，否则随时封闭接口。** 
 
 ### 7. 如何在插件中调用API接口？
-- 目前仅在插件的数据页面支持`GET/POST`API接口调用，可调用插件自身、主程序或其它插件的API（v1.8.4+）。
+- `v1.8.4+` 在插件的数据页面支持`GET/POST`API接口调用，可调用插件自身、主程序或其它插件的API。
 - 在`get_page`中定义好元素的事件，以及相应的API参数，具体可参考插件`豆瓣想看`：
 ```json
 {
@@ -448,11 +450,27 @@ class EventType(Enum):
 ### 8. 如何将插件内容显示到仪表板？
 - `v1.8.7+` 支持将插件的内容显示到仪表盘，并支持定义占据的单元格大小，插件产生的仪表板仅管理员可见。
 - 1. 根据插件需要展示的Widget内容规划展示内容的样式和规格，也可设计多个规格样式并提供配置项供用户选择。
-- 2. 实现 `get_dashboard` 方法，返回仪表盘的配置信息，包括仪表盘的cols列配置（适配不同屏幕），以及仪表盘的页面配置json，具体可参考插件`站点数据统计`：
+- 2. 实现 `get_dashboard_meta` 方法，定义仪表板key及名称，支持一个插件有多个仪表板：
 ```python
-def get_dashboard(self, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+def get_dashboard_meta(self) -> Optional[List[Dict[str, str]]]:
     """
-    获取插件仪表盘页面，需要返回：1、仪表板cols配置字典；2、全局配置（自动刷新等）；2、仪表板页面元素配置json（含数据）
+    获取插件仪表盘元信息
+    返回示例：
+        [{
+            "key": "dashboard1", // 仪表盘的key，在当前插件范围唯一
+            "name": "仪表盘1" // 仪表盘的名称
+        }, {
+            "key": "dashboard2",
+            "name": "仪表盘2"
+        }]
+    """
+    pass
+```
+- 3. 实现 `get_dashboard` 方法，根据key返回仪表盘的详细配置信息，包括仪表盘的cols列配置（适配不同屏幕），以及仪表盘的页面配置json，具体可参考插件`站点数据统计`：
+```python
+def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+    """
+    获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、全局配置（自动刷新等）；3、仪表板页面元素配置json（含数据）
     1、col配置参考：
     {
         "cols": 12, "md": 6
@@ -465,8 +483,10 @@ def get_dashboard(self, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, An
         "subtitle": "组件子标题", // 组件子标题，缺省时不展示子标题
     }
     3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
-    
+
     kwargs参数可获取的值：1、user_agent：浏览器UA
+
+    :param key: 仪表盘key，根据指定的key返回相应的仪表盘数据，缺省时返回一个固定的仪表盘数据（兼容旧版）
     """
     pass
 ```

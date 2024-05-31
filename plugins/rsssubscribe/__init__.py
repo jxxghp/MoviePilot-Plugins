@@ -19,6 +19,7 @@ from app.core.metainfo import MetaInfo
 from app.helper.rss import RssHelper
 from app.log import logger
 from app.plugins import _PluginBase
+from app.schemas import ExistMediaInfo
 from app.schemas.types import SystemConfigKey, MediaType
 
 lock = Lock()
@@ -32,7 +33,7 @@ class RssSubscribe(_PluginBase):
     # 插件图标
     plugin_icon = "rss.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -656,51 +657,49 @@ class RssSubscribe(_PluginBase):
                         if not result:
                             logger.info(f"{title} {description} 不匹配过滤规则")
                             continue
-                    # 查询缺失的媒体信息
-                    exist_flag, no_exists = self.downloadchain.get_no_exists_info(meta=meta, mediainfo=mediainfo)
-                    if exist_flag:
-                        logger.info(f'{mediainfo.title_year} 媒体库中已存在')
+                    # 媒体库已存在的剧集
+                    exist_info: Optional[ExistMediaInfo] = self.chain.media_exists(mediainfo=mediainfo)
+                    if mediainfo.type == MediaType.TV:
+                        if exist_info:
+                            exist_season = exist_info.seasons
+                            if exist_season:
+                                exist_episodes = exist_season.get(meta.begin_season)
+                                if exist_episodes and set(meta.episode_list).issubset(set(exist_episodes)):
+                                    logger.info(f'{mediainfo.title_year} {meta.season_episode} 己存在')
+                                    continue
+                    elif exist_info:
+                        # 电影已存在
+                        logger.info(f'{mediainfo.title_year} 己存在')
                         continue
+                    # 下载或订阅
+                    if self._action == "download":
+                        # 添加下载
+                        result = self.downloadchain.download_single(
+                            context=Context(
+                                meta_info=meta,
+                                media_info=mediainfo,
+                                torrent_info=torrentinfo,
+                            ),
+                            save_path=self._save_path,
+                            username="RSS订阅"
+                        )
+                        if not result:
+                            logger.error(f'{title} 下载失败')
+                            continue
                     else:
-                        if self._action == "download":
-                            if mediainfo.type == MediaType.TV:
-                                if no_exists:
-                                    exist_info = no_exists.get(mediainfo.tmdb_id)
-                                    season_info = exist_info.get(meta.begin_season or 1)
-                                    if not season_info:
-                                        logger.info(f'{mediainfo.title_year} {meta.season} 己存在')
-                                        continue
-                                    if (season_info.episodes
-                                            and not set(meta.episode_list).issubset(set(season_info.episodes))):
-                                        logger.info(f'{mediainfo.title_year} {meta.season_episode} 己存在')
-                                        continue
-                            # 添加下载
-                            result = self.downloadchain.download_single(
-                                context=Context(
-                                    meta_info=meta,
-                                    media_info=mediainfo,
-                                    torrent_info=torrentinfo,
-                                ),
-                                save_path=self._save_path,
-                                username="RSS订阅"
-                            )
-                            if not result:
-                                logger.error(f'{title} 下载失败')
-                                continue
-                        else:
-                            # 检查是否在订阅中
-                            subflag = self.subscribechain.exists(mediainfo=mediainfo, meta=meta)
-                            if subflag:
-                                logger.info(f'{mediainfo.title_year} {meta.season} 正在订阅中')
-                                continue
-                            # 添加订阅
-                            self.subscribechain.add(title=mediainfo.title,
-                                                    year=mediainfo.year,
-                                                    mtype=mediainfo.type,
-                                                    tmdbid=mediainfo.tmdb_id,
-                                                    season=meta.begin_season,
-                                                    exist_ok=True,
-                                                    username="RSS订阅")
+                        # 检查是否在订阅中
+                        subflag = self.subscribechain.exists(mediainfo=mediainfo, meta=meta)
+                        if subflag:
+                            logger.info(f'{mediainfo.title_year} {meta.season} 正在订阅中')
+                            continue
+                        # 添加订阅
+                        self.subscribechain.add(title=mediainfo.title,
+                                                year=mediainfo.year,
+                                                mtype=mediainfo.type,
+                                                tmdbid=mediainfo.tmdb_id,
+                                                season=meta.begin_season,
+                                                exist_ok=True,
+                                                username="RSS订阅")
                     # 存储历史记录
                     history.append({
                         "title": f"{mediainfo.title} {meta.season}",

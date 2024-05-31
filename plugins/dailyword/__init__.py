@@ -1,24 +1,26 @@
+from datetime import datetime
+from functools import lru_cache
 from typing import List, Tuple, Dict, Any, Optional
 
-from app.chain.tmdb import TmdbChain
 from app.plugins import _PluginBase
+from app.utils.http import RequestUtils
 
 
-class TrendingShow(_PluginBase):
+class DailyWord(_PluginBase):
     # 插件名称
-    plugin_name = "流行趋势轮播"
+    plugin_name = "每日一言"
     # 插件描述
-    plugin_desc = "在仪表板中显示流行趋势海报轮播图。"
+    plugin_desc = "在仪表板中显示每日一言卡片。"
     # 插件图标
-    plugin_icon = "TrendingShow.jpg"
+    plugin_icon = "Calibre_B.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
     author_url = "https://github.com/jxxghp"
     # 插件配置项ID前缀
-    plugin_config_prefix = "trendingshow_"
+    plugin_config_prefix = "dailyowrd_"
     # 加载顺序
     plugin_order = 99
     # 可使用的用户级别
@@ -101,7 +103,35 @@ class TrendingShow(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
-    def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+    def get_dashboard_meta(self) -> Optional[List[Dict[str, str]]]:
+        """
+        获取插件仪表盘元信息
+        返回示例：
+            [{
+                "key": "dashboard1", // 仪表盘的key，在当前插件范围唯一
+                "name": "仪表盘1" // 仪表盘的名称
+            }, {
+                "key": "dashboard2",
+                "name": "仪表盘2"
+            }]
+        """
+        return [{
+            "key": "dailyword_dashboard",
+            "name": "每日一言"
+        }]
+
+    @lru_cache(maxsize=1)
+    def __get_youngam(self, **kwargs) -> Optional[dict]:
+        """
+        获取每日一言，缓存12小时
+        """
+        res = RequestUtils().get_res("https://apier.youngam.cn/essay/one")
+        if res:
+            datalist = res.json().get("dataList")
+            return datalist[0] if datalist else {}
+        return {}
+
+    def get_dashboard(self, key: str = None, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
         """
         获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、全局配置（自动刷新等）；3、仪表板页面元素配置json（含数据）
         1、col配置参考：
@@ -144,8 +174,8 @@ class TrendingShow(_PluginBase):
             "border": False
         }
         # 获取流行越势数据
-        medias = TmdbChain().tmdb_trending()
-        if not medias:
+        data = self.__get_youngam(today=datetime.now().strftime("%Y-%m-%d"))
+        if not data:
             elements = [
                 {
                     'component': 'VCard',
@@ -177,47 +207,35 @@ class TrendingShow(_PluginBase):
                     },
                     'content': [
                         {
-                            'component': 'VCarousel',
+                            'component': 'VImg',
                             'props': {
-                                'continuous': True,
-                                'show-arrows': 'hover',
-                                'hide-delimiters': True,
-                                'cycle': True,
-                                'interval': 10000,
+                                'src': data.get('src'),
+                                'cover': True,
                                 'height': height
                             },
                             'content': [
                                 {
-                                    'component': 'VCarouselItem',
+                                    'component': 'VCardText',
                                     'props': {
-                                        'src': media.get_backdrop_image() if self._size == "mini" else media.backdrop_path,
-                                        'cover': True
+                                        'class': 'w-full flex flex-col flex-wrap justify-end align-left text-white absolute bottom-0 pa-4',
                                     },
                                     'content': [
                                         {
-                                            'component': 'VCardText',
+                                            'component': 'h1',
                                             'props': {
-                                                'class': 'w-full flex flex-col flex-wrap justify-end align-left text-white absolute bottom-0 pa-4',
+                                                'class': 'mb-1 text-white text-shadow text-xl line-clamp-4 overflow-hidden text-ellipsis ...'
                                             },
-                                            'content': [
-                                                {
-                                                    'component': 'h1',
-                                                    'props': {
-                                                        'class': 'mb-1 text-white text-shadow font-extrabold text-xl line-clamp-2 overflow-hidden text-ellipsis ...'
-                                                    },
-                                                    'html': f"{media.title} <span class='text-sm font-normal'>{media.year}</span>",
-                                                },
-                                                {
-                                                    'component': 'span',
-                                                    'props': {
-                                                        'class': 'text-shadow line-clamp-2 overflow-hidden text-ellipsis ...'
-                                                    },
-                                                    'text': media.overview,
-                                                }
-                                            ]
+                                            'html': data.get('text'),
+                                        },
+                                        {
+                                            'component': 'span',
+                                            'props': {
+                                                'class': 'text-right text-shadow line-clamp-2 overflow-hidden text-ellipsis ...'
+                                            },
+                                            'text': f"{data.get('year')}年{data.get('month')}月{data.get('day')}日",
                                         }
                                     ]
-                                } for media in medias[:10]
+                                }
                             ]
                         }
                     ]

@@ -77,7 +77,7 @@ class VCBAnimeMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "vcbmonitor.png"
     # 插件版本
-    plugin_version = "1.7.1"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "pixel@qingwa"
     # 作者主页
@@ -106,6 +106,7 @@ class VCBAnimeMonitor(_PluginBase):
     _onlyonce = False
     _cron = None
     _size = 0
+    _scrape = True
     # 模式 compatibility/fast
     _mode = "fast"
     # 转移方式
@@ -142,6 +143,7 @@ class VCBAnimeMonitor(_PluginBase):
             self._interval = config.get("interval") or 10
             self._cron = config.get("cron")
             self._size = config.get("size") or 0
+            self._scrape = config.get("scrape")
             self._switch_ova = config.get("ova")
             self._high_mode = config.get("high_mode")
             self._torrents_path = config.get("torrents_path") or ""
@@ -286,6 +288,7 @@ class VCBAnimeMonitor(_PluginBase):
             "interval": self._interval,
             "cron": self._cron,
             "size": self._size,
+            "scrape": self._scrape,
             "ova": self._switch_ova,
             "high_mode": self._high_mode,
             "torrents_path": self._torrents_path
@@ -508,7 +511,7 @@ class VCBAnimeMonitor(_PluginBase):
                 )
 
                 # 刮削单个文件
-                if settings.SCRAP_METADATA:
+                if self._scrape:
                     self.chain.scrape_metadata(path=transferinfo.target_path,
                                                mediainfo=mediainfo,
                                                transfer_type=transfer_type)
@@ -826,6 +829,22 @@ class VCBAnimeMonitor(_PluginBase):
                                     }
                                 ]
                             },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'scrape',
+                                            'label': '刮削元数据',
+                                        }
+                                    }
+                                ]
+                            }
                         ]
                     },
                     {

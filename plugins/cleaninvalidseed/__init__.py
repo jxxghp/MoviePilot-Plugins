@@ -28,7 +28,7 @@ class CleanInvalidSeed(_PluginBase):
     # 插件图标
     plugin_icon = "clean_a.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -94,22 +94,7 @@ class CleanInvalidSeed(_PluginBase):
             )
             # 关闭一次性开关
             self._onlyonce = False
-            self.update_config(
-                {
-                    "onlyonce": False,
-                    "cron": self._cron,
-                    "enabled": self._enabled,
-                    "notify": self._notify,
-                    "delete_invalid_torrents": self._delete_invalid_torrents,
-                    "delete_invalid_files": self._delete_invalid_files,
-                    "detect_invalid_files": self._detect_invalid_files,
-                    "notify_all": self._notify_all,
-                    "download_dirs": self._download_dirs,
-                    "exclude_keywords": self._exclude_keywords,
-                    "exclude_categories": self._exclude_categories,
-                    "exclude_labels": self._exclude_labels,
-                }
-            )
+            self._update_config()
 
             # 启动任务
             if self._scheduler.get_jobs():
@@ -118,6 +103,24 @@ class CleanInvalidSeed(_PluginBase):
 
     def get_state(self) -> bool:
         return self._enabled
+
+    def _update_config(self):
+        self.update_config(
+            {
+                "onlyonce": False,
+                "cron": self._cron,
+                "enabled": self._enabled,
+                "notify": self._notify,
+                "delete_invalid_torrents": self._delete_invalid_torrents,
+                "delete_invalid_files": self._delete_invalid_files,
+                "detect_invalid_files": self._detect_invalid_files,
+                "notify_all": self._notify_all,
+                "download_dirs": self._download_dirs,
+                "exclude_keywords": self._exclude_keywords,
+                "exclude_categories": self._exclude_categories,
+                "exclude_labels": self._exclude_labels,
+            }
+        )
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -154,6 +157,13 @@ class CleanInvalidSeed(_PluginBase):
                 "category": "QB",
                 "data": {"action": "delete_invalid_files"},
             },
+            {
+                "cmd": "/toggle_notify_all",
+                "event": EventType.PluginAction,
+                "desc": "QB清理插件切换全量通知",
+                "category": "QB",
+                "data": {"action": "toggle_notify_all"},
+            },
         ]
 
     @eventmanager.register(EventType.PluginAction)
@@ -189,6 +199,22 @@ class CleanInvalidSeed(_PluginBase):
                     logger.info("收到远程命令，开始清理无效源文件")
                     self._delete_invalid_files = True
                     self.detect_invalid_files()
+                elif event_data.get("action") == "toggle_notify_all":
+                    self._notify_all = not self._notify_all
+                    self._update_config()
+                    if self._notify_all:
+                        self.post_message(
+                            channel=event.event_data.get("channel"),
+                            title="已开启全量通知",
+                            userid=event.event_data.get("user"),
+                        )
+                    else:
+                        self.post_message(
+                            channel=event.event_data.get("channel"),
+                            title="已关闭全量通知",
+                            userid=event.event_data.get("user"),
+                        )
+                    return
                 else:
                     logger.error("收到未知远程命令")
                     return
@@ -256,8 +282,8 @@ class CleanInvalidSeed(_PluginBase):
         # tracker未工作，但暂时不能判定为失效做种，需人工判断
         tracker_not_working_torrents = []
         working_tracker_set = set()
-        exclude_categories = self._exclude_categories.split("\n")
-        exclude_labels = self._exclude_labels.split("\n")
+        exclude_categories = self._exclude_categories.split("\n") if self._exclude_categories else []
+        exclude_labels = self._exclude_labels.split("\n") if self._exclude_labels else []
         # 第一轮筛选出所有未工作的种子
         for torrent in all_torrents:
             trackers = torrent.trackers
@@ -307,7 +333,7 @@ class CleanInvalidSeed(_PluginBase):
                         if torrent.category in exclude_categories:
                             is_excluded = True
                             invalid_torrents_exclude_categories.append(torrent)
-                        torrent_labels = torrent.tags.split(",")
+                        torrent_labels = [tag.strip() for tag in torrent.tags.split(",")]
                         for label in torrent_labels:
                             if label in exclude_labels:
                                 is_excluded = True
@@ -398,29 +424,34 @@ class CleanInvalidSeed(_PluginBase):
                 logger.info(exclude_labels_msg)
         # 通知
         if self._notify:
+            invalid_msg = invalid_msg.replace('_', '\_')
             self.post_message(
                 mtype=NotificationType.SiteMessage,
                 title=f"【清理无效做种】",
                 text=invalid_msg,
             )
             if self._notify_all:
+                tracker_not_working_msg = tracker_not_working_msg.replace('_', '\_')
                 self.post_message(
                     mtype=NotificationType.SiteMessage,
                     title=f"【清理无效做种】",
                     text=tracker_not_working_msg,
                 )
             if self._delete_invalid_torrents:
+                deleted_msg = deleted_msg.replace('_', '\_')
                 self.post_message(
                     mtype=NotificationType.SiteMessage,
                     title=f"【清理无效做种】",
                     text=deleted_msg,
                 )
                 if self._notify_all:
+                    exclude_categories_msg = exclude_categories_msg.replace('_', '\_')
                     self.post_message(
                         mtype=NotificationType.SiteMessage,
                         title=f"【清理无效做种】",
                         text=exclude_categories_msg,
                     )
+                    exclude_labels_msg = exclude_labels_msg.replace('_', '\_')
                     self.post_message(
                         mtype=NotificationType.SiteMessage,
                         title=f"【清理无效做种】",
@@ -437,7 +468,15 @@ class CleanInvalidSeed(_PluginBase):
         source_paths = []
         total_size = 0
         deleted_file_cnt = 0
-        exclude_key_words = self._exclude_keywords.split("\n")
+        exclude_key_words = self._exclude_keywords.split("\n") if self._exclude_keywords else []
+        if not self._download_dirs:
+            logger.error("未配置下载目录，无法检测未做种无效源文件")
+            self.post_message(
+                mtype=NotificationType.SiteMessage,
+                title=f"【检测无效源文件】",
+                text="未配置下载目录，无法检测未做种无效源文件",
+            )
+            return
         for path in self._download_dirs.split("\n"):
             mp_path, qb_path = path.split(":")
             source_path_map[mp_path] = qb_path
@@ -489,6 +528,7 @@ class CleanInvalidSeed(_PluginBase):
             message += f"***已删除无效源文件，释放{StringUtils.str_filesize(total_size)}空间!***\n"
         logger.info(message)
         if self._notify:
+            message = message.replace('_', '\_')
             self.post_message(
                 mtype=NotificationType.SiteMessage,
                 title=f"【清理无效做种】",
@@ -754,3 +794,23 @@ class CleanInvalidSeed(_PluginBase):
                 self._scheduler = None
         except Exception as e:
             logger.error("退出插件失败：%s" % str(e))
+
+
+if __name__ == "__main__":
+    clean = CleanInvalidSeed()
+    config = {
+        "enabled": True,
+        "notify": True,
+        "download_dirs": "/sata16t/春天:/保种/春天\n/sata16t/观众:/保种/观众\n/sata16t/UB:/保种/UB\n/sata16t/听听歌:/保种/听听歌\n/ssd/Download/shualiu:/Downloads/shualiu",
+        "delete_invalid_torrents": False,
+        "delete_invalid_files": False,
+        "detect_invalid_files": True,
+        "notify_all": False,
+        "onlyonce": False,
+        "cron": "0 0 * * *",
+        "exclude_keywords": "ABF-075\nIPZZ-002-C_GG5\nIPZZ-061\n.!qB",
+        "exclude_categories": "电影",
+        "exclude_labels": "春天",
+    }
+    clean.init_plugin(config)
+    clean.clean_invalid_seed()

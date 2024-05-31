@@ -17,6 +17,10 @@ class Downloader(Enum):
         self.short_name: str = short_name
 
 
+# Downloader 映射
+DownloaderMap = dict((d.id, d) for d in Downloader)
+
+
 class TaskResult:
     """
     任务执行结果
@@ -304,3 +308,20 @@ class TorrentField(Enum):
 
 # TorrentField 映射
 TorrentFieldMap = dict((field.name, field) for field in TorrentField)
+
+
+class DownloaderTransferInfo():
+    """
+    下载器传输信息
+    """
+
+    # 下载速度
+    download_speed: Optional[str] = '0.00B/s'
+    # 上传速度
+    upload_speed: Optional[str] = '0.00B/s'
+    # 下载量
+    download_size: Optional[str] = '0.00B'
+    # 上传量
+    upload_size: Optional[str] = '0.00B'
+    # 剩余空间
+    free_space: Optional[str] = '0.00B'
