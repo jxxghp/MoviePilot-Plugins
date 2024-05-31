@@ -28,7 +28,7 @@ class CleanInvalidSeed(_PluginBase):
     # 插件图标
     plugin_icon = "clean_a.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -61,6 +61,7 @@ class CleanInvalidSeed(_PluginBase):
         "Torrent not registered with this tracker",
         "torrent banned",
     ]
+    _custom_error_msg = ""
 
     def init_plugin(self, config: dict = None):
         # 停止现有任务
@@ -79,6 +80,7 @@ class CleanInvalidSeed(_PluginBase):
             self._exclude_keywords = config.get("exclude_keywords")
             self._exclude_categories = config.get("exclude_categories")
             self._exclude_labels = config.get("exclude_labels")
+            self._custom_error_msg = config.get("custom_error_msg")
             self._qb = Qbittorrent()
 
             # 加载模块
@@ -119,6 +121,7 @@ class CleanInvalidSeed(_PluginBase):
                 "exclude_keywords": self._exclude_keywords,
                 "exclude_categories": self._exclude_categories,
                 "exclude_labels": self._exclude_labels,
+                "custom_error_msg": self._custom_error_msg,
             }
         )
 
@@ -284,6 +287,7 @@ class CleanInvalidSeed(_PluginBase):
         working_tracker_set = set()
         exclude_categories = self._exclude_categories.split("\n") if self._exclude_categories else []
         exclude_labels = self._exclude_labels.split("\n") if self._exclude_labels else []
+        error_msgs = self._error_msg + self._custom_error_msg.split("\n") if self._exclude_labels else []
         # 第一轮筛选出所有未工作的种子
         for torrent in all_torrents:
             trackers = torrent.trackers
@@ -299,7 +303,7 @@ class CleanInvalidSeed(_PluginBase):
 
                 if not (
                     (tracker.get("status") == 4)
-                    and (tracker.get("msg") in self._error_msg)
+                    and (tracker.get("msg") in error_msgs)
                 ):
                     is_invalid = False
                     working_tracker_set.add(tracker_domian)
@@ -726,6 +730,26 @@ class CleanInvalidSeed(_PluginBase):
                                     }
                                 ],
                             },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "custom_error_msg",
+                                            "label": "自定义无效做种tracker错误信息",
+                                            "rows": 5,
+                                            "placeholder": "填入想要清理的种子的tracker错误信息，如'skipping tracker announce (unreachable) ',多个信息请换行",
+                                        },
+                                    }
+                                ],
+                            }
                         ],
                     },
                     {
