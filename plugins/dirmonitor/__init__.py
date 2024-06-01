@@ -120,7 +120,7 @@ class DirMonitor(_PluginBase):
             self._interval = config.get("interval") or 10
             self._cron = config.get("cron")
             self._size = config.get("size") or 0
-            self._scrape = config.get("scrape") or False
+            self._scrape = config.get("scrape", settings.SCRAP_METADATA)
 
         # 停止现有任务
         self.stop_service()
