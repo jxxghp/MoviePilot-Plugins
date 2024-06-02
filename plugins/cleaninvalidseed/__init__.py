@@ -28,7 +28,7 @@ class CleanInvalidSeed(_PluginBase):
     # 插件图标
     plugin_icon = "clean_a.png"
     # 插件版本
-    plugin_version = "1.9"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -287,7 +287,8 @@ class CleanInvalidSeed(_PluginBase):
         working_tracker_set = set()
         exclude_categories = self._exclude_categories.split("\n") if self._exclude_categories else []
         exclude_labels = self._exclude_labels.split("\n") if self._exclude_labels else []
-        error_msgs = self._error_msg + self._custom_error_msg.split("\n") if self._exclude_labels else []
+        custom_msgs = self._custom_error_msg.split("\n") if self._custom_error_msg else []
+        error_msgs = self._error_msg + custom_msgs
         # 第一轮筛选出所有未工作的种子
         for torrent in all_torrents:
             trackers = torrent.trackers
@@ -818,23 +819,3 @@ class CleanInvalidSeed(_PluginBase):
                 self._scheduler = None
         except Exception as e:
             logger.error("退出插件失败：%s" % str(e))
-
-
-if __name__ == "__main__":
-    clean = CleanInvalidSeed()
-    config = {
-        "enabled": True,
-        "notify": True,
-        "download_dirs": "/sata16t/春天:/保种/春天\n/sata16t/观众:/保种/观众\n/sata16t/UB:/保种/UB\n/sata16t/听听歌:/保种/听听歌\n/ssd/Download/shualiu:/Downloads/shualiu",
-        "delete_invalid_torrents": False,
-        "delete_invalid_files": False,
-        "detect_invalid_files": True,
-        "notify_all": False,
-        "onlyonce": False,
-        "cron": "0 0 * * *",
-        "exclude_keywords": "ABF-075\nIPZZ-002-C_GG5\nIPZZ-061\n.!qB",
-        "exclude_categories": "电影",
-        "exclude_labels": "春天",
-    }
-    clean.init_plugin(config)
-    clean.clean_invalid_seed()
