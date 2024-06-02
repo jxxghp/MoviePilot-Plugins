@@ -702,11 +702,12 @@
         "name": "清理QB无效做种",
         "description": "清理已经被站点删除的种子及对应源文件，仅支持QB",
         "labels": "Qbittorrent",
-        "version": "1.9",
+        "version": "2.0",
         "icon": "clean_a.png",
         "author": "DzAvril",
         "level": 1,
         "history": {
+            "v2.0": "修复检测不到无效做种的bug",
             "v1.9": "增加自定义需删除做种的tracker的错误信息",
             "v1.8": "增加远程命令切换全量通知；修复bug",
             "v1.7": "修复因消息内容包含'_'导致telegram API调用失败的问题",
