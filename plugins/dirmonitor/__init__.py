@@ -59,7 +59,7 @@ class DirMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "directory.png"
     # 插件版本
-    plugin_version = "2.2"
+    plugin_version = "2.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -174,7 +174,8 @@ class DirMonitor(_PluginBase):
                     try:
                         if target_path and target_path.is_relative_to(Path(mon_path)):
                             logger.warn(f"{target_path} 是监控目录 {mon_path} 的子目录，无法监控")
-                            self.systemmessage.put(f"{target_path} 是下载目录 {mon_path} 的子目录，无法监控", title="目录监控")
+                            self.systemmessage.put(f"{target_path} 是下载目录 {mon_path} 的子目录，无法监控",
+                                                   title="目录监控")
                             continue
                     except Exception as e:
                         logger.debug(str(e))
@@ -429,6 +430,20 @@ class DirMonitor(_PluginBase):
                     return
 
                 if not transferinfo.success:
+                    # 判断是否转移后文件已存在，补充转移成功历史记录
+                    if transferinfo.target_path and transferinfo.target_path.exists():
+                        logger.info(f"{file_path.name} 目标文件已存在，补充转移成功历史记录")
+                        # 补充转移成功历史记录
+                        self.transferhis.add_success(
+                            src_path=file_path,
+                            mode=transfer_type,
+                            download_hash=download_hash,
+                            meta=file_meta,
+                            mediainfo=mediainfo,
+                            transferinfo=transferinfo
+                        )
+                        return
+
                     # 转移失败
                     logger.warn(f"{file_path.name} 入库失败：{transferinfo.message}")
                     # 新增转移失败历史记录
