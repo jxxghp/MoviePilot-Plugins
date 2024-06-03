@@ -372,7 +372,7 @@ class DownloaderHelper(_PluginBase):
                         'props': {
                             'model': 'listen_source_file_event',
                             'label': '监听源文件事件',
-                            'hint': '监听源文件删除事件。当在【历史记录】中删除源文件时，会触发本插件进行自动删种。'
+                            'hint': '监听源文件删除事件以及原种删除事件。当在【历史记录】中删除源文件时，会触发本插件进行自动删种。'
                         }
                     }]
                 }, {
@@ -1392,46 +1392,78 @@ class DownloaderHelper(_PluginBase):
         return site_tag, delete_suggest
 
     @classmethod
-    def __check_need_delete_for_qbittorrent(cls, torrent: TorrentDictionary, deleted_event_data: dict = None) -> bool:
+    def __check_need_delete_for_qbittorrent(cls, torrent: TorrentDictionary, context: TaskContext) -> bool:
         """
         检查qb种子是否满足删除条件
-        :param deleted_event_data: 任务执行伴随的源文件删除事件数据
+        :param context: 任务上下文
         """
-        if not torrent:
+        if not torrent or not context:
             return False
 
         # 根据种子状态判断是否应该删种：状态为丢失文件时需要删除
         if torrent.get('state') == 'missingFiles':
             return True
 
-        # 根据伴随的源文件删除事件判断是否应该删种：如果当前种子和事件匹配并且种子中已经不存在数据文件时就需要删除
-        match, torrent_data_path = cls.__check_torrent_match_file_for_qbittorrent(torrent=torrent,
-                                                                                  source_file_info=deleted_event_data)
-        if not match:
-            return False
-        # 如果匹配的种子数据路径不存在，说明数据文件已经（全部）被删除了，那么就允许删种
-        return not os.path.exists(torrent_data_path)
+        # 源文件删除事件数据
+        download_file_deleted_event_data = context.get_download_file_deleted_event_data()
+        # 下载任务删除事件数据
+        download_deleted_event_data = context.get_download_deleted_event_data()
+
+        # 源文件删除事件触发
+        if download_file_deleted_event_data:
+            # 根据伴随的源文件删除事件判断是否应该删种：如果当前种子和事件匹配并且种子中已经不存在数据文件时就需要删除
+            match, torrent_data_path = cls.__check_torrent_match_file_for_qbittorrent(torrent=torrent,
+                                                                                      source_file_info=download_file_deleted_event_data)
+            if not match:
+                return False
+            # 如果匹配的种子数据路径不存在，说明数据文件已经（全部）被删除了，那么就允许删种
+            return not os.path.exists(torrent_data_path)
+        # 下载任务删除事件触发
+        elif download_deleted_event_data:
+            torrent_info = download_deleted_event_data
+            match = cls.__check_torrent_match_torrent_info(torrent_hash=torrent.get('hash'),
+                                                           torrent_data_file_name=torrent.get('name'),
+                                                           torrent_size=torrent.get('total_size'),
+                                                           torrent_info=torrent_info)
+            return match
+        return False
 
     @classmethod
-    def __check_need_delete_for_transmission(cls, torrent: Torrent, deleted_event_data: dict = None) -> bool:
+    def __check_need_delete_for_transmission(cls, torrent: Torrent, context: TaskContext) -> bool:
         """
         检查tr种子是否满足删除条件
         :param deleted_event_data: 任务执行伴随的源文件删除事件数据
         """
-        if not torrent:
+        if not torrent or not context:
             return False
 
         # 根据种子状态判断是否应该删种：状态为丢失文件时需要删除
         if torrent.error == 3 and torrent.error_string and 'No data found' in torrent.error_string:
             return True
 
-        # 根据伴随的源文件删除事件判断是否应该删种：如果当前种子和事件匹配并且种子中已经不存在数据文件时就需要删除
-        match, torrent_data_path = cls.__check_torrent_match_file_for_transmission(torrent=torrent,
-                                                                                   source_file_info=deleted_event_data)
-        if not match:
-            return False
-        # 如果匹配的种子数据路径不存在，说明数据文件已经（全部）被删除了，那么就允许删种
-        return not os.path.exists(torrent_data_path)
+        # 源文件删除事件数据
+        download_file_deleted_event_data = context.get_download_file_deleted_event_data()
+        # 下载任务删除事件数据
+        download_deleted_event_data = context.get_download_deleted_event_data()
+
+        # 源文件删除事件触发
+        if download_file_deleted_event_data:
+            # 根据伴随的源文件删除事件判断是否应该删种：如果当前种子和事件匹配并且种子中已经不存在数据文件时就需要删除
+            match, torrent_data_path = cls.__check_torrent_match_file_for_transmission(torrent=torrent,
+                                                                                       source_file_info=download_file_deleted_event_data)
+            if not match:
+                return False
+            # 如果匹配的种子数据路径不存在，说明数据文件已经（全部）被删除了，那么就允许删种
+            return not os.path.exists(torrent_data_path)
+        # 下载任务删除事件触发
+        elif download_deleted_event_data:
+            torrent_info = download_deleted_event_data
+            match = cls.__check_torrent_match_torrent_info(torrent_hash=torrent.hashString,
+                                                           torrent_data_file_name=torrent.name,
+                                                           torrent_size=torrent.total_size,
+                                                           torrent_info=torrent_info)
+            return match
+        return False
 
     @classmethod
     def __check_torrent_match_file_for_qbittorrent(cls, torrent: TorrentDictionary,
@@ -1500,6 +1532,25 @@ class DownloaderHelper(_PluginBase):
             return True, source_file_path[0:index] + os.path.sep + torrent_data_file_name
 
         return False, None
+
+    @classmethod
+    def __check_torrent_match_torrent_info(cls,
+                                           torrent_hash: str,
+                                           torrent_data_file_name: str,
+                                           torrent_size: int,
+                                           torrent_info: dict) -> bool:
+        """
+        判断种子是否和种子信息匹配
+        :param torrent_hash: 种子hash
+        :param torrent_data_file_name: 种子数据文件名
+        :param torrent_size: 种子大小
+        :param torrent_info: 被判断的其它种子信息
+        :return: 是否匹配
+        """
+        if not torrent_hash or not torrent_data_file_name or not torrent_size or not torrent_info:
+            return False
+        return torrent_data_file_name == torrent_info.get("title") \
+               and torrent_size == torrent_info.get("size")
 
     def __send_notify(self, context: TaskContext):
         """
@@ -1695,7 +1746,7 @@ class DownloaderHelper(_PluginBase):
             # 自动删种
             if enable_delete:
                 result.set_delete(self.__delete_batch_for_qbittorrent(qbittorrent=qbittorrent, torrents=torrents,
-                                                                      deleted_event_data=context.get_deleted_event_data()))
+                                                                      context=context))
                 if self.__exit_event.is_set():
                     logger.warn(f'插件服务正在退出，任务终止[{downloader_name}]')
                     return context
@@ -1856,7 +1907,7 @@ class DownloaderHelper(_PluginBase):
         return False
 
     def __delete_batch_for_qbittorrent(self, qbittorrent: Qbittorrent, torrents: List[TorrentDictionary],
-                                       deleted_event_data: dict = None) -> int:
+                                       context: TaskContext) -> int:
         """
         qb批量自动删种
         :return: 删种数
@@ -1870,13 +1921,13 @@ class DownloaderHelper(_PluginBase):
                 logger.warn('插件服务正在退出，子任务终止')
                 return count
             if (self.__delete_single_for_qbittorrent(qbittorrent=qbittorrent, torrent=torrent,
-                                                     deleted_event_data=deleted_event_data)):
+                                                     context=context)):
                 count += 1
         logger.info('[QB]批量自动删种结束')
         return count
 
     def __delete_single_for_qbittorrent(self, qbittorrent: Qbittorrent, torrent: TorrentDictionary,
-                                        deleted_event_data: dict = None) -> bool:
+                                        context: TaskContext) -> bool:
         """
         qb单个自动删种
         :return: 是否执行
@@ -1888,7 +1939,7 @@ class DownloaderHelper(_PluginBase):
         # 判断种子中是否存在排除的标签
         if self.__exists_exclude_tag(torrent_tags):
             return False
-        if not self.__check_need_delete_for_qbittorrent(torrent=torrent, deleted_event_data=deleted_event_data):
+        if not self.__check_need_delete_for_qbittorrent(torrent=torrent, context=context):
             return False
         qbittorrent.delete_torrents(True, torrent.get('hash'))
         logger.info(f"[QB]单个自动删种完成: hash = {torrent.get('hash')}, name = {torrent.get('name')}")
@@ -1976,7 +2027,7 @@ class DownloaderHelper(_PluginBase):
             # 自动删种
             if enable_delete:
                 result.set_delete(self.__delete_batch_for_transmission(transmission=transmission, torrents=torrents,
-                                                                       deleted_event_data=context.get_deleted_event_data()))
+                                                                       context=context))
                 if self.__exit_event.is_set():
                     logger.warn(f'插件服务正在退出，任务终止[{downloader_name}]')
                     return context
@@ -2116,7 +2167,7 @@ class DownloaderHelper(_PluginBase):
         return torrent.get("isPrivate")
 
     def __delete_batch_for_transmission(self, transmission: Transmission, torrents: List[Torrent],
-                                        deleted_event_data: dict = None) -> int:
+                                        context: TaskContext) -> int:
         """
         tr批量自动删种
         :return: 删种数
@@ -2130,13 +2181,13 @@ class DownloaderHelper(_PluginBase):
                 logger.warn('插件服务正在退出，子任务终止')
                 return count
             if (self.__delete_single_for_transmission(transmission=transmission, torrent=torrent,
-                                                      deleted_event_data=deleted_event_data)):
+                                                      context=context)):
                 count += 1
         logger.info('[TR]批量自动删种结束')
         return count
 
     def __delete_single_for_transmission(self, transmission: Transmission, torrent: Torrent,
-                                         deleted_event_data: dict = None) -> bool:
+                                         context: TaskContext) -> bool:
         """
         tr单个自动删种
         :return: 是否执行
@@ -2148,7 +2199,7 @@ class DownloaderHelper(_PluginBase):
         # 判断种子中是否存在排除的标签
         if self.__exists_exclude_tag(torrent_tags):
             return False
-        if not self.__check_need_delete_for_transmission(torrent=torrent, deleted_event_data=deleted_event_data):
+        if not self.__check_need_delete_for_transmission(torrent=torrent, context=context):
             return False
         transmission.delete_torrents(True, torrent.hashString)
         logger.info(f"'[TR]单个自动删种完成: hash = {torrent.hashString}, name = {torrent.get('name')}")
@@ -2861,11 +2912,11 @@ class DownloaderHelper(_PluginBase):
         监听下载添加事件
         """
         logger.info('监听到下载添加事件')
-        if not event or not event.event_data:
-            logger.warn('事件信息无效，忽略事件')
-            return
         if not self.get_state() or not self.__get_config_item(config_key='listen_download_event'):
             logger.warn('插件状态无效或未开启监听，忽略事件')
+            return
+        if not event or not event.event_data:
+            logger.warn('事件信息无效，忽略事件')
             return
         if self.__exit_event.is_set():
             logger.warn('插件服务正在退出，忽略事件')
@@ -2891,11 +2942,11 @@ class DownloaderHelper(_PluginBase):
         监听源文件删除事件
         """
         logger.info('监听到源文件删除事件')
-        if not event or not event.event_data:
-            logger.warn('事件信息无效，忽略事件')
-            return
         if not self.get_state() or not self.__get_config_item(config_key='listen_source_file_event'):
             logger.warn('插件状态无效或未开启监听，忽略事件')
+            return
+        if not event or not event.event_data:
+            logger.warn('事件信息无效，忽略事件')
             return
         if self.__exit_event.is_set():
             logger.warn('插件服务正在退出，忽略事件')
@@ -2906,6 +2957,41 @@ class DownloaderHelper(_PluginBase):
         context = TaskContext().enable_seeding(False) \
             .enable_tagging(False) \
             .enable_delete(True) \
-            .set_deleted_event_data(event.event_data)
+            .set_download_file_deleted_event_data(event.event_data)
         self.__block_run(context=context)
         logger.info('源文件删除事件监听任务执行结束')
+
+    @eventmanager.register(EventType.DownloadDeleted)
+    def listen_download_deleted_event(self, event: Event = None):
+        """
+        监听下载任务删除事件
+        """
+        logger.info('监听到下载任务删除事件')
+        if not self.get_state() or not self.__get_config_item(config_key='listen_source_file_event'):
+            logger.warn('插件状态无效或未开启监听，忽略事件')
+            return
+        if not event or not event.event_data:
+            logger.warn('事件信息无效，忽略事件')
+            return
+        torrents = event.event_data.get("torrents")
+        if not torrents:
+            logger.warn('事件信息无效，忽略事件')
+            return
+        torrents = [torrent for torrent in torrents if torrent]
+        if not torrents:
+            logger.warn('事件信息无效，忽略事件')
+            return
+        if self.__exit_event.is_set():
+            logger.warn('插件服务正在退出，忽略事件')
+            return
+        # 执行
+        logger.info('下载任务删除事件监听任务执行开始...')
+        # 针对下载任务删除事件只需要处理删种
+        # 删除的种子信息
+        torrent_info = torrents[0]
+        context = TaskContext().enable_seeding(False) \
+            .enable_tagging(False) \
+            .enable_delete(True) \
+            .set_download_deleted_event_data(torrent_info)
+        self.__block_run(context=context)
+        logger.info('下载任务删除事件监听任务执行结束')
