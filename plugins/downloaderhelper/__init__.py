@@ -32,7 +32,7 @@ class DownloaderHelper(_PluginBase):
     # 插件名称
     plugin_name = "下载器助手"
     # 插件描述
-    plugin_desc = "站点标签、自动做种、自动删种。"
+    plugin_desc = "自动标签、自动做种、自动删种。"
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
@@ -103,6 +103,12 @@ class DownloaderHelper(_PluginBase):
         'mdi-download-box': 'M5 3h14a2 2 0 0 1 2 2v14c0 1.11-.89 2-2 2H5a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2m3 14h8v-2H8zm8-7h-2.5V7h-3v3H8l4 4z',
         'mdi-content-save': 'M15 9H5V5h10m-3 14a3 3 0 0 1-3-3a3 3 0 0 1 3-3a3 3 0 0 1 3 3a3 3 0 0 1-3 3m5-16H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7z',
     }
+    # 公共 tracker url
+    __public_tracker_urls = [
+        "** [DHT] **",
+        "** [PeX] **",
+        "** [LSD] **",
+    ]
 
     def init_plugin(self, config: dict = None):
         """
@@ -251,8 +257,8 @@ class DownloaderHelper(_PluginBase):
                         'component': 'VSwitch',
                         'props': {
                             'model': f'{d.short_id}_enable_tagging',
-                            'label': '站点标签',
-                            'hint': '是否开启站点标签功能'
+                            'label': '自动标签',
+                            'hint': '是否开启自动标签功能；包含BT/PT标签和站点标签（仅PT有效）；不受【排除种子标签】限制。'
                         }
                     }]
                 }, {
@@ -266,7 +272,7 @@ class DownloaderHelper(_PluginBase):
                         'props': {
                             'model': f'{d.short_id}_enable_seeding',
                             'label': '自动做种',
-                            'hint': '是否开启自动做种功能'
+                            'hint': '是否开启自动做种功能；受【排除种子标签】限制。'
                         }
                     }]
                 }, {
@@ -280,7 +286,7 @@ class DownloaderHelper(_PluginBase):
                         'props': {
                             'model': f'{d.short_id}_enable_delete',
                             'label': '自动删种',
-                            'hint': '是否开启自动删种功能'
+                            'hint': '是否开启自动删种功能；受【排除种子标签】限制。'
                         }
                     }]
                 }]
@@ -352,7 +358,7 @@ class DownloaderHelper(_PluginBase):
                         'props': {
                             'model': 'listen_download_event',
                             'label': '监听下载事件',
-                            'hint': '监听下载添加事件。当MoviePilot添加下载任务时，会触发执行本插件进行自动做种和添加站点标签。'
+                            'hint': '监听下载添加事件。当MoviePilot添加下载任务时，会触发本插件进行自动标签和自动做种。'
                         }
                     }]
                 }, {
@@ -366,7 +372,7 @@ class DownloaderHelper(_PluginBase):
                         'props': {
                             'model': 'listen_source_file_event',
                             'label': '监听源文件事件',
-                            'hint': '监听源文件删除事件。当在【历史记录】中删除源文件时，会自动触发运行本插件任务进行自动删种。'
+                            'hint': '监听源文件删除事件。当在【历史记录】中删除源文件时，会触发本插件进行自动删种。'
                         }
                     }]
                 }, {
@@ -1672,11 +1678,11 @@ class DownloaderHelper(_PluginBase):
                 return context
 
             logger.info(
-                f'子任务执行状态: 站点标签={enable_tagging}, 自动做种={enable_seeding}, 自动删种={enable_delete}')
+                f'子任务执行状态: 自动标签={enable_tagging}, 自动做种={enable_seeding}, 自动删种={enable_delete}')
 
-            # 站点标签
+            # 自动标签
             if enable_tagging:
-                result.set_tagging(self.__tagging_batch_for_qbittorrent(torrents=torrents))
+                result.set_tagging(self.__tagging_batch_for_qbittorrent(qbittorrent=qbittorrent, torrents=torrents))
                 if self.__exit_event.is_set():
                     logger.warn(f'插件服务正在退出，任务终止[{downloader_name}]')
                     return context
@@ -1737,12 +1743,14 @@ class DownloaderHelper(_PluginBase):
         logger.info(f"[QB]单个自动做种完成: hash = {torrent.get('hash')}, name = {torrent.get('name')}")
         return True
 
-    def __tagging_batch_for_qbittorrent(self, torrents: List[TorrentDictionary]) -> int:
+    def __tagging_batch_for_qbittorrent(self,
+                                        qbittorrent: Qbittorrent,
+                                        torrents: List[TorrentDictionary]) -> int:
         """
-        qb批量站点标签
+        qb批量自动标签
         :return: 打标数
         """
-        logger.info('[QB]批量站点标签开始...')
+        logger.info('[QB]批量自动标签开始...')
         count = 0
         if not torrents:
             return count
@@ -1750,62 +1758,102 @@ class DownloaderHelper(_PluginBase):
             if self.__exit_event.is_set():
                 logger.warn('插件服务正在退出，子任务终止')
                 return count
-            if self.__tagging_single_for_qbittorrent(torrent=torrent):
+            if self.__tagging_single_for_qbittorrent(qbittorrent=qbittorrent, torrent=torrent):
                 count += 1
-        logger.info('[QB]批量站点标签结束')
+        logger.info('[QB]批量自动标签结束')
         return count
 
-    def __tagging_single_for_qbittorrent(self, torrent: TorrentDictionary) -> bool:
+    def __tagging_single_for_qbittorrent(self,
+                                         qbittorrent: Qbittorrent,
+                                         torrent: TorrentDictionary) -> bool:
         """
-        qb单个站点标签
+        qb单个自动标签
         :return: 是否执行
         """
         if not torrent:
             return False
+
+        hash_str = torrent.get('hash')
         # 种子当前已经存在的标签
         torrent_tags = self.__split_tags(torrent.get('tags'))
-        # 判断种子中是否存在排除的标签
-        if self.__exists_exclude_tag(torrent_tags):
-            return False
+        # 需要移除的标签
+        remove_tags = None
+        # 要添加的标签
+        add_tags = []
+
+        # 处理BT/PT标签
+        if "BT" not in torrent_tags and "PT" not in torrent_tags:
+            is_private = self.__check_private_torrent_for_qbittorrent(qbittorrent=qbittorrent, hash_str=hash_str)
+            btpt_tag = "PT" if is_private else "BT"
+            add_tags.append(btpt_tag)
+
+        # 处理站点标签
         # BT种子与站点无关，故排除BT标签
-        #if "BT" in torrent_tags:
-        #    return False
-        # 种子的tracker地址
-        tracker_url = self.__parse_tracker_for_qbittorrent(torrent=torrent)
-        if not tracker_url:
+        if "BT" not in torrent_tags and "BT" not in add_tags:
+            # 种子的tracker地址
+            tracker_url = self.__parse_tracker_for_qbittorrent(torrent=torrent)
+            if tracker_url:
+                # 获取标签建议
+                site_tag, delete_suggest = self.__consult_site_tag_by_tracker(tracker_url=tracker_url)
+                # 移除建议删除的标签
+                if delete_suggest:
+                    remove_tags = [to_delete for to_delete in delete_suggest if to_delete and to_delete in torrent_tags]
+                # 如果本次需要打标签
+                if site_tag and site_tag not in torrent_tags and site_tag not in add_tags:
+                    add_tags.append(site_tag)
+
+        if not remove_tags and not add_tags:
             return False
-        # 获取标签建议
-        site_tag, delete_suggest = self.__consult_site_tag_by_tracker(tracker_url=tracker_url)
-        # 移除建议删除的标签
-        if delete_suggest and len(delete_suggest) > 0:
-            to_deletes = [to_delete for to_delete in delete_suggest if to_delete in torrent_tags]
-            if to_deletes and len(to_deletes) > 0:
-                torrent.remove_tags(to_deletes)
-        # 如果本次不需要打标签
-        if not site_tag or site_tag in torrent_tags:
-            return False
+        if remove_tags:
+            torrent.remove_tags(tags=remove_tags)
         # 打标签
-        torrent.add_tags(site_tag)
-        logger.info(f"[QB]单个站点标签成功: hash = {torrent.get('hash')}, name = {torrent.get('name')}")
+        if add_tags:
+            torrent.add_tags(tags=add_tags)
+        logger.info(f"[QB]单个自动标签成功: hash = {hash_str}, name = {torrent.get('name')}")
         # Flush 标签
-        self.__flush_torrent_tags_for_qbittorrent(torrent=torrent, tag=site_tag)
+        self.__flush_torrent_tags_for_qbittorrent(torrent=torrent, tags=add_tags)
         return True
 
-    def __flush_torrent_tags_for_qbittorrent(self, torrent: TorrentDictionary, tag: str):
+    def __flush_torrent_tags_for_qbittorrent(self, torrent: TorrentDictionary, remove_tags: List[str], add_tags: List[str]):
         """
         qb Flush 标签到种子信息中（即更新内存数据）
         """
         try:
-            if not torrent or not tag:
+            if not torrent:
                 return
             torrent_tags = self.__split_tags(torrent.get('tags'))
-            if tag in torrent_tags:
-                return
-            torrent_tags.add(tag)
+            if remove_tags:
+                for remove_tag in remove_tags:
+                    if remove_tag and remove_tag in torrent_tags:
+                        torrent_tags.remove(remove_tag)
+            if add_tags:
+                for add_tag in add_tags:
+                    if add_tag and add_tag not in torrent_tags:
+                        torrent_tags.add(add_tag)
             tag_str = ', '.join(torrent_tags)
             torrent.update({'tags': tag_str})
         except Exception as e:
             logger.error(f'Flush种子标签异常: {str(e)}', exc_info=True)
+
+    def __check_private_torrent_for_qbittorrent(self,
+                                                qbittorrent: Qbittorrent,
+                                                hash_str: str) -> bool:
+        """
+        qb检查种子是否是私有种子
+        :return: 是否是私有种子
+        """
+        trackers = qbittorrent.qbc.torrents_trackers(torrent_hash=hash_str)
+        if not trackers:
+            return False
+        for tracker in trackers:
+            if not tracker:
+                continue
+            url = tracker.get("url")
+            status = tracker.get("status")
+            tier = tracker.get("tier")
+            if url in self.__public_tracker_urls and status == 0 and tier == -1:
+                return True
+        return False
 
     def __delete_batch_for_qbittorrent(self, qbittorrent: Qbittorrent, torrents: List[TorrentDictionary],
                                        deleted_event_data: dict = None) -> int:
@@ -1886,8 +1934,15 @@ class DownloaderHelper(_PluginBase):
 
             context.save_result(result=result)
 
-            torrents, error = transmission.get_torrents()
-            if error:
+            # 获取全部种子
+            # 需要 isPrivate 字段判断是否是私有种子
+            arguments = transmission._trarg.copy()
+            is_private_field = "isPrivate"
+            if is_private_field not in arguments:
+                arguments.append(is_private_field)
+            try:
+                torrents = transmission.trc.get_torrents(arguments=arguments)
+            except Exception as e:
                 logger.warn(f'从下载器[{downloader_name}]中获取种子失败，任务终止')
                 return context
             if not torrents or len(torrents) <= 0:
@@ -1904,9 +1959,9 @@ class DownloaderHelper(_PluginBase):
                 return context
 
             logger.info(
-                f'子任务执行状态: 站点标签={enable_tagging}, 自动做种={enable_seeding}, 自动删种={enable_delete}')
+                f'子任务执行状态: 自动标签={enable_tagging}, 自动做种={enable_seeding}, 自动删种={enable_delete}')
 
-            # 站点标签
+            # 自动标签
             if enable_tagging:
                 result.set_tagging(self.__tagging_batch_for_transmission(transmission=transmission, torrents=torrents))
                 if self.__exit_event.is_set():
@@ -1971,10 +2026,10 @@ class DownloaderHelper(_PluginBase):
 
     def __tagging_batch_for_transmission(self, transmission: Transmission, torrents: List[Torrent]) -> int:
         """
-        tr批量站点标签
+        tr批量自动标签
         :return: 打标数
         """
-        logger.info('[TR]批量站点标签开始...')
+        logger.info('[TR]批量自动标签开始...')
         count = 0
         if not torrents:
             return count
@@ -1984,64 +2039,81 @@ class DownloaderHelper(_PluginBase):
                 return count
             if self.__tagging_single_for_transmission(transmission=transmission, torrent=torrent):
                 count += 1
-        logger.info('[TR]批量站点标签结束')
+        logger.info('[TR]批量自动标签结束')
         return count
 
     def __tagging_single_for_transmission(self, transmission: Transmission, torrent: Torrent) -> bool:
         """
-        tr单个站点标签
+        tr单个自动标签
         :return: 是否执行
         """
         if not torrent:
             return False
+
+        hash_str = torrent.hashString
         # 种子当前已经存在的标签
         torrent_tags = torrent.get('labels') or []
-        # 判断种子中是否存在排除的标签
-        if self.__exists_exclude_tag(torrent_tags):
-            return False
+        # 需要移除的标签
+        remove_tags = None
+        # 要添加的标签
+        add_tags = []
+
+        # 处理BT/PT标签
+        if "BT" not in torrent_tags and "PT" not in torrent_tags:
+            is_private = self.__check_private_torrent_for_transmission(torrent=torrent)
+            btpt_tag = "PT" if is_private else "BT"
+            add_tags.append(btpt_tag)
+
+        # 处理站点标签
         # BT种子与站点无关，故排除BT标签
-        #if "BT" in torrent_tags:
-        #    return False
-        # 种子的tracker地址
-        tracker_url = self.__parse_tracker_for_transmission(torrent=torrent)
-        if not tracker_url:
-            return False
-        # 获取标签建议
-        site_tag, delete_suggest = self.__consult_site_tag_by_tracker(tracker_url=tracker_url)
-        # 种子标签副本
-        torrent_tags_copy = torrent_tags.copy()
-        # 移除建议删除的标签
-        if delete_suggest and len(delete_suggest) > 0:
-            for to_delete in delete_suggest:
-                if to_delete and to_delete in torrent_tags_copy:
-                    torrent_tags_copy.remove(to_delete)
-        # 如果本次需要打标签
-        if site_tag and site_tag not in torrent_tags_copy:
-            torrent_tags_copy.append(site_tag)
+        if "BT" not in torrent_tags and "BT" not in add_tags:
+            # 种子的tracker地址
+            tracker_url = self.__parse_tracker_for_transmission(torrent=torrent)
+            if tracker_url:
+                # 获取标签建议
+                site_tag, delete_suggest = self.__consult_site_tag_by_tracker(tracker_url=tracker_url)
+                # 移除建议删除的标签
+                if delete_suggest:
+                    remove_tags = [to_delete for to_delete in delete_suggest if to_delete and to_delete in torrent_tags]
+                # 如果本次需要打标签
+                if site_tag and site_tag not in torrent_tags and site_tag not in add_tags:
+                    add_tags.append(site_tag)
+
         # 如果没有变化就不继续保存
-        if torrent_tags_copy == torrent_tags:
+        if not remove_tags and not add_tags:
             return False
+        torrent_tags_copy = torrent_tags.copy()
+        if remove_tags:
+            for remove_tag in remove_tags:
+                torrent_tags_copy.remove(remove_tag)
+        if add_tags:
+            for add_tag in add_tags:
+                torrent_tags_copy.append(add_tag)
         # 保存标签
-        transmission.set_torrent_tag(torrent.hashString, torrent_tags_copy)
-        logger.info(f"[TR]单个站点标签成功: hash = {torrent.hashString}, name = {torrent.get('name')}")
+        transmission.set_torrent_tag(hash_str, torrent_tags_copy)
+        logger.info(f"[TR]单个自动标签成功: hash = {hash_str}, name = {torrent.get('name')}")
         # Flush 标签
-        self.__flush_torrent_tags_for_transmission(torrent=torrent, tag=site_tag)
+        self.__flush_torrent_tags_for_transmission(torrent=torrent, tags=torrent_tags_copy)
         return True
 
-    def __flush_torrent_tags_for_transmission(self, torrent: Torrent, tag: str):
+    def __flush_torrent_tags_for_transmission(self, torrent: Torrent, tags: List[str]):
         """
         tr Flush 标签到种子信息中（即更新内存数据）
         """
         try:
-            if not torrent or not tag:
+            if not torrent:
                 return
-            torrent_tags = torrent.get('labels') or []
-            if tag in torrent_tags:
-                return
-            torrent_tags.append(tag)
-            torrent.fields.update({'labels': torrent_tags})
+            torrent.fields.update({'labels': tags})
         except Exception as e:
             logger.error(f'Flush种子标签异常: {str(e)}', exc_info=True)
+
+    def __check_private_torrent_for_transmission(self,
+                                                torrent: Torrent) -> bool:
+        """
+        tr检查种子是否是私有种子
+        :return: 是否是私有种子
+        """
+        return torrent.get("isPrivate")
 
     def __delete_batch_for_transmission(self, transmission: Transmission, torrents: List[Torrent],
                                         deleted_event_data: dict = None) -> int:
