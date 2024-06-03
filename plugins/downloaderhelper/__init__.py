@@ -202,6 +202,7 @@ class DownloaderHelper(_PluginBase):
             'cron': '0/30 * * * *',
             'exclude_tags': 'BT,刷流',
             'dashboard_widget_refresh': 5,
+            'dashboard_speed_widget_refresh': 5,
         }
         # 合并默认配置
         config_suggest.update(self.__config_default)
@@ -1673,19 +1674,19 @@ class DownloaderHelper(_PluginBase):
             logger.info(
                 f'子任务执行状态: 自动做种={enable_seeding}, 自动打标={enable_tagging}, 自动删种={enable_delete}')
 
-            # 做种
-            if enable_seeding:
-                result.set_seeding(self.__seeding_batch_for_qbittorrent(torrents=torrents))
-                if self.__exit_event.is_set():
-                    logger.warn(f'插件服务正在退出，任务终止[{downloader_name}]')
-                    return context
-            # 打标
+            # 站点标签
             if enable_tagging:
                 result.set_tagging(self.__tagging_batch_for_qbittorrent(torrents=torrents))
                 if self.__exit_event.is_set():
                     logger.warn(f'插件服务正在退出，任务终止[{downloader_name}]')
                     return context
-            # 删种
+            # 自动做种
+            if enable_seeding:
+                result.set_seeding(self.__seeding_batch_for_qbittorrent(torrents=torrents))
+                if self.__exit_event.is_set():
+                    logger.warn(f'插件服务正在退出，任务终止[{downloader_name}]')
+                    return context
+            # 自动删种
             if enable_delete:
                 result.set_delete(self.__delete_batch_for_qbittorrent(qbittorrent=qbittorrent, torrents=torrents,
                                                                       deleted_event_data=context.get_deleted_event_data()))
@@ -1701,10 +1702,10 @@ class DownloaderHelper(_PluginBase):
 
     def __seeding_batch_for_qbittorrent(self, torrents: List[TorrentDictionary]) -> int:
         """
-        qb批量做种
+        qb批量自动做种
         :return: 做种数
         """
-        logger.info('[QB]批量做种开始...')
+        logger.info('[QB]批量自动做种开始...')
         count = 0
         if not torrents:
             return count
@@ -1714,12 +1715,12 @@ class DownloaderHelper(_PluginBase):
                 return count
             if self.__seeding_single_for_qbittorrent(torrent=torrent):
                 count += 1
-        logger.info('[QB]批量做种结束')
+        logger.info('[QB]批量自动做种结束')
         return count
 
     def __seeding_single_for_qbittorrent(self, torrent: TorrentDictionary) -> bool:
         """
-        qb单个做种
+        qb单个自动做种
         :return: 是否执行
         """
         if not torrent:
@@ -1733,15 +1734,15 @@ class DownloaderHelper(_PluginBase):
         if not need_seeding:
             return False
         torrent.resume()
-        logger.info(f"[QB]单个做种完成: hash = {torrent.get('hash')}, name = {torrent.get('name')}")
+        logger.info(f"[QB]单个自动做种完成: hash = {torrent.get('hash')}, name = {torrent.get('name')}")
         return True
 
     def __tagging_batch_for_qbittorrent(self, torrents: List[TorrentDictionary]) -> int:
         """
-        qb批量打标
+        qb批量站点标签
         :return: 打标数
         """
-        logger.info('[QB]批量打标开始...')
+        logger.info('[QB]批量站点标签开始...')
         count = 0
         if not torrents:
             return count
@@ -1751,12 +1752,12 @@ class DownloaderHelper(_PluginBase):
                 return count
             if self.__tagging_single_for_qbittorrent(torrent=torrent):
                 count += 1
-        logger.info('[QB]批量打标结束')
+        logger.info('[QB]批量站点标签结束')
         return count
 
     def __tagging_single_for_qbittorrent(self, torrent: TorrentDictionary) -> bool:
         """
-        qb单个打标签
+        qb单个站点标签
         :return: 是否执行
         """
         if not torrent:
@@ -1766,6 +1767,9 @@ class DownloaderHelper(_PluginBase):
         # 判断种子中是否存在排除的标签
         if self.__exists_exclude_tag(torrent_tags):
             return False
+        # BT种子与站点无关，故排除BT标签
+        #if "BT" in torrent_tags:
+        #    return False
         # 种子的tracker地址
         tracker_url = self.__parse_tracker_for_qbittorrent(torrent=torrent)
         if not tracker_url:
@@ -1782,16 +1786,34 @@ class DownloaderHelper(_PluginBase):
             return False
         # 打标签
         torrent.add_tags(site_tag)
-        logger.info(f"[QB]单个打标成功: hash = {torrent.get('hash')}, name = {torrent.get('name')}")
+        logger.info(f"[QB]单个站点标签成功: hash = {torrent.get('hash')}, name = {torrent.get('name')}")
+        # Flush 标签
+        self.__flush_torrent_tags_for_qbittorrent(torrent=torrent, tag=site_tag)
         return True
+
+    def __flush_torrent_tags_for_qbittorrent(self, torrent: TorrentDictionary, tag: str):
+        """
+        qb Flush 标签到种子信息中（即更新内存数据）
+        """
+        try:
+            if not torrent or not tag:
+                return
+            torrent_tags = self.__split_tags(torrent.get('tags'))
+            if tag in torrent_tags:
+                return
+            torrent_tags.add(tag)
+            tag_str = ', '.join(torrent_tags)
+            torrent.update({'tags': tag_str})
+        except Exception as e:
+            logger.error(f'Flush种子标签异常: {str(e)}', exc_info=True)
 
     def __delete_batch_for_qbittorrent(self, qbittorrent: Qbittorrent, torrents: List[TorrentDictionary],
                                        deleted_event_data: dict = None) -> int:
         """
-        qb批量删种
+        qb批量自动删种
         :return: 删种数
         """
-        logger.info('[QB]批量删种开始...')
+        logger.info('[QB]批量自动删种开始...')
         count = 0
         if not torrents:
             return count
@@ -1802,13 +1824,13 @@ class DownloaderHelper(_PluginBase):
             if (self.__delete_single_for_qbittorrent(qbittorrent=qbittorrent, torrent=torrent,
                                                      deleted_event_data=deleted_event_data)):
                 count += 1
-        logger.info('[QB]批量删种结束')
+        logger.info('[QB]批量自动删种结束')
         return count
 
     def __delete_single_for_qbittorrent(self, qbittorrent: Qbittorrent, torrent: TorrentDictionary,
                                         deleted_event_data: dict = None) -> bool:
         """
-        qb单个删种
+        qb单个自动删种
         :return: 是否执行
         """
         if not torrent:
@@ -1821,7 +1843,7 @@ class DownloaderHelper(_PluginBase):
         if not self.__check_need_delete_for_qbittorrent(torrent=torrent, deleted_event_data=deleted_event_data):
             return False
         qbittorrent.delete_torrents(True, torrent.get('hash'))
-        logger.info(f"[QB]单个删种完成: hash = {torrent.get('hash')}, name = {torrent.get('name')}")
+        logger.info(f"[QB]单个自动删种完成: hash = {torrent.get('hash')}, name = {torrent.get('name')}")
         return True
 
     def __run_for_transmission(self, context: TaskContext = None) -> TaskContext:
@@ -1884,19 +1906,19 @@ class DownloaderHelper(_PluginBase):
             logger.info(
                 f'子任务执行状态: 自动做种={enable_seeding}, 自动打标={enable_tagging}, 自动删种={enable_delete}')
 
-            # 做种
-            if enable_seeding:
-                result.set_seeding(self.__seeding_batch_for_transmission(transmission=transmission, torrents=torrents))
-                if self.__exit_event.is_set():
-                    logger.warn(f'插件服务正在退出，任务终止[{downloader_name}]')
-                    return context
-            # 打标
+            # 站点标签
             if enable_tagging:
                 result.set_tagging(self.__tagging_batch_for_transmission(transmission=transmission, torrents=torrents))
                 if self.__exit_event.is_set():
                     logger.warn(f'插件服务正在退出，任务终止[{downloader_name}]')
                     return context
-            # 删种
+            # 自动做种
+            if enable_seeding:
+                result.set_seeding(self.__seeding_batch_for_transmission(transmission=transmission, torrents=torrents))
+                if self.__exit_event.is_set():
+                    logger.warn(f'插件服务正在退出，任务终止[{downloader_name}]')
+                    return context
+            # 自动删种
             if enable_delete:
                 result.set_delete(self.__delete_batch_for_transmission(transmission=transmission, torrents=torrents,
                                                                        deleted_event_data=context.get_deleted_event_data()))
@@ -1912,10 +1934,10 @@ class DownloaderHelper(_PluginBase):
 
     def __seeding_batch_for_transmission(self, transmission: Transmission, torrents: List[Torrent]) -> int:
         """
-        tr批量做种
+        tr批量自动做种
         :return: 做种数
         """
-        logger.info('[TR]批量做种开始...')
+        logger.info('[TR]批量自动做种开始...')
         count = 0
         if not torrents:
             return count
@@ -1925,12 +1947,12 @@ class DownloaderHelper(_PluginBase):
                 return count
             if self.__seeding_single_for_transmission(transmission=transmission, torrent=torrent):
                 count += 1
-        logger.info('[TR]批量做种结束')
+        logger.info('[TR]批量自动做种结束')
         return count
 
     def __seeding_single_for_transmission(self, transmission: Transmission, torrent: Torrent) -> bool:
         """
-        tr单个做种
+        tr单个自动做种
         :return: 是否执行
         """
         if not torrent:
@@ -1944,15 +1966,15 @@ class DownloaderHelper(_PluginBase):
         if not need_seeding:
             return False
         transmission.start_torrents(torrent.hashString)
-        logger.info(f"[TR]单个做种完成: hash = {torrent.hashString}, name = {torrent.get('name')}")
+        logger.info(f"[TR]单个自动做种完成: hash = {torrent.hashString}, name = {torrent.get('name')}")
         return True
 
     def __tagging_batch_for_transmission(self, transmission: Transmission, torrents: List[Torrent]) -> int:
         """
-        tr批量打标
+        tr批量站点标签
         :return: 打标数
         """
-        logger.info('[TR]批量打标开始...')
+        logger.info('[TR]批量站点标签开始...')
         count = 0
         if not torrents:
             return count
@@ -1962,21 +1984,24 @@ class DownloaderHelper(_PluginBase):
                 return count
             if self.__tagging_single_for_transmission(transmission=transmission, torrent=torrent):
                 count += 1
-        logger.info('[TR]批量打标结束')
+        logger.info('[TR]批量站点标签结束')
         return count
 
     def __tagging_single_for_transmission(self, transmission: Transmission, torrent: Torrent) -> bool:
         """
-        tr单个打标签
+        tr单个站点标签
         :return: 是否执行
         """
         if not torrent:
             return False
         # 种子当前已经存在的标签
-        torrent_tags = torrent.get('labels')
+        torrent_tags = torrent.get('labels') or []
         # 判断种子中是否存在排除的标签
         if self.__exists_exclude_tag(torrent_tags):
             return False
+        # BT种子与站点无关，故排除BT标签
+        #if "BT" in torrent_tags:
+        #    return False
         # 种子的tracker地址
         tracker_url = self.__parse_tracker_for_transmission(torrent=torrent)
         if not tracker_url:
@@ -1998,16 +2023,33 @@ class DownloaderHelper(_PluginBase):
             return False
         # 保存标签
         transmission.set_torrent_tag(torrent.hashString, torrent_tags_copy)
-        logger.info(f"[TR]单个打标成功: hash = {torrent.hashString}, name = {torrent.get('name')}")
+        logger.info(f"[TR]单个站点标签成功: hash = {torrent.hashString}, name = {torrent.get('name')}")
+        # Flush 标签
+        self.__flush_torrent_tags_for_transmission(torrent=torrent, tag=site_tag)
         return True
+
+    def __flush_torrent_tags_for_transmission(self, torrent: Torrent, tag: str):
+        """
+        tr Flush 标签到种子信息中（即更新内存数据）
+        """
+        try:
+            if not torrent or not tag:
+                return
+            torrent_tags = torrent.get('labels') or []
+            if tag in torrent_tags:
+                return
+            torrent_tags.append(tag)
+            torrent.fields.update({'labels': torrent_tags})
+        except Exception as e:
+            logger.error(f'Flush种子标签异常: {str(e)}', exc_info=True)
 
     def __delete_batch_for_transmission(self, transmission: Transmission, torrents: List[Torrent],
                                         deleted_event_data: dict = None) -> int:
         """
-        tr批量删种
+        tr批量自动删种
         :return: 删种数
         """
-        logger.info('[TR]批量删种开始...')
+        logger.info('[TR]批量自动删种开始...')
         count = 0
         if not torrents:
             return count
@@ -2018,13 +2060,13 @@ class DownloaderHelper(_PluginBase):
             if (self.__delete_single_for_transmission(transmission=transmission, torrent=torrent,
                                                       deleted_event_data=deleted_event_data)):
                 count += 1
-        logger.info('[TR]批量删种结束')
+        logger.info('[TR]批量自动删种结束')
         return count
 
     def __delete_single_for_transmission(self, transmission: Transmission, torrent: Torrent,
                                          deleted_event_data: dict = None) -> bool:
         """
-        tr单个删种
+        tr单个自动删种
         :return: 是否执行
         """
         if not torrent:
@@ -2037,7 +2079,7 @@ class DownloaderHelper(_PluginBase):
         if not self.__check_need_delete_for_transmission(torrent=torrent, deleted_event_data=deleted_event_data):
             return False
         transmission.delete_torrents(True, torrent.hashString)
-        logger.info(f"'[TR]单个删种完成: hash = {torrent.hashString}, name = {torrent.get('name')}")
+        logger.info(f"'[TR]单个自动删种完成: hash = {torrent.hashString}, name = {torrent.get('name')}")
         return True
 
     @staticmethod
