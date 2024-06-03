@@ -69,6 +69,8 @@ class StateConvertor(IConvertor, metaclass=Singleton):
                 return '等待'
             if data == TorrentState.CHECKING_DOWNLOAD.value:
                 return '校验'
+            if data == TorrentState.QUEUED_DOWNLOAD.value:
+                return '排队'
             # tr
             if data == 6:
                 return '做种'
