@@ -1862,7 +1862,7 @@ class DownloaderHelper(_PluginBase):
             torrent.add_tags(tags=add_tags)
         logger.info(f"[QB]单个自动标签成功: hash = {hash_str}, name = {torrent.get('name')}")
         # Flush 标签
-        self.__flush_torrent_tags_for_qbittorrent(torrent=torrent, tags=add_tags)
+        self.__flush_torrent_tags_for_qbittorrent(torrent=torrent, remove_tags=remove_tags, add_tags=add_tags)
         return True
 
     def __flush_torrent_tags_for_qbittorrent(self, torrent: TorrentDictionary, remove_tags: List[str], add_tags: List[str]):
