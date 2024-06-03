@@ -2504,7 +2504,7 @@ class DownloaderHelper(_PluginBase):
                 'fixed-header': True,
                 'density': 'compact',
                 'style': {
-                    'height': '230px'
+                    'height': '242px'
                 }
             },
             'content': [
@@ -2627,21 +2627,24 @@ class DownloaderHelper(_PluginBase):
             }]
         }
 
-    def __build_dashboard_speed_widget_list_item_element(self, mdi_icon: str, label: str, value: str) -> dict:
+    def __build_dashboard_speed_widget_list_item_element(self, mdi_icon: str, label: str, value: str, is_last: bool = False) -> dict:
         """
         构造仪表板实时速率组件列表item元素
         """
         if not mdi_icon or not label or not value:
             return None
+        div_style = {
+            'display': 'grid',
+            'grid-template-areas': '"prepend content append"',
+            'grid-template-columns': 'max-content 1fr auto',
+            'padding-bottom': '16px'
+        }
+        if is_last:
+            del div_style['padding-bottom']
         return {
             'component': 'div',
             'props': {
-                'style': {
-                    'display': 'grid',
-                    'grid-template-areas': '"prepend content append"',
-                    'grid-template-columns': 'max-content 1fr auto',
-                    'padding-bottom': '16px'
-                }
+                'style': div_style
             },
             'content': [{
                 'component': 'div',
@@ -2700,13 +2703,13 @@ class DownloaderHelper(_PluginBase):
         list_items = [
             self.__build_dashboard_speed_widget_list_item_element(mdi_icon='mdi-cloud-upload', label='总上传量', value=data.upload_size),
             self.__build_dashboard_speed_widget_list_item_element(mdi_icon='mdi-download-box', label='总下载量', value=data.download_size),
-            self.__build_dashboard_speed_widget_list_item_element(mdi_icon='mdi-content-save', label='磁盘剩余空间', value=data.free_space),
+            self.__build_dashboard_speed_widget_list_item_element(mdi_icon='mdi-content-save', label='磁盘剩余空间', value=data.free_space, is_last=True),
         ]
         return [{
             'component': 'div',
             'props': {
                 'style': {
-                    'padding': '16px 0 20px 0'
+                    'padding': '16px 0 0 0'
                 }
             },
             'content': [{
