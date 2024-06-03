@@ -511,7 +511,7 @@ class DownloaderHelper(_PluginBase):
                                                    '<tracker-domain>:<site-domain>\n\n'
                                                    '例如：\n'
                                                    'chdbits.xyz:ptchdbits.co',
-                                    'hint': 'Tracker映射。用于在站点打标签时，指定tracker和站点域名不同的种子的域名对应关系；前面为tracker域名（完整域名或者主域名皆可），中间是英文冒号，后面是站点域名。'
+                                    'hint': 'Tracker映射。用于在站点标签时，指定tracker和站点域名不同的种子的域名对应关系；前面为tracker域名（完整域名或者主域名皆可），中间是英文冒号，后面是站点域名。'
                                 }
                             }]
                         }]
