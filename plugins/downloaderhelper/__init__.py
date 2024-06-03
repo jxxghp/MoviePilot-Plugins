@@ -1631,10 +1631,10 @@ class DownloaderHelper(_PluginBase):
             return context
         if not context.is_selected_qb_downloader():
             return context
-        enable_seeding = True if self.__get_config_item(
-            config_key='qb_enable_seeding') and context.is_enabled_seeding() else False
         enable_tagging = True if self.__get_config_item(
             config_key='qb_enable_tagging') and context.is_enabled_tagging() else False
+        enable_seeding = True if self.__get_config_item(
+            config_key='qb_enable_seeding') and context.is_enabled_seeding() else False
         enable_delete = True if self.__get_config_item(
             config_key='qb_enable_delete') and context.is_enabled_delete() else False
         if not enable_seeding and not enable_tagging and not enable_delete:
@@ -1672,7 +1672,7 @@ class DownloaderHelper(_PluginBase):
                 return context
 
             logger.info(
-                f'子任务执行状态: 自动做种={enable_seeding}, 自动打标={enable_tagging}, 自动删种={enable_delete}')
+                f'子任务执行状态: 站点标签={enable_tagging}, 自动做种={enable_seeding}, 自动删种={enable_delete}')
 
             # 站点标签
             if enable_tagging:
@@ -1861,10 +1861,10 @@ class DownloaderHelper(_PluginBase):
             return context
         if not context.is_selected_tr_downloader():
             return context
-        enable_seeding = True if self.__get_config_item(
-            config_key='tr_enable_seeding') and context.is_enabled_seeding() else False
         enable_tagging = True if self.__get_config_item(
             config_key='tr_enable_tagging') and context.is_enabled_tagging() else False
+        enable_seeding = True if self.__get_config_item(
+            config_key='tr_enable_seeding') and context.is_enabled_seeding() else False
         enable_delete = True if self.__get_config_item(
             config_key='tr_enable_delete') and context.is_enabled_delete() else False
         if not enable_seeding and not enable_tagging and not enable_delete:
@@ -1904,7 +1904,7 @@ class DownloaderHelper(_PluginBase):
                 return context
 
             logger.info(
-                f'子任务执行状态: 自动做种={enable_seeding}, 自动打标={enable_tagging}, 自动删种={enable_delete}')
+                f'子任务执行状态: 站点标签={enable_tagging}, 自动做种={enable_seeding}, 自动删种={enable_delete}')
 
             # 站点标签
             if enable_tagging:
