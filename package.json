@@ -30,11 +30,12 @@
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
         "labels": "站点,仪表板",
-        "version": "3.5",
+        "version": "3.6",
         "icon": "statistic.png",
         "author": "lightolly",
         "level": 2,
         "history": {
+            "v3.6": "支持站点数据统计刷新后触发插件事件",
             "v3.5": "站点数据统计支持YemaPT",
             "v3.4": "修复馒头站点数据统计",
             "v3.3": "支持选择仪表板组件规格",

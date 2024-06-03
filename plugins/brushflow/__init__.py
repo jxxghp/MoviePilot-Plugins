@@ -320,11 +320,12 @@ class BrushFlow(_PluginBase):
         brush_config = self._brush_config
 
         # 这里先过滤掉已删除的站点并保存，特别注意的是，这里保留了界面选择站点时的顺序，以便后续站点随机刷流或顺序刷流
-        site_id_to_public_status = {site.get("id"): site.get("public") for site in self.siteshelper.get_indexers()}
-        brush_config.brushsites = [
-            site_id for site_id in brush_config.brushsites
-            if site_id in site_id_to_public_status and not site_id_to_public_status[site_id]
-        ]
+        if brush_config.brushsites:
+            site_id_to_public_status = {site.get("id"): site.get("public") for site in self.siteshelper.get_indexers()}
+            brush_config.brushsites = [
+                site_id for site_id in brush_config.brushsites
+                if site_id in site_id_to_public_status and not site_id_to_public_status[site_id]
+            ]
 
         self.__update_config()
 
