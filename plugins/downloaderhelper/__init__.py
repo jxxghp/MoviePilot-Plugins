@@ -32,7 +32,7 @@ class DownloaderHelper(_PluginBase):
     # 插件名称
     plugin_name = "下载器助手"
     # 插件描述
-    plugin_desc = "自动做种、站点标签、自动删种。"
+    plugin_desc = "站点标签、自动做种、自动删种。"
     # 插件图标
     plugin_icon = "DownloaderHelper.png"
     # 插件版本
@@ -221,6 +221,11 @@ class DownloaderHelper(_PluginBase):
             },
             'content': [{
                 'component': 'VRow',
+                'props': {
+                    'style': {
+                        'margin-top': '0'
+                    }
+                },
                 'content': [{
                     'component': 'VCol',
                     'props': {
@@ -244,9 +249,9 @@ class DownloaderHelper(_PluginBase):
                     'content': [{
                         'component': 'VSwitch',
                         'props': {
-                            'model': f'{d.short_id}_enable_seeding',
-                            'label': '自动做种',
-                            'hint': '是否开启自动做种功能'
+                            'model': f'{d.short_id}_enable_tagging',
+                            'label': '站点标签',
+                            'hint': '是否开启站点标签功能'
                         }
                     }]
                 }, {
@@ -258,9 +263,9 @@ class DownloaderHelper(_PluginBase):
                     'content': [{
                         'component': 'VSwitch',
                         'props': {
-                            'model': f'{d.short_id}_enable_tagging',
-                            'label': '站点标签',
-                            'hint': '是否开启站点标签功能'
+                            'model': f'{d.short_id}_enable_seeding',
+                            'label': '自动做种',
+                            'hint': '是否开启自动做种功能'
                         }
                     }]
                 }, {
