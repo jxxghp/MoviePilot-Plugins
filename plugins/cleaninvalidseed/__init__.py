@@ -28,7 +28,7 @@ class CleanInvalidSeed(_PluginBase):
     # 插件图标
     plugin_icon = "clean_a.png"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -174,6 +174,14 @@ class CleanInvalidSeed(_PluginBase):
         if event:
             event_data = event.event_data
             if event_data:
+                if not (
+                    event_data.get("action") == "detect_invalid_torrents"
+                    or event_data.get("action") == "delete_invalid_torrents"
+                    or event_data.get("action") == "detect_invalid_files"
+                    or event_data.get("action") == "delete_invalid_files"
+                    or event_data.get("action") == "toggle_notify_all"
+                ):
+                    return
                 self.post_message(
                     channel=event.event_data.get("channel"),
                     title="开始执行远程命令...",
@@ -285,9 +293,15 @@ class CleanInvalidSeed(_PluginBase):
         # tracker未工作，但暂时不能判定为失效做种，需人工判断
         tracker_not_working_torrents = []
         working_tracker_set = set()
-        exclude_categories = self._exclude_categories.split("\n") if self._exclude_categories else []
-        exclude_labels = self._exclude_labels.split("\n") if self._exclude_labels else []
-        custom_msgs = self._custom_error_msg.split("\n") if self._custom_error_msg else []
+        exclude_categories = (
+            self._exclude_categories.split("\n") if self._exclude_categories else []
+        )
+        exclude_labels = (
+            self._exclude_labels.split("\n") if self._exclude_labels else []
+        )
+        custom_msgs = (
+            self._custom_error_msg.split("\n") if self._custom_error_msg else []
+        )
         error_msgs = self._error_msg + custom_msgs
         # 第一轮筛选出所有未工作的种子
         for torrent in all_torrents:
@@ -303,8 +317,7 @@ class CleanInvalidSeed(_PluginBase):
                     is_tracker_working = True
 
                 if not (
-                    (tracker.get("status") == 4)
-                    and (tracker.get("msg") in error_msgs)
+                    (tracker.get("status") == 4) and (tracker.get("msg") in error_msgs)
                 ):
                     is_invalid = False
                     working_tracker_set.add(tracker_domian)
@@ -312,17 +325,19 @@ class CleanInvalidSeed(_PluginBase):
             if is_invalid:
                 temp_invalid_torrents.append(torrent)
             elif not is_tracker_working:
-                tracker_not_working_torrents.append(torrent)
+                # 排除已暂停的种子
+                if not torrent.state_enum.is_paused:
+                    tracker_not_working_torrents.append(torrent)
 
         logger.info(f"初筛共有{len(temp_invalid_torrents)}个无效做种")
         # 第二轮筛选出tracker有正常工作种子而当前种子未工作的，避免因临时关站或tracker失效导致误删的问题
-        invalid_torrents = []
         # 失效做种但通过种子分类排除的种子
         invalid_torrents_exclude_categories = []
         # 失效做种但通过种子标签排除的种子
         invalid_torrents_exclude_labels = []
-        deleted_torrents = []
-
+        # 将invalid_torrents基本信息保存起来，在种子被删除后依然可以打印这些信息
+        invalid_torrent_tuple_list = []
+        deleted_torrent_tuple_list = []
         for torrent in temp_invalid_torrents:
             trackers = torrent.trackers
             for tracker in trackers:
@@ -331,14 +346,25 @@ class CleanInvalidSeed(_PluginBase):
                 tracker_domian = StringUtils.get_url_netloc((tracker.get("url")))[1]
                 if tracker_domian in working_tracker_set:
                     # tracker是正常的，说明该种子是无效的
-                    invalid_torrents.append(torrent)
+                    invalid_torrent_tuple_list.append(
+                        (
+                            torrent.name,
+                            torrent.category,
+                            torrent.tags,
+                            torrent.size,
+                            tracker_domian,
+                            tracker.msg,
+                        )
+                    )
                     if self._delete_invalid_torrents:
                         # 检查种子分类和标签是否排除
                         is_excluded = False
                         if torrent.category in exclude_categories:
                             is_excluded = True
                             invalid_torrents_exclude_categories.append(torrent)
-                        torrent_labels = [tag.strip() for tag in torrent.tags.split(",")]
+                        torrent_labels = [
+                            tag.strip() for tag in torrent.tags.split(",")
+                        ]
                         for label in torrent_labels:
                             if label in exclude_labels:
                                 is_excluded = True
@@ -346,33 +372,28 @@ class CleanInvalidSeed(_PluginBase):
                         if not is_excluded:
                             # 只删除种子不删除文件，以防其它站点辅种
                             self._qb.delete_torrents(False, torrent.get("hash"))
-                            deleted_torrents.append(torrent)
+                            deleted_torrent_tuple_list.append(
+                                (
+                                    torrent.name,
+                                    torrent.category,
+                                    torrent.tags,
+                                    torrent.size,
+                                    tracker_domian,
+                                    tracker.msg,
+                                )
+                            )
                     break
-        invalid_msg = f"检测到{len(invalid_torrents)}个失效做种\n"
-        tracker_not_working_msg = (
-            f"检测到{len(tracker_not_working_torrents)}个tracker未工作做种，请检查种子状态\n"
-        )
+        invalid_msg = f"检测到{len(invalid_torrent_tuple_list)}个失效做种\n"
+        tracker_not_working_msg = f"检测到{len(tracker_not_working_torrents)}个tracker未工作做种，请检查种子状态\n"
         if self._delete_invalid_torrents:
-            deleted_msg = f"删除{len(deleted_torrents)}个失效种子\n"
+            deleted_msg = f"删除{len(deleted_torrent_tuple_list)}个失效种子\n"
             if len(exclude_categories) != 0:
-                exclude_categories_msg = (
-                    f"分类排除{len(invalid_torrents_exclude_categories)}个失效种子未删除，请手动处理\n"
-                )
+                exclude_categories_msg = f"分类排除{len(invalid_torrents_exclude_categories)}个失效种子未删除，请手动处理\n"
             if len(exclude_labels) != 0:
-                exclude_labels_msg = (
-                    f"标签排除{len(invalid_torrents_exclude_labels)}个失效种子未删除，请手动处理\n"
-                )
-        for index in range(len(invalid_torrents)):
-            torrent = invalid_torrents[index]
-            trackers = torrent.trackers
-            tracker_msg = ""
-            for tracker in trackers:
-                if tracker.get("tier") == -1:
-                    continue
-                tracker_domian = StringUtils.get_url_netloc((tracker.get("url")))[1]
-                tracker_msg += f" {tracker_domian}：{tracker.msg} "
-
-            invalid_msg += f"{index + 1}. {torrent.name}，分类：{torrent.category}，标签：{torrent.tags}, 大小：{StringUtils.str_filesize(torrent.size)}，Trackers: {tracker_msg}\n"
+                exclude_labels_msg = f"标签排除{len(invalid_torrents_exclude_labels)}个失效种子未删除，请手动处理\n"
+        for index in range(len(invalid_torrent_tuple_list)):
+            torrent = invalid_torrent_tuple_list[index]
+            invalid_msg += f"{index + 1}. {torrent[0]}，分类：{torrent[1]}，标签：{torrent[2]}, 大小：{StringUtils.str_filesize(torrent[3])}，Trackers: {torrent[4]}：{torrent[5]}\n"
 
         for index in range(len(tracker_not_working_torrents)):
             torrent = tracker_not_working_torrents[index]
@@ -407,16 +428,9 @@ class CleanInvalidSeed(_PluginBase):
                 tracker_msg += f" {tracker_domian}：{tracker.msg} "
             exclude_labels_msg += f"{index + 1}. {torrent.name}，分类：{torrent.category}，标签：{torrent.tags}, 大小：{StringUtils.str_filesize(torrent.size)}，Trackers: {tracker_msg}\n"
 
-        for index in range(len(deleted_torrents)):
-            torrent = deleted_torrents[index]
-            trackers = torrent.trackers
-            tracker_msg = ""
-            for tracker in trackers:
-                if tracker.get("tier") == -1:
-                    continue
-                tracker_domian = StringUtils.get_url_netloc((tracker.get("url")))[1]
-                tracker_msg += f" {tracker_domian}：{tracker.msg} "
-            deleted_msg += f"{index + 1}. {torrent.name}，分类：{torrent.category}，标签：{torrent.tags}, 大小：{StringUtils.str_filesize(torrent.size)}，Trackers: {tracker_msg}\n"
+        for index in range(len(deleted_torrent_tuple_list)):
+            torrent = deleted_torrent_tuple_list[index]
+            deleted_msg += f"{index + 1}. {torrent[0]}，分类：{torrent[1]}，标签：{torrent[2]}, 大小：{StringUtils.str_filesize(torrent[3])}，Trackers: {torrent[4]}：{torrent[5]}\n"
 
         # 日志
         logger.info(invalid_msg)
@@ -429,34 +443,34 @@ class CleanInvalidSeed(_PluginBase):
                 logger.info(exclude_labels_msg)
         # 通知
         if self._notify:
-            invalid_msg = invalid_msg.replace('_', '\_')
+            invalid_msg = invalid_msg.replace("_", "\_")
             self.post_message(
                 mtype=NotificationType.SiteMessage,
                 title=f"【清理无效做种】",
                 text=invalid_msg,
             )
             if self._notify_all:
-                tracker_not_working_msg = tracker_not_working_msg.replace('_', '\_')
+                tracker_not_working_msg = tracker_not_working_msg.replace("_", "\_")
                 self.post_message(
                     mtype=NotificationType.SiteMessage,
                     title=f"【清理无效做种】",
                     text=tracker_not_working_msg,
                 )
             if self._delete_invalid_torrents:
-                deleted_msg = deleted_msg.replace('_', '\_')
+                deleted_msg = deleted_msg.replace("_", "\_")
                 self.post_message(
                     mtype=NotificationType.SiteMessage,
                     title=f"【清理无效做种】",
                     text=deleted_msg,
                 )
                 if self._notify_all:
-                    exclude_categories_msg = exclude_categories_msg.replace('_', '\_')
+                    exclude_categories_msg = exclude_categories_msg.replace("_", "\_")
                     self.post_message(
                         mtype=NotificationType.SiteMessage,
                         title=f"【清理无效做种】",
                         text=exclude_categories_msg,
                     )
-                    exclude_labels_msg = exclude_labels_msg.replace('_', '\_')
+                    exclude_labels_msg = exclude_labels_msg.replace("_", "\_")
                     self.post_message(
                         mtype=NotificationType.SiteMessage,
                         title=f"【清理无效做种】",
@@ -473,7 +487,9 @@ class CleanInvalidSeed(_PluginBase):
         source_paths = []
         total_size = 0
         deleted_file_cnt = 0
-        exclude_key_words = self._exclude_keywords.split("\n") if self._exclude_keywords else []
+        exclude_key_words = (
+            self._exclude_keywords.split("\n") if self._exclude_keywords else []
+        )
         if not self._download_dirs:
             logger.error("未配置下载目录，无法检测未做种无效源文件")
             self.post_message(
@@ -494,6 +510,15 @@ class CleanInvalidSeed(_PluginBase):
         message = "检测未做种无效源文件：\n"
         for source_path_str in source_paths:
             source_path = Path(source_path_str)
+            # 判断source_path是否存在
+            if not source_path.exists():
+                logger.error(f"{source_path} 不存在，无法检测未做种无效源文件")
+                self.post_message(
+                    mtype=NotificationType.SiteMessage,
+                    title=f"【检测无效源文件】",
+                    text=f"{source_path} 不存在，无法检测未做种无效源文件",
+                )
+                continue
             source_files = []
             # 获取source_path下的所有文件包括文件夹
             for file in source_path.iterdir():
@@ -533,7 +558,7 @@ class CleanInvalidSeed(_PluginBase):
             message += f"***已删除无效源文件，释放{StringUtils.str_filesize(total_size)}空间!***\n"
         logger.info(message)
         if self._notify:
-            message = message.replace('_', '\_')
+            message = message.replace("_", "\_")
             self.post_message(
                 mtype=NotificationType.SiteMessage,
                 title=f"【清理无效做种】",
