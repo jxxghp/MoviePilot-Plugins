@@ -446,10 +446,13 @@
         "name": "配置中心",
         "description": "快速调整部分系统设定。",
         "labels": "系统设置",
-        "version": "2.4",
+        "version": "2.5",
         "icon": "setting.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v2.5": "增加Github加速服务器设置项"
+        }
     },
     "WorkWechatMsg": {
         "name": "企微机器人消息推送",
