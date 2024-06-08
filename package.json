@@ -190,10 +190,13 @@
         "name": "媒体库服务器通知",
         "description": "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。",
         "labels": "消息通知,媒体库",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "mediaplay.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.2": "播放通知增加超链接跳转（需要v1.9.4+）"
+        }
     },
     "MediaServerRefresh": {
         "name": "媒体库服务器刷新",

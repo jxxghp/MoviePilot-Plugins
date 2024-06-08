@@ -3,6 +3,9 @@ from typing import Any, List, Dict, Tuple
 
 from app.core.event import eventmanager, Event
 from app.log import logger
+from app.modules.emby import Emby
+from app.modules.jellyfin import Jellyfin
+from app.modules.plex import Plex
 from app.plugins import _PluginBase
 from app.schemas import WebhookEventInfo
 from app.schemas.types import EventType, MediaType, MediaImageType, NotificationType
@@ -17,7 +20,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -28,6 +31,11 @@ class MediaServerMsg(_PluginBase):
     plugin_order = 14
     # 可使用的用户级别
     auth_level = 1
+
+    # 对像
+    plex = None
+    emby = None
+    jellyfin = None
 
     # 私有属性
     _enabled = False
@@ -57,6 +65,10 @@ class MediaServerMsg(_PluginBase):
         if config:
             self._enabled = config.get("enabled")
             self._types = config.get("types") or []
+            if self._enabled:
+                self.emby = Emby()
+                self.plex = Plex()
+                self.jellyfin = Jellyfin()
 
     def get_state(self) -> bool:
         return self._enabled
@@ -233,9 +245,19 @@ class MediaServerMsg(_PluginBase):
         if not image_url:
             image_url = self._webhook_images.get(event_info.channel)
 
+        # 获取链接地址
+        if event_info.channel == "emby":
+            play_link = self.emby.get_play_url(event_info.item_id)
+        elif event_info.channel == "plex":
+            play_link = self.plex.get_play_url(event_info.item_id)
+        elif event_info.channel == "jellyfin":
+            play_link = self.jellyfin.get_play_url(event_info.item_id)
+        else:
+            play_link = None
+
         # 发送消息
         self.post_message(mtype=NotificationType.MediaServer,
-                          title=message_title, text=message_content, image=image_url)
+                          title=message_title, text=message_content, image=image_url, link=play_link)
 
     def stop_service(self):
         """
