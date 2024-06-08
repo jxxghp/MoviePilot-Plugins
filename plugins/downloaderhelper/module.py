@@ -95,7 +95,9 @@ class TaskContext:
         self.__selected_torrents = None
 
         #  源文件删除事件数据
-        self.__deleted_event_data = None
+        self.__download_file_deleted_event_data = None
+        #  下载任务删除事件数据
+        self.__download_deleted_event_data = None
 
         # 任务结果集
         self.__results: Optional[List[TaskResult]] = None
@@ -226,18 +228,31 @@ class TaskContext:
         """
         return self.__selected_torrents
 
-    def set_deleted_event_data(self, deleted_event_data: dict):
+    def set_download_file_deleted_event_data(self, download_file_deleted_event_data: dict):
         """
         设置源文件删除事件数据
         """
-        self.__deleted_event_data = deleted_event_data
+        self.__download_file_deleted_event_data = download_file_deleted_event_data
         return self
 
-    def get_deleted_event_data(self) -> dict:
+    def get_download_file_deleted_event_data(self) -> dict:
         """
         获取源文件删除事件数据
         """
-        return self.__deleted_event_data
+        return self.__download_file_deleted_event_data
+
+    def set_download_deleted_event_data(self, download_deleted_event_data: dict):
+        """
+        设置下载任务删除事件数据
+        """
+        self.__download_deleted_event_data = download_deleted_event_data
+        return self
+
+    def get_download_deleted_event_data(self) -> dict:
+        """
+        获取下载任务删除事件数据
+        """
+        return self.__download_deleted_event_data
 
     def save_result(self, result: TaskResult):
         """

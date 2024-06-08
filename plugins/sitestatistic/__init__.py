@@ -43,7 +43,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "3.5"
+    plugin_version = "3.6"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -1440,6 +1440,11 @@ class SiteStatistic(_PluginBase):
 
             # 更新时间
             self.save_data("last_update_time", today_date)
+
+            self.eventmanager.send_event(etype=EventType.PluginAction, data={
+                "action": "sitestatistic_refresh_complete"
+            })
+
             logger.info("站点数据刷新完成")
 
     def __custom_sites(self) -> List[Any]:

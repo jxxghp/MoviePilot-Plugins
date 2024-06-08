@@ -17,7 +17,7 @@ class ConfigCenter(_PluginBase):
     # 插件图标
     plugin_icon = "setting.png"
     # 插件版本
-    plugin_version = "2.4"
+    plugin_version = "2.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -37,7 +37,8 @@ class ConfigCenter(_PluginBase):
         "GITHUB_TOKEN", "API_TOKEN", "TMDB_API_DOMAIN", "TMDB_IMAGE_DOMAIN", "WALLPAPER",
         "RECOGNIZE_SOURCE", "SCRAP_FOLLOW_TMDB", "AUTO_DOWNLOAD_USER",
         "OCR_HOST", "DOWNLOAD_SUBTITLE", "PLUGIN_MARKET", "MOVIE_RENAME_FORMAT",
-        "TV_RENAME_FORMAT", "FANART_ENABLE", "DOH_ENABLE", "SEARCH_MULTIPLE_NAME", "META_CACHE_EXPIRE"
+        "TV_RENAME_FORMAT", "FANART_ENABLE", "DOH_ENABLE", "SEARCH_MULTIPLE_NAME", "META_CACHE_EXPIRE",
+        "GITHUB_PROXY"
     ]
 
     def init_plugin(self, config: dict = None):
@@ -327,6 +328,27 @@ class ConfigCenter(_PluginBase):
                                         "props": {
                                             "model": "OCR_HOST",
                                             "label": "验证码识别服务器"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "GITHUB_PROXY",
+                                            "label": "Github加速服务器",
+                                            "placeholder": "https://mirror.ghproxy.com/"
                                         }
                                     }
                                 ]

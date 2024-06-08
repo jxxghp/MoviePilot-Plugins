@@ -29,7 +29,7 @@ class MediaSyncDel(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "1.6"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -754,6 +754,20 @@ class MediaSyncDel(_PluginBase):
             logger.error(f"{media_name} 同步删除失败，未获取到媒体类型，请检查媒体是否刮削")
             return
 
+        # 处理路径映射 (处理同一媒体多分辨率的情况)
+        if self._library_path:
+            paths = self._library_path.split("\n")
+            for path in paths:
+                sub_paths = path.split(":")
+                if len(sub_paths) < 2:
+                    continue
+                media_path = media_path.replace(sub_paths[0], sub_paths[1]).replace('\\', '/')
+
+        # 兼容重新整理的场景
+        if Path(media_path).exists():
+            logger.warn(f"转移路径 {media_path} 未被删除或重新生成，跳过处理")
+            return
+
         # 查询转移记录
         msg, transfer_history = self.__get_transfer_his(media_type=media_type,
                                                         media_name=media_name,
@@ -889,15 +903,6 @@ class MediaSyncDel(_PluginBase):
 
         # 类型
         mtype = MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
-
-        # 处理路径映射 (处理同一媒体多分辨率的情况)
-        if self._library_path:
-            paths = self._library_path.split("\n")
-            for path in paths:
-                sub_paths = path.split(":")
-                if len(sub_paths) < 2:
-                    continue
-                media_path = media_path.replace(sub_paths[0], sub_paths[1]).replace('\\', '/')
 
         # 删除电影
         if mtype == MediaType.MOVIE:

@@ -30,11 +30,12 @@
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
         "labels": "站点,仪表板",
-        "version": "3.5",
+        "version": "3.6",
         "icon": "statistic.png",
         "author": "lightolly",
         "level": 2,
         "history": {
+            "v3.6": "支持站点数据统计刷新后触发插件事件",
             "v3.5": "站点数据统计支持YemaPT",
             "v3.4": "修复馒头站点数据统计",
             "v3.3": "支持选择仪表板组件规格",
@@ -75,11 +76,12 @@
         "name": "目录监控",
         "description": "监控目录文件发生变化时实时整理到媒体库。",
         "labels": "文件整理",
-        "version": "2.2",
+        "version": "2.3",
         "icon": "directory.png",
         "author": "jxxghp",
         "level": 1,
         "history": {
+            "v2.3": "特殊场景下补充转移成功历史记录",
             "v2.2": "更新目录设置说明",
             "v2.1": "增加了元数据刮削开关，升级后需要手动打开，否则默认不刮削",
             "v2.0": "增强API安全性",
@@ -134,11 +136,12 @@
         "name": "媒体文件同步删除",
         "description": "同步删除历史记录、源文件和下载任务。",
         "labels": "文件整理",
-        "version": "1.6",
+        "version": "1.7",
         "icon": "mediasyncdel.png",
         "author": "thsrite",
         "level": 1,
         "history": {
+            "v1.7": "修复重新整理被一并删除问题",
             "v1.6": "修复删除辅种",
             "v1.5": "支持手动删除订阅历史记录（本次更新之后的历史）"
         }
@@ -446,10 +449,13 @@
         "name": "配置中心",
         "description": "快速调整部分系统设定。",
         "labels": "系统设置",
-        "version": "2.4",
+        "version": "2.5",
         "icon": "setting.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v2.5": "增加Github加速服务器设置项"
+        }
     },
     "WorkWechatMsg": {
         "name": "企微机器人消息推送",
@@ -641,13 +647,14 @@
     },
     "DownloaderHelper": {
         "name": "下载器助手",
-        "description": "自动做种、站点标签、自动删种。",
+        "description": "自动标签、自动做种、自动删种。",
         "labels": "下载管理,仪表板",
-        "version": "2.7",
+        "version": "2.8",
         "icon": "DownloaderHelper.png",
         "author": "hotlcc",
         "level": 1,
         "history": {
+            "v2.8": "优化了仪表板组件高度；优化了活动种子状态；优化了自动标签，优化站点标签，新增BT/PT标签；监听原种删除事件补充删种逻辑。MP需要升级至v1.9.3，更新后若插件功能异常，请重启一次MP。",
             "v2.7": "实时速率仪表板样式微调。",
             "v2.6": "新增仪表板实时速率组件，支持单独展示qb和tr的实时速率（tr未测试，有问题提Issue并@hotlcc）。",
             "v2.5": "优化通知类型；降低认证级别要求，使MP非认证用户可用，但无法使用【站点名称优先】功能。主程序需升级至v1.9.2及以上版本，否则插件功能异常！",
@@ -746,11 +753,13 @@
         "name": "清理QB无效做种",
         "description": "清理已经被站点删除的种子及对应源文件，仅支持QB",
         "labels": "Qbittorrent",
-        "version": "1.9",
+        "version": "2.0",
         "icon": "clean_a.png",
         "author": "DzAvril",
         "level": 1,
         "history": {
+            "v2.1": "1. 修复删除无效做种没有tg通知的问题。2. 检测未工作做种排除已暂停做种",
+            "v2.0": "修复检测不到无效做种的bug",
             "v1.9": "增加自定义需删除做种的tracker的错误信息",
             "v1.8": "增加远程命令切换全量通知；修复bug",
             "v1.7": "修复因消息内容包含'_'导致telegram API调用失败的问题",
