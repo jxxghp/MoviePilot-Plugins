@@ -789,5 +789,17 @@
         "icon": "Calibre_B.png",
         "author": "jxxghp",
         "level": 1
+    },
+    "ZvideoHelper": {
+        "name": "极影视助手",
+        "description": "极影视功能扩展",
+        "labels": "媒体库",
+        "version": "1.0",
+        "icon": "zvideo.png",
+        "author": "DzAvril",
+        "level": 1,
+        "history": {
+            "v1.0": "同步极影视在看/已看状态到豆瓣"
+        }
     }
 }
