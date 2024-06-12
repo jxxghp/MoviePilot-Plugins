@@ -30,7 +30,7 @@
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
         "labels": "站点,仪表板",
-        "version": "3.6",
+        "version": "3.7",
         "icon": "statistic.png",
         "author": "lightolly",
         "level": 2,
