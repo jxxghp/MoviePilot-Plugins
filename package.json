@@ -742,11 +742,12 @@
         "name": "极影视助手",
         "description": "极影视功能扩展",
         "labels": "媒体库",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "zvideo.png",
         "author": "DzAvril",
         "level": 1,
         "history": {
+            "v1.1": "支持将极影视评分修改为豆瓣评分",
             "v1.0": "同步极影视在看/已看状态到豆瓣"
         }
     }
