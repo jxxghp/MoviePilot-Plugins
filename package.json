@@ -724,7 +724,7 @@
         "name": "流行趋势轮播",
         "description": "在仪表板中显示流行趋势海报轮播图。",
         "labels": "仪表板",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "TrendingShow.jpg",
         "author": "jxxghp",
         "level": 1
