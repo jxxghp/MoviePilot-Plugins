@@ -22,6 +22,7 @@ class DoubanStatus(Enum):
     WATCHING = "do"
     DONE = "collect"
 
+
 class ZvideoHelper(_PluginBase):
     # 插件名称
     plugin_name = "极影视助手"
@@ -30,7 +31,7 @@ class ZvideoHelper(_PluginBase):
     # 插件图标
     plugin_icon = "zvideo.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -49,6 +50,7 @@ class ZvideoHelper(_PluginBase):
     _onlyonce = False
     _sync_douban_status = False
     _clean_cache = False
+    _use_douban_score = False
     _douban_helper = None
     _cached_data: dict = {}
     _db_path = ""
@@ -69,6 +71,7 @@ class ZvideoHelper(_PluginBase):
             self._cookie = config.get("cookie")
             self._sync_douban_status = config.get("sync_douban_status")
             self._clean_cache = config.get("clean_cache")
+            self._use_douban_score = config.get("use_douban_score")
             self._douban_helper = DoubanHelper(user_cookie=self._cookie)
 
         # 获取历史数据
@@ -130,6 +133,7 @@ class ZvideoHelper(_PluginBase):
                 "cookie": self._cookie,
                 "sync_douban_status": self._sync_douban_status,
                 "clean_cache": self._clean_cache,
+                "use_douban_score": self._use_douban_score,
             }
         )
 
@@ -146,29 +150,75 @@ class ZvideoHelper(_PluginBase):
                 "desc": "同步极影视观影状态",
                 "category": "",
                 "data": {"action": "sync_zvideo_to_douban"},
-            }
+            },
+            {
+                "cmd": "/use_douban_score",
+                "event": EventType.PluginAction,
+                "desc": "极影视使用豆瓣评分",
+                "category": "",
+                "data": {"action": "use_douban_score"},
+            },
+            {
+                "cmd": "/use_tmdb_score",
+                "event": EventType.PluginAction,
+                "desc": "极影视使用tmdb评分",
+                "category": "",
+                "data": {"action": "use_tmdb_score"},
+            },
         ]
-
 
     @eventmanager.register(EventType.PluginAction)
     def handle_command(self, event: Event):
         if event:
             event_data = event.event_data
-            if not event_data or event_data.get("action") != "sync_zvideo_to_douban":
-                return
-            logger.info("收到命令，开始同步极影视观影状态 ...")
-            self.post_message(
-                channel=event.event_data.get("channel"),
-                title="开始同步极影视观影状态 ...",
-                userid=event.event_data.get("user"),
-            )
-            self.do_job()
-            if event:
-                self.post_message(
-                    channel=event.event_data.get("channel"),
-                    title="同步极影视观影状态完成！",
-                    userid=event.event_data.get("user"),
-                )
+            if event_data:
+                if (
+                    event_data.get("action") == "sync_zvideo_to_douban"
+                    or event_data.get("action") == "use_douban_score"
+                    or event_data.get("action") == "use_tmdb_score"
+                ):
+                    if event_data.get("action") == "sync_zvideo_to_douban":
+                        logger.info("收到命令，开始同步极影视观影状态 ...")
+                        self.post_message(
+                            channel=event.event_data.get("channel"),
+                            title="开始同步极影视观影状态 ...",
+                            userid=event.event_data.get("user"),
+                        )
+                        self.sync_douban_status()
+                        if event:
+                            self.post_message(
+                                channel=event.event_data.get("channel"),
+                                title="同步极影视观影状态完成！",
+                                userid=event.event_data.get("user"),
+                            )
+                    elif event_data.get("action") == "use_douban_score":
+                        logger.info("收到命令，开始使用豆瓣评分 ...")
+                        self.post_message(
+                            channel=event.event_data.get("channel"),
+                            title="开始使用豆瓣评分 ...",
+                            userid=event.event_data.get("user"),
+                        )
+                        self.use_douban_score()
+                        if event:
+                            self.post_message(
+                                channel=event.event_data.get("channel"),
+                                title="使用豆瓣评分完成！",
+                                userid=event.event_data.get("user"),
+                            )
+                    elif event_data.get("action") == "use_tmdb_score":
+                        logger.info("收到命令，开始使用tmdb评分 ...")
+                        self.post_message(
+                            channel=event.event_data.get("channel"),
+                            title="开始使用tmdb评分 ...",
+                            userid=event.event_data.get("user"),
+                        )
+                        self.use_tmdb_score()
+                        if event:
+                            self.post_message(
+                                channel=event.event_data.get("channel"),
+                                title="使用tmdb评分完成！",
+                                userid=event.event_data.get("user"),
+                            )
 
     def get_api(self) -> List[Dict[str, Any]]:
         pass
@@ -197,10 +247,12 @@ class ZvideoHelper(_PluginBase):
 
     def do_job(self):
         if self._sync_douban_status:
-            self.set_douban_watching()
-            self.set_douban_done()
-            # 缓存数据
-            self.save_data("zvideohelper", self._cached_data)
+            self.sync_douban_status()
+
+        if self._use_douban_score:
+            self.use_douban_score()
+        else:
+            self.use_tmdb_score()
 
     def set_douban_watching(self):
         watching_douban_id = []
@@ -246,7 +298,7 @@ class ZvideoHelper(_PluginBase):
                     logger.info(f"已处理过: {title}，跳过...")
                     continue
                 if douban_id == 0:
-                    douban_id = self.get_douban_id_by_name(title)
+                    _, douban_id, _ = self.get_douban_info_by_name(title)
                 if douban_id != None:
                     watching_douban_id.append((title, douban_id))
                 else:
@@ -276,7 +328,7 @@ class ZvideoHelper(_PluginBase):
                         f"title: {item[0]}, douban_id: {item[1]}，标记在看失败"
                     )
                     message += f"{item[0]}，***标记在看失败***\n"
-            if self._notify:
+            if self._notify and len(message) > 0:
                 self.post_message(
                     mtype=NotificationType.SiteMessage,
                     title="【极影视助手】",
@@ -328,7 +380,7 @@ class ZvideoHelper(_PluginBase):
                     logger.info(f"已处理过: {title}，跳过...")
                     continue
                 if douban_id == 0:
-                    douban_id = self.get_douban_id_by_name(title)
+                    _, douban_id, _ = self.get_douban_info_by_name(title)
                 if douban_id != None:
                     watching_douban_id.append((title, douban_id))
                 else:
@@ -358,18 +410,121 @@ class ZvideoHelper(_PluginBase):
                         f"title: {item[0]}, douban_id: {item[1]}, 标记已看失败"
                     )
                     message += f"{item[0]}，***标记已看失败***\n"
-            if self._notify:
+            if self._notify and len(message) > 0:
                 self.post_message(
                     mtype=NotificationType.SiteMessage,
                     title="【极影视助手】",
                     text=message,
                 )
 
-    def get_douban_id_by_name(self, title):
+    def get_douban_info_by_name(self, title):
         logger.info(f"正在查询：{title}")
-        subject_name, subject_id = self._douban_helper.get_subject_id(title=title)
-        logger.info(f"查询到：subject_name: {subject_name}, subject_id: {subject_id}")
-        return subject_id
+        subject_name, subject_id, score = self._douban_helper.get_subject_id(
+            title=title
+        )
+        logger.info(
+            f"查询到：subject_name: {subject_name}, subject_id: {subject_id}, score: {score}"
+        )
+        return subject_name, subject_id, score
+
+    # 填充zvideo_collection中所有行的douban_score
+    def fill_douban_score(self):
+        logger.info("获取豆瓣评分...")
+        conn = sqlite3.connect(self._db_path)
+        # 使用UTF-8编码处理文本
+        conn.text_factory = str
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT rowid, type, meta_info FROM zvideo_collection")
+        rows = cursor.fetchall()
+        message = ""
+        for row in rows:
+            rowid, type, meta_info_json = row
+            # 300为合集，不处理
+            if type == 300:
+                continue
+            meta_info_dict = json.loads(meta_info_json)
+            # 如果meta_info为空，跳过
+            if not meta_info_dict.get("douban_score"):
+                continue
+            if meta_info_dict["douban_score"] == 0:
+                title = meta_info_dict["title"]
+                _, _, score = self.get_douban_info_by_name(title)
+                if score:
+                    meta_info_dict["douban_score"] = score
+                    logger.info(f"更新豆瓣评分：{title} {score}")
+                    message += f"{title} 更新豆瓣评分：{score}\n"
+                else:
+                    logger.error(f"未找到豆瓣评分：{title}")
+            else:
+                logger.info(
+                    f"已存在豆瓣评分：{meta_info_dict['title']} {meta_info_dict['douban_score']}"
+                )
+                continue
+
+            # 使用ensure_ascii=False来保持中文字符不变
+            updated_meta_info_json = json.dumps(meta_info_dict, ensure_ascii=False)
+            cursor.execute(
+                "UPDATE zvideo_collection SET meta_info = ? WHERE rowid = ?",
+                (updated_meta_info_json, rowid),
+            )
+            conn.commit()
+        if self._notify and len(message) > 0:
+            self.post_message(
+                mtype=NotificationType.SiteMessage,
+                title="【极影视助手】",
+                text=message,
+            )
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+    def use_douban_score(self):
+        logger.info("使用豆瓣评分...")
+        self.fill_douban_score()
+        conn = sqlite3.connect(self._db_path)
+        cursor = conn.cursor()
+        # 将meta_info的douban_score值同步到zvideo_collection表的score列
+        cursor.execute(
+            """
+            UPDATE zvideo_collection
+            SET meta_info = JSON_SET(meta_info, '$.score', CAST(JSON_EXTRACT(meta_info, '$.douban_score') AS JSON))
+            WHERE CAST(JSON_EXTRACT(meta_info, '$.douban_score') AS DECIMAL(3,1)) <> 0.0
+            """
+        )
+        conn.commit()
+
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+        logger.info("更新极影视为豆瓣评分...")
+
+
+    def use_tmdb_score(self):
+        logger.info("使用tmdb评分...")
+        conn = sqlite3.connect(self._db_path)
+        cursor = conn.cursor()
+        # 将meta_info的score值同步到zvideo_collection表的score列
+        cursor.execute(
+            """
+            UPDATE zvideo_collection
+            SET meta_info = JSON_SET(meta_info, '$.score', CAST(score AS JSON))
+            """
+        )
+        conn.commit()
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+        logger.info("更新极影视为tmdb评分...")
+
+    def sync_douban_status(self):
+        self.set_douban_watching()
+        self.set_douban_done()
+        # 缓存数据
+        self.save_data("zvideohelper", self._cached_data)
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
@@ -427,6 +582,19 @@ class ZvideoHelper(_PluginBase):
                                         "props": {
                                             "model": "sync_douban_status",
                                             "label": "同步豆瓣在看/已看",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "use_douban_score",
+                                            "label": "使用豆瓣评分",
                                         },
                                     }
                                 ],
@@ -511,6 +679,27 @@ class ZvideoHelper(_PluginBase):
                                             "type": "info",
                                             "variant": "tonal",
                                             "text": "本插件基于极影视数据库扩展功能，需开启ssh后通过portainer、1panel等工具映射极影视数据库路径",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "极影视默认使用tmdb评分，勾选'使用豆瓣评分'后，将使用豆瓣评分。豆瓣无评分的继续使用tmdb评分",
                                         },
                                     }
                                 ],

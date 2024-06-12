@@ -90,11 +90,18 @@ class DoubanHelper:
             item["title"] = item["title"].strip()
 
             # year 原名:피라미드 게임 / 朴昭妍 / 金知妍 / 2024
+            if len(div.find_all(class_="subject-cast")) == 0:
+                continue
             span_tag = div.find_all(class_="subject-cast")[0]
             year: str = span_tag.string[-4:]
             if year.isdigit():
                 item["year"] = year
-
+            rating_nums = div.find_all(class_="rating_nums")
+            if rating_nums:
+                rating_nums = rating_nums[0].string
+                item["rating_nums"] = rating_nums
+            else:
+                item["rating_nums"] = 0
             # subject_id
             link = unquote(a_tag["href"])
             if link.count("subject/"):
@@ -109,8 +116,8 @@ class DoubanHelper:
             logger.error(f"找不到 {title} 相关条目 搜索结果html:{response.text.encode('utf-8')}")
         for subject_item in subject_items:
             logger.debug(f"{subject_item['title']} {subject_item['subject_id']}")
-            return subject_item["title"], subject_item["subject_id"]
-        return None, None
+            return subject_item["title"], subject_item["subject_id"], subject_item["rating_nums"]
+        return None, None, None
 
     def set_watching_status(self, subject_id: str, status: str = "do", private: bool = True) -> bool:
         self.headers["Referer"] = f"https://movie.douban.com/subject/{subject_id}/"
@@ -150,5 +157,6 @@ class DoubanHelper:
 
 if __name__ == "__main__":
     doubanHelper = DoubanHelper()
-    subject_title, subject_id = doubanHelper.get_subject_id("秘密森林2")
+    subject_title, subject_id, score = doubanHelper.get_subject_id("火线 第 3 季")
+    logger.info(f"subject_title: {subject_title}, subject_id: {subject_id}, score: {score}")
     doubanHelper.set_watching_status(subject_id=subject_id, status="do", private=True)
