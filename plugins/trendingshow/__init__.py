@@ -12,7 +12,7 @@ class TrendingShow(_PluginBase):
     # 插件图标
     plugin_icon = "TrendingShow.jpg"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -191,7 +191,8 @@ class TrendingShow(_PluginBase):
                                     'component': 'VCarouselItem',
                                     'props': {
                                         'src': media.get_backdrop_image() if self._size == "mini" else media.backdrop_path,
-                                        'cover': True
+                                        'cover': True,
+                                        'position': 'top'
                                     },
                                     'content': [
                                         {
