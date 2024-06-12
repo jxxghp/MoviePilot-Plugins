@@ -31,7 +31,7 @@ class ZvideoHelper(_PluginBase):
     # 插件图标
     plugin_icon = "zvideo.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -435,17 +435,17 @@ class ZvideoHelper(_PluginBase):
         conn.text_factory = str
         cursor = conn.cursor()
 
-        cursor.execute("SELECT rowid, type, meta_info FROM zvideo_collection")
+        cursor.execute("SELECT rowid, extend_type, meta_info FROM zvideo_collection")
         rows = cursor.fetchall()
         message = ""
         for row in rows:
-            rowid, type, meta_info_json = row
-            # 300为合集，不处理
-            if type == 300:
+            rowid, extend_type, meta_info_json = row
+            # 合集，不处理
+            if extend_type == 7:
                 continue
             meta_info_dict = json.loads(meta_info_json)
             # 如果meta_info为空，跳过
-            if not meta_info_dict.get("douban_score"):
+            if meta_info_dict.get("douban_score") == None:
                 continue
             if meta_info_dict["douban_score"] == 0:
                 title = meta_info_dict["title"]
@@ -500,7 +500,6 @@ class ZvideoHelper(_PluginBase):
         if conn:
             conn.close()
         logger.info("更新极影视为豆瓣评分...")
-
 
     def use_tmdb_score(self):
         logger.info("使用tmdb评分...")
@@ -581,7 +580,7 @@ class ZvideoHelper(_PluginBase):
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "sync_douban_status",
-                                            "label": "同步豆瓣在看/已看",
+                                            "label": "同步在看/已看至豆瓣",
                                         },
                                     }
                                 ],
@@ -658,6 +657,27 @@ class ZvideoHelper(_PluginBase):
                                             "label": "极影视数据库路径",
                                             "rows": 1,
                                             "placeholder": "极影视路径为/zspace/zsrp/sqlite/zvideo/zvideo.db，需先映射路径",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "error",
+                                            "variant": "tonal",
+                                            "text": "强烈建议使用前备份数据库，以免因插件bug导致数据库异常",
                                         },
                                     }
                                 ],
