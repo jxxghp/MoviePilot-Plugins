@@ -33,7 +33,7 @@ class RssSubscribe(_PluginBase):
     # 插件图标
     plugin_icon = "rss.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -67,6 +67,7 @@ class RssSubscribe(_PluginBase):
     _clearflag: bool = False
     _action: str = "subscribe"
     _save_path: str = ""
+    _size_range: str = ""
 
     def init_plugin(self, config: dict = None):
         self.rsshelper = RssHelper()
@@ -79,6 +80,7 @@ class RssSubscribe(_PluginBase):
 
         # 配置
         if config:
+            self.__validate_and_fix_config(config=config)
             self._enabled = config.get("enabled")
             self._cron = config.get("cron")
             self._notify = config.get("notify")
@@ -91,6 +93,7 @@ class RssSubscribe(_PluginBase):
             self._clear = config.get("clear")
             self._action = config.get("action")
             self._save_path = config.get("save_path")
+            self._size_range = config.get("size_range")
 
         if self._onlyonce:
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -341,11 +344,28 @@ class RssSubscribe(_PluginBase):
                     {
                         'component': 'VRow',
                         'content': [
-
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'size_range',
+                                            'label': '种子大小(GB)',
+                                            'placeholder': '如：3 或 3-5'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
                                 },
                                 'content': [
                                     {
@@ -426,7 +446,8 @@ class RssSubscribe(_PluginBase):
             "clear": False,
             "filter": False,
             "action": "subscribe",
-            "save_path": ""
+            "save_path": "",
+            "size_range": ""
         }
 
     def get_page(self) -> List[dict]:
@@ -582,7 +603,8 @@ class RssSubscribe(_PluginBase):
             "clear": self._clear,
             "filter": self._filter,
             "action": self._action,
-            "save_path": self._save_path
+            "save_path": self._save_path,
+            "size_range": self._size_range
         })
 
     def check(self):
@@ -628,6 +650,14 @@ class RssSubscribe(_PluginBase):
                                                    f"{title} {description}", re.IGNORECASE):
                         logger.info(f"{title} - {description} 不符合排除规则")
                         continue
+                    if self._size_range:
+                        sizes = [float(_size) * 1024 ** 3 for _size in self._size_range.split("-")]
+                        if len(sizes) == 1 and float(size) < sizes[0]:
+                            logger.info(f"{title} - 种子大小不符合条件")
+                            continue
+                        elif len(sizes) > 1 and not sizes[0] <= float(size) <= sizes[1]:
+                            logger.info(f"{title} - 种子大小不在指定范围")
+                            continue
                     # 识别媒体信息
                     meta = MetaInfo(title=title, subtitle=description)
                     if not meta.name:
@@ -718,3 +748,28 @@ class RssSubscribe(_PluginBase):
         self.save_data('history', history)
         # 缓存只清理一次
         self._clearflag = False
+
+    def __log_and_notify_error(self, message):
+        """
+        记录错误日志并发送系统通知
+        """
+        logger.error(message)
+        self.systemmessage.put(message, title="自定义订阅")
+
+    def __validate_and_fix_config(self, config: dict = None) -> bool:
+        """
+        检查并修正配置值
+        """
+        size_range = config.get("size_range")
+        if size_range and not self.__is_number_or_range(str(size_range)):
+            self.__log_and_notify_error(f"自定义订阅出错，种子大小设置错误：{size_range}")
+            config["size_range"] = None
+            return False
+        return True
+
+    @staticmethod
+    def __is_number_or_range(value):
+        """
+        检查字符串是否表示单个数字或数字范围（如'5', '5.5', '5-10' 或 '5.5-10.2'）
+        """
+        return bool(re.match(r"^\d+(\.\d+)?(-\d+(\.\d+)?)?$", value))
