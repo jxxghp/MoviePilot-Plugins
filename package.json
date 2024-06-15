@@ -151,10 +151,13 @@
         "name": "自定义Hosts",
         "description": "修改系统hosts文件，加速网络访问。",
         "labels": "网络",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "hosts.png",
         "author": "thsrite",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.1": "关闭插件时自动恢复系统hosts"
+        }
     },
     "SpeedLimiter": {
         "name": "播放限速",
