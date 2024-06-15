@@ -3804,6 +3804,8 @@ class BrushFlow(_PluginBase):
         :param size_in_bytes: 文件大小，单位为字节。
         :return: 文件大小，单位为千兆字节（GB）。
         """
+        if not size_in_bytes:
+            return 0.0
         return size_in_bytes / (1024 ** 3)
 
     @staticmethod
