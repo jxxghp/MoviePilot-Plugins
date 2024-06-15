@@ -32,7 +32,7 @@ class CloudflareSpeedTest(_PluginBase):
     # 插件图标
     plugin_icon = "cloudflare.jpg"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -470,7 +470,7 @@ class CloudflareSpeedTest(_PluginBase):
         })
 
     def get_state(self) -> bool:
-        return True if self._cf_ip and self._cron else False
+        return True if self._cf_ip and self._cron and (self._ipv4 or self._ipv6) else False
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:

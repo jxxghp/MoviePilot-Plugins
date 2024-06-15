@@ -169,11 +169,12 @@
         "name": "Cloudflare IP优选",
         "description": "🌩 测试 Cloudflare CDN 延迟和速度，自动优选IP。",
         "labels": "网络,站点",
-        "version": "1.2",
+        "version": "1.3",
         "icon": "cloudflare.jpg",
         "author": "thsrite",
         "level": 1,
         "history": {
+            "v1.3": "调整插件开启状态判断条件",
             "v1.2": "增强API安全性"
         }
     },
