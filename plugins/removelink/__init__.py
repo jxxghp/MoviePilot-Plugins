@@ -41,7 +41,10 @@ class FileMonitorHandler(FileSystemEventHandler):
                     return
         # 新增文件记录
         with state_lock:
-            self.sync.state_set[str(file_path)] = file_path.stat().st_ino
+            try:
+                self.sync.state_set[str(file_path)] = file_path.stat().st_ino
+            except Exception as e:
+                logger.error(f"新增文件记录失败：{str(e)}")
 
     def on_moved(self, event):
         if event.is_directory:
@@ -115,7 +118,7 @@ class RemoveLink(_PluginBase):
     # 插件图标
     plugin_icon = "Ombi_A.png"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -465,17 +468,19 @@ class RemoveLink(_PluginBase):
         # 文件所在目录已被删除则退出
         if not os.path.exists(path.parent):
             return
-        # logger.info(f"清理刮削文件: {path}")
-        if not path.suffix.lower() in [
-            ".jpg",
-            ".nfo",
-        ]:
-            # 清理与path相关的刮削文件
-            name_prefix = path.stem
-            for file in path.parent.iterdir():
-                if file.name.startswith(name_prefix):
-                    file.unlink()
-                    logger.info(f"删除刮削文件：{file}")
+        try:
+            if not path.suffix.lower() in [
+                ".jpg",
+                ".nfo",
+            ]:
+                # 清理与path相关的刮削文件
+                name_prefix = path.stem
+                for file in path.parent.iterdir():
+                    if file.name.startswith(name_prefix):
+                        file.unlink()
+                        logger.info(f"删除刮削文件：{file}")
+        except Exception as e:
+            logger.error(f"清理刮削文件发生错误：{str(e)}.")
         # 清理空目录
         self.delete_empty_folders(path)
 
@@ -510,23 +515,30 @@ class RemoveLink(_PluginBase):
                 break
 
             # 若目录下只剩刮削文件，则清空文件夹
-            if self.scrape_files_left(parent_path):
-                # 清除目录下所有文件
-                for file in parent_path.iterdir():
-                    file.unlink()
-                    logger.info(f"删除刮削文件：{file}")
+            try:
+                if self.scrape_files_left(parent_path):
+                    # 清除目录下所有文件
+                    for file in parent_path.iterdir():
+                        file.unlink()
+                        logger.info(f"删除刮削文件：{file}")
+            except Exception as e:
+                logger.error(f"清理刮削文件发生错误：{str(e)}.")
 
-            if not os.listdir(parent_path):
-                os.rmdir(parent_path)
-                logger.info(f"清理空目录：{parent_path}")
-                if self._notify:
-                    self.post_message(
-                        mtype=NotificationType.SiteMessage,
-                        title=f"【清理硬链接】",
-                        text=f"清理空文件夹：[{parent_path}]\n",
-                    )
-            else:
-                break
+            try:
+                if not os.listdir(parent_path):
+                    os.rmdir(parent_path)
+                    logger.info(f"清理空目录：{parent_path}")
+                    if self._notify:
+                        self.post_message(
+                            mtype=NotificationType.SiteMessage,
+                            title=f"【清理硬链接】",
+                            text=f"清理空文件夹：[{parent_path}]\n",
+                        )
+                else:
+                    break
+            except Exception as e:
+                logger.error(f"清理空目录发生错误：{str(e)}")
+
             # 更新路径为父目录，准备下一轮检查
             path = parent_path
 
