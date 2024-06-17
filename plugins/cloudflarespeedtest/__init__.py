@@ -32,7 +32,7 @@ class CloudflareSpeedTest(_PluginBase):
     # 插件图标
     plugin_icon = "cloudflare.jpg"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -81,7 +81,7 @@ class CloudflareSpeedTest(_PluginBase):
             self._notify = config.get("notify")
             self._check = config.get("check")
 
-        if self.get_state() and self._onlyonce:
+        if (self._ipv4 or self._ipv6) and self._onlyonce:
             try:
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
                 logger.info(f"Cloudflare CDN优选服务启动，立即运行一次")
@@ -318,7 +318,7 @@ class CloudflareSpeedTest(_PluginBase):
         if not install_flag \
                 and release_version == self._version \
                 and not Path(
-                f'{self._cf_path}/{self._binary_name}').exists() \
+            f'{self._cf_path}/{self._binary_name}').exists() \
                 and not Path(f'{self._cf_path}/CloudflareST.exe').exists():
             logger.warn(f"未检测到CloudflareSpeedTest本地版本，重新安装")
             install_flag = True
