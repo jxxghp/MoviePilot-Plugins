@@ -40,7 +40,7 @@ class PersonMeta(_PluginBase):
     # 插件图标
     plugin_icon = "actor.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -514,6 +514,11 @@ class PersonMeta(_PluginBase):
                 person_detail = self.tmdbchain.person_detail(int(person_tmdbid))
                 if person_detail:
                     cn_name = self.__get_chinese_name(person_detail)
+                    # 图片优先从TMDB获取
+                    profile_path = person_detail.profile_path
+                    if profile_path:
+                        logger.debug(f"{people.get('Name')} 从TMDB获取到图片：{profile_path}")
+                        profile_path = f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{profile_path}"
                     if cn_name:
                         # 更新中文名
                         logger.debug(f"{people.get('Name')} 从TMDB获取到中文名：{cn_name}")
@@ -526,11 +531,6 @@ class PersonMeta(_PluginBase):
                             logger.debug(f"{people.get('Name')} 从TMDB获取到中文描述")
                             personinfo["Overview"] = biography
                             updated_overview = True
-                        # 图片
-                        profile_path = person_detail.profile_path
-                        if profile_path:
-                            logger.debug(f"{people.get('Name')} 从TMDB获取到图片：{profile_path}")
-                            profile_path = f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{profile_path}"
 
             # 从豆瓣信息中更新人物信息
             """
