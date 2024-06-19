@@ -97,9 +97,6 @@ class ISiteUserInfo(metaclass=ABCMeta):
         # 错误信息
         self.err_msg = None
         # 内部数据
-        self._base_url = None
-        self._site_cookie = None
-        self._index_html = None
         self._addition_headers = None
 
         # 站点页面

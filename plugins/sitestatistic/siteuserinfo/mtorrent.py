@@ -7,6 +7,7 @@ from lxml import etree
 
 from app.log import logger
 from app.plugins.sitestatistic.siteuserinfo import ISiteUserInfo, SITE_BASE_ORDER, SiteSchema
+from app.utils.string import StringUtils
 
 
 class MTorrentSiteUserInfo(ISiteUserInfo):
@@ -49,6 +50,8 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
         """
         获取站点页面地址
         """
+        # 更换api地址
+        self._base_url = f"https://api.{StringUtils.get_url_domain(self._base_url)}"
         self._user_traffic_page = None
         self._user_detail_page = None
         self._user_basic_page = "api/member/profile"

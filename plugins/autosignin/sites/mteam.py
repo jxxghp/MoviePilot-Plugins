@@ -6,6 +6,7 @@ from ruamel.yaml import CommentedMap
 from app.core.config import settings
 from app.plugins.autosignin.sites import _ISiteSigninHandler
 from app.utils.http import RequestUtils
+from app.utils.string import StringUtils
 
 
 class MTorrent(_ISiteSigninHandler):
@@ -36,12 +37,14 @@ class MTorrent(_ISiteSigninHandler):
             "Accept": "application/json, text/plain, */*",
             "Authorization": site_info.get("token")
         }
+        url = site_info.get('url')
+        domain = StringUtils.get_url_domain(url)
         # 更新最后访问时间
         res = RequestUtils(headers=headers,
                            timeout=60,
                            proxies=settings.PROXY if site_info.get("proxy") else None,
-                           referer=f"{site_info.get('url')}index"
-                           ).post_res(url=urljoin(site_info.get('url'), "api/member/updateLastBrowse"))
+                           referer=f"{url}index"
+                           ).post_res(url=f"https://api.{domain}/api/member/updateLastBrowse")
         if res:
             return True, "模拟登录成功"
         elif res is not None:
