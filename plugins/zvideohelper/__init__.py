@@ -15,7 +15,7 @@ from app.core.config import settings
 from app.plugins import _PluginBase
 from typing import Any, List, Dict, Tuple, Optional
 from app.log import logger
-
+import time
 
 # 豆瓣状态
 class DoubanStatus(Enum):
@@ -31,7 +31,7 @@ class ZvideoHelper(_PluginBase):
     # 插件图标
     plugin_icon = "zvideo.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -419,6 +419,8 @@ class ZvideoHelper(_PluginBase):
 
     def get_douban_info_by_name(self, title):
         logger.info(f"正在查询：{title}")
+        # 延迟10s，以防频繁请求被豆瓣封接口
+        time.sleep(10)
         subject_name, subject_id, score = self._douban_helper.get_subject_id(
             title=title
         )
