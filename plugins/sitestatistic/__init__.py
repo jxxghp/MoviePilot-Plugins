@@ -1222,7 +1222,7 @@ class SiteStatistic(_PluginBase):
             if html_text:
                 site_schema = self.__build_class(html_text)
                 if not site_schema:
-                    logger.error("站点 %s 无法识别站点类型" % site_name)
+                    logger.error(f"站点 {site_name} 无法识别站点类型，可能是由于插件代码不全，请尝试强制重装插件以确保代码完整")
                     return None
                 return site_schema(
                     site_name=site_name,
