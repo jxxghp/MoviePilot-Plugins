@@ -1,3 +1,4 @@
+import re
 from typing import List, Tuple, Dict, Any, Optional
 
 from app.chain.tmdb import TmdbChain
@@ -12,7 +13,7 @@ class TrendingShow(_PluginBase):
     # 插件图标
     plugin_icon = "TrendingShow.jpg"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -25,11 +26,13 @@ class TrendingShow(_PluginBase):
     auth_level = 1
 
     _enable: bool = False
-    _size: str = "mini"
+    _small_dev_size: str = "small"
+    _big_dev_size: str = "large"
 
     def init_plugin(self, config: dict = None):
         self._enable = config.get("enable")
-        self._size = config.get("size")
+        self._small_dev_size = config.get("small_dev_size") or "small"
+        self._big_dev_size = config.get("big_dev_size") or "large"
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -77,8 +80,29 @@ class TrendingShow(_PluginBase):
                                     {
                                         'component': 'VSelect',
                                         'props': {
-                                            'model': 'size',
-                                            'label': '组件规格',
+                                            'model': 'small_dev_size',
+                                            'label': '小屏幕组件规格',
+                                            'items': [
+                                                {"title": "迷你", "value": "mini"},
+                                                {"title": "小型", "value": "small"},
+                                                {"title": "中型", "value": "medium"},
+                                                {"title": "大型", "value": "large"}
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }, {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'big_dev_size',
+                                            'label': '大屏幕组件规格',
                                             'items': [
                                                 {"title": "迷你", "value": "mini"},
                                                 {"title": "小型", "value": "small"},
@@ -95,13 +119,14 @@ class TrendingShow(_PluginBase):
             }
         ], {
             "enable": self._enable,
-            "size": self._size
+            "small_dev_size": self._small_dev_size,
+            "big_dev_size": self._big_dev_size
         }
 
     def get_page(self) -> List[dict]:
         pass
 
-    def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+    def get_dashboard(self, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
         """
         获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、全局配置（自动刷新等）；3、仪表板页面元素配置json（含数据）
         1、col配置参考：
@@ -115,30 +140,20 @@ class TrendingShow(_PluginBase):
         3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
         """
         # 列配置
-        if self._size == "mini":
-            cols = {
-                "cols": 12,
-                "md": 4
-            }
-            height = 160
-        elif self._size == "small":
-            cols = {
-                "cols": 12,
-                "md": 6
-            }
-            height = 262
-        elif self._size == "medium":
-            cols = {
-                "cols": 12,
-                "md": 8
-            }
-            height = 335
+        size_config = {
+            "mini": {"cols": {"cols": 12, "md": 4}, "height": 150},
+            "small": {"cols": {"cols": 12, "md": 6}, "height": 225},
+            "medium": {"cols": {"cols": 12, "md": 8}, "height": 450},
+            "large": {"cols": {"cols": 12, "md": 12}, "height": 550}
+        }
+
+        if self.is_mobile(kwargs.get('user_agent')):
+            config = size_config.get(self._small_dev_size, size_config["large"])
         else:
-            cols = {
-                "cols": 12,
-                "md": 12
-            }
-            height = 500
+            config = size_config.get(self._big_dev_size, size_config["small"])
+
+        cols = config["cols"]
+        height = config["height"]
         # 全局配置
         attrs = {
             "border": False
@@ -190,7 +205,9 @@ class TrendingShow(_PluginBase):
                                 {
                                     'component': 'VCarouselItem',
                                     'props': {
-                                        'src': media.get_backdrop_image() if self._size == "mini" else media.backdrop_path,
+                                        'src': media.get_backdrop_image() if (
+                                                self.is_mobile(kwargs.get('user_agent')) and
+                                                self._small_dev_size == "mini") else media.backdrop_path,
                                         'cover': True,
                                         'position': 'top'
                                     },
@@ -231,3 +248,13 @@ class TrendingShow(_PluginBase):
 
     def stop_service(self):
         pass
+
+    @staticmethod
+    def is_mobile(user_agent):
+        mobile_keywords = [
+            'Mobile', 'iPhone', 'Android', 'Kindle', 'Opera Mini', 'Opera Mobi'
+        ]
+        for keyword in mobile_keywords:
+            if re.search(keyword, user_agent, re.IGNORECASE):
+                return True
+        return False
