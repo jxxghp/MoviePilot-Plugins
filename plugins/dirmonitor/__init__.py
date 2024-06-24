@@ -14,6 +14,7 @@ from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 
 from app import schemas
+from app.chain.media import MediaChain
 from app.chain.tmdb import TmdbChain
 from app.chain.transfer import TransferChain
 from app.core.config import settings
@@ -59,7 +60,7 @@ class DirMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "directory.png"
     # 插件版本
-    plugin_version = "2.3"
+    plugin_version = "2.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -77,6 +78,7 @@ class DirMonitor(_PluginBase):
     downloadhis = None
     transferchian = None
     tmdbchain = None
+    mediaChain = None
     _observer = []
     _enabled = False
     _notify = False
@@ -103,6 +105,7 @@ class DirMonitor(_PluginBase):
         self.transferhis = TransferHistoryOper()
         self.downloadhis = DownloadHistoryOper()
         self.transferchian = TransferChain()
+        self.mediaChain = MediaChain()
         self.tmdbchain = TmdbChain()
         # 清空配置
         self._dirconf = {}
@@ -374,10 +377,11 @@ class DirMonitor(_PluginBase):
                         download_history = self.downloadhis.get_by_hash(download_file.download_hash)
 
                 # 识别媒体信息
-                mediainfo: MediaInfo = self.chain.recognize_media(meta=file_meta,
-                                                                  mtype=MediaType(
-                                                                      download_history.type) if download_history else None,
-                                                                  tmdbid=download_history.tmdbid if download_history else None)
+                if download_history and download_history.tmdbid:
+                    mediainfo: MediaInfo = self.mediaChain.recognize_media(mtype=MediaType(download_history.type),
+                                                                           tmdbid=download_history.tmdbid)
+                else:
+                    mediainfo: MediaInfo = self.mediaChain.recognize_by_meta(file_meta)
                 if not mediainfo:
                     logger.warn(f'未识别到媒体信息，标题：{file_meta.name}')
                     # 新增转移成功历史记录
