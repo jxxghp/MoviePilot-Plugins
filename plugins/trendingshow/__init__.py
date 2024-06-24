@@ -13,7 +13,7 @@ class TrendingShow(_PluginBase):
     # 插件图标
     plugin_icon = "TrendingShow.jpg"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -141,10 +141,10 @@ class TrendingShow(_PluginBase):
         """
         # 列配置
         size_config = {
-            "mini": {"cols": {"cols": 12, "md": 4}, "height": 150},
-            "small": {"cols": {"cols": 12, "md": 6}, "height": 225},
-            "medium": {"cols": {"cols": 12, "md": 8}, "height": 450},
-            "large": {"cols": {"cols": 12, "md": 12}, "height": 550}
+            "mini": {"cols": {"cols": 12, "md": 4}, "height": 160},
+            "small": {"cols": {"cols": 12, "md": 6}, "height": 262},
+            "medium": {"cols": {"cols": 12, "md": 8}, "height": 335},
+            "large": {"cols": {"cols": 12, "md": 12}, "height": 500}
         }
 
         if self.is_mobile(kwargs.get('user_agent')):
