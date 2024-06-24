@@ -379,7 +379,8 @@ class DirMonitor(_PluginBase):
                 # 识别媒体信息
                 if download_history and download_history.tmdbid:
                     mediainfo: MediaInfo = self.mediaChain.recognize_media(mtype=MediaType(download_history.type),
-                                                                           tmdbid=download_history.tmdbid)
+                                                                           tmdbid=download_history.tmdbid,
+                                                                           doubanid=download_history.doubanid)
                 else:
                     mediainfo: MediaInfo = self.mediaChain.recognize_by_meta(file_meta)
                 if not mediainfo:
