@@ -28,7 +28,7 @@ class CleanInvalidSeed(_PluginBase):
     # 插件图标
     plugin_icon = "clean_a.png"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -50,16 +50,20 @@ class CleanInvalidSeed(_PluginBase):
     _delete_invalid_files = False
     _delete_invalid_torrents = False
     _notify_all = False
+    _label_only = False
+    _label = ""
     _download_dirs = ""
     _exclude_keywords = ""
     _exclude_categories = ""
     _exclude_labels = ""
+    _more_logs = False
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
     _error_msg = [
         "torrent not registered with this tracker",
         "Torrent not registered with this tracker",
         "torrent banned",
+        "err torrent banned",
     ]
     _custom_error_msg = ""
 
@@ -76,11 +80,14 @@ class CleanInvalidSeed(_PluginBase):
             self._delete_invalid_files = config.get("delete_invalid_files")
             self._detect_invalid_files = config.get("detect_invalid_files")
             self._notify_all = config.get("notify_all")
+            self._label_only = config.get("label_only")
+            self._label = config.get("label")
             self._download_dirs = config.get("download_dirs")
             self._exclude_keywords = config.get("exclude_keywords")
             self._exclude_categories = config.get("exclude_categories")
             self._exclude_labels = config.get("exclude_labels")
             self._custom_error_msg = config.get("custom_error_msg")
+            self._more_logs = config.get("more_logs")
             self._qb = Qbittorrent()
 
             # 加载模块
@@ -117,11 +124,14 @@ class CleanInvalidSeed(_PluginBase):
                 "delete_invalid_files": self._delete_invalid_files,
                 "detect_invalid_files": self._detect_invalid_files,
                 "notify_all": self._notify_all,
+                "label_only": self._label_only,
+                "label": self._label,
                 "download_dirs": self._download_dirs,
                 "exclude_keywords": self._exclude_keywords,
                 "exclude_categories": self._exclude_categories,
                 "exclude_labels": self._exclude_labels,
                 "custom_error_msg": self._custom_error_msg,
+                "more_logs": self._more_logs,
             }
         )
 
@@ -322,6 +332,8 @@ class CleanInvalidSeed(_PluginBase):
                     is_invalid = False
                     working_tracker_set.add(tracker_domian)
 
+                if self._more_logs:
+                    logger.info(f"处理 [{torrent.name}] tracker [{tracker_domian}]: 分类: [{torrent.category}], 标签: [{torrent.tags}], 状态: [{tracker.get('status')}], msg: [{tracker.get('msg')}], is_invalid: [{is_invalid}], is_working: [{is_tracker_working}]")
             if is_invalid:
                 temp_invalid_torrents.append(torrent)
             elif not is_tracker_working:
@@ -356,7 +368,7 @@ class CleanInvalidSeed(_PluginBase):
                             tracker.msg,
                         )
                     )
-                    if self._delete_invalid_torrents:
+                    if self._delete_invalid_torrents or self._label_only:
                         # 检查种子分类和标签是否排除
                         is_excluded = False
                         if torrent.category in exclude_categories:
@@ -370,23 +382,32 @@ class CleanInvalidSeed(_PluginBase):
                                 is_excluded = True
                                 invalid_torrents_exclude_labels.append(torrent)
                         if not is_excluded:
-                            # 只删除种子不删除文件，以防其它站点辅种
-                            self._qb.delete_torrents(False, torrent.get("hash"))
+                            if self._label_only:
+                                # 仅标记
+                                self._qb.set_torrents_tag(ids=torrent.get("hash"), tags=[self._label if self._label != "" else "无效做种"])
+                            else:
+                                # 只删除种子不删除文件，以防其它站点辅种
+                                self._qb.delete_torrents(False, torrent.get("hash"))
+                            # 标记已处理种子信息
                             deleted_torrent_tuple_list.append(
-                                (
-                                    torrent.name,
-                                    torrent.category,
-                                    torrent.tags,
-                                    torrent.size,
-                                    tracker_domian,
-                                    tracker.msg,
+                                    (
+                                        torrent.name,
+                                        torrent.category,
+                                        torrent.tags,
+                                        torrent.size,
+                                        tracker_domian,
+                                        tracker.msg,
+                                    )
                                 )
-                            )
                     break
         invalid_msg = f"检测到{len(invalid_torrent_tuple_list)}个失效做种\n"
         tracker_not_working_msg = f"检测到{len(tracker_not_working_torrents)}个tracker未工作做种，请检查种子状态\n"
-        if self._delete_invalid_torrents:
-            deleted_msg = f"删除{len(deleted_torrent_tuple_list)}个失效种子\n"
+
+        if self._label_only or self._delete_invalid_torrents:
+            if self._label_only:
+                deleted_msg = f"标记了{len(deleted_torrent_tuple_list)}个失效种子\n"
+            else:
+                deleted_msg = f"删除了{len(deleted_torrent_tuple_list)}个失效种子\n"
             if len(exclude_categories) != 0:
                 exclude_categories_msg = f"分类排除{len(invalid_torrents_exclude_categories)}个失效种子未删除，请手动处理\n"
             if len(exclude_labels) != 0:
@@ -443,11 +464,10 @@ class CleanInvalidSeed(_PluginBase):
                 logger.info(exclude_labels_msg)
         # 通知
         if self._notify:
-            invalid_msg = invalid_msg.replace("_", "\_")
             self.post_message(
                 mtype=NotificationType.SiteMessage,
                 title=f"【清理无效做种】",
-                text=invalid_msg,
+                text=f"共检测到{len(invalid_torrent_tuple_list)}个无效种子" + (", 已标记" if self._label_only else ""),
             )
             if self._notify_all:
                 tracker_not_working_msg = tracker_not_working_msg.replace("_", "\_")
@@ -456,7 +476,7 @@ class CleanInvalidSeed(_PluginBase):
                     title=f"【清理无效做种】",
                     text=tracker_not_working_msg,
                 )
-            if self._delete_invalid_torrents:
+            if self._label_only or self._delete_invalid_torrents:
                 deleted_msg = deleted_msg.replace("_", "\_")
                 self.post_message(
                     mtype=NotificationType.SiteMessage,
@@ -680,8 +700,56 @@ class CleanInvalidSeed(_PluginBase):
                                 "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "label_only",
+                                            "label": "仅标记模式(开启后不会执行删除)",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "more_logs",
+                                            "label": "打印更多日志",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": { "cols": 12, "md": 6 },
+                                "content": [
+                                    {
                                         "component": "VTextField",
-                                        "props": {"model": "cron", "label": "执行周期"},
+                                        "props": {
+                                            "model": "cron",
+                                            "label": "执行周期",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": { "cols": 12, "md": 6 },
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "label",
+                                            "label": "增加标签",
+                                            "placeholder": "仅标记模式下生效，给待处理的种子打标签",
+                                        },
                                     }
                                 ],
                             },
@@ -699,7 +767,7 @@ class CleanInvalidSeed(_PluginBase):
                                         "props": {
                                             "model": "download_dirs",
                                             "label": "下载目录映射",
-                                            "rows": 5,
+                                            "rows": 2,
                                             "placeholder": "填写要监控的源文件目录，并设置MP和QB的目录映射关系，如/mp/download:/qb/download，多个目录请换行",
                                         },
                                     }
@@ -720,7 +788,7 @@ class CleanInvalidSeed(_PluginBase):
                                         "props": {
                                             "model": "exclude_keywords",
                                             "label": "过滤删源文件关键字",
-                                            "rows": 5,
+                                            "rows": 2,
                                             "placeholder": "多个关键字请换行，仅针对删除源文件",
                                         },
                                     }
@@ -735,7 +803,7 @@ class CleanInvalidSeed(_PluginBase):
                                         "props": {
                                             "model": "exclude_categories",
                                             "label": "过滤删种分类",
-                                            "rows": 5,
+                                            "rows": 2,
                                             "placeholder": "多个分类请换行，仅针对删除种子",
                                         },
                                     }
@@ -750,7 +818,7 @@ class CleanInvalidSeed(_PluginBase):
                                         "props": {
                                             "model": "exclude_labels",
                                             "label": "过滤删种标签",
-                                            "rows": 5,
+                                            "rows": 2,
                                             "placeholder": "多个标签请换行，仅针对删除删除",
                                         },
                                     }
@@ -827,6 +895,9 @@ class CleanInvalidSeed(_PluginBase):
             "notify_all": False,
             "onlyonce": False,
             "cron": "0 0 * * *",
+            "label_only": False,
+            "label": "",
+            "more_logs": False,
         }
 
     def get_page(self) -> List[dict]:
