@@ -712,11 +712,12 @@
         "name": "清理QB无效做种",
         "description": "清理已经被站点删除的种子及对应源文件，仅支持QB",
         "labels": "Qbittorrent",
-        "version": "2.0",
+        "version": "2.2",
         "icon": "clean_a.png",
         "author": "DzAvril",
         "level": 1,
         "history": {
+            "v2.2": "支持仅标记模式",
             "v2.1": "1. 修复删除无效做种没有tg通知的问题。2. 检测未工作做种排除已暂停做种",
             "v2.0": "修复检测不到无效做种的bug",
             "v1.9": "增加自定义需删除做种的tracker的错误信息",
