@@ -464,10 +464,11 @@ class CleanInvalidSeed(_PluginBase):
                 logger.info(exclude_labels_msg)
         # 通知
         if self._notify:
+            invalid_msg = invalid_msg.replace("_", "\_")
             self.post_message(
                 mtype=NotificationType.SiteMessage,
                 title=f"【清理无效做种】",
-                text=f"共检测到{len(invalid_torrent_tuple_list)}个无效种子" + (", 已标记" if self._label_only else ""),
+                text=invalid_msg,
             )
             if self._notify_all:
                 tracker_not_working_msg = tracker_not_working_msg.replace("_", "\_")
@@ -703,7 +704,7 @@ class CleanInvalidSeed(_PluginBase):
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "label_only",
-                                            "label": "仅标记模式(开启后不会执行删除)",
+                                            "label": "仅标记模式(开启后不会删种)",
                                         },
                                     }
                                 ],
@@ -819,7 +820,7 @@ class CleanInvalidSeed(_PluginBase):
                                             "model": "exclude_labels",
                                             "label": "过滤删种标签",
                                             "rows": 2,
-                                            "placeholder": "多个标签请换行，仅针对删除删除",
+                                            "placeholder": "多个标签请换行，仅针对删除种子",
                                         },
                                     }
                                 ],
@@ -839,7 +840,7 @@ class CleanInvalidSeed(_PluginBase):
                                             "model": "custom_error_msg",
                                             "label": "自定义无效做种tracker错误信息",
                                             "rows": 5,
-                                            "placeholder": "填入想要清理的种子的tracker错误信息，如'skipping tracker announce (unreachable) ',多个信息请换行",
+                                            "placeholder": "填入想要清理的种子的tracker错误信息，如'skipping tracker announce (unreachable)',多个信息请换行",
                                         },
                                     }
                                 ],
