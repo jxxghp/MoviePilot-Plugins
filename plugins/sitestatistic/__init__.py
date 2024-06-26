@@ -43,7 +43,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "3.8"
+    plugin_version = "3.9"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
@@ -1199,19 +1199,21 @@ class SiteStatistic(_PluginBase):
 
                     # 兼容假首页情况，假首页通常没有 <link rel="search" 属性
                     if '"search"' not in html_text and '"csrf-token"' not in html_text:
-                        res = RequestUtils(cookies=site_cookie,
-                                           session=session,
-                                           ua=ua,
-                                           proxies=proxies
-                                           ).get_res(url=url + "/index.php")
-                        if res and res.status_code == 200:
-                            if re.search(r"charset=\"?utf-8\"?", res.text, re.IGNORECASE):
-                                res.encoding = "utf-8"
-                            else:
-                                res.encoding = res.apparent_encoding
-                            html_text = res.text
-                            if not html_text:
-                                return None
+                        # 排除掉单页面应用，单页面应用首页包含一个 div 容器
+                        if not re.search(r"id=\"?root\"?", res.text, re.IGNORECASE):
+                            res = RequestUtils(cookies=site_cookie,
+                                               session=session,
+                                               ua=ua,
+                                               proxies=proxies
+                                               ).get_res(url=url + "/index.php")
+                            if res and res.status_code == 200:
+                                if re.search(r"charset=\"?utf-8\"?", res.text, re.IGNORECASE):
+                                    res.encoding = "utf-8"
+                                else:
+                                    res.encoding = res.apparent_encoding
+                                html_text = res.text
+                                if not html_text:
+                                    return None
                 elif res is not None:
                     logger.error(f"站点 {site_name} 连接失败，状态码：{res.status_code}")
                     return None

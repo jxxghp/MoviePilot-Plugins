@@ -27,10 +27,10 @@ class TYemaSiteUserInfo(ISiteUserInfo):
         self._sys_mail_unread_page = None
         self._user_mail_unread_page = None
         self._mail_unread_params = {}
-        self._torrent_seeding_page = "api/torrent/fetchUserTorrentList"
-        self.__torrent_seeding_params = {
-            "status": "seeding",
-            "pageParam": {"current": 1, "pageSize": 40, "total": 40}
+        self._torrent_seeding_page = "/api/userTorrent/fetchSeedTorrentInfo"
+        self._torrent_seeding_params = {
+            # 虽然这个参数是无意义的，但这个 API 必须用 POST
+            "status": "seeding"
         }
         self._torrent_seeding_headers = {}
         self._addition_headers = {
@@ -87,41 +87,18 @@ class TYemaSiteUserInfo(ISiteUserInfo):
         if not html_text:
             return None
         seeding_info = json.loads(html_text)
-        if not seeding_info or not seeding_info.get("success"):
+        if not seeding_info or not seeding_info.get("success") or not seeding_info.get("data"):
             return None
-        torrents = seeding_info.get("data") or []
-        page_seeding_size = 0
-        page_seeding_info = []
-        for info in torrents:
-            size = info.get("promotionUploadSize")
-            seeders = '0'
-            page_seeding_size += size
-            page_seeding_info.append([seeders, size])
-        self.seeding += len(torrents)
-        self.seeding_size += page_seeding_size
-        self.seeding_info.extend(page_seeding_info)
 
-        # 查询总做种数
-        seeder_count = 0
-        try:
-            result = self._get_page_content(
-                url=urljoin(self.site_url, "api/torrent/fetchUserTorrentCount"),
-                params={
-                    "status": "seeding",
-                }
-            )
-            if result:
-                seeder_info = json.loads(result)
-                seeder_count = seeder_info.get("data") or 0
-        except Exception as e:
-            logger.error(f"获取做种数失败: {str(e)}")
-        if not seeder_count:
-            return None
-        if self.seeding >= seeder_count:
-            return None
-        # 还有下一页
-        self._torrent_seeding_params["pageParam"]["current"] += 1
-        return ""
+        torrents = seeding_info.get("data")
+
+        self.seeding += torrents.get("num")
+        self.seeding_size += torrents.get("fileSize")
+
+        # 是否存在下页数据
+        next_page = None
+
+        return next_page
 
     def _parse_message_unread_links(self, html_text: str, msg_links: list) -> Optional[str]:
         """
