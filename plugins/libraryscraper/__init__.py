@@ -25,7 +25,7 @@ class LibraryScraper(_PluginBase):
     # 插件图标
     plugin_icon = "scraper.png"
     # 插件版本
-    plugin_version = "1.4.1"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -387,7 +387,8 @@ class LibraryScraper(_PluginBase):
                                                                    mtype=mediainfo.type.value)
             if transfer_history:
                 mediainfo.title = transfer_history.title
-
+        # 获取图片
+        self.chain.obtain_images(mediainfo)
         # 刮削
         self.chain.scrape_metadata(path=file,
                                    mediainfo=mediainfo,
