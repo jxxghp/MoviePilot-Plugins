@@ -209,9 +209,6 @@ class PlayletCategory(_PluginBase):
         event_data = event.event_data
         mediainfo: MediaInfo = event_data.get("mediainfo")
         transferinfo: TransferInfo = event_data.get("transferinfo")
-        if not settings.LIBRARY_CATEGORY:
-            logger.warn(f"未开始媒体库自动分类，跳过分类处理")
-            return
         if not mediainfo or not transferinfo:
             return
         if not transferinfo.target_path:
