@@ -151,7 +151,7 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
         seeder_count = 0
         try:
             result = self._get_page_content(
-                url=urljoin(self.site_url, "api/tracker/myPeerStatus"),
+                url=urljoin(self._base_url, "api/tracker/myPeerStatus"),
                 params={"uid": self.userid},
             )
             if result:
@@ -187,7 +187,7 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
                 self.message_unread_contents.append((head, date, content))
                 # 设置已读
                 self._get_page_content(
-                    url=urljoin(self.site_url, f"api/msg/markRead"),
+                    url=urljoin(self._base_url, f"api/msg/markRead"),
                     params={"msgId": message.get("id")}
                 )
         # 是否存在下页数据
