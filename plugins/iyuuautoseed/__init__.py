@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "1.9"
+    plugin_version = "1.9.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -66,6 +66,7 @@ class IYUUAutoSeed(_PluginBase):
     _nolabels = None
     _nopaths = None
     _labelsafterseed = None
+    _categoryafterseed = None
     _addhosttotag = False
     _size = None
     _clearcache = False
@@ -112,6 +113,7 @@ class IYUUAutoSeed(_PluginBase):
             self._nolabels = config.get("nolabels")
             self._nopaths = config.get("nopaths")
             self._labelsafterseed = config.get("labelsafterseed") if config.get("labelsafterseed") else "已整理,辅种"
+            self._categoryafterseed = config.get("categoryafterseed")
             self._addhosttotag = config.get("addhosttotag")
             self._size = float(config.get("size")) if config.get("size") else 0
             self._clearcache = config.get("clearcache")
@@ -371,7 +373,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -388,7 +390,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -397,6 +399,23 @@ class IYUUAutoSeed(_PluginBase):
                                             'model': 'labelsafterseed',
                                             'label': '辅种后增加标签',
                                             'placeholder': '使用,分隔多个标签,不填写则默认为(已整理,辅种)'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'categoryafterseed',
+                                            'label': '辅种后增加分类',
+                                            'placeholder': '设置辅种的种子分类'
                                         }
                                     }
                                 ]
@@ -489,6 +508,7 @@ class IYUUAutoSeed(_PluginBase):
             "nopaths": "",
             "nolabels": "",
             "labelsafterseed": "",
+            "categoryafterseed": "",
             "size": ""
         }
 
@@ -509,6 +529,7 @@ class IYUUAutoSeed(_PluginBase):
             "nolabels": self._nolabels,
             "nopaths": self._nopaths,
             "labelsafterseed": self._labelsafterseed,
+            "categoryafterseed": self._categoryafterseed,
             "addhosttotag": self._addhosttotag,
             "size": self._size,
             "success_caches": self._success_caches,
@@ -810,6 +831,7 @@ class IYUUAutoSeed(_PluginBase):
                                         download_dir=save_path,
                                         is_paused=True,
                                         tag=torrent_tags,
+                                        category=self._categoryafterseed,
                                         is_skip_checking=self._skipverify)
             if not state:
                 return None
