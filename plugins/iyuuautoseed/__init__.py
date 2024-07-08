@@ -1048,6 +1048,10 @@ class IYUUAutoSeed(_PluginBase):
             if not apikey:
                 logger.error("m-team站点的apikey未配置")
                 return None
+            
+            # 获取馒头 URL 并替换为api
+            api_url = re.sub(r'//[^/]+\.m-team', '//api.m-team', site.get('url'))
+            
             res = RequestUtils(
                 headers={
                     'Content-Type': 'application/json',
@@ -1055,7 +1059,7 @@ class IYUUAutoSeed(_PluginBase):
                     'Accept': 'application/json, text/plain, */*',
                     'x-api-key': apikey
                 }
-            ).post_res(f"{site.get('url')}api/torrent/genDlToken", params={
+            ).post_res(f"{api_url}api/torrent/genDlToken", params={
                 'id': tid
             })
             if not res:
