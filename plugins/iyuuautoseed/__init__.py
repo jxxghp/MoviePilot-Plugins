@@ -1040,6 +1040,12 @@ class IYUUAutoSeed(_PluginBase):
             判断是否为mteam站点
             """
             return True if "m-team." in url else False
+        
+        def __is_monika(url: str):
+            """
+            判断是否为monika站点
+            """
+            return True if "monikadesign." in url else False
 
         def __get_mteam_enclosure(tid: str, apikey: str):
             """
@@ -1068,6 +1074,19 @@ class IYUUAutoSeed(_PluginBase):
                 logger.warn(f"m-team 获取种子下载链接失败：{tid}")
                 return None
             return res.json().get("data")
+        
+        def __get_monika_torrent(tid: str, rssurl: str):
+            """
+            Monika下载需要使用rsskey从站点配置中获取并拼接下载链接
+            """
+            if not rssurl:
+                logger.error("Monika站点的rss链接未配置")
+                return None
+           
+            rss_match = re.search(r'/rss/\d+\.(\w+)', rssurl)
+            rsskey = rss_match.group(1)
+            download_url = f"{site.get('url')}torrents/download/{tid}.{rsskey}"
+            return download_url
 
         def __is_special_site(url: str):
             """
@@ -1090,6 +1109,9 @@ class IYUUAutoSeed(_PluginBase):
             if __is_mteam(site.get('url')):
                 # 调用mteam接口获取下载链接
                 return __get_mteam_enclosure(tid=seed.get("torrent_id"), apikey=site.get("apikey"))
+            if __is_monika(site.get('url')):
+                # 返回种子id和站点配置中所Monika的rss链接
+                return __get_monika_torrent(tid=seed.get("torrent_id"), rssurl=site.get("rss"))
             elif __is_special_site(site.get('url')):
                 # 从详情页面获取下载链接
                 return self.__get_torrent_url_from_page(seed=seed, site=site)
