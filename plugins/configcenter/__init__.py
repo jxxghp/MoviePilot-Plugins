@@ -315,7 +315,12 @@ class ConfigCenter(_PluginBase):
                                         }
                                     }
                                 ]
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {
                                 "component": "VCol",
                                 "props": {
@@ -331,6 +336,23 @@ class ConfigCenter(_PluginBase):
                                         }
                                     }
                                 ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "GITHUB_PROXY",
+                                            "label": "Github加速服务器",
+                                            "placeholder": "https://mirror.ghproxy.com/"
+                                        }
+                                    }
+                                ]
                             }
                         ]
                     },
@@ -341,14 +363,32 @@ class ConfigCenter(_PluginBase):
                                 "component": "VCol",
                                 "props": {
                                     "cols": 12,
+                                    "md": 6
                                 },
                                 "content": [
                                     {
                                         "component": "VTextField",
                                         "props": {
-                                            "model": "GITHUB_PROXY",
-                                            "label": "Github加速服务器",
-                                            "placeholder": "https://mirror.ghproxy.com/"
+                                            "model": "DOH_DOMAINS",
+                                            "label": "DOH解析的域名",
+                                            "placeholder": "多个域名使用,分隔"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "DOH_RESOLVERS",
+                                            "label": "DOH解析服务器",
+                                            "placeholder": "多个地址使用,分隔"
                                         }
                                     }
                                 ]
@@ -409,45 +449,6 @@ class ConfigCenter(_PluginBase):
                                         "props": {
                                             "model": "PLUGIN_MARKET",
                                             "label": "插件市场",
-                                            "placeholder": "多个地址使用,分隔"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextarea",
-                                        "props": {
-                                            "model": "DOH_DOMAINS",
-                                            "label": "DOH解析的域名",
-                                            "placeholder": "多个域名使用,分隔"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextarea",
-                                        "props": {
-                                            "model": "DOH_RESOLVERS",
-                                            "label": "DOH解析服务器",
                                             "placeholder": "多个地址使用,分隔"
                                         }
                                     }
