@@ -1049,7 +1049,9 @@ class IYUUAutoSeed(_PluginBase):
                 logger.error("m-team站点的apikey未配置")
                 return None
 
-            # 获取馒头 URL 并替换为api
+            """
+            将mteam种子下载链接域名替换为使用API
+            """
             api_url = re.sub(r'//[^/]+\.m-team', '//api.m-team', site.get('url'))
             
             res = RequestUtils(
