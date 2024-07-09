@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "1.9.1"
+    plugin_version = "1.9.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -1048,6 +1048,12 @@ class IYUUAutoSeed(_PluginBase):
             if not apikey:
                 logger.error("m-team站点的apikey未配置")
                 return None
+
+            """
+            将mteam种子下载链接域名替换为使用API
+            """
+            api_url = re.sub(r'//[^/]+\.m-team', '//api.m-team', site.get('url'))
+            
             res = RequestUtils(
                 headers={
                     'Content-Type': 'application/json',
@@ -1055,7 +1061,7 @@ class IYUUAutoSeed(_PluginBase):
                     'Accept': 'application/json, text/plain, */*',
                     'x-api-key': apikey
                 }
-            ).post_res(f"{site.get('url')}api/torrent/genDlToken", params={
+            ).post_res(f"{api_url}api/torrent/genDlToken", params={
                 'id': tid
             })
             if not res:
