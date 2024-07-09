@@ -435,12 +435,7 @@ class ConfigCenter(_PluginBase):
                                         }
                                     }
                                 ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
+                            },
                             {
                                 "component": "VCol",
                                 "props": {
@@ -457,7 +452,12 @@ class ConfigCenter(_PluginBase):
                                         }
                                     }
                                 ]
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {
                                 "component": "VCol",
                                 "props": {
