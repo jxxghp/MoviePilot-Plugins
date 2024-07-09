@@ -17,7 +17,7 @@ class ConfigCenter(_PluginBase):
     # 插件图标
     plugin_icon = "setting.png"
     # 插件版本
-    plugin_version = "2.5"
+    plugin_version = "2.6"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -38,7 +38,7 @@ class ConfigCenter(_PluginBase):
         "RECOGNIZE_SOURCE", "SCRAP_FOLLOW_TMDB", "AUTO_DOWNLOAD_USER",
         "OCR_HOST", "DOWNLOAD_SUBTITLE", "PLUGIN_MARKET", "MOVIE_RENAME_FORMAT",
         "TV_RENAME_FORMAT", "FANART_ENABLE", "DOH_ENABLE", "SEARCH_MULTIPLE_NAME", "META_CACHE_EXPIRE",
-        "GITHUB_PROXY"
+        "GITHUB_PROXY", "DOH_DOMAINS", "DOH_RESOLVERS"
     ]
 
     def init_plugin(self, config: dict = None):
@@ -419,6 +419,45 @@ class ConfigCenter(_PluginBase):
                     {
                         'component': 'VRow',
                         'content': [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "DOH_DOMAINS",
+                                            "label": "DOH解析的域名",
+                                            "placeholder": "多个域名使用,分隔"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "DOH_RESOLVERS",
+                                            "label": "DOH解析服务器",
+                                            "placeholder": "多个地址使用,分隔"
+                                        }
+                                    }
+                                ]
+                            },
                             {
                                 "component": "VCol",
                                 "props": {

@@ -273,7 +273,7 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "labels": "做种,IYUU",
-        "version": "1.9",
+        "version": "1.9.2",
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2,
@@ -466,11 +466,12 @@
         "name": "配置中心",
         "description": "快速调整部分系统设定。",
         "labels": "系统设置",
-        "version": "2.5",
+        "version": "2.6",
         "icon": "setting.png",
         "author": "jxxghp",
         "level": 1,
         "history": {
+            "v2.6": "支持DOH相关配置项",
             "v2.5": "增加Github加速服务器设置项"
         }
     },
