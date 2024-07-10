@@ -67,6 +67,7 @@ class BrushConfig:
         self.clear_task = config.get("clear_task", False)
         self.archive_task = config.get("archive_task", False)
         self.except_tags = config.get("except_tags", True)
+        self.delete_except_tags = config.get("delete_except_tags")
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
         self.proxy_download = config.get("proxy_download", False)
@@ -294,7 +295,6 @@ class BrushFlow(_PluginBase):
     # endregion
 
     def init_plugin(self, config: dict = None):
-        logger.info(f"站点刷流服务初始化")
         self.siteshelper = SitesHelper()
         self.siteoper = SiteOper()
         self.torrents = TorrentsChain()
@@ -1422,6 +1422,23 @@ class BrushFlow(_PluginBase):
                                                         }
                                                     }
                                                 ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'delete_except_tags',
+                                                            'label': '删除排除标签',
+                                                            'placeholder': '如：MOVIEPILOT,H&R'
+                                                        }
+                                                    }
+                                                ]
                                             }
                                         ]
                                     }
@@ -1820,6 +1837,7 @@ class BrushFlow(_PluginBase):
             "clear_task": False,
             "archive_task": False,
             "except_tags": True,
+            "delete_except_tags": f"{settings.TORRENT_TAG},H&R" if settings.TORRENT_TAG else "H&R",
             "except_subscribe": True,
             "brush_sequential": False,
             "proxy_download": False,
@@ -2339,34 +2357,57 @@ class BrushFlow(_PluginBase):
             # 更新刷流任务列表中在下载器中删除的种子为删除状态
             self.__update_undeleted_torrents_missing_in_downloader(torrent_tasks, torrent_check_hashes, check_torrents)
 
-            # 排除MoviePilot种子
-            if check_torrents and brush_config.except_tags:
-                check_torrents = self.__filter_torrents_by_tag(torrents=check_torrents,
-                                                               exclude_tag=settings.TORRENT_TAG)
+            # 根据配置的标签进行种子排除
+            if check_torrents:
+                logger.info(f"当前刷流任务共 {len(check_torrents)} 个有效种子，正在准备按设定的种子标签进行排除")
+                # 初始化一个空的列表来存储需要排除的标签
+                tags_to_exclude = set()
+                # 如果 except_tags 配置为 True，将 settings.TORRENT_TAG 添加到排除列表中（前提是它不为空且不是纯空白）
+                if brush_config.except_tags and settings.TORRENT_TAG.strip():
+                    tags_to_exclude.add(settings.TORRENT_TAG.strip())
+                # 如果 delete_except_tags 非空且不是纯空白，则添加到排除列表中
+                if brush_config.delete_except_tags and brush_config.delete_except_tags.strip():
+                    tags_to_exclude.update(tag.strip() for tag in brush_config.delete_except_tags.split(','))
+                # 将所有需要排除的标签组合成一个字符串，每个标签之间用逗号分隔
+                combined_tags = ",".join(tags_to_exclude)
+                if combined_tags:  # 确保有标签需要排除
+                    pre_filter_count = len(check_torrents)  # 获取过滤前的任务数量
+                    check_torrents = self.__filter_torrents_by_tag(torrents=check_torrents, exclude_tag=combined_tags)
+                    post_filter_count = len(check_torrents)  # 获取过滤后的任务数量
+                    excluded_count = pre_filter_count - post_filter_count  # 计算被排除的任务数量
+                    logger.info(
+                        f"有效种子数 {pre_filter_count}，排除标签 '{combined_tags}' 后，"
+                        f"剩余种子数 {post_filter_count}，排除种子数 {excluded_count}")
+                else:
+                    logger.info("没有配置有效的排除标签，所有种子均参与后续处理")
 
-            need_delete_hashes = []
-
-            # 如果配置了动态删除以及删种阈值，则根据动态删种进行分组处理
-            if brush_config.proxy_delete and brush_config.delete_size_range:
-                logger.info("已开启动态删种，按系统默认动态删种条件开始检查任务")
-                proxy_delete_hashes = self.__delete_torrent_for_proxy(torrents=check_torrents,
-                                                                      torrent_tasks=torrent_tasks) or []
-                need_delete_hashes.extend(proxy_delete_hashes)
-            # 否则均认为是没有开启动态删种
+            # 种子删除检查
+            if not check_torrents:
+                logger.info("没有需要检查的任务，跳过")
             else:
-                logger.info("没有开启动态删种，按用户设置删种条件开始检查任务")
-                not_proxy_delete_hashes = self.__delete_torrent_for_evaluate_conditions(torrents=check_torrents,
-                                                                                        torrent_tasks=torrent_tasks) or []
-                need_delete_hashes.extend(not_proxy_delete_hashes)
+                need_delete_hashes = []
 
-            if need_delete_hashes:
-                # 如果是QB，则重新汇报Tracker
-                if brush_config.downloader == "qbittorrent":
-                    self.__qb_torrents_reannounce(torrent_hashes=need_delete_hashes)
-                # 删除种子
-                if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
-                    for torrent_hash in need_delete_hashes:
-                        torrent_tasks[torrent_hash]["deleted"] = True
+                # 如果配置了动态删除以及删种阈值，则根据动态删种进行分组处理
+                if brush_config.proxy_delete and brush_config.delete_size_range:
+                    logger.info("已开启动态删种，按系统默认动态删种条件开始检查任务")
+                    proxy_delete_hashes = self.__delete_torrent_for_proxy(torrents=check_torrents,
+                                                                          torrent_tasks=torrent_tasks) or []
+                    need_delete_hashes.extend(proxy_delete_hashes)
+                # 否则均认为是没有开启动态删种
+                else:
+                    logger.info("没有开启动态删种，按用户设置删种条件开始检查任务")
+                    not_proxy_delete_hashes = self.__delete_torrent_for_evaluate_conditions(torrents=check_torrents,
+                                                                                            torrent_tasks=torrent_tasks) or []
+                    need_delete_hashes.extend(not_proxy_delete_hashes)
+
+                if need_delete_hashes:
+                    # 如果是QB，则重新汇报Tracker
+                    if brush_config.downloader == "qbittorrent":
+                        self.__qb_torrents_reannounce(torrent_hashes=need_delete_hashes)
+                    # 删除种子
+                    if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
+                        for torrent_hash in need_delete_hashes:
+                            torrent_tasks[torrent_hash]["deleted"] = True
 
             self.__update_and_save_statistic_info(torrent_tasks)
 
@@ -2995,6 +3036,7 @@ class BrushFlow(_PluginBase):
             "clear_task": brush_config.clear_task,
             "archive_task": brush_config.archive_task,
             "except_tags": brush_config.except_tags,
+            "delete_except_tags": brush_config.delete_except_tags,
             "except_subscribe": brush_config.except_subscribe,
             "brush_sequential": brush_config.brush_sequential,
             "proxy_download": brush_config.proxy_download,
@@ -3668,14 +3710,21 @@ class BrushFlow(_PluginBase):
 
     def __filter_torrents_by_tag(self, torrents: List[Any], exclude_tag: str) -> List[Any]:
         """
-        根据标签过滤torrents
+        根据标签过滤torrents，排除标签格式为逗号分隔的字符串，例如 "MOVIEPILOT, H&R"
         """
+        # 如果排除标签字符串为空，则返回原始列表
+        if not exclude_tag:
+            return torrents
+
+        # 将 exclude_tag 字符串分割成一个集合，并去除每个标签两端的空白，忽略空白标签并自动去重
+        exclude_tags = set(tag.strip() for tag in exclude_tag.split(',') if tag.strip())
+
         filter_torrents = []
         for torrent in torrents:
             # 使用 __get_label 方法获取每个 torrent 的标签列表
             labels = self.__get_label(torrent)
-            # 如果排除的标签不在这个列表中，则添加到过滤后的列表
-            if exclude_tag not in labels:
+            # 检查是否有任何一个排除标签存在于标签列表中
+            if not any(exclude in labels for exclude in exclude_tags):
                 filter_torrents.append(torrent)
         return filter_torrents
 
