@@ -787,9 +787,6 @@
         "version": "1.0",
         "icon": "Mqtt_A.png",
         "author": "blacklips",
-        "level": 1,
-        "history": {
-            "v1.0": "支持MQTT消息推送"
-        }
+        "level": 1
     }
 }
