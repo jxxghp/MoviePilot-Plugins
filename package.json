@@ -779,5 +779,17 @@
             "v1.1": "支持将极影视评分修改为豆瓣评分",
             "v1.0": "同步极影视在看/已看状态到豆瓣"
         }
+    },
+    "MqttPush": {
+        "name": "MQTT消息推送",
+        "description": "支持使用MQTT发送消息通知。",
+        "labels": "消息通知",
+        "version": "1.0",
+        "icon": "MQTT_A.png",
+        "author": "blacklips",
+        "level": 1,
+        "history": {
+            "v1.0": "支持MQTT消息推送"
+        }
     }
 }
