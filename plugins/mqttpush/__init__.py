@@ -40,9 +40,9 @@ class MqttMsg(_PluginBase):
     # 插件版本
     plugin_version = "1.0"
     # 插件作者
-    plugin_author = "lethargicScribe"
+    plugin_author = "blacklips"
     # 作者主页
-    author_url = "https://github.com/lethargicScribe"
+    author_url = "https://github.com/blacklips"
     # 插件配置项ID前缀
     plugin_config_prefix = "mqttmsg_"
     # 加载顺序
