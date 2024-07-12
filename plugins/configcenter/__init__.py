@@ -17,7 +17,7 @@ class ConfigCenter(_PluginBase):
     # 插件图标
     plugin_icon = "setting.png"
     # 插件版本
-    plugin_version = "2.4"
+    plugin_version = "2.6"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -37,7 +37,8 @@ class ConfigCenter(_PluginBase):
         "GITHUB_TOKEN", "API_TOKEN", "TMDB_API_DOMAIN", "TMDB_IMAGE_DOMAIN", "WALLPAPER",
         "RECOGNIZE_SOURCE", "SCRAP_FOLLOW_TMDB", "AUTO_DOWNLOAD_USER",
         "OCR_HOST", "DOWNLOAD_SUBTITLE", "PLUGIN_MARKET", "MOVIE_RENAME_FORMAT",
-        "TV_RENAME_FORMAT", "FANART_ENABLE", "DOH_ENABLE", "SEARCH_MULTIPLE_NAME", "META_CACHE_EXPIRE"
+        "TV_RENAME_FORMAT", "FANART_ENABLE", "DOH_ENABLE", "SEARCH_MULTIPLE_NAME", "META_CACHE_EXPIRE",
+        "GITHUB_PROXY", "DOH_DOMAINS", "DOH_RESOLVERS"
     ]
 
     def init_plugin(self, config: dict = None):
@@ -99,7 +100,7 @@ class ConfigCenter(_PluginBase):
                 value = str(value)
             set_key(env_path, key, value)
         logger.info("app.env文件写入完成")
-        self.systemmessage.put("配置中心设置已写入app.env文件，插件关闭")
+        self.systemmessage.put("配置中心设置已写入app.env文件，插件关闭", title="配置中心")
 
     @staticmethod
     def __parse_params(param_str: str) -> dict:
@@ -314,7 +315,12 @@ class ConfigCenter(_PluginBase):
                                         }
                                     }
                                 ]
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {
                                 "component": "VCol",
                                 "props": {
@@ -327,6 +333,62 @@ class ConfigCenter(_PluginBase):
                                         "props": {
                                             "model": "OCR_HOST",
                                             "label": "验证码识别服务器"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "GITHUB_PROXY",
+                                            "label": "Github加速服务器",
+                                            "placeholder": "https://mirror.ghproxy.com/"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "DOH_DOMAINS",
+                                            "label": "DOH解析的域名",
+                                            "placeholder": "多个域名使用,分隔"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "DOH_RESOLVERS",
+                                            "label": "DOH解析服务器",
+                                            "placeholder": "多个地址使用,分隔"
                                         }
                                     }
                                 ]

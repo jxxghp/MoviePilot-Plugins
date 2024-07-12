@@ -26,12 +26,14 @@ class SiteSchema(Enum):
     NexusProject = "NexusProject"
     NexusRabbit = "NexusRabbit"
     NexusHhanclub = "NexusHhanclub"
+    NexusAudiences = "NexusAudiences"
     SmallHorse = "Small Horse"
     Unit3d = "Unit3d"
     TorrentLeech = "TorrentLeech"
     FileList = "FileList"
     TNode = "TNode"
     MTorrent = "MTorrent"
+    Yema = "Yema"
 
 
 class ISiteUserInfo(metaclass=ABCMeta):
@@ -45,6 +47,8 @@ class ISiteUserInfo(metaclass=ABCMeta):
     def __init__(self, site_name: str,
                  url: str,
                  site_cookie: str,
+                 apikey: str,
+                 token: str,
                  index_html: str,
                  session: Session = None,
                  ua: str = None,
@@ -54,6 +58,8 @@ class ISiteUserInfo(metaclass=ABCMeta):
         # 站点信息
         self.site_name = None
         self.site_url = None
+        self.apikey = apikey
+        self.token = token
         # 用户信息
         self.username = None
         self.userid = None
@@ -91,9 +97,6 @@ class ISiteUserInfo(metaclass=ABCMeta):
         # 错误信息
         self.err_msg = None
         # 内部数据
-        self._base_url = None
-        self._site_cookie = None
-        self._index_html = None
         self._addition_headers = None
 
         # 站点页面
@@ -217,6 +220,9 @@ class ISiteUserInfo(metaclass=ABCMeta):
                         msg_links
                     )
                 unread_msg_links.extend(msg_links)
+        # 重新更新未读消息数（99999表示有消息但数量未知）
+        if self.message_unread == 99999:
+            self.message_unread = len(unread_msg_links)
         # 解析未读消息内容
         for msg_link in unread_msg_links:
             logger.debug(f"{self.site_name} 信息链接 {msg_link}")

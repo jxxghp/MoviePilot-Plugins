@@ -2,10 +2,10 @@
 import json
 from typing import Optional, Tuple
 from urllib.parse import urljoin
+
 from lxml import etree
 
 from app.log import logger
-from app.db.systemconfig_oper import SystemConfigOper
 from app.plugins.sitestatistic.siteuserinfo import ISiteUserInfo, SITE_BASE_ORDER, SiteSchema
 from app.utils.string import StringUtils
 
@@ -50,6 +50,8 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
         """
         获取站点页面地址
         """
+        # 更换api地址
+        self._base_url = f"https://api.{StringUtils.get_url_domain(self._base_url)}"
         self._user_traffic_page = None
         self._user_detail_page = None
         self._user_basic_page = "api/member/profile"
@@ -65,13 +67,12 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
             "pageSize": 100
         }
         self._torrent_seeding_page = "api/member/getUserTorrentList"
-        domain = StringUtils.get_url_host(self.site_url)
         self._torrent_seeding_headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/plain, */*"
         }
         self._addition_headers = {
-            "x-api-key": SystemConfigOper().get(f"site.{domain}.apikey"),
+            "x-api-key": self.apikey,
         }
 
     def _parse_logged_in(self, html_text):
@@ -102,7 +103,8 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
         self.download = int(user_info.get("memberCount", {}).get("downloaded") or '0')
         self.ratio = user_info.get("memberCount", {}).get("shareRate") or 0
         self.bonus = user_info.get("memberCount", {}).get("bonus") or 0
-        self.message_unread = 1
+        # 需要解析消息，但不确定消息条数
+        self.message_unread = 99999
 
         self._torrent_seeding_params = {
             "pageNumber": 1,
@@ -149,7 +151,7 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
         seeder_count = 0
         try:
             result = self._get_page_content(
-                url=urljoin(self.site_url, "api/tracker/myPeerStatus"),
+                url=urljoin(self._base_url, "api/tracker/myPeerStatus"),
                 params={"uid": self.userid},
             )
             if result:
@@ -185,7 +187,7 @@ class MTorrentSiteUserInfo(ISiteUserInfo):
                 self.message_unread_contents.append((head, date, content))
                 # 设置已读
                 self._get_page_content(
-                    url=urljoin(self.site_url, f"api/msg/markRead"),
+                    url=urljoin(self._base_url, f"api/msg/markRead"),
                     params={"msgId": message.get("id")}
                 )
         # 是否存在下页数据

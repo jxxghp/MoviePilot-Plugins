@@ -9,6 +9,7 @@ from typing import List, Tuple, Dict, Any, Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app import schemas
 from app.chain.transfer import TransferChain
 from app.core.config import settings
 from app.core.event import eventmanager, Event
@@ -16,9 +17,6 @@ from app.db.models.transferhistory import TransferHistory
 from app.log import logger
 from app.modules.emby import Emby
 from app.modules.jellyfin import Jellyfin
-from app.modules.qbittorrent import Qbittorrent
-from app.modules.themoviedb.tmdbv3api import Episode
-from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
 from app.schemas.types import NotificationType, EventType, MediaType, MediaImageType
 
@@ -31,7 +29,7 @@ class MediaSyncDel(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -44,7 +42,6 @@ class MediaSyncDel(_PluginBase):
     auth_level = 1
 
     # 私有属性
-    episode = None
     _scheduler: Optional[BackgroundScheduler] = None
     _enabled = False
     _sync_type: str = ""
@@ -57,16 +54,11 @@ class MediaSyncDel(_PluginBase):
     _transferchain = None
     _transferhis = None
     _downloadhis = None
-    qb = None
-    tr = None
 
     def init_plugin(self, config: dict = None):
         self._transferchain = TransferChain()
         self._transferhis = self._transferchain.transferhis
         self._downloadhis = self._transferchain.downloadhis
-        self.episode = Episode()
-        self.qb = Qbittorrent()
-        self.tr = Transmission()
 
         # 停止现有任务
         self.stop_service()
@@ -105,7 +97,29 @@ class MediaSyncDel(_PluginBase):
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
-        pass
+        return [
+            {
+                "path": "/delete_history",
+                "endpoint": self.delete_history,
+                "methods": ["GET"],
+                "summary": "删除订阅历史记录"
+            }
+        ]
+
+    def delete_history(self, key: str, apikey: str):
+        """
+        删除历史记录
+        """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
+        # 历史记录
+        historys = self.get_data('history')
+        if not historys:
+            return schemas.Response(success=False, message="未找到历史记录")
+        # 删除指定记录
+        historys = [h for h in historys if h.get("unique") != key]
+        self.save_data('history', historys)
+        return schemas.Response(success=True, message="删除成功")
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
@@ -448,6 +462,7 @@ class MediaSyncDel(_PluginBase):
         for history in historys:
             htype = history.get("type")
             title = history.get("title")
+            unique = history.get("unique")
             year = history.get("year")
             season = history.get("season")
             episode = history.get("episode")
@@ -535,6 +550,22 @@ class MediaSyncDel(_PluginBase):
                 {
                     'component': 'VCard',
                     'content': [
+                        {
+                            "component": "VDialogCloseBtn",
+                            "props": {
+                                'innerClass': 'absolute top-0 right-0',
+                            },
+                            'events': {
+                                'click': {
+                                    'api': 'plugin/MediaSyncDel/delete_history',
+                                    'method': 'get',
+                                    'params': {
+                                        'key': unique,
+                                        'apikey': settings.API_TOKEN
+                                    }
+                                }
+                            },
+                        },
                         {
                             'component': 'div',
                             'props': {
@@ -723,6 +754,20 @@ class MediaSyncDel(_PluginBase):
             logger.error(f"{media_name} 同步删除失败，未获取到媒体类型，请检查媒体是否刮削")
             return
 
+        # 处理路径映射 (处理同一媒体多分辨率的情况)
+        if self._library_path:
+            paths = self._library_path.split("\n")
+            for path in paths:
+                sub_paths = path.split(":")
+                if len(sub_paths) < 2:
+                    continue
+                media_path = media_path.replace(sub_paths[0], sub_paths[1]).replace('\\', '/')
+
+        # 兼容重新整理的场景
+        if Path(media_path).exists():
+            logger.warn(f"转移路径 {media_path} 未被删除或重新生成，跳过处理")
+            return
+
         # 查询转移记录
         msg, transfer_history = self.__get_transfer_his(media_type=media_type,
                                                         media_name=media_name,
@@ -833,7 +878,8 @@ class MediaSyncDel(_PluginBase):
             "season": season_num if season_num and str(season_num).isdigit() else None,
             "episode": episode_num if episode_num and str(episode_num).isdigit() else None,
             "image": poster_image,
-            "del_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))
+            "del_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time())),
+            "unique": f"{media_name}:{tmdb_id}:{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}"
         })
 
         # 保存历史
@@ -857,15 +903,6 @@ class MediaSyncDel(_PluginBase):
 
         # 类型
         mtype = MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
-
-        # 处理路径映射 (处理同一媒体多分辨率的情况)
-        if self._library_path:
-            paths = self._library_path.split("\n")
-            for path in paths:
-                sub_paths = path.split(":")
-                if len(sub_paths) < 2:
-                    continue
-                media_path = media_path.replace(sub_paths[0], sub_paths[1]).replace('\\', '/')
 
         # 删除电影
         if mtype == MediaType.MOVIE:
@@ -1158,12 +1195,8 @@ class MediaSyncDel(_PluginBase):
                     # 删除转种后任务
                     logger.info(f"删除转种后下载任务：{download} - {download_id}")
                     # 删除转种后下载任务
-                    if download == "transmission":
-                        self.tr.delete_torrents(delete_file=True,
-                                                ids=download_id)
-                    else:
-                        self.qb.delete_torrents(delete_file=True,
-                                                ids=download_id)
+                    self.chain.remove_torrents(hashs=torrent_hash,
+                                               downloader=download)
                     handle_torrent_hashs.append(download_id)
                 else:
                     # 暂停种子
@@ -1178,10 +1211,7 @@ class MediaSyncDel(_PluginBase):
 
                     logger.info(f"暂停转种后下载任务：{download} - {download_id}")
                     # 删除转种后下载任务
-                    if download == "transmission":
-                        self.tr.stop_torrents(ids=download_id)
-                    else:
-                        self.qb.stop_torrents(ids=download_id)
+                    self.chain.stop_torrents(hashs=download_id, downloader=download)
                     handle_torrent_hashs.append(download_id)
             else:
                 # 未转种de情况
@@ -1196,8 +1226,7 @@ class MediaSyncDel(_PluginBase):
                 handle_torrent_hashs.append(download_id)
 
             # 处理辅种
-            handle_torrent_hashs = self.__del_seed(download=download,
-                                                   download_id=download_id,
+            handle_torrent_hashs = self.__del_seed(download_id=download_id,
                                                    delete_flag=delete_flag,
                                                    handle_torrent_hashs=handle_torrent_hashs)
             # 处理合集
@@ -1243,27 +1272,19 @@ class MediaSyncDel(_PluginBase):
 
                             # 删除合集种子
                             if delete_flag:
-                                if str(download_file.downloader) == "transmission":
-                                    self.tr.delete_torrents(delete_file=True,
-                                                            ids=download_file.download_hash)
-                                else:
-                                    self.qb.delete_torrents(delete_file=True,
-                                                            ids=download_file.download_hash)
-
+                                self.chain.remove_torrents(hashs=download_file.download_hash,
+                                                           downloader=download_file.downloader)
                                 logger.info(f"删除合集种子 {download_file.downloader} {download_file.download_hash}")
                             else:
                                 # 暂停合集种子
-                                if str(download_file.downloader) == "transmission":
-                                    self.tr.stop_torrents(ids=download_file.download_hash)
-                                else:
-                                    self.qb.stop_torrents(ids=download_file.download_hash)
+                                self.chain.stop_torrents(hashs=download_file.download_hash,
+                                                         downloader=download_file.downloader)
                                 logger.info(f"暂停合集种子 {download_file.downloader} {download_file.download_hash}")
                             # 已处理种子+1
                             handle_torrent_hashs.append(download_file.download_hash)
 
                             # 处理合集辅种
-                            handle_torrent_hashs = self.__del_seed(download=download_file.downloader,
-                                                                   download_id=download_file.download_hash,
+                            handle_torrent_hashs = self.__del_seed(download_id=download_file.download_hash,
                                                                    delete_flag=delete_flag,
                                                                    handle_torrent_hashs=handle_torrent_hashs)
         except Exception as e:
@@ -1272,7 +1293,7 @@ class MediaSyncDel(_PluginBase):
 
         return handle_torrent_hashs
 
-    def __del_seed(self, download, download_id, delete_flag, handle_torrent_hashs):
+    def __del_seed(self, download_id, delete_flag, handle_torrent_hashs):
         """
         删除辅种
         """
@@ -1296,30 +1317,18 @@ class MediaSyncDel(_PluginBase):
                 # 删除辅种历史
                 for torrent in torrents:
                     handle_torrent_hashs.append(torrent)
-                    if str(download) == "qbittorrent":
-                        # 删除辅种
-                        if delete_flag:
-                            logger.info(f"删除辅种：{downloader} - {torrent}")
-                            self.qb.delete_torrents(delete_file=True,
-                                                    ids=torrent)
-                        # 暂停辅种
-                        else:
-                            self.qb.stop_torrents(ids=torrent)
-                            logger.info(f"辅种：{downloader} - {torrent} 暂停")
+                    # 删除辅种
+                    if delete_flag:
+                        logger.info(f"删除辅种：{downloader} - {torrent}")
+                        self.chain.remove_torrents(hashs=torrent,
+                                                   downloader=downloader)
+                    # 暂停辅种
                     else:
-                        # 删除辅种
-                        if delete_flag:
-                            logger.info(f"删除辅种：{downloader} - {torrent}")
-                            self.tr.delete_torrents(delete_file=True,
-                                                    ids=torrent)
-                        # 暂停辅种
-                        else:
-                            self.tr.stop_torrents(ids=torrent)
-                            logger.info(f"辅种：{downloader} - {torrent} 暂停")
+                        self.chain.stop_torrents(hashs=torrent, download=downloader)
+                        logger.info(f"辅种：{downloader} - {torrent} 暂停")
 
                     # 处理辅种的辅种
-                    handle_torrent_hashs = self.__del_seed(download=downloader,
-                                                           download_id=torrent,
+                    handle_torrent_hashs = self.__del_seed(download_id=torrent,
                                                            delete_flag=delete_flag,
                                                            handle_torrent_hashs=handle_torrent_hashs)
 

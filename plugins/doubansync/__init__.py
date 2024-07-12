@@ -7,6 +7,7 @@ import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app import schemas
 from app.chain.media import MediaChain
 from app.schemas.types import MediaType
 
@@ -33,7 +34,7 @@ class DoubanSync(_PluginBase):
     # 插件图标
     plugin_icon = "douban.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -138,7 +139,14 @@ class DoubanSync(_PluginBase):
             "summary": "API说明"
         }]
         """
-        pass
+        return [
+            {
+                "path": "/delete_history",
+                "endpoint": self.delete_history,
+                "methods": ["GET"],
+                "summary": "删除豆瓣同步历史记录"
+            }
+        ]
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
@@ -354,6 +362,22 @@ class DoubanSync(_PluginBase):
                     'component': 'VCard',
                     'content': [
                         {
+                            "component": "VDialogCloseBtn",
+                            "props": {
+                                'innerClass': 'absolute top-0 right-0',
+                            },
+                            'events': {
+                                'click': {
+                                    'api': 'plugin/DoubanSync/delete_history',
+                                    'method': 'get',
+                                    'params': {
+                                        'doubanid': doubanid,
+                                        'apikey': settings.API_TOKEN
+                                    }
+                                }
+                            },
+                        },
+                        {
                             'component': 'div',
                             'props': {
                                 'class': 'd-flex justify-space-start flex-nowrap flex-row',
@@ -379,9 +403,9 @@ class DoubanSync(_PluginBase):
                                     'component': 'div',
                                     'content': [
                                         {
-                                            'component': 'VCardSubtitle',
+                                            'component': 'VCardTitle',
                                             'props': {
-                                                'class': 'pa-2 font-bold break-words whitespace-break-spaces'
+                                                'class': 'ps-1 pe-5 break-words whitespace-break-spaces'
                                             },
                                             'content': [
                                                 {
@@ -440,6 +464,21 @@ class DoubanSync(_PluginBase):
             "clear": self._clear
         })
 
+    def delete_history(self, doubanid: str, apikey: str):
+        """
+        删除同步历史记录
+        """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
+        # 历史记录
+        historys = self.get_data('history')
+        if not historys:
+            return schemas.Response(success=False, message="未找到历史记录")
+        # 删除指定记录
+        historys = [h for h in historys if h.get("doubanid") != doubanid]
+        self.save_data('history', historys)
+        return schemas.Response(success=True, message="删除成功")
+
     def stop_service(self):
         """
         退出插件
@@ -481,8 +520,8 @@ class DoubanSync(_PluginBase):
                 try:
                     dtype = result.get("title", "")[:2]
                     title = result.get("title", "")[2:]
-                    if dtype not in ["想看", "在看"]:
-                        logger.info(f'标题：{title}，非想看/在看数据，跳过')
+                    if dtype not in ["想看"]:
+                        logger.info(f'标题：{title}，非想看数据，跳过')
                         continue
                     if not result.get("link"):
                         logger.warn(f'标题：{title}，未获取到链接，跳过')

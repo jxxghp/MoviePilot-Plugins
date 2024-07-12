@@ -15,7 +15,6 @@ from bencode import bdecode, bencode
 
 from app.core.config import settings
 from app.core.event import eventmanager
-from app.db.models import Site
 from app.db.site_oper import SiteOper
 from app.helper.sites import SitesHelper
 from app.helper.torrent import TorrentHelper
@@ -35,15 +34,15 @@ class CSSiteConfig(object):
     """
 
     def __init__(
-        self,
-        name: str = None,
-        url: str = None,
-        passkey: str = None,
-        id: int = None,
-        cookie: str = None,
-        ua: str = None,
-        proxy: bool = None,
-        query_gap: int = 1,
+            self,
+            name: str = None,
+            url: str = None,
+            passkey: str = None,
+            id: int = None,
+            cookie: str = None,
+            ua: str = None,
+            proxy: bool = None,
+            query_gap: int = 1,
     ) -> None:
         self.name = name
         self.url = url
@@ -154,7 +153,11 @@ class CrossSeedHelper(object):
         remote_torrent_infos = []
         try:
             response = requests.post(
-                site.get_api_url(), headers=headers, json=data, timeout=10
+                site.get_api_url(),
+                headers=headers,
+                json=data,
+                timeout=10,
+                proxies=settings.PROXY if site.proxy else None,
             )
             response.raise_for_status()
             rsp_body = response.json()
@@ -177,7 +180,7 @@ class CrossSeed(_PluginBase):
     # 插件图标
     plugin_icon = "qingwa.png"
     # 插件版本
-    plugin_version = "2.2"
+    plugin_version = "2.3"
     # 插件作者
     plugin_author = "233@qingwa"
     # 作者主页
@@ -260,11 +263,9 @@ class CrossSeed(_PluginBase):
                 (site.get("id"), site.get("name")) for site in self.__custom_sites()
             ]
             self._sites = [site_id for site_id, site_name in all_sites if site_id in self._sites]
-            # 拆分出选中的站点
-            site_names = [site_name for site_id, site_name in all_sites if site_id in self._sites]
 
             # 整理所有可用内部站点信息
-            all_site_cs_info_map : dict[str, CSSiteConfig] = dict()
+            all_site_cs_info_map: dict[str, CSSiteConfig] = dict()
             for site in inner_site_list:
                 if site.is_active:
                     all_site_cs_info_map[site.name] = CSSiteConfig(
@@ -273,7 +274,7 @@ class CrossSeed(_PluginBase):
                         id=site.id,
                         cookie=site.cookie,
                         ua=site.ua,
-                        proxy=site.proxy,
+                        proxy=True if site.proxy else False,
                     )
             for site in self.__custom_sites():
                 all_site_cs_info_map[site.get("name")] = CSSiteConfig(
@@ -291,9 +292,10 @@ class CrossSeed(_PluginBase):
             site_name_key_map = dict()
             site_name_gap_map = dict()
             for site_key in self._token.strip().split("\n"):
-                site_key_arr = re.split("[\s:：]+",site_key.strip())
+                site_key_arr = re.split(r"[\s:：]+", site_key.strip())
                 site_name = site_key_arr[0]
-                site_name_key_map[site_name] = site_key_arr[1]
+                if len(site_key_arr) > 1:
+                    site_name_key_map[site_name] = site_key_arr[1]
                 if len(site_key_arr) > 2:
                     if str.isdigit(site_key_arr[2]):
                         site_name_gap_map[site_name] = int(site_key_arr[2])
@@ -308,7 +310,8 @@ class CrossSeed(_PluginBase):
             for site_name in site_names:
                 site_key = site_name_key_map.get(site_name)
                 if not site_key:
-                    logger.warning(f"未找到站点{site_name}的passkey, 请检查passkey配置是否有误，站点{site_name}将跳过辅种")
+                    logger.warning(
+                        f"未找到站点{site_name}的passkey, 请检查passkey配置是否有误，站点{site_name}将跳过辅种")
                     continue
                 site_cs_info = all_site_cs_info_map.get(site_name)
                 site_cs_info.passkey = site_key
@@ -377,7 +380,7 @@ class CrossSeed(_PluginBase):
         """
         if self.get_state():
             # 如果开启了定时任务，并且参数齐全
-            if self._cron :
+            if self._cron:
                 return [{
                     "id": "CrossSeed",
                     "name": "青蛙辅种助手",
@@ -388,10 +391,10 @@ class CrossSeed(_PluginBase):
             else:
                 # 随机时间
                 triggers = TimerUtils.random_scheduler(num_executions=1,
-                                                    begin_hour=2,
-                                                    end_hour=7,
-                                                    max_interval=290,
-                                                    min_interval=0)
+                                                       begin_hour=2,
+                                                       end_hour=7,
+                                                       max_interval=290,
+                                                       min_interval=0)
                 ret_jobs = []
                 for trigger in triggers:
                     ret_jobs.append({

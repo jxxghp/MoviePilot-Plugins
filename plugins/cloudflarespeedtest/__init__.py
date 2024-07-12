@@ -32,7 +32,7 @@ class CloudflareSpeedTest(_PluginBase):
     # 插件图标
     plugin_icon = "cloudflare.jpg"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -81,7 +81,7 @@ class CloudflareSpeedTest(_PluginBase):
             self._notify = config.get("notify")
             self._check = config.get("check")
 
-        if self.get_state() and self._onlyonce:
+        if (self._ipv4 or self._ipv6) and self._onlyonce:
             try:
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
                 logger.info(f"Cloudflare CDN优选服务启动，立即运行一次")
@@ -97,7 +97,7 @@ class CloudflareSpeedTest(_PluginBase):
                     self._scheduler.start()
             except Exception as err:
                 logger.error(f"Cloudflare CDN优选服务出错：{str(err)}")
-                self.systemmessage.put(f"Cloudflare CDN优选服务出错：{str(err)}")
+                self.systemmessage.put(f"Cloudflare CDN优选服务出错：{str(err)}", title="Cloudflare IP优选")
                 return
 
     @eventmanager.register(EventType.PluginAction)
@@ -318,7 +318,7 @@ class CloudflareSpeedTest(_PluginBase):
         if not install_flag \
                 and release_version == self._version \
                 and not Path(
-                f'{self._cf_path}/{self._binary_name}').exists() \
+            f'{self._cf_path}/{self._binary_name}').exists() \
                 and not Path(f'{self._cf_path}/CloudflareST.exe').exists():
             logger.warn(f"未检测到CloudflareSpeedTest本地版本，重新安装")
             install_flag = True
@@ -470,7 +470,7 @@ class CloudflareSpeedTest(_PluginBase):
         })
 
     def get_state(self) -> bool:
-        return True if self._cf_ip and self._cron else False
+        return True if self._cf_ip and self._cron and (self._ipv4 or self._ipv6) else False
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -750,10 +750,12 @@ class CloudflareSpeedTest(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
-    def cloudflare_speedtest(self) -> schemas.Response:
+    def cloudflare_speedtest(self, apikey: str) -> schemas.Response:
         """
         API调用CloudflareSpeedTest IP优选
         """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
         self.__cloudflareSpeedTest()
         return schemas.Response(success=True)
 
@@ -801,7 +803,7 @@ class CloudflareSpeedTest(_PluginBase):
                 err_hosts.append(host + "\n")
                 logger.error(f"[HOST] 格式转换错误：{str(err)}")
                 # 推送实时消息
-                self.systemmessage.put(f"[HOST] 格式转换错误：{str(err)}")
+                self.systemmessage.put(f"[HOST] 格式转换错误：{str(err)}", title="Cloudflare IP优选")
 
         # 写入系统hosts
         if new_entrys:
@@ -816,7 +818,7 @@ class CloudflareSpeedTest(_PluginBase):
                 err_flag = True
                 logger.error(f"更新系统hosts文件失败：{str(err) or '请检查权限'}")
                 # 推送实时消息
-                self.systemmessage.put(f"更新系统hosts文件失败：{str(err) or '请检查权限'}")
+                self.systemmessage.put(f"更新系统hosts文件失败：{str(err) or '请检查权限'}", title="Cloudflare IP优选")
         return err_flag, err_hosts
 
     def stop_service(self):

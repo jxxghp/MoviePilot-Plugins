@@ -77,7 +77,7 @@ class VCBAnimeMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "vcbmonitor.png"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "pixel@qingwa"
     # 作者主页
@@ -106,6 +106,7 @@ class VCBAnimeMonitor(_PluginBase):
     _onlyonce = False
     _cron = None
     _size = 0
+    _scrape = True
     # 模式 compatibility/fast
     _mode = "fast"
     # 转移方式
@@ -142,6 +143,7 @@ class VCBAnimeMonitor(_PluginBase):
             self._interval = config.get("interval") or 10
             self._cron = config.get("cron")
             self._size = config.get("size") or 0
+            self._scrape = config.get("scrape")
             self._switch_ova = config.get("ova")
             self._high_mode = config.get("high_mode")
             self._torrents_path = config.get("torrents_path") or ""
@@ -156,15 +158,20 @@ class VCBAnimeMonitor(_PluginBase):
             self._scheduler.add_job(self.send_msg, trigger='interval', seconds=15)
             self.qb = Qbittorrent()
 
+            # 读取目录配置
+            monitor_dirs = self._monitor_dirs.split("\n")
+            if not monitor_dirs:
+                return
+
             # 启用种子目录监控
             if self._torrents_path is not None and Path(self._torrents_path).exists() and self._enabled:
                 # 只取第一个目录作为新的保存
+                first_path = monitor_dirs[0]
                 if SystemUtils.is_windows():
-                    self.new_save_path = self._monitor_dirs.split(':')[0] + ":" + self._monitor_dirs.split(':')[1]
+                    self.new_save_path = first_path.split(':')[0] + ":" + first_path.split(':')[1]
                 else:
-                    self.new_save_path = self._monitor_dirs.split(':')[0]
-                print(self.new_save_path)
-
+                    self.new_save_path = first_path.split(':')[0]
+                # print(self.new_save_path)
                 try:
                     observer = Observer()
                     self._observer.append(observer)
@@ -178,10 +185,6 @@ class VCBAnimeMonitor(_PluginBase):
             else:
                 logger.info("种子目录为空，不转移qb中正在下载的VCB-Studio文件")
 
-            # 读取目录配置
-            monitor_dirs = self._monitor_dirs.split("\n")
-            if not monitor_dirs:
-                return
             for mon_path in monitor_dirs:
                 # 格式源目录:目的目录
                 if not mon_path:
@@ -212,7 +215,6 @@ class VCBAnimeMonitor(_PluginBase):
                 else:
                     self._dirconf[mon_path] = None
 
-
                 # 转移方式
                 self._transferconf[mon_path] = _transfer_type
 
@@ -222,7 +224,7 @@ class VCBAnimeMonitor(_PluginBase):
                     try:
                         if target_path and target_path.is_relative_to(Path(mon_path)):
                             logger.warn(f"{target_path} 是监控目录 {mon_path} 的子目录，无法监控")
-                            self.systemmessage.put(f"{target_path} 是下载目录 {mon_path} 的子目录，无法监控")
+                            self.systemmessage.put(f"{target_path} 是下载目录 {mon_path} 的子目录，无法监控", title="整理VCB动漫压制组作品")
                             continue
                     except Exception as e:
                         logger.debug(str(e))
@@ -252,8 +254,7 @@ class VCBAnimeMonitor(_PluginBase):
                                      """)
                         else:
                             logger.error(f"{mon_path} 启动目录监控失败：{err_msg}")
-                        self.systemmessage.put(f"{mon_path} 启动目录监控失败：{err_msg}")
-
+                        self.systemmessage.put(f"{mon_path} 启动目录监控失败：{err_msg}", title="整理VCB动漫压制组作品")
 
             # 运行一次定时服务
             if self._onlyonce:
@@ -287,6 +288,7 @@ class VCBAnimeMonitor(_PluginBase):
             "interval": self._interval,
             "cron": self._cron,
             "size": self._size,
+            "scrape": self._scrape,
             "ova": self._switch_ova,
             "high_mode": self._high_mode,
             "torrents_path": self._torrents_path
@@ -297,7 +299,6 @@ class VCBAnimeMonitor(_PluginBase):
 
     def __get_data(self, key: str):
         return self.get_data(key)
-
 
     def sync_all(self):
         """
@@ -396,7 +397,7 @@ class VCBAnimeMonitor(_PluginBase):
                     if remeta.is_special and self._switch_ova:
                         logger.info(f"{file_path.name} 为OVA资源,开始处理")
                         if self.get_data(key=f"OVA_{file_meta.title}") is not None:
-                            ova_history_ep = int(self.get_data(key=f"OVA_{file_meta.title}"))+1
+                            ova_history_ep = int(self.get_data(key=f"OVA_{file_meta.title}")) + 1
                             file_meta.begin_episode = ova_history_ep
                             self.save_data(key=f"OVA_{file_meta.title}", value=ova_history_ep)
                         else:
@@ -510,7 +511,7 @@ class VCBAnimeMonitor(_PluginBase):
                 )
 
                 # 刮削单个文件
-                if settings.SCRAP_METADATA:
+                if self._scrape:
                     self.chain.scrape_metadata(path=transferinfo.target_path,
                                                mediainfo=mediainfo,
                                                transfer_type=transfer_type)
@@ -633,7 +634,6 @@ class VCBAnimeMonitor(_PluginBase):
                         continue
         except qbittorrentapi.exceptions.APIError as e:
             logger.error(f"VCB辅助整理模块转移qb文件移动失败：{e}")
-
 
     def send_msg(self):
         """
@@ -829,6 +829,22 @@ class VCBAnimeMonitor(_PluginBase):
                                     }
                                 ]
                             },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'scrape',
+                                            'label': '刮削元数据',
+                                        }
+                                    }
+                                ]
+                            }
                         ]
                     },
                     {
@@ -1015,8 +1031,7 @@ class VCBAnimeMonitor(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '核心用法与目录同步插件相同，不同点在于只识别处理VCB-Studio资源,'
-                                                    '避免与目录同步插件的监控目录相同(否则会同时进行识别)'
+                                            'text': '核心用法与目录同步插件相同，不同点在于只识别处理VCB-Studio资源,\n'
                                                     '不处理SPs目录下的文件,OVA/OAD集数根据入库顺序累加命名,不保证与TMDB集数匹配'
                                         }
                                     }

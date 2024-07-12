@@ -34,7 +34,7 @@ class BestFilmVersion(_PluginBase):
     # 插件图标
     plugin_icon = "like.jpg"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.3"
     # 插件作者
     plugin_author = "wlj"
     # 作者主页
@@ -331,9 +331,9 @@ class BestFilmVersion(_PluginBase):
                                     'component': 'div',
                                     'content': [
                                         {
-                                            'component': 'VCardSubtitle',
+                                            'component': 'VCardTitle',
                                             'props': {
-                                                'class': 'pa-2 font-bold break-words whitespace-break-spaces'
+                                                'class': 'ps-1 pe-5 break-words whitespace-break-spaces'
                                             },
                                             'content': [
                                                 {
@@ -448,7 +448,7 @@ class BestFilmVersion(_PluginBase):
                         continue
 
                     # 获取tmdb_id
-                    tmdb_id = item_info_resp.tmdbid
+                    tmdb_id = item_info_resp.get("tmdbid") if server == 'plex' else item_info_resp.tmdbid
                     if not tmdb_id:
                         continue
                     # 识别媒体信息
@@ -594,10 +594,9 @@ class BestFilmVersion(_PluginBase):
             return []
 
     @staticmethod
-    def plex_get_iteminfo(itemid):
+    def plex_get_iteminfo(itemid) -> dict:
         url = f"https://metadata.provider.plex.tv/library/metadata/{itemid}" \
               f"?X-Plex-Token={settings.PLEX_TOKEN}"
-        ids = []
         try:
             resp = RequestUtils(accept_type="application/json, text/plain, */*").get_res(url=url)
             if resp:
@@ -611,17 +610,15 @@ class BestFilmVersion(_PluginBase):
                     if not id_list:
                         continue
 
-                    ids.append({'Name': 'TheMovieDb', 'Url': id_list[0]})
+                    return {'tmdbid': id_list[0].split("/")[-1]}
 
-                if not ids:
-                    return []
-                return {'ExternalUrls': ids}
+                return {}
             else:
                 logger.error(f"Plex/Items 未获取到返回数据")
-                return []
+                return {}
         except Exception as e:
             logger.error(f"连接Plex/Items 出错：" + str(e))
-            return []
+            return {}
 
     @eventmanager.register(EventType.WebhookMessage)
     def webhook_message_action(self, event):

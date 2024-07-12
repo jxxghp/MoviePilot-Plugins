@@ -21,11 +21,11 @@ class PlayletCategory(_PluginBase):
     # 插件名称
     plugin_name = "短剧自动分类"
     # 插件描述
-    plugin_desc = "网络短剧自动分类到独立的二级目录。"
+    plugin_desc = "网络短剧自动分类到独立目录。"
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -40,8 +40,8 @@ class PlayletCategory(_PluginBase):
     _enabled = False
     _notify = True
     _delay = 0
-    _category_name = "短剧"
-    _episode_duration = 20
+    _category_dir = ""
+    _episode_duration = 8
 
     def init_plugin(self, config: dict = None):
 
@@ -49,11 +49,11 @@ class PlayletCategory(_PluginBase):
             self._enabled = config.get("enabled")
             self._delay = config.get("delay") or 0
             self._notify = config.get("notify")
-            self._category_name = config.get("category_name")
+            self._category_dir = config.get("category_dir")
             self._episode_duration = config.get("episode_duration")
 
     def get_state(self) -> bool:
-        return True if self._enabled and self._category_name and self._episode_duration else False
+        return True if self._enabled and self._category_dir and self._episode_duration else False
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -120,9 +120,9 @@ class PlayletCategory(_PluginBase):
                                     {
                                         'component': 'VTextField',
                                         'props': {
-                                            'model': 'category_name',
-                                            'label': '分类名称',
-                                            'placeholder': '短剧'
+                                            'model': 'category_dir',
+                                            'label': '分类目录路径',
+                                            'placeholder': '/media/短剧'
                                         }
                                     }
                                 ]
@@ -139,7 +139,7 @@ class PlayletCategory(_PluginBase):
                                         'props': {
                                             'model': 'episode_duration',
                                             'label': '单集时长（分钟）',
-                                            'placeholder': '20'
+                                            'placeholder': '8'
                                         }
                                     }
                                 ]
@@ -177,7 +177,7 @@ class PlayletCategory(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '小于单集时长的剧集视频文件将会移动到分类名称对应的二级目录，入库延迟适用于网盘等需要延后处理的场景，需要安装FFmpeg。'
+                                            'text': '小于单集时长的剧集视频文件将会移动到分类目录，入库延迟适用于网盘等需要延后处理的场景，需要安装FFmpeg。'
                                         }
                                     }
                                 ]
@@ -190,8 +190,8 @@ class PlayletCategory(_PluginBase):
             "enabled": False,
             "notify": True,
             "delay": '',
-            "category_name": '短剧',
-            "episode_duration": '20'
+            "category_dir": '短剧',
+            "episode_duration": '8'
         }
 
     def get_page(self) -> List[dict]:
@@ -209,9 +209,6 @@ class PlayletCategory(_PluginBase):
         event_data = event.event_data
         mediainfo: MediaInfo = event_data.get("mediainfo")
         transferinfo: TransferInfo = event_data.get("transferinfo")
-        if not settings.LIBRARY_CATEGORY:
-            logger.warn(f"未开始媒体库自动分类，跳过分类处理")
-            return
         if not mediainfo or not transferinfo:
             return
         if not transferinfo.target_path:
@@ -285,7 +282,7 @@ class PlayletCategory(_PluginBase):
         # 剧集的根目录
         tv_path = target_path.parent
         # 新的文件目录
-        new_path = tv_path.parent.parent / self._category_name / tv_path.name
+        new_path = Path(self._category_dir) / tv_path.name
         if not new_path.exists():
             # 移动目录
             try:
@@ -316,7 +313,7 @@ class PlayletCategory(_PluginBase):
             self.post_message(
                 mtype=NotificationType.Organize,
                 title="【短剧自动分类】",
-                text=f"已将 {tv_path.name} 分类到 {self._category_name} 目录",
+                text=f"已将 {tv_path.name} 分类到 {self._category_dir} 目录",
             )
 
     def stop_service(self):

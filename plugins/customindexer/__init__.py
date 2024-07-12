@@ -52,7 +52,7 @@ class CustomIndexer(_PluginBase):
                         self.siteshelper.add_indexer(domain, json.loads(jsonstr))
                     except Exception as err:
                         logger.error(f"自定义索引站点配置错误：{err}")
-                        self.systemmessage.put(f"自定义索引站点配置错误：{err}")
+                        self.systemmessage.put(f"自定义索引站点配置错误：{err}", title="自定义索引站点")
                         continue
 
     def get_state(self) -> bool:

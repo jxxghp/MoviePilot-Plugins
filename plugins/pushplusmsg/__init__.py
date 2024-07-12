@@ -1,11 +1,10 @@
-from urllib.parse import urlencode
+from typing import Any, List, Dict, Tuple
 
-from app.plugins import _PluginBase
 from app.core.event import eventmanager, Event
+from app.log import logger
+from app.plugins import _PluginBase
 from app.schemas.types import EventType, NotificationType
 from app.utils.http import RequestUtils
-from typing import Any, List, Dict, Tuple
-from app.log import logger
 
 
 class PushPlusMsg(_PluginBase):
@@ -179,7 +178,7 @@ class PushPlusMsg(_PluginBase):
                 "title": title,
                 "content": text,
                 "template": "txt",
-                "channel":"wechat"
+                "channel": "wechat"
             }
             res = RequestUtils(content_type="application/json").post_res(sc_url, json=event_info)
             if res and res.status_code == 200:

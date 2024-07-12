@@ -14,7 +14,7 @@ class IyuuAuth(_PluginBase):
     # 插件图标
     plugin_icon = "Iyuu_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -47,15 +47,15 @@ class IyuuAuth(_PluginBase):
             if self._enabled:
                 if not self._token or not self._passkey or not self._uid:
                     logger.warn("IYUU站点绑定插件配置不完整，请检查配置！")
-                    self.systemmessage.put("IYUU站点绑定插件配置不完整，请检查配置！")
+                    self.systemmessage.put("IYUU站点绑定插件配置不完整，请检查配置！", title="IYUU站点绑定")
                     return
                 state, message = self.iyuu.bind_site(site=self._site, passkey=self._passkey, uid=self._uid)
                 if not state:
                     logger.warn(f"IYUU站点绑定失败，错误信息：{message}")
-                    self.systemmessage.put(f"IYUU站点绑定失败，错误信息：{message}")
+                    self.systemmessage.put(f"IYUU站点绑定失败，错误信息：{message}", title="IYUU站点绑定")
                 else:
                     logger.info("IYUU站点绑定成功！")
-                    self.systemmessage.put("IYUU站点绑定成功！")
+                    self.systemmessage.put("IYUU站点绑定成功！", title="IYUU站点绑定")
                     self._enabled = False
                     self.update_config({
                         "enabled": self._enabled,
@@ -85,7 +85,7 @@ class IyuuAuth(_PluginBase):
             for item in self.iyuu.get_auth_sites() or []:
                 SiteOptions.append({
                     "title": item.get("site"),
-                    "value": item.get("id")
+                    "value": item.get("site")
                 })
         return [
             {

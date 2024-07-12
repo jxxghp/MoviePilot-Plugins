@@ -14,6 +14,7 @@ from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 
 from app import schemas
+from app.chain.media import MediaChain
 from app.chain.tmdb import TmdbChain
 from app.chain.transfer import TransferChain
 from app.core.config import settings
@@ -24,7 +25,7 @@ from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.db.transferhistory_oper import TransferHistoryOper
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas import Notification, NotificationType, TransferInfo
+from app.schemas import NotificationType, TransferInfo
 from app.schemas.types import EventType, MediaType, SystemConfigKey
 from app.utils.string import StringUtils
 from app.utils.system import SystemUtils
@@ -59,7 +60,7 @@ class DirMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "directory.png"
     # 插件版本
-    plugin_version = "1.9"
+    plugin_version = "2.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -77,16 +78,18 @@ class DirMonitor(_PluginBase):
     downloadhis = None
     transferchian = None
     tmdbchain = None
+    mediaChain = None
     _observer = []
     _enabled = False
     _notify = False
     _onlyonce = False
     _cron = None
     _size = 0
+    _scrape = True
     # 模式 compatibility/fast
     _mode = "fast"
     # 转移方式
-    _transfer_type = settings.TRANSFER_TYPE
+    _transfer_type = "link"
     _monitor_dirs = ""
     _exclude_keywords = ""
     _interval: int = 10
@@ -102,6 +105,7 @@ class DirMonitor(_PluginBase):
         self.transferhis = TransferHistoryOper()
         self.downloadhis = DownloadHistoryOper()
         self.transferchian = TransferChain()
+        self.mediaChain = MediaChain()
         self.tmdbchain = TmdbChain()
         # 清空配置
         self._dirconf = {}
@@ -119,6 +123,7 @@ class DirMonitor(_PluginBase):
             self._interval = config.get("interval") or 10
             self._cron = config.get("cron")
             self._size = config.get("size") or 0
+            self._scrape = config.get("scrape") or False
 
         # 停止现有任务
         self.stop_service()
@@ -172,7 +177,8 @@ class DirMonitor(_PluginBase):
                     try:
                         if target_path and target_path.is_relative_to(Path(mon_path)):
                             logger.warn(f"{target_path} 是监控目录 {mon_path} 的子目录，无法监控")
-                            self.systemmessage.put(f"{target_path} 是下载目录 {mon_path} 的子目录，无法监控")
+                            self.systemmessage.put(f"{target_path} 是下载目录 {mon_path} 的子目录，无法监控",
+                                                   title="目录监控")
                             continue
                     except Exception as e:
                         logger.debug(str(e))
@@ -202,7 +208,7 @@ class DirMonitor(_PluginBase):
                                      """)
                         else:
                             logger.error(f"{mon_path} 启动目录监控失败：{err_msg}")
-                        self.systemmessage.put(f"{mon_path} 启动目录监控失败：{err_msg}")
+                        self.systemmessage.put(f"{mon_path} 启动目录监控失败：{err_msg}", title="目录监控")
 
             # 运行一次定时服务
             if self._onlyonce:
@@ -235,7 +241,8 @@ class DirMonitor(_PluginBase):
             "exclude_keywords": self._exclude_keywords,
             "interval": self._interval,
             "cron": self._cron,
-            "size": self._size
+            "size": self._size,
+            "scrape": self._scrape
         })
 
     @eventmanager.register(EventType.PluginAction)
@@ -370,10 +377,12 @@ class DirMonitor(_PluginBase):
                         download_history = self.downloadhis.get_by_hash(download_file.download_hash)
 
                 # 识别媒体信息
-                mediainfo: MediaInfo = self.chain.recognize_media(meta=file_meta,
-                                                                  mtype=MediaType(
-                                                                      download_history.type) if download_history else None,
-                                                                  tmdbid=download_history.tmdbid if download_history else None)
+                if download_history and download_history.tmdbid:
+                    mediainfo: MediaInfo = self.mediaChain.recognize_media(mtype=MediaType(download_history.type),
+                                                                           tmdbid=download_history.tmdbid,
+                                                                           doubanid=download_history.doubanid)
+                else:
+                    mediainfo: MediaInfo = self.mediaChain.recognize_by_meta(file_meta)
                 if not mediainfo:
                     logger.warn(f'未识别到媒体信息，标题：{file_meta.name}')
                     # 新增转移成功历史记录
@@ -426,6 +435,20 @@ class DirMonitor(_PluginBase):
                     return
 
                 if not transferinfo.success:
+                    # 判断是否转移后文件已存在，补充转移成功历史记录
+                    if transferinfo.target_path and transferinfo.target_path.exists():
+                        logger.info(f"{file_path.name} 目标文件已存在，补充转移成功历史记录")
+                        # 补充转移成功历史记录
+                        self.transferhis.add_success(
+                            src_path=file_path,
+                            mode=transfer_type,
+                            download_hash=download_hash,
+                            meta=file_meta,
+                            mediainfo=mediainfo,
+                            transferinfo=transferinfo
+                        )
+                        return
+
                     # 转移失败
                     logger.warn(f"{file_path.name} 入库失败：{transferinfo.message}")
                     # 新增转移失败历史记录
@@ -457,7 +480,7 @@ class DirMonitor(_PluginBase):
                 )
 
                 # 刮削单个文件
-                if settings.SCRAP_METADATA:
+                if self._scrape:
                     self.chain.scrape_metadata(path=transferinfo.target_path,
                                                mediainfo=mediainfo,
                                                transfer_type=transfer_type)
@@ -655,10 +678,12 @@ class DirMonitor(_PluginBase):
             }]
         return []
 
-    def sync(self) -> schemas.Response:
+    def sync(self, apikey: str) -> schemas.Response:
         """
         API调用目录同步
         """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
         self.sync_all()
         return schemas.Response(success=True)
 
@@ -754,7 +779,7 @@ class DirMonitor(_PluginBase):
                                         'component': 'VSelect',
                                         'props': {
                                             'model': 'transfer_type',
-                                            'label': '转移方式',
+                                            'label': '整理方式',
                                             'items': [
                                                 {'title': '移动', 'value': 'move'},
                                                 {'title': '复制', 'value': 'copy'},
@@ -822,6 +847,22 @@ class DirMonitor(_PluginBase):
                                         }
                                     }
                                 ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'scrape',
+                                            'label': '刮削元数据',
+                                        }
+                                    }
+                                ]
                             }
                         ]
                     },
@@ -842,9 +883,9 @@ class DirMonitor(_PluginBase):
                                             'rows': 5,
                                             'placeholder': '每一行一个目录，支持以下几种配置方式，转移方式支持 move、copy、link、softlink、rclone_copy、rclone_move：\n'
                                                            '监控目录\n'
-                                                           '监控目录#转移方式\n'
-                                                           '监控目录:转移目的目录\n'
-                                                           '监控目录:转移目的目录#转移方式'
+                                                           '监控目录#整理方式\n'
+                                                           '监控目录:整理目的目录\n'
+                                                           '监控目录:整理目的目录#转移方式'
                                         }
                                     }
                                 ]
@@ -887,7 +928,7 @@ class DirMonitor(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '监控目录不指定目的目录时，将转移到媒体库目录，并自动创建一级分类目录，同时按配置创建二级分类目录；监控目录指定了目的目录时，不会自动创建一级目录，但会根据配置创建二级分类目录。'
+                                            'text': '支持4种配置方式：1、监控目录，2、监控目录#整理方式，3、监控目录:整理目的目录，4、监控目录:整理目的目录#转移方式。监控目录不指定目的目录时，将按媒体库目录设置整理到媒体库目录，并根据目录的分类设置自动创建一二级分类目录；监控目录指定了目的目录时，会尝试在媒体库目录设定中查找对应路径的目录配置，如存在则以目录设定的分类选项创建子目录，否则直接整理到该目的目录下。建议不设置目的目录，由系统根据目录设定自动分类整理。'
                                         }
                                     }
                                 ]
@@ -943,12 +984,13 @@ class DirMonitor(_PluginBase):
             "notify": False,
             "onlyonce": False,
             "mode": "fast",
-            "transfer_type": settings.TRANSFER_TYPE,
+            "transfer_type": "link",
             "monitor_dirs": "",
             "exclude_keywords": "",
             "interval": 10,
             "cron": "",
-            "size": 0
+            "size": 0,
+            "scrape": True
         }
 
     def get_page(self) -> List[dict]:

@@ -99,7 +99,6 @@ class TrackerEditor(_PluginBase):
             for torrent in torrent_list:
                 new_tracker_list = []
                 for tracker in torrent.tracker_list:
-                    new_url = None
                     if self._target_domain in tracker:
                         new_url = tracker.replace(self._target_domain, self._replace_domain)
                         new_tracker_list.append(new_url)
@@ -114,7 +113,7 @@ class TrackerEditor(_PluginBase):
                     __tracker_list = new_tracker_list
                 if torrent_update_cnt > 0:
                     update_result = self._downloader.update_tracker(hash_string=torrent.hashString, tracker_list=__tracker_list)
-                    if update_result == False:
+                    if not update_result:
                         logger.error(f"执行tracker修改出错，中止本次执行")
                         torrent_update_cnt = 0
                         break

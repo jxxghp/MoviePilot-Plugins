@@ -25,7 +25,7 @@ class AutoBackup(_PluginBase):
     # 插件图标
     plugin_icon = "Time_machine_B.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -80,6 +80,14 @@ class AutoBackup(_PluginBase):
             if self._scheduler.get_jobs():
                 self._scheduler.print_jobs()
                 self._scheduler.start()
+
+    def api_backup(self, apikey: str):
+        """
+        API调用备份
+        """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
+        return self.__backup()
 
     def __backup(self):
         """
@@ -145,10 +153,14 @@ class AutoBackup(_PluginBase):
             backup_file = f"bk_{time.strftime('%Y%m%d%H%M%S')}"
             backup_path = bk_path / backup_file
             backup_path.mkdir(parents=True)
+
             # 把现有的相关文件进行copy备份
-            if settings.LIBRARY_CATEGORY:
-                shutil.copy(f'{config_path}/category.yaml', backup_path)
-            shutil.copy(f'{config_path}/user.db', backup_path)
+            category_file = config_path / "category.yaml"
+            if category_file.exists():
+                shutil.copy(category_file, backup_path)
+            userdb_file = config_path / "user.db"
+            if userdb_file.exists():
+                shutil.copy(userdb_file, backup_path)
 
             zip_file = str(backup_path) + '.zip'
             if os.path.exists(zip_file):
@@ -169,7 +181,7 @@ class AutoBackup(_PluginBase):
     def get_api(self) -> List[Dict[str, Any]]:
         return [{
             "path": "/backup",
-            "endpoint": self.__backup,
+            "endpoint": self.api_backup,
             "methods": ["GET"],
             "summary": "MoviePilot备份",
             "description": "MoviePilot备份",

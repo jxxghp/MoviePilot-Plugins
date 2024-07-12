@@ -69,6 +69,7 @@ class ISiteUserInfo(metaclass=ABCMeta):
             "UBits": ["UBits"],
             "听听歌": ["TTG", "WiKi", "DoA", "NGB", "ARiN"],
             "馒头": ["MTeam", "MTeamTV"],
+            "朋友": ["FRDS"],
         }
 
         # 错误信息
@@ -201,6 +202,10 @@ class ISiteUserInfo(metaclass=ABCMeta):
                 self._torrent_seeding_page = self._user_detail_page
             elif self.site_name == "馒头":
                 self._torrent_seeding_page = f"getusertorrentlist.php?userid={self.userid}&type=seeding"
+            elif self.site_name == "观众":
+                self._torrent_seeding_headers = {"Referer": urljoin(self._base_url, self._user_detail_page)}
+                logger.info(f" {self.site_name} {self._torrent_seeding_headers}")
+
             # 第一页
             next_page = self._parse_user_torrent_seeding_info(
                 self._get_page_content(urljoin(self._base_url, self._torrent_seeding_page),

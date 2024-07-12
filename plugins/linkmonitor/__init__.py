@@ -17,7 +17,7 @@ from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas import Notification, NotificationType
+from app.schemas import NotificationType
 from app.schemas.types import EventType
 from app.utils.system import SystemUtils
 
@@ -51,7 +51,7 @@ class LinkMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "Linkace_C.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -131,7 +131,7 @@ class LinkMonitor(_PluginBase):
                     self._dirconf[mon_path] = target_path
                 else:
                     logger.warn(f"{mon_path} 未配置目的目录，将不会进行硬链接")
-                    self.systemmessage.put(f"{mon_path} 未配置目的目录，将不会进行硬链接！")
+                    self.systemmessage.put(f"{mon_path} 未配置目的目录，将不会进行硬链接！", title="实时硬链接")
                     continue
 
                 # 启用目录监控
@@ -140,7 +140,7 @@ class LinkMonitor(_PluginBase):
                     try:
                         if target_path and target_path.is_relative_to(Path(mon_path)):
                             logger.warn(f"{target_path} 是监控目录 {mon_path} 的子目录，无法监控")
-                            self.systemmessage.put(f"{target_path} 是下载目录 {mon_path} 的子目录，无法监控")
+                            self.systemmessage.put(f"{target_path} 是下载目录 {mon_path} 的子目录，无法监控", title="实时硬链接")
                             continue
                     except Exception as e:
                         logger.debug(str(e))
@@ -170,7 +170,7 @@ class LinkMonitor(_PluginBase):
                                      """)
                         else:
                             logger.error(f"{mon_path} 启动目录监控失败：{err_msg}")
-                        self.systemmessage.put(f"{mon_path} 启动目录监控失败：{err_msg}")
+                        self.systemmessage.put(f"{mon_path} 启动目录监控失败：{err_msg}", title="实时硬链接")
 
             # 运行一次定时服务
             if self._onlyonce:
@@ -393,10 +393,12 @@ class LinkMonitor(_PluginBase):
                 "kwargs": {}
             }]
 
-    def sync(self) -> schemas.Response:
+    def sync(self, apikey: str) -> schemas.Response:
         """
         API调用目录同步
         """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
         self.sync_all()
         return schemas.Response(success=True)
 

@@ -28,7 +28,9 @@ class _ISiteSigninHandler(metaclass=ABCMeta):
         :param url: 站点Url
         :return: 是否匹配，如匹配则会调用该类的signin方法
         """
-        return True if StringUtils.url_equal(url, self.site_url) else False
+        if StringUtils.url_equal(url, self.site_url):
+            return True
+        return False
 
     @abstractmethod
     def signin(self, site_info: CommentedMap) -> Tuple[bool, str]:
@@ -40,7 +42,7 @@ class _ISiteSigninHandler(metaclass=ABCMeta):
         pass
 
     @staticmethod
-    def get_page_source(url: str, cookie: str, ua: str, proxy: bool, render: bool) -> str:
+    def get_page_source(url: str, cookie: str, ua: str, proxy: bool, render: bool, token: str = None) -> str:
         """
         获取页面源码
         :param url: Url地址
@@ -48,6 +50,7 @@ class _ISiteSigninHandler(metaclass=ABCMeta):
         :param ua: UA
         :param proxy: 是否使用代理
         :param render: 是否渲染
+        :param token: JWT Token
         :return: 页面源码，错误信息
         """
         if render:
@@ -56,10 +59,18 @@ class _ISiteSigninHandler(metaclass=ABCMeta):
                                                       ua=ua,
                                                       proxies=settings.PROXY_SERVER if proxy else None)
         else:
-            res = RequestUtils(cookies=cookie,
-                               ua=ua,
-                               proxies=settings.PROXY if proxy else None
-                               ).get_res(url=url)
+            if token:
+                headers = {
+                    "Authorization": token,
+                    "User-Agent": ua
+                }
+            else:
+                headers = {
+                    "User-Agent": ua,
+                    "Cookie": cookie
+                }
+            res = RequestUtils(headers=headers,
+                               proxies=settings.PROXY if proxy else None).get_res(url=url)
             if res is not None:
                 # 使用chardet检测字符编码
                 raw_data = res.content

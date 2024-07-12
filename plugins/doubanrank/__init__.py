@@ -8,6 +8,7 @@ import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app import schemas
 from app.chain.download import DownloadChain
 from app.chain.media import MediaChain
 from app.chain.subscribe import SubscribeChain
@@ -16,6 +17,7 @@ from app.core.context import MediaInfo
 from app.core.metainfo import MetaInfo
 from app.log import logger
 from app.plugins import _PluginBase
+from app.schemas import MediaType
 from app.utils.dom import DomUtils
 from app.utils.http import RequestUtils
 
@@ -28,7 +30,7 @@ class DoubanRank(_PluginBase):
     # 插件图标
     plugin_icon = "movie.jpg"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.9.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -125,7 +127,23 @@ class DoubanRank(_PluginBase):
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
-        pass
+        """
+        获取插件API
+        [{
+            "path": "/xx",
+            "endpoint": self.xxx,
+            "methods": ["GET", "POST"],
+            "summary": "API说明"
+        }]
+        """
+        return [
+            {
+                "path": "/delete_history",
+                "endpoint": self.delete_history,
+                "methods": ["GET"],
+                "summary": "删除豆瓣榜单订阅历史记录"
+            }
+        ]
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
@@ -369,6 +387,22 @@ class DoubanRank(_PluginBase):
                     'component': 'VCard',
                     'content': [
                         {
+                            "component": "VDialogCloseBtn",
+                            "props": {
+                                'innerClass': 'absolute top-0 right-0',
+                            },
+                            'events': {
+                                'click': {
+                                    'api': 'plugin/DoubanRank/delete_history',
+                                    'method': 'get',
+                                    'params': {
+                                        'key': f"doubanrank: {title} (DB:{doubanid})",
+                                        'apikey': settings.API_TOKEN
+                                    }
+                                }
+                            },
+                        },
+                        {
                             'component': 'div',
                             'props': {
                                 'class': 'd-flex justify-space-start flex-nowrap flex-row',
@@ -394,9 +428,9 @@ class DoubanRank(_PluginBase):
                                     'component': 'div',
                                     'content': [
                                         {
-                                            'component': 'VCardSubtitle',
+                                            'component': 'VCardTitle',
                                             'props': {
-                                                'class': 'pa-2 font-bold break-words whitespace-break-spaces'
+                                                'class': 'ps-1 pe-5 break-words whitespace-break-spaces'
                                             },
                                             'content': [
                                                 {
@@ -456,6 +490,21 @@ class DoubanRank(_PluginBase):
         except Exception as e:
             print(str(e))
 
+    def delete_history(self, key: str, apikey: str):
+        """
+        删除同步历史记录
+        """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
+        # 历史记录
+        historys = self.get_data('history')
+        if not historys:
+            return schemas.Response(success=False, message="未找到历史记录")
+        # 删除指定记录
+        historys = [h for h in historys if h.get("unique") != key]
+        self.save_data('history', historys)
+        return schemas.Response(success=True, message="删除成功")
+
     def __update_config(self):
         """
         列新配置
@@ -503,10 +552,15 @@ class DoubanRank(_PluginBase):
                     if self._event.is_set():
                         logger.info(f"订阅服务停止")
                         return
-
+                    mtype = None
                     title = rss_info.get('title')
                     douban_id = rss_info.get('doubanid')
                     year = rss_info.get('year')
+                    type_str = rss_info.get('type')
+                    if type_str == "movie":
+                        mtype = MediaType.MOVIE
+                    elif type_str:
+                        mtype = MediaType.TV
                     unique_flag = f"doubanrank: {title} (DB:{douban_id})"
                     # 检查是否已处理过
                     if unique_flag in [h.get("unique") for h in history]:
@@ -514,6 +568,8 @@ class DoubanRank(_PluginBase):
                     # 元数据
                     meta = MetaInfo(title)
                     meta.year = year
+                    if mtype:
+                        meta.type = mtype
                     # 识别媒体信息
                     if douban_id:
                         # 识别豆瓣信息

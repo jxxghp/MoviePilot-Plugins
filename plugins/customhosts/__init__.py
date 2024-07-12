@@ -18,7 +18,7 @@ class CustomHosts(_PluginBase):
     # 插件图标
     plugin_icon = "hosts.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -59,6 +59,9 @@ class CustomHosts(_PluginBase):
                     "err_hosts": error_hosts,
                     "enabled": self._enabled
                 })
+            else:
+                # hosts为空或未启用，清除系统hosts
+                self.__clear_system_hosts()
 
     def get_state(self) -> bool:
         return self._enabled
@@ -75,104 +78,104 @@ class CustomHosts(_PluginBase):
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
         return [
-                   {
-                       'component': 'VForm',
-                       'content': [
-                           {
-                               'component': 'VRow',
-                               'content': [
-                                   {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12,
-                                           'md': 6
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VSwitch',
-                                               'props': {
-                                                   'model': 'enabled',
-                                                   'label': '启用插件',
-                                               }
-                                           }
-                                       ]
-                                   }
-                               ]
-                           },
-                           {
-                               'component': 'VRow',
-                               'content': [
-                                   {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VTextarea',
-                                               'props': {
-                                                   'model': 'hosts',
-                                                   'label': '自定义hosts',
-                                                   'rows': 10,
-                                                   'placeholder': '每行一个配置，格式为：ip host1 host2 ...'
-                                               }
-                                           }
-                                       ]
-                                   }
-                               ]
-                           },
-                           {
-                               'component': 'VRow',
-                               'content': [
-                                   {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VTextarea',
-                                               'props': {
-                                                   'model': 'err_hosts',
-                                                   'readonly': True,
-                                                   'label': '错误hosts',
-                                                   'rows': 2,
-                                                   'placeholder': '错误的hosts配置会展示在此处，请修改上方hosts重新提交（错误的hosts不会写入系统hosts文件）'
-                                               }
-                                           }
-                                       ]
-                                   }
-                               ]
-                           },
-                           {
-                               'component': 'VRow',
-                               'content': [
-                                   {
-                                       'component': 'VCol',
-                                       'props': {
-                                           'cols': 12,
-                                       },
-                                       'content': [
-                                           {
-                                               'component': 'VAlert',
-                                               'props': {
-                                                   'type': 'info',
-                                                   'variant': 'tonal',
-                                                   'text': 'host格式ip host，中间有空格！！！'
-                                                           '（注：容器运行则更新容器hosts！非宿主机！）'
-                                               }
-                                           }
-                                       ]
-                                   }
-                               ]
-                           }
-                       ]
-                   }
-               ], {
-                   "enabled": False,
-                   "hosts": "",
-                   "err_hosts": ""
-               }
+            {
+                'component': 'VForm',
+                'content': [
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'enabled',
+                                            'label': '启用插件',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextarea',
+                                        'props': {
+                                            'model': 'hosts',
+                                            'label': '自定义hosts',
+                                            'rows': 10,
+                                            'placeholder': '每行一个配置，格式为：ip host1 host2 ...'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextarea',
+                                        'props': {
+                                            'model': 'err_hosts',
+                                            'readonly': True,
+                                            'label': '错误hosts',
+                                            'rows': 2,
+                                            'placeholder': '错误的hosts配置会展示在此处，请修改上方hosts重新提交（错误的hosts不会写入系统hosts文件）'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': 'host格式ip host，中间有空格！！！'
+                                                    '（注：容器运行则更新容器hosts！非宿主机！）'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ], {
+            "enabled": False,
+            "hosts": "",
+            "err_hosts": ""
+        }
 
     def get_page(self) -> List[dict]:
         pass
@@ -189,6 +192,27 @@ class CustomHosts(_PluginBase):
             hosts_path = '/etc/hosts'
         # 读取系统hosts
         return Hosts(path=hosts_path)
+
+    def __clear_system_hosts(self):
+        """
+        清除系统hosts
+        """
+        # 系统hosts对象
+        system_hosts = self.__read_system_hosts()
+        # 过滤掉插件添加的hosts
+        orgin_entries = []
+        for entry in system_hosts.entries:
+            if entry.entry_type == "comment" and entry.comment == "# CustomHostsPlugin":
+                break
+            orgin_entries.append(entry)
+        system_hosts.entries = orgin_entries
+        try:
+            system_hosts.write()
+            logger.info("系统hosts文件已恢复")
+        except Exception as err:
+            logger.error(f"恢复系统hosts文件失败：{str(err) or '请检查权限'}")
+            # 推送实时消息
+            self.systemmessage.put(f"恢复系统hosts文件失败：{str(err) or '请检查权限'}", title="自定义Hosts")
 
     def __add_hosts_to_system(self, hosts):
         """
@@ -221,7 +245,7 @@ class CustomHosts(_PluginBase):
                 err_hosts.append(host + "\n")
                 logger.error(f"[HOST] 格式转换错误：{str(err)}")
                 # 推送实时消息
-                self.systemmessage.put(f"[HOST] 格式转换错误：{str(err)}")
+                self.systemmessage.put(f"[HOST] 格式转换错误：{str(err)}", title="自定义Hosts")
 
         # 写入系统hosts
         if new_entrys:
@@ -236,7 +260,7 @@ class CustomHosts(_PluginBase):
                 err_flag = True
                 logger.error(f"更新系统hosts文件失败：{str(err) or '请检查权限'}")
                 # 推送实时消息
-                self.systemmessage.put(f"更新系统hosts文件失败：{str(err) or '请检查权限'}")
+                self.systemmessage.put(f"更新系统hosts文件失败：{str(err) or '请检查权限'}", title="自定义Hosts")
         return err_flag, err_hosts
 
     def stop_service(self):

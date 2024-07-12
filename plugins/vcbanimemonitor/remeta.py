@@ -2,8 +2,6 @@ import concurrent
 import re
 from pathlib import Path
 from typing import List
-import threading
-import roman
 from app.chain.media import MediaChain
 from app.chain.tmdb import TmdbChain
 from app.core.metainfo import MetaInfoPath
@@ -11,7 +9,27 @@ from app.log import logger
 from app.schemas import MediaType
 
 
-class ReMeta():
+def roman_to_int(s) -> int:
+    """
+    :param s: 罗马数字字符串
+    罗马数字转整数
+    """
+    roman_dict = {'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000}
+    total = 0
+    prev_value = 0
+
+    for char in reversed(s):  # 反向遍历罗马数字字符串
+        current_value = roman_dict[char]
+        if current_value >= prev_value:
+            total += current_value  # 如果当前值大于等于前一个值，加上当前值
+        else:
+            total -= current_value  # 如果当前值小于前一个值，减去当前值
+        prev_value = current_value
+
+    return total
+
+
+class ReMeta:
     # 解析之后的标题：
     title: str = None
     # 识别出来的集数
@@ -49,13 +67,14 @@ class ReMeta():
     # 自定义添加的季度正则表达式
     _custom_season_patterns = []
 
-    def __init__(self, ova_switch: bool = False,high_performance: bool = False):
+    def __init__(self, ova_switch: bool = False, high_performance: bool = False):
         self.ova_switch = ova_switch
         self.high_performance = high_performance
 
     def handel_file(self, file_path: Path):
         meta = MetaInfoPath(file_path)
         self.title = meta.title
+        self.title = Path(self.title).stem.strip()
         if 'VCB-Studio' not in meta.title:
             logger.warn("不属于VCB的作品，不处理！")
             return None
@@ -96,7 +115,7 @@ class ReMeta():
         if self.high_performance:
             with concurrent.futures.ProcessPoolExecutor(max_workers=2) as executor:
                 title_season_result = executor.submit(self.handle_season, title[0])
-                ep_result = executor.submit(self.re_ep, title[1],)
+                ep_result = executor.submit(self.re_ep, title[1], )
             try:
                 title_season_result = title_season_result.result()  # Blocks until the task is complete.
                 ep_result = ep_result.result()  # Blocks until the task is complete.
@@ -124,7 +143,7 @@ class ReMeta():
             match = pattern.search(pre_title)
             if match:
                 if type(group) == str:
-                    title_season["season"] = int(roman.fromRoman(match.group(int(group))))
+                    title_season["season"] = roman_to_int(match.group(int(group)))
                     title_season["title"] = re.sub(pattern, "", pre_title).strip()
                 else:
                     title_season["season"] = int(match.group(group))
@@ -159,7 +178,7 @@ class ReMeta():
             logger.info(f"获取到最终季，季度为{len(seasons_info)}")
             return len(seasons_info)
 
-    def re_ep(self, ep_title: str,) -> dict:
+    def re_ep(self, ep_title: str, ) -> dict:
         """
         # 集数匹配处理模块
         :param ep_title: 从title解析出的集数,ep_title固定格式[集数]
@@ -182,7 +201,3 @@ class ReMeta():
                 ep_ova["ep"] = int(match.group(group))
                 return ep_ova
         return ep_ova
-
-
-
-

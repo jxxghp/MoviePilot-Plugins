@@ -10,6 +10,9 @@ from typing import Any, List, Dict, Tuple, Optional, Union, Set
 from urllib.parse import urlparse, parse_qs, unquote
 
 import pytz
+from app.helper.sites import SitesHelper
+from apscheduler.schedulers.background import BackgroundScheduler
+
 from app import schemas
 from app.chain.torrents import TorrentsChain
 from app.core.config import settings
@@ -17,15 +20,14 @@ from app.core.context import MediaInfo
 from app.core.metainfo import MetaInfo
 from app.db.site_oper import SiteOper
 from app.db.subscribe_oper import SubscribeOper
-from app.helper.sites import SitesHelper
 from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
 from app.schemas import NotificationType, TorrentInfo, MediaType
+from app.schemas.types import EventType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
-from apscheduler.schedulers.background import BackgroundScheduler
 
 lock = threading.Lock()
 
@@ -66,13 +68,17 @@ class BrushConfig:
         self.clear_task = config.get("clear_task", False)
         self.archive_task = config.get("archive_task", False)
         self.except_tags = config.get("except_tags", True)
+        self.delete_except_tags = config.get("delete_except_tags")
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
         self.proxy_download = config.get("proxy_download", False)
         self.proxy_delete = config.get("proxy_delete", False)
-        self.log_more = config.get("log_more", False)
         self.active_time_range = config.get("active_time_range")
         self.downloader_monitor = config.get("downloader_monitor")
+        self.qb_category = config.get("qb_category")
+        self.auto_qb_category = config.get("auto_qb_category", False)
+        self.qb_first_last_piece = config.get("qb_first_last_piece", False)
+        self.site_hr_active = config.get("site_hr_active", False)
 
         self.brush_tag = "刷流"
         # 站点独立配置
@@ -80,13 +86,17 @@ class BrushConfig:
         self.site_config = config.get("site_config", "[]")
         self.group_site_configs = {}
 
-        if self.enable_site_config and process_site_config:
-            self.__initialize_site_config()
+        # 如果开启了独立站点配置，那么则初始化，否则判断配置是否为空，如果为空，则恢复默认配置
+        if process_site_config:
+            if self.enable_site_config:
+                self.__initialize_site_config()
+            elif not self.site_config:
+                self.site_config = self.get_demo_site_config()
 
     def __initialize_site_config(self):
         if not self.site_config:
             logger.error(f"没有设置站点配置，已关闭站点独立配置并恢复默认配置示例，请检查配置项")
-            self.site_config = self.__get_demo_site_config()
+            self.site_config = self.get_demo_site_config()
             self.group_site_configs = {}
             self.enable_site_config = False
             return
@@ -109,11 +119,17 @@ class BrushConfig:
             "seed_inactivetime",
             "save_path",
             "proxy_download",
-            "proxy_delete"
+            "proxy_delete",
+            "qb_category",
+            "auto_qb_category",
+            "qb_first_last_piece",
+            "site_hr_active"
             # 当新增支持字段时，仅在此处添加字段名
         }
         try:
-            site_configs = json.loads(self.site_config)
+            # site_config中去掉以//开始的行
+            site_config = re.sub(r'//.*?\n', '', self.site_config).strip()
+            site_configs = json.loads(site_config)
             self.group_site_configs = {}
             for config in site_configs:
                 sitename = config.get("sitename")
@@ -135,10 +151,11 @@ class BrushConfig:
             self.enabled = False
 
     @staticmethod
-    def __get_demo_site_config() -> str:
-        desc = ("//以下为配置示例，请参考 "
-                "https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md "
-                "进行配置，请注意，只需要保留实际配置内容（删除这段）\n")
+    def get_demo_site_config() -> str:
+        desc = (
+            "// 以下为配置示例，请参考：https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins/brushflowlowfreq/README.md 进行配置\n"
+            "// 如与全局保持一致的配置项，请勿在站点配置中配置\n"
+            "// 注意无关内容需使用 // 注释\n")
         config = """[{
     "sitename": "站点1",
     "seed_time": 96,
@@ -171,7 +188,11 @@ class BrushConfig:
     "seed_inactivetime": "",
     "save_path": "/downloads/site1",
     "proxy_download": false,
-    "proxy_delete": false
+    "proxy_delete": false,
+    "qb_category": "刷流",
+    "auto_qb_category": true,
+    "qb_first_last_piece": true,
+    "site_hr_active": true
 }]"""
         return desc + config
 
@@ -237,7 +258,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "2.7"
+    plugin_version = "3.4"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -269,11 +290,12 @@ class BrushFlow(_PluginBase):
     # 退出事件
     _event = Event()
     _scheduler = None
+    # tabs
+    _tabs = None
 
     # endregion
 
     def init_plugin(self, config: dict = None):
-        logger.info(f"站点刷流服务初始化")
         self.siteshelper = SitesHelper()
         self.siteoper = SiteOper()
         self.torrents = TorrentsChain()
@@ -283,6 +305,8 @@ class BrushFlow(_PluginBase):
         if not config:
             logger.info("站点刷流任务出错，无法获取插件配置")
             return False
+
+        self._tabs = config.get("_tabs", None)
 
         # 如果配置校验没有通过，那么这里修改配置文件后退出
         if not self.__validate_and_fix_config(config=config):
@@ -296,11 +320,12 @@ class BrushFlow(_PluginBase):
         brush_config = self._brush_config
 
         # 这里先过滤掉已删除的站点并保存，特别注意的是，这里保留了界面选择站点时的顺序，以便后续站点随机刷流或顺序刷流
-        site_id_to_public_status = {site.get("id"): site.get("public") for site in self.siteshelper.get_indexers()}
-        brush_config.brushsites = [
-            site_id for site_id in brush_config.brushsites
-            if site_id in site_id_to_public_status and not site_id_to_public_status[site_id]
-        ]
+        if brush_config.brushsites:
+            site_id_to_public_status = {site.get("id"): site.get("public") for site in self.siteshelper.get_indexers()}
+            brush_config.brushsites = [
+                site_id for site_id in brush_config.brushsites
+                if site_id in site_id_to_public_status and not site_id_to_public_status[site_id]
+            ]
 
         self.__update_config()
 
@@ -315,11 +340,10 @@ class BrushFlow(_PluginBase):
             brush_config.archive_task = False
             self.__update_config()
 
-        if brush_config.log_more:
-            if brush_config.enable_site_config:
-                logger.info(f"已开启站点独立配置，配置信息：{brush_config}")
-            else:
-                logger.info(f"没有开启站点独立配置，配置信息：{brush_config}")
+        if brush_config.enable_site_config:
+            logger.debug(f"已开启站点独立配置，配置信息：{brush_config}")
+        else:
+            logger.debug(f"没有开启站点独立配置，配置信息：{brush_config}")
 
         # 停止现有任务
         self.stop_service()
@@ -340,8 +364,6 @@ class BrushFlow(_PluginBase):
 
         # 如果开启&存在站点时，才需要启用后台任务
         self._task_brush_enable = brush_config.enabled and brush_config.brushsites
-
-        # brush_config.onlyonce = True
 
         # 检查是否启用了一次性任务
         if brush_config.onlyonce:
@@ -424,6 +446,340 @@ class BrushFlow(_PluginBase):
 
         return services
 
+    def __get_total_elements(self) -> List[dict]:
+        """
+        组装汇总元素
+        """
+        # 统计数据
+        statistic_info = self.__get_statistic_info()
+        # 总上传量
+        total_uploaded = StringUtils.str_filesize(statistic_info.get("uploaded") or 0)
+        # 总下载量
+        total_downloaded = StringUtils.str_filesize(statistic_info.get("downloaded") or 0)
+        # 下载种子数
+        total_count = statistic_info.get("count") or 0
+        # 删除种子数
+        total_deleted = statistic_info.get("deleted") or 0
+        # 待归档种子数
+        total_unarchived = statistic_info.get("unarchived") or 0
+        # 活跃种子数
+        total_active = statistic_info.get("active") or 0
+        # 活跃上传量
+        total_active_uploaded = StringUtils.str_filesize(statistic_info.get("active_uploaded") or 0)
+        # 活跃下载量
+        total_active_downloaded = StringUtils.str_filesize(statistic_info.get("active_downloaded") or 0)
+
+        return [
+            # 总上传量
+            {
+                'component': 'VCol',
+                'props': {
+                    'cols': 12,
+                    'md': 3,
+                    'sm': 6
+                },
+                'content': [
+                    {
+                        'component': 'VCard',
+                        'props': {
+                            'variant': 'tonal',
+                        },
+                        'content': [
+                            {
+                                'component': 'VCardText',
+                                'props': {
+                                    'class': 'd-flex align-center',
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAvatar',
+                                        'props': {
+                                            'rounded': True,
+                                            'variant': 'text',
+                                            'class': 'me-3'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VImg',
+                                                'props': {
+                                                    'src': '/plugin_icon/upload.png'
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'div',
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'props': {
+                                                    'class': 'text-caption'
+                                                },
+                                                'text': '总上传量 / 活跃'
+                                            },
+                                            {
+                                                'component': 'div',
+                                                'props': {
+                                                    'class': 'd-flex align-center flex-wrap'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'span',
+                                                        'props': {
+                                                            'class': 'text-h6'
+                                                        },
+                                                        'text': f"{total_uploaded} / {total_active_uploaded}"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                ]
+            },
+            # 总下载量
+            {
+                'component': 'VCol',
+                'props': {
+                    'cols': 12,
+                    'md': 3,
+                    'sm': 6
+                },
+                'content': [
+                    {
+                        'component': 'VCard',
+                        'props': {
+                            'variant': 'tonal',
+                        },
+                        'content': [
+                            {
+                                'component': 'VCardText',
+                                'props': {
+                                    'class': 'd-flex align-center',
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAvatar',
+                                        'props': {
+                                            'rounded': True,
+                                            'variant': 'text',
+                                            'class': 'me-3'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VImg',
+                                                'props': {
+                                                    'src': '/plugin_icon/download.png'
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'div',
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'props': {
+                                                    'class': 'text-caption'
+                                                },
+                                                'text': '总下载量 / 活跃'
+                                            },
+                                            {
+                                                'component': 'div',
+                                                'props': {
+                                                    'class': 'd-flex align-center flex-wrap'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'span',
+                                                        'props': {
+                                                            'class': 'text-h6'
+                                                        },
+                                                        'text': f"{total_downloaded} / {total_active_downloaded}"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                ]
+            },
+            # 下载种子数
+            {
+                'component': 'VCol',
+                'props': {
+                    'cols': 12,
+                    'md': 3,
+                    'sm': 6
+                },
+                'content': [
+                    {
+                        'component': 'VCard',
+                        'props': {
+                            'variant': 'tonal',
+                        },
+                        'content': [
+                            {
+                                'component': 'VCardText',
+                                'props': {
+                                    'class': 'd-flex align-center',
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAvatar',
+                                        'props': {
+                                            'rounded': True,
+                                            'variant': 'text',
+                                            'class': 'me-3'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VImg',
+                                                'props': {
+                                                    'src': '/plugin_icon/seed.png'
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'div',
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'props': {
+                                                    'class': 'text-caption'
+                                                },
+                                                'text': '下载种子数 / 活跃'
+                                            },
+                                            {
+                                                'component': 'div',
+                                                'props': {
+                                                    'class': 'd-flex align-center flex-wrap'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'span',
+                                                        'props': {
+                                                            'class': 'text-h6'
+                                                        },
+                                                        'text': f"{total_count} / {total_active}"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                ]
+            },
+            # 删除种子数
+            {
+                'component': 'VCol',
+                'props': {
+                    'cols': 12,
+                    'md': 3,
+                    'sm': 6
+                },
+                'content': [
+                    {
+                        'component': 'VCard',
+                        'props': {
+                            'variant': 'tonal',
+                        },
+                        'content': [
+                            {
+                                'component': 'VCardText',
+                                'props': {
+                                    'class': 'd-flex align-center',
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAvatar',
+                                        'props': {
+                                            'rounded': True,
+                                            'variant': 'text',
+                                            'class': 'me-3'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VImg',
+                                                'props': {
+                                                    'src': '/plugin_icon/delete.png'
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'div',
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'props': {
+                                                    'class': 'text-caption'
+                                                },
+                                                'text': '删除种子数 / 待归档'
+                                            },
+                                            {
+                                                'component': 'div',
+                                                'props': {
+                                                    'class': 'd-flex align-center flex-wrap'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'span',
+                                                        'props': {
+                                                            'class': 'text-h6'
+                                                        },
+                                                        'text': f"{total_deleted} / {total_unarchived}"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+        ]
+
+    def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+        """
+        获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、全局配置（自动刷新等）；3、仪表板页面元素配置json（含数据）
+        1、col配置参考：
+        {
+            "cols": 12, "md": 6
+        }
+        2、全局配置参考：
+        {
+            "refresh": 10 // 自动刷新时间，单位秒
+        }
+        3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
+        """
+        # 列配置
+        cols = {
+            "cols": 12
+        }
+        # 全局配置
+        attrs = {}
+        # 拼装页面元素
+        elements = [
+            {
+                'component': 'VRow',
+                'content': self.__get_total_elements()
+            }
+        ]
+        return cols, attrs, elements
+
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
@@ -436,48 +792,6 @@ class BrushFlow(_PluginBase):
             {
                 'component': 'VForm',
                 'content': [
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'success',
-                                            'variant': 'tonal'
-                                        },
-                                        'html': "<span class=\"v-alert__underlay\"></span><div class=\"v-alert__prepend\"><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"             aria-hidden=\"true\" role=\"img\" tag=\"i\" class=\"v-icon notranslate v-theme--purple iconify iconify--mdi\"             density=\"default\" width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\"             style=\"font-size: 28px; height: 28px; width: 28px;\">             <path fill=\"currentColor\"                 d=\"M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2m-1 15h2v-6h-2v6Z\">             </path>         </svg></div>     <div class=\"v-alert__content\">部分配置项以及细节请参考<a href='https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md' target='_blank'>https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md</a></div>"
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'error',
-                                            'variant': 'tonal',
-                                            'text': '注意：排除H&R并不保证能完全适配所有站点（部分站点在列表页不显示H&R标志，但实际上是有H&R的），请注意核对使用！'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
                     {
                         'component': 'VRow',
                         'content': [
@@ -537,14 +851,15 @@ class BrushFlow(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    "cols": 12
+                                    'cols': 12
                                 },
                                 'content': [
                                     {
                                         'component': 'VSelect',
                                         'props': {
-                                            'chips': True,
                                             'multiple': True,
+                                            'chips': True,
+                                            'clearable': True,
                                             'model': 'brushsites',
                                             'label': '刷流站点',
                                             'items': site_options
@@ -587,225 +902,9 @@ class BrushFlow(_PluginBase):
                                     {
                                         'component': 'VTextField',
                                         'props': {
-                                            'model': 'disksize',
-                                            'label': '保种体积（GB）',
-                                            'placeholder': '如：500，达到后停止新增任务'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSelect',
-                                        'props': {
-                                            'model': 'freeleech',
-                                            'label': '促销',
-                                            'items': [
-                                                {'title': '全部（包括普通）', 'value': ''},
-                                                {'title': '免费', 'value': 'free'},
-                                                {'title': '2X免费', 'value': '2xfree'},
-                                            ]
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSelect',
-                                        'props': {
-                                            'model': 'hr',
-                                            'label': '排除H&R',
-                                            'items': [
-                                                {'title': '是', 'value': 'yes'},
-                                                {'title': '否', 'value': 'no'},
-                                            ]
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'maxupspeed',
-                                            'label': '总上传带宽（KB/s）',
-                                            'placeholder': '达到后停止新增任务'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'maxdlspeed',
-                                            'label': '总下载带宽（KB/s）',
-                                            'placeholder': '达到后停止新增任务'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'maxdlcount',
-                                            'label': '同时下载任务数',
-                                            'placeholder': '达到后停止新增任务'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'include',
-                                            'label': '包含规则',
-                                            'placeholder': '支持正式表达式'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'exclude',
-                                            'label': '排除规则',
-                                            'placeholder': '支持正式表达式'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'size',
-                                            'label': '种子大小（GB）',
-                                            'placeholder': '如：5 或 5-10'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'seeder',
-                                            'label': '做种人数',
-                                            'placeholder': '如：5 或 5-10'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'pubtime',
-                                            'label': '发布时间（分钟）',
-                                            'placeholder': '如：5 或 5-10'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'seed_time',
-                                            'label': '做种时间（小时）',
-                                            'placeholder': '达到后删除任务'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'hr_seed_time',
-                                            'label': 'H&R做种时间（小时）',
-                                            'placeholder': '达到后删除任务'
+                                            'model': 'active_time_range',
+                                            'label': '开启时间段',
+                                            'placeholder': '如：00:00-08:00'
                                         }
                                     }
                                 ]
@@ -826,157 +925,792 @@ class BrushFlow(_PluginBase):
                                         }
                                     }
                                 ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VTabs',
+                        'props': {
+                            'model': '_tabs',
+                            'style': {
+                                'margin-top': '8px',
+                                'margin-bottom': '16px'
                             },
+                            'stacked': True,
+                            'fixed-tabs': True
+                        },
+                        'content': [
                             {
-                                'component': 'VCol',
+                                'component': 'VTab',
                                 'props': {
-                                    "cols": 12,
-                                    "md": 4
+                                    'value': 'base_tab'
+                                },
+                                'text': '基本配置'
+                            }, {
+                                'component': 'VTab',
+                                'props': {
+                                    'value': 'download_tab'
+                                },
+                                'text': '选种规则'
+                            }, {
+                                'component': 'VTab',
+                                'props': {
+                                    'value': 'delete_tab'
+                                },
+                                'text': '删除规则'
+                            }, {
+                                'component': 'VTab',
+                                'props': {
+                                    'value': 'other_tab'
+                                },
+                                'text': '更多配置'
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VWindow',
+                        'props': {
+                            'model': '_tabs'
+                        },
+                        'content': [
+                            {
+                                'component': 'VWindowItem',
+                                'props': {
+                                    'value': 'base_tab'
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextField',
+                                        'component': 'VRow',
                                         'props': {
-                                            'model': 'seed_ratio',
-                                            'label': '分享率',
-                                            'placeholder': '达到后删除任务'
-                                        }
+                                            'style': {
+                                                'margin-top': '0px'
+                                            }
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'maxdlcount',
+                                                            'label': '同时下载任务数',
+                                                            'placeholder': '达到后停止新增任务'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'disksize',
+                                                            'label': '保种体积（GB）',
+                                                            'placeholder': '如：500，达到后停止新增任务'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'qb_category',
+                                                            'label': '种子分类',
+                                                            'placeholder': '仅支持qBittorrent，需提前创建'
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'maxupspeed',
+                                                            'label': '总上传带宽（KB/s）',
+                                                            'placeholder': '达到后停止新增任务'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'maxdlspeed',
+                                                            'label': '总下载带宽（KB/s）',
+                                                            'placeholder': '达到后停止新增任务'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'save_path',
+                                                            'label': '保存目录',
+                                                            'placeholder': '留空自动'
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'up_speed',
+                                                            'label': '单任务上传限速（KB/s）',
+                                                            'placeholder': '种子上传限速'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'dl_speed',
+                                                            'label': '单任务下载限速（KB/s）',
+                                                            'placeholder': '种子下载限速'
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
                                     }
                                 ]
                             },
                             {
-                                'component': 'VCol',
+                                'component': 'VWindowItem',
                                 'props': {
-                                    "cols": 12,
-                                    "md": 4
+                                    'value': 'download_tab'
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextField',
+                                        'component': 'VRow',
                                         'props': {
-                                            'model': 'seed_size',
-                                            'label': '上传量（GB）',
-                                            'placeholder': '达到后删除任务'
-                                        }
+                                            'style': {
+                                                'margin-top': '0px'
+                                            }
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSelect',
+                                                        'props': {
+                                                            'model': 'hr',
+                                                            'label': '排除H&R',
+                                                            'items': [
+                                                                {'title': '是', 'value': 'yes'},
+                                                                {'title': '否', 'value': 'no'},
+                                                            ]
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSelect',
+                                                        'props': {
+                                                            'model': 'freeleech',
+                                                            'label': '促销',
+                                                            'items': [
+                                                                {'title': '全部（包括普通）', 'value': ''},
+                                                                {'title': '免费', 'value': 'free'},
+                                                                {'title': '2X免费', 'value': '2xfree'},
+                                                            ]
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'pubtime',
+                                                            'label': '发布时间（分钟）',
+                                                            'placeholder': '如：5 或 5-10'
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'size',
+                                                            'label': '种子大小（GB）',
+                                                            'placeholder': '如：5 或 5-10'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'seeder',
+                                                            'label': '做种人数',
+                                                            'placeholder': '如：5 或 5-10'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'include',
+                                                            'label': '包含规则',
+                                                            'placeholder': '支持正式表达式'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'exclude',
+                                                            'label': '排除规则',
+                                                            'placeholder': '支持正式表达式'
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
                                     }
                                 ]
                             },
                             {
-                                'component': 'VCol',
+                                'component': 'VWindowItem',
                                 'props': {
-                                    "cols": 12,
-                                    "md": 4
+                                    'value': 'delete_tab'
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextField',
+                                        'component': 'VRow',
                                         'props': {
-                                            'model': 'download_time',
-                                            'label': '下载超时时间（小时）',
-                                            'placeholder': '达到后删除任务'
-                                        }
+                                            'style': {
+                                                'margin-top': '0px'
+                                            }
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'seed_time',
+                                                            'label': '做种时间（小时）',
+                                                            'placeholder': '达到后删除任务'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'hr_seed_time',
+                                                            'label': 'H&R做种时间（小时）',
+                                                            'placeholder': '达到后删除任务'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'seed_ratio',
+                                                            'label': '分享率',
+                                                            'placeholder': '达到后删除任务'
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'seed_size',
+                                                            'label': '上传量（GB）',
+                                                            'placeholder': '达到后删除任务'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'seed_avgspeed',
+                                                            'label': '平均上传速度（KB/s）',
+                                                            'placeholder': '低于时删除任务'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'download_time',
+                                                            'label': '下载超时时间（小时）',
+                                                            'placeholder': '达到后删除任务'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'seed_inactivetime',
+                                                            'label': '未活动时间（分钟）',
+                                                            'placeholder': '超过时删除任务'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'delete_except_tags',
+                                                            'label': '删除排除标签',
+                                                            'placeholder': '如：MOVIEPILOT,H&R'
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
                                     }
                                 ]
                             },
                             {
-                                'component': 'VCol',
+                                'component': 'VWindowItem',
                                 'props': {
-                                    "cols": 12,
-                                    "md": 4
+                                    'value': 'other_tab'
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextField',
+                                        'component': 'VRow',
                                         'props': {
-                                            'model': 'seed_avgspeed',
-                                            'label': '平均上传速度（KB/s）',
-                                            'placeholder': '低于时删除任务'
-                                        }
+                                            'style': {
+                                                'margin-top': '-16px'
+                                            }
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'brush_sequential',
+                                                            'label': '站点顺序刷流',
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'except_tags',
+                                                            'label': '删种排除MoviePilot任务',
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'except_subscribe',
+                                                            'label': '排除订阅（实验性功能）',
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'clear_task',
+                                                            'label': '清除统计数据',
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'archive_task',
+                                                            'label': '归档已删除种子',
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'proxy_delete',
+                                                            'label': '动态删除种子（实验性功能）',
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        "content": [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'enable_site_config',
+                                                            'label': '站点独立配置',
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                "component": "VCol",
+                                                "props": {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                "content": [
+                                                    {
+                                                        "component": "VSwitch",
+                                                        "props": {
+                                                            "model": "dialog_closed",
+                                                            "label": "打开站点配置窗口"
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'proxy_download',
+                                                            'label': '代理下载种子',
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        "content": [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'downloader_monitor',
+                                                            'label': '下载器监控',
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'auto_qb_category',
+                                                            'label': '自动分类管理',
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'qb_first_last_piece',
+                                                            'label': '优先下载首尾文件块',
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
                                     }
                                 ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'props': {
+                            'style': {
+                                'margin-top': '12px'
                             },
+                        },
+                        'content': [
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    "cols": 12,
-                                    "md": 4
+                                    'cols': 12,
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextField',
+                                        'component': 'VAlert',
                                         'props': {
-                                            'model': 'seed_inactivetime',
-                                            'label': '未活动时间（分钟） ',
-                                            'placeholder': '超过时删除任务'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'up_speed',
-                                            'label': '单任务上传限速（KB/s）',
-                                            'placeholder': '种子上传限速'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'dl_speed',
-                                            'label': '单任务下载限速（KB/s）',
-                                            'placeholder': '种子下载限速'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'save_path',
-                                            'label': '保存目录',
-                                            'placeholder': '留空自动'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'active_time_range',
-                                            'label': '开启时间段',
-                                            'placeholder': '如：00:00-08:00'
-                                        }
+                                            'type': 'success',
+                                            'variant': 'tonal'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'text': '注意：详细配置说明以及刷流规则请参考：'
+                                            },
+                                            {
+                                                'component': 'a',
+                                                'props': {
+                                                    'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins/brushflowlowfreq/README.md',
+                                                    'target': '_blank'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'u',
+                                                        'text': 'README'
+                                                    }
+                                                ]
+                                            }
+                                        ]
                                     }
                                 ]
                             }
@@ -989,190 +1723,14 @@ class BrushFlow(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
                                 },
                                 'content': [
                                     {
-                                        'component': 'VSwitch',
+                                        'component': 'VAlert',
                                         'props': {
-                                            'model': 'brush_sequential',
-                                            'label': '站点顺序刷流',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'except_tags',
-                                            'label': '删种排除MoviePilot任务',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'except_subscribe',
-                                            'label': '排除订阅（实验性功能）',
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'clear_task',
-                                            'label': '清除统计数据',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'archive_task',
-                                            'label': '归档已删除种子',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'proxy_delete',
-                                            'label': '动态删除种子（实验性功能）',
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        "content": [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'enable_site_config',
-                                            'label': '站点独立配置',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 4,
-                                    # "class": "d-flex justify-end"
-                                },
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "dialog_closed",
-                                            "label": "设置站点"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'proxy_download',
-                                            'label': '代理下载种子',
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        "content": [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'downloader_monitor',
-                                            'label': '下载器监控',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'log_more',
-                                            'label': '记录更多日志',
+                                            'type': 'error',
+                                            'variant': 'tonal',
+                                            'text': '注意：排除H&R并不保证能完全适配所有站点（部分站点在列表页不显示H&R标志，但实际上是有H&R的），请注意核对使用'
                                         }
                                     }
                                 ]
@@ -1190,10 +1748,15 @@ class BrushFlow(_PluginBase):
                         "content": [
                             {
                                 "component": "VCard",
+                                "props": {
+                                    "title": "设置站点配置"
+                                },
                                 "content": [
                                     {
-                                        "component": "VCardItem",
-                                        "text": "设置站点配置"
+                                        "component": "VDialogCloseBtn",
+                                        "props": {
+                                            "model": "dialog_closed"
+                                        }
                                     },
                                     {
                                         "component": "VCardText",
@@ -1209,8 +1772,8 @@ class BrushFlow(_PluginBase):
                                                         },
                                                         'content': [
                                                             {
-                                                                "component": "VAceEditor",
-                                                                "props": {
+                                                                'component': 'VAceEditor',
+                                                                'props': {
                                                                     'modelvalue': 'site_config',
                                                                     'lang': 'json',
                                                                     'theme': 'monokai',
@@ -1236,7 +1799,25 @@ class BrushFlow(_PluginBase):
                                                                     'type': 'info',
                                                                     'variant': 'tonal'
                                                                 },
-                                                                'html': "<span class=\"v-alert__underlay\"></span><div class=\"v-alert__prepend\"><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"             aria-hidden=\"true\" role=\"img\" tag=\"i\" class=\"v-icon notranslate v-theme--purple iconify iconify--mdi\"             density=\"default\" width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\"             style=\"font-size: 28px; height: 28px; width: 28px;\">             <path fill=\"currentColor\"                 d=\"M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2m-1 15h2v-6h-2v6Z\">             </path>         </svg></div>     <div class=\"v-alert__content\">注意：只有启用站点独立配置时，该配置项才会生效，详细配置参考<a href='https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md' target='_blank'>https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md</a></div>"
+                                                                'content': [
+                                                                    {
+                                                                        'component': 'span',
+                                                                        'text': '注意：只有启用站点独立配置时，该配置项才会生效，详细配置参考：'
+                                                                    },
+                                                                    {
+                                                                        'component': 'a',
+                                                                        'props': {
+                                                                            'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins/brushflowlowfreq/README.md',
+                                                                            'target': '_blank'
+                                                                        },
+                                                                        'content': [
+                                                                            {
+                                                                                'component': 'u',
+                                                                                'text': 'README'
+                                                                            }
+                                                                        ]
+                                                                    }
+                                                                ]
                                                             }
                                                         ]
                                                     }
@@ -1257,6 +1838,7 @@ class BrushFlow(_PluginBase):
             "clear_task": False,
             "archive_task": False,
             "except_tags": True,
+            "delete_except_tags": f"{settings.TORRENT_TAG},H&R" if settings.TORRENT_TAG else "H&R",
             "except_subscribe": True,
             "brush_sequential": False,
             "proxy_download": False,
@@ -1264,15 +1846,15 @@ class BrushFlow(_PluginBase):
             "freeleech": "free",
             "hr": "yes",
             "enable_site_config": False,
-            "log_more": False,
             "downloader_monitor": False,
+            "auto_qb_category": False,
+            "qb_first_last_piece": False,
+            "site_config": BrushConfig.get_demo_site_config()
         }
 
     def get_page(self) -> List[dict]:
         # 种子明细
         torrents = self.get_data("torrents") or {}
-        # 统计数据
-        statistic_info = self.__get_statistic_info()
 
         if not torrents:
             return [
@@ -1288,76 +1870,27 @@ class BrushFlow(_PluginBase):
             data_list = torrents.values()
             # 按time倒序排序
             data_list = sorted(data_list, key=lambda x: x.get("time") or 0, reverse=True)
-        # 总上传量
-        total_uploaded = StringUtils.str_filesize(statistic_info.get("uploaded") or 0)
-        # 总下载量
-        total_downloaded = StringUtils.str_filesize(statistic_info.get("downloaded") or 0)
-        # 下载种子数
-        total_count = statistic_info.get("count") or 0
-        # 删除种子数
-        total_deleted = statistic_info.get("deleted") or 0
-        # 待归档种子数
-        total_unarchived = statistic_info.get("unarchived") or 0
-        # 活跃种子数
-        total_active = statistic_info.get("active") or 0
-        # 活跃上传量
-        total_active_uploaded = StringUtils.str_filesize(statistic_info.get("active_uploaded") or 0)
-        # 活跃下载量
-        total_active_downloaded = StringUtils.str_filesize(statistic_info.get("active_downloaded") or 0)
-        # 种子数据明细
-        torrent_trs = [
-            {
-                'component': 'tr',
-                'props': {
-                    'class': 'text-sm'
-                },
-                'content': [
-                    {
-                        'component': 'td',
-                        'props': {
-                            'class': 'whitespace-nowrap break-keep text-high-emphasis'
-                        },
-                        'text': data.get("site_name")
-                    },
-                    {
-                        'component': 'td',
-                        'html': f'<span style="font-size: .85rem;">{data.get("title")}</span>' +
-                                (f'<br><span style="font-size: 0.75rem;">{data.get("description")}</span>' if data.get(
-                                    "description") else "")
 
-                    },
-                    {
-                        'component': 'td',
-                        'text': StringUtils.str_filesize(data.get("size"))
-                    },
-                    {
-                        'component': 'td',
-                        'text': StringUtils.str_filesize(data.get("uploaded") or 0)
-                    },
-                    {
-                        'component': 'td',
-                        'text': StringUtils.str_filesize(data.get("downloaded") or 0)
-                    },
-                    {
-                        'component': 'td',
-                        'text': round(data.get('ratio') or 0, 2)
-                    },
-                    {
-                        'component': 'td',
-                        'text': "是" if data.get("hit_and_run") else "否"
-                    },
-                    {
-                        'component': 'td',
-                        'text': f"{data.get('seeding_time') / 3600:.1f}" if data.get('seeding_time') else "N/A"
-                    },
-                    {
-                        'component': 'td',
-                        'props': {
-                            'class': 'text-no-wrap'
-                        },
-                        'text': "已删除" if data.get("deleted") else "正常"
-                    }
-                ]
+        # 表格标题
+        headers = [
+            {'title': '站点', 'key': 'site', 'sortable': True},
+            {'title': '标题', 'key': 'title', 'sortable': True},
+            {'title': '大小', 'key': 'size', 'sortable': True},
+            {'title': '上传量', 'key': 'uploaded', 'sortable': True},
+            {'title': '下载量', 'key': 'downloaded', 'sortable': True},
+            {'title': '分享率', 'key': 'ratio', 'sortable': True},
+            {'title': '状态', 'key': 'status', 'sortable': True},
+        ]
+        # 种子数据明细
+        items = [
+            {
+                'site': data.get("site_name"),
+                'title': data.get("title"),
+                'size': StringUtils.str_filesize(data.get("size")),
+                'uploaded': StringUtils.str_filesize(data.get("uploaded") or 0),
+                'downloaded': StringUtils.str_filesize(data.get("downloaded") or 0),
+                'ratio': round(data.get('ratio') or 0, 2),
+                'status': "已删除" if data.get("deleted") else "正常"
             } for data in data_list
         ]
 
@@ -1365,374 +1898,37 @@ class BrushFlow(_PluginBase):
         return [
             {
                 'component': 'VRow',
-                'content': [
-                    # 总上传量
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
-                        },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VAvatar',
-                                                'props': {
-                                                    'rounded': True,
-                                                    'variant': 'text',
-                                                    'class': 'me-3'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VImg',
-                                                        'props': {
-                                                            'src': '/plugin_icon/upload.png'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '总上传量(活跃)'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': f"{total_uploaded}({total_active_uploaded})"
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    # 总下载量
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
-                        },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VAvatar',
-                                                'props': {
-                                                    'rounded': True,
-                                                    'variant': 'text',
-                                                    'class': 'me-3'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VImg',
-                                                        'props': {
-                                                            'src': '/plugin_icon/download.png'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '总下载量(活跃)'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': f"{total_downloaded}({total_active_downloaded})"
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    # 下载种子数
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
-                        },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VAvatar',
-                                                'props': {
-                                                    'rounded': True,
-                                                    'variant': 'text',
-                                                    'class': 'me-3'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VImg',
-                                                        'props': {
-                                                            'src': '/plugin_icon/seed.png'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '下载种子数(活跃)'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': f"{total_count}({total_active})"
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    # 删除种子数
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 3,
-                            'sm': 6
-                        },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VAvatar',
-                                                'props': {
-                                                    'rounded': True,
-                                                    'variant': 'text',
-                                                    'class': 'me-3'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VImg',
-                                                        'props': {
-                                                            'src': '/plugin_icon/delete.png'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '删除种子数(待归档)'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': f"{total_deleted}({total_unarchived})"
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
-                        ]
-                    },
+                'props': {
+                    'style': {
+                        'overflow': 'hidden',
+                    }
+                },
+                'content': self.__get_total_elements() + [
                     # 种子明细
                     {
-                        'component': 'VCol',
+                        'component': 'VRow',
                         'props': {
-                            'cols': 12,
+                            'class': 'd-none d-sm-block',
                         },
                         'content': [
                             {
-                                'component': 'VTable',
+                                'component': 'VCol',
                                 'props': {
-                                    'hover': True
+                                    'cols': 12,
                                 },
                                 'content': [
                                     {
-                                        'component': 'thead',
+                                        'component': 'VDataTableVirtual',
                                         'props': {
-                                            'class': 'text-no-wrap'
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '站点'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '标题'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '大小'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '上传量'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '下载量'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '分享率'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': 'HR'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '做种时间'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '状态'
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'tbody',
-                                        'content': torrent_trs
+                                            'class': 'text-sm',
+                                            'headers': headers,
+                                            'items': items,
+                                            'height': '30rem',
+                                            'density': 'compact',
+                                            'fixed-header': True,
+                                            'hide-no-data': True,
+                                            'hover': True
+                                        }
                                     }
                                 ]
                             }
@@ -1845,6 +2041,9 @@ class BrushFlow(_PluginBase):
 
         brush_config = self.__get_brush_config(sitename=siteinfo.name)
 
+        if brush_config.site_hr_active:
+            logger.info(f"站点 {siteinfo.name} 已开启全站H&R选项，所有种子设置为H&R种子")
+
         # 排除包含订阅的种子
         if brush_config.except_subscribe:
             torrents = self.__filter_torrents_contains_subscribe(torrents=torrents, subscribe_titles=subscribe_titles)
@@ -1854,7 +2053,7 @@ class BrushFlow(_PluginBase):
 
         torrents_size = self.__calculate_seeding_torrents_size(torrent_tasks=torrent_tasks)
 
-        logger.info(f"正在准备种子刷流，数量：{len(torrents)}")
+        logger.info(f"正在准备种子刷流，数量 {len(torrents)}")
 
         # 过滤种子
         for torrent in torrents:
@@ -1863,6 +2062,8 @@ class BrushFlow(_PluginBase):
             self.__log_brush_conditions(passed=pre_condition_passed, reason=reason)
             if not pre_condition_passed:
                 return False
+
+            logger.debug(f"种子详情：{torrent}")
 
             # 判断能否通过保种体积刷流条件
             size_condition_passed, reason = self.__evaluate_size_condition_for_brush(torrents_size=torrents_size,
@@ -1884,8 +2085,8 @@ class BrushFlow(_PluginBase):
                 logger.warn(f"{torrent.title} 添加刷流任务失败！")
                 continue
 
-            # 保存任务信息
-            torrent_tasks[hash_string] = {
+            # 触发刷流下载时间并保存任务信息
+            torrent_task = {
                 "site": siteinfo.id,
                 "site_name": siteinfo.name,
                 "title": torrent.title,
@@ -1906,7 +2107,7 @@ class BrushFlow(_PluginBase):
                 "freedate": torrent.freedate,
                 "uploadvolumefactor": torrent.uploadvolumefactor,
                 "downloadvolumefactor": torrent.downloadvolumefactor,
-                "hit_and_run": torrent.hit_and_run,
+                "hit_and_run": torrent.hit_and_run or brush_config.site_hr_active,
                 "volume_factor": torrent.volume_factor,
                 "freedate_diff": torrent.freedate_diff,
                 # "labels": torrent.labels,
@@ -1919,6 +2120,12 @@ class BrushFlow(_PluginBase):
                 "deleted": False,
                 "time": time.time()
             }
+
+            self.eventmanager.send_event(etype=EventType.PluginAction, data={
+                "action": "brushflow_download_added",
+                "data": torrent_task
+            })
+            torrent_tasks[hash_string] = torrent_task
 
             # 统计数据
             torrents_size += torrent.size
@@ -2025,6 +2232,12 @@ class BrushFlow(_PluginBase):
                    torrent_tasks.values()):
                 return False, "重复种子"
 
+        # 不同站点如果遇到相同种子，判断前一个种子是否已经在做种，否则排除处理
+        if torrent.title:
+            if any(torrent.site_name != f"{task.get('site_name')}" and torrent.title == f"{task.get('title')}"
+                   and not task.get("seed_time") for task in torrent_tasks.values()):
+                return False, "其他站点存在尚未下载完成的相同种子"
+
         # 促销条件
         if brush_config.freeleech and torrent.downloadvolumefactor != 0:
             return False, "非免费种子"
@@ -2071,21 +2284,23 @@ class BrushFlow(_PluginBase):
 
         # 发布时间
         pubdate_minutes = self.__get_pubminutes(torrent.pubdate)
-        pubdate_minutes = self.__adjust_site_pubminutes(pubdate_minutes, torrent)
+        # 已支持独立站点配置，取消单独适配站点时区逻辑，可通过配置项「pubtime」自行适配
+        # pubdate_minutes = self.__adjust_site_pubminutes(pubdate_minutes, torrent)
         if brush_config.pubtime:
             pubtimes = [float(n) for n in brush_config.pubtime.split("-")]
             if len(pubtimes) == 1:
                 # 单个值：选择发布时间小于等于该值的种子
                 if pubdate_minutes > pubtimes[0]:
-                    return False, f"发布时间 {pubdate_minutes:.0f} 分钟前，不符合条件"
+                    return False, f"发布时间 {torrent.pubdate}，{pubdate_minutes:.0f} 分钟前，不符合条件"
             else:
                 # 范围值：选择发布时间在范围内的种子
                 if not (pubtimes[0] <= pubdate_minutes <= pubtimes[1]):
-                    return False, f"发布时间 {pubdate_minutes:.0f} 分钟前，不在指定范围内"
+                    return False, f"发布时间 {torrent.pubdate}，{pubdate_minutes:.0f} 分钟前，不在指定范围内"
 
         return True, None
 
-    def __log_brush_conditions(self, passed: bool, reason: str, torrent: Any = None):
+    @staticmethod
+    def __log_brush_conditions(passed: bool, reason: str, torrent: Any = None):
         """
         记录刷流日志
         """
@@ -2093,9 +2308,7 @@ class BrushFlow(_PluginBase):
             if not torrent:
                 logger.warn(f"没有通过前置刷流条件校验，原因：{reason}")
             else:
-                brush_config = self.__get_brush_config()
-                if brush_config.log_more:
-                    logger.warn(f"种子没有通过刷流条件校验，原因：{reason} 种子：{torrent.title}|{torrent.description}")
+                logger.debug(f"种子没有通过刷流条件校验，原因：{reason} 种子：{torrent.title}|{torrent.description}")
 
     # endregion
 
@@ -2151,30 +2364,57 @@ class BrushFlow(_PluginBase):
             # 更新刷流任务列表中在下载器中删除的种子为删除状态
             self.__update_undeleted_torrents_missing_in_downloader(torrent_tasks, torrent_check_hashes, check_torrents)
 
-            # 排除MoviePilot种子
-            if check_torrents and brush_config.except_tags:
-                check_torrents = self.__filter_torrents_by_tag(torrents=check_torrents,
-                                                               exclude_tag=settings.TORRENT_TAG)
+            # 根据配置的标签进行种子排除
+            if check_torrents:
+                logger.info(f"当前刷流任务共 {len(check_torrents)} 个有效种子，正在准备按设定的种子标签进行排除")
+                # 初始化一个空的列表来存储需要排除的标签
+                tags_to_exclude = set()
+                # 如果 except_tags 配置为 True，将 settings.TORRENT_TAG 添加到排除列表中（前提是它不为空且不是纯空白）
+                if brush_config.except_tags and settings.TORRENT_TAG.strip():
+                    tags_to_exclude.add(settings.TORRENT_TAG.strip())
+                # 如果 delete_except_tags 非空且不是纯空白，则添加到排除列表中
+                if brush_config.delete_except_tags and brush_config.delete_except_tags.strip():
+                    tags_to_exclude.update(tag.strip() for tag in brush_config.delete_except_tags.split(','))
+                # 将所有需要排除的标签组合成一个字符串，每个标签之间用逗号分隔
+                combined_tags = ",".join(tags_to_exclude)
+                if combined_tags:  # 确保有标签需要排除
+                    pre_filter_count = len(check_torrents)  # 获取过滤前的任务数量
+                    check_torrents = self.__filter_torrents_by_tag(torrents=check_torrents, exclude_tag=combined_tags)
+                    post_filter_count = len(check_torrents)  # 获取过滤后的任务数量
+                    excluded_count = pre_filter_count - post_filter_count  # 计算被排除的任务数量
+                    logger.info(
+                        f"有效种子数 {pre_filter_count}，排除标签 '{combined_tags}' 后，"
+                        f"剩余种子数 {post_filter_count}，排除种子数 {excluded_count}")
+                else:
+                    logger.info("没有配置有效的排除标签，所有种子均参与后续处理")
 
-            need_delete_hashes = []
-
-            # 如果配置了动态删除以及删种阈值，则根据动态删种进行分组处理
-            if brush_config.proxy_delete and brush_config.delete_size_range:
-                logger.info("已开启动态删种，按系统默认动态删种条件开始检查任务")
-                proxy_delete_hashs = self.__delete_torrent_for_proxy(torrents=check_torrents,
-                                                                     torrent_tasks=torrent_tasks) or []
-                need_delete_hashes.extend(proxy_delete_hashs)
-            # 否则均认为是没有开启动态删种
+            # 种子删除检查
+            if not check_torrents:
+                logger.info("没有需要检查的任务，跳过")
             else:
-                logger.info("没有开启动态删种，按用户设置删种条件开始检查任务")
-                not_proxy_delete_hashs = self.__delete_torrent_for_evaluate_conditions(torrents=check_torrents,
-                                                                                       torrent_tasks=torrent_tasks) or []
-                need_delete_hashes.extend(not_proxy_delete_hashs)
+                need_delete_hashes = []
 
-            if need_delete_hashes:
-                if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
-                    for torrent_hash in need_delete_hashes:
-                        torrent_tasks[torrent_hash]["deleted"] = True
+                # 如果配置了动态删除以及删种阈值，则根据动态删种进行分组处理
+                if brush_config.proxy_delete and brush_config.delete_size_range:
+                    logger.info("已开启动态删种，按系统默认动态删种条件开始检查任务")
+                    proxy_delete_hashes = self.__delete_torrent_for_proxy(torrents=check_torrents,
+                                                                          torrent_tasks=torrent_tasks) or []
+                    need_delete_hashes.extend(proxy_delete_hashes)
+                # 否则均认为是没有开启动态删种
+                else:
+                    logger.info("没有开启动态删种，按用户设置删种条件开始检查任务")
+                    not_proxy_delete_hashes = self.__delete_torrent_for_evaluate_conditions(torrents=check_torrents,
+                                                                                            torrent_tasks=torrent_tasks) or []
+                    need_delete_hashes.extend(not_proxy_delete_hashes)
+
+                if need_delete_hashes:
+                    # 如果是QB，则重新汇报Tracker
+                    if brush_config.downloader == "qbittorrent":
+                        self.__qb_torrents_reannounce(torrent_hashes=need_delete_hashes)
+                    # 删除种子
+                    if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
+                        for torrent_hash in need_delete_hashes:
+                            torrent_tasks[torrent_hash]["deleted"] = True
 
             self.__update_and_save_statistic_info(torrent_tasks)
 
@@ -2368,7 +2608,7 @@ class BrushFlow(_PluginBase):
         根据条件删除种子并获取已删除列表
         """
         brush_config = self.__get_brush_config()
-        delete_hashs = []
+        delete_hashes = []
 
         for torrent in torrents:
             torrent_hash = self.__get_hash(torrent)
@@ -2387,16 +2627,15 @@ class BrushFlow(_PluginBase):
                                                                           torrent_info=torrent_info,
                                                                           torrent_task=torrent_task)
             if should_delete:
-                delete_hashs.append(torrent_hash)
-                reason = "触发动态删除，" + reason if proxy_delete else reason
+                delete_hashes.append(torrent_hash)
+                reason = "触发动态删除阈值，" + reason if proxy_delete else reason
                 self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc,
                                            reason=reason)
                 logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
             else:
-                if brush_config.log_more:
-                    logger.info(f"站点：{site_name}，{reason}，不删除种子：{torrent_title}|{torrent_desc}")
+                logger.debug(f"站点：{site_name}，{reason}，不删除种子：{torrent_title}|{torrent_desc}")
 
-        return delete_hashs
+        return delete_hashes
 
     def __delete_torrent_for_evaluate_proxy_pre_conditions(self, torrents: List[Any],
                                                            torrent_tasks: Dict[str, dict]) -> List:
@@ -2404,7 +2643,7 @@ class BrushFlow(_PluginBase):
         根据动态删除前置条件排除H&R种子后删除种子并获取已删除列表
         """
         brush_config = self.__get_brush_config()
-        delete_hashs = []
+        delete_hashes = []
 
         for torrent in torrents:
             torrent_hash = self.__get_hash(torrent)
@@ -2427,18 +2666,17 @@ class BrushFlow(_PluginBase):
             should_delete, reason = self.__evaluate_proxy_pre_conditions_for_delete(site_name=site_name,
                                                                                     torrent_info=torrent_info)
             if should_delete:
-                delete_hashs.append(torrent_hash)
+                delete_hashes.append(torrent_hash)
                 self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc,
                                            reason=reason)
                 logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
             else:
-                if brush_config.log_more:
-                    logger.info(f"站点：{site_name}，{reason}，不删除种子：{torrent_title}|{torrent_desc}")
+                logger.debug(f"站点：{site_name}，{reason}，不删除种子：{torrent_title}|{torrent_desc}")
 
-        return delete_hashs
+        return delete_hashes
 
     def __delete_torrent_for_proxy(self, torrents: List[Any], torrent_tasks: Dict[str, dict]) -> List:
-        """      
+        """
         动态删除种子，删除规则如下；
         - 不管做种体积是否超过设定的动态删除阈值，默认优先执行排除H&R种子后满足「下载超时时间」的种子
         - 上述规则执行完成后，当做种体积依旧超过设定的动态删除阈值时，继续执行下述种子删除规则
@@ -2482,6 +2720,9 @@ class BrushFlow(_PluginBase):
         sizes = [float(size) * 1024 ** 3 for size in brush_config.delete_size_range.split("-")]
         min_size = sizes[0]  # 至少需要达到的做种体积
         max_size = sizes[1] if len(sizes) > 1 else sizes[0]  # 触发删除操作的做种体积上限
+
+        # 判断是否为区间删除
+        proxy_size_range = len(sizes) > 1
 
         # 当总体积未超过最大阈值时，不需要执行删除操作
         if total_torrent_size < max_size:
@@ -2552,18 +2793,24 @@ class BrushFlow(_PluginBase):
                 torrent_desc = torrent_task.get("description", "")
                 seeding_time = torrent_task.get("seeding_time", 0)
                 if seeding_time:
-                    reason = f"触发动态删除，做种时间 {seeding_time / 3600:.1f} 小时，系统自动删除"
-                    self.__send_delete_message(site_name=site_name, torrent_title=torrent_title,
-                                               torrent_desc=torrent_desc,
-                                               reason=reason)
+                    reason = (f"触发动态删除阈值，系统自动删除，做种时间 {seeding_time / 3600:.1f} 小时，"
+                              f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB")
+                    # 如果是区间删除，一次性删除的数据过多，取消消息推送
+                    if not proxy_size_range:
+                        self.__send_delete_message(site_name=site_name, torrent_title=torrent_title,
+                                                   torrent_desc=torrent_desc,
+                                                   reason=reason)
                     logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
 
         delete_sites = {torrent_tasks[hash_key].get('site_name', '') for hash_key in need_delete_hashes if
                         hash_key in torrent_tasks}
         msg = (f"站点：{'，'.join(delete_sites)}\n内容：已完成 {len(need_delete_hashes)} 个种子删除，"
-               f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB\n原因：触发动态删除")
+               f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB\n原因：触发动态删除阈值，系统自动删除")
         logger.info(msg)
-        self.__send_message(title="【刷流任务状态更新】", text=msg)
+
+        # 如果是区间删除，这里则进行统一推送
+        if proxy_size_range:
+            self.__send_message(title="【刷流任务种子删除】", text=msg)
 
         # 返回所有需要删除的种子的哈希列表
         return need_delete_hashes
@@ -2680,7 +2927,7 @@ class BrushFlow(_PluginBase):
             "active_downloaded": active_downloaded
         })
 
-        logger.info(f"刷流任务统计数据：总任务数：{total_count}，活跃任务数：{active_count}，已删除：{total_deleted}，"
+        logger.info(f"刷流任务统计数据，总任务数：{total_count}，活跃任务数：{active_count}，已删除：{total_deleted}，"
                     f"待归档：{total_unarchived}，"
                     f"活跃上传量：{StringUtils.str_filesize(active_uploaded)}，"
                     f"活跃下载量：{StringUtils.str_filesize(active_downloaded)}，"
@@ -2796,15 +3043,19 @@ class BrushFlow(_PluginBase):
             "clear_task": brush_config.clear_task,
             "archive_task": brush_config.archive_task,
             "except_tags": brush_config.except_tags,
+            "delete_except_tags": brush_config.delete_except_tags,
             "except_subscribe": brush_config.except_subscribe,
             "brush_sequential": brush_config.brush_sequential,
             "proxy_download": brush_config.proxy_download,
             "proxy_delete": brush_config.proxy_delete,
-            "log_more": brush_config.log_more,
             "active_time_range": brush_config.active_time_range,
             "downloader_monitor": brush_config.downloader_monitor,
+            "qb_category": brush_config.qb_category,
+            "auto_qb_category": brush_config.auto_qb_category,
+            "qb_first_last_piece": brush_config.qb_first_last_piece,
             "enable_site_config": brush_config.enable_site_config,
-            "site_config": brush_config.site_config
+            "site_config": brush_config.site_config,
+            "_tabs": self._tabs
         }
 
         # 使用update_config方法或其等效方法更新配置
@@ -2815,15 +3066,16 @@ class BrushFlow(_PluginBase):
         根据下载器类型初始化下载器实例
         """
         brush_config = self.__get_brush_config()
+        self.qb = Qbittorrent()
+        self.tr = Transmission()
 
         if brush_config.downloader == "qbittorrent":
-            self.qb = Qbittorrent()
             if self.qb.is_inactive():
                 self.__log_and_notify_error("站点刷流任务出错：Qbittorrent未连接")
                 return False
 
         elif brush_config.downloader == "transmission":
-            self.tr = Transmission()
+
             if self.tr.is_inactive():
                 self.__log_and_notify_error("站点刷流任务出错：Transmission未连接")
                 return False
@@ -2892,7 +3144,7 @@ class BrushFlow(_PluginBase):
                     data = data.get(key)
                     if not data:
                         return None
-                logger.info(f"获取到下载地址：{data}")
+                logger.debug(f"获取到下载地址：{data}")
                 return data
         return None
 
@@ -2914,14 +3166,17 @@ class BrushFlow(_PluginBase):
         download_dir = brush_config.save_path or None
         # 获取下载链接
         torrent_content = torrent.enclosure
-        # 部分站点下载种子不需要传递Cookie
-        need_download_cookie = True
+        # proxies
+        proxies = settings.PROXY if torrent.site_proxy else None
+        # cookie
+        cookies = torrent.site_cookie
         if torrent_content.startswith("["):
             torrent_content = self.__get_redict_url(url=torrent_content,
-                                                    proxies=settings.PROXY if torrent.site_proxy else None,
+                                                    proxies=proxies,
                                                     ua=torrent.site_ua,
-                                                    cookie=torrent.site_cookie)
-            need_download_cookie = False
+                                                    cookie=cookies)
+            # 目前馒头请求实际种子时，不能传入Cookie
+            cookies = None
         if not torrent_content:
             logger.error(f"获取下载链接失败：{torrent.title}")
             return None
@@ -2936,28 +3191,30 @@ class BrushFlow(_PluginBase):
             tag = StringUtils.generate_random_str(10)
             # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
             if brush_config.proxy_download and not torrent_content.startswith("magnet"):
-                response = RequestUtils(cookies=torrent.site_cookie if need_download_cookie else None,
-                                        proxies=settings.PROXY if torrent.site_proxy else None,
+                response = RequestUtils(cookies=cookies,
+                                        proxies=proxies,
                                         ua=torrent.site_ua).get_res(url=torrent_content)
                 if response and response.ok:
                     torrent_content = response.content
                 else:
                     logger.error('尝试通过MP下载种子失败，继续尝试传递种子地址到下载器进行下载')
             if torrent_content:
-                state = self.qb.add_torrent(content=torrent_content,
-                                            download_dir=download_dir,
-                                            cookie=torrent.site_cookie if need_download_cookie else None,
-                                            tag=["已整理", brush_config.brush_tag, tag],
-                                            upload_limit=up_speed,
-                                            download_limit=down_speed)
+                state = self.__qb_add_torrent(content=torrent_content,
+                                              download_dir=download_dir,
+                                              cookie=cookies,
+                                              tag=["已整理", brush_config.brush_tag, tag],
+                                              category=brush_config.qb_category,
+                                              is_auto=brush_config.auto_qb_category,
+                                              is_first_last_piece_priority=brush_config.qb_first_last_piece,
+                                              upload_limit=up_speed,
+                                              download_limit=down_speed)
                 if not state:
                     return None
                 else:
                     # 获取种子Hash
                     torrent_hash = self.qb.get_torrent_id_by_tag(tags=tag)
                     if not torrent_hash:
-                        logger.error(f"{brush_config.downloader} 获取种子Hash失败"
-                                     f"{'，请尝试启用「代理下载种子」配置项' if not brush_config.proxy_download else ''}")
+                        logger.error(f"{brush_config.downloader} 获取种子Hash失败，详细信息请查看 README")
                         return None
                     return torrent_hash
             return None
@@ -2967,8 +3224,8 @@ class BrushFlow(_PluginBase):
                 return None
             # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
             if brush_config.proxy_download and not torrent_content.startswith("magnet"):
-                response = RequestUtils(cookies=torrent.site_cookie if need_download_cookie else None,
-                                        proxies=settings.PROXY if torrent.site_proxy else None,
+                response = RequestUtils(cookies=cookies,
+                                        proxies=proxies,
                                         ua=torrent.site_ua).get_res(url=torrent_content)
                 if response and response.ok:
                     torrent_content = response.content
@@ -2977,7 +3234,7 @@ class BrushFlow(_PluginBase):
             if torrent_content:
                 torrent = self.tr.add_torrent(content=torrent_content,
                                               download_dir=download_dir,
-                                              cookie=torrent.site_cookie if need_download_cookie else None,
+                                              cookie=cookies,
                                               labels=["已整理", brush_config.brush_tag])
                 if not torrent:
                     return None
@@ -2988,6 +3245,81 @@ class BrushFlow(_PluginBase):
                                                download_limit=down_speed)
                     return torrent.hashString
         return None
+
+    def __qb_add_torrent(self,
+                         content: Union[str, bytes],
+                         is_paused: bool = False,
+                         download_dir: str = None,
+                         tag: Union[str, list] = None,
+                         category: str = None,
+                         cookie=None,
+                         is_auto=False,
+                         is_first_last_piece_priority=False,
+                         **kwargs
+                         ) -> bool:
+        """
+        添加种子
+        :param content: 种子urls或文件内容
+        :param is_paused: 添加后暂停
+        :param tag: 标签
+        :param category: 种子分类
+        :param download_dir: 下载路径
+        :param cookie: 站点Cookie用于辅助下载种子
+        :return: bool
+        """
+        if not self.qb.qbc or not content:
+            return False
+
+        # 下载内容
+        if isinstance(content, str):
+            urls = content
+            torrent_files = None
+        else:
+            urls = None
+            torrent_files = content
+
+        # 保存目录
+        if download_dir:
+            save_path = download_dir
+        else:
+            save_path = None
+
+        # 标签
+        if tag:
+            tags = tag
+        else:
+            tags = None
+
+        try:
+            # 添加下载
+            qbc_ret = self.qb.qbc.torrents_add(urls=urls,
+                                               torrent_files=torrent_files,
+                                               save_path=save_path,
+                                               is_paused=is_paused,
+                                               tags=tags,
+                                               use_auto_torrent_management=is_auto,
+                                               is_first_last_piece_priority=is_first_last_piece_priority,
+                                               cookie=cookie,
+                                               category=category,
+                                               **kwargs)
+            return True if qbc_ret and str(qbc_ret).find("Ok") != -1 else False
+        except Exception as err:
+            logger.error(f"添加种子出错：{str(err)}")
+            return False
+
+    def __qb_torrents_reannounce(self, torrent_hashes: List[str]):
+        """强制重新汇报"""
+        if not self.qb.qbc:
+            return
+
+        if not torrent_hashes:
+            return
+
+        try:
+            # 重新汇报
+            self.qb.qbc.torrents_reannounce(torrent_hashes=torrent_hashes)
+        except Exception as err:
+            logger.error(f"强制重新汇报失败：{str(err)}")
 
     def __get_hash(self, torrent: Any):
         """
@@ -3202,7 +3534,7 @@ class BrushFlow(_PluginBase):
         记录错误日志并发送系统通知
         """
         logger.error(message)
-        self.systemmessage.put(message)
+        self.systemmessage.put(message, title="站点刷流")
 
     def __send_delete_message(self, site_name: str, torrent_title: str, torrent_desc: str, reason: str,
                               title: str = "【刷流任务种子删除】"):
@@ -3335,10 +3667,10 @@ class BrushFlow(_PluginBase):
         获取正在下载的任务数量
         """
         brush_config = self.__get_brush_config()
-        downlader = self.__get_downloader(brush_config.downloader)
-        if not downlader:
+        downloader = self.__get_downloader(brush_config.downloader)
+        if not downloader:
             return 0
-        torrents = downlader.get_downloading_torrents()
+        torrents = downloader.get_downloading_torrents()
         return len(torrents) or 0
 
     @staticmethod
@@ -3354,7 +3686,7 @@ class BrushFlow(_PluginBase):
             now = datetime.now()
             return (now - pubdate).total_seconds() // 60
         except Exception as e:
-            print(str(e))
+            logger.error(f"发布时间 {pubdate} 获取分钟失败，错误详情: {e}")
             return 0
 
     @staticmethod
@@ -3385,14 +3717,21 @@ class BrushFlow(_PluginBase):
 
     def __filter_torrents_by_tag(self, torrents: List[Any], exclude_tag: str) -> List[Any]:
         """
-        根据标签过滤torrents
+        根据标签过滤torrents，排除标签格式为逗号分隔的字符串，例如 "MOVIEPILOT, H&R"
         """
+        # 如果排除标签字符串为空，则返回原始列表
+        if not exclude_tag:
+            return torrents
+
+        # 将 exclude_tag 字符串分割成一个集合，并去除每个标签两端的空白，忽略空白标签并自动去重
+        exclude_tags = set(tag.strip() for tag in exclude_tag.split(',') if tag.strip())
+
         filter_torrents = []
         for torrent in torrents:
             # 使用 __get_label 方法获取每个 torrent 的标签列表
             labels = self.__get_label(torrent)
-            # 如果排除的标签不在这个列表中，则添加到过滤后的列表
-            if exclude_tag not in labels:
+            # 检查是否有任何一个排除标签存在于标签列表中
+            if not any(exclude in labels for exclude in exclude_tags):
                 filter_torrents.append(torrent)
         return filter_torrents
 
@@ -3446,7 +3785,8 @@ class BrushFlow(_PluginBase):
             for key in set(self._subscribe_infos) - current_keys:
                 del self._subscribe_infos[key]
 
-        logger.info(f"订阅标题匹配完成，当前订阅的标题集合为：{self._subscribe_infos}")
+        logger.info("已订阅标题匹配完成")
+        logger.debug(f"当前订阅的标题集合为：{self._subscribe_infos}")
         unique_titles = {title for titles in self._subscribe_infos.values() for title in titles}
         return unique_titles
 
@@ -3484,6 +3824,8 @@ class BrushFlow(_PluginBase):
         :param size_in_bytes: 文件大小，单位为字节。
         :return: 文件大小，单位为千兆字节（GB）。
         """
+        if not size_in_bytes:
+            return 0.0
         return size_in_bytes / (1024 ** 3)
 
     @staticmethod
@@ -3622,7 +3964,7 @@ class BrushFlow(_PluginBase):
 
             magnet_link = torrent.get("magnet_uri")
             if magnet_link:
-                query_params = parse_qs(urlparse(magnet_link).query)
+                query_params: dict = parse_qs(urlparse(magnet_link).query)
                 encoded_tracker_urls = query_params.get('tr', [])
                 # 解码tracker URLs然后扩展到trackers列表中
                 decoded_tracker_urls = [unquote(url) for url in encoded_tracker_urls]
