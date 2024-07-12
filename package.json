@@ -110,10 +110,13 @@
     "SpeedLimiter": {
         "name": "播放限速",
         "description": "外网播放媒体库视频时，自动对下载器进行限速。",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "Librespeed_A.png",
         "author": "Shurelol",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.2": "增加不限速路径配置，以应对网盘直链播放的情况"
+        }
     },
     "CloudflareSpeedTest": {
         "name": "Cloudflare IP优选",
