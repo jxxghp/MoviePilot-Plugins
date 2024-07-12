@@ -785,7 +785,7 @@
         "description": "支持使用MQTT发送消息通知。",
         "labels": "消息通知",
         "version": "1.0",
-        "icon": "Mqtt_A.png",
+        "icon": "Mosquitto_A.png",
         "author": "blacklips",
         "level": 1
     }
