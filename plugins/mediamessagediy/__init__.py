@@ -102,7 +102,7 @@ class MediaMessageDiy(_PluginBase):
                                         'props': {
                                             'model': 'pattern',
                                             'label': '格式模板',
-                                            'placeholder': '',
+                                            'placeholder': '使用markdown语法，另：使用形如%&%field%%%的形式引用媒体内容，具体字段解释请看插件的README\n例如：%&%title%%%表示媒体标题',
                                         }
                                     }
                                 ]
