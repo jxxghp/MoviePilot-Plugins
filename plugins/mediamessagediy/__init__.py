@@ -35,6 +35,13 @@ class MediaMessageDiy(_PluginBase):
         self._enable = config.get("enable")
         self._pattern = config.get("pattern")
 
+    @staticmethod
+    def get_command() -> List[Dict[str, Any]]:
+        pass
+
+    def get_api(self) -> List[Dict[str, Any]]:
+        pass
+
     @eventmanager.register(EventType.MediaMessage)
     def deal_event(self, event: Event):
         logger.info("收到MediaMessage事件")
@@ -128,3 +135,12 @@ class MediaMessageDiy(_PluginBase):
             "enable": self._enable,
             "pattern": self._pattern
         }
+
+    def get_page(self) -> List[dict]:
+        pass
+
+    def get_state(self) -> bool:
+        return self._enable
+
+    def stop_service(self):
+        pass
