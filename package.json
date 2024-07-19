@@ -793,7 +793,8 @@
         "author": "JerryGeng",
         "level": 3,
         "history": {
-            "v0.1": "修复一些BUG"
+            "v0.1": "修复一些BUG",
+            "v0.1.1": "修复一些BUG"
         }
     }
 }
