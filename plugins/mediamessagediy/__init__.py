@@ -32,6 +32,7 @@ class MediaMessageDiy(_PluginBase):
     _pattern = None
 
     def init_plugin(self, config: dict = None):
+        logger.info('自定义媒体消息插件初始化')
         self._enable = config.get("enable")
         self._pattern = config.get("pattern")
 
