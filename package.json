@@ -783,5 +783,14 @@
             "v1.1": "支持将极影视评分修改为豆瓣评分",
             "v1.0": "同步极影视在看/已看状态到豆瓣"
         }
+    },
+    "MediaMessageDiy": {
+        "name": "自定义媒体消息",
+        "description": "自定义发送的媒体消息的格式。",
+        "labels": "消息通知",
+        "version": "0.0.1",
+        "icon": "Themeengine_A.png",
+        "author": "JerryGeng",
+        "level": 1
     }
 }
