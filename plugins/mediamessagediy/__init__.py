@@ -7,6 +7,7 @@ from app.plugins import _PluginBase
 from app.schemas.types import EventType, MediaType, MediaImageType, NotificationType
 from typing import List, Tuple, Dict, Any, Optional
 
+
 class MediaMessageDiy(_PluginBase):
     # 插件名称
     plugin_name = "自定义媒体消息"
@@ -30,6 +31,9 @@ class MediaMessageDiy(_PluginBase):
     _enable = False
     _pattern = None
 
+    def init_plugin(self, config: dict = None):
+        self._enable = config.get("enable")
+        self._pattern = config.get("pattern")
 
     @eventmanager.register(EventType.MediaMessage)
     def deal_event(self, event: Event):
@@ -46,6 +50,7 @@ class MediaMessageDiy(_PluginBase):
         for media in medias:
             result = result + self.formatMedia(media) + '\n'
         return result
+
     def format_media(self, media: MediaInfo):
         return re.sub('%&%(\\w+)%%%', lambda match: media[match[1]], self._pattern)
 
