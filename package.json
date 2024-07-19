@@ -791,6 +791,9 @@
         "version": "0.1",
         "icon": "Themeengine_A.png",
         "author": "JerryGeng",
-        "level": 1
+        "level": 3,
+        "history": {
+            "v0.1": "修复一些BUG"
+        }
     }
 }
