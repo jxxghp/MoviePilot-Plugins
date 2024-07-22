@@ -16,7 +16,7 @@ class MediaMessageDiy(_PluginBase):
     # 插件图标
     plugin_icon = "Themeengine_A.png"
     # 插件版本
-    plugin_version = "0.2.1"
+    plugin_version = "0.2.2"
     # 插件作者
     plugin_author = "JerryGeng"
     # 作者主页
@@ -63,7 +63,7 @@ class MediaMessageDiy(_PluginBase):
         return result
 
     def format_media(self, media: MediaInfo, index: int) -> str:
-        return re.sub('%&%(\\w+)%%%', lambda match: index if match[1] == 'index' else getattr(media, match[1]), self._pattern)
+        return re.sub('%&%(\\w+)%%%', lambda match: str(index) if match[1] == 'index' else getattr(media, match[1]), self._pattern)
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
