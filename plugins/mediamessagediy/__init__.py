@@ -63,7 +63,7 @@ class MediaMessageDiy(_PluginBase):
         return result
 
     def format_media(self, media: MediaInfo, index: int) -> str:
-        return re.sub('%&%(\\w+)%%%', lambda match: str(index) if match[1] == 'index' else getattr(media, match[1]), self._pattern)
+        return re.sub('%&%(\\w+)%%%', lambda match: str(index + 1) if match[1] == 'index' else getattr(media, match[1]), self._pattern)
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
