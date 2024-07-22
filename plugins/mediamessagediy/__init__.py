@@ -58,6 +58,7 @@ class MediaMessageDiy(_PluginBase):
             logger.info('no event data')
             return
         logger.info("4")
+        logger.info(event_info)
         medias = event_info.medias
         logger.info("5")
         if not medias:
