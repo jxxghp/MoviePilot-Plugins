@@ -57,6 +57,7 @@ class MediaMessageDiy(_PluginBase):
         result = ''
         for media in medias:
             result = result + self.formatMedia(media) + '\n'
+        logger.info('返回内容：%s' % result)
         return result
 
     def format_media(self, media: MediaInfo):
