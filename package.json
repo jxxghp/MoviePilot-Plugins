@@ -788,7 +788,7 @@
         "name": "自定义媒体消息",
         "description": "自定义发送的媒体消息的格式。",
         "labels": "消息通知",
-        "version": "0.1.7",
+        "version": "0.1.8",
         "icon": "Themeengine_A.png",
         "author": "JerryGeng",
         "level": 1,

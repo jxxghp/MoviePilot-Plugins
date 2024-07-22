@@ -16,7 +16,7 @@ class MediaMessageDiy(_PluginBase):
     # 插件图标
     plugin_icon = "Themeengine_A.png"
     # 插件版本
-    plugin_version = "0.1.7"
+    plugin_version = "0.1.8"
     # 插件作者
     plugin_author = "JerryGeng"
     # 作者主页
@@ -58,8 +58,7 @@ class MediaMessageDiy(_PluginBase):
             logger.info('no event data')
             return
         logger.info("4")
-        logger.info(event_info)
-        medias = event_info.medias
+        medias = event_info['medias']
         logger.info("5")
         if not medias:
             logger.info('no medias')
