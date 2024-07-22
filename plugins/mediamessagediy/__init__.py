@@ -16,7 +16,7 @@ class MediaMessageDiy(_PluginBase):
     # 插件图标
     plugin_icon = "Themeengine_A.png"
     # 插件版本
-    plugin_version = "0.1.11"
+    plugin_version = "0.2.0"
     # 插件作者
     plugin_author = "JerryGeng"
     # 作者主页
@@ -47,7 +47,6 @@ class MediaMessageDiy(_PluginBase):
     def deal_event(self, event: Event):
         logger.info("收到MediaMessage事件")
         if not self._enable or not self._pattern:
-            logger.info('enabled: %s, pattern: %s' % (self._enable, self._pattern))
             return
         event_info = event.event_data
         if not event_info:
@@ -64,7 +63,6 @@ class MediaMessageDiy(_PluginBase):
         return result
 
     def format_media(self, media: MediaInfo):
-        logger.info(self._pattern)
         return re.sub('%&%(\\w+)%%%', lambda match: getattr(media, match[1]), self._pattern)
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
