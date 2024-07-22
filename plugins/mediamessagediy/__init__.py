@@ -16,7 +16,7 @@ class MediaMessageDiy(_PluginBase):
     # 插件图标
     plugin_icon = "Themeengine_A.png"
     # 插件版本
-    plugin_version = "0.1.5"
+    plugin_version = "0.1.6"
     # 插件作者
     plugin_author = "JerryGeng"
     # 作者主页
@@ -58,7 +58,7 @@ class MediaMessageDiy(_PluginBase):
             logger.info('no event data')
             return
         logger.info("4")
-        medias: List[MediaInfo] = event_info.medias
+        medias = event_info.medias
         logger.info("5")
         if not medias:
             logger.info('no medias')
@@ -67,11 +67,12 @@ class MediaMessageDiy(_PluginBase):
         result = ''
         logger.info("7")
         for media in medias:
-            result = result + self.formatMedia(media) + '\n'
+            result = result + self.format_media(media) + '\n'
         logger.info('返回内容：%s' % result)
         return result
 
     def format_media(self, media: MediaInfo):
+        logger.info("8")
         return re.sub('%&%(\\w+)%%%', lambda match: media[match[1]], self._pattern)
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
