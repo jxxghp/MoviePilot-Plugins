@@ -57,13 +57,13 @@ class MediaMessageDiy(_PluginBase):
             logger.info('no medias')
             return
         result = ''
-        for media in medias:
-            result = result + self.format_media(media) + '\n'
+        for index, media in enumerate(medias):
+            result = result + self.format_media(media, index) + '\n'
         logger.info('返回内容：%s' % result)
         return result
 
-    def format_media(self, media: MediaInfo):
-        return re.sub('%&%(\\w+)%%%', lambda match: getattr(media, match[1]), self._pattern)
+    def format_media(self, media: MediaInfo, index: int) -> str:
+        return re.sub('%&%(\\w+)%%%', lambda match: index if match[1] == 'index' else getattr(media, match[1]), self._pattern)
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
