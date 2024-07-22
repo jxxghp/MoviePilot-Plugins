@@ -16,7 +16,7 @@ class MediaMessageDiy(_PluginBase):
     # 插件图标
     plugin_icon = "Themeengine_A.png"
     # 插件版本
-    plugin_version = "0.1.2"
+    plugin_version = "0.1.3"
     # 插件作者
     plugin_author = "JerryGeng"
     # 作者主页
@@ -47,12 +47,15 @@ class MediaMessageDiy(_PluginBase):
     def deal_event(self, event: Event):
         logger.info("收到MediaMessage事件")
         if not self._enable or not self._pattern:
+            logger.info('enabled: %s, pattern: %s' % (self._enable, self._pattern))
             return
         event_info = event.event_data
         if not event_info:
+            logger.info('no event data')
             return
         medias: List[MediaInfo] = event_info.medias
         if not medias:
+            logger.info('no medias')
             return
         result = ''
         for media in medias:
