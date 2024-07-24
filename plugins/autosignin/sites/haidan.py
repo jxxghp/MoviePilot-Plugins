@@ -39,7 +39,15 @@ class HaiDan(_ISiteSigninHandler):
         render = site_info.get("render")
 
         # 签到
-        html_text = self.get_page_source(url='https://www.haidan.video/signin.php',
+        # 签到页会重定向到index.php，由于302重定向特性，导致index.php没有携带cookie
+        self.get_page_source(url='https://www.haidan.video/signin.php',
+                                         cookie=site_cookie,
+                                         ua=ua,
+                                         proxy=proxy,
+                                         render=render)
+
+        # 重新携带cookie获取index.php查看签到结果
+        html_text = self.get_page_source(url='https://www.haidan.video/index.php',
                                          cookie=site_cookie,
                                          ua=ua,
                                          proxy=proxy,
