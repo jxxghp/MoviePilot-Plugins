@@ -3,11 +3,12 @@
         "name": "站点自动签到",
         "description": "自动模拟登录、签到站点。",
         "labels": "站点",
-        "version": "2.4",
+        "version": "2.4.1",
         "icon": "signin.png",
         "author": "thsrite",
         "level": 2,
         "history": {
+            "v2.4.1": "修复海胆签到失败问题",
             "v2.4": "适配m-team Api地址变化",
             "v2.3.2": "修复YemaPT登录失败，支持YemaPT自动签到",
             "v2.3.1": "修复签到报错问题",
