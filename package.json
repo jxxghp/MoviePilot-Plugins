@@ -32,11 +32,12 @@
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
         "labels": "站点,仪表板",
-        "version": "3.9.2",
+        "version": "3.9.3",
         "icon": "statistic.png",
         "author": "lightolly",
         "level": 2,
         "history": {
+            "v3.9.3": "修复PTT的用户等级统计",
             "v3.9.2": "修复YemaPT的上传下载统计错误",
             "v3.9.1": "修复mteam域名地址",
             "v3.9": "修复YemaPT站点数据统计",

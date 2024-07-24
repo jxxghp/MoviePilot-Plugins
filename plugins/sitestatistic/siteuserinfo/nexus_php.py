@@ -340,6 +340,12 @@ class NexusPhpSiteUserInfo(ISiteUserInfo):
             self.user_level = user_levels_text[0].xpath("string(.)").strip()
             return
 
+        # 适配PTT用户等级
+        user_levels_text = html.xpath('//tr/td[text()="用户等级"]/following-sibling::td[1]/b/@title')
+        if user_levels_text:
+            self.user_level = user_levels_text[0].strip()
+            return
+
         user_levels_text = html.xpath('//a[contains(@href, "userdetails")]/text()')
         if not self.user_level and user_levels_text:
             for user_level_text in user_levels_text:
