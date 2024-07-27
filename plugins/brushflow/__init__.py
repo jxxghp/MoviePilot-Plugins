@@ -67,7 +67,6 @@ class BrushConfig:
         self.save_path = config.get("save_path")
         self.clear_task = config.get("clear_task", False)
         self.archive_task = config.get("archive_task", False)
-        self.except_tags = config.get("except_tags", True)
         self.delete_except_tags = config.get("delete_except_tags")
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
@@ -1485,8 +1484,8 @@ class BrushFlow(_PluginBase):
                                                     {
                                                         'component': 'VSwitch',
                                                         'props': {
-                                                            'model': 'except_tags',
-                                                            'label': '删种排除MoviePilot任务',
+                                                            'model': 'except_subscribe',
+                                                            'label': '排除订阅（实验性功能）',
                                                         }
                                                     }
                                                 ]
@@ -1501,8 +1500,8 @@ class BrushFlow(_PluginBase):
                                                     {
                                                         'component': 'VSwitch',
                                                         'props': {
-                                                            'model': 'except_subscribe',
-                                                            'label': '排除订阅（实验性功能）',
+                                                            'model': 'qb_first_last_piece',
+                                                            'label': '优先下载首尾文件块',
                                                         }
                                                     }
                                                 ]
@@ -1646,22 +1645,6 @@ class BrushFlow(_PluginBase):
                                                         'props': {
                                                             'model': 'auto_qb_category',
                                                             'label': '自动分类管理',
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSwitch',
-                                                        'props': {
-                                                            'model': 'qb_first_last_piece',
-                                                            'label': '优先下载首尾文件块',
                                                         }
                                                     }
                                                 ]
@@ -1837,7 +1820,6 @@ class BrushFlow(_PluginBase):
             "onlyonce": False,
             "clear_task": False,
             "archive_task": False,
-            "except_tags": True,
             "delete_except_tags": f"{settings.TORRENT_TAG},H&R" if settings.TORRENT_TAG else "H&R",
             "except_subscribe": True,
             "brush_sequential": False,
@@ -2369,9 +2351,6 @@ class BrushFlow(_PluginBase):
                 logger.info(f"当前刷流任务共 {len(check_torrents)} 个有效种子，正在准备按设定的种子标签进行排除")
                 # 初始化一个空的列表来存储需要排除的标签
                 tags_to_exclude = set()
-                # 如果 except_tags 配置为 True，将 settings.TORRENT_TAG 添加到排除列表中（前提是它不为空且不是纯空白）
-                if brush_config.except_tags and settings.TORRENT_TAG.strip():
-                    tags_to_exclude.add(settings.TORRENT_TAG.strip())
                 # 如果 delete_except_tags 非空且不是纯空白，则添加到排除列表中
                 if brush_config.delete_except_tags and brush_config.delete_except_tags.strip():
                     tags_to_exclude.update(tag.strip() for tag in brush_config.delete_except_tags.split(','))
@@ -3042,7 +3021,6 @@ class BrushFlow(_PluginBase):
             "save_path": brush_config.save_path,
             "clear_task": brush_config.clear_task,
             "archive_task": brush_config.archive_task,
-            "except_tags": brush_config.except_tags,
             "delete_except_tags": brush_config.delete_except_tags,
             "except_subscribe": brush_config.except_subscribe,
             "brush_sequential": brush_config.brush_sequential,
