@@ -23,7 +23,7 @@ class SpeedLimiter(_PluginBase):
     # 插件图标
     plugin_icon = "Librespeed_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "Shurelol"
     # 作者主页
@@ -55,6 +55,7 @@ class SpeedLimiter(_PluginBase):
     _unlimited_ips = {}
     # 当前限速状态
     _current_state = ""
+    _exclude_path = ""
 
     def init_plugin(self, config: dict = None):
         # 读取配置
@@ -66,6 +67,8 @@ class SpeedLimiter(_PluginBase):
             self._noplay_up_speed = float(config.get("noplay_up_speed")) if config.get("noplay_up_speed") else 0
             self._noplay_down_speed = float(config.get("noplay_down_speed")) if config.get("noplay_down_speed") else 0
             self._current_state = f"U:{self._noplay_up_speed},D:{self._noplay_down_speed}"
+            self._exclude_path = config.get("exclude_path")
+
             try:
                 # 总带宽
                 self._bandwidth = int(float(config.get("bandwidth") or 0)) * 1000000
@@ -355,6 +358,23 @@ class SpeedLimiter(_PluginBase):
                                         }
                                     }
                                 ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'exclude_path',
+                                            'label': '不限速路径',
+                                            'placeholder': '包含该路径的媒体不限速,多个请换行'
+                                        }
+                                    }
+                                ]
                             }
                         ]
                     }
@@ -371,7 +391,8 @@ class SpeedLimiter(_PluginBase):
             "bandwidth": None,
             "allocation_ratio": "",
             "ipv4": "",
-            "ipv6": ""
+            "ipv6": "",
+            "exclude_path": ""
         }
 
     def get_page(self) -> List[dict]:
@@ -415,7 +436,9 @@ class SpeedLimiter(_PluginBase):
                         sessions = res.json()
                         for session in sessions:
                             if session.get("NowPlayingItem") and not session.get("PlayState", {}).get("IsPaused"):
-                                playing_sessions.append(session)
+                                if not self.__path_execluded(session.get("NowPlayingItem").get("Path")):
+                                    playing_sessions.append(session)
+
                 except Exception as e:
                     logger.error(f"获取Emby播放会话失败：{str(e)}")
                     continue
@@ -438,7 +461,8 @@ class SpeedLimiter(_PluginBase):
                         sessions = res.json()
                         for session in sessions:
                             if session.get("NowPlayingItem") and not session.get("PlayState", {}).get("IsPaused"):
-                                playing_sessions.append(session)
+                                if not self.__path_execluded(session.get("NowPlayingItem").get("Path")):
+                                    playing_sessions.append(session)
                 except Exception as e:
                     logger.error(f"获取Jellyfin播放会话失败：{str(e)}")
                     continue
@@ -495,6 +519,18 @@ class SpeedLimiter(_PluginBase):
             self.__set_limiter(limit_type="未播放", upload_limit=self._noplay_up_speed,
                                download_limit=self._noplay_down_speed)
 
+    def __path_execluded(self, path: str) -> bool:
+        """
+        判断是否在不限速路径内
+        """
+        if self._exclude_path:
+            exclude_paths = self._exclude_path.split("\n")
+            for exclude_path in exclude_paths:
+                if exclude_path in path:
+                    logger.info(f"{path} 在不限速路径：{exclude_path} 内，跳过限速")
+                    return True
+        return False
+    
     def __calc_limit(self, total_bit_rate: float) -> float:
         """
         计算智能上传限速

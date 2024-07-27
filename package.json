@@ -3,11 +3,12 @@
         "name": "站点自动签到",
         "description": "自动模拟登录、签到站点。",
         "labels": "站点",
-        "version": "2.4",
+        "version": "2.4.1",
         "icon": "signin.png",
         "author": "thsrite",
         "level": 2,
         "history": {
+            "v2.4.1": "修复海胆签到失败问题",
             "v2.4": "适配m-team Api地址变化",
             "v2.3.2": "修复YemaPT登录失败，支持YemaPT自动签到",
             "v2.3.1": "修复签到报错问题",
@@ -31,11 +32,13 @@
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
         "labels": "站点,仪表板",
-        "version": "3.9.1",
+        "version": "3.9.3",
         "icon": "statistic.png",
         "author": "lightolly",
         "level": 2,
         "history": {
+            "v3.9.3": "修复PTT的用户等级统计",
+            "v3.9.2": "修复YemaPT的上传下载统计错误",
             "v3.9.1": "修复mteam域名地址",
             "v3.9": "修复YemaPT站点数据统计",
             "v3.8": "适配m-team Api地址变化",
@@ -169,10 +172,13 @@
         "name": "播放限速",
         "description": "外网播放媒体库视频时，自动对下载器进行限速。",
         "labels": "网络",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "Librespeed_A.png",
         "author": "Shurelol",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.2": "增加不限速路径配置，以应对网盘直链播放的情况"
+        }
     },
     "CloudflareSpeedTest": {
         "name": "Cloudflare IP优选",
