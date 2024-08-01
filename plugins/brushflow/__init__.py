@@ -257,7 +257,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "3.5"
+    plugin_version = "3.6"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -2304,10 +2304,6 @@ class BrushFlow(_PluginBase):
         brush_config = self.__get_brush_config()
 
         if not brush_config.downloader:
-            return
-
-        if not self.__is_current_time_in_range():
-            logger.info(f"当前不在指定的刷流时间区间内，检查操作将暂时暂停")
             return
 
         with lock:
