@@ -42,7 +42,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "3.9.3"
+    plugin_version = "4.0"
     # 插件作者
     plugin_author = "lightolly"
     # 作者主页
