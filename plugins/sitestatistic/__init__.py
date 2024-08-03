@@ -14,8 +14,7 @@ from ruamel.yaml import CommentedMap
 
 from app import schemas
 from app.core.config import settings
-from app.core.event import Event
-from app.core.event import eventmanager
+from app.core.event import Event, eventmanager
 from app.db.models import PluginData
 from app.db.site_oper import SiteOper
 from app.helper.browser import PlaywrightHelper
@@ -931,6 +930,12 @@ class SiteStatistic(_PluginBase):
         拼装插件详情页面，需要返回页面配置，同时附带数据
         """
 
+        def format_bonus(bonus):
+            try:
+                return f'{float(bonus):,.1f}'
+            except ValueError:
+                return '0.0'
+
         # 获取数据
         today, stattistic_data, yesterday_sites_data = self.__get_data()
         if not stattistic_data:
@@ -995,7 +1000,7 @@ class SiteStatistic(_PluginBase):
                     },
                     {
                         'component': 'td',
-                        'text': '{:,.1f}'.format(data.get('bonus') or 0)
+                        'text': format_bonus(data.get('bonus') or 0)
                     },
                     {
                         'component': 'td',
