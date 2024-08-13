@@ -161,11 +161,12 @@
         "name": "自定义Hosts",
         "description": "修改系统hosts文件，加速网络访问。",
         "labels": "网络",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "hosts.png",
         "author": "thsrite",
         "level": 1,
         "history": {
+            "v1.2": "支持写入注释",
             "v1.1": "关闭插件时自动恢复系统hosts"
         }
     },
