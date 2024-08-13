@@ -235,6 +235,12 @@ class CustomHosts(_PluginBase):
         for host in hosts:
             if not host:
                 continue
+            host = host.strip()
+            if host.startswith('#'):  # 检查是否为注释行
+                host_entry = HostsEntry(entry_type='comment', comment=host)
+                new_entrys.append(host_entry)
+                continue
+
             host_arr = str(host).split()
             try:
                 host_entry = HostsEntry(entry_type='ipv4' if IpUtils.is_ipv4(str(host_arr[0])) else 'ipv6',
