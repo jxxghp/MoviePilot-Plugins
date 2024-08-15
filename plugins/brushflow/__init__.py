@@ -3641,12 +3641,21 @@ class BrushFlow(_PluginBase):
         """
         获取正在下载的任务数量
         """
-        brush_config = self.__get_brush_config()
-        downloader = self.__get_downloader(brush_config.downloader)
-        if not downloader:
+        try:
+            brush_config = self.__get_brush_config()
+            downloader = self.__get_downloader(brush_config.downloader)
+            if not downloader:
+                return 0
+
+            torrents = downloader.get_downloading_torrents(tags=brush_config.brush_tag)
+            if torrents is None:
+                logger.warn("获取下载数量失败，可能是下载器连接发生异常")
+                return 0
+
+            return len(torrents)
+        except Exception as e:
+            logger.error(f"获取下载数量发生异常: {e}")
             return 0
-        torrents = downloader.get_downloading_torrents()
-        return len(torrents) or 0
 
     @staticmethod
     def __get_pubminutes(pubdate: str) -> float:
