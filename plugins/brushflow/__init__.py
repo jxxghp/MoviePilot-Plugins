@@ -3755,7 +3755,8 @@ class BrushFlow(_PluginBase):
                                                                       doubanid=subscribe.doubanid,
                                                                       cache=True)
                     if mediainfo:
-                        logger.info(f"subscribe {subscribe.name} {mediainfo.to_dict()}")
+                        logger.info(f"订阅 {subscribe.name} 已识别到媒体信息")
+                        logger.debug(f"subscribe {subscribe.name} {mediainfo.to_dict()}")
                         subscribe_titles.extend(mediainfo.names)
                         subscribe_titles = [title.strip() for title in subscribe_titles if title and title.strip()]
                         self._subscribe_infos[subscribe_key] = subscribe_titles
@@ -3769,7 +3770,7 @@ class BrushFlow(_PluginBase):
             for key in set(self._subscribe_infos) - current_keys:
                 del self._subscribe_infos[key]
 
-        logger.info("已订阅标题匹配完成")
+        logger.info("订阅标题匹配完成")
         logger.debug(f"当前订阅的标题集合为：{self._subscribe_infos}")
         unique_titles = {title for titles in self._subscribe_infos.values() for title in titles}
         return unique_titles
