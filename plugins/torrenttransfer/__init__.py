@@ -27,7 +27,7 @@ class TorrentTransfer(_PluginBase):
     # 插件图标
     plugin_icon = "seed.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -724,6 +724,9 @@ class TorrentTransfer(_PluginBase):
                                     and fastresume_trackers[0]:
                                 # 重新赋值
                                 torrent_main['announce'] = fastresume_trackers[0][0]
+                                # 保留其他tracker，避免单一tracker无法连接
+                                if len(fastresume_trackers) > 1 or len(fastresume_trackers[0]) > 1:
+                                    torrent_main['announce-list'] = fastresume_trackers
                                 # 替换种子文件路径
                                 torrent_file = settings.TEMP_PATH / f"{torrent_item.get('hash')}.torrent"
                                 # 编码并保存到临时文件
