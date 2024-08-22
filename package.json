@@ -283,11 +283,12 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "labels": "做种,IYUU",
-        "version": "1.9.3",
+        "version": "1.9.4",
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2,
         "history": {
+            "v1.9.4": "修复qbittorrent 添加种子并跳过检验后会标记为完成不会自动做种",
             "v1.9.3": "修复Monika因缺少rsskey，种子下载失败的问题",
             "v1.9.2": "适配馒头使用API下载种子",
             "v1.9.1": "支持自定义辅种的种子分类",
