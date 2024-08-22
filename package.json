@@ -357,10 +357,13 @@
         "name": "下载器文件同步",
         "description": "同步下载器的文件信息到数据库，删除文件时联动删除下载任务。",
         "labels": "下载管理",
-        "version": "1.1",
+        "version": "1.1.1",
         "icon": "Youtube-dl_A.png",
         "author": "thsrite",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.1.1": "修复时区问题导致的上次同步后8h内的种子不同步的问题"
+        }
     },
     "BrushFlow": {
         "name": "站点刷流",
