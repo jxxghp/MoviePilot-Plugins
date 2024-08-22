@@ -22,7 +22,7 @@ class SyncDownloadFiles(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.1.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -265,7 +265,7 @@ class SyncDownloadFiles(_PluginBase):
         if last_sync_time:
             # 获取种子时间
             if dl_tpe == "qbittorrent":
-                torrent_date = time.gmtime(torrent.get("added_on"))  # 将时间戳转换为时间元组
+                torrent_date = time.localtime(torrent.get("added_on"))  # 将时间戳转换为时间元组
                 torrent_date = time.strftime("%Y-%m-%d %H:%M:%S", torrent_date)  # 格式化时间
             else:
                 torrent_date = torrent.added_date
