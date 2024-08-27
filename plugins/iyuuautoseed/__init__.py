@@ -957,12 +957,9 @@ class IYUUAutoSeed(_PluginBase):
             if self._skipverify:
                 # 跳过校验
                 logger.info(f"{download_id} 跳过校验，请自行检查...")
-                # qbittorrent 添加种子并跳过检验后会标记为完成不会自动做种
-                # 加入校验种子列表，但是跳过校验
+                # qbittorrent 添加种子并跳过检验后会标记为完成不会自动做种，需要手动开始
                 if downloader == "qbittorrent":
-                    if not self._recheck_torrents.get(downloader):
-                        self._recheck_torrents[downloader] = []
-                    self._recheck_torrents[downloader].append(download_id)
+                    downloader_obj.start_torrents(ids=[download_id])
             else:
                 # 追加校验任务
                 logger.info(f"添加校验检查任务：{download_id} ...")
