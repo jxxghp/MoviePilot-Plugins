@@ -957,9 +957,6 @@ class IYUUAutoSeed(_PluginBase):
             if self._skipverify:
                 # 跳过校验
                 logger.info(f"{download_id} 跳过校验，请自行检查...")
-                # qbittorrent 添加种子并跳过检验后会标记为完成不会自动做种，需要手动开始
-                if downloader == "qbittorrent":
-                    downloader_obj.start_torrents(ids=[download_id])
             else:
                 # 追加校验任务
                 logger.info(f"添加校验检查任务：{download_id} ...")
@@ -970,7 +967,9 @@ class IYUUAutoSeed(_PluginBase):
                 if downloader == "qbittorrent":
                     # 开始校验种子
                     downloader_obj.recheck_torrents(ids=[download_id])
-          
+            # qbittorrent 添加种子后会标记为完成不会自动做种，需要手动开始
+            if downloader == "qbittorrent":
+                downloader_obj.start_torrents(ids=[download_id])
             # 下载成功
             logger.info(f"成功添加辅种下载，站点：{site_info.get('name')}，种子链接：{torrent_url}")
             # 成功也加入缓存，有一些改了路径校验不通过的，手动删除后，下一次又会辅上
