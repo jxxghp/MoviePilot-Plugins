@@ -330,7 +330,7 @@ class DirMonitor(_PluginBase):
                             return
 
                 # 不是媒体文件不处理
-                if file_path.suffix not in settings.RMT_MEDIAEXT:
+                if file_path.suffix.casefold() not in map(str.casefold, settings.RMT_MEDIAEXT):
                     logger.debug(f"{event_path} 不是媒体文件")
                     return
 
