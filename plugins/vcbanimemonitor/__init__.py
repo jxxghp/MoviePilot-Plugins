@@ -5,7 +5,6 @@ import threading
 import time
 import traceback
 from pathlib import Path
-from time import sleep
 from typing import List, Tuple, Dict, Any, Optional
 import pytz
 import qbittorrentapi
@@ -19,8 +18,6 @@ from app.chain.tmdb import TmdbChain
 from app.chain.transfer import TransferChain
 from app.core.config import settings
 from app.core.context import MediaInfo
-from app.core.event import eventmanager, Event
-from app.core.metainfo import MetaInfoPath
 from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.db.transferhistory_oper import TransferHistoryOper
 from app.log import logger
@@ -77,7 +74,7 @@ class VCBAnimeMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "vcbmonitor.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.8.1"
     # 插件作者
     plugin_author = "pixel@qingwa"
     # 作者主页
@@ -224,7 +221,8 @@ class VCBAnimeMonitor(_PluginBase):
                     try:
                         if target_path and target_path.is_relative_to(Path(mon_path)):
                             logger.warn(f"{target_path} 是监控目录 {mon_path} 的子目录，无法监控")
-                            self.systemmessage.put(f"{target_path} 是下载目录 {mon_path} 的子目录，无法监控", title="整理VCB动漫压制组作品")
+                            self.systemmessage.put(f"{target_path} 是下载目录 {mon_path} 的子目录，无法监控",
+                                                   title="整理VCB动漫压制组作品")
                             continue
                     except Exception as e:
                         logger.debug(str(e))
@@ -382,27 +380,49 @@ class VCBAnimeMonitor(_PluginBase):
                     return
 
                 # 元数据
-                if file_path.parent.name == "SPs":
-                    logger.warn("位于SPs目录下，跳过处理")
+                if file_path.parent.name in ["SPs", "Scans", "CDs"]:
+                    logger.warn("位于特典等其他特殊目录下，跳过处理")
                     return
-                remeta = ReMeta(ova_switch=self._switch_ova, high_performance=self._high_mode)
+
+                if 'VCB-Studio' not in file_path.stem.strip():
+                    logger.warn("不属于VCB的作品，不处理！")
+                    return
+
+                remeta = ReMeta(ova_switch=self._switch_ova, )
                 file_meta = remeta.handel_file(file_path=file_path)
                 if file_meta:
                     if not file_meta.name:
                         logger.error(f"{file_path.name} 无法识别有效信息")
                         return
-                    if remeta.is_special and not self._switch_ova:
+                    if remeta.is_ova and not self._switch_ova:
                         logger.warn(f"{file_path.name} 为OVA资源，未开启OVA开关，不处理")
                         return
-                    if remeta.is_special and self._switch_ova:
-                        logger.info(f"{file_path.name} 为OVA资源,开始处理")
-                        if self.get_data(key=f"OVA_{file_meta.title}") is not None:
-                            ova_history_ep = int(self.get_data(key=f"OVA_{file_meta.title}")) + 1
-                            file_meta.begin_episode = ova_history_ep
-                            self.save_data(key=f"OVA_{file_meta.title}", value=ova_history_ep)
+                    # if remeta.is_ova and self._switch_ova:
+                    #     logger.info(f"{file_path.name} 为OVA资源,开始处理")
+                    #     if self.get_data(key=f"OVA_{file_meta.title}") is not None:
+                    #         ova_history_ep = int(self.get_data(key=f"OVA_{file_meta.title}")) + 1
+                    #         file_meta.begin_episode = ova_history_ep
+                    #         self.save_data(key=f"OVA_{file_meta.title}", value=ova_history_ep)
+                    #     else:
+                    #         file_meta.begin_episode = 1
+                    #         self.save_data(key=f"OVA_{file_meta.title}", value=1)
+                    if remeta.is_ova and self._switch_ova:
+                        logger.info(f"{file_path.name} 为OVA资源,开始历史记录处理")
+                        ova_history_ep_list = self.plugindata.get(file_meta.title, [])
+                        if ova_history_ep_list:
+                            ep = file_meta.begin_episode
+                            if ep in ova_history_ep_list:
+                                for i in range(1, 100):
+                                    if ep + i not in ova_history_ep_list:
+                                        ova_history_ep_list.append(ep + i)
+                                        file_meta.begin_episode = ep + i
+                                        break
+                            else:
+                                ova_history_ep_list.append(ep)
+                            self.plugindata.put(file_meta.title, ova_history_ep_list)
                         else:
-                            file_meta.begin_episode = 1
-                            self.save_data(key=f"OVA_{file_meta.title}", value=1)
+                            self.plugindata.put(file_meta.title, [file_meta.begin_episode])
+
                 else:
                     return
 
