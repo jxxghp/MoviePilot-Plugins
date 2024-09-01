@@ -400,20 +400,21 @@ class VCBAnimeMonitor(_PluginBase):
                         return
                     if remeta.is_ova and self._switch_ova:
                         logger.info(f"{file_path.name} 为OVA资源,开始历史记录处理")
-                        ova_history_ep_list = self.plugindata.get(file_meta.title, [])
-                        if ova_history_ep_list:
+                        ova_history_ep_list = self.get_data(file_meta.title)
+                        if ova_history_ep_list and isinstance(ova_history_ep_list, list):
                             ep = file_meta.begin_episode
                             if ep in ova_history_ep_list:
                                 for i in range(1, 100):
                                     if ep + i not in ova_history_ep_list:
                                         ova_history_ep_list.append(ep + i)
                                         file_meta.begin_episode = ep + i
+                                        logger.info(f"{file_path.name} 为OVA资源,历史记录中已存在，自动识别为第{ep + i}集")
                                         break
                             else:
                                 ova_history_ep_list.append(ep)
-                            self.plugindata.put(file_meta.title, ova_history_ep_list)
+                            self.save_data(file_meta.title, ova_history_ep_list)
                         else:
-                            self.plugindata.put(file_meta.title, [file_meta.begin_episode])
+                            self.save_data(file_meta.title, [file_meta.begin_episode])
 
                 else:
                     return
