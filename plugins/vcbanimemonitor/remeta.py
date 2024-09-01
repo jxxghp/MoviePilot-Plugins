@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 from app.chain.media import MediaChain
+from app.chain.tmdb import TmdbChain
 from app.core.metainfo import MetaInfoPath
 from app.log import logger
 from app.schemas import MediaType
@@ -33,6 +34,11 @@ final_season_patterns = [
     re.compile(r'\sFinal')
 ]
 
+movie_patterns = [
+    re.compile("Movie", re.IGNORECASE),
+    re.compile("the Movie", re.IGNORECASE),
+]
+
 
 @dataclass
 class VCBMetaBase:
@@ -52,6 +58,8 @@ class VCBMetaBase:
     ep: int = None
     # 是否是OVA/OAD
     is_ova: bool = False
+    # TMDB ID
+    tmdb_id: int = None
 
 
 blocked_words = ["vcb-studio", "360p", "480p", "720p", "1080p", "2160p", "hdr", "x265", "x264", "aac", "flac"]
@@ -83,7 +91,8 @@ class ReMeta:
         self.vcb_meta.original_title = file_name
         if not self.is_tv(file_name):
             logger.warn(
-                "不符合VCB-Studio的剧集命名规范，归类为电影,跳过剧集模块处理。注意：年份较为久远的作品可能会判断错误")
+                "不符合VCB-Studio的剧集命名规范，归类为电影,跳过剧集模块处理。注意：年份较为久远的作品可能在此会判断错误")
+            self.parse_movie()
         else:
             self.tv_mode()
         self.is_ova = self.vcb_meta.is_ova
@@ -95,6 +104,8 @@ class ReMeta:
             meta.begin_episode = self.vcb_meta.ep
         if self.vcb_meta.type == "Movie":
             meta.type = MediaType.MOVIE
+        else:
+            meta.type = MediaType.TV
         return meta
 
     def split_season_ep(self):
@@ -179,7 +190,8 @@ class ReMeta:
                 self.vcb_meta.is_ova = True
                 # 直接获取数字
                 self.vcb_meta.ep = int(re.search(r"\d+", ep).group()) or 1
-                logger.info(f"识别出集数为{self.vcb_meta.ep}")
+                logger.info(f"OVA模式下识别出集数为{self.vcb_meta.ep}")
+                self.vcb_meta.season = 0
                 return
 
     def culling_blocked_words(self):
@@ -192,42 +204,53 @@ class ReMeta:
 
     def handle_final_season(self):
 
-        meta, medias = MediaChain().search(title=self.vcb_meta.title)
+        _, medias = MediaChain().search(title=self.vcb_meta.title)
         if not medias:
             logger.warning("匹配到最终季时无法找到对应的媒体信息！季度返回默认值：1")
             self.vcb_meta.season = 1
             return
 
-        max_season_number = 1
-        # 当没有季度参考时用评分来决定
-        vote_average = 0
-        season_info = False
-        for media in medias:
-            if media.type != MediaType.TV:
-                logger.info(f"搜索到的: {media.title}, 媒体类型为 {media.type}，跳过")
-                continue
-            if media.season_info:
-                season_info = True
-                last_season_number = int(media.season_info[-1].get("season_number", 1))
-                if last_season_number > max_season_number:
-                    max_season_number = last_season_number
-            else:
-                logger.info(f"媒体: {media.title} 没有季信息，跳过")
-        if not season_info:
-            # 备用方案
-            for media in medias:
-                if media.seasons:
-                    seasons: dict
-                    # 获取最大的键，即最大季度
-                    last_season_number = max(media.seasons.keys())
-                    if last_season_number > max_season_number:
-                        max_season_number = last_season_number
-                        logger.info(f"获取到最终季，季度为 {max_season_number},标题为 {media.title},年份为 {media.year}")
-                else:
-                    logger.info(f"媒体: {media.title} 没有季信息，跳过")
+        filter_medias = [media for media in medias if media.type == MediaType.TV]
+        if not filter_medias:
+            logger.warning("匹配到最终季时无法找到对应的媒体信息！季度返回默认值：1")
+            self.vcb_meta.season = 1
+            return
+        medias = [media for media in filter_medias if media.popularity or media.vote_average]
+        if not medias:
+            logger.warning("匹配到最终季时无法找到对应的媒体信息！季度返回默认值：1")
+            self.vcb_meta.season = 1
+            return
+        # 获取欢迎度最高或者评分最高的媒体
+        medias_sorted = sorted(medias, key=lambda x: x.popularity or x.vote_average, reverse=True)[0]
+        self.vcb_meta.tmdb_id = medias_sorted.tmdb_id
+        if medias_sorted.tmdb_id:
+            seasons_info = TmdbChain().tmdb_seasons(tmdbid=medias_sorted.tmdb_id)
+            if seasons_info:
+                self.vcb_meta.season = len(seasons_info)
+                logger.info(f"获取到最终季度，季度为{self.vcb_meta.season}")
+                return
+        logger.warning("无法获取到最终季度信息，季度返回默认值：1")
+        self.vcb_meta.season = 1
 
-        self.vcb_meta.season = max_season_number
-        logger.info(f"获取到最终季，季度为 {self.vcb_meta.season}")
+
+
+    def parse_movie(self):
+        logger.info("开始尝试剧场版模式解析")
+        for pattern in movie_patterns:
+            if pattern.search(self.vcb_meta.title):
+                logger.info("命中剧场版匹配规则,加上剧场版标识辅助识别")
+                self.vcb_meta.type = "Movie"
+                self.vcb_meta.title = pattern.sub("", self.vcb_meta.title).strip()
+                self.vcb_meta.title = self.vcb_meta.title
+                return
+
+    def find_ova_episode(self):
+        """
+        搜索OVA的集数
+        TODO:模糊匹配OVA的集数
+        """
+        pass
+
 
     @staticmethod
     def roman_to_int(s) -> int:
@@ -250,21 +273,9 @@ class ReMeta:
         return total
 
 
-def test(title: str):
-    # 示例文件名
-    pre_title = title
 
-    # 提取方括号内的内容，不包括方括号
-    content = re.findall(r'\[(.*?)\]', pre_title)
-
-    print(content)
-
-
-if __name__ == '__main__':
-    # title = "[BeanSub&VCB-Studio] Jujutsu Kaisen [26][Ma10p_1080p][x265_flac].mkv "
-    # test(title)
-
-    ReMeta(
-        ova_switch=True,
-    ).handel_file(Path(
-        r"[Nekomoe kissaten&VCB-Studio] Fruits Basket The Final [08][Ma10p_1080p][x265_flac].mkv"))
+# if __name__ == '__main__':
+#     ReMeta(
+#         ova_switch=True,
+#     ).handel_file(Path(
+#         r"[Airota&Nekomoe kissaten&VCB-Studio] Yuru Camp [Heya Camp EP00][Ma10p_1080p][x265_flac].mkv"))
