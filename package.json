@@ -319,7 +319,7 @@
         "name": "整理VCB动漫压制组作品",
         "description": "一款辅助整理&提高识别VCB-Stuido动漫压制组作品的插件",
         "labels": "文件整理,识别",
-        "version": "1.8",
+        "version": "1.8.2",
         "icon": "vcbmonitor.png",
         "author": "pixel@qingwa",
         "level": 2,
