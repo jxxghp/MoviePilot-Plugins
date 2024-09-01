@@ -317,13 +317,15 @@
     },
     "VCBAnimeMonitor": {
         "name": "整理VCB动漫压制组作品",
-        "description": "提高部分VCB-Studio作品的识别准确率,将VCB-Studio的作品统一转移到指定目录同时进行刮削整理",
+        "description": "一款辅助整理&提高识别VCB-Stuido动漫压制组作品的插件",
         "labels": "文件整理,识别",
-        "version": "1.8",
+        "version": "1.8.2",
         "icon": "vcbmonitor.png",
         "author": "pixel@qingwa",
         "level": 2,
         "history": {
+            "v1.8.2": "提高识别率",
+            "v1.8.1": "重构插件，测试版",
             "v1.8": "增加了元数据刮削开关，升级后需要手动打开，否则默认不刮削",
             "v1.7.1": "修复偶尔安装失败问题"
         }
