@@ -15,6 +15,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 from app import schemas
+from app.chain.media import MediaChain
 from app.chain.tmdb import TmdbChain
 from app.chain.transfer import TransferChain
 from app.core.config import settings
@@ -75,7 +76,7 @@ class VCBAnimeMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "vcbmonitor.png"
     # 插件版本
-    plugin_version = "1.8.2"
+    plugin_version = "1.8.2.1"
     # 插件作者
     plugin_author = "pixel@qingwa"
     # 作者主页
@@ -97,6 +98,7 @@ class VCBAnimeMonitor(_PluginBase):
     downloadhis = None
     transferchian = None
     tmdbchain = None
+    mediaChain = None
     _observer = []
     _enabled = False
     _notify = False
@@ -123,6 +125,7 @@ class VCBAnimeMonitor(_PluginBase):
         self.transferhis = TransferHistoryOper()
         self.downloadhis = DownloadHistoryOper()
         self.transferchian = TransferChain()
+        self.mediaChain = MediaChain()
         self.tmdbchain = TmdbChain()
         # 清空配置
         self._dirconf = {}
@@ -180,7 +183,7 @@ class VCBAnimeMonitor(_PluginBase):
                     observer.start()
                     logger.info(f"{self._torrents_path} 的种子目录监控服务启动，开启监控新增的VCB-Studio种子文件")
                 except Exception as e:
-                    logger.error(f"{self._torrents_path} 启动种子目录监控失败：{str(e)}")
+                    logger.debug(f"{self._torrents_path} 启动种子目录监控失败：{str(e)}")
             else:
                 logger.info("种子目录为空，不转移qb中正在下载的VCB-Studio文件")
 
@@ -375,21 +378,30 @@ class VCBAnimeMonitor(_PluginBase):
                     logger.debug(f"{event_path} 不是媒体文件")
                     return
 
+                # 判断是不是蓝光目录
+                bluray_flag = False
+                if re.search(r"BDMV[/\\]STREAM", event_path, re.IGNORECASE):
+                    bluray_flag = True
+                    # 截取BDMV前面的路径
+                    blurray_dir = event_path[:event_path.find("BDMV")]
+                    file_path = Path(blurray_dir)
+                    logger.info(f"{event_path} 是蓝光目录，更正文件路径为：{str(file_path)}")
+
                 # 查询历史记录，已转移的不处理
                 if self.transferhis.get_by_src(str(file_path)):
                     logger.info(f"{file_path} 已整理过")
                     return
 
                 # 元数据
-                if file_path.parent.name in ["SPs", "Scans", "CDs"]:
-                    logger.warn("位于特典等其他特殊目录下，跳过处理")
+                if file_path.parent.name.lower() in ["sps", "scans", "cds", "previews", "extras"]:
+                    logger.warn("位于特典或其他特殊目录下，跳过处理")
                     return
 
                 if 'VCB-Studio' not in file_path.stem.strip():
                     logger.warn("不属于VCB的作品，不处理！")
                     return
 
-                remeta = ReMeta(ova_switch=self._switch_ova,)
+                remeta = ReMeta(ova_switch=self._switch_ova)
                 file_meta = remeta.handel_file(file_path=file_path)
                 if file_meta:
                     if not file_meta.name:
@@ -408,14 +420,14 @@ class VCBAnimeMonitor(_PluginBase):
                                     if ep + i not in ova_history_ep_list:
                                         ova_history_ep_list.append(ep + i)
                                         file_meta.begin_episode = ep + i
-                                        logger.info(f"{file_path.name} 为OVA资源,历史记录中已存在，自动识别为第{ep + i}集")
+                                        logger.info(
+                                            f"{file_path.name} 为OVA资源,历史记录中已存在，自动识别为第{ep + i}集")
                                         break
                             else:
                                 ova_history_ep_list.append(ep)
                             self.save_data(file_meta.title, ova_history_ep_list)
                         else:
                             self.save_data(file_meta.title, [file_meta.begin_episode])
-
                 else:
                     return
 
@@ -431,14 +443,23 @@ class VCBAnimeMonitor(_PluginBase):
 
                 # 根据父路径获取下载历史
                 download_history = None
-                # 按文件全路径查询
-                download_file = self.downloadhis.get_file_by_fullpath(str(file_path))
-                if download_file:
-                    download_history = self.downloadhis.get_by_hash(download_file.download_hash)
+                if bluray_flag:
+                    # 蓝光原盘，按目录名查询
+                    # FIXME 理论上DownloadHistory表中的path应该是全路径，但实际表中登记的数据只有目录名，暂按目录名查询
+                    download_history = self.downloadhis.get_by_path(file_path.name)
+                else:
+                    # 按文件全路径查询
+                    download_file = self.downloadhis.get_file_by_fullpath(str(file_path))
+                    if download_file:
+                        download_history = self.downloadhis.get_by_hash(download_file.download_hash)
 
                 # 识别媒体信息
-                mediainfo: MediaInfo = self.chain.recognize_media(meta=file_meta,
-                                                                  tmdbid=download_history.tmdbid if download_history else None)
+                if download_history and download_history.tmdbid:
+                    mediainfo: MediaInfo = self.mediaChain.recognize_media(mtype=MediaType(download_history.type),
+                                                                           tmdbid=download_history.tmdbid,
+                                                                           doubanid=download_history.doubanid)
+                else:
+                    mediainfo: MediaInfo = self.mediaChain.recognize_by_meta(file_meta)
 
                 if not mediainfo:
                     logger.warn(f'未识别到媒体信息，标题：{file_meta.name}')
@@ -628,13 +649,13 @@ class VCBAnimeMonitor(_PluginBase):
             if not torrent_path.exists():
                 return
                 # 只处理刚刚添加的种子也就是获取正在下载的种子
-            logger.info(f"开始转移qb中正在下载的VCB资源,转移目录为：{self.new_save_path}")
             # 等待种子文件下载完成
             time.sleep(5)
             with lock:
                 torrents = self.qb.get_downloading_torrents()
                 for torrent in torrents:
                     if "VCB-Studio" in torrent.name:
+                        logger.info(f"开始转移qb中正在下载的VCB资源,转移目录为：{self.new_save_path}")
                         # 原本存在的暂停的种子不处理
                         if torrent.state_enum == qbittorrentapi.TorrentState.PAUSED_DOWNLOAD:
                             continue
