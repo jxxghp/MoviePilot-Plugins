@@ -20,7 +20,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -40,6 +40,7 @@ class MediaServerMsg(_PluginBase):
     # 私有属性
     _enabled = False
     _types = []
+    _webhook_msg_keys = {}
 
     # 拼装消息内容
     _webhook_actions = {
@@ -198,6 +199,13 @@ class MediaServerMsg(_PluginBase):
             logger.info(f"未开启 {event_info.event} 类型的消息通知")
             return
 
+        expiring_key = f"{event_info.item_id}-{event_info.client}-{event_info.user_name}"
+        # 过滤停止播放重复消息
+        if str(event_info.event) == "playback.stop" and expiring_key in self._webhook_msg_keys.keys():
+            # 刷新过期时间
+            self.__add_element(expiring_key)
+            return
+
         # 消息标题
         if event_info.item_type in ["TV", "SHOW"]:
             message_title = f"{self._webhook_actions.get(event_info.event)}剧集 {event_info.item_name}"
@@ -255,9 +263,30 @@ class MediaServerMsg(_PluginBase):
         else:
             play_link = None
 
+        if str(event_info.event) == "playback.stop":
+            # 停止播放消息，添加到过期字典
+            self.__add_element(expiring_key)
+        if str(event_info.event) == "playback.start":
+            # 开始播放消息，删除过期字典
+            self.__remove_element(expiring_key)
+
         # 发送消息
         self.post_message(mtype=NotificationType.MediaServer,
                           title=message_title, text=message_content, image=image_url, link=play_link)
+
+    def __add_element(self, key, duration=600):
+        expiration_time = time.time() + duration
+        # 如果元素已经存在，更新其过期时间
+        self._webhook_msg_keys[key] = expiration_time
+
+    def __remove_element(self, key):
+        self._webhook_msg_keys = {k: v for k, v in self._webhook_msg_keys.items() if k != key}
+
+    def __get_elements(self):
+        current_time = time.time()
+        # 过滤掉过期的元素
+        self._webhook_msg_keys = {k: v for k, v in self._webhook_msg_keys.items() if v > current_time}
+        return list(self._webhook_msg_keys.keys())
 
     def stop_service(self):
         """
