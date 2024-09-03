@@ -98,14 +98,19 @@ class ReMeta:
         self.is_ova = self.vcb_meta.is_ova
         meta = MetaInfoPath(file_path)
         meta.title = self.vcb_meta.title
+        meta.name = self.vcb_meta.title
         meta.en_name = self.vcb_meta.title
-        meta.begin_season = self.vcb_meta.season
-        if self.vcb_meta.ep:
-            meta.begin_episode = self.vcb_meta.ep
+        meta.cn_name = self.vcb_meta.title
         if self.vcb_meta.type == "Movie":
             meta.type = MediaType.MOVIE
         else:
             meta.type = MediaType.TV
+            if self.vcb_meta.ep is not None:
+                meta.begin_episode = self.vcb_meta.ep
+            if self.vcb_meta.season is not None:
+                meta.begin_season = self.vcb_meta.season
+        if self.vcb_meta.tmdb_id is not None:
+            meta.tmdbid = self.vcb_meta.tmdb_id
         return meta
 
     def split_season_ep(self):
