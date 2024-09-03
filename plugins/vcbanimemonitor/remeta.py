@@ -98,9 +98,7 @@ class ReMeta:
         self.is_ova = self.vcb_meta.is_ova
         meta = MetaInfoPath(file_path)
         meta.title = self.vcb_meta.title
-        meta.name = self.vcb_meta.title
         meta.en_name = self.vcb_meta.title
-        meta.cn_name = self.vcb_meta.title
         if self.vcb_meta.type == "Movie":
             meta.type = MediaType.MOVIE
         else:
