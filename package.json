@@ -1,0 +1,14 @@
+{
+    "BangumiColl": {
+        "name": "Bangumi收藏订阅",
+        "description": "Bangumi用户收藏添加到订阅",
+        "labels": "订阅",
+        "version": "1.0",
+        "icon": "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/bangumi_b.png",
+        "author": "Attente",
+        "level": 2,
+        "history": {
+            "v1.0": "将bangumi用户收藏添加到 MP 订阅,部分功能未实现"
+        }
+    },
+}
