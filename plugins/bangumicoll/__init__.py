@@ -20,9 +20,9 @@ from app.utils.http import RequestUtils
 
 class BangumiColl(_PluginBase):
     # 插件名称
-    plugin_name = "bangumi收藏订阅"
+    plugin_name = "Bangumi收藏订阅"
     # 插件描述
-    plugin_desc = "将bangumi用户收藏添加到订阅"
+    plugin_desc = "将Bangumi用户收藏添加到订阅"
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/bangumi_b.png"
     # 插件版本
@@ -79,7 +79,7 @@ class BangumiColl(_PluginBase):
 
         if self._onlyonce:
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            logger.info(f"bangumi收藏订阅启动，立即运行一次")
+            logger.info(f"Bangumi收藏订阅启动，立即运行一次")
             self._scheduler.add_job(
                 func=self.bangumi_coll,
                 trigger='date',
@@ -374,7 +374,7 @@ class BangumiColl(_PluginBase):
 
     def bangumi_coll(self):
         """
-        订阅bangumi用户收藏
+        订阅Bangumi用户收藏
         """
         if not self._uid:
             logger.error("请设置UID")
@@ -390,13 +390,13 @@ class BangumiColl(_PluginBase):
             res = RequestUtils(headers=headers).get_res(url=addr)
             res = res.json().get("data")
             if not res:
-                logger.error(f"bangumi用户：{self._uid} ，未查询到数据")
+                logger.error(f"Bangumi用户：{self._uid} ，未查询到数据")
         except Exception as e:
-            logger.error(f"获取bangumi收藏数据失败：{addr} 失败：{str(e)}")
+            logger.error(f"获取Bangumi收藏数据失败：{addr} 失败：{str(e)}")
 
         # 解析出必要数据
         items: Dict[int, Dict[str, Any]] = {}
-        logger.info(f"解析bangumi条目信息...")
+        logger.info(f"解析Bangumi条目信息...")
         for item in res:
             if item.get("type") not in self._collection_type:
                 continue
@@ -416,7 +416,7 @@ class BangumiColl(_PluginBase):
         new_sub = items.keys() - db_sub.keys()
         # 移除条目, 这里暂时不做
         # del_sub = dbrid.keys() - items.keys()
-        logger.info(f"解析bangumi条目信息完成，共{len(items)}条,新增{len(new_sub)}条")
+        logger.info(f"解析Bangumi条目信息完成，共{len(items)}条,新增{len(new_sub)}条")
 
         # # 执行移除操作
         # if del_sub:
@@ -431,7 +431,7 @@ class BangumiColl(_PluginBase):
             self.add_subscribe(new_sub)
         
         # 结束
-        logger.info(f"bangumi收藏订阅执行完成")
+        logger.info(f"Bangumi收藏订阅执行完成")
         
         
 
@@ -442,9 +442,9 @@ class BangumiColl(_PluginBase):
             if not meta.name:
                 logger.warn(f"{item.get('name_cn')} 未识别到有效数据")
                 continue
-            # 由于bangumi的api不包含季度信息,不传入bangumi条目id,默认使用tmdb
+            # 由于Bangumi的api不包含季度信息,不传入Bangumi条目id,默认使用tmdb
             mediainfo: MediaInfo = self.chain.recognize_media(meta=meta)
-            # 对比bangumi和tmdb的信息确定季度
+            # 对比Bangumi和tmdb的信息确定季度
             for info in mediainfo.season_info:
                 # 对比日期, 误差默认7天
                 if not self.are_dates(item.get("date"), info.get("air_date")):
