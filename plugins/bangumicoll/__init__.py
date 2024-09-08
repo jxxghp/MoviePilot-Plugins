@@ -1,12 +1,9 @@
 import datetime
-
 from typing import Optional, Any, List, Dict
-
 import pytz
+
 from apscheduler.schedulers.background import BackgroundScheduler
-
 from apscheduler.triggers.cron import CronTrigger
-
 from app.chain.subscribe import SubscribeChain
 from app.core.config import settings
 
@@ -16,6 +13,9 @@ from app.log import logger
 from app.plugins import _PluginBase
 from app.db.site_oper import SiteOper
 from app.utils.http import RequestUtils
+from app.db.subscribe_oper import SubscribeOper
+from app.helper.subscribe import SubscribeHelper
+from app.schemas.types import NotificationType
 
 
 class BangumiColl(_PluginBase):
@@ -26,7 +26,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/bangumi_b.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页
@@ -41,6 +41,8 @@ class BangumiColl(_PluginBase):
     # 私有变量
     _scheduler: Optional[BackgroundScheduler] = None
     siteoper: SiteOper = None
+    subscribehelper: SubscribeHelper = None
+    subscribeoper: SubscribeOper = None
 
     # 配置属性
     _enabled: bool = False
@@ -51,14 +53,14 @@ class BangumiColl(_PluginBase):
     _exclude: str = ""
     _uid: str = ""
     _collection_type = []
-    _collection: Dict = {}
     _save_path: str = ""
     _sites: list = []
-
 
     def init_plugin(self, config: dict = None):
         self.subscribechain = SubscribeChain()
         self.siteoper = SiteOper()
+        self.subscribehelper = SubscribeHelper()
+        self.subscribeoper = SubscribeOper()
 
         # 停止现有任务
         self.stop_service()
@@ -73,7 +75,6 @@ class BangumiColl(_PluginBase):
             self._exclude = config.get("exclude")
             self._uid = config.get("uid")
             self._collection_type = config.get("collection_type") or [3]
-            self._collection = config.get("collection")
             self._save_path = config.get("save_path")
             self._sites = config.get("sites")
 
@@ -110,7 +111,6 @@ class BangumiColl(_PluginBase):
                 "cron": self._cron,
                 "uid": self._uid,
                 "collection_type": self._collection_type,
-                "collection": self._collection,
                 "include": self._include,
                 "exclude": self._exclude,
                 "save_path": self._save_path,
@@ -159,7 +159,7 @@ class BangumiColl(_PluginBase):
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'notify',
-                                            'label': '发送通知',
+                                            'label': '自动取消订阅并通知',
                                         },
                                     }
                                 ],
@@ -323,6 +323,7 @@ class BangumiColl(_PluginBase):
         pass
 
         # 注册定时任务
+
     def get_service(self) -> List[Dict[str, Any]]:
         """
         注册插件公共服务
@@ -382,11 +383,11 @@ class BangumiColl(_PluginBase):
 
         addr = f"https://api.bgm.tv/v0/users/{self._uid}/collections?subject_type=2"
         headers = {
-            "User-Agent": "jxxghp/MoviePilot-Plugins (https://github.com/jxxghp/MoviePilot-Plugins)"
+            "User-Agent": "wikrin/MoviePilot-Plugins (https://github.com/wikrin/MoviePilot-Plugins)"
         }
 
         try:
-            logger.info(f"查询bangumi条目信息：{addr} ...")
+            logger.info(f"查询bangumi条目信息：{addr}")
             res = RequestUtils(headers=headers).get_res(url=addr)
             res = res.json().get("data")
             if not res:
@@ -399,7 +400,11 @@ class BangumiColl(_PluginBase):
         logger.info(f"解析Bangumi条目信息...")
         for item in res:
             if item.get("type") not in self._collection_type:
+                logger.debug(
+                    f"条目: {item['subject'].get('name_cn')}  类型:{item.get('type')} 不符合"
+                )
                 continue
+
             # 条目id
             subject_id = item.get("subject_id")
             # 主标题
@@ -411,32 +416,44 @@ class BangumiColl(_PluginBase):
             ## 这里在后面添加排除规则
             items.update({subject_id: {"name": name, "name_cn": name_cn, "date": date}})
         ## 获取此插件添加的订阅
-        db_sub = {i.bangumiid: i.id for i in self.subscribechain.subscribeoper.list() if i.bangumiid and i.username == "Bangumi订阅"}
+        db_sub = {
+            i.bangumiid: i.id
+            for i in self.subscribechain.subscribeoper.list()
+            if i.bangumiid and i.username == "Bangumi订阅"
+        }
         # 新增条目
         new_sub = items.keys() - db_sub.keys()
-        # 移除条目, 这里暂时不做
-        # del_sub = dbrid.keys() - items.keys()
+        logger.debug(f"待新增条目：{new_sub}")
+        # 移除条目
+        del_sub = db_sub.keys() - items.keys()
+        logger.debug(f"待移除条目：{del_sub}")
+
         logger.info(f"解析Bangumi条目信息完成，共{len(items)}条,新增{len(new_sub)}条")
 
-        # # 执行移除操作
-        # if del_sub:
-        #     del_items = {dbrid[i]: i for i in del_sub}
-        #     logger.info(f"开始移除订阅...")
-        #     self.delete_subscribe(del_items)
-        
+        # 执行移除操作
+        if del_sub and self._notify:
+            # 数据库id为键,bgm条目id为值
+            del_items = {db_sub[i]: i for i in del_sub}
+            logger.info(f"开始移除订阅...")
+            self.delete_subscribe(del_items)
+
         # 执行添加操作
         if new_sub:
+            # bgm条目id为键,bgm条目信息为值
             new_sub = {i: items[i] for i in new_sub}
             logger.info(f"开始添加订阅...")
             self.add_subscribe(new_sub)
-        
+
         # 结束
         logger.info(f"Bangumi收藏订阅执行完成")
-        
-        
 
         # 添加订阅
+
     def add_subscribe(self, items: Dict[int, Dict[str, Any]]):
+        '''
+        添加订阅
+        :param items: bgm条目id为键,bgm条目信息为值
+        '''
         for subject_id, item in items.items():
             meta = MetaInfo(item.get("name_cn"))
             if not meta.name:
@@ -478,9 +495,33 @@ class BangumiColl(_PluginBase):
                 username="Bangumi订阅",
                 **kwargs,
             )
-    
-    def delete_subscribe(self, del_items: dict):
-        pass
+
+        # 移除订阅
+
+    def delete_subscribe(self, del_items: Dict[int, int]):
+        '''
+        删除订阅
+        :param del_items: 数据库id为键,bgm条目id为值
+        '''
+        args = [i for i in del_items.keys()]
+        for arg in args:
+            subscribe_id = int(arg)
+            subscribe = self.subscribeoper.get(subscribe_id)
+            if subscribe:
+                self.subscribeoper.delete(subscribe_id)
+                # 统计订阅
+                self.subscribehelper.sub_done_async(
+                    {"tmdbid": subscribe.tmdbid, "doubanid": subscribe.doubanid}
+                )
+                # 发送通知
+                self.post_message(
+                    mtype=NotificationType.Subscribe,
+                    title=f"{subscribe.name}({subscribe.year}) 第{subscribe.season}季 已取消订阅",
+                    text="原因: 未在Bangumi收藏中找到该条目\n"
+                    + f"订阅用户: {subscribe.username}\n"
+                    + f"创建时间: {subscribe.date}",
+                    image=subscribe.backdrop,
+                )
 
     @staticmethod
     def are_dates(date_str1, date_str2, threshold_days: int = 7) -> bool:
@@ -488,7 +529,7 @@ class BangumiColl(_PluginBase):
         对比两个日期字符串是否接近
         :param date_str1: 第一个日期字符串，格式为'YYYY-MM-DD'
         :param date_str2: 第二个日期字符串，格式为'YYYY-MM-DD'
-        :param threshold_days: 阈值天数，默认为1天
+        :param threshold_days: 阈值天数，默认为7天
         :return: 如果两个日期之间的差异小于等于阈值天数，则返回True，否则返回False
         """
         # 将日期字符串转换为datetime对象
