@@ -7,6 +7,7 @@
         "icon": "signin.png",
         "author": "thsrite",
         "level": 2,
+        "v2": true,
         "history": {
             "v2.4.1": "修复海胆签到失败问题",
             "v2.4": "适配m-team Api地址变化",
@@ -26,7 +27,8 @@
         "version": "1.0",
         "icon": "world.png",
         "author": "lightolly",
-        "level": 2
+        "level": 2,
+        "v2": true
     },
     "SiteStatistic": {
         "name": "站点数据统计",
@@ -64,7 +66,8 @@
         "version": "1.2",
         "icon": "Chrome_A.png",
         "author": "thsrite",
-        "level": 2
+        "level": 2,
+        "v2": true
     },
     "DoubanSync": {
         "name": "豆瓣想看",
@@ -74,6 +77,7 @@
         "icon": "douban.png",
         "author": "jxxghp",
         "level": 2,
+        "v2": true,
         "history": {
             "v1.8": "不同步在看条目",
             "v1.7": "增强API安全性",
@@ -105,7 +109,8 @@
         "version": "1.1",
         "icon": "chinesesubfinder.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "DoubanRank": {
         "name": "豆瓣榜单订阅",
@@ -115,6 +120,7 @@
         "icon": "movie.jpg",
         "author": "jxxghp",
         "level": 2,
+        "v2": true,
         "history": {
             "v1.9.1": "优化媒体类型的判断处理",
             "v1.9": "增强API安全性",
@@ -129,6 +135,7 @@
         "icon": "scraper.png",
         "author": "jxxghp",
         "level": 1,
+        "v2": true,
         "history": {
             "v1.5": "修复未获取fanart图片的问题",
             "v1.4.1": "修复nfo文件读取失败时任务中断问题"
@@ -141,7 +148,8 @@
         "version": "1.2.2",
         "icon": "delete.jpg",
         "author": "jxxghp",
-        "level": 2
+        "level": 2,
+        "v2": true
     },
     "MediaSyncDel": {
         "name": "媒体文件同步删除",
@@ -151,6 +159,7 @@
         "icon": "mediasyncdel.png",
         "author": "thsrite",
         "level": 1,
+        "v2": true,
         "history": {
             "v1.7": "修复重新整理被一并删除问题",
             "v1.6": "修复删除辅种",
@@ -165,6 +174,7 @@
         "icon": "hosts.png",
         "author": "thsrite",
         "level": 1,
+        "v2": true,
         "history": {
             "v1.1": "关闭插件时自动恢复系统hosts"
         }
@@ -177,6 +187,7 @@
         "icon": "Librespeed_A.png",
         "author": "Shurelol",
         "level": 1,
+        "v2": true,
         "history": {
             "v1.2": "增加不限速路径配置，以应对网盘直链播放的情况"
         }
@@ -189,6 +200,7 @@
         "icon": "cloudflare.jpg",
         "author": "thsrite",
         "level": 1,
+        "v2": true,
         "history": {
             "v1.4": "修复立即运行一次",
             "v1.3": "调整插件开启状态判断条件",
@@ -203,6 +215,7 @@
         "icon": "like.jpg",
         "author": "wlj",
         "level": 2,
+        "v2": true,
         "history": {
             "v2.3": "修复定时任务运行问题，Jellyfin的Webhook需要主程序大于1.8.7才能正常订阅。",
             "v2.2": "修复运行报错问题"
@@ -216,6 +229,7 @@
         "icon": "mediaplay.png",
         "author": "jxxghp",
         "level": 1,
+        "v2": true,
         "history": {
             "v1.2": "播放通知增加超链接跳转（需要v1.9.4+）"
         }
@@ -227,7 +241,8 @@
         "version": "1.2",
         "icon": "refresh2.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "WebHook": {
         "name": "Webhook",
@@ -235,7 +250,8 @@
         "version": "1.0",
         "icon": "webhook.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "ChatGPT": {
         "name": "ChatGPT",
@@ -244,7 +260,8 @@
         "version": "1.3",
         "icon": "Chatgpt_A.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "NAStoolSync": {
         "name": "历史记录同步",
@@ -271,6 +288,7 @@
         "icon": "Time_machine_B.png",
         "author": "thsrite",
         "level": 1,
+        "v2": true,
         "history": {
             "v1.3": "去除已废弃的环境变量引用",
             "v1.2": "增强API安全性"
@@ -284,6 +302,7 @@
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2,
+        "v2": true,
         "history": {
             "v1.9.3": "修复Monika因缺少rsskey，种子下载失败的问题",
             "v1.9.2": "适配馒头使用API下载种子",
@@ -305,6 +324,7 @@
         "icon": "qingwa.png",
         "author": "233@qingwa",
         "level": 2,
+        "v2": true,
         "history": {
             "v2.2": "站点停用后会同步暂停对该站点的辅种",
             "v2.3": "站点辅种支持代理"
@@ -318,6 +338,7 @@
         "icon": "vcbmonitor.png",
         "author": "pixel@qingwa",
         "level": 2,
+        "v2": true,
         "history": {
             "v1.8": "增加了元数据刮削开关，升级后需要手动打开，否则默认不刮削",
             "v1.7.1": "修复偶尔安装失败问题"
@@ -331,6 +352,7 @@
         "icon": "seed.png",
         "author": "jxxghp",
         "level": 2,
+        "v2": true,
         "history": {
             "v1.4": "支持自动删除源下载器在目的下载器中存在的种子"
         }
@@ -343,6 +365,7 @@
         "icon": "rss.png",
         "author": "jxxghp",
         "level": 2,
+        "v2": true,
         "history": {
             "v1.5": "支持按种子大小过滤种子",
             "v1.4": "修复剧集本地是否存在的判断错误问题",
@@ -356,7 +379,8 @@
         "version": "1.1",
         "icon": "Youtube-dl_A.png",
         "author": "thsrite",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "BrushFlow": {
         "name": "站点刷流",
@@ -366,6 +390,7 @@
         "icon": "brush.jpg",
         "author": "jxxghp,InfinityPacer",
         "level": 2,
+        "v2": true,
         "history": {
             "v3.6": "优化检查服务中的时间管控",
             "v3.5": "移除「删种排除MoviePilot任务」配置项（请使用「删除排除标签」替代），完善刷流任务触发插件事件相关逻辑（联动H&R助手）",
@@ -388,7 +413,8 @@
         "version": "1.1",
         "icon": "downloadmsg.png",
         "author": "thsrite",
-        "level": 2
+        "level": 2,
+        "v2": true
     },
     "AutoClean": {
         "name": "定时清理媒体库",
@@ -397,7 +423,8 @@
         "version": "1.1",
         "icon": "clean.png",
         "author": "thsrite",
-        "level": 2
+        "level": 2,
+        "v2": true
     },
     "InvitesSignin": {
         "name": "药丸签到",
@@ -407,6 +434,7 @@
         "icon": "invites.png",
         "author": "thsrite",
         "level": 2,
+        "v2": true,
         "history": {
             "v1.4": "自定义保留消息天数"
         }
@@ -419,6 +447,7 @@
         "icon": "actor.png",
         "author": "jxxghp",
         "level": 1,
+        "v2": true,
         "history": {
             "v1.4": "人物图片调整为优先从TMDB获取，避免douban图片CDN加载过慢的问题",
             "v1.3": "修复v1.8.5版本后刮削报错问题"
@@ -432,6 +461,7 @@
         "icon": "Moviepilot_A.png",
         "author": "thsrite",
         "level": 1,
+        "v2": true,
         "history": {
             "v1.4": "兼容更新内容带版本号的情况",
             "v1.3": "增加前端版本更新检查，需要主程序升级至v1.8.4+版本"
@@ -444,7 +474,8 @@
         "version": "1.3",
         "icon": "clouddisk.png",
         "author": "thsrite",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "BarkMsg": {
         "name": "Bark消息推送",
@@ -453,7 +484,8 @@
         "version": "1.1",
         "icon": "Bark_A.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "IyuuMsg": {
         "name": "IYUU消息推送",
@@ -462,7 +494,8 @@
         "version": "1.2",
         "icon": "Iyuu_A.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "PushDeerMsg": {
         "name": "PushDeer消息推送",
@@ -471,7 +504,8 @@
         "version": "1.1",
         "icon": "pushdeer.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "ConfigCenter": {
         "name": "配置中心",
@@ -481,6 +515,7 @@
         "icon": "setting.png",
         "author": "jxxghp",
         "level": 1,
+        "v2": true,
         "history": {
             "v2.6": "支持DOH相关配置项",
             "v2.5": "增加Github加速服务器设置项"
@@ -493,7 +528,8 @@
         "version": "1.0",
         "icon": "Wecom_A.png",
         "author": "叮叮当",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "EpisodeGroupMeta": {
         "name": "TMDB剧集组刮削",
@@ -502,7 +538,8 @@
         "version": "1.1",
         "icon": "Element_A.png",
         "author": "叮叮当",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "CustomIndexer": {
         "name": "自定义索引站点",
@@ -511,7 +548,8 @@
         "version": "1.0",
         "icon": "spider.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "FFmpegThumb": {
         "name": "FFmpeg缩略图",
@@ -520,7 +558,8 @@
         "version": "1.2",
         "icon": "ffmpeg.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "PushPlusMsg": {
         "name": "PushPlus消息推送",
@@ -529,7 +568,8 @@
         "version": "1.0",
         "icon": "Pushplus_A.png",
         "author": "cheng",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "DownloadSiteTag": {
         "name": "下载任务分类与标签",
@@ -539,6 +579,7 @@
         "icon": "Youtube-dl_B.png",
         "author": "叮叮当",
         "level": 1,
+        "v2": true,
         "history": {
             "v2.1": "修复错误的TmdbHelper模块引用"
         }
@@ -551,6 +592,7 @@
         "icon": "Ombi_A.png",
         "author": "DzAvril",
         "level": 1,
+        "v2": true,
         "history": {
             "v2.2": "修复直接删除文件夹导致的插件崩溃的bug",
             "v2.1": "联动删除历史记录",
@@ -569,6 +611,7 @@
         "icon": "Linkace_C.png",
         "author": "jxxghp",
         "level": 1,
+        "v2": true,
         "history": {
             "v1.6": "增强API安全性"
         }
@@ -580,7 +623,8 @@
         "version": "1.2",
         "icon": "Bookstack_A.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "RemoteIdentifiers": {
         "name": "共享识别词",
@@ -589,7 +633,8 @@
         "version": "2.2",
         "icon": "words.png",
         "author": "honue",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "NeoDBSync": {
         "name": "NeoDB 想看",
@@ -599,6 +644,7 @@
         "icon": "NeoDB.jpeg",
         "author": "hcplantern",
         "level": 1,
+        "v2": true,
         "history": {
             "v1.1": "直接添加订阅，不提前进行搜索下载"
         }
@@ -611,6 +657,7 @@
         "icon": "Amule_A.png",
         "author": "jxxghp",
         "level": 1,
+        "v2": true,
         "history": {
             "v2.0": "适配新的目录结构变化，短剧分类名称调整为配置目录路径，升级后需要重新调整设置后才能使用。"
         }
@@ -622,7 +669,8 @@
         "version": "1.3",
         "icon": "Gatus_A.png",
         "author": "jeblove",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "QbCommand": {
         "name": "QB远程操作",
@@ -653,7 +701,8 @@
         "version": "1.1",
         "icon": "ipAddress.png",
         "author": "DzAvril",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "TrackerEditor": {
         "name": "Tracker替换",
@@ -685,7 +734,8 @@
         "version": "1.0",
         "icon": "FeiShu_A.png",
         "author": "InfinityPacer",
-        "level": 2
+        "level": 2,
+        "v2": true
     },
     "IyuuAuth": {
         "name": "IYUU站点绑定",
@@ -695,6 +745,7 @@
         "icon": "Iyuu_A.png",
         "author": "jxxghp",
         "level": 1,
+        "v2": true,
         "history": {
             "v1.1": "修复IYUU站点绑定失败问题"
         }
@@ -706,7 +757,8 @@
         "version": "1.0",
         "icon": "Ntfy_A.png",
         "author": "lethargicScribe",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "TmdbWallpaper": {
         "name": "登录壁纸本地化",
@@ -716,6 +768,7 @@
         "icon": "Macos_Sierra.png",
         "author": "jxxghp",
         "level": 1,
+        "v2": true,
         "history": {
             "v1.1": "修复下载Bing每日壁纸时文件名错乱的问题"
         }
@@ -727,7 +780,8 @@
         "version": "1.0",
         "icon": "Duplicati_A.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "CleanInvalidSeed": {
         "name": "清理QB无效做种",
@@ -761,6 +815,7 @@
         "icon": "TrendingShow.jpg",
         "author": "jxxghp",
         "level": 1,
+        "v2": true,
         "history": {
             "v1.3": "调整组件大小",
             "v1.2": "不同屏幕大小，支持分开设置"
@@ -773,7 +828,8 @@
         "version": "1.1",
         "icon": "Calibre_B.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "ZvideoHelper": {
         "name": "极影视助手",
@@ -783,6 +839,7 @@
         "icon": "zvideo.png",
         "author": "DzAvril",
         "level": 1,
+        "v2": true,
         "history": {
             "v1.3": "降低对豆瓣接口的请求频率",
             "v1.2": "修复无法获取豆瓣评分的问题",
