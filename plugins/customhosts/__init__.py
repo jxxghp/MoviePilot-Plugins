@@ -18,7 +18,7 @@ class CustomHosts(_PluginBase):
     # 插件图标
     plugin_icon = "hosts.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -235,6 +235,12 @@ class CustomHosts(_PluginBase):
         for host in hosts:
             if not host:
                 continue
+            host = host.strip()
+            if host.startswith('#'):  # 检查是否为注释行
+                host_entry = HostsEntry(entry_type='comment', comment=host)
+                new_entrys.append(host_entry)
+                continue
+
             host_arr = str(host).split()
             try:
                 host_entry = HostsEntry(entry_type='ipv4' if IpUtils.is_ipv4(str(host_arr[0])) else 'ipv6',

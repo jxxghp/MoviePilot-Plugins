@@ -3,12 +3,13 @@
         "name": "站点自动签到",
         "description": "自动模拟登录、签到站点。",
         "labels": "站点",
-        "version": "2.4.1",
+        "version": "2.4.2",
         "icon": "signin.png",
         "author": "thsrite",
         "level": 2,
         "v2": true,
         "history": {
+            "v2.4.2": "修复PT时间签到失败问题",
             "v2.4.1": "修复海胆签到失败问题",
             "v2.4": "适配m-team Api地址变化",
             "v2.3.2": "修复YemaPT登录失败，支持YemaPT自动签到",
@@ -34,11 +35,12 @@
         "name": "站点数据统计",
         "description": "自动统计和展示站点数据。",
         "labels": "站点,仪表板",
-        "version": "4.0",
+        "version": "4.0.1",
         "icon": "statistic.png",
         "author": "lightolly",
         "level": 2,
         "history": {
+            "v4.0.1": "修复PTT的魔力值统计",
             "v4.0": "修复插件数据页异常",
             "v3.9.3": "修复PTT的用户等级统计",
             "v3.9.2": "修复YemaPT的上传下载统计错误",
@@ -170,12 +172,13 @@
         "name": "自定义Hosts",
         "description": "修改系统hosts文件，加速网络访问。",
         "labels": "网络",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "hosts.png",
         "author": "thsrite",
         "level": 1,
         "v2": true,
         "history": {
+            "v1.2": "支持写入注释",
             "v1.1": "关闭插件时自动恢复系统hosts"
         }
     },
@@ -225,12 +228,13 @@
         "name": "媒体库服务器通知",
         "description": "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。",
         "labels": "消息通知,媒体库",
-        "version": "1.2",
+        "version": "1.3",
         "icon": "mediaplay.png",
         "author": "jxxghp",
         "level": 1,
         "v2": true,
         "history": {
+            "v1.3": "兼容处理Emby部分客户端暂停重复推送停止播放webhook的场景",
             "v1.2": "播放通知增加超链接跳转（需要v1.9.4+）"
         }
     },
@@ -298,12 +302,14 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "labels": "做种,IYUU",
-        "version": "1.9.3",
+        "version": "1.9.5",
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2,
         "v2": true,
         "history": {
+            "v1.9.5": "Revert qBittorrent跳检之后自动开始",
+            "v1.9.4": "修复qBittorrent辅种后不会自动开始做种",
             "v1.9.3": "修复Monika因缺少rsskey，种子下载失败的问题",
             "v1.9.2": "适配馒头使用API下载种子",
             "v1.9.1": "支持自定义辅种的种子分类",
@@ -332,14 +338,17 @@
     },
     "VCBAnimeMonitor": {
         "name": "整理VCB动漫压制组作品",
-        "description": "提高部分VCB-Studio作品的识别准确率,将VCB-Studio的作品统一转移到指定目录同时进行刮削整理",
+        "description": "一款辅助整理&提高识别VCB-Stuido动漫压制组作品的插件",
         "labels": "文件整理,识别",
-        "version": "1.8",
+        "version": "1.8.2.1",
         "icon": "vcbmonitor.png",
         "author": "pixel@qingwa",
         "level": 2,
         "v2": true,
         "history": {
+            "v1.8.2.1": "修复日志输出&同步目录监控插件功能",
+            "v1.8.2": "提高识别率",
+            "v1.8.1": "重构插件，测试版",
             "v1.8": "增加了元数据刮削开关，升级后需要手动打开，否则默认不刮削",
             "v1.7.1": "修复偶尔安装失败问题"
         }
@@ -348,12 +357,13 @@
         "name": "自动转移做种",
         "description": "定期转移下载器中的做种任务到另一个下载器。",
         "labels": "做种",
-        "version": "1.4",
+        "version": "1.5",
         "icon": "seed.png",
         "author": "jxxghp",
         "level": 2,
         "v2": true,
         "history": {
+            "v1.5": "修复在转移时只保留了第一个tracker，导致红种问题。此修复确保保留所有的tracker，以提高在不同网络条件下的可达性。",
             "v1.4": "支持自动删除源下载器在目的下载器中存在的种子"
         }
     },
@@ -376,22 +386,26 @@
         "name": "下载器文件同步",
         "description": "同步下载器的文件信息到数据库，删除文件时联动删除下载任务。",
         "labels": "下载管理",
-        "version": "1.1",
+        "version": "1.1.1",
         "icon": "Youtube-dl_A.png",
         "author": "thsrite",
         "level": 1,
-        "v2": true
+        "v2": true,
+        "history": {
+            "v1.1.1": "修复时区问题导致的上次同步后8h内的种子不同步的问题"
+        }
     },
     "BrushFlow": {
         "name": "站点刷流",
         "description": "自动托管刷流，将会提高对应站点的访问频率。",
         "labels": "刷流,仪表板",
-        "version": "3.6",
+        "version": "3.7",
         "icon": "brush.jpg",
         "author": "jxxghp,InfinityPacer",
         "level": 2,
         "v2": true,
         "history": {
+            "v3.7": "下载数量调整为仅获取刷流标签种子并修复了一些细节问题",
             "v3.6": "优化检查服务中的时间管控",
             "v3.5": "移除「删种排除MoviePilot任务」配置项（请使用「删除排除标签」替代），完善刷流任务触发插件事件相关逻辑（联动H&R助手）",
             "v3.4": "移除「记录更多日志」配置项并调整为DEBUG日志，支持「删除排除标签」配置项，增加刷流任务时支持触发插件事件（联动H&R助手）",
