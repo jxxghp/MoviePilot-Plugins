@@ -506,3 +506,32 @@ def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Di
 }
 ```
 - 新增加的插件请配置在`package.json`中的末尾，这样可被识别为最新增加，可用于用户排序。
+
+### 10. 如何开发V2版本的插件以及实现插件多版本兼容？
+- 将插件代码放置在`plugins.v2`文件夹，将插件的定义放置在`package.v2.json`中，可实现该插件仅 MoviePilot V2 版本可见
+- 如V1版本插件实际在V2版本可用，或在插件中主动兼容了V1和V2版本，则可在`package.json`中定义 `"v2": true`属性，以便在 MoviePilot V2 版本插件市场中显示
+
+```json
+{
+  "CustomSites": {
+      "name": "自定义站点",
+      "description": "增加自定义站点为签到和统计使用。",
+      "labels": "站点",
+      "version": "1.0",
+      "icon": "world.png",
+      "author": "lightolly",
+      "level": 2,
+      "v2": true
+  }
+}
+```
+
+- MoviePilot V2中 Settings 模块中新增了`VERSION_FLAG`属性，V2版本值为`v2`，可通过以下代码判断当前的版本，以便在插件中兼容处理：
+
+```python
+from app.core.config import settings
+if hasattr(settings, 'VERSION_FLAG'):
+  version = settings.VERSION_FLAG # V2
+else:
+  version = "v1"
+```
