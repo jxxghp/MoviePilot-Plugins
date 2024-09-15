@@ -64,6 +64,7 @@ class BrushConfig:
         self.delete_size_range = config.get("delete_size_range")
         self.up_speed = self.__parse_number(config.get("up_speed"))
         self.dl_speed = self.__parse_number(config.get("dl_speed"))
+        self.auto_archive_days = self.__parse_number(config.get("auto_archive_days"))
         self.save_path = config.get("save_path")
         self.clear_task = config.get("clear_task", False)
         self.archive_task = config.get("archive_task", False)
@@ -1128,6 +1129,25 @@ class BrushFlow(_PluginBase):
                                                             'model': 'dl_speed',
                                                             'label': '单任务下载限速（KB/s）',
                                                             'placeholder': '种子下载限速'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'auto_archive_days',
+                                                            'label': '自动归档记录天数',
+                                                            'placeholder': '超过此天数后自动归档',
+                                                            'type': 'number',
+                                                            "min": "0"
                                                         }
                                                     }
                                                 ]
@@ -2391,6 +2411,10 @@ class BrushFlow(_PluginBase):
                     if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
                         for torrent_hash in need_delete_hashes:
                             torrent_tasks[torrent_hash]["deleted"] = True
+                            torrent_tasks[torrent_hash]["deleted_time"] = time.time()
+
+            # 归档数据
+            self.__auto_archive_tasks(torrent_tasks=torrent_tasks)
 
             self.__update_and_save_statistic_info(torrent_tasks)
 
@@ -2818,6 +2842,7 @@ class BrushFlow(_PluginBase):
             torrent_task = torrent_tasks[hash_value]
             # 标记为已删除
             torrent_task["deleted"] = True
+            torrent_task["deleted_time"] = time.time()
             # 处理日志相关内容
             delete_tasks.append(torrent_task)
             site_name = torrent_task.get("site_name", "")
@@ -2943,7 +2968,8 @@ class BrushFlow(_PluginBase):
             "seed_avgspeed": "平均上传速度",
             "seed_inactivetime": "未活动时间",
             "up_speed": "单任务上传限速",
-            "dl_speed": "单任务下载限速"
+            "dl_speed": "单任务下载限速",
+            "auto_archive_days": "自动清理记录天数"
         }
 
         config_range_number_attr_to_desc = {
@@ -3015,6 +3041,7 @@ class BrushFlow(_PluginBase):
             "delete_size_range": brush_config.delete_size_range,
             "up_speed": brush_config.up_speed,
             "dl_speed": brush_config.dl_speed,
+            "auto_archive_days": brush_config.auto_archive_days,
             "save_path": brush_config.save_path,
             "clear_task": brush_config.clear_task,
             "archive_task": brush_config.archive_task,
@@ -3838,6 +3865,45 @@ class BrushFlow(_PluginBase):
         """
         return sum(task.get("size", 0) for task in torrent_tasks.values() if not task.get("deleted", False))
 
+    def __auto_archive_tasks(self, torrent_tasks: Dict[str, dict]) -> None:
+        """
+       自动归档已经删除的种子数据
+       """
+        if not self._brush_config.auto_archive_days or self._brush_config.auto_archive_days <= 0:
+            logger.info("自动归档记录天数小于等于0，取消自动归档")
+            return
+
+        # 用于存储已删除的数据
+        archived_tasks: Dict[str, dict] = self.get_data("archived") or {}
+
+        current_time = time.time()
+        archive_threshold_seconds = self._brush_config.auto_archive_days * 86400  # 将天数转换为秒数
+
+        # 准备一个列表，记录所有需要从原始数据中删除的键
+        keys_to_delete = set()
+
+        # 遍历所有 torrent 条目
+        for key, value in torrent_tasks.items():
+            deleted_time = value.get("deleted_time")
+            # 场景 1: 检查任务是否已被标记为删除且超出保留天数
+            if (value.get("deleted") and isinstance(deleted_time, (int, float)) and
+                    current_time - deleted_time > archive_threshold_seconds):
+                keys_to_delete.add(key)
+                archived_tasks[key] = value
+                continue
+
+            # 场景 2: 检查没有明确删除时间的历史数据
+            if value.get("deleted") and deleted_time is None:
+                keys_to_delete.add(key)
+                archived_tasks[key] = value
+                continue
+
+        # 从原始字典中移除已删除的条目
+        for key in keys_to_delete:
+            del torrent_tasks[key]
+
+        self.save_data("archived", archived_tasks)
+
     def __archive_tasks(self):
         """
         归档已经删除的种子数据
@@ -3848,7 +3914,7 @@ class BrushFlow(_PluginBase):
         archived_tasks: Dict[str, dict] = self.get_data("archived") or {}
 
         # 准备一个列表，记录所有需要从原始数据中删除的键
-        keys_to_delete = []
+        keys_to_delete = set()
 
         # 遍历所有 torrent 条目
         for key, value in torrent_tasks.items():
@@ -3857,7 +3923,7 @@ class BrushFlow(_PluginBase):
                 # 如果是，加入到归档字典中
                 archived_tasks[key] = value
                 # 记录键，稍后删除
-                keys_to_delete.append(key)
+                keys_to_delete.add(key)
 
         # 从原始字典中移除已删除的条目
         for key in keys_to_delete:
