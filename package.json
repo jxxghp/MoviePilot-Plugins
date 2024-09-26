@@ -137,7 +137,6 @@
         "icon": "scraper.png",
         "author": "jxxghp",
         "level": 1,
-        "v2": true,
         "history": {
             "v1.5": "修复未获取fanart图片的问题",
             "v1.4.1": "修复nfo文件读取失败时任务中断问题"
@@ -150,8 +149,7 @@
         "version": "1.2.2",
         "icon": "delete.jpg",
         "author": "jxxghp",
-        "level": 2,
-        "v2": true
+        "level": 2
     },
     "MediaSyncDel": {
         "name": "媒体文件同步删除",
@@ -161,7 +159,6 @@
         "icon": "mediasyncdel.png",
         "author": "thsrite",
         "level": 1,
-        "v2": true,
         "history": {
             "v1.7": "修复重新整理被一并删除问题",
             "v1.6": "修复删除辅种",
@@ -190,7 +187,6 @@
         "icon": "Librespeed_A.png",
         "author": "Shurelol",
         "level": 1,
-        "v2": true,
         "history": {
             "v1.2": "增加不限速路径配置，以应对网盘直链播放的情况"
         }
@@ -218,7 +214,6 @@
         "icon": "like.jpg",
         "author": "wlj",
         "level": 2,
-        "v2": true,
         "history": {
             "v2.3": "修复定时任务运行问题，Jellyfin的Webhook需要主程序大于1.8.7才能正常订阅。",
             "v2.2": "修复运行报错问题"
@@ -232,7 +227,6 @@
         "icon": "mediaplay.png",
         "author": "jxxghp",
         "level": 1,
-        "v2": true,
         "history": {
             "v1.3": "兼容处理Emby部分客户端暂停重复推送停止播放webhook的场景",
             "v1.2": "播放通知增加超链接跳转（需要v1.9.4+）"
@@ -245,8 +239,7 @@
         "version": "1.2",
         "icon": "refresh2.png",
         "author": "jxxghp",
-        "level": 1,
-        "v2": true
+        "level": 1
     },
     "WebHook": {
         "name": "Webhook",
@@ -306,7 +299,6 @@
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2,
-        "v2": true,
         "history": {
             "v1.9.5": "Revert qBittorrent跳检之后自动开始",
             "v1.9.4": "修复qBittorrent辅种后不会自动开始做种",
@@ -330,7 +322,6 @@
         "icon": "qingwa.png",
         "author": "233@qingwa",
         "level": 2,
-        "v2": true,
         "history": {
             "v2.2": "站点停用后会同步暂停对该站点的辅种",
             "v2.3": "站点辅种支持代理"
@@ -344,7 +335,6 @@
         "icon": "vcbmonitor.png",
         "author": "pixel@qingwa",
         "level": 2,
-        "v2": true,
         "history": {
             "v1.8.2.1": "修复日志输出&同步目录监控插件功能",
             "v1.8.2": "提高识别率",
@@ -361,7 +351,6 @@
         "icon": "seed.png",
         "author": "jxxghp",
         "level": 2,
-        "v2": true,
         "history": {
             "v1.5": "修复在转移时只保留了第一个tracker，导致红种问题。此修复确保保留所有的tracker，以提高在不同网络条件下的可达性。",
             "v1.4": "支持自动删除源下载器在目的下载器中存在的种子"
@@ -375,7 +364,6 @@
         "icon": "rss.png",
         "author": "jxxghp",
         "level": 2,
-        "v2": true,
         "history": {
             "v1.5": "支持按种子大小过滤种子",
             "v1.4": "修复剧集本地是否存在的判断错误问题",
@@ -390,7 +378,6 @@
         "icon": "Youtube-dl_A.png",
         "author": "thsrite",
         "level": 1,
-        "v2": true,
         "history": {
             "v1.1.1": "修复时区问题导致的上次同步后8h内的种子不同步的问题"
         }
@@ -403,7 +390,6 @@
         "icon": "brush.jpg",
         "author": "jxxghp,InfinityPacer",
         "level": 2,
-        "v2": true,
         "history": {
             "v3.8": "添加自动归档记录天数配置项，支持定时归档已删除数据",
             "v3.7": "下载数量调整为仅获取刷流标签种子并修复了一些细节问题",
@@ -438,8 +424,7 @@
         "version": "1.1",
         "icon": "clean.png",
         "author": "thsrite",
-        "level": 2,
-        "v2": true
+        "level": 2
     },
     "InvitesSignin": {
         "name": "药丸签到",
@@ -462,7 +447,6 @@
         "icon": "actor.png",
         "author": "jxxghp",
         "level": 1,
-        "v2": true,
         "history": {
             "v1.4": "人物图片调整为优先从TMDB获取，避免douban图片CDN加载过慢的问题",
             "v1.3": "修复v1.8.5版本后刮削报错问题"
@@ -489,8 +473,7 @@
         "version": "1.3",
         "icon": "clouddisk.png",
         "author": "thsrite",
-        "level": 1,
-        "v2": true
+        "level": 1
     },
     "BarkMsg": {
         "name": "Bark消息推送",
@@ -530,7 +513,6 @@
         "icon": "setting.png",
         "author": "jxxghp",
         "level": 1,
-        "v2": true,
         "history": {
             "v2.6": "支持DOH相关配置项",
             "v2.5": "增加Github加速服务器设置项"
@@ -553,8 +535,7 @@
         "version": "1.1",
         "icon": "Element_A.png",
         "author": "叮叮当",
-        "level": 1,
-        "v2": true
+        "level": 1
     },
     "CustomIndexer": {
         "name": "自定义索引站点",
@@ -573,8 +554,7 @@
         "version": "1.2",
         "icon": "ffmpeg.png",
         "author": "jxxghp",
-        "level": 1,
-        "v2": true
+        "level": 1
     },
     "PushPlusMsg": {
         "name": "PushPlus消息推送",
@@ -594,7 +574,6 @@
         "icon": "Youtube-dl_B.png",
         "author": "叮叮当",
         "level": 1,
-        "v2": true,
         "history": {
             "v2.1": "修复错误的TmdbHelper模块引用"
         }
@@ -684,8 +663,7 @@
         "version": "1.3",
         "icon": "Gatus_A.png",
         "author": "jeblove",
-        "level": 1,
-        "v2": true
+        "level": 1
     },
     "QbCommand": {
         "name": "QB远程操作",
@@ -740,7 +718,8 @@
             "v1.4": "支持仪表板组件显示",
             "v1.3": "修复观众做种数据异常问题",
             "v1.2": "修复契约检查无数据返回的问题"
-        }
+        },
+        "v2": true
     },
     "FeiShuMsg": {
         "name": "飞书机器人消息通知",

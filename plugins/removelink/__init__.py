@@ -497,7 +497,6 @@ class RemoveLink(_PluginBase):
             self._transferhistory.delete(transfer_history.id)
             logger.info(f"删除历史记录：{transfer_history.id}")
 
-
     def delete_empty_folders(self, path):
         """
         从指定路径开始，逐级向上层目录检测并删除空目录，直到遇到非空目录或到达指定监控目录为止
@@ -589,7 +588,7 @@ class RemoveLink(_PluginBase):
                                 mtype=NotificationType.SiteMessage,
                                 title=f"【清理硬链接】",
                                 text=f"监控到删除源文件：[{file_path}]\n"
-                                f"同步删除硬链接文件：[{path}]",
+                                     f"同步删除硬链接文件：[{path}]",
                             )
             except Exception as e:
                 logger.error(
