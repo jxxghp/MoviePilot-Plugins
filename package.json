@@ -3,11 +3,12 @@
     "name": "Bangumi收藏订阅",
     "description": "Bangumi用户收藏添加到订阅",
     "labels": "订阅",
-    "version": "1.1",
+    "version": "1.2",
     "icon": "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/bangumi_b.png",
     "author": "Attente",
     "level": 2,
     "history": {
+      "v1.2": "修复已完成订阅条目重复添加的问题",
       "v1.1": "新增根据收藏状态移除由此插件添加的订阅",
       "v1.0": "将bangumi用户收藏添加到 MP 订阅,部分功能未实现"
     }

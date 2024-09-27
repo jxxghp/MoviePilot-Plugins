@@ -16,6 +16,9 @@ from app.utils.http import RequestUtils
 from app.db.subscribe_oper import SubscribeOper
 from app.helper.subscribe import SubscribeHelper
 from app.schemas.types import NotificationType
+from app.db import db_query
+from app.db.models.subscribehistory import SubscribeHistory
+from sqlalchemy.orm import Session
 
 
 class BangumiColl(_PluginBase):
@@ -26,7 +29,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/bangumi_b.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页
@@ -421,8 +424,10 @@ class BangumiColl(_PluginBase):
             for i in self.subscribechain.subscribeoper.list()
             if i.bangumiid and i.username == "Bangumi订阅"
         }
+        ## 获取历史订阅
+        db_hist = self.get_subscribe_history()
         # 新增条目
-        new_sub = items.keys() - db_sub.keys()
+        new_sub = items.keys() - db_sub.keys() - db_hist
         logger.debug(f"待新增条目：{new_sub}")
         # 移除条目
         del_sub = db_sub.keys() - items.keys()
@@ -481,7 +486,7 @@ class BangumiColl(_PluginBase):
             # 额外参数
             kwargs = {
                 "save_path": self._save_path,
-                "sites": self._sites,
+                "sites": str(self._sites),
             }
             # 添加到订阅
             self.subscribechain.add(
@@ -527,8 +532,7 @@ class BangumiColl(_PluginBase):
     def are_dates(date_str1, date_str2, threshold_days: int = 7) -> bool:
         """
         对比两个日期字符串是否接近
-        :param date_str1: 第一个日期字符串，格式为'YYYY-MM-DD'
-        :param date_str2: 第二个日期字符串，格式为'YYYY-MM-DD'
+        :param date_str: 日期字符串，格式为'YYYY-MM-DD'
         :param threshold_days: 阈值天数，默认为7天
         :return: 如果两个日期之间的差异小于等于阈值天数，则返回True，否则返回False
         """
@@ -544,3 +548,12 @@ class BangumiColl(_PluginBase):
 
         # 比较差异和阈值
         return delta <= threshold
+    
+    @db_query
+    def get_subscribe_history(self, db: Session = None) -> set:
+        '''
+        获取已完成的订阅
+        '''
+        result = db.query(SubscribeHistory).filter(SubscribeHistory.bangumiid != None).all()
+        return set([i.bangumiid for i in result])
+            
