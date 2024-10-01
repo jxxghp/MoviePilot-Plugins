@@ -907,7 +907,7 @@ class TorrentTransfer(_PluginBase):
                 if dl_type == "qbittorrent" else ()
         except Exception as e:
             print(str(e))
-            return []
+            return ()
         
     @staticmethod
     def __get_save_path(torrent: Any, dl_type: str):
