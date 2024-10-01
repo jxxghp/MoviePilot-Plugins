@@ -1,6 +1,6 @@
 # MoviePilot V2 插件开发指南
 
-本指南详细介绍了如何开发适用于MoviePilot V2版本的插件，并实现插件的多版本兼容性。包括服务封装类的使用示例，帮助开发者快速升级插件至V2版本。
+本指南详细介绍了如何开发适用于MoviePilot V2版本的插件，并实现插件的多版本兼容性，同时包括了服务封装类的使用示例，帮助开发者快速升级插件至V2版本。
 
 ## 1. 多版本插件开发与兼容性
 
@@ -102,7 +102,7 @@
 
 ## 2. 服务封装与使用示例
 
-为了插件调用并共享实例，主程序针对几种服务进行了封装。以下是相关实现及如何在插件中使用这些封装的详细说明，帮助开发者快速将插件从V1升级到V2。
+为了插件调用并共享实例，主程序针对几种服务进行了封装。以下是相关实现及如何在插件中使用这些封装的详细说明，帮助开发者快速将插件从 V1 升级到 V2。
 
 ### 2.1 服务封装类介绍
 
@@ -223,27 +223,54 @@ class ServiceBaseHelper(Generic[TConf]):
 
 ### 2.2 特定服务的帮助类
 
-以下是针对不同服务类型的帮助类，这些类继承自 `ServiceBaseHelper`，并预设了特定的配置。
+以下是针对不同服务类型的帮助类，这些类继承自 `ServiceBaseHelper`，并预设了特定的配置。同时，为了简化类型检查，新增了相应的方法来判断服务类型。
 
 #### `DownloaderHelper`
 用于管理下载器服务。
 
 ```python
+from typing import Optional
+
 from app.helper.servicebase import ServiceBaseHelper
-from app.schemas import DownloaderConf
+from app.schemas import DownloaderConf, ServiceInfo
 from app.schemas.types import SystemConfigKey
+
 
 class DownloaderHelper(ServiceBaseHelper[DownloaderConf]):
     """
     下载器帮助类
     """
 
-     def init_plugin(self, config: dict = None):
+    def __init__(self, config: dict = None):
         super().__init__(
             config_key=SystemConfigKey.Downloaders,
             conf_type=DownloaderConf,
             modules=["QbittorrentModule", "TransmissionModule"]
         )
+
+    def is_qbittorrent(self, service: Optional[ServiceInfo] = None, name: Optional[str] = None) -> bool:
+        """
+        判断指定的下载器是否为 qbittorrent 类型，需要传入 `service` 或 `name` 中的任一参数
+
+        :param service: 要判断的服务信息
+        :param name: 服务的名称
+        :return: 如果服务类型为 qbittorrent，返回 True；否则返回 False。
+        """
+        if not service:
+            service = self.get_service(name=name)
+        return service.type == "qbittorrent" if service else False
+
+    def is_transmission(self, service: Optional[ServiceInfo] = None, name: Optional[str] = None) -> bool:
+        """
+        判断指定的下载器是否为 transmission 类型，需要传入 `service` 或 `name` 中的任一参数
+
+        :param service: 要判断的服务信息
+        :param name: 服务的名称
+        :return: 如果服务类型为 transmission，返回 True；否则返回 False。
+        """
+        if not service:
+            service = self.get_service(name=name)
+        return service.type == "transmission" if service else False
 ```
 
 #### `MediaServerHelper`
@@ -259,12 +286,14 @@ class MediaServerHelper(ServiceBaseHelper[MediaServerConf]):
     媒体服务器帮助类
     """
 
-     def init_plugin(self, config: dict = None):
+    def __init__(self, config: dict = None):
         super().__init__(
             config_key=SystemConfigKey.MediaServers,
             conf_type=MediaServerConf,
             modules=["PlexModule", "EmbyModule", "JellyfinModule"]
         )
+    
+    ...
 ```
 
 #### `NotificationHelper`
@@ -280,29 +309,30 @@ class NotificationHelper(ServiceBaseHelper[NotificationConf]):
     消息通知帮助类
     """
 
-     def init_plugin(self, config: dict = None):
+    def __init__(self, config: dict = None):
         super().__init__(
             config_key=SystemConfigKey.Notifications,
             conf_type=NotificationConf,
             modules=["WechatModule", "WebPushModule", "VoceChatModule", "TelegramModule", "SynologyChatModule", "SlackModule"]
         )
+    
+    ...
 ```
 
 ### 2.3 在插件中使用服务帮助类
 
-通过这些帮助类，插件可以方便地获取和管理各种服务。以下是具体的使用示例。
+通过这些帮助类，插件可以方便地获取和管理各种服务。以下是 `DownloaderHelper` 的使用示例，包括类型检查服务和监听模块重载事件的两种方法。
 
 #### 获取下载器选项
 
 插件可以通过 `DownloaderHelper` 获取所有可用的下载器配置，并生成选项列表供用户选择。
 
 ```python
-# 假设在插件的某个类中
-from app.helper import DownloaderHelper
+from app.helper.downloader import DownloaderHelper
 
 class MyPlugin:
-     def init_plugin(self, config: dict = None):
-        self.downloaderhelper = DownloaderHelper()
+    def init_plugin(self, config: dict = None):
+        self.downloaderhelper = DownloaderHelper(config)
         self.downloader_options = [
             {"title": config.name, "value": config.name}
             for config in self.downloaderhelper.get_configs().values()
@@ -311,93 +341,110 @@ class MyPlugin:
 
 #### 获取特定下载器服务
 
-根据用户选择的下载器名称，插件可以获取对应的服务实例，并执行相应的操作。
+根据用户选择的下载器名称，插件可以获取对应的服务实例，并执行相应的操作。以下展示了两种方法：
 
-```python
-from typing import Optional, Union
-from app.helper import DownloaderHelper
-from app.modules import Transmission, Qbittorrent  # 假设这些是具体的下载器类
+1. **使用事件监听进行模块重载，从而保持服务实例共享**
 
-class MyPlugin:
-    def init_plugin(self, config: dict = None):
-        self.downloaderhelper = DownloaderHelper()
-        self._downloader = None
+    如果外部模块进行了重载，需要监听模块重载事件以重置下载器服务。
 
-    def set_downloader(self, downloader_name: str):
-        self._downloader = self.downloaderhelper.get_service(name=downloader_name)
+    ```python
+    from typing import Optional, Union
+    from app.helper import DownloaderHelper
+    from app.modules.qbittorrent import Qbittorrent
+    from app.modules.transmission import Transmission
+    from app.events import EventType, eventmanager
 
-    def __get_downloader(self) -> Optional[Union[Transmission, Qbittorrent]]:
-        """
-        获取下载器实例
-        """
-        if not self._downloader:
-            return None
-        return self._downloader.instance
+    class MyPlugin:
+        def init_plugin(self, config: dict = None):
+            self.downloaderhelper = DownloaderHelper(config)
+            self._downloader = None
+            self.__setup_downloader(config.get("downloader_name"))
 
-    def __get_downloader_type(self) -> Optional[str]:
-        """
-        获取下载器类型
-        """
-        if not self._downloader:
-            return None
-        return self._downloader.type
+        def __setup_downloader(self, downloader_name: str):
+            self._downloader = self.downloaderhelper.get_service(name=downloader_name)
 
-    def __is_qbittorrent(self) -> bool:
-        """
-        判断下载器是否为 qbittorrent
-        """
-        if not self._downloader:
+        def __get_downloader(self) -> Optional[Union[Transmission, Qbittorrent]]:
+            """
+            获取下载器实例
+            """
+            if not self._downloader:
+                return None
+            return self._downloader.instance
+
+        @eventmanager.register(EventType.ModuleReload)
+        def module_reload(self, event: Event):
+            """
+            模块重载事件
+            """
+            if not event:
+                return
+            event_data = event.event_data or {}
+            module_id = event_data.get("module_id")
+            # 如果模块标识不存在，则说明所有模块均发生重载
+            if not module_id:
+                self.__setup_downloader()
+
+        def check_downloader_type(self) -> bool:
+            """
+            检查下载器类型是否为 qbittorrent 或 transmission
+            """
+            downloader = self.__get_downloader()
+            if self.downloaderhelper.is_qbittorrent(service=downloader):
+                # 处理 qbittorrent 类型
+                return True
+            elif self.downloaderhelper.is_transmission(service=downloader):
+                # 处理 transmission 类型
+                return True
             return False
-        return self._downloader.type == "qbittorrent"
+    ```
 
-    def __is_transmission(self) -> bool:
-        """
-        判断下载器是否为 transmission
-        """
-        if not self._downloader:
+2. **使用 Property 实现服务实例共享**
+
+    通过 `Property` 方法，从而保持服务实例共享，而无需通过事件监听。
+
+    ```python
+    from typing import Optional, Union
+    from app.helper import DownloaderHelper
+    from app.modules.qbittorrent import Qbittorrent
+    from app.modules.transmission import Transmission
+
+    class MyPlugin:
+        def init_plugin(self, config: dict = None):
+            self.downloaderhelper = DownloaderHelper(config)
+
+        @property
+        def service_info(self) -> Optional[ServiceInfo]:
+            """
+            服务信息
+            """
+            service = self.downloaderhelper.get_service(name=self.downloader_name)
+            if not service:
+                return None
+
+            if service.instance.is_inactive():
+                return None
+
+            return service
+
+        @property
+        def downloader(self) -> Optional[Union[Qbittorrent, Transmission]]:
+            """
+            下载器实例
+            """
+            return self.service_info.instance if self.service_info else None
+        
+        def check_downloader_type(self) -> bool:
+            """
+            检查下载器类型是否为 qbittorrent 或 transmission
+            """
+            if self.downloaderhelper.is_qbittorrent(service=self.service_info):
+                # 处理 qbittorrent 类型
+                return True
+            elif self.downloaderhelper.is_transmission(service=self.service_info):
+                # 处理 transmission 类型
+                return True
             return False
-        return self._downloader.type == "transmission"
-```
-
-#### 获取媒体服务器服务
-
-类似地，插件可以通过 `MediaServerHelper` 获取媒体服务器相关的服务信息。
-
-```python
-from app.helper import MediaServerHelper
-
-class MyPlugin:
-     def init_plugin(self, config: dict = None):
-        self.mediaserverhelper = MediaServerHelper()
-        self.mediaserver_options = [
-            {"title": config.name, "value": config.name}
-            for config in self.mediaserverhelper.get_configs().values()
-        ]
-
-    def get_media_server_instance(self, server_name: str):
-        service_info = self.mediaserverhelper.get_service(name=server_name)
-        if service_info:
-            return service_info.instance
-        return None
-```
-
-#### 获取消息通知服务
-
-通过 `NotificationHelper`，插件可以发送消息通知。
-
-```python
-from app.helper import NotificationHelper
-
-class MyPlugin:
-     def init_plugin(self, config: dict = None):
-        self.notificationhelper = NotificationHelper()
-
-    def get_notify_service_instance(self, name: str, message: str):
-        service_info = self.notificationhelper.get_service(name=name)
-         if service_info:
-            return service_info.instance
-        return None
-```
+    ```
 
 ### 2.4 服务封装的优势
 
@@ -405,8 +452,8 @@ class MyPlugin:
 - **灵活扩展**：新增服务类型时，只需创建相应的帮助类，无需修改现有逻辑。
 - **便捷调用**：插件可以轻松获取所需的服务实例，简化了服务的调用过程。
 
-### 2.5 从V1升级到V2的注意事项
+### 2.5 从 V1 升级到 V2 的注意事项
 
-- **使用帮助类**：尝试在插件中使用了新的服务帮助类，如 `DownloaderHelper`、`MediaServerHelper`、`NotificationHelper` 等，而不是直接操作服务实例。
-- **更新依赖**：检查并更新 `requirements.txt` 中的依赖，确保与V2的服务封装兼容。
-- **测试插件**：在V2环境中全面测试插件，确保所有服务调用正常工作。
+- **使用帮助类**：确保插件中使用了新的服务帮助类，如 `DownloaderHelper`、`MediaServerHelper`、`NotificationHelper` 等，而不是直接操作服务实例。
+- **更新依赖**：检查并更新 `requirements.txt` 中的依赖，确保与 V2 的服务封装兼容。
+- **测试插件**：在 V2 环境中全面测试插件，确保所有服务调用正常工作。
