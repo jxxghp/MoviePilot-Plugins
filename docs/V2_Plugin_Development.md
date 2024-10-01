@@ -331,7 +331,7 @@ class NotificationHelper(ServiceBaseHelper[NotificationConf]):
 from app.helper.downloader import DownloaderHelper
 
 class MyPlugin:
-    def __init__(self, config: dict = None):
+    def init_plugin(self, config: dict = None):
         self.downloaderhelper = DownloaderHelper(config)
         self.downloader_options = [
             {"title": config.name, "value": config.name}
@@ -355,7 +355,7 @@ class MyPlugin:
     from app.events import EventType, eventmanager
 
     class MyPlugin:
-        def __init__(self, config: dict = None):
+        def init_plugin(self, config: dict = None):
             self.downloaderhelper = DownloaderHelper(config)
             self._downloader = None
             self.__setup_downloader(config.get("downloader_name"))
@@ -409,7 +409,7 @@ class MyPlugin:
     from app.modules.transmission import Transmission
 
     class MyPlugin:
-        def __init__(self, config: dict = None):
+        def init_plugin(self, config: dict = None):
             self.downloaderhelper = DownloaderHelper(config)
 
         @property
