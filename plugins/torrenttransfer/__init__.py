@@ -27,7 +27,7 @@ class TorrentTransfer(_PluginBase):
     # 插件图标
     plugin_icon = "seed.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -55,6 +55,7 @@ class TorrentTransfer(_PluginBase):
     _notify = False
     _nolabels = None
     _includelabels = None
+    _includecategory = None
     _nopaths = None
     _deletesource = False
     _deleteduplicate = False
@@ -79,6 +80,7 @@ class TorrentTransfer(_PluginBase):
             self._notify = config.get("notify")
             self._nolabels = config.get("nolabels")
             self._includelabels = config.get("includelabels")
+            self._includecategory = config.get("includecategory")
             self._frompath = config.get("frompath")
             self._topath = config.get("topath")
             self._fromdownloader = config.get("fromdownloader")
@@ -128,6 +130,7 @@ class TorrentTransfer(_PluginBase):
                     "notify": self._notify,
                     "nolabels": self._nolabels,
                     "includelabels": self._includelabels,
+                    "includecategory": self._includecategory,  
                     "frompath": self._frompath,
                     "topath": self._topath,
                     "fromdownloader": self._fromdownloader,
@@ -250,7 +253,7 @@ class TorrentTransfer(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 6
                                 },
                                 'content': [
                                     {
@@ -263,11 +266,27 @@ class TorrentTransfer(_PluginBase):
                                     }
                                 ]
                             },
+                             {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'includecategory',
+                                            'label': '转移种子分类',
+                                        }
+                                    }
+                                ]
+                            },
                             {
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 6
                                 },
                                 'content': [
                                     {
@@ -282,7 +301,7 @@ class TorrentTransfer(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 6
                                 },
                                 'content': [
                                     {
@@ -293,7 +312,7 @@ class TorrentTransfer(_PluginBase):
                                         }
                                     }
                                 ]
-                            }
+                            },
                         ]
                     },
                     {
@@ -494,6 +513,7 @@ class TorrentTransfer(_PluginBase):
             "cron": "",
             "nolabels": "",
             "includelabels": "",
+            "includecategory": "",
             "frompath": "",
             "topath": "",
             "fromdownloader": "",
@@ -531,7 +551,7 @@ class TorrentTransfer(_PluginBase):
             state = self.qb.add_torrent(content=content,
                                         download_dir=save_path,
                                         is_paused=True,
-                                        tag=["已整理", "转移做种", tag])
+                                        tag=["转移做种", tag])
             if not state:
                 return None
             else:
@@ -546,7 +566,7 @@ class TorrentTransfer(_PluginBase):
             torrent = self.tr.add_torrent(content=content,
                                           download_dir=save_path,
                                           is_paused=True,
-                                          labels=["已整理", "转移做种"])
+                                          labels=["转移做种"])
             if not torrent:
                 return None
             else:
@@ -600,12 +620,19 @@ class TorrentTransfer(_PluginBase):
 
             # 获取种子标签
             torrent_labels = self.__get_label(torrent, downloader)
-            
+            # 获取种子分类
+            torrent_category = self.__get_category(torrent, downloader)
             # 种子为无标签,则进行规范化
             is_torrent_labels_empty = torrent_labels == [''] or torrent_labels == [] or torrent_labels is None
             if is_torrent_labels_empty:
                 torrent_labels = []
-            
+
+            # 如果分类项存在数值，则进行判断
+            if self._includecategory:
+                # 排除未标记的分类
+                if torrent_category not in self._includecategory.split(','):
+                    logger.info(f"种子 {hash_str} 不含有转移分类 {self._includecategory}，跳过 ...")
+                    continue
             #根据设置决定是否转移无标签的种子
             if is_torrent_labels_empty:
                 if not self._transferemptylabel:
@@ -870,6 +897,18 @@ class TorrentTransfer(_PluginBase):
             print(str(e))
             return []
 
+    @staticmethod
+    def __get_category(torrent: Any, dl_type: str):
+        """
+        获取种子分类
+        """
+        try:
+            return str(torrent.get("category")).strip() \
+                if dl_type == "qbittorrent" else ""
+        except Exception as e:
+            print(str(e))
+            return ""
+        
     @staticmethod
     def __get_save_path(torrent: Any, dl_type: str):
         """
