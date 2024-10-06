@@ -10,5 +10,17 @@
         "history": {
             "v1.0.1": "MoviePilot V2 版本站点数据统计插件"
         }
+    },
+    "BrushFlow": {
+        "name": "站点刷流",
+        "description": "自动托管刷流，将会提高对应站点的访问频率。",
+        "labels": "刷流,仪表板",
+        "version": "3.9",
+        "icon": "brush.jpg",
+        "author": "jxxghp,InfinityPacer",
+        "level": 2,
+        "history": {
+            "v3.9": "MoviePilot V2 版本站点刷流插件"
+        }
     }
 }
