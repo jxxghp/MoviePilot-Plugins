@@ -5,7 +5,6 @@ import re
 import threading
 import time
 from datetime import datetime, timedelta
-from threading import Event
 from typing import Any, List, Dict, Tuple, Optional, Union, Set
 from urllib.parse import urlparse, parse_qs, unquote
 
@@ -20,11 +19,12 @@ from app.core.context import MediaInfo
 from app.core.metainfo import MetaInfo
 from app.db.site_oper import SiteOper
 from app.db.subscribe_oper import SubscribeOper
+from app.helper.downloader import DownloaderHelper
 from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
-from app.schemas import NotificationType, TorrentInfo, MediaType
+from app.schemas import NotificationType, TorrentInfo, MediaType, ServiceInfo
 from app.schemas.types import EventType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
@@ -42,7 +42,7 @@ class BrushConfig:
         self.notify = config.get("notify", True)
         self.onlyonce = config.get("onlyonce", False)
         self.brushsites = config.get("brushsites", [])
-        self.downloader = config.get("downloader", "qbittorrent")
+        self.downloader = config.get("downloader")
         self.disksize = self.__parse_number(config.get("disksize"))
         self.freeleech = config.get("freeleech", "free")
         self.hr = config.get("hr", "no")
@@ -67,17 +67,12 @@ class BrushConfig:
         self.auto_archive_days = self.__parse_number(config.get("auto_archive_days"))
         self.save_path = config.get("save_path")
         self.clear_task = config.get("clear_task", False)
-        self.archive_task = config.get("archive_task", False)
         self.delete_except_tags = config.get("delete_except_tags")
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
-        self.proxy_download = config.get("proxy_download", False)
         self.proxy_delete = config.get("proxy_delete", False)
         self.active_time_range = config.get("active_time_range")
-        self.downloader_monitor = config.get("downloader_monitor")
         self.qb_category = config.get("qb_category")
-        self.auto_qb_category = config.get("auto_qb_category", False)
-        self.qb_first_last_piece = config.get("qb_first_last_piece", False)
         self.site_hr_active = config.get("site_hr_active", False)
 
         self.brush_tag = "刷流"
@@ -118,11 +113,8 @@ class BrushConfig:
             "seed_avgspeed",
             "seed_inactivetime",
             "save_path",
-            "proxy_download",
             "proxy_delete",
             "qb_category",
-            "auto_qb_category",
-            "qb_first_last_piece",
             "site_hr_active"
             # 当新增支持字段时，仅在此处添加字段名
         }
@@ -140,7 +132,7 @@ class BrushConfig:
                 site_specific_config = {key: config[key] for key in allowed_fields & set(config.keys())}
 
                 full_config = {key: getattr(self, key) for key in vars(self) if
-                               key not in ['group_site_configs', 'site_config']}
+                               key not in ["group_site_configs", "site_config"]}
                 full_config.update(site_specific_config)
 
                 self.group_site_configs[sitename] = BrushConfig(config=full_config, process_site_config=False)
@@ -153,7 +145,7 @@ class BrushConfig:
     @staticmethod
     def get_demo_site_config() -> str:
         desc = (
-            "// 以下为配置示例，请参考：https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins/brushflowlowfreq/README.md 进行配置\n"
+            "// 以下为配置示例，请参考：https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins.v2/brushflowlowfreq/README.md 进行配置\n"
             "// 如与全局保持一致的配置项，请勿在站点配置中配置\n"
             "// 注意无关内容需使用 // 注释\n")
         config = """[{
@@ -168,7 +160,6 @@ class BrushConfig:
     "pubtime": "5-120",
     "seed_time": 96,
     "save_path": "/downloads/site2",
-    "proxy_download": true,
     "hr_seed_time": 144
 }, {
     "sitename": "站点3",
@@ -187,11 +178,8 @@ class BrushConfig:
     "seed_avgspeed": "",
     "seed_inactivetime": "",
     "save_path": "/downloads/site1",
-    "proxy_download": false,
     "proxy_delete": false,
     "qb_category": "刷流",
-    "auto_qb_category": true,
-    "qb_first_last_piece": true,
     "site_hr_active": true
 }]"""
         return desc + config
@@ -206,7 +194,7 @@ class BrushConfig:
 
     @staticmethod
     def __parse_number(value):
-        if value is None or value == '':  # 更精确地检查None或空字符串
+        if value is None or value == "":  # 更精确地检查None或空字符串
             return value
         elif isinstance(value, int):  # 直接判断是否为int
             return value
@@ -273,10 +261,9 @@ class BrushFlow(_PluginBase):
     # 私有属性
     siteshelper = None
     siteoper = None
-    torrents = None
+    torrentschain = None
     subscribeoper = None
-    qb = None
-    tr = None
+    downloaderhelper = None
     # 刷流配置
     _brush_config = None
     # Brush任务是否启动
@@ -288,18 +275,45 @@ class BrushFlow(_PluginBase):
     # Check定时
     _check_interval = 5
     # 退出事件
-    _event = Event()
+    _event = threading.Event()
     _scheduler = None
     # tabs
     _tabs = None
+
+    # Property
+
+    @property
+    def service_info(self) -> Optional[ServiceInfo]:
+        """
+        服务信息
+        """
+        brush_config = self.__get_brush_config()
+        service = self.downloaderhelper.get_service(name=brush_config.downloader)
+        if not service:
+            self.__log_and_notify_error("站点刷流任务出错，获取下载器实例失败，请检查配置")
+            return None
+
+        if service.instance.is_inactive():
+            self.__log_and_notify_error("站点刷流任务出错，下载器未连接")
+            return None
+
+        return service
+
+    @property
+    def downloader(self) -> Optional[Union[Qbittorrent, Transmission]]:
+        """
+        下载器实例
+        """
+        return self.service_info.instance if self.service_info else None
 
     # endregion
 
     def init_plugin(self, config: dict = None):
         self.siteshelper = SitesHelper()
         self.siteoper = SiteOper()
-        self.torrents = TorrentsChain()
+        self.torrentschain = TorrentsChain()
         self.subscribeoper = SubscribeOper()
+        self.downloaderhelper = DownloaderHelper()
         self._task_brush_enable = False
 
         if not config:
@@ -332,12 +346,6 @@ class BrushFlow(_PluginBase):
         if brush_config.clear_task:
             self.__clear_tasks()
             brush_config.clear_task = False
-            brush_config.archive_task = False
-            self.__update_config()
-
-        elif brush_config.archive_task:
-            self.__archive_tasks()
-            brush_config.archive_task = False
             self.__update_config()
 
         if brush_config.enable_site_config:
@@ -348,8 +356,12 @@ class BrushFlow(_PluginBase):
         # 停止现有任务
         self.stop_service()
 
-        if not self.__setup_downloader():
-            return
+        # 如果站点都没有配置，则不开启定时刷流服务
+        if not brush_config.brushsites:
+            logger.info(f"站点刷流定时服务停止，没有配置站点")
+
+        # 如果开启&存在站点时，才需要启用后台任务
+        self._task_brush_enable = brush_config.enabled and brush_config.brushsites
 
         # 如果下载器都没有配置，那么这里也不需要继续
         if not brush_config.downloader:
@@ -358,30 +370,26 @@ class BrushFlow(_PluginBase):
             logger.info(f"站点刷流服务停止，没有配置下载器")
             return
 
-        # 如果站点都没有配置，则不开启定时刷流服务
-        if not brush_config.brushsites:
-            logger.info(f"站点刷流Brush定时服务停止，没有配置站点")
-
-        # 如果开启&存在站点时，才需要启用后台任务
-        self._task_brush_enable = brush_config.enabled and brush_config.brushsites
+        if not self.service_info:
+            return
 
         # 检查是否启用了一次性任务
         if brush_config.onlyonce:
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
 
-            logger.info(f"站点刷流Brush服务启动，立即运行一次")
-            self._scheduler.add_job(self.brush, 'date',
+            logger.info(f"站点刷流服务启动，立即运行一次")
+            self._scheduler.add_job(self.brush, "date",
                                     run_date=datetime.now(
                                         tz=pytz.timezone(settings.TZ)
                                     ) + timedelta(seconds=3),
-                                    name="站点刷流Brush服务")
+                                    name="站点刷流服务")
 
-            logger.info(f"站点刷流Check服务启动，立即运行一次")
-            self._scheduler.add_job(self.check, 'date',
+            logger.info(f"站点刷流检查服务启动，立即运行一次")
+            self._scheduler.add_job(self.check, "date",
                                     run_date=datetime.now(
                                         tz=pytz.timezone(settings.TZ)
                                     ) + timedelta(seconds=3),
-                                    name="站点刷流Check服务")
+                                    name="站点刷流检查服务")
 
             # 关闭一次性开关
             brush_config.onlyonce = False
@@ -422,20 +430,20 @@ class BrushFlow(_PluginBase):
             return services
 
         if self._task_brush_enable:
-            logger.info(f"站点刷流Brush定时服务启动，时间间隔 {self._brush_interval} 分钟")
+            logger.info(f"站点刷流定时服务启动，时间间隔 {self._brush_interval} 分钟")
             services.append({
                 "id": "BrushFlow",
-                "name": "站点刷流Brush服务",
+                "name": "站点刷流服务",
                 "trigger": "interval",
                 "func": self.brush,
                 "kwargs": {"minutes": self._brush_interval}
             })
 
         if brush_config.enabled:
-            logger.info(f"站点刷流Check定时服务启动，时间间隔 {self._check_interval} 分钟")
+            logger.info(f"站点刷流检查定时服务启动，时间间隔 {self._check_interval} 分钟")
             services.append({
                 "id": "BrushFlowCheck",
-                "name": "站点刷流Check服务",
+                "name": "站点刷流检查服务",
                 "trigger": "interval",
                 "func": self.check,
                 "kwargs": {"minutes": self._check_interval}
@@ -752,7 +760,7 @@ class BrushFlow(_PluginBase):
             },
         ]
 
-    def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+    def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
         """
         获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、全局配置（自动刷新等）；3、仪表板页面元素配置json（含数据）
         1、col配置参考：
@@ -785,9 +793,12 @@ class BrushFlow(_PluginBase):
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
 
-        # 站点的可选项
+        # 站点选项
         site_options = [{"title": site.get("name"), "value": site.get("id")}
                         for site in self.siteshelper.get_indexers()]
+        # 下载器选项
+        downloader_options = [{"title": config.name, "value": config.name}
+                              for config in self.downloaderhelper.get_configs().values()]
         return [
             {
                 'component': 'VForm',
@@ -884,10 +895,7 @@ class BrushFlow(_PluginBase):
                                         'props': {
                                             'model': 'downloader',
                                             'label': '下载器',
-                                            'items': [
-                                                {'title': 'Qbittorrent', 'value': 'qbittorrent'},
-                                                {'title': 'Transmission', 'value': 'transmission'}
-                                            ]
+                                            'items': downloader_options
                                         }
                                     }
                                 ]
@@ -1520,8 +1528,8 @@ class BrushFlow(_PluginBase):
                                                     {
                                                         'component': 'VSwitch',
                                                         'props': {
-                                                            'model': 'qb_first_last_piece',
-                                                            'label': '优先下载首尾文件块',
+                                                            'model': 'proxy_delete',
+                                                            'label': '动态删除种子（实验性功能）',
                                                         }
                                                     }
                                                 ]
@@ -1557,43 +1565,6 @@ class BrushFlow(_PluginBase):
                                                     {
                                                         'component': 'VSwitch',
                                                         'props': {
-                                                            'model': 'archive_task',
-                                                            'label': '归档已删除种子',
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSwitch',
-                                                        'props': {
-                                                            'model': 'proxy_delete',
-                                                            'label': '动态删除种子（实验性功能）',
-                                                        }
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'VRow',
-                                        "content": [
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSwitch',
-                                                        'props': {
                                                             'model': 'enable_site_config',
                                                             'label': '站点独立配置',
                                                         }
@@ -1612,59 +1583,6 @@ class BrushFlow(_PluginBase):
                                                         "props": {
                                                             "model": "dialog_closed",
                                                             "label": "打开站点配置窗口"
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSwitch',
-                                                        'props': {
-                                                            'model': 'proxy_download',
-                                                            'label': '代理下载种子',
-                                                        }
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'VRow',
-                                        "content": [
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSwitch',
-                                                        'props': {
-                                                            'model': 'downloader_monitor',
-                                                            'label': '下载器监控',
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSwitch',
-                                                        'props': {
-                                                            'model': 'auto_qb_category',
-                                                            'label': '自动分类管理',
                                                         }
                                                     }
                                                 ]
@@ -1703,7 +1621,7 @@ class BrushFlow(_PluginBase):
                                             {
                                                 'component': 'a',
                                                 'props': {
-                                                    'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins/brushflowlowfreq/README.md',
+                                                    'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins.v2/brushflowlowfreq/README.md',
                                                     'target': '_blank'
                                                 },
                                                 'content': [
@@ -1810,7 +1728,7 @@ class BrushFlow(_PluginBase):
                                                                     {
                                                                         'component': 'a',
                                                                         'props': {
-                                                                            'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins/brushflowlowfreq/README.md',
+                                                                            'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins.v2/brushflowlowfreq/README.md',
                                                                             'target': '_blank'
                                                                         },
                                                                         'content': [
@@ -1839,18 +1757,13 @@ class BrushFlow(_PluginBase):
             "notify": True,
             "onlyonce": False,
             "clear_task": False,
-            "archive_task": False,
             "delete_except_tags": f"{settings.TORRENT_TAG},H&R" if settings.TORRENT_TAG else "H&R",
             "except_subscribe": True,
             "brush_sequential": False,
-            "proxy_download": False,
             "proxy_delete": False,
             "freeleech": "free",
             "hr": "yes",
             "enable_site_config": False,
-            "downloader_monitor": False,
-            "auto_qb_category": False,
-            "qb_first_last_piece": False,
             "site_config": BrushConfig.get_demo_site_config()
         }
 
@@ -1963,7 +1876,7 @@ class BrushFlow(_PluginBase):
         """
         brush_config = self.__get_brush_config()
 
-        if not brush_config.brushsites or not brush_config.downloader:
+        if not brush_config.brushsites or not brush_config.downloader or not self.downloader:
             return
 
         if not self.__is_current_time_in_range():
@@ -2036,7 +1949,7 @@ class BrushFlow(_PluginBase):
             return True
 
         logger.info(f"开始获取站点 {siteinfo.name} 的新种子 ...")
-        torrents = self.torrents.browse(domain=siteinfo.domain)
+        torrents = self.torrentschain.browse(domain=siteinfo.domain)
         if not torrents:
             logger.info(f"站点 {siteinfo.name} 没有获取到种子")
             return True
@@ -2323,7 +2236,7 @@ class BrushFlow(_PluginBase):
         """
         brush_config = self.__get_brush_config()
 
-        if not brush_config.downloader:
+        if not brush_config.downloader or not self.downloader:
             return
 
         with lock:
@@ -2331,11 +2244,7 @@ class BrushFlow(_PluginBase):
             torrent_tasks: Dict[str, dict] = self.get_data("torrents") or {}
             unmanaged_tasks: Dict[str, dict] = self.get_data("unmanaged") or {}
 
-            downloader = self.__get_downloader(brush_config.downloader)
-            if not downloader:
-                logger.warn("无法获取下载器实例，将在下个时间周期重试")
-                return
-
+            downloader = self.downloader
             seeding_torrents, error = downloader.get_torrents()
             if error:
                 logger.warn("连接下载器出错，将在下个时间周期重试")
@@ -2405,7 +2314,7 @@ class BrushFlow(_PluginBase):
 
                 if need_delete_hashes:
                     # 如果是QB，则重新汇报Tracker
-                    if brush_config.downloader == "qbittorrent":
+                    if self.downloaderhelper.is_qbittorrent(service=self.service_info):
                         self.__qb_torrents_reannounce(torrent_hashes=need_delete_hashes)
                     # 删除种子
                     if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
@@ -2447,13 +2356,7 @@ class BrushFlow(_PluginBase):
                                              seeding_torrents_dict: Dict[str, Any]):
         brush_config = self.__get_brush_config()
 
-        if brush_config.downloader_monitor:
-            logger.info("已开启下载器监控，开始同步种子刷流标签记录")
-        else:
-            logger.info("没有开启下载器监控，取消同步种子刷流标签记录")
-            return
-
-        if not brush_config.downloader == "qbittorrent":
+        if not self.downloaderhelper.is_qbittorrent(service=self.service_info):
             logger.info("同步种子刷流标签记录目前仅支持qbittorrent")
             return
 
@@ -2766,7 +2669,7 @@ class BrushFlow(_PluginBase):
             remaining_hashes = list(
                 {self.__get_hash(torrent) for torrent in proxy_delete_torrents} - set(need_delete_hashes))
             # 这里根据排除后的种子列表，再次从下载器中找到已完成的任务
-            downloader = self.__get_downloader(brush_config.downloader)
+            downloader = self.downloader
             completed_torrents = downloader.get_completed_torrents(ids=remaining_hashes)
             remaining_hashes = {self.__get_hash(torrent) for torrent in completed_torrents}
             remaining_torrents = [(_hash, torrent_info_map[_hash]) for _hash in remaining_hashes]
@@ -2819,14 +2722,6 @@ class BrushFlow(_PluginBase):
         """
         处理已经被删除，但是任务记录中还没有被标记删除的种子
         """
-        brush_config = self.__get_brush_config()
-
-        if brush_config.downloader_monitor:
-            logger.info("已开启下载器监控，开始同步刷流任务删除记录")
-        else:
-            logger.info("没有开启下载器监控，取消同步刷流任务删除记录")
-            return
-
         # 先通过获取的全量种子，判断已经被删除，但是任务记录中还没有被标记删除的种子
         torrent_all_hashes = self.__get_all_hashes(torrents)
         missing_hashes = [hash_value for hash_value in torrent_check_hashes if hash_value not in torrent_all_hashes]
@@ -3044,17 +2939,12 @@ class BrushFlow(_PluginBase):
             "auto_archive_days": brush_config.auto_archive_days,
             "save_path": brush_config.save_path,
             "clear_task": brush_config.clear_task,
-            "archive_task": brush_config.archive_task,
             "delete_except_tags": brush_config.delete_except_tags,
             "except_subscribe": brush_config.except_subscribe,
             "brush_sequential": brush_config.brush_sequential,
-            "proxy_download": brush_config.proxy_download,
             "proxy_delete": brush_config.proxy_delete,
             "active_time_range": brush_config.active_time_range,
-            "downloader_monitor": brush_config.downloader_monitor,
             "qb_category": brush_config.qb_category,
-            "auto_qb_category": brush_config.auto_qb_category,
-            "qb_first_last_piece": brush_config.qb_first_last_piece,
             "enable_site_config": brush_config.enable_site_config,
             "site_config": brush_config.site_config,
             "_tabs": self._tabs
@@ -3062,38 +2952,6 @@ class BrushFlow(_PluginBase):
 
         # 使用update_config方法或其等效方法更新配置
         self.update_config(config_mapping)
-
-    def __setup_downloader(self):
-        """
-        根据下载器类型初始化下载器实例
-        """
-        brush_config = self.__get_brush_config()
-        self.qb = Qbittorrent()
-        self.tr = Transmission()
-
-        if brush_config.downloader == "qbittorrent":
-            if self.qb.is_inactive():
-                self.__log_and_notify_error("站点刷流任务出错：Qbittorrent未连接")
-                return False
-
-        elif brush_config.downloader == "transmission":
-
-            if self.tr.is_inactive():
-                self.__log_and_notify_error("站点刷流任务出错：Transmission未连接")
-                return False
-
-        return True
-
-    def __get_downloader(self, dtype: str) -> Optional[Union[Transmission, Qbittorrent]]:
-        """
-        根据类型返回下载器实例
-        """
-        if dtype == "qbittorrent":
-            return self.qb
-        elif dtype == "transmission":
-            return self.tr
-        else:
-            return None
 
     @staticmethod
     def __get_redict_url(url: str, proxies: str = None, ua: str = None, cookie: str = None) -> Optional[str]:
@@ -3183,135 +3041,76 @@ class BrushFlow(_PluginBase):
             logger.error(f"获取下载链接失败：{torrent.title}")
             return None
 
-        if brush_config.downloader == "qbittorrent":
-            if not self.qb:
-                return None
+        downloader = self.downloader
+        if not downloader:
+            return None
+
+        if self.downloaderhelper.is_qbittorrent(service=self.service_info):
             # 限速值转为bytes
             up_speed = up_speed * 1024 if up_speed else None
             down_speed = down_speed * 1024 if down_speed else None
             # 生成随机Tag
             tag = StringUtils.generate_random_str(10)
             # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
-            if brush_config.proxy_download and not torrent_content.startswith("magnet"):
+            if not torrent_content.startswith("magnet"):
                 response = RequestUtils(cookies=cookies,
                                         proxies=proxies,
                                         ua=torrent.site_ua).get_res(url=torrent_content)
                 if response and response.ok:
                     torrent_content = response.content
                 else:
-                    logger.error('尝试通过MP下载种子失败，继续尝试传递种子地址到下载器进行下载')
+                    logger.error("尝试通过MP下载种子失败，继续尝试传递种子地址到下载器进行下载")
             if torrent_content:
-                state = self.__qb_add_torrent(content=torrent_content,
-                                              download_dir=download_dir,
-                                              cookie=cookies,
-                                              tag=["已整理", brush_config.brush_tag, tag],
-                                              category=brush_config.qb_category,
-                                              is_auto=brush_config.auto_qb_category,
-                                              is_first_last_piece_priority=brush_config.qb_first_last_piece,
-                                              upload_limit=up_speed,
-                                              download_limit=down_speed)
+                state = downloader.add_torrent(content=torrent_content,
+                                               download_dir=download_dir,
+                                               cookie=cookies,
+                                               category=brush_config.qb_category,
+                                               tag=["已整理", brush_config.brush_tag, tag],
+                                               upload_limit=up_speed,
+                                               download_limit=down_speed)
                 if not state:
                     return None
                 else:
                     # 获取种子Hash
-                    torrent_hash = self.qb.get_torrent_id_by_tag(tags=tag)
+                    torrent_hash = downloader.get_torrent_id_by_tag(tags=tag)
                     if not torrent_hash:
                         logger.error(f"{brush_config.downloader} 获取种子Hash失败，详细信息请查看 README")
                         return None
                     return torrent_hash
             return None
 
-        elif brush_config.downloader == "transmission":
-            if not self.tr:
-                return None
+        elif self.downloaderhelper.is_transmission(service=self.service_info):
             # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
-            if brush_config.proxy_download and not torrent_content.startswith("magnet"):
+            if not torrent_content.startswith("magnet"):
                 response = RequestUtils(cookies=cookies,
                                         proxies=proxies,
                                         ua=torrent.site_ua).get_res(url=torrent_content)
                 if response and response.ok:
                     torrent_content = response.content
                 else:
-                    logger.error('尝试通过MP下载种子失败，继续尝试传递种子地址到下载器进行下载')
+                    logger.error("尝试通过MP下载种子失败，继续尝试传递种子地址到下载器进行下载")
             if torrent_content:
-                torrent = self.tr.add_torrent(content=torrent_content,
-                                              download_dir=download_dir,
-                                              cookie=cookies,
-                                              labels=["已整理", brush_config.brush_tag])
+                torrent = downloader.add_torrent(content=torrent_content,
+                                                 download_dir=download_dir,
+                                                 cookie=cookies,
+                                                 labels=["已整理", brush_config.brush_tag])
                 if not torrent:
                     return None
                 else:
                     if brush_config.up_speed or brush_config.dl_speed:
-                        self.tr.change_torrent(hash_string=torrent.hashString,
-                                               upload_limit=up_speed,
-                                               download_limit=down_speed)
+                        downloader.change_torrent(hash_string=torrent.hashString,
+                                                  upload_limit=up_speed,
+                                                  download_limit=down_speed)
                     return torrent.hashString
         return None
 
-    def __qb_add_torrent(self,
-                         content: Union[str, bytes],
-                         is_paused: bool = False,
-                         download_dir: str = None,
-                         tag: Union[str, list] = None,
-                         category: str = None,
-                         cookie=None,
-                         is_auto=False,
-                         is_first_last_piece_priority=False,
-                         **kwargs
-                         ) -> bool:
-        """
-        添加种子
-        :param content: 种子urls或文件内容
-        :param is_paused: 添加后暂停
-        :param tag: 标签
-        :param category: 种子分类
-        :param download_dir: 下载路径
-        :param cookie: 站点Cookie用于辅助下载种子
-        :return: bool
-        """
-        if not self.qb.qbc or not content:
-            return False
-
-        # 下载内容
-        if isinstance(content, str):
-            urls = content
-            torrent_files = None
-        else:
-            urls = None
-            torrent_files = content
-
-        # 保存目录
-        if download_dir:
-            save_path = download_dir
-        else:
-            save_path = None
-
-        # 标签
-        if tag:
-            tags = tag
-        else:
-            tags = None
-
-        try:
-            # 添加下载
-            qbc_ret = self.qb.qbc.torrents_add(urls=urls,
-                                               torrent_files=torrent_files,
-                                               save_path=save_path,
-                                               is_paused=is_paused,
-                                               tags=tags,
-                                               use_auto_torrent_management=is_auto,
-                                               is_first_last_piece_priority=is_first_last_piece_priority,
-                                               cookie=cookie,
-                                               category=category,
-                                               **kwargs)
-            return True if qbc_ret and str(qbc_ret).find("Ok") != -1 else False
-        except Exception as err:
-            logger.error(f"添加种子出错：{str(err)}")
-            return False
-
     def __qb_torrents_reannounce(self, torrent_hashes: List[str]):
         """强制重新汇报"""
-        if not self.qb.qbc:
+        downloader = self.downloader
+        if not downloader:
+            return
+
+        if not downloader.qbc:
             return
 
         if not torrent_hashes:
@@ -3319,7 +3118,7 @@ class BrushFlow(_PluginBase):
 
         try:
             # 重新汇报
-            self.qb.qbc.torrents_reannounce(torrent_hashes=torrent_hashes)
+            downloader.qbc.torrents_reannounce(torrent_hashes=torrent_hashes)
         except Exception as err:
             logger.error(f"强制重新汇报失败：{str(err)}")
 
@@ -3327,9 +3126,9 @@ class BrushFlow(_PluginBase):
         """
         获取种子hash
         """
-        brush_config = self.__get_brush_config()
         try:
-            return torrent.get("hash") if brush_config.downloader == "qbittorrent" else torrent.hashString
+            return torrent.get("hash") if self.downloaderhelper.is_qbittorrent(service=self.service_info) \
+                else torrent.hashString
         except Exception as e:
             print(str(e))
             return ""
@@ -3341,12 +3140,12 @@ class BrushFlow(_PluginBase):
         :param torrents: 包含种子信息的列表
         :return: 包含所有Hash值的列表
         """
-        brush_config = self.__get_brush_config()
         try:
             all_hashes = []
             for torrent in torrents:
                 # 根据下载器类型获取Hash值
-                hash_value = torrent.get("hash") if brush_config.downloader == "qbittorrent" else torrent.hashString
+                hash_value = torrent.get("hash") if self.downloaderhelper.is_qbittorrent(service=self.service_info) \
+                    else torrent.hashString
                 if hash_value:
                     all_hashes.append(hash_value)
             return all_hashes
@@ -3358,10 +3157,9 @@ class BrushFlow(_PluginBase):
         """
         获取种子标签
         """
-        brush_config = self.__get_brush_config()
         try:
             return [str(tag).strip() for tag in torrent.get("tags").split(',')] \
-                if brush_config.downloader == "qbittorrent" else torrent.labels or []
+                if self.downloaderhelper.is_qbittorrent(service=self.service_info) else torrent.labels or []
         except Exception as e:
             print(str(e))
             return []
@@ -3371,9 +3169,8 @@ class BrushFlow(_PluginBase):
         获取种子信息
         """
         date_now = int(time.time())
-        brush_config = self.__get_brush_config()
         # QB
-        if brush_config.downloader == "qbittorrent":
+        if self.downloaderhelper.is_qbittorrent(service=self.service_info):
             """
             {
               "added_on": 1693359031,
@@ -3644,23 +3441,17 @@ class BrushFlow(_PluginBase):
         """
         ret_info = schemas.DownloaderInfo()
 
-        # Qbittorrent
-        if self.qb:
-            info = self.qb.transfer_info()
-            if info:
-                ret_info.download_speed += info.get("dl_info_speed")
-                ret_info.upload_speed += info.get("up_info_speed")
-                ret_info.download_size += info.get("dl_info_data")
-                ret_info.upload_size += info.get("up_info_data")
+        downloader = self.downloader
+        if not downloader:
+            return ret_info
 
-        # Transmission
-        if self.tr:
-            info = self.tr.transfer_info()
-            if info:
-                ret_info.download_speed += info.download_speed
-                ret_info.upload_speed += info.upload_speed
-                ret_info.download_size += info.current_stats.downloaded_bytes
-                ret_info.upload_size += info.current_stats.uploaded_bytes
+        transfer_infos = self.chain.run_module("downloader_info")
+        if transfer_infos:
+            for transfer_info in transfer_infos:
+                ret_info.download_speed += transfer_info.download_speed
+                ret_info.upload_speed += transfer_info.upload_speed
+                ret_info.download_size += transfer_info.download_size
+                ret_info.upload_size += transfer_info.upload_size
 
         return ret_info
 
@@ -3670,7 +3461,7 @@ class BrushFlow(_PluginBase):
         """
         try:
             brush_config = self.__get_brush_config()
-            downloader = self.__get_downloader(brush_config.downloader)
+            downloader = self.downloader
             if not downloader:
                 return 0
 
@@ -3903,36 +3694,6 @@ class BrushFlow(_PluginBase):
             del torrent_tasks[key]
 
         self.save_data("archived", archived_tasks)
-
-    def __archive_tasks(self):
-        """
-        归档已经删除的种子数据
-        """
-        torrent_tasks: Dict[str, dict] = self.get_data("torrents") or {}
-
-        # 用于存储已删除的数据
-        archived_tasks: Dict[str, dict] = self.get_data("archived") or {}
-
-        # 准备一个列表，记录所有需要从原始数据中删除的键
-        keys_to_delete = set()
-
-        # 遍历所有 torrent 条目
-        for key, value in torrent_tasks.items():
-            # 检查是否标记为已删除
-            if value.get("deleted"):
-                # 如果是，加入到归档字典中
-                archived_tasks[key] = value
-                # 记录键，稍后删除
-                keys_to_delete.add(key)
-
-        # 从原始字典中移除已删除的条目
-        for key in keys_to_delete:
-            del torrent_tasks[key]
-
-        self.save_data("archived", archived_tasks)
-        self.save_data("torrents", torrent_tasks)
-        # 归档需要更新一下统计数据
-        self.__update_and_save_statistic_info(torrent_tasks=torrent_tasks)
 
     def __clear_tasks(self):
         """
