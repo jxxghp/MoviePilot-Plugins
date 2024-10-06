@@ -1,7 +1,11 @@
 import time
 import warnings
+from datetime import datetime, timedelta
 from threading import Lock
 from typing import Optional, Any, List, Dict, Tuple
+
+import pytz
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from app import schemas
 from app.chain.site import SiteChain
@@ -46,6 +50,7 @@ class SiteStatistic(_PluginBase):
     _enabled: bool = False
     _onlyonce: bool = False
     _dashboard_type: str = "today"
+    _scheduler = None
 
     def init_plugin(self, config: dict = None):
         self.siteoper = SiteOper()
@@ -60,10 +65,15 @@ class SiteStatistic(_PluginBase):
             self._onlyonce = config.get("onlyonce")
             self._dashboard_type = config.get("dashboard_type") or "today"
 
-        if self._enabled or self._onlyonce:
-            # 立即运行一次
-            if self._onlyonce:
-                SiteChain().refresh_userdata()
+        if self._onlyonce:
+            config["onlyonce"] = False
+            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+            self._scheduler.add_job(self.refresh, "date",
+                                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+                                    name="站点数据统计服务")
+            self._scheduler.print_jobs()
+            self._scheduler.start()
+            self.update_config(config=config)
 
     def get_state(self) -> bool:
         return self._enabled
@@ -873,7 +883,7 @@ class SiteStatistic(_PluginBase):
         pass
 
     @eventmanager.register(EventType.PluginAction)
-    def refresh(self, event: Event):
+    def refresh(self, event: Optional[Event] = None):
         """
         刷新站点数据
         """
