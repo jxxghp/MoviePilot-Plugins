@@ -246,7 +246,10 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "3.8"
+    "history": {
+        "v3.9": "MoviePilot V2 版本站点数据统计插件"
+    }
+    plugin_version = "3.9"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
