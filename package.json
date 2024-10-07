@@ -7,7 +7,6 @@
         "icon": "signin.png",
         "author": "thsrite",
         "level": 2,
-        "v2": true,
         "history": {
             "v2.4.2": "修复PT时间签到失败问题",
             "v2.4.1": "修复海胆签到失败问题",

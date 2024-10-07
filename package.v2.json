@@ -22,5 +22,17 @@
         "history": {
             "v3.9": "MoviePilot V2 版本站点刷流插件"
         }
+    },
+    "AutoSignIn": {
+        "name": "站点自动签到",
+        "description": "自动模拟登录、签到站点。",
+        "labels": "站点",
+        "version": "2.5",
+        "icon": "signin.png",
+        "author": "thsrite",
+        "level": 2,
+        "history": {
+            "v2.5": "MoviePilot V2 版本站点自动签到插件"
+        }
     }
 }
