@@ -29,7 +29,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/bangumi_b.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.2.1"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页
@@ -464,8 +464,12 @@ class BangumiColl(_PluginBase):
             if not meta.name:
                 logger.warn(f"{item.get('name_cn')} 未识别到有效数据")
                 continue
-            # 由于Bangumi的api不包含季度信息,不传入Bangumi条目id,默认使用tmdb
+            # 设置默认年份, 避免出现多个结果使用早期条目
+            meta.year = item.get("date")[:4]
             mediainfo: MediaInfo = self.chain.recognize_media(meta=meta)
+            # 识别失败则跳过
+            if not mediainfo:
+                continue
             # 对比Bangumi和tmdb的信息确定季度
             for info in mediainfo.season_info:
                 # 对比日期, 误差默认7天
@@ -548,12 +552,13 @@ class BangumiColl(_PluginBase):
 
         # 比较差异和阈值
         return delta <= threshold
-    
+
     @db_query
     def get_subscribe_history(self, db: Session = None) -> set:
         '''
         获取已完成的订阅
         '''
-        result = db.query(SubscribeHistory).filter(SubscribeHistory.bangumiid != None).all()
+        result = (
+            db.query(SubscribeHistory).filter(SubscribeHistory.bangumiid != None).all()
+        )
         return set([i.bangumiid for i in result])
-            
