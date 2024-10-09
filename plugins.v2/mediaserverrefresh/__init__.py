@@ -1,16 +1,14 @@
 import time
-from typing import Any, List, Dict, Tuple
+from pathlib import Path
+from typing import Any, List, Dict, Tuple, Optional
 
-from app.core.config import settings
 from app.core.context import MediaInfo
 from app.core.event import eventmanager, Event
-from app.modules.emby import Emby
-from app.modules.jellyfin import Jellyfin
-from app.modules.plex import Plex
-from app.plugins import _PluginBase
-from app.schemas import TransferInfo, RefreshMediaItem
-from app.schemas.types import EventType
+from app.helper.mediaserver import MediaServerHelper
 from app.log import logger
+from app.plugins import _PluginBase
+from app.schemas import TransferInfo, RefreshMediaItem, ServiceInfo
+from app.schemas.types import EventType
 
 
 class MediaServerRefresh(_PluginBase):
@@ -33,20 +31,47 @@ class MediaServerRefresh(_PluginBase):
     # 可使用的用户级别
     auth_level = 1
 
+    mediaserver_helper = None
     # 私有属性
     _enabled = False
     _delay = 0
-    _emby = None
-    _jellyfin = None
-    _plex = None
+    _mediaservers = None
+
+    # Property
+
+    @property
+    def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
+        """
+        服务信息
+        """
+        if not self._mediaservers:
+            logger.warning("尚未配置媒体服务器，请检查配置")
+            return None
+
+        services = self.mediaserver_helper.get_services(name_filters=self._mediaservers)
+        if not services:
+            logger.warning("获取媒体服务器实例失败，请检查配置")
+            return None
+
+        active_services = {}
+        for service_name, service_info in services.items():
+            if service_info.instance.is_inactive():
+                logger.warning(f"媒体服务器 {service_name} 未连接，请检查配置")
+            else:
+                active_services[service_name] = service_info
+
+        if not active_services:
+            logger.warning("没有已连接的媒体服务器，请检查配置")
+            return None
+
+        return active_services
 
     def init_plugin(self, config: dict = None):
-        self._emby = Emby()
-        self._jellyfin = Jellyfin()
-        self._plex = Plex()
+        self.mediaserver_helper = MediaServerHelper()
         if config:
             self._enabled = config.get("enabled")
             self._delay = config.get("delay") or 0
+            self._mediaservers = config.get("mediaservers") or []
 
     def get_state(self) -> bool:
         return self._enabled
@@ -81,6 +106,31 @@ class MediaServerRefresh(_PluginBase):
                                         'props': {
                                             'model': 'enabled',
                                             'label': '启用插件',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'multiple': True,
+                                            'chips': True,
+                                            'clearable': True,
+                                            'model': 'mediaservers',
+                                            'label': '媒体服务器',
+                                            'items': [{"title": config.name, "value": config.name}
+                                                      for config in self.mediaserver_helper.get_configs().values()]
                                         }
                                     }
                                 ]
@@ -131,7 +181,7 @@ class MediaServerRefresh(_PluginBase):
             return
 
         # 刷新媒体库
-        if not settings.MEDIASERVER:
+        if not self.service_infos:
             return
 
         if self._delay:
@@ -140,6 +190,9 @@ class MediaServerRefresh(_PluginBase):
 
         # 入库数据
         transferinfo: TransferInfo = event_info.get("transferinfo")
+        if not transferinfo or not transferinfo.target_diritem or not transferinfo.target_diritem.path:
+            return
+
         mediainfo: MediaInfo = event_info.get("mediainfo")
         items = [
             RefreshMediaItem(
@@ -147,21 +200,23 @@ class MediaServerRefresh(_PluginBase):
                 year=mediainfo.year,
                 type=mediainfo.type,
                 category=mediainfo.category,
-                target_path=transferinfo.target_path
+                target_path=Path(transferinfo.target_diritem.path)
             )
         ]
-        # Emby
-        if "emby" in settings.MEDIASERVER:
-            self._emby.refresh_library_by_items(items)
 
-        # Jeyllyfin
-        if "jellyfin" in settings.MEDIASERVER:
-            # FIXME Jellyfin未找到刷新单个项目的API
-            self._jellyfin.refresh_root_library()
+        for name, service in self.service_infos.items():
+            # Emby
+            if self.mediaserver_helper.is_emby(service=service):
+                service.instance.refresh_library_by_items(items)
 
-        # Plex
-        if "plex" in settings.MEDIASERVER:
-            self._plex.refresh_library_by_items(items)
+            # Jeyllyfin
+            if self.mediaserver_helper.is_jellyfin(service=service):
+                # FIXME Jellyfin未找到刷新单个项目的API
+                service.instance.refresh_root_library()
+
+            # Plex
+            if self.mediaserver_helper.is_plex(service=service):
+                service.instance.refresh_library_by_items(items)
 
     def stop_service(self):
         """
