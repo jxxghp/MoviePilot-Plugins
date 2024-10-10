@@ -21,8 +21,6 @@ from app.utils.string import StringUtils
 
 
 class DownloadSiteTag(_PluginBase):
-    # region 全局定义
-
     # 插件名称
     plugin_name = "下载任务分类与标签"
     # 插件描述
@@ -49,7 +47,7 @@ class DownloadSiteTag(_PluginBase):
     # 私有属性
     downloadhistory_oper = None
     sites_helper = None
-    downloaderhelper = None
+    downloader_helper = None
     _scheduler = None
     _enabled = False
     _onlyonce = False
@@ -65,40 +63,9 @@ class DownloadSiteTag(_PluginBase):
     _category_anime = None
     _downloaders = None
 
-    # Property
-
-    @property
-    def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
-        """
-        服务信息
-        """
-        if not self._downloaders:
-            logger.warning("尚未配置下载器，请检查配置")
-            return None
-
-        services = self.downloaderhelper.get_services(name_filters=self._downloaders)
-        if not services:
-            logger.warning("获取下载器实例失败，请检查配置")
-            return None
-
-        active_services = {}
-        for service_name, service_info in services.items():
-            if service_info.instance.is_inactive():
-                logger.warning(f"下载器 {service_name} 未连接，请检查配置")
-            else:
-                active_services[service_name] = service_info
-
-        if not active_services:
-            logger.warning("没有已连接的下载器，请检查配置")
-            return None
-
-        return active_services
-
-    # endregion
-
     def init_plugin(self, config: dict = None):
         self.downloadhistory_oper = DownloadHistoryOper()
-        self.downloaderhelper = DownloaderHelper()
+        self.downloader_helper = DownloaderHelper()
         self.sites_helper = SitesHelper()
         # 读取配置
         if config:
@@ -136,6 +103,33 @@ class DownloadSiteTag(_PluginBase):
                 # 启动服务
                 self._scheduler.print_jobs()
                 self._scheduler.start()
+
+    @property
+    def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
+        """
+        服务信息
+        """
+        if not self._downloaders:
+            logger.warning("尚未配置下载器，请检查配置")
+            return None
+
+        services = self.downloader_helper.get_services(name_filters=self._downloaders)
+        if not services:
+            logger.warning("获取下载器实例失败，请检查配置")
+            return None
+
+        active_services = {}
+        for service_name, service_info in services.items():
+            if service_info.instance.is_inactive():
+                logger.warning(f"下载器 {service_name} 未连接，请检查配置")
+            else:
+                active_services[service_name] = service_info
+
+        if not active_services:
+            logger.warning("没有已连接的下载器，请检查配置")
+            return None
+
+        return active_services
 
     def get_state(self) -> bool:
         return self._enabled
@@ -668,7 +662,7 @@ class DownloadSiteTag(_PluginBase):
                                             'model': 'downloaders',
                                             'label': '下载器',
                                             'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.downloaderhelper.get_configs().values()]
+                                                      for config in self.downloader_helper.get_configs().values()]
                                         }
                                     }
                                 ]
