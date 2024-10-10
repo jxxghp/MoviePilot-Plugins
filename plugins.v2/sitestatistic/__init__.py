@@ -32,7 +32,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     # 插件作者
     plugin_author = "lightolly,jxxghp"
     # 作者主页
@@ -206,8 +206,8 @@ class SiteStatistic(_PluginBase):
         data_list: List[SiteUserData] = self.siteoper.get_userdata()
         if not data_list:
             return "", [], []
-        # 每个日期只保留最后一条数据
-        data_list = list({data.updated_day: data for data in data_list}.values())
+        # 每个日期、每个站点只保留最后一条数据
+        data_list = list({f"{data.updated_day}_{data.name}": data for data in data_list}.values())
         # 按日期倒序排序
         data_list.sort(key=lambda x: x.updated_day, reverse=True)
         # 今天的日期
