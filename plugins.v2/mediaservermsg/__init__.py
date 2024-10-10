@@ -1,13 +1,11 @@
 import time
-from typing import Any, List, Dict, Tuple
+from typing import Any, List, Dict, Tuple, Optional
 
 from app.core.event import eventmanager, Event
+from app.helper.mediaserver import MediaServerHelper
 from app.log import logger
-from app.modules.emby import Emby
-from app.modules.jellyfin import Jellyfin
-from app.modules.plex import Plex
 from app.plugins import _PluginBase
-from app.schemas import WebhookEventInfo
+from app.schemas import WebhookEventInfo, ServiceInfo
 from app.schemas.types import EventType, MediaType, MediaImageType, NotificationType
 from app.utils.web import WebUtils
 
@@ -20,7 +18,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -32,13 +30,11 @@ class MediaServerMsg(_PluginBase):
     # 可使用的用户级别
     auth_level = 1
 
-    # 对像
-    plex = None
-    emby = None
-    jellyfin = None
-
     # 私有属性
+    mediaserver_helper = None
     _enabled = False
+    _add_play_link = False
+    _mediaservers = None
     _types = []
     _webhook_msg_keys = {}
 
@@ -63,13 +59,38 @@ class MediaServerMsg(_PluginBase):
     }
 
     def init_plugin(self, config: dict = None):
+        self.mediaserver_helper = MediaServerHelper()
         if config:
             self._enabled = config.get("enabled")
             self._types = config.get("types") or []
-            if self._enabled:
-                self.emby = Emby()
-                self.plex = Plex()
-                self.jellyfin = Jellyfin()
+            self._mediaservers = config.get("mediaservers") or []
+            self._add_play_link = config.get("add_play_link", False)
+
+    def service_infos(self, type_filter: Optional[str] = None) -> Optional[Dict[str, ServiceInfo]]:
+        """
+        服务信息
+        """
+        if not self._mediaservers:
+            logger.warning("尚未配置媒体服务器，请检查配置")
+            return None
+
+        services = self.mediaserver_helper.get_services(type_filter=type_filter, name_filters=self._mediaservers)
+        if not services:
+            logger.warning("获取媒体服务器实例失败，请检查配置")
+            return None
+
+        active_services = {}
+        for service_name, service_info in services.items():
+            if service_info.instance.is_inactive():
+                logger.warning(f"媒体服务器 {service_name} 未连接，请检查配置")
+            else:
+                active_services[service_name] = service_info
+
+        if not active_services:
+            logger.warning("没有已连接的媒体服务器，请检查配置")
+            return None
+
+        return active_services
 
     def get_state(self) -> bool:
         return self._enabled
@@ -116,6 +137,47 @@ class MediaServerMsg(_PluginBase):
                                         }
                                     }
                                 ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'add_play_link',
+                                            'label': '添加播放链接',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'multiple': True,
+                                            'chips': True,
+                                            'clearable': True,
+                                            'model': 'mediaservers',
+                                            'label': '媒体服务器',
+                                            'items': [{"title": config.name, "value": config.name}
+                                                      for config in self.mediaserver_helper.get_configs().values()]
+                                        }
+                                    }
+                                ]
                             }
                         ]
                     },
@@ -156,7 +218,7 @@ class MediaServerMsg(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '需要设置媒体服务器Webhook，回调相对路径为 /api/v1/webhook?token=moviepilot（3001端口），其中 moviepilot 为设置的 API_TOKEN。'
+                                            'text': '需要设置媒体服务器Webhook，回调相对路径为 /api/v1/webhook?token=API_TOKEN&source=媒体服务器名（3001端口），其中 API_TOKEN 为设置的 API_TOKEN。'
                                         }
                                     }
                                 ]
@@ -253,15 +315,18 @@ class MediaServerMsg(_PluginBase):
         if not image_url:
             image_url = self._webhook_images.get(event_info.channel)
 
-        # 获取链接地址
-        if event_info.channel == "emby":
-            play_link = self.emby.get_play_url(event_info.item_id)
-        elif event_info.channel == "plex":
-            play_link = self.plex.get_play_url(event_info.item_id)
-        elif event_info.channel == "jellyfin":
-            play_link = self.jellyfin.get_play_url(event_info.item_id)
-        else:
-            play_link = None
+        play_link = None
+        if self._add_play_link:
+            if event_info.server_name:
+                service = self.service_infos().get(event_info.server_name)
+                if service:
+                    play_link = service.instance.get_play_url(event_info.item_id)
+            elif event_info.channel:
+                services = self.mediaserver_helper.get_services(type_filter=event_info.channel)
+                for service in services.values():
+                    play_link = service.instance.get_play_url(event_info.item_id)
+                    if play_link:
+                        break
 
         if str(event_info.event) == "playback.stop":
             # 停止播放消息，添加到过期字典

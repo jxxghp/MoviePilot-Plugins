@@ -31,13 +31,18 @@ class MediaServerRefresh(_PluginBase):
     # 可使用的用户级别
     auth_level = 1
 
-    mediaserver_helper = None
     # 私有属性
+    mediaserver_helper = None
     _enabled = False
     _delay = 0
     _mediaservers = None
 
-    # Property
+    def init_plugin(self, config: dict = None):
+        self.mediaserver_helper = MediaServerHelper()
+        if config:
+            self._enabled = config.get("enabled")
+            self._delay = config.get("delay") or 0
+            self._mediaservers = config.get("mediaservers") or []
 
     @property
     def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
@@ -65,13 +70,6 @@ class MediaServerRefresh(_PluginBase):
             return None
 
         return active_services
-
-    def init_plugin(self, config: dict = None):
-        self.mediaserver_helper = MediaServerHelper()
-        if config:
-            self._enabled = config.get("enabled")
-            self._delay = config.get("delay") or 0
-            self._mediaservers = config.get("mediaservers") or []
 
     def get_state(self) -> bool:
         return self._enabled
