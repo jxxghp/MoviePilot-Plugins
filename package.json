@@ -840,5 +840,15 @@
             "v1.1": "支持将极影视评分修改为豆瓣评分",
             "v1.0": "同步极影视在看/已看状态到豆瓣"
         }
+    },
+    "DingdingMsg": {
+        "name": "钉钉机器人",
+        "description": "支持使用钉钉机器人发送消息通知。",
+        "labels": "消息通知,钉钉机器人",
+        "version": "1.12",
+        "icon": "Dingding_A.png",
+        "author": "nnlegenda",
+        "level": 1,
+        "v2": true
     }
 }
