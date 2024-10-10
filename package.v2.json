@@ -3,12 +3,12 @@
         "name": "站点数据统计",
         "description": "站点统计数据图表。",
         "labels": "站点,仪表板",
-        "version": "1.0.1",
+        "version": "1.0.2",
         "icon": "statistic.png",
         "author": "lightolly,jxxghp",
         "level": 2,
         "history": {
-            "v1.0.1": "MoviePilot V2 版本站点数据统计插件"
+            "v1.0.2": "MoviePilot V2 版本站点数据统计插件"
         }
     },
     "BrushFlow": {
@@ -57,6 +57,18 @@
         "level": 1,
         "history": {
             "v1.3": "MoviePilot V2 版本媒体库服务器刷新插件"
+        }
+    },
+    "ChatGPT": {
+        "name": "ChatGPT",
+        "description": "消息交互支持与ChatGPT对话。",
+        "labels": "消息通知,识别",
+        "version": "2.0",
+        "icon": "Chatgpt_A.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0": "适配MoviePilot V2 版本，采用链式事件机制"
         }
     }
 }
