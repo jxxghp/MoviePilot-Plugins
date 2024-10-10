@@ -29,7 +29,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/bangumi_b.png"
     # 插件版本
-    plugin_version = "1.2.1"
+    plugin_version = "1.2.2"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页
@@ -39,7 +39,7 @@ class BangumiColl(_PluginBase):
     # 加载顺序
     plugin_order = 23
     # 可使用的用户级别
-    auth_level = 2
+    auth_level = 1
 
     # 私有变量
     _scheduler: Optional[BackgroundScheduler] = None
@@ -325,8 +325,7 @@ class BangumiColl(_PluginBase):
     def get_page(self):
         pass
 
-        # 注册定时任务
-
+    # 注册定时任务
     def get_service(self) -> List[Dict[str, Any]]:
         """
         注册插件公共服务
@@ -418,11 +417,11 @@ class BangumiColl(_PluginBase):
             date = item['subject'].get('date')
             ## 这里在后面添加排除规则
             items.update({subject_id: {"name": name, "name_cn": name_cn, "date": date}})
-        ## 获取此插件添加的订阅
+        ## 获取已添加的订阅
         db_sub = {
             i.bangumiid: i.id
             for i in self.subscribechain.subscribeoper.list()
-            if i.bangumiid and i.username == "Bangumi订阅"
+            if i.bangumiid
         }
         ## 获取历史订阅
         db_hist = self.get_subscribe_history()
@@ -447,21 +446,28 @@ class BangumiColl(_PluginBase):
             # bgm条目id为键,bgm条目信息为值
             new_sub = {i: items[i] for i in new_sub}
             logger.info(f"开始添加订阅...")
-            self.add_subscribe(new_sub)
+            msg = self.add_subscribe(new_sub)
+            if msg:
+                # 订阅失败的条目打印至日志
+                logger.info("\n".ljust(49, ' ').join(list(msg.values())))
 
         # 结束
         logger.info(f"Bangumi收藏订阅执行完成")
 
-        # 添加订阅
-
-    def add_subscribe(self, items: Dict[int, Dict[str, Any]]):
+    # 添加订阅
+    def add_subscribe(self, items: Dict[int, Dict[str, Any]]) -> Dict:
         '''
         添加订阅
         :param items: bgm条目id为键,bgm条目信息为值
         '''
+        # 记录失败条目
+        fail_items = {}
         for subject_id, item in items.items():
             meta = MetaInfo(item.get("name_cn"))
             if not meta.name:
+                fail_items.update(
+                    {subject_id: f"{item.get('name_cn')} 未识别到有效数据"}
+                )
                 logger.warn(f"{item.get('name_cn')} 未识别到有效数据")
                 continue
             # 设置默认年份, 避免出现多个结果使用早期条目
@@ -469,6 +475,9 @@ class BangumiColl(_PluginBase):
             mediainfo: MediaInfo = self.chain.recognize_media(meta=meta)
             # 识别失败则跳过
             if not mediainfo:
+                fail_items.update(
+                    {subject_id: f"{item.get('name_cn')} 媒体信息识别失败"}
+                )
                 continue
             # 对比Bangumi和tmdb的信息确定季度
             for info in mediainfo.season_info:
@@ -481,19 +490,28 @@ class BangumiColl(_PluginBase):
                     # 更新集数信息
                     mediainfo.number_of_episodes = info.get("episode_count")
 
-            # 检查是否已经订阅
-            subflag = self.subscribechain.exists(mediainfo=mediainfo, meta=meta)
-            if subflag:
-                logger.info(f'{mediainfo.title_year} {meta.season} 正在订阅中')
+            # 检查是否已经订阅, 添加bangumiid
+            sid = self.subscribeoper.list_by_tmdbid(
+                mediainfo.tmdb_id, mediainfo.number_of_seasons
+            )
+            if sid:
+                logger.info(f"{mediainfo.title_year} {meta.season} 正在订阅中")
+                if len(sid) == 1:
+                    self.subscribeoper.update(
+                        sid=sid[0].id, payload={"bangumiid": subject_id}
+                    )
+                    logger.info(
+                        f"{mediainfo.title_year} {meta.season} Bangumi条目id更新成功"
+                    )
                 continue
 
             # 额外参数
             kwargs = {
                 "save_path": self._save_path,
-                "sites": str(self._sites),
+                "sites": self._sites,
             }
             # 添加到订阅
-            self.subscribechain.add(
+            sid, msg = self.subscribechain.add(
                 title=mediainfo.title,
                 year=mediainfo.year,
                 mtype=mediainfo.type,
@@ -504,9 +522,12 @@ class BangumiColl(_PluginBase):
                 username="Bangumi订阅",
                 **kwargs,
             )
+            if not sid:
+                fail_items.update({subject_id: f"{item.get('name_cn')} {msg}"})
+                continue
+        return fail_items
 
-        # 移除订阅
-
+    # 移除订阅
     def delete_subscribe(self, del_items: Dict[int, int]):
         '''
         删除订阅
