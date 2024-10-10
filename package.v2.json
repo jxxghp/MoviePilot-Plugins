@@ -58,5 +58,17 @@
         "history": {
             "v1.3": "MoviePilot V2 版本媒体库服务器刷新插件"
         }
+    },
+    "ChatGPT": {
+        "name": "ChatGPT",
+        "description": "消息交互支持与ChatGPT对话。",
+        "labels": "消息通知,识别",
+        "version": "2.0",
+        "icon": "Chatgpt_A.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0": "适配MoviePilot V2 版本，采用链式事件机制"
+        }
     }
 }
