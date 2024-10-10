@@ -59,6 +59,18 @@
             "v1.3": "MoviePilot V2 版本媒体库服务器刷新插件"
         }
     },
+    "MediaServerMsg": {
+        "name": "媒体库服务器通知",
+        "description": "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。",
+        "labels": "消息通知,媒体库",
+        "version": "1.4",
+        "icon": "mediaplay.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v1.4": "MoviePilot V2 版本媒体库服务器通知插件"
+        }
+    },
     "ChatGPT": {
         "name": "ChatGPT",
         "description": "消息交互支持与ChatGPT对话。",
