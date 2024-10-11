@@ -558,12 +558,15 @@ class TorrentTransfer(_PluginBase):
             return False
         return True
 
-    def __download(self, downloader: Union[Qbittorrent, Transmission], content: bytes,
+    def __download(self, service: ServiceInfo, content: bytes,
                    save_path: str) -> Optional[str]:
         """
         添加下载任务
         """
-        if self.downloader_helper.is_qbittorrent(instance=downloader):
+        if not service or not service.instance:
+            return
+        downloader = service.instance
+        if self.downloader_helper.is_qbittorrent(service):
             # 生成随机Tag
             tag = StringUtils.generate_random_str(10)
             state = downloader.add_torrent(content=content,
@@ -579,7 +582,7 @@ class TorrentTransfer(_PluginBase):
                     logger.error(f"{downloader} 下载任务添加成功，但获取任务信息失败！")
                     return None
             return torrent_hash
-        elif self.downloader_helper.is_transmission(instance=downloader):
+        elif self.downloader_helper.is_transmission(service):
             # 添加任务
             torrent = downloader.add_torrent(content=content,
                                              download_dir=save_path,
@@ -786,7 +789,7 @@ class TorrentTransfer(_PluginBase):
 
                 # 发送到另一个下载器中下载：默认暂停、传输下载路径、关闭自动管理模式
                 logger.info(f"添加转移做种任务到下载器 {to_service.name}：{torrent_file}")
-                download_id = self.__download(downloader=to_downloader,
+                download_id = self.__download(service=to_service,
                                               content=torrent_file.read_bytes(),
                                               save_path=download_dir)
                 if not download_id:
