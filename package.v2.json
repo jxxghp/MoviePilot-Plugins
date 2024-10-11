@@ -82,5 +82,17 @@
         "history": {
             "v2.0": "适配MoviePilot V2 版本，采用链式事件机制"
         }
+    },
+    "TorrentTransfer": {
+        "name": "自动转移做种",
+        "description": "定期转移下载器中的做种任务到另一个下载器。",
+        "labels": "做种",
+        "version": "1.7",
+        "icon": "seed.png",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v1.7": "MoviePilot V2 版本自动转移做种插件"
+        }
     }
 }

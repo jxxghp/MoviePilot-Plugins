@@ -62,13 +62,14 @@ class TorrentTransfer(_PluginBase):
     _fromtorrentpath = None
     _autostart = False
     _transferemptylabel = False
+    _add_torrent_tags = None
     # 退出事件
     _event = Event()
     # 待检查种子清单
     _recheck_torrents = {}
     _is_recheck_running = False
     # 任务标签
-    _torrent_tags = ["已整理", "转移做种"]
+    _torrent_tags = []
 
     def init_plugin(self, config: dict = None):
         self.torrent = TorrentHelper()
@@ -91,6 +92,12 @@ class TorrentTransfer(_PluginBase):
             self._nopaths = config.get("nopaths")
             self._autostart = config.get("autostart")
             self._transferemptylabel = config.get("transferemptylabel")
+            self._add_torrent_tags = config.get("add_torrent_tags")
+            if self._add_torrent_tags is None:
+                self._add_torrent_tags = "已整理,转移做种"
+                config["add_torrent_tags"] = self._add_torrent_tags
+                self.update_config(config=config)
+            self._torrent_tags = self._add_torrent_tags.strip().split(",") if self._add_torrent_tags else []
 
         # 停止现有任务
         self.stop_service()
@@ -99,14 +106,12 @@ class TorrentTransfer(_PluginBase):
         if self.get_state() or self._onlyonce:
             self.qb = Qbittorrent()
             self.tr = Transmission()
-            # 检查配置
-            if self._fromtorrentpath and not Path(self._fromtorrentpath).exists():
-                logger.error(f"源下载器种子文件保存路径不存在：{self._fromtorrentpath}")
-                self.systemmessage.put(f"源下载器种子文件保存路径不存在：{self._fromtorrentpath}", title="自动转移做种")
-                return
-            if self._fromdownloader == self._todownloader:
-                logger.error(f"源下载器和目的下载器不能相同")
-                self.systemmessage.put(f"源下载器和目的下载器不能相同", title="自动转移做种")
+            if not self.__validate_config():
+                self._enabled = False
+                self._onlyonce = False
+                config["enabled"] = self._enabled
+                config["onlyonce"] = self._onlyonce
+                self.update_config(config=config)
                 return
 
             # 定时服务
@@ -123,25 +128,8 @@ class TorrentTransfer(_PluginBase):
                                             seconds=3))
                 # 关闭一次性开关
                 self._onlyonce = False
-                self.update_config({
-                    "enabled": self._enabled,
-                    "onlyonce": self._onlyonce,
-                    "cron": self._cron,
-                    "notify": self._notify,
-                    "nolabels": self._nolabels,
-                    "includelabels": self._includelabels,
-                    "includecategory": self._includecategory,  
-                    "frompath": self._frompath,
-                    "topath": self._topath,
-                    "fromdownloader": self._fromdownloader,
-                    "todownloader": self._todownloader,
-                    "deletesource": self._deletesource,
-                    "deleteduplicate": self._deleteduplicate,
-                    "fromtorrentpath": self._fromtorrentpath,
-                    "nopaths": self._nopaths,
-                    "autostart": self._autostart,
-                    "transferemptylabel": self._transferemptylabel
-                })
+                config["onlyonce"] = self._onlyonce
+                self.update_config(config=config)
 
             # 启动服务
             if self._scheduler.get_jobs():
@@ -253,7 +241,7 @@ class TorrentTransfer(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -266,11 +254,28 @@ class TorrentTransfer(_PluginBase):
                                     }
                                 ]
                             },
-                             {
+                            {
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'add_torrent_tags',
+                                            'label': '添加种子标签',
+                                            'placeholder': '已整理,转移做种'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -523,7 +528,8 @@ class TorrentTransfer(_PluginBase):
             "fromtorrentpath": "",
             "nopaths": "",
             "autostart": True,
-            "transferemptylabel": False
+            "transferemptylabel": False,
+            "add_torrent_tags": "已整理,转移做种"
         }
 
     def get_page(self) -> List[dict]:
@@ -540,6 +546,21 @@ class TorrentTransfer(_PluginBase):
         else:
             return None
 
+    def __validate_config(self) -> bool:
+        """
+        校验配置
+        """
+        # 检查配置
+        if self._fromtorrentpath and not Path(self._fromtorrentpath).exists():
+            logger.error(f"源下载器种子文件保存路径不存在：{self._fromtorrentpath}")
+            self.systemmessage.put(f"源下载器种子文件保存路径不存在：{self._fromtorrentpath}", title="自动转移做种")
+            return False
+        if self._fromdownloader == self._todownloader:
+            logger.error(f"源下载器和目的下载器不能相同")
+            self.systemmessage.put(f"源下载器和目的下载器不能相同", title="自动转移做种")
+            return False
+        return True
+
     def __download(self, downloader: str, content: bytes,
                    save_path: str) -> Optional[str]:
         """
@@ -551,7 +572,7 @@ class TorrentTransfer(_PluginBase):
             state = self.qb.add_torrent(content=content,
                                         download_dir=save_path,
                                         is_paused=True,
-                                        tag=["转移做种", tag])
+                                        tag=self._torrent_tags + [tag])
             if not state:
                 return None
             else:
@@ -566,7 +587,7 @@ class TorrentTransfer(_PluginBase):
             torrent = self.tr.add_torrent(content=content,
                                           download_dir=save_path,
                                           is_paused=True,
-                                          labels=["转移做种"])
+                                          labels=self._torrent_tags)
             if not torrent:
                 return None
             else:
@@ -580,6 +601,9 @@ class TorrentTransfer(_PluginBase):
         开始转移做种
         """
         logger.info("开始转移做种任务 ...")
+
+        if not self.__validate_config():
+            return
 
         # 源下载器
         downloader = self._fromdownloader
@@ -633,7 +657,7 @@ class TorrentTransfer(_PluginBase):
                 if torrent_category not in self._includecategory.split(','):
                     logger.info(f"种子 {hash_str} 不含有转移分类 {self._includecategory}，跳过 ...")
                     continue
-            #根据设置决定是否转移无标签的种子
+            # 根据设置决定是否转移无标签的种子
             if is_torrent_labels_empty:
                 if not self._transferemptylabel:
                     continue
@@ -903,12 +927,12 @@ class TorrentTransfer(_PluginBase):
         获取种子分类
         """
         try:
-            return str(torrent.get("category")).strip() \
+            return torrent.get("category").strip() \
                 if dl_type == "qbittorrent" else ""
         except Exception as e:
             print(str(e))
             return ""
-        
+
     @staticmethod
     def __get_save_path(torrent: Any, dl_type: str):
         """
