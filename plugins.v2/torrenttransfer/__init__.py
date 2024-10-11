@@ -62,6 +62,7 @@ class TorrentTransfer(_PluginBase):
     _fromtorrentpath = None
     _autostart = False
     _transferemptylabel = False
+    _add_torrent_tags = None
     # 退出事件
     _event = Event()
     # 待检查种子清单
@@ -93,7 +94,7 @@ class TorrentTransfer(_PluginBase):
             self._autostart = config.get("autostart")
             self._transferemptylabel = config.get("transferemptylabel")
             self._add_torrent_tags = config.get("add_torrent_tags") or ""
-            self._torrent_tags = self._add_torrent_tags.strip().split(",")
+            self._torrent_tags = self._add_torrent_tags.strip().split(",") if self._add_torrent_tags else []
 
         # 停止现有任务
         self.stop_service()
