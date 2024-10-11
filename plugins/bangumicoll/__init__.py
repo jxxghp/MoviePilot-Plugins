@@ -29,7 +29,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/bangumi_b.png"
     # 插件版本
-    plugin_version = "1.2.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页
@@ -383,19 +383,11 @@ class BangumiColl(_PluginBase):
             logger.error("请设置UID")
             return
 
-        addr = f"https://api.bgm.tv/v0/users/{self._uid}/collections?subject_type=2"
-        headers = {
-            "User-Agent": "wikrin/MoviePilot-Plugins (https://github.com/wikrin/MoviePilot-Plugins)"
-        }
-
-        try:
-            logger.info(f"查询bangumi条目信息：{addr}")
-            res = RequestUtils(headers=headers).get_res(url=addr)
-            res = res.json().get("data")
-            if not res:
-                logger.error(f"Bangumi用户：{self._uid} ，未查询到数据")
-        except Exception as e:
-            logger.error(f"获取Bangumi收藏数据失败：{addr} 失败：{str(e)}")
+        # 获取收藏列表
+        res = self.get_bgm_res(addr="UserCollections", id=self._uid)
+        res = res.json().get("data")
+        if not res:
+            logger.error(f"Bangumi用户：{self._uid} ，没有任何收藏")
 
         # 解析出必要数据
         items: Dict[int, Dict[str, Any]] = {}
@@ -415,8 +407,19 @@ class BangumiColl(_PluginBase):
             name_cn = item['subject'].get('name_cn')
             # 放送时间
             date = item['subject'].get('date')
+            # 集数
+            eps = item['subject'].get('eps')
             ## 这里在后面添加排除规则
-            items.update({subject_id: {"name": name, "name_cn": name_cn, "date": date}})
+            items.update(
+                {
+                    subject_id: {
+                        "name": name,
+                        "name_cn": name_cn,
+                        "date": date,
+                        "eps": eps,
+                    }
+                }
+            )
         ## 获取已添加的订阅
         db_sub = {
             i.bangumiid: i.id
@@ -460,6 +463,7 @@ class BangumiColl(_PluginBase):
         添加订阅
         :param items: bgm条目id为键,bgm条目信息为值
         '''
+
         # 记录失败条目
         fail_items = {}
         for subject_id, item in items.items():
@@ -490,6 +494,63 @@ class BangumiColl(_PluginBase):
                     # 更新集数信息
                     mediainfo.number_of_episodes = info.get("episode_count")
 
+            # 总集数
+            total_episode = len(
+                mediainfo.seasons.get(mediainfo.number_of_seasons) or []
+            )
+            # 额外参数
+            kwargs = {
+                "save_path": self._save_path,
+                "sites": self._sites,
+                "total_episode": total_episode,
+            }
+
+            # 对比BGM 和 TMDB 季度和集数
+            if (
+                meta.begin_season
+                and mediainfo.number_of_seasons != meta.begin_season
+                or (item.get('eps') != 0 and total_episode != item.get('eps'))
+                or (item.get('eps') == 0 and not total_episode >= 12)
+            ):
+                '''
+                1. 标题识别到季度且与tmdb不一致
+                2. eps 字段为0且总集数小于12
+                3. eps 字段不为0且总集数与Bangumi集数不一致
+                '''
+
+                def get_eps(id: str, addr: str = "getEpisodes") -> tuple:
+                    """
+                    获取Bangumi条目的集数信息
+                    :param id: bangumi条目id
+                    :param addr: API地址
+                    """
+                    ep: int = 1
+                    sort: int = 1
+                    total: int = 24
+                    res = self.get_bgm_res(addr=addr, id=id)
+                    res = res.json()
+                    data = res.get("data")
+                    if data:
+                        # 当前季的集数
+                        ep = data[0].get("ep")
+                        # 系列的累计集数
+                        sort = data[0].get("sort")
+                        # 当前集的总集数
+                        total = res.get("total")
+                    begin_ep = sort
+                    total_ep = sort + total - ep
+                    return begin_ep, total_ep
+
+                if meta.begin_season:
+                    # 使用标题识别到的季号
+                    mediainfo.number_of_seasons = meta.begin_season
+
+                begin_ep, total_ep = get_eps(id=subject_id)
+                logger.info(
+                    f"{mediainfo.title_year} 识别到Bangumi与TMDB的季数和集数不一致"
+                )
+                kwargs.update({"start_episode": begin_ep, "total_episode": total_ep})
+
             # 检查是否已经订阅, 添加bangumiid
             sid = self.subscribeoper.list_by_tmdbid(
                 mediainfo.tmdb_id, mediainfo.number_of_seasons
@@ -505,11 +566,6 @@ class BangumiColl(_PluginBase):
                     )
                 continue
 
-            # 额外参数
-            kwargs = {
-                "save_path": self._save_path,
-                "sites": self._sites,
-            }
             # 添加到订阅
             sid, msg = self.subscribechain.add(
                 title=mediainfo.title,
@@ -552,6 +608,17 @@ class BangumiColl(_PluginBase):
                     + f"创建时间: {subscribe.date}",
                     image=subscribe.backdrop,
                 )
+
+    @staticmethod
+    def get_bgm_res(addr: str, id: int | str):
+        url = {
+            "UserCollections": f"https://api.bgm.tv/v0/users/{str(id)}/collections?subject_type=2",
+            "getEpisodes": f"https://api.bgm.tv/v0/episodes?subject_id={str(id)}&type=0&limit=1",
+        }
+        headers = {
+            "User-Agent": "wikrin/MoviePilot-Plugins (https://github.com/wikrin/MoviePilot-Plugins)"
+        }
+        return RequestUtils(headers=headers).get_res(url=url[addr])
 
     @staticmethod
     def are_dates(date_str1, date_str2, threshold_days: int = 7) -> bool:
