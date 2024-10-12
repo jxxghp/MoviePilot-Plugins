@@ -28,7 +28,7 @@ class TorrentTransfer(_PluginBase):
     # 插件图标
     plugin_icon = "seed.png"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.7.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -566,7 +566,7 @@ class TorrentTransfer(_PluginBase):
         if not service or not service.instance:
             return
         downloader = service.instance
-        if self.downloader_helper.is_qbittorrent(service):
+        if self.downloader_helper.is_downloader("qbittorrent", service=service):
             # 生成随机Tag
             tag = StringUtils.generate_random_str(10)
             state = downloader.add_torrent(content=content,
@@ -582,7 +582,7 @@ class TorrentTransfer(_PluginBase):
                     logger.error(f"{downloader} 下载任务添加成功，但获取任务信息失败！")
                     return None
             return torrent_hash
-        elif self.downloader_helper.is_transmission(service):
+        elif self.downloader_helper.is_downloader("transmission", service=service):
             # 添加任务
             torrent = downloader.add_torrent(content=content,
                                              download_dir=save_path,
@@ -739,7 +739,7 @@ class TorrentTransfer(_PluginBase):
                     continue
 
                 # 如果源下载器是QB检查是否有Tracker，没有的话额外获取
-                if self.downloader_helper.is_qbittorrent(from_service):
+                if self.downloader_helper.is_downloader("qbittorrent", service=from_service):
                     # 读取种子内容、解析种子文件
                     content = torrent_file.read_bytes()
                     if not content:
@@ -802,7 +802,7 @@ class TorrentTransfer(_PluginBase):
                     logger.info(f"成功添加转移做种任务，种子文件：{torrent_file}")
 
                     # TR会自动校验，QB需要手动校验
-                    if self.downloader_helper.is_qbittorrent(to_service):
+                    if self.downloader_helper.is_downloader("qbittorrent", service=to_service):
                         logger.info(f"qbittorrent 开始校验 {download_id} ...")
                         to_downloader.recheck_torrents(ids=[download_id])
 

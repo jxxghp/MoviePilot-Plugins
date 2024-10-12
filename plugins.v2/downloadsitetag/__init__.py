@@ -338,17 +338,6 @@ class DownloadSiteTag(_PluginBase):
                 _cat = self._category_tv
         return _cat
 
-    def _get_downloader(self, dtype: str):
-        """
-        根据类型返回下载器实例
-        """
-        if dtype == "qbittorrent":
-            return self.downloader_qb
-        elif dtype == "transmission":
-            return self.downloader_tr
-        else:
-            return None
-
     @staticmethod
     def _torrent_key(torrent: Any, dl_type: str) -> Optional[Tuple[int, str]]:
         """

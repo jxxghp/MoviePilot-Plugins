@@ -246,7 +246,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "3.9"
+    plugin_version = "3.9.1"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -2312,7 +2312,7 @@ class BrushFlow(_PluginBase):
 
                 if need_delete_hashes:
                     # 如果是QB，则重新汇报Tracker
-                    if self.downloader_helper.is_qbittorrent(service=self.service_info):
+                    if self.downloader_helper.is_downloader("qbittorrent", service=self.service_info):
                         self.__qb_torrents_reannounce(torrent_hashes=need_delete_hashes)
                     # 删除种子
                     if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
@@ -2354,7 +2354,7 @@ class BrushFlow(_PluginBase):
                                              seeding_torrents_dict: Dict[str, Any]):
         brush_config = self.__get_brush_config()
 
-        if not self.downloader_helper.is_qbittorrent(service=self.service_info):
+        if not self.downloader_helper.is_downloader("qbittorrent", service=self.service_info):
             logger.info("同步种子刷流标签记录目前仅支持qbittorrent")
             return
 
@@ -2508,7 +2508,6 @@ class BrushFlow(_PluginBase):
         """
         根据条件删除种子并获取已删除列表
         """
-        brush_config = self.__get_brush_config()
         delete_hashes = []
 
         for torrent in torrents:
@@ -2543,7 +2542,6 @@ class BrushFlow(_PluginBase):
         """
         根据动态删除前置条件排除H&R种子后删除种子并获取已删除列表
         """
-        brush_config = self.__get_brush_config()
         delete_hashes = []
 
         for torrent in torrents:
@@ -3043,7 +3041,7 @@ class BrushFlow(_PluginBase):
         if not downloader:
             return None
 
-        if self.downloader_helper.is_qbittorrent(service=self.service_info):
+        if self.downloader_helper.is_downloader("qbittorrent", service=self.service_info):
             # 限速值转为bytes
             up_speed = up_speed * 1024 if up_speed else None
             down_speed = down_speed * 1024 if down_speed else None
@@ -3077,7 +3075,7 @@ class BrushFlow(_PluginBase):
                     return torrent_hash
             return None
 
-        elif self.downloader_helper.is_transmission(service=self.service_info):
+        elif self.downloader_helper.is_downloader("transmission", service=self.service_info):
             # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
             if not torrent_content.startswith("magnet"):
                 response = RequestUtils(cookies=cookies,
@@ -3125,7 +3123,7 @@ class BrushFlow(_PluginBase):
         获取种子hash
         """
         try:
-            return torrent.get("hash") if self.downloader_helper.is_qbittorrent(service=self.service_info) \
+            return torrent.get("hash") if self.downloader_helper.is_downloader("qbittorrent", service=self.service_info) \
                 else torrent.hashString
         except Exception as e:
             print(str(e))
@@ -3142,7 +3140,8 @@ class BrushFlow(_PluginBase):
             all_hashes = []
             for torrent in torrents:
                 # 根据下载器类型获取Hash值
-                hash_value = torrent.get("hash") if self.downloader_helper.is_qbittorrent(service=self.service_info) \
+                hash_value = torrent.get("hash") if self.downloader_helper.is_downloader("qbittorrent",
+                                                                                         service=self.service_info) \
                     else torrent.hashString
                 if hash_value:
                     all_hashes.append(hash_value)
@@ -3157,7 +3156,8 @@ class BrushFlow(_PluginBase):
         """
         try:
             return [str(tag).strip() for tag in torrent.get("tags").split(',')] \
-                if self.downloader_helper.is_qbittorrent(service=self.service_info) else torrent.labels or []
+                if self.downloader_helper.is_downloader("qbittorrent",
+                                                        service=self.service_info) else torrent.labels or []
         except Exception as e:
             print(str(e))
             return []
@@ -3168,7 +3168,7 @@ class BrushFlow(_PluginBase):
         """
         date_now = int(time.time())
         # QB
-        if self.downloader_helper.is_qbittorrent(service=self.service_info):
+        if self.downloader_helper.is_downloader("qbittorrent", service=self.service_info):
             """
             {
               "added_on": 1693359031,
