@@ -1,23 +1,25 @@
 import datetime
-from typing import Optional, Any, List, Dict
+import json
 import pytz
+from typing import Any, Dict, List, Optional, Type
+
+from app.chain.subscribe import SubscribeChain, Subscribe
+from app.core.config import settings
+from app.core.context import MediaInfo
+from app.core.metainfo import MetaInfo
+from app.db.models.subscribehistory import SubscribeHistory
+from app.db.site_oper import SiteOper
+from app.db.subscribe_oper import SubscribeOper
+from app.db import db_query
+from app.helper.subscribe import SubscribeHelper
+from app.log import logger
+from app.plugins import _PluginBase
+from app.schemas.types import NotificationType
+from app.utils.http import RequestUtils
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from app.chain.subscribe import SubscribeChain
-from app.core.config import settings
-
-from app.core.context import MediaInfo
-from app.core.metainfo import MetaInfo
-from app.log import logger
-from app.plugins import _PluginBase
-from app.db.site_oper import SiteOper
-from app.utils.http import RequestUtils
-from app.db.subscribe_oper import SubscribeOper
-from app.helper.subscribe import SubscribeHelper
-from app.schemas.types import NotificationType
-from app.db import db_query
-from app.db.models.subscribehistory import SubscribeHistory
+from sqlalchemy import JSON
 from sqlalchemy.orm import Session
 
 
@@ -29,7 +31,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/bangumi_b.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.3.1"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页
@@ -466,6 +468,13 @@ class BangumiColl(_PluginBase):
 
         # 记录失败条目
         fail_items = {}
+        # 格式化站点
+        sites = (
+            self._sites
+            if self.are_types_equal(attribute_name='sites')
+            else json.dumps(self._sites)
+        )
+
         for subject_id, item in items.items():
             meta = MetaInfo(item.get("name_cn"))
             if not meta.name:
@@ -501,7 +510,7 @@ class BangumiColl(_PluginBase):
             # 额外参数
             kwargs = {
                 "save_path": self._save_path,
-                "sites": self._sites,
+                "sites": sites,
                 "total_episode": total_episode,
             }
 
@@ -517,6 +526,7 @@ class BangumiColl(_PluginBase):
                 2. eps 字段为0且总集数小于12
                 3. eps 字段不为0且总集数与Bangumi集数不一致
                 '''
+                logger.info(f"{mediainfo.title_year} 与Bangumi的集数不一致")
 
                 def get_eps(id: str, addr: str = "getEpisodes") -> tuple:
                     """
@@ -537,19 +547,29 @@ class BangumiColl(_PluginBase):
                         sort = data[0].get("sort")
                         # 当前集的总集数
                         total = res.get("total")
-                    begin_ep = sort
-                    total_ep = sort + total - ep
+                    begin_ep = sort - ep + 1
+                    total_ep = sort - ep + total
                     return begin_ep, total_ep
 
-                if meta.begin_season:
-                    # 使用标题识别到的季号
-                    mediainfo.number_of_seasons = meta.begin_season
-
                 begin_ep, total_ep = get_eps(id=subject_id)
-                logger.info(
-                    f"{mediainfo.title_year} 识别到Bangumi与TMDB的季数和集数不一致"
+                prev_eps = [i for i in range(1, begin_ep)]
+                # 更新参数
+                note = (
+                    prev_eps
+                    if self.are_types_equal(attribute_name='note')
+                    else json.dumps(prev_eps)
                 )
-                kwargs.update({"start_episode": begin_ep, "total_episode": total_ep})
+                kwargs.update(
+                    {
+                        "total_episode": total_ep,  # 总集数
+                        "start_episode": begin_ep,  # 开始集数
+                        "lack_episode": total_ep - begin_ep + 1,  # 缺失集数
+                        "note": note,  # 忽略之前季度的集数
+                    }
+                )
+                logger.info(
+                    f"{mediainfo.title_year} 更新总集数为: {total_ep}，开始集数为: {begin_ep}"
+                )
 
             # 检查是否已经订阅, 添加bangumiid
             sid = self.subscribeoper.list_by_tmdbid(
@@ -650,3 +670,20 @@ class BangumiColl(_PluginBase):
             db.query(SubscribeHistory).filter(SubscribeHistory.bangumiid != None).all()
         )
         return set([i.bangumiid for i in result])
+
+    @staticmethod
+    def are_types_equal(
+        attribute_name: str, expected_type: Type[Any] = JSON(), class_=Subscribe
+    ) -> bool:
+        """
+        比较类中属性的类型与expected_type是否一致
+        :param class_: 类
+        :param attribute_name: 属性名称
+        :param expected_type: 期望的类型
+        """
+        column = class_.__table__.columns.get(attribute_name)
+        if column is None:
+            raise AttributeError(
+                f"Class: {class_.__name__} 没有属性: '{attribute_name}'"
+            )
+        return isinstance(column.type, type(expected_type))
