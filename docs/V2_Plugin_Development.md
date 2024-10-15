@@ -1,18 +1,19 @@
-# MoviePilot V2 插件开发指南
+# MoviePilot V2 插件开发指南（更新版）
 
-本指南详细介绍了如何开发适用于MoviePilot V2版本的插件，并实现插件的多版本兼容性，同时包括了服务封装类的使用示例，帮助开发者快速升级插件至V2版本。
+本指南详细介绍了如何开发适用于 MoviePilot V2 版本的插件，并实现插件的多版本兼容性，同时包括了服务封装类的使用示例，帮助开发者快速升级插件至 V2 版本。
 
 ## 1. 多版本插件开发与兼容性
 
-### 1.1 开发V2版本的插件
+### 1.1 开发 V2 版本的插件
 
-要开发适用于MoviePilot V2版本的插件，并实现多版本兼容性，请按照以下步骤操作：
+要开发适用于 MoviePilot V2 版本的插件，请按照以下步骤操作：
 
 1. **目录结构调整**：
-   - 将插件代码放置在`plugins.v2`文件夹中。
-   - 将插件的定义放置在`package.v2.json`中，以实现该插件仅在MoviePilot V2版本中可见。
+   - 将插件代码放置在 `plugins.v2` 文件夹中。
+   - 将插件的定义放置在 `package.v2.json` 中，以实现该插件仅在 MoviePilot V2 版本中可见。
 
 2. **插件定义示例**：
+
     ```json
     {
       "CustomSites": {
@@ -27,21 +28,9 @@
     }
     ```
 
-3. **版本判断**：
-   - MoviePilot V2中 Settings 模块新增了`VERSION_FLAG`属性，V2版本值为`v2`，可通过以下代码判断当前的版本，以便在插件中兼容处理：
-
-    ```python
-    from app.core.config import settings
-
-    if hasattr(settings, 'VERSION_FLAG'):
-      version = settings.VERSION_FLAG # V2
-    else:
-      version = "v1"
-    ```
-
 ### 1.2 实现插件多版本兼容
 
-如果V1版本插件在V2版本中实际可用，或在插件中主动兼容了V1和V2版本，则可以在`package.json`中定义 `"v2": true`属性，以便在MoviePilot V2版本插件市场中显示。
+如果 V1 版本插件在 V2 版本中实际可用，或在插件中主动兼容了 V1 和 V2 版本，则可以在 `package.json` 中定义 `"v2": true` 属性，以便在 MoviePilot V2 版本插件市场中显示。
 
 ```json
 {
@@ -59,6 +48,7 @@
 ```
 
 - **目录结构示例**：
+
   ```
   plugins/
     ├── customsites/
@@ -74,7 +64,7 @@
 
 - **插件代码中实现版本兼容**：
 
-    在插件代码中，可以根据`version`变量执行不同的逻辑，以适应不同的MoviePilot版本。
+    在插件代码中，可以根据 `version` 变量执行不同的逻辑，以适应不同的 MoviePilot 版本。
 
     ```python
     from app.core.config import settings
@@ -130,15 +120,84 @@ class ServiceInfo:
     config: Optional[Any] = None
 ```
 
+#### `ServiceConfigHelper`
+`ServiceConfigHelper` 是一个配置帮助类，用于获取不同类型的服务配置。
+
+```python
+from typing import List, Optional
+
+from app.db.systemconfig_oper import SystemConfigOper
+from app.schemas import DownloaderConf, MediaServerConf, NotificationConf, NotificationSwitchConf
+
+class ServiceConfigHelper:
+    """
+    配置帮助类，获取不同类型的服务配置
+    """
+
+    @staticmethod
+    def get_configs(config_key: SystemConfigKey, conf_type: Type) -> List:
+        """
+        通用获取配置的方法，根据 config_key 获取相应的配置并返回指定类型的配置列表
+
+        :param config_key: 系统配置的 key
+        :param conf_type: 用于实例化配置对象的类类型
+        :return: 配置对象列表
+        """
+        config_data = SystemConfigOper().get(config_key)
+        if not config_data:
+            return []
+        # 直接使用 conf_type 来实例化配置对象
+        return [conf_type(**conf) for conf in config_data]
+
+    @staticmethod
+    def get_downloader_configs() -> List[DownloaderConf]:
+        """
+        获取下载器的配置
+        """
+        return ServiceConfigHelper.get_configs(SystemConfigKey.Downloaders, DownloaderConf)
+
+    @staticmethod
+    def get_mediaserver_configs() -> List[MediaServerConf]:
+        """
+        获取媒体服务器的配置
+        """
+        return ServiceConfigHelper.get_configs(SystemConfigKey.MediaServers, MediaServerConf)
+
+    @staticmethod
+    def get_notification_configs() -> List[NotificationConf]:
+        """
+        获取消息通知渠道的配置
+        """
+        return ServiceConfigHelper.get_configs(SystemConfigKey.Notifications, NotificationConf)
+
+    @staticmethod
+    def get_notification_switches() -> List[NotificationSwitchConf]:
+        """
+        获取消息通知场景的开关
+        """
+        return ServiceConfigHelper.get_configs(SystemConfigKey.NotificationSwitchs, NotificationSwitchConf)
+
+    @staticmethod
+    def get_notification_switch(mtype: NotificationType) -> Optional[str]:
+        """
+        获取指定类型的消息通知场景的开关
+        """
+        switchs = ServiceConfigHelper.get_notification_switches()
+        for switch in switchs:
+            if switch.type == mtype.value:
+                return switch.action
+        return None
+```
+
 #### `ServiceBaseHelper`
 `ServiceBaseHelper` 是一个通用的服务帮助类，提供了获取配置和服务实例的通用逻辑。
 
 ```python
 from typing import Dict, List, Optional, Type, TypeVar, Generic, Iterator
+
 from app.core.module import ModuleManager
-from app.helper.serviceconfig import ServiceConfigHelper
 from app.schemas import ServiceInfo
-from app.schemas.types import SystemConfigKey
+from app.schemas.types import SystemConfigKey, ModuleType
 
 TConf = TypeVar("TConf")
 
@@ -147,15 +206,18 @@ class ServiceBaseHelper(Generic[TConf]):
     通用服务帮助类，抽象获取配置和服务实例的通用逻辑
     """
 
-    def __init__(self, config_key: SystemConfigKey, conf_type: Type[TConf], modules: List[str]):
+    def __init__(self, config_key: SystemConfigKey, conf_type: Type[TConf], module_type: ModuleType):
         self.modulemanager = ModuleManager()
         self.config_key = config_key
         self.conf_type = conf_type
-        self.modules = modules
+        self.module_type = module_type
 
     def get_configs(self, include_disabled: bool = False) -> Dict[str, TConf]:
         """
         获取配置列表
+
+        :param include_disabled: 是否包含禁用的配置，默认 False（仅返回启用的配置）
+        :return: 配置字典
         """
         configs: List[TConf] = ServiceConfigHelper.get_configs(self.config_key, self.conf_type)
         return {
@@ -178,8 +240,8 @@ class ServiceBaseHelper(Generic[TConf]):
         迭代所有模块的实例及其对应的配置，返回 ServiceInfo 实例
         """
         configs = self.get_configs()
-        for module_name in self.modules:
-            module = self.modulemanager.get_running_module(module_name)
+        modules = self.modulemanager.get_running_type_modules(self.module_type)
+        for module in modules:
             if not module:
                 continue
             module_instances = module.get_instances()
@@ -198,19 +260,33 @@ class ServiceBaseHelper(Generic[TConf]):
                 )
                 yield service_info
 
-    def get_services(self, type_filter: Optional[str] = None) -> Dict[str, ServiceInfo]:
+    def get_services(self, type_filter: Optional[str] = None, name_filters: Optional[List[str]] = None) \
+            -> Dict[str, ServiceInfo]:
         """
-        获取服务信息列表，并根据类型过滤
+        获取服务信息列表，并根据类型和名称列表进行过滤
+
+        :param type_filter: 需要过滤的服务类型
+        :param name_filters: 需要过滤的服务名称列表
+        :return: 过滤后的服务信息字典
         """
+        name_filters_set = set(name_filters) if name_filters else None
+
         return {
             service_info.name: service_info
             for service_info in self.iterate_module_instances()
-            if service_info.config and (type_filter is None or service_info.type == type_filter)
+            if service_info.config and (
+                    type_filter is None or service_info.type == type_filter
+            ) and (
+                       name_filters_set is None or service_info.name in name_filters_set)
         }
 
     def get_service(self, name: str, type_filter: Optional[str] = None) -> Optional[ServiceInfo]:
         """
         获取指定名称的服务信息，并根据类型过滤
+
+        :param name: 服务名称
+        :param type_filter: 需要过滤的服务类型
+        :return: 对应的服务信息，若不存在或类型不匹配则返回 None
         """
         if not name:
             return None
@@ -231,9 +307,9 @@ class ServiceBaseHelper(Generic[TConf]):
 ```python
 from typing import Optional
 
-from app.helper.servicebase import ServiceBaseHelper
+from app.helper.service import ServiceBaseHelper
 from app.schemas import DownloaderConf, ServiceInfo
-from app.schemas.types import SystemConfigKey
+from app.schemas.types import SystemConfigKey, ModuleType
 
 
 class DownloaderHelper(ServiceBaseHelper[DownloaderConf]):
@@ -241,82 +317,119 @@ class DownloaderHelper(ServiceBaseHelper[DownloaderConf]):
     下载器帮助类
     """
 
-    def __init__(self, config: dict = None):
+    def __init__(self):
         super().__init__(
             config_key=SystemConfigKey.Downloaders,
             conf_type=DownloaderConf,
-            modules=["QbittorrentModule", "TransmissionModule"]
+            module_type=ModuleType.Downloader
         )
 
-    def is_qbittorrent(self, service: Optional[ServiceInfo] = None, name: Optional[str] = None) -> bool:
+    def is_downloader(
+            self,
+            service_type: Optional[str] = None,
+            service: Optional[ServiceInfo] = None,
+            name: Optional[str] = None,
+    ) -> bool:
         """
-        判断指定的下载器是否为 qbittorrent 类型，需要传入 `service` 或 `name` 中的任一参数
+        通用的下载器类型判断方法
 
+        :param service_type: 下载器的类型名称（如 'qbittorrent', 'transmission'）
         :param service: 要判断的服务信息
         :param name: 服务的名称
-        :return: 如果服务类型为 qbittorrent，返回 True；否则返回 False。
+        :return: 如果服务类型或实例为指定类型，返回 True；否则返回 False
         """
-        if not service:
-            service = self.get_service(name=name)
-        return service.type == "qbittorrent" if service else False
+        # 如果未提供 service 则通过 name 获取服务
+        service = service or self.get_service(name=name)
 
-    def is_transmission(self, service: Optional[ServiceInfo] = None, name: Optional[str] = None) -> bool:
-        """
-        判断指定的下载器是否为 transmission 类型，需要传入 `service` 或 `name` 中的任一参数
-
-        :param service: 要判断的服务信息
-        :param name: 服务的名称
-        :return: 如果服务类型为 transmission，返回 True；否则返回 False。
-        """
-        if not service:
-            service = self.get_service(name=name)
-        return service.type == "transmission" if service else False
+        # 判断服务类型是否为指定类型
+        return bool(service and service.type == service_type)
 ```
 
 #### `MediaServerHelper`
 用于管理媒体服务器服务。
 
 ```python
-from app.helper.servicebase import ServiceBaseHelper
-from app.schemas import MediaServerConf
-from app.schemas.types import SystemConfigKey
+from typing import Optional
+
+from app.helper.service import ServiceBaseHelper
+from app.schemas import MediaServerConf, ServiceInfo
+from app.schemas.types import SystemConfigKey, ModuleType
+
 
 class MediaServerHelper(ServiceBaseHelper[MediaServerConf]):
     """
     媒体服务器帮助类
     """
 
-    def __init__(self, config: dict = None):
+    def __init__(self):
         super().__init__(
             config_key=SystemConfigKey.MediaServers,
             conf_type=MediaServerConf,
-            modules=["PlexModule", "EmbyModule", "JellyfinModule"]
+            module_type=ModuleType.MediaServer
         )
-    
-    ...
+
+    def is_media_server(
+            self,
+            service_type: Optional[str] = None,
+            service: Optional[ServiceInfo] = None,
+            name: Optional[str] = None,
+    ) -> bool:
+        """
+        通用的媒体服务器类型判断方法
+        :param service_type: 媒体服务器的类型名称（如 'plex', 'emby', 'jellyfin'）
+        :param service: 要判断的服务信息
+        :param name: 服务的名称
+        :return: 如果服务类型或实例为指定类型，返回 True；否则返回 False
+        """
+        # 如果未提供 service 则通过 name 获取服务
+        service = service or self.get_service(name=name)
+
+        # 判断服务类型是否为指定类型
+        return bool(service and service.type == service_type)
 ```
 
 #### `NotificationHelper`
 用于管理消息通知服务。
 
 ```python
-from app.helper.servicebase import ServiceBaseHelper
-from app.schemas import NotificationConf
-from app.schemas.types import SystemConfigKey
+from typing import Optional
+
+from app.helper.service import ServiceBaseHelper
+from app.schemas import NotificationConf, ServiceInfo
+from app.schemas.types import SystemConfigKey, ModuleType
+
 
 class NotificationHelper(ServiceBaseHelper[NotificationConf]):
     """
     消息通知帮助类
     """
 
-    def __init__(self, config: dict = None):
+    def __init__(self):
         super().__init__(
             config_key=SystemConfigKey.Notifications,
             conf_type=NotificationConf,
-            modules=["WechatModule", "WebPushModule", "VoceChatModule", "TelegramModule", "SynologyChatModule", "SlackModule"]
+            module_type=ModuleType.Notification
         )
-    
-    ...
+
+    def is_notification(
+            self,
+            service_type: Optional[str] = None,
+            service: Optional[ServiceInfo] = None,
+            name: Optional[str] = None,
+    ) -> bool:
+        """
+        通用的消息通知服务类型判断方法
+
+        :param service_type: 消息通知服务的类型名称（如 'wechat', 'voicechat', 'telegram', 等）
+        :param service: 要判断的服务信息
+        :param name: 服务的名称
+        :return: 如果服务类型或实例为指定类型，返回 True；否则返回 False
+        """
+        # 如果未提供 service 则通过 name 获取服务
+        service = service or self.get_service(name=name)
+
+        # 判断服务类型是否为指定类型
+        return bool(service and service.type == service_type)
 ```
 
 ### 2.3 在插件中使用服务帮助类
@@ -332,7 +445,7 @@ from app.helper.downloader import DownloaderHelper
 
 class MyPlugin:
     def init_plugin(self, config: dict = None):
-        self.downloaderhelper = DownloaderHelper(config)
+        self.downloaderhelper = DownloaderHelper()
         self.downloader_options = [
             {"title": config.name, "value": config.name}
             for config in self.downloaderhelper.get_configs().values()
@@ -349,14 +462,14 @@ class MyPlugin:
 
     ```python
     from typing import Optional, Union
-    from app.helper import DownloaderHelper
+    from app.helper.downloader import DownloaderHelper
     from app.modules.qbittorrent import Qbittorrent
     from app.modules.transmission import Transmission
     from app.events import EventType, eventmanager
 
     class MyPlugin:
         def init_plugin(self, config: dict = None):
-            self.downloaderhelper = DownloaderHelper(config)
+            self.downloaderhelper = DownloaderHelper()
             self._downloader = None
             self.__setup_downloader(config.get("downloader_name"))
 
@@ -389,10 +502,10 @@ class MyPlugin:
             检查下载器类型是否为 qbittorrent 或 transmission
             """
             downloader = self.__get_downloader()
-            if self.downloaderhelper.is_qbittorrent(service=downloader):
+            if self.downloaderhelper.is_downloader(service_type="qbittorrent", service=downloader):
                 # 处理 qbittorrent 类型
                 return True
-            elif self.downloaderhelper.is_transmission(service=downloader):
+            elif self.downloaderhelper.is_downloader(service_type="transmission", service=downloader):
                 # 处理 transmission 类型
                 return True
             return False
@@ -404,13 +517,14 @@ class MyPlugin:
 
     ```python
     from typing import Optional, Union
-    from app.helper import DownloaderHelper
+    from app.helper.downloader import DownloaderHelper
     from app.modules.qbittorrent import Qbittorrent
     from app.modules.transmission import Transmission
 
     class MyPlugin:
         def init_plugin(self, config: dict = None):
-            self.downloaderhelper = DownloaderHelper(config)
+            self.downloaderhelper = DownloaderHelper()
+            self.downloader_name = config.get("downloader_name")
 
         @property
         def service_info(self) -> Optional[ServiceInfo]:
@@ -432,15 +546,15 @@ class MyPlugin:
             下载器实例
             """
             return self.service_info.instance if self.service_info else None
-        
+
         def check_downloader_type(self) -> bool:
             """
             检查下载器类型是否为 qbittorrent 或 transmission
             """
-            if self.downloaderhelper.is_qbittorrent(service=self.service_info):
+            if self.downloaderhelper.is_downloader(service_type="qbittorrent", service=self.service_info):
                 # 处理 qbittorrent 类型
                 return True
-            elif self.downloaderhelper.is_transmission(service=self.service_info):
+            elif self.downloaderhelper.is_downloader(service_type="transmission", service=self.service_info):
                 # 处理 transmission 类型
                 return True
             return False
