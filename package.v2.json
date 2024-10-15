@@ -15,7 +15,7 @@
         "name": "站点刷流",
         "description": "自动托管刷流，将会提高对应站点的访问频率。",
         "labels": "刷流,仪表板",
-        "version": "3.9.1",
+        "version": "3.9.2",
         "icon": "brush.jpg",
         "author": "jxxghp,InfinityPacer",
         "level": 2,
