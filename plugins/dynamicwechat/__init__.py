@@ -285,9 +285,9 @@ class DynamicWeChat(_PluginBase):
                     if self._pushplus_token and self._helloimg_s_token:
                         img_src, refuse_time = self.upload_image(self._qr_code_image)
                         self.send_pushplus_message(refuse_time, f"企业微信登录二维码<br/><img src='{img_src}' />")
-                        logger.info("二维码已经发送，等待用户 60 秒内扫码登录")
+                        logger.info("二维码已经发送，等待用户 90 秒内扫码登录")
                         logger.info("如收到短信验证码请以？结束，发送到<企业微信应用> 如： 110301？")
-                        time.sleep(60)
+                        time.sleep(90)
                         login_status = self.check_login_status(page)
                         if login_status:
                             self._update_cookie(page, context)  # 刷新cookie
@@ -317,9 +317,9 @@ class DynamicWeChat(_PluginBase):
                     if self._pushplus_token and self._helloimg_s_token:
                         img_src, refuse_time = self.upload_image(self._qr_code_image)
                         self.send_pushplus_message(refuse_time, f"企业微信登录二维码<br/><img src='{img_src}' />")
-                        logger.info("二维码已经发送，等待用户 60 秒内扫码登录")
+                        logger.info("二维码已经发送，等待用户 90 秒内扫码登录")
                         logger.info("如收到短信验证码请以？结束，发送到<企业微信应用> 如： 110301？")
-                        time.sleep(60)  # 等待用户扫码
+                        time.sleep(90)  # 等待用户扫码
                         login_status = self.check_login_status(page)
                         if login_status:
                             self._update_cookie(page, context)  # 刷新cookie
@@ -465,7 +465,7 @@ class DynamicWeChat(_PluginBase):
             # 在这里使用更安全的方式来检查元素是否存在
             captcha_panel = page.wait_for_selector('.receive_captcha_panel', timeout=5000)  # 检查验证码面板
             if captcha_panel:  # 出现了短信验证界面
-                time.sleep(10)  # 多等10秒
+                time.sleep(30)  # 多等30秒
                 if self.text[:6]:
                     logger.info("需要短信验证 收到的短信验证码：" + self.text[:6])
                     for digit in self.text[:6]:
