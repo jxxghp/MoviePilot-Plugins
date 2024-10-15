@@ -246,7 +246,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "3.9.1"
+    plugin_version = "3.9.2"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -2034,10 +2034,12 @@ class BrushFlow(_PluginBase):
                 "time": time.time()
             }
 
-            self.eventmanager.send_event(etype=EventType.PluginAction, data={
-                "action": "brushflow_download_added",
+            self.eventmanager.send_event(etype=EventType.PluginTriggered, data={
+                "plugin_id": self.__class__.__name__,
+                "event_name": "brushflow_download_added",
                 "hash": hash_string,
-                "data": torrent_task
+                "data": torrent_task,
+                "downloader": self.service_info.name
             })
             torrent_tasks[hash_string] = torrent_task
 
