@@ -867,7 +867,7 @@
         "name": "同步CookieCloud",
         "description": "同步MoviePilot站点Cookie到本地CookieCloud。",
         "labels": "站点",
-        "version": "1.4",
+        "version": "2.0",
         "icon": "Cookiecloud_A.png",
         "author": "thsrite",
         "level": 1,
