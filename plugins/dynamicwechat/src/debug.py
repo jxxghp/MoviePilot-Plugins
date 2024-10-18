@@ -30,6 +30,7 @@ class PyCookieCloud:
             else:
                 return False
         except Exception as e:
+            print(str(e))
             return False
 
     def update_cookie(self, cookie: Dict[str, Any]) -> bool:
@@ -70,7 +71,8 @@ class PyCookieCloud:
         md5.update((self.uuid + '-' + self.password).encode('utf-8'))
         return md5.hexdigest()[:16]
 
-    def bytes_to_key(self, data, salt, output=48):
+    @staticmethod
+    def bytes_to_key(data, salt, output=48):
         # extended from https://gist.github.com/gsakkis/4546068
         assert len(salt) == 8, len(salt)
         data += salt
@@ -120,7 +122,7 @@ def main(server: str, url: str, uuid: str, password: str):
         # 创建 PyCookieCloud 实例并上传 cookies
         py_cookie_cloud = PyCookieCloud(url=server, uuid=uuid, password=password)
         cookie_data = {cookie['name']: cookie['value'] for cookie in cookies}  # 转换为字典形式
-        if (py_cookie_cloud.check_connection()):
+        if py_cookie_cloud.check_connection():
             print("连接成功，请稍等片刻...")
             result = py_cookie_cloud.update_cookie(cookie_data)
         else:

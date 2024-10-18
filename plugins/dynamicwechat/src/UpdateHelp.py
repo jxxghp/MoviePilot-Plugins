@@ -9,9 +9,11 @@ import base64
 
 BLOCK_SIZE = 16
 
+
 def pad(data):
     length = BLOCK_SIZE - (len(data) % BLOCK_SIZE)
     return data + (chr(length) * length).encode()
+
 
 def bytes_to_key(data, salt, output=48):
     # extended from https://gist.github.com/gsakkis/4546068
@@ -24,6 +26,7 @@ def bytes_to_key(data, salt, output=48):
         final_key += key
     return final_key[:output]
 
+
 def encrypt(message, passphrase):
     salt = Random.new().read(8)
     key_iv = bytes_to_key(passphrase, salt, 32 + 16)
@@ -31,6 +34,7 @@ def encrypt(message, passphrase):
     iv = key_iv[32:]
     aes = AES.new(key, AES.MODE_CBC, iv)
     return base64.b64encode(b"Salted__" + salt + aes.encrypt(pad(message)))
+
 
 class PyCookieCloud:
     def __init__(self, url: str, uuid: str, password: str):
@@ -51,6 +55,7 @@ class PyCookieCloud:
             else:
                 return False
         except Exception as e:
+            print(str(e))
             return False
 
     def update_cookie(self, cookie: Dict[str, Any]) -> bool:
@@ -64,7 +69,8 @@ class PyCookieCloud:
             cookie = {'cookie_data': cookie}
         raw_data = json.dumps(cookie)
         encrypted_data = encrypt(raw_data.encode('utf-8'), self.get_the_key().encode('utf-8')).decode('utf-8')
-        cookie_cloud_request = requests.post(urljoin(self.url, '/update'), data={'uuid': self.uuid, 'encrypted': encrypted_data})
+        cookie_cloud_request = requests.post(urljoin(self.url, '/update'),
+                                             data={'uuid': self.uuid, 'encrypted': encrypted_data})
         if cookie_cloud_request.status_code == 200:
             if cookie_cloud_request.json()['action'] == 'done':
                 return True

@@ -24,6 +24,7 @@ class PyCookieCloud:
             else:
                 return False
         except Exception as e:
+            print(str(e))
             return False
 
     def update_cookie(self, cookie: Dict[str, Any]) -> bool:
@@ -52,5 +53,3 @@ class PyCookieCloud:
         md5 = hashlib.md5()
         md5.update((self.uuid + '-' + self.password).encode('utf-8'))
         return md5.hexdigest()[:16]
-
-

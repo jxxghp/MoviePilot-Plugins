@@ -862,5 +862,21 @@
     "history": {
         "v1.1.3": "关闭cookie输入框，延长cookie任务成功时不输出日志，使用设定中的CookieCloud设置"
         }
+    },
+  "SyncCookieCloud": {
+    "name": "同步CookieCloud",
+    "description": "同步MoviePilot站点Cookie到本地CookieCloud。",
+    "labels": "站点",
+    "version": "1.4",
+    "icon": "Cookiecloud_A.png",
+    "author": "thsrite",
+    "level": 1,
+    "history": {
+        "v1.4": "修复问题",
+      "v1.3": "感谢MidnightShake共享代码（同步时保留MoviePilot不匹配站点的cookie）",
+      "v1.2": "同步到本地CookieCloud",
+      "v1.1": "修复CookieCloud覆盖到浏览器",
+      "v1.0": "同步MoviePilot站点Cookie到CookieCloud"
     }
+  }
 }
