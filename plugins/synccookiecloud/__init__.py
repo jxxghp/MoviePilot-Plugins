@@ -23,7 +23,7 @@ class SyncCookieCloud(_PluginBase):
     # 插件图标
     plugin_icon = "Cookiecloud_A.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -122,30 +122,24 @@ class SyncCookieCloud(_PluginBase):
             # 存储cookies
             cookies[domain] = site_cookies
         if cookies:
-            decrypted_cookies_data, errmsg = self.__decrypted()
-            if decrypted_cookies_data:
-                update_data = self.__build_data(cookies, decrypted_cookies_data)
-                crypt_key = self._get_crypt_key()
-                try:
-                    cookies = {'cookie_data': update_data}
-                    encrypted_data = encrypt(json.dumps(cookies).encode('utf-8'), crypt_key).decode('utf-8')
-                except Exception as e:
-                    logger.error(f"CookieCloud加密失败，{e}")
-                    return
-                ck = {'encrypted': encrypted_data}
-                cookie_path = settings.COOKIE_PATH / f"{settings.COOKIECLOUD_KEY}.json"
-                cookie_path.write_bytes(json.dumps(ck).encode('utf-8'))
-                logger.info(f"同步站点cookie到CookieCloud成功")
-            else:
-                logger.error(f"同步站点cookie到CookieCloud失败，{errmsg}")
+            crypt_key = self._get_crypt_key()
+            try:
+                cookies = {'cookie_data': cookies}
+                encrypted_data = encrypt(json.dumps(cookies).encode('utf-8'), crypt_key).decode('utf-8')
+            except Exception as e:
+                logger.error(f"CookieCloud加密失败，{e}")
+                return
+            ck = {'encrypted': encrypted_data}
+            cookie_path = settings.COOKIE_PATH / f"{settings.COOKIECLOUD_KEY}.json"
+            cookie_path.write_bytes(json.dumps(ck).encode('utf-8'))
+            logger.info(f"同步站点cookie到本地CookieCloud成功")
+        else:
+            logger.error(f"同步站点cookie到本地CookieCloud失败，未获取到站点cookie")
 
-    def __decrypted(self):
+    def __decrypted(self, encrypt_data: dict):
         """
         获取并解密本地CookieCloud数据
         """
-        encrypt_data = self.__load_local_encrypt_data()
-        if not encrypt_data:
-            return {}, "未获取到本地CookieCloud数据"
         encrypted = encrypt_data.get("encrypted")
         if not encrypted:
             return {}, "未获取到cookie密文"
@@ -165,61 +159,6 @@ class SyncCookieCloud(_PluginBase):
         else:
             contents = result
         return contents
-
-    @staticmethod
-    def __load_local_encrypt_data() -> Dict[str, Any]:
-        """
-        加载本地CookieCloud加密数据
-        """
-        file_path = settings.COOKIE_PATH / f"{settings.COOKIECLOUD_KEY}.json"
-        # 检查文件是否存在
-        if not file_path.exists():
-            return {}
-
-        # 读取文件
-        with open(file_path, encoding="utf-8", mode="r") as file:
-            read_content = file.read()
-        data = json.loads(read_content.encode("utf-8"))
-        return data
-
-    @staticmethod
-    def __build_data(in_list: dict, out_list: dict) -> dict:
-        """
-        构建站点数据
-        """
-        # 清除空值
-        out_list = {key: value for key, value in out_list.items() if value}
-
-        temp_list = {}
-        for domain in in_list.keys():
-            # 构建站点数据模板
-            template = {}
-            for domain_out in out_list:
-                if domain.endswith(domain_out):
-                    for d in out_list[domain_out]:
-                        for key, value in d.items():
-                            if key not in template:
-                                template[key] = value
-
-            # 构建站点新数据
-            temp_list[domain] = []
-            for d1 in in_list[domain]:
-                temp_dict = {k: template.get(k, "") for k in template.keys()}
-                temp_dict.update(d1)
-                temp_list[domain].append(temp_dict)
-
-        # 覆盖修改源站点数据
-        for temp_domain in temp_list.keys():
-            found_match = False
-            for idx, domain2 in enumerate(out_list):
-                if temp_domain.endswith(domain2):
-                    out_list[temp_domain] = out_list.pop(domain2)
-                    out_list[temp_domain] = temp_list[temp_domain]
-                    found_match = True
-                    break
-            if not found_match:
-                out_list[temp_domain] = temp_list[temp_domain]
-        return out_list
 
     @staticmethod
     def _get_crypt_key() -> bytes:
