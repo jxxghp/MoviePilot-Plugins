@@ -149,5 +149,18 @@
             "v1.4": "人物图片调整为优先从TMDB获取，避免douban图片CDN加载过慢的问题",
             "v1.3": "修复v1.8.5版本后刮削报错问题"
         }
+    },
+    "SpeedLimiter": {
+        "name": "播放限速",
+        "description": "外网播放媒体库视频时，自动对下载器进行限速。",
+        "labels": "网络",
+        "version": "2.0",
+        "icon": "Librespeed_A.png",
+        "author": "Shurelol",
+        "level": 1,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本",
+            "v1.2": "增加不限速路径配置，以应对网盘直链播放的情况"
+        }
     }
 }
