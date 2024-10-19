@@ -28,7 +28,7 @@ class FFmpegThumb(_PluginBase):
     # 插件图标
     plugin_icon = "ffmpeg.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -275,6 +275,9 @@ class FFmpegThumb(_PluginBase):
         # 事件数据
         transferinfo: TransferInfo = event.event_data.get("transferinfo")
         if not transferinfo:
+            return
+        if transferinfo.target_diritem and transferinfo.target_diritem.storage != "local":
+            logger.warn(f"FFmpeg缩略图不支持非本地存储：{transferinfo.target_diritem.storage}")
             return
         file_list = transferinfo.file_list_new
         for file in file_list:

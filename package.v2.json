@@ -1,5 +1,5 @@
 {
-  "SiteStatistic": {
+    "SiteStatistic": {
         "name": "站点数据统计",
         "description": "站点统计数据图表。",
         "labels": "站点,仪表板",
@@ -96,6 +96,44 @@
         "history": {
             "v1.7": "MoviePilot V2 版本自动转移做种插件",
             "v1.7.1": "修复兼容性问题"
+        }
+    },
+    "RssSubscribe": {
+        "name": "自定义订阅",
+        "description": "定时刷新RSS报文，识别内容后添加订阅或直接下载。",
+        "labels": "订阅",
+        "version": "2.0",
+        "icon": "rss.png",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本"
+        }
+    },
+    "FFmpegThumb": {
+        "name": "FFmpeg缩略图",
+        "description": "TheMovieDb没有背景图片时使用FFmpeg截取视频文件缩略图",
+        "labels": "刮削",
+        "version": "2.0",
+        "icon": "ffmpeg.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本"
+        }
+    },
+    "LibraryScraper": {
+        "name": "媒体库刮削",
+        "description": "定时对媒体库进行刮削，补齐缺失元数据和图片。",
+        "labels": "刮削",
+        "version": "2.0",
+        "icon": "scraper.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本",
+            "v1.5": "修复未获取fanart图片的问题",
+            "v1.4.1": "修复nfo文件读取失败时任务中断问题"
         }
     }
 }
