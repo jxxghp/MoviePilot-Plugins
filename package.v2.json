@@ -135,5 +135,17 @@
             "v1.5": "修复未获取fanart图片的问题",
             "v1.4.1": "修复nfo文件读取失败时任务中断问题"
         }
+    },
+    "IYUUAutoSeed": {
+        "name": "IYUU自动辅种",
+        "description": "基于IYUU官方Api实现自动辅种。",
+        "labels": "做种,IYUU",
+        "version": "2.0",
+        "icon": "IYUU.png",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v2.0": "MoviePilot V2 版本IYUU自动辅种插件"
+        }
     }
 }
