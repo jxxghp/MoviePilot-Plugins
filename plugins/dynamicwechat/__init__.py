@@ -21,9 +21,6 @@ from app.plugins.dynamicwechat.update_help import PyCookieCloud
 from app.schemas.types import EventType, NotificationType
 
 
-# import UpdateHelp
-
-
 class DynamicWeChat(_PluginBase):
     # 插件名称
     plugin_name = "修改企业微信可信IP"
@@ -32,7 +29,7 @@ class DynamicWeChat(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "1.1.3"
+    plugin_version = "1.1.4"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -272,6 +269,15 @@ class DynamicWeChat(_PluginBase):
             logger.debug(str(e))
             return False
 
+    def send_pushplus_message(self, title, content):
+        pushplus_url = f"http://www.pushplus.plus/send/{self._pushplus_token}"
+        pushplus_data = {
+            "title": title,
+            "content": content,
+            "template": "html"
+        }
+        response = requests.post(pushplus_url, json=pushplus_data)
+
     def remote_push_qr(self):
         try:
             with sync_playwright() as p:
@@ -289,20 +295,21 @@ class DynamicWeChat(_PluginBase):
                 if self.find_qrc(page):
                     if self._pushplus_token and self._helloimg_s_token:
                         img_src, refuse_time = self.upload_image(self._qr_code_image)
-                        if img_src:
-                            self.post_message(
-                                mtype=NotificationType.Plugin,
-                                title="企业微信登录二维码",
-                                text=refuse_time,
-                                image=img_src
-                            )
-                            logger.info("二维码已经发送，等待用户 90 秒内扫码登录")
-                            logger.info("如收到短信验证码请以？结束，发送到<企业微信应用> 如： 110301？")
-                            time.sleep(90)
-                            login_status = self.check_login_status(page, '')
-                            if login_status:
-                                self._update_cookie(page, context)  # 刷新cookie
-                                self.click_app_management_buttons(page)
+                        self.send_pushplus_message(refuse_time, f"企业微信登录二维码<br/><img src='{img_src}' />")
+                        # if img_src:
+                        #     self.post_message(
+                        #         mtype=NotificationType.Plugin,
+                        #         title="企业微信登录二维码",
+                        #         text=refuse_time,
+                        #         image=img_src
+                        #     )
+                        logger.info("二维码已经发送，等待用户 90 秒内扫码登录")
+                        logger.info("如收到短信验证码请以？结束，发送到<企业微信应用> 如： 110301？")
+                        time.sleep(90)
+                        login_status = self.check_login_status(page, '')
+                        if login_status:
+                            self._update_cookie(page, context)  # 刷新cookie
+                            self.click_app_management_buttons(page)
                     else:
                         logger.warning("远程推送任务 未配置pushplus_token 或 helloimg_s_token")
                 else:
@@ -329,20 +336,21 @@ class DynamicWeChat(_PluginBase):
                 if self.find_qrc(page):
                     if self._pushplus_token and self._helloimg_s_token:
                         img_src, refuse_time = self.upload_image(self._qr_code_image)
-                        if img_src:
-                            self.post_message(
-                                mtype=NotificationType.Plugin,
-                                title="企业微信登录二维码",
-                                text=refuse_time,
-                                image=img_src
-                            )
-                            logger.info("二维码已经发送，等待用户 90 秒内扫码登录")
-                            logger.info("如收到短信验证码请以？结束，发送到<企业微信应用> 如： 110301？")
-                            time.sleep(90)  # 等待用户扫码
-                            login_status = self.check_login_status(page, "")
-                            if login_status:
-                                self._update_cookie(page, context)  # 刷新cookie
-                                self.click_app_management_buttons(page)
+                        self.send_pushplus_message(refuse_time, f"企业微信登录二维码<br/><img src='{img_src}' />")
+                        # if img_src:
+                        #     self.post_message(
+                        #         mtype=NotificationType.Plugin,
+                        #         title="企业微信登录二维码",
+                        #         text=refuse_time,
+                        #         image=img_src
+                        #     )
+                        logger.info("二维码已经发送，等待用户 90 秒内扫码登录")
+                        logger.info("如收到短信验证码请以？结束，发送到<企业微信应用> 如： 110301？")
+                        time.sleep(90)  # 等待用户扫码
+                        login_status = self.check_login_status(page, "")
+                        if login_status:
+                            self._update_cookie(page, context)  # 刷新cookie
+                            self.click_app_management_buttons(page)
                         else:
                             self._ip_changed = False
                     else:
@@ -448,8 +456,6 @@ class DynamicWeChat(_PluginBase):
                 page.goto(self._wechatUrl)
                 time.sleep(3)
                 if not self.check_login_status(page, task='refresh_cookie'):
-                    #     pass
-                    # else:
                     logger.info("cookie已失效，下次IP变动推送二维码")
                 browser.close()
         except Exception as e:
@@ -497,7 +503,7 @@ class DynamicWeChat(_PluginBase):
         except Exception as e:
             logger.debug(str(e))
             # try:  # 没有登录成功，也没有短信验证码。 查找二维码是否还存在
-            if self.find_qrc(page):
+            if self.find_qrc(page) and not task != 'refresh_cookie':  # 延长任务找到的二维码不会被发送，所以不算用户没有扫码
                 logger.error(f"用户没有扫描二维码")
                 return False
 
@@ -836,7 +842,7 @@ class DynamicWeChat(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '内建CC 或 自定义或 填写两个token三选一否则无法正常使用'
+                                            'text': '使用内建CookieCloud 或 自定义 或 填写两个token 至少三选一,否则无法正常使用'
                                         }
                                     }
                                 ]
@@ -918,8 +924,6 @@ class DynamicWeChat(_PluginBase):
         if not self._enabled:
             return
         self.text = event.event_data.get("text")
-        # self.user_id = event.event_data.get("userid")
-        # self.channel = event.event_data.get("channel")
         if self.text[:6].isdigit() and len(self.text) == 7:
             self._verification_code = self.text[:6]
             logger.info(f"收到验证码：{self._verification_code}")
@@ -959,3 +963,12 @@ class DynamicWeChat(_PluginBase):
                 self._scheduler = None
         except Exception as e:
             logger.error(str(e))
+
+
+
+
+
+
+
+
+
