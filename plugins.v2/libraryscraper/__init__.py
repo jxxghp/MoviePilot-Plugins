@@ -7,6 +7,8 @@ import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app import schemas
+from app.chain.media import MediaChain
 from app.core.config import settings
 from app.core.metainfo import MetaInfoPath
 from app.db.transferhistory_oper import TransferHistoryOper
@@ -25,7 +27,7 @@ class LibraryScraper(_PluginBase):
     # 插件图标
     plugin_icon = "scraper.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -39,6 +41,7 @@ class LibraryScraper(_PluginBase):
 
     # 私有属性
     transferhis = None
+    mediachain = None
     _scheduler = None
     _scraper = None
     # 限速开关
@@ -52,6 +55,7 @@ class LibraryScraper(_PluginBase):
     _event = Event()
 
     def init_plugin(self, config: dict = None):
+        self.mediachain = MediaChain()
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
@@ -184,12 +188,10 @@ class LibraryScraper(_PluginBase):
                                         'component': 'VSelect',
                                         'props': {
                                             'model': 'mode',
-                                            'label': '刮削模式',
+                                            'label': '覆盖模式',
                                             'items': [
-                                                {'title': '仅刮削缺失元数据和图片', 'value': ''},
+                                                {'title': '不覆盖已有元数据', 'value': ''},
                                                 {'title': '覆盖所有元数据和图片', 'value': 'force_all'},
-                                                {'title': '覆盖所有元数据', 'value': 'force_nfo'},
-                                                {'title': '覆盖所有图片', 'value': 'force_image'},
                                             ]
                                         }
                                     }
@@ -303,6 +305,8 @@ class LibraryScraper(_PluginBase):
         exclude_paths = self._exclude_paths.split("\n")
         # 已选择的目录
         paths = self._scraper_paths.split("\n")
+        # 需要适削的媒体文件夹
+        scraper_paths = []
         for path in paths:
             if not path:
                 continue
@@ -314,11 +318,12 @@ class LibraryScraper(_PluginBase):
                      mediaType.value == str(str(path).split("#")[1])),
                     None)
                 path = str(path).split("#")[0]
+            # 判断路径是否存在
             scraper_path = Path(path)
             if not scraper_path.exists():
                 logger.warning(f"媒体库刮削路径不存在：{path}")
                 continue
-            logger.info(f"开始刮削媒体库：{path} {mtype} ...")
+            logger.info(f"开始检索目录：{path} {mtype} ...")
             # 遍历所有文件
             files = SystemUtils.list_files(scraper_path, settings.RMT_MEDIAEXT)
             for file_path in files:
@@ -337,48 +342,58 @@ class LibraryScraper(_PluginBase):
                 if exclude_flag:
                     logger.debug(f"{file_path} 在排除目录中，跳过 ...")
                     continue
-                # 开始刮削文件
-                self.__scrape_file(file=file_path, mtype=mtype)
-            logger.info(f"媒体库 {path} 刮削完成")
+                # 识别是电影还是电视剧
+                if not mtype:
+                    file_meta = MetaInfoPath(file_path)
+                    mtype = file_meta.type
+                if mtype == MediaType.TV:
+                    dir_path = file_path.parent.parent
+                    if dir_path not in scraper_paths:
+                        logger.info(f"发现电视剧目录：{dir_path}")
+                        scraper_paths.append((dir_path, mtype))
+                else:
+                    dir_path = file_path.parent
+                    if dir_path not in scraper_paths:
+                        logger.info(f"发现电影目录：{dir_path}")
+                        scraper_paths.append((dir_path, mtype))
+        # 开始刮削
+        if scraper_paths:
+            for item in scraper_paths:
+                logger.info(f"开始刮削目录：{item[0]} ...")
+                self.__scrape_dir(path=item[0], mtype=item[1])
+        else:
+            logger.info(f"未发现需要刮削的目录")
 
-    def __scrape_file(self, file: Path, mtype: MediaType = None):
+    def __scrape_dir(self, path: Path, mtype: MediaType):
         """
         削刮一个目录，该目录必须是媒体文件目录
         """
-        # 识别元数据
-        meta_info = MetaInfoPath(file)
-        # 强制指定类型
-        if mtype:
-            meta_info.type = mtype
-
-        # 是否刮削
-        force_nfo = self._mode in ["force_all", "force_nfo"]
-        force_img = self._mode in ["force_all", "force_image"]
-
         # 优先读取本地nfo文件
         tmdbid = None
-        if meta_info.type == MediaType.MOVIE:
+        if mtype == MediaType.MOVIE:
             # 电影
-            movie_nfo = file.parent / "movie.nfo"
+            movie_nfo = path / "movie.nfo"
             if movie_nfo.exists():
                 tmdbid = self.__get_tmdbid_from_nfo(movie_nfo)
-            file_nfo = file.with_suffix(".nfo")
+            file_nfo = path / (path.stem + ".nfo")
             if not tmdbid and file_nfo.exists():
                 tmdbid = self.__get_tmdbid_from_nfo(file_nfo)
         else:
             # 电视剧
-            tv_nfo = file.parent.parent / "tvshow.nfo"
+            tv_nfo = path / "tvshow.nfo"
             if tv_nfo.exists():
                 tmdbid = self.__get_tmdbid_from_nfo(tv_nfo)
         if tmdbid:
             # 按TMDBID识别
             logger.info(f"读取到本地nfo文件的tmdbid：{tmdbid}")
-            mediainfo = self.chain.recognize_media(tmdbid=tmdbid, mtype=meta_info.type)
+            mediainfo = self.chain.recognize_media(tmdbid=tmdbid, mtype=mtype)
         else:
             # 按名称识别
-            mediainfo = self.chain.recognize_media(meta=meta_info)
+            meta = MetaInfoPath(path)
+            meta.type = mtype
+            mediainfo = self.chain.recognize_media(meta=meta)
         if not mediainfo:
-            logger.warn(f"未识别到媒体信息：{file}")
+            logger.warn(f"未识别到媒体信息：{path}")
             return
 
         # 如果未开启新增已入库媒体是否跟随TMDB信息变化则根据tmdbid查询之前的title
@@ -390,11 +405,19 @@ class LibraryScraper(_PluginBase):
         # 获取图片
         self.chain.obtain_images(mediainfo)
         # 刮削
-        self.chain.scrape_metadata(path=file,
-                                   mediainfo=mediainfo,
-                                   transfer_type=settings.TRANSFER_TYPE,
-                                   force_nfo=force_nfo,
-                                   force_img=force_img)
+        self.mediachain.scrape_metadata(
+            fileitem=schemas.FileItem(
+                storage="local",
+                type="dir",
+                path=str(path).replace("\\", "/") + "/",
+                name=path.name,
+                basename=path.stem,
+                modify_time=path.stat().st_mtime,
+            ),
+            mediainfo=mediainfo,
+            overwrite=True if self._mode else False
+        )
+        logger.info(f"{path} 刮削完成")
 
     @staticmethod
     def __get_tmdbid_from_nfo(file_path: Path):
