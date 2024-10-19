@@ -9,11 +9,10 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.core.config import settings
+from app.helper.downloader import DownloaderHelper
 from app.log import logger
-from app.modules.qbittorrent import Qbittorrent
-from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
-from app.schemas import NotificationType
+from app.schemas import NotificationType, ServiceInfo
 from app.utils.string import StringUtils
 
 lock = threading.Lock()
@@ -27,7 +26,7 @@ class TorrentRemover(_PluginBase):
     # 插件图标
     plugin_icon = "delete.jpg"
     # 插件版本
-    plugin_version = "1.2.2"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -40,8 +39,7 @@ class TorrentRemover(_PluginBase):
     auth_level = 2
 
     # 私有属性
-    qb = None
-    tr = None
+    downloader_helper = None
     _event = threading.Event()
     _scheduler = None
     _enabled = False
@@ -65,6 +63,7 @@ class TorrentRemover(_PluginBase):
     _torrentcategorys = None
 
     def init_plugin(self, config: dict = None):
+        self.downloader_helper = DownloaderHelper()
         if config:
             self._enabled = config.get("enabled")
             self._onlyonce = config.get("onlyonce")
@@ -88,8 +87,6 @@ class TorrentRemover(_PluginBase):
         self.stop_service()
 
         if self.get_state() or self._onlyonce:
-            self.qb = Qbittorrent()
-            self.tr = Transmission()
             if self._onlyonce:
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
                 logger.info(f"自动删种服务启动，立即运行一次")
@@ -254,14 +251,13 @@ class TorrentRemover(_PluginBase):
                                     {
                                         'component': 'VSelect',
                                         'props': {
-                                            'chips': True,
                                             'multiple': True,
+                                            'chips': True,
+                                            'clearable': True,
                                             'model': 'downloaders',
                                             'label': '下载器',
-                                            'items': [
-                                                {'title': 'Qbittorrent', 'value': 'qbittorrent'},
-                                                {'title': 'Transmission', 'value': 'transmission'}
-                                            ]
+                                            'items': [{"title": config.name, "value": config.name}
+                                                      for config in self.downloader_helper.get_configs().values()]
                                         }
                                     }
                                 ]
@@ -588,16 +584,38 @@ class TorrentRemover(_PluginBase):
         except Exception as e:
             print(str(e))
 
-    def __get_downloader(self, dtype: str):
+    @property
+    def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
+        """
+        服务信息
+        """
+        if not self._downloaders:
+            logger.warning("尚未配置下载器，请检查配置")
+            return None
+
+        services = self.downloader_helper.get_services(name_filters=self._downloaders)
+        if not services:
+            logger.warning("获取下载器实例失败，请检查配置")
+            return None
+
+        active_services = {}
+        for service_name, service_info in services.items():
+            if service_info.instance.is_inactive():
+                logger.warning(f"下载器 {service_name} 未连接，请检查配置")
+            else:
+                active_services[service_name] = service_info
+
+        if not active_services:
+            logger.warning("没有已连接的下载器，请检查配置")
+            return None
+
+        return active_services
+
+    def __get_downloader(self, name: str):
         """
         根据类型返回下载器实例
         """
-        if dtype == "qbittorrent":
-            return self.qb
-        elif dtype == "transmission":
-            return self.tr
-        else:
-            return None
+        return self.service_infos.get(name).instance
 
     def delete_torrents(self):
         """

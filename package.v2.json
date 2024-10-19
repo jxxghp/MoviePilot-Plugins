@@ -188,5 +188,29 @@
             "v2.6": "支持DOH相关配置项",
             "v2.5": "增加Github加速服务器设置项"
         }
+    },
+    "TorrentRemover": {
+        "name": "自动删种",
+        "description": "自动删除下载器中的下载任务。",
+        "labels": "做种",
+        "version": "2.0",
+        "icon": "delete.jpg",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本"
+        }
+    },
+    "IYUUAutoSeed": {
+        "name": "IYUU自动辅种",
+        "description": "基于IYUU官方Api实现自动辅种。",
+        "labels": "做种,IYUU",
+        "version": "2.0",
+        "icon": "IYUU.png",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本"
+        }
     }
 }
