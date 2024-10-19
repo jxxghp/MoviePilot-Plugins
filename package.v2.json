@@ -147,5 +147,19 @@
         "history": {
             "v2.0": "MoviePilot V2 版本IYUU自动辅种插件"
         }
+    },
+    "PersonMeta": {
+        "name": "演职人员刮削",
+        "description": "刮削演职人员图片以及中文名称。",
+        "labels": "媒体库,刮削",
+        "version": "2.0",
+        "icon": "actor.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本",
+            "v1.4": "人物图片调整为优先从TMDB获取，避免douban图片CDN加载过慢的问题",
+            "v1.3": "修复v1.8.5版本后刮削报错问题"
+        }
     }
 }
