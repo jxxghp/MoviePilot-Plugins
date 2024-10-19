@@ -162,5 +162,17 @@
             "v2.0": "兼容MoviePilot V2 版本",
             "v1.2": "增加不限速路径配置，以应对网盘直链播放的情况"
         }
+    },
+    "AutoClean": {
+        "name": "定时清理媒体库",
+        "description": "定时清理用户下载的种子、源文件、媒体库文件。",
+        "labels": "媒体库",
+        "version": "2.0",
+        "icon": "clean.png",
+        "author": "thsrite",
+        "level": 2,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本"
+        }
     }
 }
