@@ -15,7 +15,7 @@ class MPServerStatus(_PluginBase):
     # 插件图标
     plugin_icon = "Duplicati_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -73,7 +73,21 @@ class MPServerStatus(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
-        pass
+        """
+        获取插件页面
+        """
+        if not self._enable:
+            return [
+                {
+                    'component': 'div',
+                    'text': '插件未启用',
+                    'props': {
+                        'class': 'text-center',
+                    }
+                }
+            ]
+        _, _, elements = self.get_dashboard()
+        return elements
 
     def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
         """
