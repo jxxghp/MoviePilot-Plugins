@@ -17,7 +17,7 @@ class ConfigCenter(_PluginBase):
     # 插件图标
     plugin_icon = "setting.png"
     # 插件版本
-    plugin_version = "2.6"
+    plugin_version = "3.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -38,7 +38,8 @@ class ConfigCenter(_PluginBase):
         "RECOGNIZE_SOURCE", "SCRAP_FOLLOW_TMDB", "AUTO_DOWNLOAD_USER",
         "OCR_HOST", "DOWNLOAD_SUBTITLE", "PLUGIN_MARKET", "MOVIE_RENAME_FORMAT",
         "TV_RENAME_FORMAT", "FANART_ENABLE", "DOH_ENABLE", "SEARCH_MULTIPLE_NAME", "META_CACHE_EXPIRE",
-        "GITHUB_PROXY", "DOH_DOMAINS", "DOH_RESOLVERS"
+        "GITHUB_PROXY", "DOH_DOMAINS", "DOH_RESOLVERS", "AUXILIARY_AUTH_ENABLE", "MEDIASERVER_SYNC_INTERVAL",
+        "PIP_PROXY", "GLOBAL_IMAGE_CACHE"
     ]
 
     def init_plugin(self, config: dict = None):
@@ -353,6 +354,57 @@ class ConfigCenter(_PluginBase):
                                         }
                                     }
                                 ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "PIP_PROXY",
+                                            "label": "PIP加速服务器",
+                                            "placeholder": "https://pypi.tuna.tsinghua.edu.cn/simple"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "META_CACHE_EXPIRE",
+                                            "label": "元数据缓存时间（小时）",
+                                            "placeholder": "单位：小时"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "MEDIASERVER_SYNC_INTERVAL",
+                                            "label": "媒体服务器同步间隔（小时）",
+                                            "placeholder": "单位：小时"
+                                        }
+                                    }
+                                ]
                             }
                         ]
                     },
@@ -556,6 +608,38 @@ class ConfigCenter(_PluginBase):
                                         "props": {
                                             "model": "SEARCH_MULTIPLE_NAME",
                                             "label": "资源搜索整合多名称搜索结果"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 4
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "AUXILIARY_AUTH_ENABLE",
+                                            "label": "启用用户辅助认证"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 4
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "GLOBAL_IMAGE_CACHE",
+                                            "label": "全局图片缓存"
                                         }
                                     }
                                 ]
