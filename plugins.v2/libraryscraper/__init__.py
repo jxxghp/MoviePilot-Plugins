@@ -347,15 +347,15 @@ class LibraryScraper(_PluginBase):
                     file_meta = MetaInfoPath(file_path)
                     mtype = file_meta.type
                 if mtype == MediaType.TV:
-                    dir_path = file_path.parent.parent
-                    if dir_path not in scraper_paths:
-                        logger.info(f"发现电视剧目录：{dir_path}")
-                        scraper_paths.append((dir_path, mtype))
+                    dir_item = (file_path.parent.parent, mtype)
+                    if dir_item not in scraper_paths:
+                        logger.info(f"发现电视剧目录：{dir_item}")
+                        scraper_paths.append(dir_item)
                 else:
-                    dir_path = file_path.parent
-                    if dir_path not in scraper_paths:
-                        logger.info(f"发现电影目录：{dir_path}")
-                        scraper_paths.append((dir_path, mtype))
+                    dir_item = (file_path.parent, mtype)
+                    if dir_item not in scraper_paths:
+                        logger.info(f"发现电影目录：{dir_item}")
+                        scraper_paths.append(dir_item)
         # 开始刮削
         if scraper_paths:
             for item in scraper_paths:
