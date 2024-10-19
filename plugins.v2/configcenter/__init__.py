@@ -305,6 +305,23 @@ class ConfigCenter(_PluginBase):
                                 },
                                 "content": [
                                     {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "META_CACHE_EXPIRE",
+                                            "label": "元数据缓存时间（小时）",
+                                            "placeholder": "单位：小时"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 6
+                                },
+                                "content": [
+                                    {
                                         "component": "VSelect",
                                         "props": {
                                             "model": "WALLPAPER",
@@ -368,23 +385,6 @@ class ConfigCenter(_PluginBase):
                                             "model": "PIP_PROXY",
                                             "label": "PIP加速服务器",
                                             "placeholder": "https://pypi.tuna.tsinghua.edu.cn/simple"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                    "md": 6
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "META_CACHE_EXPIRE",
-                                            "label": "元数据缓存时间（小时）",
-                                            "placeholder": "单位：小时"
                                         }
                                     }
                                 ]
