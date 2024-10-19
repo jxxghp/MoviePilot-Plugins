@@ -109,5 +109,17 @@
         "history": {
             "v2.0": "兼容MoviePilot V2 版本"
         }
+    },
+    "FFmpegThumb": {
+        "name": "FFmpeg缩略图",
+        "description": "TheMovieDb没有背景图片时使用FFmpeg截取视频文件缩略图",
+        "labels": "刮削",
+        "version": "2.0",
+        "icon": "ffmpeg.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本"
+        }
     }
 }
