@@ -858,7 +858,7 @@
         "name": "修改企业微信可信IP",
         "description": "优先使用cookie，当填写两个第三方token时手机微信可以更新cookie。验证码以？结尾发给企业微信应用。如：110301？",
         "labels": "消息通知",
-        "version": "1.1.4",
+        "version": "1.1.5",
         "icon": "Wecom_A.png",
         "author": "RamenRa",
         "level": 2,
