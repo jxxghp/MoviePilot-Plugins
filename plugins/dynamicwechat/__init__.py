@@ -18,7 +18,7 @@ from app.helper.cookiecloud import CookieCloudHelper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.plugins.dynamicwechat.update_help import PyCookieCloud
-from app.schemas.types import EventType, NotificationType
+from app.schemas.types import EventType
 
 
 class DynamicWeChat(_PluginBase):
@@ -29,7 +29,7 @@ class DynamicWeChat(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "1.1.4"
+    plugin_version = "1.1.5"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -199,7 +199,7 @@ class DynamicWeChat(_PluginBase):
         for url in retry_urls:
             ip_address = self.get_ip_from_url(url)
             if ip_address != "获取IP失败" and ip_address:
-                logger.info(f"IP获取成功: {url}:{ip_address}")
+                logger.info(f"IP获取成功: {url}: {ip_address}")
                 break
 
         # 如果所有 URL 请求失败
@@ -447,7 +447,7 @@ class DynamicWeChat(_PluginBase):
     def refresh_cookie(self):  # 保活
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=False, args=['--lang=zh-CN'])
+                browser = p.chromium.launch(headless=True, args=['--lang=zh-CN'])
                 context = browser.new_context()
                 cookie = self.get_cookie()
                 if cookie:
@@ -493,7 +493,7 @@ class DynamicWeChat(_PluginBase):
                     confirm_button.click()  # 点击确认
                     time.sleep(3)  # 等待处理
                     # 等待登录成功的元素出现
-                    success_element = page.wait_for_selector('#check_corp_info', timeout=10000)
+                    success_element = page.wait_for_selector('#check_corp_info', timeout=5000)
                     if success_element:
                         logger.info("验证码登录成功！")
                         return True
@@ -503,7 +503,7 @@ class DynamicWeChat(_PluginBase):
         except Exception as e:
             logger.debug(str(e))
             # try:  # 没有登录成功，也没有短信验证码。 查找二维码是否还存在
-            if self.find_qrc(page) and not task != 'refresh_cookie':  # 延长任务找到的二维码不会被发送，所以不算用户没有扫码
+            if self.find_qrc(page) and not task == 'refresh_cookie':  # 延长任务找到的二维码不会被发送，所以不算用户没有扫码
                 logger.error(f"用户没有扫描二维码")
                 return False
 
@@ -513,15 +513,16 @@ class DynamicWeChat(_PluginBase):
         buttons = [
             # ("//span[@class='frame_nav_item_title' and text()='应用管理']", "应用管理"),
             # ("//div[@class='app_index_item_title ' and contains(text(), 'MoviePilot')]", "MoviePilot"),
-            ("//div[contains(@class, 'js_show_ipConfig_dialog')]//a[contains(@class, '_mod_card_operationLink') and text()='配置']",
-             "配置")
+            (
+            "//div[contains(@class, 'js_show_ipConfig_dialog')]//a[contains(@class, '_mod_card_operationLink') and text()='配置']",
+            "配置")
         ]
         if self._input_id_list:
             id_list = self._input_id_list.split(",")
             app_urls = [f"{bash_url}{app_id.strip()}" for app_id in id_list]
             for app_url in app_urls:
                 page.goto(app_url)  # 打开应用详情页
-                # logger.info(f"已打开{app_url}")
+                app_id = app_url.split("/")[-1]
                 time.sleep(2)
                 # 依次点击每个按钮
                 for xpath, name in buttons:
@@ -535,7 +536,7 @@ class DynamicWeChat(_PluginBase):
                         input_area = page.locator('textarea.js_ipConfig_textarea')
                         confirm = page.locator('.js_ipConfig_confirmBtn')
                         input_area.fill(self._current_ip_address)  # 填充 IP 地址
-                        logger.info("已输入公网IP：" + self._current_ip_address)
+                        logger.info(f"应用ID: {app_id} 已输入公网IP：" + self._current_ip_address)
                         confirm.click()  # 点击确认按钮
                         time.sleep(3)  # 等待处理
                         self._ip_changed = True
@@ -963,12 +964,4 @@ class DynamicWeChat(_PluginBase):
                 self._scheduler = None
         except Exception as e:
             logger.error(str(e))
-
-
-
-
-
-
-
-
 
