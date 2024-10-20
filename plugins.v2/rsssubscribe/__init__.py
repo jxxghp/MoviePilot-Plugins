@@ -33,7 +33,7 @@ class RssSubscribe(_PluginBase):
     # 插件图标
     plugin_icon = "rss.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -409,7 +409,7 @@ class RssSubscribe(_PluginBase):
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'filter',
-                                            'label': '使用过滤规则',
+                                            'label': '使用订阅优先级规则',
                                         }
                                     }
                                 ]
@@ -628,7 +628,7 @@ class RssSubscribe(_PluginBase):
                 logger.error(f"未获取到RSS数据：{url}")
                 return
             # 过滤规则
-            filter_rule = self.systemconfig.get(SystemConfigKey.SubscribeFilterRules)
+            filter_groups = self.systemconfig.get(SystemConfigKey.SubscribeFilterRuleGroups)
             # 解析数据
             for result in results:
                 try:
@@ -680,7 +680,7 @@ class RssSubscribe(_PluginBase):
                     # 过滤种子
                     if self._filter:
                         result = self.chain.filter_torrents(
-                            rule_string=filter_rule,
+                            rule_groups=filter_groups,
                             torrent_list=[torrentinfo],
                             mediainfo=mediainfo
                         )

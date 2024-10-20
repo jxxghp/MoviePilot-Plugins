@@ -1,20 +1,20 @@
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
-from pathlib import Path
+from typing import Any, List, Dict, Tuple, Optional
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.chain.transfer import TransferChain
+from app import schemas
+from app.chain.storage import StorageChain
 from app.core.config import settings
 from app.core.event import eventmanager
 from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.db.transferhistory_oper import TransferHistoryOper
-from app.plugins import _PluginBase
-from typing import Any, List, Dict, Tuple, Optional
 from app.log import logger
+from app.plugins import _PluginBase
 from app.schemas import NotificationType, DownloadHistory
 from app.schemas.types import EventType
 
@@ -27,7 +27,7 @@ class AutoClean(_PluginBase):
     # 插件图标
     plugin_icon = "clean.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -205,12 +205,14 @@ class AutoClean(_PluginBase):
                 for history in transferhis_list:
                     # 册除媒体库文件
                     if clean_type in ["dest", "all"]:
-                        TransferChain().delete_files(Path(history.dest))
+                        dest_fileitem = schemas.FileItem(**history.dest_fileitem)
+                        StorageChain().delete_file(dest_fileitem)
                         # 删除记录
                         self._transferhis.delete(history.id)
                     # 删除源文件
                     if clean_type in ["src", "all"]:
-                        TransferChain().delete_files(Path(history.src))
+                        src_fileitem = schemas.FileItem(**history.src_fileitem)
+                        StorageChain().delete_file(src_fileitem)
                         # 发送事件
                         eventmanager.send_event(
                             EventType.DownloadFileDeleted,

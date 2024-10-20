@@ -1,5 +1,5 @@
 {
-  "SiteStatistic": {
+    "SiteStatistic": {
         "name": "站点数据统计",
         "description": "站点统计数据图表。",
         "labels": "站点,仪表板",
@@ -96,6 +96,121 @@
         "history": {
             "v1.7": "MoviePilot V2 版本自动转移做种插件",
             "v1.7.1": "修复兼容性问题"
+        }
+    },
+    "RssSubscribe": {
+        "name": "自定义订阅",
+        "description": "定时刷新RSS报文，识别内容后添加订阅或直接下载。",
+        "labels": "订阅",
+        "version": "2.0",
+        "icon": "rss.png",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本"
+        }
+    },
+    "FFmpegThumb": {
+        "name": "FFmpeg缩略图",
+        "description": "TheMovieDb没有背景图片时使用FFmpeg截取视频文件缩略图",
+        "labels": "刮削",
+        "version": "2.0",
+        "icon": "ffmpeg.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本"
+        }
+    },
+    "LibraryScraper": {
+        "name": "媒体库刮削",
+        "description": "定时对媒体库进行刮削，补齐缺失元数据和图片。",
+        "labels": "刮削",
+        "version": "2.0",
+        "icon": "scraper.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本",
+            "v1.5": "修复未获取fanart图片的问题",
+            "v1.4.1": "修复nfo文件读取失败时任务中断问题"
+        }
+    },
+    "PersonMeta": {
+        "name": "演职人员刮削",
+        "description": "刮削演职人员图片以及中文名称。",
+        "labels": "媒体库,刮削",
+        "version": "2.0",
+        "icon": "actor.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本",
+            "v1.4": "人物图片调整为优先从TMDB获取，避免douban图片CDN加载过慢的问题",
+            "v1.3": "修复v1.8.5版本后刮削报错问题"
+        }
+    },
+    "SpeedLimiter": {
+        "name": "播放限速",
+        "description": "外网播放媒体库视频时，自动对下载器进行限速。",
+        "labels": "网络",
+        "version": "2.0",
+        "icon": "Librespeed_A.png",
+        "author": "Shurelol",
+        "level": 1,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本",
+            "v1.2": "增加不限速路径配置，以应对网盘直链播放的情况"
+        }
+    },
+    "AutoClean": {
+        "name": "定时清理媒体库",
+        "description": "定时清理用户下载的种子、源文件、媒体库文件。",
+        "labels": "媒体库",
+        "version": "2.0",
+        "icon": "clean.png",
+        "author": "thsrite",
+        "level": 2,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本"
+        }
+    },
+    "ConfigCenter": {
+        "name": "配置中心",
+        "description": "快速调整部分系统设定。",
+        "labels": "系统设置",
+        "version": "3.0",
+        "icon": "setting.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v3.0": "兼容MoviePilot V2 版本",
+            "v2.6": "支持DOH相关配置项",
+            "v2.5": "增加Github加速服务器设置项"
+        }
+    },
+    "TorrentRemover": {
+        "name": "自动删种",
+        "description": "自动删除下载器中的下载任务。",
+        "labels": "做种",
+        "version": "2.0",
+        "icon": "delete.jpg",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本"
+        }
+    },
+    "IYUUAutoSeed": {
+        "name": "IYUU自动辅种",
+        "description": "基于IYUU官方Api实现自动辅种。",
+        "labels": "做种,IYUU",
+        "version": "2.0",
+        "icon": "IYUU.png",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本"
         }
     }
 }

@@ -13,14 +13,13 @@ from ruamel.yaml import CommentedMap
 from app.core.config import settings
 from app.core.event import eventmanager
 from app.db.site_oper import SiteOper
+from app.helper.downloader import DownloaderHelper
 from app.helper.sites import SitesHelper
 from app.helper.torrent import TorrentHelper
 from app.log import logger
-from app.modules.qbittorrent import Qbittorrent
-from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
 from app.plugins.iyuuautoseed.iyuu_helper import IyuuHelper
-from app.schemas import NotificationType
+from app.schemas import NotificationType, ServiceInfo
 from app.schemas.types import EventType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
@@ -34,7 +33,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "1.9.5"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -49,11 +48,10 @@ class IYUUAutoSeed(_PluginBase):
     # 私有属性
     _scheduler = None
     iyuuhelper = None
-    qb = None
-    tr = None
     sites = None
     siteoper = None
     torrent = None
+    downloader_helper = None
     # 开关
     _enabled = False
     _cron = None
@@ -100,6 +98,7 @@ class IYUUAutoSeed(_PluginBase):
         self.sites = SitesHelper()
         self.siteoper = SiteOper()
         self.torrent = TorrentHelper()
+        self.downloader_helper = DownloaderHelper()
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
@@ -134,8 +133,6 @@ class IYUUAutoSeed(_PluginBase):
         if self.get_state() or self._onlyonce:
             self.iyuuhelper = IyuuHelper(token=self._token)
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            self.qb = Qbittorrent()
-            self.tr = Transmission()
 
             if self._onlyonce:
                 logger.info(f"辅种服务启动，立即运行一次")
@@ -305,38 +302,19 @@ class IYUUAutoSeed(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12,
-                                    'md': 6
+                                    'cols': 12
                                 },
                                 'content': [
                                     {
                                         'component': 'VSelect',
                                         'props': {
-                                            'chips': True,
                                             'multiple': True,
+                                            'chips': True,
+                                            'clearable': True,
                                             'model': 'downloaders',
-                                            'label': '辅种下载器',
-                                            'items': [
-                                                {'title': 'Qbittorrent', 'value': 'qbittorrent'},
-                                                {'title': 'Transmission', 'value': 'transmission'}
-                                            ]
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'size',
-                                            'label': '辅种体积大于(GB)',
-                                            'placeholder': '只有大于该值的才辅种'
+                                            'label': '下载器',
+                                            'items': [{"title": config.name, "value": config.name}
+                                                      for config in self.downloader_helper.get_configs().values()]
                                         }
                                     }
                                 ]
@@ -515,6 +493,33 @@ class IYUUAutoSeed(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
+    @property
+    def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
+        """
+        服务信息
+        """
+        if not self._downloaders:
+            logger.warning("尚未配置下载器，请检查配置")
+            return None
+
+        services = self.downloader_helper.get_services(name_filters=self._downloaders)
+        if not services:
+            logger.warning("获取下载器实例失败，请检查配置")
+            return None
+
+        active_services = {}
+        for service_name, service_info in services.items():
+            if service_info.instance.is_inactive():
+                logger.warning(f"下载器 {service_name} 未连接，请检查配置")
+            else:
+                active_services[service_name] = service_info
+
+        if not active_services:
+            logger.warning("没有已连接的下载器，请检查配置")
+            return None
+
+        return active_services
+
     def __update_config(self):
         self.update_config({
             "enabled": self._enabled,
@@ -537,16 +542,11 @@ class IYUUAutoSeed(_PluginBase):
             "permanent_error_caches": self._permanent_error_caches
         })
 
-    def __get_downloader(self, dtype: str):
+    def __get_downloader(self, name: str):
         """
         根据类型返回下载器实例
         """
-        if dtype == "qbittorrent":
-            return self.qb
-        elif dtype == "transmission":
-            return self.tr
-        else:
-            return None
+        return self.service_infos.get(name).instance
 
     def auto_seed(self):
         """
@@ -821,33 +821,37 @@ class IYUUAutoSeed(_PluginBase):
         """
         添加下载任务
         """
-        if downloader == "qbittorrent":
+        service = self.service_infos.get(downloader)
+        if not service:
+            logger.error(f"下载器 {downloader} 未连接，添加下载任务失败！")
+            return None
+        if service.type == "qbittorrent":
             # 生成随机Tag
             tag = StringUtils.generate_random_str(10)
 
             torrent_tags.append(tag)
 
-            state = self.qb.add_torrent(content=content,
-                                        download_dir=save_path,
-                                        is_paused=True,
-                                        tag=torrent_tags,
-                                        category=self._categoryafterseed,
-                                        is_skip_checking=self._skipverify)
+            state = service.instance.add_torrent(content=content,
+                                                 download_dir=save_path,
+                                                 is_paused=True,
+                                                 tag=torrent_tags,
+                                                 category=self._categoryafterseed,
+                                                 is_skip_checking=self._skipverify)
             if not state:
                 return None
             else:
                 # 获取种子Hash
-                torrent_hash = self.qb.get_torrent_id_by_tag(tags=tag)
+                torrent_hash = service.instance.get_torrent_id_by_tag(tags=tag)
                 if not torrent_hash:
                     logger.error(f"{downloader} 下载任务添加成功，但获取任务信息失败！")
                     return None
             return torrent_hash
-        elif downloader == "transmission":
+        elif service.type == "transmission":
             # 添加任务
-            torrent = self.tr.add_torrent(content=content,
-                                          download_dir=save_path,
-                                          is_paused=True,
-                                          labels=torrent_tags)
+            torrent = service.instance.add_torrent(content=content,
+                                                   download_dir=save_path,
+                                                   is_paused=True,
+                                                   labels=torrent_tags)
             if not torrent:
                 return None
             else:
@@ -1044,7 +1048,7 @@ class IYUUAutoSeed(_PluginBase):
             判断是否为mteam站点
             """
             return True if "m-team." in url else False
-        
+
         def __is_monika(url: str):
             """
             判断是否为monika站点
@@ -1063,7 +1067,7 @@ class IYUUAutoSeed(_PluginBase):
             将mteam种子下载链接域名替换为使用API
             """
             api_url = re.sub(r'//[^/]+\.m-team', '//api.m-team', site.get('url'))
-            
+
             res = RequestUtils(
                 headers={
                     'Content-Type': 'application/json',
@@ -1078,7 +1082,7 @@ class IYUUAutoSeed(_PluginBase):
                 logger.warn(f"m-team 获取种子下载链接失败：{tid}")
                 return None
             return res.json().get("data")
-        
+
         def __get_monika_torrent(tid: str, rssurl: str):
             """
             Monika下载需要使用rsskey从站点配置中获取并拼接下载链接
@@ -1086,11 +1090,10 @@ class IYUUAutoSeed(_PluginBase):
             if not rssurl:
                 logger.error("Monika站点的rss链接未配置")
                 return None
-           
+
             rss_match = re.search(r'/rss/\d+\.(\w+)', rssurl)
             rsskey = rss_match.group(1)
-            download_url = f"{site.get('url')}torrents/download/{tid}.{rsskey}"
-            return download_url
+            return f"{site.get('url')}torrents/download/{tid}.{rsskey}"
 
         def __is_special_site(url: str):
             """

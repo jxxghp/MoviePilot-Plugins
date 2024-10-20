@@ -771,11 +771,14 @@
         "name": "MoviePilot服务器监控",
         "description": "在仪表板中实时显示MoviePilot公共服务器状态。",
         "labels": "仪表板",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "Duplicati_A.png",
         "author": "jxxghp",
         "level": 1,
-        "v2": true
+        "v2": true,
+        "history": {
+            "v1.1": "增加详情界面显示"
+        }
     },
     "CleanInvalidSeed": {
         "name": "清理QB无效做种",

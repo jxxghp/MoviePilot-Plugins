@@ -20,12 +20,10 @@ from app.chain.tmdb import TmdbChain
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.core.meta import MetaBase
+from app.helper.mediaserver import MediaServerHelper
 from app.log import logger
-from app.modules.emby import Emby
-from app.modules.jellyfin import Jellyfin
-from app.modules.plex import Plex
 from app.plugins import _PluginBase
-from app.schemas import MediaInfo, MediaServerItem
+from app.schemas import MediaInfo, MediaServerItem, ServiceInfo
 from app.schemas.types import EventType, MediaType
 from app.utils.common import retry
 from app.utils.http import RequestUtils
@@ -40,7 +38,7 @@ class PersonMeta(_PluginBase):
     # 插件图标
     plugin_icon = "actor.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -59,16 +57,19 @@ class PersonMeta(_PluginBase):
     _scheduler = None
     tmdbchain = None
     mschain = None
+    mediaserver_helper = None
     _enabled = False
     _onlyonce = False
     _cron = None
     _delay = 0
     _type = "all"
     _remove_nozh = False
+    _mediaservers = []
 
     def init_plugin(self, config: dict = None):
         self.tmdbchain = TmdbChain()
         self.mschain = MediaServerChain()
+        self.mediaserver_helper = MediaServerHelper()
         if config:
             self._enabled = config.get("enabled")
             self._onlyonce = config.get("onlyonce")
@@ -76,6 +77,7 @@ class PersonMeta(_PluginBase):
             self._type = config.get("type") or "all"
             self._delay = config.get("delay") or 0
             self._remove_nozh = config.get("remove_nozh") or False
+            self._mediaservers = config.get("mediaservers") or []
 
         # 停止现有任务
         self.stop_service()
@@ -251,6 +253,31 @@ class PersonMeta(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'multiple': True,
+                                            'chips': True,
+                                            'clearable': True,
+                                            'model': 'mediaservers',
+                                            'label': '媒体服务器',
+                                            'items': [{"title": config.name, "value": config.name}
+                                                      for config in self.mediaserver_helper.get_configs().values()]
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
                                     'cols': 12,
                                     'md': 6
                                 },
@@ -280,6 +307,32 @@ class PersonMeta(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
+    def service_infos(self, type_filter: Optional[str] = None) -> Optional[Dict[str, ServiceInfo]]:
+        """
+        服务信息
+        """
+        if not self._mediaservers:
+            logger.warning("尚未配置媒体服务器，请检查配置")
+            return None
+
+        services = self.mediaserver_helper.get_services(type_filter=type_filter, name_filters=self._mediaservers)
+        if not services:
+            logger.warning("获取媒体服务器实例失败，请检查配置")
+            return None
+
+        active_services = {}
+        for service_name, service_info in services.items():
+            if service_info.instance.is_inactive():
+                logger.warning(f"媒体服务器 {service_name} 未连接，请检查配置")
+            else:
+                active_services[service_name] = service_info
+
+        if not active_services:
+            logger.warning("没有已连接的媒体服务器，请检查配置")
+            return None
+
+        return active_services
+
     @eventmanager.register(EventType.TransferComplete)
     def scrap_rt(self, event: Event):
         """
@@ -298,16 +351,16 @@ class PersonMeta(_PluginBase):
         # 查询媒体服务器中的条目
         existsinfo = self.chain.media_exists(mediainfo=mediainfo)
         if not existsinfo or not existsinfo.itemid:
-            logger.warn(f"演职人员刮削 {mediainfo.title_year} 在媒体库中不存在")
+            logger.warn(f"{mediainfo.title_year} 在媒体库中不存在")
             return
         # 查询条目详情
         iteminfo = self.mschain.iteminfo(server=existsinfo.server, item_id=existsinfo.itemid)
         if not iteminfo:
-            logger.warn(f"演职人员刮削 {mediainfo.title_year} 条目详情获取失败")
+            logger.warn(f"{mediainfo.title_year} 条目详情获取失败")
             return
         # 刮削演职人员信息
-        self.__update_item(server=existsinfo.server, item=iteminfo,
-                           mediainfo=mediainfo, season=meta.begin_season)
+        self.__update_item(server=existsinfo.server, server_type=existsinfo.server_type,
+                           item=iteminfo, mediainfo=mediainfo, season=meta.begin_season)
 
     def scrap_library(self):
         """
@@ -339,7 +392,8 @@ class PersonMeta(_PluginBase):
                 logger.info(f"媒体库 {library.name} 的演员信息刮削完成")
             logger.info(f"服务器 {server} 的演员信息刮削完成")
 
-    def __update_peoples(self, server: str, itemid: str, iteminfo: dict, douban_actors):
+    def __update_peoples(self, server: str, server_type: str,
+                         itemid: str, iteminfo: dict, douban_actors):
         # 处理媒体项中的人物信息
         """
         "People": [
@@ -364,8 +418,8 @@ class PersonMeta(_PluginBase):
                     and StringUtils.is_chinese(people.get("Role")):
                 peoples.append(people)
                 continue
-            info = self.__update_people(server=server, people=people,
-                                        douban_actors=douban_actors)
+            info = self.__update_people(server=server, server_type=server_type,
+                                        people=people, douban_actors=douban_actors)
             if info:
                 peoples.append(info)
             elif not self._remove_nozh:
@@ -373,9 +427,10 @@ class PersonMeta(_PluginBase):
         # 保存媒体项信息
         if peoples:
             iteminfo["People"] = peoples
-            self.set_iteminfo(server=server, itemid=itemid, iteminfo=iteminfo)
+            self.set_iteminfo(server=server, server_type=server_type,
+                              itemid=itemid, iteminfo=iteminfo)
 
-    def __update_item(self, server: str, item: MediaServerItem,
+    def __update_item(self, server: str, item: MediaServerItem, server_type: str = None,
                       mediainfo: MediaInfo = None, season: int = None):
         """
         更新媒体服务器中的条目
@@ -413,7 +468,7 @@ class PersonMeta(_PluginBase):
                 return
 
         # 获取媒体项
-        iteminfo = self.get_iteminfo(server=server, itemid=item.item_id)
+        iteminfo = self.get_iteminfo(server=server, server_type=server_type, itemid=item.item_id)
         if not iteminfo:
             logger.warn(f"{item.title} 未找到媒体项")
             return
@@ -422,14 +477,16 @@ class PersonMeta(_PluginBase):
             # 获取豆瓣演员信息
             logger.info(f"开始获取 {item.title} 的豆瓣演员信息 ...")
             douban_actors = self.__get_douban_actors(mediainfo=mediainfo, season=season)
-            self.__update_peoples(server=server, itemid=item.item_id, iteminfo=iteminfo, douban_actors=douban_actors)
+            self.__update_peoples(server=server, server_type=server_type,
+                                  itemid=item.item_id, iteminfo=iteminfo, douban_actors=douban_actors)
         else:
             logger.info(f"{item.title} 的人物信息已是中文，无需更新")
 
         # 处理季和集人物
         if iteminfo.get("Type") and "Series" in iteminfo["Type"]:
             # 获取季媒体项
-            seasons = self.get_items(server=server, parentid=item.item_id, mtype="Season")
+            seasons = self.get_items(server=server, server_type=server_type,
+                                     parentid=item.item_id, mtype="Season")
             if not seasons:
                 logger.warn(f"{item.title} 未找到季媒体项")
                 return
@@ -437,40 +494,46 @@ class PersonMeta(_PluginBase):
                 # 获取豆瓣演员信息
                 season_actors = self.__get_douban_actors(mediainfo=mediainfo, season=season.get("IndexNumber"))
                 # 如果是Jellyfin，更新季的人物，Emby/Plex季没有人物
-                if server == "jellyfin":
-                    seasoninfo = self.get_iteminfo(server=server, itemid=season.get("Id"))
+                if server_type == "jellyfin":
+                    seasoninfo = self.get_iteminfo(server=server, server_type=server_type,
+                                                   itemid=season.get("Id"))
                     if not seasoninfo:
                         logger.warn(f"{item.title} 未找到季媒体项：{season.get('Id')}")
                         continue
 
                     if __need_trans_actor(seasoninfo):
                         # 更新季媒体项人物
-                        self.__update_peoples(server=server, itemid=season.get("Id"), iteminfo=seasoninfo,
+                        self.__update_peoples(server=server, server_type=server_type,
+                                              itemid=season.get("Id"), iteminfo=seasoninfo,
                                               douban_actors=season_actors)
                         logger.info(f"季 {seasoninfo.get('Id')} 的人物信息更新完成")
                     else:
                         logger.info(f"季 {seasoninfo.get('Id')} 的人物信息已是中文，无需更新")
                 # 获取集媒体项
-                episodes = self.get_items(server=server, parentid=season.get("Id"), mtype="Episode")
+                episodes = self.get_items(server=server, server_type=server_type,
+                                          parentid=season.get("Id"), mtype="Episode")
                 if not episodes:
                     logger.warn(f"{item.title} 未找到集媒体项")
                     continue
                 # 更新集媒体项人物
                 for episode in episodes["Items"]:
                     # 获取集媒体项详情
-                    episodeinfo = self.get_iteminfo(server=server, itemid=episode.get("Id"))
+                    episodeinfo = self.get_iteminfo(server=server, server_type=server_type,
+                                                    itemid=episode.get("Id"))
                     if not episodeinfo:
                         logger.warn(f"{item.title} 未找到集媒体项：{episode.get('Id')}")
                         continue
                     if __need_trans_actor(episodeinfo):
                         # 更新集媒体项人物
-                        self.__update_peoples(server=server, itemid=episode.get("Id"), iteminfo=episodeinfo,
+                        self.__update_peoples(server=server, server_type=server_type,
+                                              itemid=episode.get("Id"), iteminfo=episodeinfo,
                                               douban_actors=season_actors)
                         logger.info(f"集 {episodeinfo.get('Id')} 的人物信息更新完成")
                     else:
                         logger.info(f"集 {episodeinfo.get('Id')} 的人物信息已是中文，无需更新")
 
-    def __update_people(self, server: str, people: dict, douban_actors: list = None) -> Optional[dict]:
+    def __update_people(self, server: str, server_type: str,
+                        people: dict, douban_actors: list = None) -> Optional[dict]:
         """
         更新人物信息，返回替换后的人物信息
         """
@@ -497,7 +560,8 @@ class PersonMeta(_PluginBase):
 
         try:
             # 查询媒体库人物详情
-            personinfo = self.get_iteminfo(server=server, itemid=people.get("Id"))
+            personinfo = self.get_iteminfo(server=server, server_type=server_type,
+                                           itemid=people.get("Id"))
             if not personinfo:
                 logger.debug(f"未找到人物 {people.get('Name')} 的信息")
                 return None
@@ -611,7 +675,8 @@ class PersonMeta(_PluginBase):
             # 更新人物信息
             if updated_name or updated_overview or update_character:
                 logger.debug(f"更新人物 {people.get('Name')} 的信息：{personinfo}")
-                ret = self.set_iteminfo(server=server, itemid=people.get("Id"), iteminfo=personinfo)
+                ret = self.set_iteminfo(server=server, server_type=server_type,
+                                        itemid=people.get("Id"), iteminfo=personinfo)
                 if ret:
                     return ret_people
             else:
@@ -642,11 +707,15 @@ class PersonMeta(_PluginBase):
             logger.debug(f"未找到豆瓣信息：{mediainfo.title_year}")
         return []
 
-    @staticmethod
-    def get_iteminfo(server: str, itemid: str) -> dict:
+    def get_iteminfo(self, server: str, server_type: str, itemid: str) -> dict:
         """
         获得媒体项详情
         """
+
+        service = self.service_infos(server_type).get(server)
+        if not service:
+            logger.warn(f"未找到媒体服务器 {server} 的实例")
+            return {}
 
         def __get_emby_iteminfo() -> dict:
             """
@@ -655,7 +724,7 @@ class PersonMeta(_PluginBase):
             try:
                 url = f'[HOST]emby/Users/[USER]/Items/{itemid}?' \
                       f'Fields=ChannelMappingInfo&api_key=[APIKEY]'
-                res = Emby().get_data(url=url)
+                res = service.instance.get_data(url=url)
                 if res:
                     return res.json()
             except Exception as err:
@@ -668,7 +737,7 @@ class PersonMeta(_PluginBase):
             """
             try:
                 url = f'[HOST]Users/[USER]/Items/{itemid}?Fields=ChannelMappingInfo&api_key=[APIKEY]'
-                res = Jellyfin().get_data(url=url)
+                res = service.instance.get_data(url=url)
                 if res:
                     result = res.json()
                     if result:
@@ -684,7 +753,7 @@ class PersonMeta(_PluginBase):
             """
             iteminfo = {}
             try:
-                plexitem = Plex().get_plex().library.fetchItem(ekey=itemid)
+                plexitem = service.instance.get_plex().library.fetchItem(ekey=itemid)
                 if 'movie' in plexitem.METADATA_TYPE:
                     iteminfo['Type'] = 'Movie'
                     iteminfo['IsFolder'] = False
@@ -712,19 +781,21 @@ class PersonMeta(_PluginBase):
                 logger.error(f"获取Plex媒体项详情失败：{str(err)}")
             return {}
 
-        if server == "emby":
+        if server_type == "emby":
             return __get_emby_iteminfo()
-        elif server == "jellyfin":
+        elif server_type == "jellyfin":
             return __get_jellyfin_iteminfo()
         else:
             return __get_plex_iteminfo()
 
-    @staticmethod
-    def get_items(server: str, parentid: str, mtype: str = None) -> dict:
+    def get_items(self, server: str, server_type: str, parentid: str, mtype: str = None) -> dict:
         """
         获得媒体的所有子媒体项
         """
-        pass
+        service = self.service_infos(server_type).get(server)
+        if not service:
+            logger.warn(f"未找到媒体服务器 {server} 的实例")
+            return {}
 
         def __get_emby_items() -> dict:
             """
@@ -735,7 +806,7 @@ class PersonMeta(_PluginBase):
                     url = f'[HOST]emby/Users/[USER]/Items?ParentId={parentid}&api_key=[APIKEY]'
                 else:
                     url = '[HOST]emby/Users/[USER]/Items?api_key=[APIKEY]'
-                res = Emby().get_data(url=url)
+                res = service.instance.get_data(url=url)
                 if res:
                     return res.json()
             except Exception as err:
@@ -751,7 +822,7 @@ class PersonMeta(_PluginBase):
                     url = f'[HOST]Users/[USER]/Items?ParentId={parentid}&api_key=[APIKEY]'
                 else:
                     url = '[HOST]Users/[USER]/Items?api_key=[APIKEY]'
-                res = Jellyfin().get_data(url=url)
+                res = service.instance.get_data(url=url)
                 if res:
                     return res.json()
             except Exception as err:
@@ -764,7 +835,7 @@ class PersonMeta(_PluginBase):
             """
             items = {}
             try:
-                plex = Plex().get_plex()
+                plex = service.instance.get_plex()
                 items['Items'] = []
                 if parentid:
                     if mtype and 'Season' in mtype:
@@ -824,25 +895,29 @@ class PersonMeta(_PluginBase):
                 logger.error(f"获取Plex媒体的所有子媒体项失败：{str(err)}")
             return {}
 
-        if server == "emby":
+        if server_type == "emby":
             return __get_emby_items()
-        elif server == "jellyfin":
+        elif server_type == "jellyfin":
             return __get_jellyfin_items()
         else:
             return __get_plex_items()
 
-    @staticmethod
-    def set_iteminfo(server: str, itemid: str, iteminfo: dict):
+    def set_iteminfo(self, server: str, server_type: str, itemid: str, iteminfo: dict):
         """
         更新媒体项详情
         """
+
+        service = self.service_infos(server_type).get(server)
+        if not service:
+            logger.warn(f"未找到媒体服务器 {server} 的实例")
+            return {}
 
         def __set_emby_iteminfo():
             """
             更新Emby媒体项详情
             """
             try:
-                res = Emby().post_data(
+                res = service.instance.post_data(
                     url=f'[HOST]emby/Items/{itemid}?api_key=[APIKEY]&reqformat=json',
                     data=json.dumps(iteminfo),
                     headers={
@@ -863,7 +938,7 @@ class PersonMeta(_PluginBase):
             更新Jellyfin媒体项详情
             """
             try:
-                res = Jellyfin().post_data(
+                res = service.instance.post_data(
                     url=f'[HOST]Items/{itemid}?api_key=[APIKEY]',
                     data=json.dumps(iteminfo),
                     headers={
@@ -884,7 +959,7 @@ class PersonMeta(_PluginBase):
             更新Plex媒体项详情
             """
             try:
-                plexitem = Plex().get_plex().library.fetchItem(ekey=itemid)
+                plexitem = service.instance.get_plex().library.fetchItem(ekey=itemid)
                 if 'CommunityRating' in iteminfo:
                     edits = {
                         'audienceRating.value': iteminfo['CommunityRating'],
@@ -897,19 +972,23 @@ class PersonMeta(_PluginBase):
                 logger.error(f"更新Plex媒体项详情失败：{str(err)}")
             return False
 
-        if server == "emby":
+        if server_type == "emby":
             return __set_emby_iteminfo()
-        elif server == "jellyfin":
+        elif server_type == "jellyfin":
             return __set_jellyfin_iteminfo()
         else:
             return __set_plex_iteminfo()
 
-    @staticmethod
     @retry(RequestException, logger=logger)
-    def set_item_image(server: str, itemid: str, imageurl: str):
+    def set_item_image(self, server: str, server_type: str, itemid: str, imageurl: str):
         """
         更新媒体项图片
         """
+
+        service = self.service_infos(server_type).get(server)
+        if not service:
+            logger.warn(f"未找到媒体服务器 {server} 的实例")
+            return {}
 
         def __download_image():
             """
@@ -936,7 +1015,7 @@ class PersonMeta(_PluginBase):
             """
             try:
                 url = f'[HOST]emby/Items/{itemid}/Images/Primary?api_key=[APIKEY]'
-                res = Emby().post_data(
+                res = service.instance.post_data(
                     url=url,
                     data=_base64,
                     headers={
@@ -960,7 +1039,7 @@ class PersonMeta(_PluginBase):
             try:
                 url = f'[HOST]Items/{itemid}/RemoteImages/Download?' \
                       f'Type=Primary&ImageUrl={imageurl}&ProviderName=TheMovieDb&api_key=[APIKEY]'
-                res = Jellyfin().post_data(url=url)
+                res = service.instance.post_data(url=url)
                 if res and res.status_code in [200, 204]:
                     return True
                 else:
@@ -976,19 +1055,19 @@ class PersonMeta(_PluginBase):
             # FIXME 改为预下载图片
             """
             try:
-                plexitem = Plex().get_plex().library.fetchItem(ekey=itemid)
+                plexitem = service.instance.get_plex().library.fetchItem(ekey=itemid)
                 plexitem.uploadPoster(url=imageurl)
                 return True
             except Exception as err:
                 logger.error(f"更新Plex媒体项图片失败：{err}")
             return False
 
-        if server == "emby":
+        if server_type == "emby":
             # 下载图片获取base64
             image_base64 = __download_image()
             if image_base64:
                 return __set_emby_item_image(image_base64)
-        elif server == "jellyfin":
+        elif server_type == "jellyfin":
             return __set_jellyfin_item_image()
         else:
             return __set_plex_item_image()
