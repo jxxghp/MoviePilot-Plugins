@@ -1,11 +1,20 @@
+# 基础库
 import datetime
 import json
-import pytz
 from typing import Any, Dict, List, Optional, Type
 
+# 第三方库
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+import pytz
+from sqlalchemy import JSON
+from sqlalchemy.orm import Session
+
+# 项目库
 from app.chain.subscribe import SubscribeChain, Subscribe
 from app.core.config import settings
 from app.core.context import MediaInfo
+from app.core.meta import MetaBase
 from app.core.metainfo import MetaInfo
 from app.db.models.subscribehistory import SubscribeHistory
 from app.db.site_oper import SiteOper
@@ -16,10 +25,6 @@ from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import NotificationType
 from app.utils.http import RequestUtils
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy import JSON
-from sqlalchemy.orm import Session
 
 
 class BangumiColl(_PluginBase):
@@ -30,7 +35,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/bangumi_b.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页
@@ -50,6 +55,7 @@ class BangumiColl(_PluginBase):
 
     # 配置属性
     _enabled: bool = False
+    _total_change: bool = False
     _cron: str = ""
     _notify: bool = False
     _onlyonce: bool = False
@@ -76,16 +82,19 @@ class BangumiColl(_PluginBase):
     def load_config(self, config: dict):
         """加载配置"""
         if config:
-            self._enabled = config.get("enabled", self._enabled)
-            self._cron = config.get("cron", self._cron)
-            self._notify = config.get("notify", self._notify)
-            self._onlyonce = config.get("onlyonce", self._onlyonce)
-            self._include = config.get("include", self._include)
-            self._exclude = config.get("exclude", self._exclude)
-            self._uid = config.get("uid", self._uid)
-            self._collection_type = config.get("collection_type", [3])
-            self._save_path = config.get("save_path", self._save_path)
-            self._sites = config.get("sites", self._sites)
+            # 遍历配置中的键并设置相应的属性
+            for key in (
+                "enabled",
+                "total_change",
+                "cron",
+                "notify",
+                "onlyonce",
+                "uid",
+                "collection_type",
+                "save_path",
+                "sites",
+            ):
+                setattr(self, f"_{key}", config.get(key, getattr(self, f"_{key}")))
 
     def schedule_once(self):
         """调度一次性任务"""
@@ -109,6 +118,7 @@ class BangumiColl(_PluginBase):
             {
                 "enabled": self._enabled,
                 "notify": self._notify,
+                "total_change": self._total_change,
                 "onlyonce": self._onlyonce,
                 "cron": self._cron,
                 "uid": self._uid,
@@ -121,199 +131,15 @@ class BangumiColl(_PluginBase):
         )
 
     def get_form(self):
+        from .page_components import form
+
         # 列出所有站点
         sites_options = [
             {"title": site.name, "value": site.id}
             for site in self.siteoper.list_order_by_pri()
         ]
 
-        return [
-            {
-                'component': 'VForm',
-                'content': [
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 4},
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'enabled',
-                                            'label': '启用插件',
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 4},
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'notify',
-                                            'label': '自动取消订阅并通知',
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 4},
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'onlyonce',
-                                            'label': '立即运行一次',
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'cron',
-                                            'label': '执行周期',
-                                            'placeholder': '5位cron表达式，留空自动',
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'uid',
-                                            'label': 'UID/用户名',
-                                            'placeholder': '设置了用户名填写用户名，否则填写UID',
-                                        },
-                                    },
-                                ],
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [
-                                    {
-                                        'component': 'VSelect',
-                                        'props': {
-                                            'model': 'collection_type',
-                                            'label': '收藏类型',
-                                            'chips': True,
-                                            'multiple': True,
-                                            'items': [
-                                                {'title': '在看', 'value': 3},
-                                                {'title': '想看', 'value': 1},
-                                            ],
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'include',
-                                            'label': '包含',
-                                            'placeholder': '暂未实现',
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'exclude',
-                                            'label': '排除',
-                                            'placeholder': '暂未实现',
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'save_path',
-                                            'label': '保存目录',
-                                            'placeholder': '留空自动',
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [
-                                    {
-                                        'component': 'VSelect',
-                                        'props': {
-                                            'model': 'sites',
-                                            'label': '选择站点',
-                                            'chips': True,
-                                            'multiple': True,
-                                            'items': sites_options,
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            }
-        ], {
-            "enabled": False,
-            "notify": False,
-            "onlyonce": False,
-            "cron": "",
-            "uid": "",
-            "collection_type": [3],
-            "include": "",
-            "exclude": "",
-            "save_path": "",
-            "sites": [],
-        }
+        return form(sites_options)
 
     def get_service(self) -> List[Dict[str, Any]]:
         """注册插件公共服务"""
@@ -372,27 +198,22 @@ class BangumiColl(_PluginBase):
 
     def parse_collection_items(self, response) -> Dict[int, Dict[str, Any]]:
         """解析获取的收藏条目"""
-        data = response.json().get("data")
+        data = response.json().get("data", [])
         if not data:
             logger.error(f"Bangumi用户：{self._uid} ，没有任何收藏")
             return {}
 
-        items = {}
         logger.info("解析Bangumi条目信息...")
-        for item in data:
-            if item.get("type") not in self._collection_type:
-                logger.debug(
-                    f"条目: {item['subject'].get('name_cn')}  类型:{item.get('type')} 不符合"
-                )
-                continue
-
-            items[item.get("subject_id")] = {
+        return {
+            item.get("subject_id"): {
                 "name": item['subject'].get('name'),
                 "name_cn": item['subject'].get('name_cn'),
                 "date": item['subject'].get('date'),
                 "eps": item['subject'].get('eps'),
             }
-        return items
+            for item in data
+            if item.get("type") in self._collection_type
+        }
 
     def manage_subscriptions(self, items: Dict[int, Dict[str, Any]]):
         """管理订阅的新增和删除"""
@@ -422,6 +243,7 @@ class BangumiColl(_PluginBase):
     # 添加订阅
     def add_subscribe(self, items: Dict[int, Dict[str, Any]]) -> Dict:
         """添加订阅"""
+
         fail_items = {}
         for self._subid, item in items.items():
             meta = MetaInfo(item.get("name_cn"))
@@ -432,6 +254,7 @@ class BangumiColl(_PluginBase):
 
             meta.year = item.get("date")[:4] if item.get("date") else None
             mediainfo = self.chain.recognize_media(meta=meta)
+            meta.total_episode = item.get("eps", 0)
             if not mediainfo:
                 fail_items[self._subid] = f"{item.get('name_cn')} 媒体信息识别失败"
                 continue
@@ -442,33 +265,28 @@ class BangumiColl(_PluginBase):
                 mediainfo.tmdb_id, mediainfo.number_of_seasons
             )
             if sid:
-                logger.info(f"{mediainfo.title_year} {meta.season} 正在订阅中")
+                logger.info(f"{mediainfo.title_year} 正在订阅中")
                 if len(sid) == 1:
                     self.subscribeoper.update(
                         sid=sid[0].id, payload={"bangumiid": self._subid}
                     )
-                    logger.info(
-                        f"{mediainfo.title_year} {meta.season} Bangumi条目id更新成功"
-                    )
+                    logger.info(f"{mediainfo.title_year} Bangumi条目id更新成功")
                 continue
 
             sid, msg = self.subscribechain.add(
                 title=mediainfo.title,
                 year=mediainfo.year,
-                mtype=mediainfo.type,
-                tmdbid=mediainfo.tmdb_id,
                 bangumiid=self._subid,
-                season=mediainfo.number_of_seasons,
                 exist_ok=True,
                 username="Bangumi订阅",
-                **self.prepare_kwargs(item, meta.begin_season, mediainfo),
+                **self.prepare_kwargs(meta, mediainfo),
             )
             if not sid:
                 fail_items[self._subid] = f"{item.get('name_cn')} {msg}"
 
         return fail_items
 
-    def prepare_kwargs(self, item: dict, meta_season: int, mediainfo: MediaInfo):
+    def prepare_kwargs(self, meta: MetaBase, mediainfo: MediaInfo) -> Dict:
         """准备额外参数"""
         kwargs = {
             "save_path": self._save_path,
@@ -479,14 +297,24 @@ class BangumiColl(_PluginBase):
             ),
         }
 
-        if self.check_series_info(meta_season, item.get("eps", 0), mediainfo):
-            begin_ep, total_ep = self.get_eps()
-            prev_eps: list = [i for i in range(1, begin_ep)]
+        total_episode = len(mediainfo.seasons.get(mediainfo.number_of_seasons) or [])
+        if (
+            meta.begin_season
+            and mediainfo.number_of_seasons != meta.begin_season
+            or total_episode != meta.total_episode
+        ):
+            meta = self.get_eps(meta)
+            total_ep: int = meta.end_episode if meta.end_episode else total_episode
+            lock_eps: int = total_ep - meta.begin_episode + 1
+            prev_eps: list = [i for i in range(1, meta.begin_episode)]
             kwargs.update(
                 {
                     "total_episode": total_ep,
-                    "start_episode": begin_ep,
-                    "lack_episode": total_ep - begin_ep + 1,
+                    "start_episode": meta.begin_episode,
+                    "lack_episode": lock_eps,
+                    "manual_total_episode": (
+                        1 if meta.total_episode and self._total_change else 0
+                    ),  # 手动修改过总集数
                     "note": (
                         prev_eps
                         if self.are_types_equal("note")
@@ -495,23 +323,12 @@ class BangumiColl(_PluginBase):
                 }
             )
             logger.info(
-                f"{mediainfo.title_year} 更新总集数为: {total_ep}，开始集数为: {begin_ep}"
+                f"{mediainfo.title_year} 更新总集数为: {total_ep}，开始集数为: {meta.begin_episode}"
             )
 
         return kwargs
 
-    @staticmethod
-    def check_series_info(meta_season: int, bgm_eps: int, mediainfo: MediaInfo) -> bool:
-        """检查系列信息是否不一致"""
-        total_episode = len(mediainfo.seasons.get(mediainfo.number_of_seasons) or [])
-        return (
-            meta_season
-            and mediainfo.number_of_seasons != meta_season
-            or (bgm_eps != 0 and total_episode != bgm_eps)
-            or (bgm_eps == 0 and not total_episode >= 12)
-        )
-
-    def update_media_info(self, item, mediainfo):
+    def update_media_info(self, item: dict, mediainfo: MediaInfo):
         """更新媒体信息"""
         for info in mediainfo.season_info:
             if self.are_dates(item.get("date"), info.get("air_date")):
@@ -519,20 +336,19 @@ class BangumiColl(_PluginBase):
                 mediainfo.number_of_episodes = info.get("episode_count")
                 break
 
-    def get_eps(self) -> tuple:
+    def get_eps(self, meta: MetaBase) -> MetaBase:
         """获取Bangumi条目的集数信息"""
         try:
             res = self.get_bgm_res(addr="getEpisodes", id=self._subid)
             data = res.json().get("data", [{}])[0]
-            ep = data.get("ep", 1)
-            sort = data.get("sort", 1)
-            total = res.json().get("total", 24)
-            begin_ep = sort - ep + 1
-            total_ep = sort - ep + total
-            return begin_ep, total_ep
+            prev = data.get("sort", 1) - data.get("ep", 1)
+            total = res.json().get("total", None)
+            meta.begin_episode = prev + 1
+            meta.end_episode = prev + total if total else None
         except Exception as e:
             logger.error(f"获取集数信息失败: {str(e)}")
-            return 1, 24  # 默认值
+        finally:
+            return meta
 
     # 移除订阅
     def delete_subscribe(self, del_items: Dict[int, int]):
