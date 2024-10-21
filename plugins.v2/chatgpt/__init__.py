@@ -16,7 +16,7 @@ class ChatGPT(_PluginBase):
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.0.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -235,6 +235,8 @@ class ChatGPT(_PluginBase):
         """
         监听识别事件，使用ChatGPT辅助识别名称
         """
+        if not self._recognize:
+            return
         if not event.event_data:
             return
         title = event.event_data.get("title")
