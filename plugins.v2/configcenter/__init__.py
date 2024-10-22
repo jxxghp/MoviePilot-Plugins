@@ -14,7 +14,7 @@ class ConfigCenter(_PluginBase):
     # 插件图标
     plugin_icon = "setting.png"
     # 插件版本
-    plugin_version = "3.1.1"
+    plugin_version = "3.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -38,6 +38,8 @@ class ConfigCenter(_PluginBase):
         self._params = config.pop("params", "")
         if "undefined" in config:
             del config["undefined"]
+        if "_tabs" in config:
+            del config["_tabs"]
         self.update_config(config={})
 
         # 将自定义配置存储到 __ConfigCenter__
@@ -164,553 +166,794 @@ class ConfigCenter(_PluginBase):
                         "component": "VCol",
                         "props": {
                             "cols": 12,
-                            "md": 6
                         },
                         "content": [
                             {
-                                "component": "VTextField",
+                                "component": "VAlert",
                                 "props": {
-                                    "model": "GITHUB_TOKEN",
-                                    "label": "GitHub Token",
-                                    "hint": "GitHub Token，提高请求API限流阈值，格式: ghp_****",
-                                    "persistent-hint": True
+                                    "type": "warning",
+                                    "variant": "tonal",
+                                    "text": "注意：部分配置项的更改可能需要重启服务才能生效，为确保配置一致性，已在环境变量中的相关配置项，请手动更新"
                                 }
                             }
                         ]
+                    }
+                ]
+            },
+            {
+                "component": "VTabs",
+                "props": {
+                    "model": "_tabs",
+                    "height": 72,
+                    "fixed-tabs": True,
+                    "style": {
+                        "margin-top": "8px",
+                        "margin-bottom": "10px",
+                    }
+                },
+                "content": [
+                    {
+                        "component": "VTab",
+                        "props": {
+                            "value": "basic_tab",
+                            "style": {
+                                "padding-top": "10px",
+                                "padding-bottom": "10px",
+                                "font-size": "16px"
+                            },
+                        },
+                        "text": "基础设置"
                     },
                     {
-                        "component": "VCol",
+                        "component": "VTab",
                         "props": {
-                            "cols": 12,
-                            "md": 6
+                            "value": "network_tab",
+                            "style": {
+                                "padding-top": "10px",
+                                "padding-bottom": "10px",
+                                "font-size": "16px"
+                            },
+                        },
+                        "text": "网络设置"
+                    },
+                    {
+                        "component": "VTab",
+                        "props": {
+                            "value": "media_and_download_tab",
+                            "style": {
+                                "padding-top": "10px",
+                                "padding-bottom": "10px",
+                                "font-size": "16px"
+                            },
+                        },
+                        "text": "媒体与下载"
+                    },
+                    {
+                        "component": "VTab",
+                        "props": {
+                            "value": "search_and_transfer_tab",
+                            "style": {
+                                "padding-top": "10px",
+                                "padding-bottom": "10px",
+                                "font-size": "16px"
+                            },
+                        },
+                        "text": "搜索与整理"
+                    },
+                    {
+                        "component": "VTab",
+                        "props": {
+                            "value": "params_tab",
+                            "style": {
+                                "padding-top": "10px",
+                                "padding-bottom": "10px",
+                                "font-size": "16px"
+                            },
+                        },
+                        "text": "自定义配置"
+                    },
+                ]
+            },
+            {
+                "component": "VWindow",
+                "props": {
+                    "model": "_tabs",
+                },
+                "content": [
+                    # 备份分类块
+                    # {
+                    #     "component": "VWindowItem",
+                    #     "props": {
+                    #         "value": "client_setting",
+                    #         "style": {
+                    #             "padding-top": "20px",
+                    #             "padding-bottom": "20px"
+                    #         },
+                    #     },
+                    #     "content": [
+                    #         {
+                    #             "component": "VRow",
+                    #             "props": {
+                    #                 "align": "center"
+                    #             },
+                    #             "content": []
+                    #         }
+                    #     ]
+                    # },
+                    # 基础
+                    {
+                        "component": "VWindowItem",
+                        "props": {
+                            "value": "basic_tab",
+                            "style": {
+                                "padding-top": "20px",
+                                "padding-bottom": "20px"
+                            },
                         },
                         "content": [
                             {
-                                "component": "VTextField",
+                                "component": "VRow",
                                 "props": {
-                                    "model": "API_TOKEN",
-                                    "label": "API密钥",
-                                    "hint": "用于Jellyseerr/Overseerr、媒体服务器Webhook等配置以及部分支持API_TOKEN的API请求",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 6
-                        },
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "TMDB_API_DOMAIN",
-                                    "label": "TMDB API地址",
-                                    "hint": "TMDB API地址，无需修改，或配置为其他中转代理服务地址，确保连通性",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 6
-                        },
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "TMDB_IMAGE_DOMAIN",
-                                    "label": "TheMovieDb图片服务器",
-                                    "hint": "TheMovieDb图片服务器，无需修改，或修改为其他可用地址如 static-mdb.v.geilijiasu.com",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 6
-                        },
-                        "content": [
-                            {
-                                "component": "VSelect",
-                                "props": {
-                                    "model": "RECOGNIZE_SOURCE",
-                                    "label": "媒体信息识别来源",
-                                    "items": [
-                                        {
-                                            "title": "TheMovieDb",
-                                            "value": "themoviedb"
+                                    "align": "center"
+                                },
+                                "content": [
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6,
                                         },
-                                        {
-                                            "title": "豆瓣",
-                                            "value": "douban"
-                                        }
-                                    ],
-                                    "hint": "媒体信息识别来源",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 6
-                        },
-                        "content": [
-                            {
-                                "component": "VSelect",
-                                "props": {
-                                    "model": "SCRAP_SOURCE",
-                                    "label": "刮削元数据及图片使用的数据源",
-                                    "items": [
-                                        {
-                                            "title": "TheMovieDb",
-                                            "value": "themoviedb"
+                                        "content": [
+                                            {
+                                                "component": "VSwitch",
+                                                "props": {
+                                                    "model": "AUXILIARY_AUTH_ENABLE",
+                                                    "label": "启用用户辅助认证",
+                                                    "hint": "启用后允许通过外部服务进行认证、单点登录以及自动创建用户",
+                                                    "persistent-hint": True
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6,
                                         },
-                                        {
-                                            "title": "豆瓣",
-                                            "value": "douban"
-                                        }
-                                    ],
-                                    "hint": "刮削元数据及图片使用的数据源",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 6
-                        },
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "META_CACHE_EXPIRE",
-                                    "label": "元数据缓存时间（小时）",
-                                    "hint": "元数据缓存过期时间，0为系统默认",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 6
-                        },
-                        "content": [
-                            {
-                                "component": "VSelect",
-                                "props": {
-                                    "model": "WALLPAPER",
-                                    "label": "登录首页电影海报",
-                                    "items": [
-                                        {
-                                            "title": "TheMovieDb电影海报",
-                                            "value": "tmdb"
+                                        "content": [
+                                            {
+                                                "component": "VSwitch",
+                                                "props": {
+                                                    "model": "GLOBAL_IMAGE_CACHE",
+                                                    "label": "全局图片缓存",
+                                                    "hint": "是否启用全局图片缓存，将媒体图片缓存到本地",
+                                                    "persistent-hint": True
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6.
                                         },
-                                        {
-                                            "title": "Bing每日壁纸",
-                                            "value": "bing"
-                                        }
-                                    ],
-                                    "hint": "登录首页电影海报",
-                                    "persistent-hint": True
-                                }
+                                        "content": [
+                                            {
+                                                "component": "VSelect",
+                                                "props": {
+                                                    "model": "WALLPAPER",
+                                                    "label": "登录首页电影海报",
+                                                    "items": [
+                                                        {
+                                                            "title": "TheMovieDb电影海报",
+                                                            "value": "tmdb"
+                                                        },
+                                                        {
+                                                            "title": "Bing每日壁纸",
+                                                            "value": "bing"
+                                                        }
+                                                    ],
+                                                    "hint": "登录首页电影海报",
+                                                    "persistent-hint": True,
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6,
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "API_TOKEN",
+                                                    "label": "API密钥",
+                                                    "hint": "用于Jellyseerr/Overseerr、媒体服务器Webhook等配置以及部分支持API_TOKEN的API请求",
+                                                    "persistent-hint": True,
+                                                    "clearable": True,
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextarea",
+                                                "props": {
+                                                    "model": "PLUGIN_MARKET",
+                                                    "label": "插件市场",
+                                                    "hint": "插件市场仓库地址，多个地址使用逗号分隔，确保每个地址以/结尾",
+                                                    "persistent-hint": True,
+                                                    "clearable": True,
+                                                }
+                                            }
+                                        ]
+                                    },
+
+                                ]
                             }
+                        ]
+                    },
+                    # 网络
+                    {
+                        "component": "VWindowItem",
+                        "props": {
+                            "value": "network_tab",
+                            "style": {
+                                "padding-top": "20px",
+                                "padding-bottom": "20px"
+                            },
+                        },
+                        "content": [
+                            # DOH
+                            {
+                                "component": "VRow",
+                                "props": {
+                                    "align": "center",
+                                },
+                                "content": [
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VSwitch",
+                                                "props": {
+                                                    "model": "DOH_ENABLE",
+                                                    "label": "启用DNS over HTTPS",
+                                                    "hint": "启用后对特定域名使用DOH解析以避免DNS污染",
+                                                    "persistent-hint": True
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6,
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VAlert",
+                                                "props": {
+                                                    "type": "info",
+                                                    "variant": "tonal",
+                                                    "style": "white-space: pre-line;",
+                                                    "text": "如果已经配置好 'PROXY_HOST' ，建议关闭 'DOH' ",
+                                                },
+                                            },
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "DOH_DOMAINS",
+                                                    "label": "DOH解析的域名",
+                                                    "hint": "DOH解析的域名列表，多个域名使用逗号分隔",
+                                                    "persistent-hint": True,
+                                                    "clearable": True,
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "DOH_RESOLVERS",
+                                                    "label": "DOH解析服务器",
+                                                    "hint": "DOH解析服务器列表，多个服务器使用逗号分隔",
+                                                    "persistent-hint": True,
+                                                    "clearable": True,
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "GITHUB_TOKEN",
+                                                    "label": "GitHub Token",
+                                                    "placeholder": "格式: ghp_**** 或 github_pat_****",
+                                                    "hint": "GitHub Token，提高请求API限流阈值",
+                                                    "persistent-hint": True,
+                                                    "clearable": True,
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "OCR_HOST",
+                                                    "label": "验证码识别服务器",
+                                                    "hint": "验证码识别服务器地址",
+                                                    "persistent-hint": True,
+                                                    "clearable": True,
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "GITHUB_PROXY",
+                                                    "label": "GitHub加速服务器",
+                                                    "placeholder": "格式: https://mirror.ghproxy.com/",
+                                                    "hint": "留空则不使用GitHub加速服务器，(注意末尾需要带/)",
+                                                    "persistent-hint": True,
+                                                    "clearable": True,
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "PIP_PROXY",
+                                                    "label": "PIP加速服务器",
+                                                    "hint": "留空则不使用PIP加速服务器",
+                                                    "placeholder": "格式: https://pypi.tuna.tsinghua.edu.cn/simple",
+                                                    "persistent-hint": True,
+                                                    "clearable": True,
+                                                }
+                                            }
+                                        ]
+                                    },
+                                ]
+                            },
+                            # Tmdb相关
+                            {
+                                "component": "VRow",
+                                "props": {
+                                    "align": "center"
+                                },
+                                "content": [
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "TMDB_API_DOMAIN",
+                                                    "label": "TMDB API地址",
+                                                    "hint": "访问正常时无需更改；无法访问时替换为其他中转服务地址，确保连通性",
+                                                    "persistent-hint": True,
+                                                    "clearable": True,
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "TMDB_IMAGE_DOMAIN",
+                                                    "label": "TheMovieDb图片服务器",
+                                                    "placeholder": "例如：static-mdb.v.geilijiasu.com",
+                                                    "hint": "访问正常时无需更改；无法访问时可替换为其他可用地址，确保连通性",
+                                                    "persistent-hint": True,
+                                                    "clearable": True,
+                                                }
+                                            }
+                                        ]
+                                    },
+                                ]
+                            },
+                        ]
+                    },
+                    # 媒体与下载
+                    {
+                        "component": "VWindowItem",
+                        "props": {
+                            "value": "media_and_download_tab",
+                            "style": {
+                                "padding-top": "20px",
+                                "padding-bottom": "20px"
+                            },
+                        },
+                        "content": [
+                            {
+                                "component": "VRow",
+                                "props": {
+                                    "align": "center",
+                                },
+                                "content": [
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 9,
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VSwitch",
+                                                "props": {
+                                                    "model": "DOWNLOAD_SUBTITLE",
+                                                    "label": "自动下载站点字幕",
+                                                    "hint": "自动下载站点字幕（如有）",
+                                                    "persistent-hint": True
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 3,
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "MEDIASERVER_SYNC_INTERVAL",
+                                                    "label": "媒体服务器同步间隔",
+                                                    "hint": "媒体服务器同步间隔",
+                                                    "persistent-hint": True,
+                                                    "prefix": "每",
+                                                    "suffix": "小时",
+                                                    "type": "number",
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 12,
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "AUTO_DOWNLOAD_USER",
+                                                    "label": "交互搜索自动下载用户ID",
+                                                    "hint": "使用,分割，设置为 all 代表所有用户自动择优下载，未设置需要用户手动选择资源或者回复`0`才自动择优下载",
+                                                    "persistent-hint": True,
+                                                    "clearable": True,
+                                                }
+                                            }
+                                        ]
+                                    },
+                                ]
+                            },
+                        ]
+                    },
+                    # 搜索与整理
+                    {
+                        "component": "VWindowItem",
+                        "props": {
+                            "value": "search_and_transfer_tab",
+                            "style": {
+                                "padding-top": "20px",
+                                "padding-bottom": "20px"
+                            },
+                        },
+                        "content": [
+                            {
+                                "component": "VRow",
+                                "props": {
+                                    "align": "center"
+                                },
+                                "content": [
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6,
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VSwitch",
+                                                "props": {
+                                                    "model": "SEARCH_MULTIPLE_NAME",
+                                                    "label": "资源搜索整合多名称结果",
+                                                    "hint": "搜索多个名称时是整合多名称的结果",
+                                                    "persistent-hint": True
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 3,
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VSwitch",
+                                                "props": {
+                                                    "model": "FANART_ENABLE",
+                                                    "label": "使用Fanart图片数据源",
+                                                    "hint": "启用Fanart图片数据源",
+                                                    "persistent-hint": True
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 3,
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "META_CACHE_EXPIRE",
+                                                    "label": "元数据缓存时间",
+                                                    "hint": "0或负值时，使用系统默认缓存时间",
+                                                    "persistent-hint": True,
+                                                    "prefix": "每",
+                                                    "suffix": "小时",
+                                                    "type": "number",
+                                                }
+                                            }
+                                        ]
+                                    },
+                                ]
+                            },
+                            {
+                                "component": "VRow",
+                                "props": {
+                                    "align": "center"
+                                },
+                                "content": [
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VSelect",
+                                                "props": {
+                                                    "model": "RECOGNIZE_SOURCE",
+                                                    "label": "媒体信息识别来源",
+                                                    "items": [
+                                                        {
+                                                            "title": "TheMovieDb",
+                                                            "value": "themoviedb"
+                                                        },
+                                                        {
+                                                            "title": "豆瓣",
+                                                            "value": "douban"
+                                                        }
+                                                    ],
+                                                    "hint": "媒体信息识别来源",
+                                                    "persistent-hint": True
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 6
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VSelect",
+                                                "props": {
+                                                    "model": "SCRAP_SOURCE",
+                                                    "label": "刮削元数据及图片使用的数据源",
+                                                    "items": [
+                                                        {
+                                                            "title": "TheMovieDb",
+                                                            "value": "themoviedb"
+                                                        },
+                                                        {
+                                                            "title": "豆瓣",
+                                                            "value": "douban"
+                                                        }
+                                                    ],
+                                                    "hint": "刮削元数据及图片使用的数据源",
+                                                    "persistent-hint": True
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextarea",
+                                                "props": {
+                                                    "model": "MOVIE_RENAME_FORMAT",
+                                                    "label": "电影重命名格式",
+                                                    "hint": "电影重命名格式，使用Jinja2语法，每行一个配置项，参考：https://jinja.palletsprojects.com/en/3.0.x/templates/",
+                                                    "persistent-hint": True
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextarea",
+                                                "props": {
+                                                    "model": "TV_RENAME_FORMAT",
+                                                    "label": "电视剧重命名格式",
+                                                    "hint": "电视剧重命名格式，使用Jinja2语法",
+                                                    "persistent-hint": True
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                            "md": 12,
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VAlert",
+                                                "props": {
+                                                    "type": "warning",
+                                                    "variant": "tonal",
+                                                    "style": "white-space: pre-line;",
+                                                    "text": "Jinja2语法参考："
+                                                },
+                                                "content": [
+                                                    {
+                                                        "component": "a",
+                                                        "props": {
+                                                            "href": "https://jinja.palletsprojects.com/en/3.0.x/templates/",
+                                                            "target": "_blank"
+                                                        },
+                                                        "content": [
+                                                            {
+                                                                "component": "u",
+                                                                "text": "https://jinja.palletsprojects.com/en/3.0.x/templates/"
+                                                            }
+                                                        ]
+                                                    }
+                                                ]
+                                            },
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    # 自定义
+                    {
+                        "component": "VWindowItem",
+                        "props": {
+                            "value": "params_tab",
+                            "style": {
+                                "padding-top": "20px",
+                                "padding-bottom": "20px"
+                            },
+                        },
+                        "content": [
+                            {
+                                "component": "VRow",
+                                "props": {
+                                    "align": "center",
+                                },
+                                "content": [
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VTextarea",
+                                                "props": {
+                                                    "model": "params",
+                                                    "label": "自定义配置",
+                                                    "hint": "自定义配置，每行一个配置项，格式：配置项=值",
+                                                    "persistent-hint": True
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
                         ]
                     }
                 ]
             },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 6
-                        },
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "OCR_HOST",
-                                    "label": "验证码识别服务器",
-                                    "hint": "验证码识别服务器地址",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 6
-                        },
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "GITHUB_PROXY",
-                                    "label": "GitHub加速服务器",
-                                    "hint": "GitHub加速服务器，格式: https://mirror.ghproxy.com/",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 6
-                        },
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "PIP_PROXY",
-                                    "label": "PIP加速服务器",
-                                    "hint": "PIP加速服务器，格式: https://pypi.tuna.tsinghua.edu.cn/simple",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 6
-                        },
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "MEDIASERVER_SYNC_INTERVAL",
-                                    "label": "媒体服务器同步间隔（小时）",
-                                    "hint": "媒体服务器同步间隔",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    }
-                ]
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 6
-                        },
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "DOH_DOMAINS",
-                                    "label": "DOH解析的域名",
-                                    "hint": "DOH解析的域名列表，多个域名使用逗号分隔",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 6
-                        },
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "DOH_RESOLVERS",
-                                    "label": "DOH解析服务器",
-                                    "hint": "DOH解析服务器列表，多个服务器使用逗号分隔",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12
-                        },
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "AUTO_DOWNLOAD_USER",
-                                    "label": "交互搜索自动下载用户ID",
-                                    "hint": "使用,分割，设置为 all 代表所有用户自动择优下载，未设置需要用户手动选择资源或者回复`0`才自动择优下载",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    }
-                ]
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12
-                        },
-                        "content": [
-                            {
-                                "component": "VTextarea",
-                                "props": {
-                                    "model": "MOVIE_RENAME_FORMAT",
-                                    "label": "电影重命名格式",
-                                    "hint": "电影重命名格式，使用Jinja2语法，每行一个配置项，参考：https://jinja.palletsprojects.com/en/3.0.x/templates/",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    }
-                ]
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12
-                        },
-                        "content": [
-                            {
-                                "component": "VTextarea",
-                                "props": {
-                                    "model": "TV_RENAME_FORMAT",
-                                    "label": "电视剧重命名格式",
-                                    "hint": "电视剧重命名格式，使用Jinja2语法，参考：https://jinja.palletsprojects.com/en/3.0.x/templates/",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    }
-                ]
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12
-                        },
-                        "content": [
-                            {
-                                "component": "VTextarea",
-                                "props": {
-                                    "model": "PLUGIN_MARKET",
-                                    "label": "插件市场",
-                                    "hint": "插件市场仓库地址，多个地址使用逗号分隔，确保每个地址以/结尾",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    }
-                ]
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12
-                        },
-                        "content": [
-                            {
-                                "component": "VTextarea",
-                                "props": {
-                                    "model": "params",
-                                    "label": "自定义配置",
-                                    "hint": "自定义配置，每行一个配置项，格式：配置项=值",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    }
-                ]
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 4
-                        },
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "DOWNLOAD_SUBTITLE",
-                                    "label": "自动下载站点字幕",
-                                    "hint": "自动下载站点字幕（如有）",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 4
-                        },
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "SCRAP_FOLLOW_TMDB",
-                                    "label": "新增入库跟随TMDB信息变化",
-                                    "hint": "新增入库媒体是否跟随TMDB信息变化",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 4
-                        },
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "FANART_ENABLE",
-                                    "label": "使用Fanart图片数据源",
-                                    "hint": "启用Fanart图片数据源",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 4
-                        },
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "DOH_ENABLE",
-                                    "label": "启用DNS over HTTPS",
-                                    "hint": "是否启用DNS over HTTPS，启用后对特定域名使用DOH解析以避免DNS污染",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 4
-                        },
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "SEARCH_MULTIPLE_NAME",
-                                    "label": "资源搜索整合多名称搜索结果",
-                                    "hint": "搜索多个名称时是否整合多名称的搜索结果，True/false",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 4
-                        },
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "AUXILIARY_AUTH_ENABLE",
-                                    "label": "启用用户辅助认证",
-                                    "hint": "是否启用用户辅助认证，允许通过外部服务进行认证、单点登录以及自动创建用户",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                            "md": 4
-                        },
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "GLOBAL_IMAGE_CACHE",
-                                    "label": "全局图片缓存",
-                                    "hint": "是否启用全局图片缓存，将媒体图片缓存到本地",
-                                    "persistent-hint": True
-                                }
-                            }
-                        ]
-                    }
-                ]
-            },
-            {
-                'component': 'VRow',
-                'content': [
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                        },
-                        'content': [
-                            {
-                                'component': 'VAlert',
-                                'props': {
-                                    'type': 'warning',
-                                    'variant': 'tonal',
-                                    'text': '注意：部分配置项的更改可能需要重启服务才能生效，为确保配置一致性，已在环境变量中的相关配置项，请手动更新'
-                                }
-                            }
-                        ]
-                    }
-                ]
-            }
         ]
 
     def get_page(self) -> List[dict]:
