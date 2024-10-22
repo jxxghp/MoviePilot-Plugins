@@ -180,11 +180,12 @@
         "name": "配置中心",
         "description": "快速调整部分系统设定。",
         "labels": "系统设置",
-        "version": "3.1.1",
+        "version": "3.2",
         "icon": "setting.png",
         "author": "jxxghp",
         "level": 1,
         "history": {
+            "v3.2": "优化显示，按功能区分",
             "v3.1": "重构配置更新逻辑，从而与主程序保持一致",
             "v3.0": "兼容MoviePilot V2 版本",
             "v2.6": "支持DOH相关配置项",
