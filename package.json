@@ -3,12 +3,13 @@
     "name": "Bangumi收藏订阅",
     "description": "Bangumi用户收藏添加到订阅",
     "labels": "订阅",
-    "version": "1.5",
+    "version": "1.5.1",
     "icon": "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/bangumi_b.png",
     "author": "Attente",
     "level": 1,
     "v2": true,
     "history": {
+      "v1.5.1": "修复季度信息未传递的问题. 新增站点列表同步删除",
       "v1.5": "修复总集数会同步TMDB变动的问题,增加开关选项",
       "v1.4": "结构优化",
       "v1.3.1": "修复因修改季号导致未下载剧集而完成订阅的问题"

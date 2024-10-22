@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.chain.subscribe import SubscribeChain, Subscribe
 from app.core.config import settings
 from app.core.context import MediaInfo
+from app.core.event import eventmanager, Event
 from app.core.meta import MetaBase
 from app.core.metainfo import MetaInfo
 from app.db.models.subscribehistory import SubscribeHistory
@@ -23,7 +24,7 @@ from app.db import db_query
 from app.helper.subscribe import SubscribeHelper
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas.types import NotificationType
+from app.schemas.types import EventType, NotificationType
 from app.utils.http import RequestUtils
 
 
@@ -35,7 +36,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/bangumi_b.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.5.1"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页
@@ -47,7 +48,7 @@ class BangumiColl(_PluginBase):
     # 可使用的用户级别
     auth_level = 1
 
-    # 私有变量
+    # 私有属性
     _scheduler: Optional[BackgroundScheduler] = None
     siteoper: SiteOper = None
     subscribehelper: SubscribeHelper = None
@@ -95,6 +96,12 @@ class BangumiColl(_PluginBase):
                 "sites",
             ):
                 setattr(self, f"_{key}", config.get(key, getattr(self, f"_{key}")))
+            # 获得所有站点
+            site_ids = {site.id for site in self.siteoper.list_order_by_pri()}
+            # 过滤已删除的站点
+            self._sites = [site_id for site_id in self._sites if site_id in site_ids]
+            # 更新配置
+            self.__update_config()
 
     def schedule_once(self):
         """调度一次性任务"""
@@ -138,7 +145,6 @@ class BangumiColl(_PluginBase):
             {"title": site.name, "value": site.id}
             for site in self.siteoper.list_order_by_pri()
         ]
-
         return form(sites_options)
 
     def get_service(self) -> List[Dict[str, Any]]:
@@ -166,6 +172,16 @@ class BangumiColl(_PluginBase):
                 self._scheduler = None
         except Exception as e:
             logger.error(f"退出插件失败：{str(e)}")
+
+    @eventmanager.register(EventType.SiteDeleted)
+    def site_deleted(self, event: Event):
+        """
+        删除对应站点
+        """
+        site_id = event.event_data.get("site_id")
+        if site_id in self._sites:
+            self._sites.remove(site_id)
+            self.__update_config()
 
     def get_api(self):
         pass
@@ -276,6 +292,7 @@ class BangumiColl(_PluginBase):
             sid, msg = self.subscribechain.add(
                 title=mediainfo.title,
                 year=mediainfo.year,
+                season=mediainfo.number_of_seasons,
                 bangumiid=self._subid,
                 exist_ok=True,
                 username="Bangumi订阅",
