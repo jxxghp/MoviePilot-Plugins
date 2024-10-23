@@ -32,7 +32,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     # 插件作者
     plugin_author = "lightolly,jxxghp"
     # 作者主页
@@ -198,10 +198,6 @@ class SiteStatistic(_PluginBase):
         """
         获取今天的日期、今天的站点数据、昨天的站点数据
         """
-        # 最近一天的数据
-        stattistic_data: List[SiteUserData] = []
-        # 昨天数据
-        yesterday_sites_data: List[SiteUserData] = []
         # 获取最近所有数据
         data_list: List[SiteUserData] = self.siteoper.get_userdata()
         if not data_list:
@@ -210,17 +206,16 @@ class SiteStatistic(_PluginBase):
         data_list = list({f"{data.updated_day}_{data.name}": data for data in data_list}.values())
         # 按日期倒序排序
         data_list.sort(key=lambda x: x.updated_day, reverse=True)
-        # 今天的日期
-        today = time.strftime('%Y-%m-%d', time.localtime())
-        if len(data_list) > 0:
-            today = data_list[0].updated_day
-            stattistic_data = [data for data in data_list if data.updated_day == today]
-        if len(data_list) > 1:
-            yestoday = data_list[1].updated_day
-            yesterday_sites_data = [data for data in data_list if data.updated_day == yestoday]
-
+        # 获取今天的日期
+        today = data_list[0].updated_day
+        # 获取昨天的日期
+        yestoday = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+        # 今天的数据
+        stattistic_data = [data for data in data_list if data.updated_day == today]
         # 今日数据按数据量降序排序
         stattistic_data.sort(key=lambda x: x.upload, reverse=True)
+        # 昨天的数据
+        yesterday_sites_data = [data for data in data_list if data.updated_day == yestoday]
 
         return today, stattistic_data, yesterday_sites_data
 
