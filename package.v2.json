@@ -3,13 +3,13 @@
         "name": "站点数据统计",
         "description": "站点统计数据图表。",
         "labels": "站点,仪表板",
-        "version": "1.0.3",
+        "version": "1.1",
         "icon": "statistic.png",
         "author": "lightolly,jxxghp",
         "level": 2,
         "history": {
-            "v1.0.3": "修复增量数据统计问题",
-            "v1.0.2": "MoviePilot V2 版本站点数据统计插件"
+            "v1.1": "修复增量数据统计问题",
+            "v1.0": "MoviePilot V2 版本站点数据统计插件"
         }
     },
     "BrushFlow": {
