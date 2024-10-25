@@ -26,7 +26,7 @@ class TorrentRemover(_PluginBase):
     # 插件图标
     plugin_icon = "delete.jpg"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -617,6 +617,12 @@ class TorrentRemover(_PluginBase):
         """
         return self.service_infos.get(name).instance
 
+    def __get_downloader_config(self, name: str):
+        """
+        根据类型返回下载器实例配置
+        """
+        return self.service_infos.get(name).config
+
     def delete_torrents(self):
         """
         定时删除下载器中的下载任务
@@ -779,6 +785,7 @@ class TorrentRemover(_PluginBase):
         remove_torrents = []
         # 下载器对象
         downloader_obj = self.__get_downloader(downloader)
+        downloader_config = self.__get_downloader_config(downloader)
         # 标题
         if self._labels:
             tags = self._labels.split(',')
@@ -792,7 +799,7 @@ class TorrentRemover(_PluginBase):
             return []
         # 处理种子
         for torrent in torrents:
-            if downloader == "qbittorrent":
+            if downloader_config.type == "qbittorrent":
                 item = self.__get_qb_torrent(torrent)
             else:
                 item = self.__get_tr_torrent(torrent)
