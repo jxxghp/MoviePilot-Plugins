@@ -633,6 +633,21 @@ class IYUUAutoSeed(_PluginBase):
                 self.check_recheck()
             else:
                 logger.info(f"没有需要辅种的种子")
+        #qb 中，辅种结束后，一起开始所有辅种后暂停的种子（排除了出错的种子），及时人工确认也是手动开始这部分种子
+        for downloader in self._downloaders:
+            # 只处理 qb
+            if downloader == "qbittorrent":
+                downloader_obj = self.__get_downloader(downloader)
+                paused_torrents, _ = downloader_obj.get_torrents(status=["paused"])
+                # errored_torrents, _ = downloader_obj.get_torrents(status=["errored"])
+                pausedUP_torrent_hashs = []
+                for torrent in paused_torrents:
+                    if 'pausedUP' == torrent.state:
+                        pausedUP_torrent_hashs.append(torrent.hash)
+                        logger.info(f"下载器 {downloader} 自动开始种子 {torrent.name}")
+                    else:
+                        logger.info(f"下载器 {downloader} 不自动开始种子 {torrent.name}, state={torrent.state}")
+                downloader_obj.start_torrents(ids=pausedUP_torrent_hashs)    
         # 保存缓存
         self.__update_config()
         # 发送消息
