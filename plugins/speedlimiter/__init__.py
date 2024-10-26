@@ -452,6 +452,8 @@ class SpeedLimiter(_PluginBase):
                     # 未设置不限速范围，则默认不限速内网ip
                     elif not IpUtils.is_private_ip(session.get("RemoteEndPoint")) \
                             and session.get("NowPlayingItem", {}).get("MediaType") == "Video":
+                        logger.debug(f"当前播放内容：{session.get('NowPlayingItem').get('FileName')}，"
+                                     f"比特率：{int(session.get('NowPlayingItem', {}).get('Bitrate') or 0)}")
                         total_bit_rate += int(session.get("NowPlayingItem", {}).get("Bitrate") or 0)
             elif media_server == "jellyfin":
                 req_url = "[HOST]Sessions?api_key=[APIKEY]"
@@ -505,6 +507,7 @@ class SpeedLimiter(_PluginBase):
                             total_bit_rate += int(session.get("bitrate") or 0)
 
         if total_bit_rate:
+            logger.debug(f"比特率总计：{total_bit_rate}")
             # 开启智能限速计算上传限速
             if self._auto_limit:
                 play_up_speed = self.__calc_limit(total_bit_rate)
@@ -512,6 +515,7 @@ class SpeedLimiter(_PluginBase):
                 play_up_speed = self._play_up_speed
 
             # 当前正在播放，开始限速
+            logger.debug(f"上传限速：{play_up_speed} KB/s")
             self.__set_limiter(limit_type="播放", upload_limit=play_up_speed,
                                download_limit=self._play_down_speed)
         else:
@@ -554,7 +558,11 @@ class SpeedLimiter(_PluginBase):
             
         try:
             cnt = 0
+            text = ""
             for download in self._downloader:
+                if cnt != 0:
+                    text = f"{text}\n===================="
+                text = f"{text}\n下载器：{download}"
                 upload_limit_final = 0
                 if self._auto_limit and limit_type == "播放":
                     # 开启了播放智能限速
@@ -569,56 +577,47 @@ class SpeedLimiter(_PluginBase):
                         else:
                             # 按比例
                             allocation_count = sum([int(i) for i in self._allocation_ratio.split(":")])
-                            upload_limit = int(upload_limit * int(self._allocation_ratio.split(":")[cnt]) / allocation_count)
                             upload_limit_final = int(upload_limit * int(self._allocation_ratio.split(":")[cnt]) / allocation_count)
+                            logger.debug(f"下载器：{download} 分配比例：{self._allocation_ratio.split(':')[cnt]}/{allocation_count} 分配上传限速：{upload_limit_final} KB/s")
                             cnt += 1
-                if upload_limit:
-                    text = f"上传：{upload_limit} KB/s"
                 if upload_limit_final:
+                    text = f"{text}\n上传：{upload_limit_final} KB/s"
                 else:
-                    text = f"上传：未限速"
+                    text = f"{text}\n上传：未限速"
                 if download_limit:
                     text = f"{text}\n下载：{download_limit} KB/s"
                 else:
                     text = f"{text}\n下载：未限速"
                 if str(download) == 'qbittorrent':
                     if self._qb:
-                        # 发送通知
-                        if self._notify:
-                            title = "【播放限速】"
-                            if upload_limit or download_limit:
-                                subtitle = f"Qbittorrent 开始{limit_type}限速"
-                                self.post_message(
-                                    mtype=NotificationType.MediaServer,
-                                    title=title,
-                                    text=f"{subtitle}\n{text}"
-                                )
-                            else:
-                                self.post_message(
-                                    mtype=NotificationType.MediaServer,
-                                    title=title,
-                                    text=f"Qbittorrent 已取消限速"
-                                )
+                        self._qb.set_speed_limit(download_limit=download_limit, upload_limit=upload_limit_final)
                 else:
                     if self._tr:
-                        # 发送通知
-                        if self._notify:
-                            title = "【播放限速】"
-                            if upload_limit or download_limit:
-                                subtitle = f"Transmission 开始{limit_type}限速"
-                                self.post_message(
-                                    mtype=NotificationType.MediaServer,
-                                    title=title,
-                                    text=f"{subtitle}\n{text}"
-                                )
-                            else:
-                                self.post_message(
-                                    mtype=NotificationType.MediaServer,
-                                    title=title,
-                                    text=f"Transmission 已取消限速"
-                                )
+                        self._tr.set_speed_limit(download_limit=download_limit, upload_limit=upload_limit_final)
+            # 发送通知
+            self._notify_message(text, bool(upload_limit or download_limit), limit_type)
         except Exception as e:
             logger.error(f"设置限速失败：{str(e)}")
+
+    def _notify_message(self, text: str, is_limit: bool, limit_type: str):
+        """
+        发送通知
+        """
+        if self._notify:
+            title = "【播放限速】"
+            if is_limit:
+                subtitle = f"{limit_type}，开始限速"
+                self.post_message(
+                    mtype=NotificationType.MediaServer,
+                    title=title,
+                    text=f"{subtitle}\n{text}"
+                )
+            else:
+                self.post_message(
+                    mtype=NotificationType.MediaServer,
+                    title=title,
+                    text=f"{limit_type}，取消限速"
+                )
 
     @staticmethod
     def __allow_access(allow_ips: dict, ip: str) -> bool:
