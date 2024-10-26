@@ -539,7 +539,8 @@ class SpeedLimiter(_PluginBase):
         """
         计算智能上传限速
         """
-        if not self._bandwidth:
+        # 当前总比特率大于总带宽，则设置为最低限速
+        if not self._bandwidth or total_bit_rate > self._bandwidth:
             return 10
         return round((self._bandwidth - total_bit_rate) / 8 / 1024, 2)
 
