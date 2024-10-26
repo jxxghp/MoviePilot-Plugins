@@ -23,7 +23,7 @@ class SpeedLimiter(_PluginBase):
     # 插件图标
     plugin_icon = "Librespeed_A.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.2.1"
     # 插件作者
     plugin_author = "Shurelol"
     # 作者主页
@@ -555,23 +555,26 @@ class SpeedLimiter(_PluginBase):
         try:
             cnt = 0
             for download in self._downloader:
+                upload_limit_final = 0
                 if self._auto_limit and limit_type == "播放":
                     # 开启了播放智能限速
                     if len(self._downloader) == 1:
                         # 只有一个下载器
-                        upload_limit = int(upload_limit)
+                        upload_limit_final = int(upload_limit)
                     else:
                         # 多个下载器
                         if not self._allocation_ratio:
                             # 平均
-                            upload_limit = int(upload_limit / len(self._downloader))
+                            upload_limit_final = int(upload_limit / len(self._downloader))
                         else:
                             # 按比例
                             allocation_count = sum([int(i) for i in self._allocation_ratio.split(":")])
                             upload_limit = int(upload_limit * int(self._allocation_ratio.split(":")[cnt]) / allocation_count)
+                            upload_limit_final = int(upload_limit * int(self._allocation_ratio.split(":")[cnt]) / allocation_count)
                             cnt += 1
                 if upload_limit:
                     text = f"上传：{upload_limit} KB/s"
+                if upload_limit_final:
                 else:
                     text = f"上传：未限速"
                 if download_limit:
@@ -580,7 +583,6 @@ class SpeedLimiter(_PluginBase):
                     text = f"{text}\n下载：未限速"
                 if str(download) == 'qbittorrent':
                     if self._qb:
-                        self._qb.set_speed_limit(download_limit=download_limit, upload_limit=upload_limit)
                         # 发送通知
                         if self._notify:
                             title = "【播放限速】"
@@ -599,7 +601,6 @@ class SpeedLimiter(_PluginBase):
                                 )
                 else:
                     if self._tr:
-                        self._tr.set_speed_limit(download_limit=download_limit, upload_limit=upload_limit)
                         # 发送通知
                         if self._notify:
                             title = "【播放限速】"
