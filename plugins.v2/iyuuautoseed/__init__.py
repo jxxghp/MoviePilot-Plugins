@@ -686,8 +686,8 @@ class IYUUAutoSeed(_PluginBase):
                 can_seeding_torrents = []
                 for torrent in torrents:
                     # 获取种子hash
-                    hash_str = self.__get_hash(torrent, downloader)
-                    if self.__can_seeding(torrent, downloader):
+                    hash_str = self.__get_hash(torrent=torrent, dl_type=service.type)
+                    if self.__can_seeding(torrent=torrent, dl_type=service.type):
                         can_seeding_torrents.append(hash_str)
                 if can_seeding_torrents:
                     logger.info(f"共 {len(can_seeding_torrents)} 个任务校验完成，开始辅种 ...")
