@@ -214,21 +214,22 @@ class DownloadSiteTag(_PluginBase):
             "agsvpt.trackers.work": "agsvpt.com",
             "tracker.cinefiles.info": "audiences.me",
         }
-        for name, service in self.service_infos.items():
-            logger.info(f"{self.LOG_TAG}开始扫描下载器 {name} ...")
-            # 获取下载器中的种子
+        for service in self.service_infos.values():
+            downloader = service.name
             downloader_obj = service.instance
+            logger.info(f"{self.LOG_TAG}开始扫描下载器 {downloader} ...")
             if not downloader_obj:
-                logger.error(f"{self.LOG_TAG} 获取下载器失败 {name}")
+                logger.error(f"{self.LOG_TAG} 获取下载器失败 {downloader}")
                 continue
+            # 获取下载器中的种子
             torrents, error = downloader_obj.get_torrents()
             # 如果下载器获取种子发生错误 或 没有种子 则跳过
             if error or not torrents:
                 continue
-            logger.info(f"{self.LOG_TAG}按时间重新排序 {name} 种子数：{len(torrents)}")
+            logger.info(f"{self.LOG_TAG}按时间重新排序 {downloader} 种子数：{len(torrents)}")
             # 按添加时间进行排序, 时间靠前的按大小和名称加入处理历史, 判定为原始种子, 其他为辅种
             torrents = self._torrents_sort(torrents=torrents, dl_type=service.type)
-            logger.info(f"{self.LOG_TAG}下载器 {name} 分析种子信息中 ...")
+            logger.info(f"{self.LOG_TAG}下载器 {downloader} 分析种子信息中 ...")
             for torrent in torrents:
                 try:
                     if self._event.is_set():
