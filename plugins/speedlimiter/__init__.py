@@ -23,7 +23,7 @@ class SpeedLimiter(_PluginBase):
     # 插件图标
     plugin_icon = "Librespeed_A.png"
     # 插件版本
-    plugin_version = "1.2.1"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "Shurelol"
     # 作者主页
@@ -48,6 +48,7 @@ class SpeedLimiter(_PluginBase):
     _noplay_up_speed: float = 0
     _noplay_down_speed: float = 0
     _bandwidth: float = 0
+    _reserved_bandwidth: float = 0
     _allocation_ratio: str = ""
     _auto_limit: bool = False
     _limit_enabled: bool = False
@@ -72,6 +73,10 @@ class SpeedLimiter(_PluginBase):
             try:
                 # 总带宽
                 self._bandwidth = int(float(config.get("bandwidth") or 0)) * 1000000
+                self._reserved_bandwidth = int(float(config.get("reserved_bandwidth") or 0)) * 1000000
+                # 减去预留带宽
+                if self._reserved_bandwidth:
+                    self._bandwidth -= self._reserved_bandwidth
                 # 自动限速开关
                 if self._bandwidth > 0:
                     self._auto_limit = True
@@ -316,6 +321,23 @@ class SpeedLimiter(_PluginBase):
                                                 {'title': '8：2', 'value': '8:2'},
                                                 {'title': '9：1', 'value': '9:1'},
                                             ]
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'reserved_bandwidth',
+                                            'label': '预留带宽（应对突发流量和额外开销）',
+                                            'placeholder': 'Mbps'
                                         }
                                     }
                                 ]
