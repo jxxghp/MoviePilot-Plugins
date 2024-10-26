@@ -210,7 +210,7 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "labels": "做种,IYUU",
-        "version": "2.0",
+        "version": "2.0.1",
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2,
