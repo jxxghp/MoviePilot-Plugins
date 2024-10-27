@@ -586,7 +586,7 @@ class SpeedLimiter(_PluginBase):
                 if cnt != 0:
                     text = f"{text}\n===================="
                 text = f"{text}\n下载器：{download}"
-                upload_limit_final = 0
+                upload_limit_final = upload_limit
                 if self._auto_limit and limit_type == "播放":
                     # 开启了播放智能限速
                     if len(self._downloader) == 1:
