@@ -38,7 +38,7 @@ class PersonMeta(_PluginBase):
     # 插件图标
     plugin_icon = "actor.png"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.0.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -109,7 +109,8 @@ class PersonMeta(_PluginBase):
             "cron": self._cron,
             "type": self._type,
             "delay": self._delay,
-            "remove_nozh": self._remove_nozh
+            "remove_nozh": self._remove_nozh,
+            "mediaservers": self._mediaservers
         })
 
     def get_state(self) -> bool:
@@ -367,9 +368,10 @@ class PersonMeta(_PluginBase):
         扫描整个媒体库，刮削演员信息
         """
         # 所有媒体服务器
-        if not settings.MEDIASERVER:
+        service_infos = self.service_infos()
+        if not service_infos:
             return
-        for server in settings.MEDIASERVER.split(","):
+        for server, service in service_infos.items():
             # 扫描所有媒体库
             logger.info(f"开始刮削服务器 {server} 的演员信息 ...")
             for library in self.mschain.librarys(server):
@@ -387,7 +389,7 @@ class PersonMeta(_PluginBase):
                         return
                     # 处理条目
                     logger.info(f"开始刮削 {item.title} 的演员信息 ...")
-                    self.__update_item(server=server, item=item)
+                    self.__update_item(server=server, item=item, server_type=service.type)
                     logger.info(f"{item.title} 的演员信息刮削完成")
                 logger.info(f"媒体库 {library.name} 的演员信息刮削完成")
             logger.info(f"服务器 {server} 的演员信息刮削完成")
@@ -662,7 +664,7 @@ class PersonMeta(_PluginBase):
             # 更新人物图片
             if profile_path:
                 logger.debug(f"更新人物 {people.get('Name')} 的图片：{profile_path}")
-                self.set_item_image(server=server, itemid=people.get("Id"), imageurl=profile_path)
+                self.set_item_image(server=server, server_type=server_type, itemid=people.get("Id"), imageurl=profile_path)
 
             # 锁定人物信息
             if updated_name:
