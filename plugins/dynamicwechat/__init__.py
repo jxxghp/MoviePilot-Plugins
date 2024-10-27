@@ -79,7 +79,6 @@ class DynamicWeChat(_PluginBase):
     # 过期时间
     _future_timestamp = 0
 
-    # -------cookie add------------
     # cookie有效检测
     # _cookie_valid = False
     # 使用CookieCloud开关
@@ -89,7 +88,6 @@ class DynamicWeChat(_PluginBase):
     # 登录cookie
     _cookie_header = ""
     _server = f'http://localhost:{settings.NGINX_PORT}/cookiecloud'
-    # -------cookie END------------
 
     _cookiecloud = CookieCloudHelper()
     # 定时器
@@ -272,17 +270,21 @@ class DynamicWeChat(_PluginBase):
 
     def try_connect_cc(self):
         if self._use_cookiecloud:
-            if settings.COOKIECLOUD_ENABLE_LOCAL:
-                self._cc_server = PyCookieCloud(url=self._server, uuid=settings.COOKIECLOUD_KEY,
-                                                password=settings.COOKIECLOUD_PASSWORD)
-                logger.info("使用内建CookieCloud服务器")
-            else:  # 使用设置里的cookieCloud
-                self._cc_server = PyCookieCloud(url=settings.COOKIECLOUD_HOST, uuid=settings.COOKIECLOUD_KEY,
-                                                password=settings.COOKIECLOUD_PASSWORD)
-                logger.info("使用自定义CookieCloud服务器")
-            if not self._cc_server.check_connection():
+            if settings.COOKIECLOUD_KEY and settings.COOKIECLOUD_PASSWORD:  # 使用设置里的cookieCloud
+                if settings.COOKIECLOUD_ENABLE_LOCAL:
+                    self._cc_server = PyCookieCloud(url=self._server, uuid=settings.COOKIECLOUD_KEY,
+                                                    password=settings.COOKIECLOUD_PASSWORD)
+                    logger.info("使用内建CookieCloud服务器")
+                else:  # 使用设置里的cookieCloud
+                    self._cc_server = PyCookieCloud(url=settings.COOKIECLOUD_HOST, uuid=settings.COOKIECLOUD_KEY,
+                                                    password=settings.COOKIECLOUD_PASSWORD)
+                    logger.info("使用自定义CookieCloud服务器")
+                if not self._cc_server.check_connection():
+                    self._cc_server = None
+                    logger.error("没有可用的CookieCloud服务器")
+            else:  # 未设置cookieCloud
                 self._cc_server = None
-                logger.error("没有可用的CookieCloud服务器")
+                logger.error("没有配置CookieCloud的用户KEY和PASSWORD")
 
     def get_ip_from_url(self, url):
         try:
@@ -404,29 +406,34 @@ class DynamicWeChat(_PluginBase):
         if self._use_cookiecloud and self._cc_server:
             logger.info("使用二维码登录成功，开始刷新cookie")
             try:
-                # logger.info("debug  开始连接CookieCloud")
                 if self._cc_server.check_connection():
-                    # logger.info("成功连接CookieCloud")
                     current_url = page.url
                     current_cookies = context.cookies(current_url)  # 通过 context 获取 cookies
-                    # logger.info("原始 cookies：", current_cookies)
+                    if current_cookies is None:
+                        logger.error("无法获取当前 cookies")
+                        return
+
                     formatted_cookies = {}
                     for cookie in current_cookies:
-                        domain = cookie['domain']
+                        domain = cookie.get('domain')  # 使用 get() 方法避免 KeyError
+                        if domain is None:
+                            continue  # 跳过没有 domain 的 cookie
+
                         if domain not in formatted_cookies:
                             formatted_cookies[domain] = []
                         formatted_cookies[domain].append(cookie)
                     flag = self._cc_server.update_cookie({'cookie_data': formatted_cookies})
                     if flag:
-                        logger.info("更新CookieCloud成功")
+                        logger.info("更新 CookieCloud 成功")
                     else:
-                        logger.error("更新CookieCloud失败")
+                        logger.error("更新 CookieCloud 失败")
                 else:
-                    logger.error("连接CookieCloud失败", self._server)
+                    logger.error("连接 CookieCloud 失败", self._server)
             except Exception as e:
-                logger.error(f"更新cookie发生错误: {e}")
+                logger.error(
+                    f"更新 cookie 发生错误: {e}")
         else:
-            logger.error("CookieCloud配置错误, 不刷新cookie")
+            logger.error("CookieCloud 配置错误, 不刷新 cookie")
 
     def get_cookie(self):  # 只有从CookieCloud获取cookie成功才返回True
         try:
@@ -509,8 +516,11 @@ class DynamicWeChat(_PluginBase):
             # 在这里使用更安全的方式来检查元素是否存在
             captcha_panel = page.wait_for_selector('.receive_captcha_panel', timeout=5000)  # 检查验证码面板
             if captcha_panel:  # 出现了短信验证界面
-                logger.info("等待30秒，请将短信验证码请以'？'结束，发送到<企业微信应用> 如： 110301？")
-                time.sleep(30)  # 多等30秒
+                if task == 'local_scanning':
+                    time.sleep(6)
+                else:
+                    logger.info("等待30秒，请将短信验证码请以'？'结束，发送到<企业微信应用> 如： 110301？")
+                    time.sleep(30)  # 多等30秒
                 if self._verification_code:
                     # logger.info("输入验证码：" + self._verification_code)
                     for digit in self._verification_code:
