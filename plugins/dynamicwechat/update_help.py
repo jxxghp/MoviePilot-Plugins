@@ -1,9 +1,38 @@
-import hashlib
 from typing import Dict, Any
 import json
 import requests
-from app.utils.common import encrypt
+import base64
+import hashlib
+from Crypto import Random
+from Crypto.Cipher import AES
 
+
+def bytes_to_key(data: bytes, salt: bytes, output=48) -> bytes:
+    # 兼容v2 将bytes_to_key和encrypt导入
+    assert len(salt) == 8, len(salt)
+    data += salt
+    key = hashlib.md5(data).digest()
+    final_key = key
+    while len(final_key) < output:
+        key = hashlib.md5(key + data).digest()
+        final_key += key
+    return final_key[:output]
+
+
+def encrypt(message: bytes, passphrase: bytes) -> bytes:
+    """
+    CryptoJS 加密原文
+
+    This is a modified copy of https://stackoverflow.com/questions/36762098/how-to-decrypt-password-from-javascript-cryptojs-aes-encryptpassword-passphras
+    """
+    salt = Random.new().read(8)
+    key_iv = bytes_to_key(passphrase, salt, 32 + 16)
+    key = key_iv[:32]
+    iv = key_iv[32:]
+    aes = AES.new(key, AES.MODE_CBC, iv)
+    length = 16 - (len(message) % 16)
+    data = message + (chr(length) * length).encode()
+    return base64.b64encode(b"Salted__" + salt + aes.encrypt(data))
 
 class PyCookieCloud:
     def __init__(self, url: str, uuid: str, password: str):
@@ -18,13 +47,9 @@ class PyCookieCloud:
         :return: True if the connection is successful, False otherwise.
         """
         try:
-            resp = requests.get(self.url)
-            if resp.status_code == 200:
-                return True
-            else:
-                return False
+            resp = requests.get(self.url, timeout=3)  # 设置超时为3秒
+            return resp.status_code == 200
         except Exception as e:
-            print(str(e))
             return False
 
     def update_cookie(self, cookie: Dict[str, Any]) -> bool:
