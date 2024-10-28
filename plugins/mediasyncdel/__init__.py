@@ -29,7 +29,7 @@ class MediaSyncDel(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.7.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -1324,7 +1324,7 @@ class MediaSyncDel(_PluginBase):
                                                    downloader=downloader)
                     # 暂停辅种
                     else:
-                        self.chain.stop_torrents(hashs=torrent, download=downloader)
+                        self.chain.stop_torrents(hashs=torrent, downloader=downloader)
                         logger.info(f"辅种：{downloader} - {torrent} 暂停")
 
                     # 处理辅种的辅种
