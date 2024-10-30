@@ -19,7 +19,7 @@ class SpeedLimiter(_PluginBase):
     # 插件图标
     plugin_icon = "Librespeed_A.png"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "Shurelol"
     # 作者主页
@@ -180,7 +180,7 @@ class SpeedLimiter(_PluginBase):
                                             'multiple': True,
                                             'chips': True,
                                             'clearable': True,
-                                            'model': 'downloaders',
+                                            'model': 'downloader',
                                             'label': '下载器',
                                             'items': [{"title": config.name, "value": config.name}
                                                       for config in self.downloader_helper.get_configs().values()]
