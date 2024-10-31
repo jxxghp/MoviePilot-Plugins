@@ -154,11 +154,12 @@
         "name": "媒体文件同步删除",
         "description": "同步删除历史记录、源文件和下载任务。",
         "labels": "文件整理",
-        "version": "1.7",
+        "version": "1.7.1",
         "icon": "mediasyncdel.png",
         "author": "thsrite",
         "level": 1,
         "history": {
+            "v1.7.1": "修复删除剧集辅种失败报错问题",
             "v1.7": "修复重新整理被一并删除问题",
             "v1.6": "修复删除辅种",
             "v1.5": "支持手动删除订阅历史记录（本次更新之后的历史）"
@@ -889,5 +890,21 @@
             "v1.1": "修复CookieCloud覆盖到浏览器",
             "v1.0": "同步MoviePilot站点Cookie到CookieCloud"
         }
+    },
+  "BangumiColl": {
+    "name": "Bangumi收藏订阅",
+    "description": "Bangumi用户收藏添加到订阅",
+    "labels": "订阅",
+    "version": "1.5.1",
+    "icon": "bangumi_b.png",
+    "author": "Attente",
+    "level": 1,
+    "v2": true,
+    "history": {
+      "v1.5.1": "修复季度信息未传递的问题. 新增站点列表同步删除",
+      "v1.5": "修复总集数会同步TMDB变动的问题,增加开关选项",
+      "v1.4": "结构优化",
+      "v1.3.1": "修复因修改季号导致未下载剧集而完成订阅的问题"
     }
+  }
 }
