@@ -706,7 +706,8 @@
         "version": "1.5",
         "icon": "trackereditor_A.png",
         "author": "honue",
-        "level": 1
+        "level": 1,
+        "v2": true
     },
     "ContractCheck": {
         "name": "契约检查",
