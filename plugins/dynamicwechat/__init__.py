@@ -19,7 +19,7 @@ from app.helper.cookiecloud import CookieCloudHelper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.plugins.dynamicwechat.update_help import PyCookieCloud
-from app.schemas.types import EventType
+from app.schemas.types import EventType, NotificationType
 
 
 class DynamicWeChat(_PluginBase):
@@ -30,7 +30,7 @@ class DynamicWeChat(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "1.3.0"
+    plugin_version = "1.3.1"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -124,7 +124,7 @@ class DynamicWeChat(_PluginBase):
 
         # 停止现有任务
         self.stop_service()
-        if self._enabled or self._onlyonce and self._input_id_list:
+        if (self._enabled or self._onlyonce) and self._input_id_list:
             # 定时服务
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
             # 运行一次定时服务
@@ -398,12 +398,11 @@ class DynamicWeChat(_PluginBase):
 
     def _update_cookie(self, page, context):
         self._future_timestamp = 0  # 标记二维码失效
-        if not self._cc_server.check_connection:  # 连接失败返回 False
-            self.try_connect_cc()  # 再尝试一次连接
-            if self._cc_server is None:
-                return
-
-        if self._use_cookiecloud and self._cc_server:
+        if self._use_cookiecloud:
+            if not self._cc_server:  # 连接失败返回 False
+                self.try_connect_cc()  # 再尝试一次连接
+                if self._cc_server is None:
+                    return
             logger.info("使用二维码登录成功，开始刷新cookie")
             try:
                 if self._cc_server.check_connection():
@@ -433,15 +432,12 @@ class DynamicWeChat(_PluginBase):
                 logger.error(
                     f"更新 cookie 发生错误: {e}")
         else:
-            logger.error("CookieCloud 配置错误, 不刷新 cookie")
+            logger.error("CookieCloud没有启用或配置错误, 不刷新cookie")
 
     def get_cookie(self):  # 只有从CookieCloud获取cookie成功才返回True
         try:
             cookie_header = ''
             if self._use_cookiecloud:
-                # if self._cookie_valid:  # 如果无效
-                # return self._cookie_from_CC
-                # return True
                 cookies, msg = self._cookiecloud.download()
                 if not cookies:  # CookieCloud获取cookie失败
                     logger.error(f"CookieCloud获取cookie失败,失败原因：{msg}")
@@ -583,6 +579,14 @@ class DynamicWeChat(_PluginBase):
                             logger.info(f"应用{app_id} 已被禁用,可能是没有设置接收api")
                 if self._ip_changed:
                     logger.info(f"应用: {app_id} 输入IP：" + self._current_ip_address)
+                    ip_parts = self._current_ip_address.split('.')
+                    masked_ip = f"{ip_parts[0]}.{len(ip_parts[1]) * '*'}.{len(ip_parts[2]) * '*'}.{ip_parts[3]}"
+                    self.post_message(
+                        mtype=NotificationType.Plugin,
+                        title="更新可信IP成功",
+                        text='应用: ' + app_id + ' 输入IP：' + masked_ip,
+                        # image=img_src
+                    )
             return
         else:
             logger.error("未找到应用id，修改IP失败")
@@ -936,7 +940,7 @@ class DynamicWeChat(_PluginBase):
         if self._qr_code_image is None:
             img_component = {
                 "component": "div",
-                "text": "所有的登录二维码都会在此展示，有效时间仅对应‘本地扫码功能’",
+                "text": "登录二维码都会在此展示，二维码有6秒延时，过期时间仅对应‘本地扫码功能’",
                 "props": {
                     "style": {
                         "fontSize": "22px",
@@ -1032,7 +1036,7 @@ class DynamicWeChat(_PluginBase):
                         login_status = self.check_login_status(page, 'push_qr_code')
                         if login_status:
                             self._update_cookie(page, context)  # 刷新cookie
-                            logger.info("远程推送任务: 没有可用的CookieCloud服务器，只修改可信IP")
+                            # logger.info("远程推送任务: 没有可用的CookieCloud服务器，只修改可信IP")
                             self.click_app_management_buttons(page)
                     else:
                         logger.warning("远程推送任务: 未配置pushplus_token和helloimg_s_token")
