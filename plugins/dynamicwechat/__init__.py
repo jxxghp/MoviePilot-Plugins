@@ -30,7 +30,7 @@ class DynamicWeChat(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "1.3.1"
+    plugin_version = "1.4.0"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -80,11 +80,11 @@ class DynamicWeChat(_PluginBase):
     _future_timestamp = 0
 
     # cookie有效检测
-    # _cookie_valid = False
+    _cookie_valid = True
+    # cookie存活时间
+    _cookie_lifetime = 0
     # 使用CookieCloud开关
     _use_cookiecloud = True
-    # 从CookieCloud获取的cookie
-    _cookie_from_CC = ""
     # 登录cookie
     _cookie_header = ""
     _server = f'http://localhost:{settings.NGINX_PORT}/cookiecloud'
@@ -95,7 +95,6 @@ class DynamicWeChat(_PluginBase):
 
     def init_plugin(self, config: dict = None):
         # 清空配置
-        self._server = f'http://localhost:{settings.NGINX_PORT}/cookiecloud'
         self._helloimg_s_token = ''
         self._pushplus_token = ''
         self._ip_changed = True
@@ -104,8 +103,8 @@ class DynamicWeChat(_PluginBase):
         self._local_scan = False
         self._input_id_list = ''
         self._cookie_header = ""
-        self._cookie_from_CC = ""
         self._current_ip_address = self.get_ip_from_url(self._ip_urls[0])
+        self._cookie_lifetime = PyCookieCloud.load_cookie_lifetime()
         if config:
             self._enabled = config.get("enabled")
             self._cron = config.get("cron")
@@ -114,13 +113,11 @@ class DynamicWeChat(_PluginBase):
             self._current_ip_address = config.get("current_ip_address")
             self._pushplus_token = config.get("pushplus_token")
             self._helloimg_s_token = config.get("helloimg_s_token")
-            self._cookie_from_CC = config.get("cookie_from_CC")
             self._forced_update = config.get("forced_update")
             self._local_scan = config.get("local_scan")
             self._use_cookiecloud = config.get("use_cookiecloud")
             self._cookie_header = config.get("cookie_header")
             self._ip_changed = config.get("ip_changed")
-        self.try_connect_cc()
 
         # 停止现有任务
         self.stop_service()
@@ -128,13 +125,19 @@ class DynamicWeChat(_PluginBase):
             # 定时服务
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
             # 运行一次定时服务
-            if self._onlyonce or self._forced_update:
+            if self._onlyonce:
                 logger.info("立即检测公网IP")
                 self._scheduler.add_job(func=self.check, trigger='date',
                                         run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                                         name="检测公网IP")  # 添加任务
                 # 关闭一次性开关
                 self._onlyonce = False
+
+            if self._forced_update:
+                self._scheduler.add_job(func=self.forced_change, trigger='date',
+                                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+                                        name="强制更新公网IP")  # 添加任务
+                self._forced_update = False
 
             if self._local_scan:
                 self._scheduler.add_job(func=self.local_scanning, trigger='date',
@@ -155,10 +158,23 @@ class DynamicWeChat(_PluginBase):
             if self._scheduler.get_jobs():
                 self._scheduler.print_jobs()
                 self._scheduler.start()
-                if self._forced_update:
-                    time.sleep(4)
-                    self._forced_update = False
         self.__update_config()
+
+    @eventmanager.register(EventType.PluginAction)
+    def forced_change(self, event: Event = None):
+        """
+        强制修改IP
+        """
+        if not self._enabled:
+            logger.error("插件未开启")
+            return
+        if event:
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "dynamicwechat":
+                return
+        self.ChangeIP()
+        self.__update_config()
+        logger.info("----------------------本次任务结束----------------------")
 
     @eventmanager.register(EventType.PluginAction)
     def local_scanning(self, event: Event = None):
@@ -185,7 +201,7 @@ class DynamicWeChat(_PluginBase):
                     current_time = datetime.now()
                     future_time = current_time + timedelta(seconds=110)
                     self._future_timestamp = int(future_time.timestamp())
-                    logger.info("请重新进入插件面板扫码!，每20秒检查登录状态，最大尝试5次")
+                    logger.info("请重新进入插件面板扫码! 每20秒检查登录状态，最大尝试5次")
                     max_attempts = 5
                     attempt = 0
                     while attempt < max_attempts:
@@ -197,9 +213,9 @@ class DynamicWeChat(_PluginBase):
                             self.click_app_management_buttons(page)
                             break
                     else:
-                        logger.info("未检测到登录，任务结束")
+                        logger.info("用户可能没有扫码或登录失败")
                 else:
-                    logger.info("未找到二维码，任务结束")
+                    logger.error("未找到二维码，任务结束")
                 logger.info("----------------------本次任务结束----------------------")
                 browser.close()
         except Exception as e:
@@ -218,10 +234,6 @@ class DynamicWeChat(_PluginBase):
             event_data = event.event_data
             if not event_data or event_data.get("action") != "dynamicwechat":
                 return
-        #     logger.info("收到命令，开始检测公网IP ...")
-        #     self.post_message(channel=event.event_data.get("channel"),
-        #                       title="开始检测公网IP ...",
-        #                       userid=event.event_data.get("user"))
 
         logger.info("开始检测公网IP")
         if self.CheckIP():
@@ -398,6 +410,7 @@ class DynamicWeChat(_PluginBase):
 
     def _update_cookie(self, page, context):
         self._future_timestamp = 0  # 标记二维码失效
+        PyCookieCloud.save_cookie_lifetime(0)  # 重置cookie存活时间
         if self._use_cookiecloud:
             if not self._cc_server:  # 连接失败返回 False
                 self.try_connect_cc()  # 再尝试一次连接
@@ -453,7 +466,6 @@ class DynamicWeChat(_PluginBase):
             else:  # 不使用CookieCloud
                 return
             cookie = self.parse_cookie_header(cookie_header)
-            self._cookie_from_CC = cookie
             return cookie
         except Exception as e:
             logger.error(f"从CookieCloud获取cookie错误，错误原因:{e}")
@@ -485,7 +497,11 @@ class DynamicWeChat(_PluginBase):
                 page.goto(self._wechatUrl)
                 time.sleep(3)
                 if not self.check_login_status(page, task='refresh_cookie'):
+                    self._cookie_valid = False
                     logger.info("cookie已失效，下次IP变动推送二维码")
+                else:
+                    PyCookieCloud.increase_cookie_lifetime(1200)
+                    self._cookie_lifetime = PyCookieCloud.load_cookie_lifetime()
                 browser.close()
         except Exception as e:
             logger.error(f"cookie校验失败:{e}")
@@ -536,8 +552,8 @@ class DynamicWeChat(_PluginBase):
         except Exception as e:
             # logger.debug(str(e))  # 基于bug运行，请不要将错误输出到日志
             # try:  # 没有登录成功，也没有短信验证码
-            if self.find_qrc(page) and not task == 'refresh_cookie':  # 延长任务找到的二维码不会被发送，所以不算用户没有扫码
-                logger.error(f"用户没有扫描二维码")
+            if self.find_qrc(page) and not task == 'refresh_cookie' and not task == 'local_scanning':  # 延长任务找到的二维码不会被发送，所以不算用户没有扫码
+                logger.warning(f"用户没有扫描二维码")
                 return False
 
     def click_app_management_buttons(self, page):
@@ -672,7 +688,6 @@ class DynamicWeChat(_PluginBase):
             "helloimg_s_token": self._helloimg_s_token,
             "pushplus_token": self._pushplus_token,
             "input_id_list": self._input_id_list,
-            "cookie_from_CC": self._cookie_from_CC,
             "cookie_header": self._cookie_header,
             "use_cookiecloud": self._use_cookiecloud,
         })
@@ -772,7 +787,7 @@ class DynamicWeChat(_PluginBase):
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'local_scan',
-                                            'label': '扫码刷新Cookie和改IP',
+                                            'label': '本地扫码修改IP',
                                         }
                                     }
                                 ]
@@ -878,7 +893,7 @@ class DynamicWeChat(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '使用内建CookieCloud 或 自定义 或 填写两个token 至少三选一,否则无法正常使用'
+                                            'text': '使用内建CookieCloud 或 自定义 或 填写两个token 至少三选一。任何扫码操作都会更新Cookie！'
                                         }
                                     }
                                 ]
@@ -919,7 +934,6 @@ class DynamicWeChat(_PluginBase):
             "helloimg_token": "",
             "input_id_list": "",
         }
-
 
     def get_page(self) -> List[dict]:
         # 获取当前时间戳
@@ -973,6 +987,34 @@ class DynamicWeChat(_PluginBase):
                 }
             }
 
+        # 计算 cookie_lifetime 的天数、小时数和分钟数
+        cookie_lifetime_days = self._cookie_lifetime // 86400  # 一天的秒数为 86400
+        cookie_lifetime_hours = (self._cookie_lifetime % 86400) // 3600  # 计算小时数
+        cookie_lifetime_minutes = (self._cookie_lifetime % 3600) // 60  # 计算分钟数
+        if self._cookie_valid:
+            bg_color = "#40bb45"
+        else:
+            bg_color = "#ff0000"
+        cookie_lifetime_text = (
+            f"Cookie 已使用: {cookie_lifetime_days}天{cookie_lifetime_hours}小时{cookie_lifetime_minutes}分钟"
+        )
+        cookie_lifetime_component = {
+            "component": "div",
+            "text": cookie_lifetime_text,
+            "props": {
+                "style": {
+                    "fontSize": "18px",
+                    "color": "#ffffff",  # 白色字体
+                    "backgroundColor": bg_color,
+                    "padding": "10px",
+                    "borderRadius": "5px",
+                    "textAlign": "center",
+                    "marginTop": "10px",
+                    "display": "inline-block"
+                }
+            }
+        }
+
         # 页面内容，显示二维码状态信息和二维码图片或提示信息
         base_content = [
             {
@@ -996,13 +1038,23 @@ class DynamicWeChat(_PluginBase):
                                 "borderRadius": "5px",
                                 "display": "inline-block",
                                 "textAlign": "center",
-                                "marginBottom": "40px"
+                                "marginBottom": "10px"
                             }
                         }
-                    }
+                    },
+                    {
+                        "component": "div",
+                        "content": [cookie_lifetime_component],
+                        "props": {
+                            "style": {
+                                "textAlign": "center",
+                                "marginBottom": "10px"
+                            }
+                        }
+                    },
+                    img_component  # 二维码图片或提示信息
                 ]
-            },
-            img_component  # 二维码图片
+            }
         ]
 
         return base_content
