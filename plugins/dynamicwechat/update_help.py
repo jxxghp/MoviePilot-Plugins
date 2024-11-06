@@ -1,10 +1,14 @@
-from typing import Dict, Any
+import os
 import json
 import requests
 import base64
 import hashlib
+from typing import Dict, Any
 from Crypto import Random
 from Crypto.Cipher import AES
+
+script_dir = os.path.dirname(os.path.abspath(__file__))
+settings_file = os.path.join(script_dir, 'settings.json')
 
 
 def bytes_to_key(data: bytes, salt: bytes, output=48) -> bytes:
@@ -33,6 +37,7 @@ def encrypt(message: bytes, passphrase: bytes) -> bytes:
     length = 16 - (len(message) % 16)
     data = message + (chr(length) * length).encode()
     return base64.b64encode(b"Salted__" + salt + aes.encrypt(data))
+
 
 class PyCookieCloud:
     def __init__(self, url: str, uuid: str, password: str):
@@ -63,7 +68,8 @@ class PyCookieCloud:
             cookie = {'cookie_data': cookie}
         raw_data = json.dumps(cookie)
         encrypted_data = encrypt(raw_data.encode('utf-8'), self.get_the_key().encode('utf-8')).decode('utf-8')
-        cookie_cloud_request = requests.post(self.url + '/update', json={'uuid': self.uuid, 'encrypted': encrypted_data})
+        cookie_cloud_request = requests.post(self.url + '/update',
+                                             json={'uuid': self.uuid, 'encrypted': encrypted_data})
         if cookie_cloud_request.status_code == 200:
             if cookie_cloud_request.json()['action'] == 'done':
                 return True
@@ -78,3 +84,24 @@ class PyCookieCloud:
         md5 = hashlib.md5()
         md5.update((self.uuid + '-' + self.password).encode('utf-8'))
         return md5.hexdigest()[:16]
+
+    @staticmethod
+    def load_cookie_lifetime():    # 返回时间戳 单位秒
+        if os.path.exists(settings_file):
+            with open(settings_file, 'r') as file:
+                settings = json.load(file)
+                return settings.get('_cookie_lifetime', 0)
+        else:
+            return 0
+
+    @staticmethod
+    def save_cookie_lifetime(cookie_lifetime):  # 传入时间戳 单位秒
+        with open(settings_file, 'w') as file:
+            json.dump({'_cookie_lifetime': cookie_lifetime}, file)
+
+    @staticmethod
+    def increase_cookie_lifetime(seconds: int):
+        current_lifetime = PyCookieCloud.load_cookie_lifetime()
+        new_lifetime = current_lifetime + seconds
+        # 保存新的 _cookie_lifetime
+        PyCookieCloud.save_cookie_lifetime(new_lifetime)
