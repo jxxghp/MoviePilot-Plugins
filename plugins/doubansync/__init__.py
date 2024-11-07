@@ -34,7 +34,7 @@ class DoubanSync(_PluginBase):
     # 插件图标
     plugin_icon = "douban.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -509,7 +509,9 @@ class DoubanSync(_PluginBase):
                 continue
             logger.info(f"开始同步用户 {user_id} 的豆瓣想看数据 ...")
             url = self._interests_url % user_id
-            results = self.rsshelper.parse(url)
+            results = self.rsshelper.parse(url, headers={
+                "User-Agent": settings.USER_AGENT
+            })
             if not results:
                 logger.warn(f"未获取到用户 {user_id} 豆瓣RSS数据：{url}")
                 continue
