@@ -57,21 +57,33 @@ class PyCookieCloud:
         except Exception as e:
             return False
 
-    def update_cookie(self, cookie: Dict[str, Any]) -> bool:
+    def update_cookie(self, formatted_cookies: Dict[str, Any]) -> bool:
         """
         Update cookie data to CookieCloud.
 
-        :param cookie: cookie value to update, if this cookie does not contain 'cookie_data' key, it will be added into 'cookie_data'.
+        :param formatted_cookies: cookie value to update.
         :return: if update success, return True, else return False.
         """
-        if 'cookie_data' not in cookie:
-            cookie = {'cookie_data': cookie}
+        if '.work.weixin.qq.com' not in formatted_cookies:
+            formatted_cookies['.work.weixin.qq.com'] = []
+        formatted_cookies['.work.weixin.qq.com'].append({
+            'name': '_upload_type',
+            'value': 'A',
+            'domain': '.work.weixin.qq.com',
+            'path': '/',
+            'expires': -1,
+            'httpOnly': False,
+            'secure': False,
+            'sameSite': 'Lax'
+        })
+
+        cookie = {'cookie_data': formatted_cookies}
         raw_data = json.dumps(cookie)
         encrypted_data = encrypt(raw_data.encode('utf-8'), self.get_the_key().encode('utf-8')).decode('utf-8')
         cookie_cloud_request = requests.post(self.url + '/update',
                                              json={'uuid': self.uuid, 'encrypted': encrypted_data})
         if cookie_cloud_request.status_code == 200:
-            if cookie_cloud_request.json()['action'] == 'done':
+            if cookie_cloud_request.json().get('action') == 'done':
                 return True
         return False
 

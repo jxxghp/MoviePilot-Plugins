@@ -24,13 +24,13 @@ from app.schemas.types import EventType, NotificationType
 
 class DynamicWeChat(_PluginBase):
     # 插件名称
-    plugin_name = "修改企业微信可信IP"
+    plugin_name = "假的企业微信可信IP"
     # 插件描述
-    plugin_desc = "优先使用cookie，可本地扫码刷新Cookie，当填写两个第三方token时手机微信可以更新cookie。"
+    plugin_desc = "优先使用cookie，可本地扫码刷新Cookie，验证码以？结尾发送到企业微信应用"
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "1.4.0"
+    plugin_version = "1.4.1"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -54,6 +54,8 @@ class DynamicWeChat(_PluginBase):
     _cc_server = None
     # 本地扫码开关
     _local_scan = False
+    # 类初始化时添加标记变量
+    _is_special_upload = False
 
     # 匹配ip地址的正则
     _ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
@@ -353,7 +355,6 @@ class DynamicWeChat(_PluginBase):
         }
         response = requests.post(pushplus_url, json=pushplus_data)
 
-
     def ChangeIP(self):
         logger.info("开始请求企业微信管理更改可信IP")
         try:
@@ -424,7 +425,6 @@ class DynamicWeChat(_PluginBase):
                     if current_cookies is None:
                         logger.error("无法获取当前 cookies")
                         return
-
                     formatted_cookies = {}
                     for cookie in current_cookies:
                         domain = cookie.get('domain')  # 使用 get() 方法避免 KeyError
@@ -434,7 +434,7 @@ class DynamicWeChat(_PluginBase):
                         if domain not in formatted_cookies:
                             formatted_cookies[domain] = []
                         formatted_cookies[domain].append(cookie)
-                    flag = self._cc_server.update_cookie({'cookie_data': formatted_cookies})
+                    flag = self._cc_server.update_cookie(formatted_cookies)
                     if flag:
                         logger.info("更新 CookieCloud 成功")
                     else:
@@ -442,8 +442,7 @@ class DynamicWeChat(_PluginBase):
                 else:
                     logger.error("连接 CookieCloud 失败", self._server)
             except Exception as e:
-                logger.error(
-                    f"更新 cookie 发生错误: {e}")
+                logger.error(f"更新 cookie 发生错误: {e}")
         else:
             logger.error("CookieCloud没有启用或配置错误, 不刷新cookie")
 
@@ -455,11 +454,14 @@ class DynamicWeChat(_PluginBase):
                 if not cookies:  # CookieCloud获取cookie失败
                     logger.error(f"CookieCloud获取cookie失败,失败原因：{msg}")
                     return
-                    # cookie_header = self._cookie_header
                 else:
                     for domain, cookie in cookies.items():
                         if domain == ".work.weixin.qq.com":
                             cookie_header = cookie
+                            if '_upload_type=A' in cookie:
+                                self._is_special_upload = True
+                            else:
+                                self._is_special_upload = False
                             break
                     if cookie_header == '':
                         cookie_header = self._cookie_header
@@ -469,7 +471,6 @@ class DynamicWeChat(_PluginBase):
             return cookie
         except Exception as e:
             logger.error(f"从CookieCloud获取cookie错误，错误原因:{e}")
-            # logger.info("尝试推送登录二维码")
             return
 
     @staticmethod
@@ -498,8 +499,9 @@ class DynamicWeChat(_PluginBase):
                 time.sleep(3)
                 if not self.check_login_status(page, task='refresh_cookie'):
                     self._cookie_valid = False
-                    logger.info("cookie已失效，下次IP变动推送二维码")
+                    logger.warning("cookie已失效，下次IP变动推送二维码")
                 else:
+                    self._cookie_valid = True
                     PyCookieCloud.increase_cookie_lifetime(1200)
                     self._cookie_lifetime = PyCookieCloud.load_cookie_lifetime()
                 browser.close()
@@ -552,7 +554,8 @@ class DynamicWeChat(_PluginBase):
         except Exception as e:
             # logger.debug(str(e))  # 基于bug运行，请不要将错误输出到日志
             # try:  # 没有登录成功，也没有短信验证码
-            if self.find_qrc(page) and not task == 'refresh_cookie' and not task == 'local_scanning':  # 延长任务找到的二维码不会被发送，所以不算用户没有扫码
+            if self.find_qrc(
+                    page) and not task == 'refresh_cookie' and not task == 'local_scanning':  # 延长任务找到的二维码不会被发送，所以不算用户没有扫码
                 logger.warning(f"用户没有扫描二维码")
                 return False
 
@@ -563,8 +566,8 @@ class DynamicWeChat(_PluginBase):
             # ("//span[@class='frame_nav_item_title' and text()='应用管理']", "应用管理"),
             # ("//div[@class='app_index_item_title ' and contains(text(), 'MoviePilot')]", "MoviePilot"),
             (
-            "//div[contains(@class, 'js_show_ipConfig_dialog')]//a[contains(@class, '_mod_card_operationLink') and text()='配置']",
-            "配置")
+                "//div[contains(@class, 'js_show_ipConfig_dialog')]//a[contains(@class, '_mod_card_operationLink') and text()='配置']",
+                "配置")
         ]
         if self._input_id_list:
             id_list = self._input_id_list.split(",")
@@ -808,7 +811,7 @@ class DynamicWeChat(_PluginBase):
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'cron',
-                                            'label': '检测周期',
+                                            'label': '[必填]检测周期',
                                             'placeholder': '0 * * * *'
                                         }
                                     }
@@ -829,7 +832,7 @@ class DynamicWeChat(_PluginBase):
                                         'component': 'VTextarea',
                                         'props': {
                                             'model': 'input_id_list',
-                                            'label': '应用ID',
+                                            'label': '[必填]应用ID',
                                             'rows': 1,
                                             'placeholder': '输入应用ID，多个ID用英文逗号分隔。在企业微信应用页面URL末尾获取'
                                         }
@@ -852,7 +855,7 @@ class DynamicWeChat(_PluginBase):
                                         'component': 'VTextarea',
                                         'props': {
                                             'model': 'pushplus_token',
-                                            'label': 'pushplus_token',
+                                            'label': '[可选]pushplus_token',
                                             'rows': 1,
                                             'placeholder': '[可选] 请输入 pushplus_token'
                                         }
@@ -870,7 +873,7 @@ class DynamicWeChat(_PluginBase):
                                         'component': 'VTextarea',
                                         'props': {
                                             'model': 'helloimg_s_token',
-                                            'label': 'helloimg_s_token',
+                                            'label': '[可选]helloimg_s_token',
                                             'rows': 1,
                                             'placeholder': '[可选] 请输入 helloimg_token'
                                         }
@@ -893,7 +896,7 @@ class DynamicWeChat(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '使用内建CookieCloud 或 自定义 或 填写两个token 至少三选一。任何扫码操作都会更新Cookie！'
+                                            'text': '使用内建CookieCloud 或 自定义 或 填写两个token 至少三选一。具体请查看作者主页'
                                         }
                                     }
                                 ]
@@ -986,36 +989,33 @@ class DynamicWeChat(_PluginBase):
                     }
                 }
             }
+        if self._is_special_upload:
+            # 计算 cookie_lifetime 的天数、小时数和分钟数
+            cookie_lifetime_days = self._cookie_lifetime // 86400  # 一天的秒数为 86400
+            cookie_lifetime_hours = (self._cookie_lifetime % 86400) // 3600  # 计算小时数
+            cookie_lifetime_minutes = (self._cookie_lifetime % 3600) // 60  # 计算分钟数
+            bg_color = "#40bb45" if self._cookie_valid else "#ff0000"
+            cookie_lifetime_text = f"Cookie 已使用: {cookie_lifetime_days}天{cookie_lifetime_hours}小时{cookie_lifetime_minutes}分钟"
 
-        # 计算 cookie_lifetime 的天数、小时数和分钟数
-        cookie_lifetime_days = self._cookie_lifetime // 86400  # 一天的秒数为 86400
-        cookie_lifetime_hours = (self._cookie_lifetime % 86400) // 3600  # 计算小时数
-        cookie_lifetime_minutes = (self._cookie_lifetime % 3600) // 60  # 计算分钟数
-        if self._cookie_valid:
-            bg_color = "#40bb45"
-        else:
-            bg_color = "#ff0000"
-        cookie_lifetime_text = (
-            f"Cookie 已使用: {cookie_lifetime_days}天{cookie_lifetime_hours}小时{cookie_lifetime_minutes}分钟"
-        )
-        cookie_lifetime_component = {
-            "component": "div",
-            "text": cookie_lifetime_text,
-            "props": {
-                "style": {
-                    "fontSize": "18px",
-                    "color": "#ffffff",  # 白色字体
-                    "backgroundColor": bg_color,
-                    "padding": "10px",
-                    "borderRadius": "5px",
-                    "textAlign": "center",
-                    "marginTop": "10px",
-                    "display": "inline-block"
+            cookie_lifetime_component = {
+                "component": "div",
+                "text": cookie_lifetime_text,
+                "props": {
+                    "style": {
+                        "fontSize": "18px",
+                        "color": "#ffffff",
+                        "backgroundColor": bg_color,
+                        "padding": "10px",
+                        "borderRadius": "5px",
+                        "textAlign": "center",
+                        "marginTop": "10px",
+                        "display": "block"
+                    }
                 }
             }
-        }
+        else:
+            cookie_lifetime_component = None  # 不生成该组件
 
-        # 页面内容，显示二维码状态信息和二维码图片或提示信息
         base_content = [
             {
                 "component": "div",
@@ -1027,30 +1027,35 @@ class DynamicWeChat(_PluginBase):
                 "content": [
                     {
                         "component": "div",
-                        "text": vaild_text,
                         "props": {
                             "style": {
-                                "fontSize": "22px",
-                                "fontWeight": "bold",
-                                "color": "#ffffff",
-                                "backgroundColor": color,
-                                "padding": "8px",
-                                "borderRadius": "5px",
-                                "display": "inline-block",
-                                "textAlign": "center",
-                                "marginBottom": "10px"
+                                "display": "flex",
+                                "justifyContent": "center",
+                                "alignItems": "center",
+                                "flexDirection": "column",  # 垂直排列
+                                "gap": "10px"  # 控制间距
                             }
-                        }
-                    },
-                    {
-                        "component": "div",
-                        "content": [cookie_lifetime_component],
-                        "props": {
-                            "style": {
-                                "textAlign": "center",
-                                "marginBottom": "10px"
-                            }
-                        }
+                        },
+                        "content": [
+                            {
+                                "component": "div",
+                                "text": vaild_text,
+                                "props": {
+                                    "style": {
+                                        "fontSize": "22px",
+                                        "fontWeight": "bold",
+                                        "color": "#ffffff",
+                                        "backgroundColor": color,
+                                        "padding": "8px",
+                                        "borderRadius": "5px",
+                                        "textAlign": "center",
+                                        "marginBottom": "10px",
+                                        "display": "inline-block"
+                                    }
+                                }
+                            },
+                            cookie_lifetime_component if cookie_lifetime_component else {},
+                        ]
                     },
                     img_component  # 二维码图片或提示信息
                 ]
@@ -1161,5 +1166,3 @@ class DynamicWeChat(_PluginBase):
                 self._scheduler = None
         except Exception as e:
             logger.error(str(e))
-
-
