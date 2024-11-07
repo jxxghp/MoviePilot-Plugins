@@ -488,16 +488,6 @@
         "level": 1,
         "v2": true
     },
-    "IyuuMsg": {
-        "name": "IYUU消息推送",
-        "description": "支持使用IYUU发送消息通知。",
-        "labels": "消息通知,IYUU",
-        "version": "1.2",
-        "icon": "Iyuu_A.png",
-        "author": "jxxghp",
-        "level": 1,
-        "v2": true
-    },
     "PushDeerMsg": {
         "name": "PushDeer消息推送",
         "description": "支持使用PushDeer发送消息通知。",
