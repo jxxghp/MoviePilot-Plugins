@@ -851,15 +851,16 @@
         "v2": true
     },
     "DynamicWeChat": {
-        "name": "修改企业微信可信IP",
-        "description": "优先使用cookie，可本地扫码刷新Cookie，当填写两个第三方token时可手机远程更新cookie。",
+        "name": "假的企业微信可信IP",
+        "description": "优先使用cookie，可本地扫码刷新Cookie，验证码以？结尾发送到企业微信应用",
         "labels": "消息通知",
-        "version": "1.4.0",
+        "version": "1.4.1",
         "icon": "Wecom_A.png",
         "author": "RamenRa",
         "level": 2,
         "v2": true,
         "history": {
+            "v1.4.1": "完善面板说明，为了和原仓库做出明显区别在插件名称添加了特殊字符",
             "v1.4.0": "修复强制更改IP时配置面板延时过长的问题。庆祝v2进入正式版，显示了一个没用的参数",
             "v1.3.1": "修正一些逻辑判断，修改ip成功会通知一次",
             "v1.3.0": "兼容v2，操作cookie前检查一次CookieCloud",
