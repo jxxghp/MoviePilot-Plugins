@@ -49,7 +49,7 @@ class BangumiColl(_PluginBase):
     auth_level = 1
 
     # 私有属性
-    _scheduler: Optional[BackgroundScheduler] = None
+    _scheduler = None
     siteoper: SiteOper = None
     subscribehelper: SubscribeHelper = None
     subscribeoper: SubscribeOper = None
@@ -148,8 +148,10 @@ class BangumiColl(_PluginBase):
         return form(sites_options)
 
     def get_service(self) -> List[Dict[str, Any]]:
-        """注册插件公共服务"""
-        if self._enabled:
+        """
+        注册插件公共服务
+        """
+        if self._enabled or self._cron:
             trigger = CronTrigger.from_crontab(self._cron) if self._cron else "interval"
             kwargs = {"hours": 6} if not self._cron else {}
             return [
@@ -207,8 +209,6 @@ class BangumiColl(_PluginBase):
 
             # 新增和移除条目
             self.manage_subscriptions(items)
-
-            logger.info("Bangumi收藏订阅执行完成")
         except Exception as e:
             logger.error(f"执行失败: {str(e)}")
 
@@ -249,10 +249,12 @@ class BangumiColl(_PluginBase):
             del_items = {db_sub[i]: i for i in del_sub}
             logger.info("开始移除订阅...")
             self.delete_subscribe(del_items)
+            logger.info("移除完成")
 
         if new_sub:
             logger.info("开始添加订阅...")
             msg = self.add_subscribe({i: items[i] for i in new_sub})
+            logger.info("添加完成")
             if msg:
                 logger.info("\n".ljust(49, ' ').join(list(msg.values())))
 
