@@ -74,12 +74,13 @@
         "name": "豆瓣想看",
         "description": "同步豆瓣想看数据，自动添加订阅。",
         "labels": "订阅",
-        "version": "1.9",
+        "version": "1.9.1",
         "icon": "douban.png",
         "author": "jxxghp",
         "level": 2,
         "v2": true,
         "history": {
+            "v1.9.1": "修复版本兼容问题",
             "v1.9": "请求豆瓣RSS时增加请求头",
             "v1.8": "不同步在看条目",
             "v1.7": "增强API安全性",
@@ -887,18 +888,18 @@
         }
     },
   "BangumiColl": {
-    "name": "Bangumi收藏订阅",
-    "description": "Bangumi用户收藏添加到订阅",
-    "labels": "订阅",
-    "version": "1.5.2",
-    "icon": "bangumi_b.png",
-    "author": "Attente",
-    "level": 1,
-    "v2": true,
-    "history": {
-     "v1.5.2": "修复定时任务未正确注册的问题",
-      "v1.5.1": "修复季度信息未传递的问题. 新增站点列表同步删除",
-      "v1.5": "修复总集数会同步TMDB变动的问题,增加开关选项"
-    }
+        "name": "Bangumi收藏订阅",
+        "description": "Bangumi用户收藏添加到订阅",
+        "labels": "订阅",
+        "version": "1.5.2",
+        "icon": "bangumi_b.png",
+        "author": "Attente",
+        "level": 1,
+        "v2": true,
+        "history": {
+            "v1.5.2": "修复定时任务未正确注册的问题",
+            "v1.5.1": "修复季度信息未传递的问题. 新增站点列表同步删除",
+            "v1.5": "修复总集数会同步TMDB变动的问题,增加开关选项"
+        }
   }
 }
