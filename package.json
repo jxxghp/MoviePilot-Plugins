@@ -884,6 +884,7 @@
         "icon": "Cookiecloud_A.png",
         "author": "thsrite",
         "level": 1,
+        "v2": true,
         "history": {
             "v2.0": "调整逻辑，修复问题",
             "v1.3": "感谢MidnightShake共享代码（同步时保留MoviePilot不匹配站点的cookie）",
