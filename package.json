@@ -857,23 +857,21 @@
         "v2": true
     },
     "DynamicWeChat": {
-        "name": "假的企业微信可信IP",
-        "description": "优先使用cookie，可本地扫码刷新Cookie，验证码以？结尾发送到企业微信应用",
+        "name": "动态企微可信IP",
+        "description": "修改企微应用可信IP，详细说明查看'作者主页'，支持第三方通知。验证码以？结尾发送到企业微信应用",
         "labels": "消息通知",
-        "version": "1.4.1",
+        "version": "1.5.0",
         "icon": "Wecom_A.png",
         "author": "RamenRa",
         "level": 2,
         "v2": true,
         "history": {
-            "v1.4.1": "完善面板说明，为了和原仓库做出明显区别在插件名称添加了特殊字符",
+            "v1.5.0": "支持企微应用通知和第Serve酱等第三方推送。按要求修改插件名称",
+            "v1.4.1": "完善面板说明",
             "v1.4.0": "修复强制更改IP时配置面板延时过长的问题。庆祝v2进入正式版，显示了一个没用的参数",
             "v1.3.1": "修正一些逻辑判断，修改ip成功会通知一次",
             "v1.3.0": "兼容v2，操作cookie前检查一次CookieCloud",
-            "v1.2.0": "远程命令/push_qr，立即推送一次二维码到pushplus。添加<本地扫码刷新cookie>",
-            "v1.1.5": "将chromium运行设置为headless模式",
-            "v1.1.4": "放弃self.post_message()的消息推送，还原成send_pushplus_message()",
-            "v1.1.3": "关闭cookie输入框，延长cookie任务成功时不输出日志，使用设定中的CookieCloud设置"
+            "v1.2.0": "远程命令/push_qr，立即推送一次二维码到pushplus。添加<本地扫码刷新cookie>"
         }
     },
     "SyncCookieCloud": {
