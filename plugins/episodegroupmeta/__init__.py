@@ -48,7 +48,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 主题色
     plugin_color = "#098663"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -71,6 +71,7 @@ class EpisodeGroupMeta(_PluginBase):
     jellyfin = None
 
     _enabled = False
+    _notify = True
     _autorun = True
     _ignorelock = False
     _delay = 0
@@ -84,6 +85,7 @@ class EpisodeGroupMeta(_PluginBase):
         self.jellyfin = Jellyfin()
         if config:
             self._enabled = config.get("enabled")
+            self._notify = config.get("notify")
             self._autorun = config.get("autorun")
             self._ignorelock = config.get("ignorelock")
             self._delay = config.get("delay") or 120
@@ -93,9 +95,11 @@ class EpisodeGroupMeta(_PluginBase):
                 if s and s not in self._allowlist:
                     self._allowlist.append(s)
             self.log_info(f"白名单数量: {len(self._allowlist)} > {self._allowlist}")
-            if not ("autorun" in config):
-                # 新版本v1.2更新插件配置默认配置
+            if not ("notify" in config):
+                # 新版本v2.0更新插件配置默认配置
+                self._notify = True
                 self._autorun = True
+                config["notify"] = True
                 config["autorun"] = True
                 self.update_config(config)
                 self.log_warn(f"新版本v{self.plugin_version} 配置修正 ...")
@@ -159,13 +163,28 @@ class EpisodeGroupMeta(_PluginBase):
             return schemas.Response(success=False, message="解析媒体信息失败")
         # 开始刮削
         self.log_info(f"开始刮削: {mediainfo.title} | {mediainfo.year} | {episode_groups}")
+        self.systemmessage.put("正在刮削中，请稍等!", title="剧集组刮削")
         if self.start_rt(mediainfo, episode_groups, group_id):
-            self.log_info("刮削剧集组, 执行成功! 后台正在执行，请稍等！")
-            self.systemmessage.put("后台正在执行，请稍等！", title="剧集组刮削")
+            self.log_info("刮削剧集组, 执行成功!")
+            self.systemmessage.put("刮削剧集组, 执行成功!", title="剧集组刮削")
+            # 处理成功时， 发送通知
+            if self._notify:
+                self.post_message(
+                    mtype=schemas.NotificationType.Manual,
+                    title="【剧集组处理结果: 成功】",
+                    text=f"媒体名称：{mediainfo.title}\n发行年份: {mediainfo.year}\n剧集组数: {len(episode_groups)}"
+                )
             return schemas.Response(success=True, message="刮削剧集组, 执行成功!")
         else:
             self.log_error("执行失败, 请查看插件日志！")
             self.systemmessage.put("执行失败, 请查看插件日志！", title="剧集组刮削")
+            # 处理成功时， 发送通知
+            if self._notify:
+                self.post_message(
+                    mtype=schemas.NotificationType.Manual,
+                    title="【剧集组处理结果: 失败】",
+                    text=f"媒体名称：{mediainfo.title}\n发行年份: {mediainfo.year}\n剧集组数: {len(episode_groups)}\n注意: 失败原因请查看日志.."
+                )
             return schemas.Response(success=False, message="执行失败, 请查看插件日志")
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -183,7 +202,7 @@ class EpisodeGroupMeta(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -199,7 +218,7 @@ class EpisodeGroupMeta(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -215,18 +234,34 @@ class EpisodeGroupMeta(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
                                         'component': 'VCheckboxBtn',
                                         'props': {
                                             'model': 'ignorelock',
-                                            'label': '强制刮削已锁定的媒体信息',
+                                            'label': '无视锁定的媒体',
                                         }
                                     }
                                 ]
-                            }
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VCheckboxBtn',
+                                        'props': {
+                                            'model': 'notify',
+                                            'label': '开启通知',
+                                        }
+                                    }
+                                ]
+                            },
                         ]
                     },
                     {
@@ -318,6 +353,7 @@ class EpisodeGroupMeta(_PluginBase):
             }
         ], {
             "enabled": False,
+            "notify": True,
             "autorun": True,
             "ignorelock": False,
             "allowlist": "",
@@ -577,13 +613,28 @@ class EpisodeGroupMeta(_PluginBase):
         # 禁止自动刮削时直接返回
         if not self._autorun:
             self.log_warn(f"{mediainfo.title} 未勾选自动刮削, 无需处理")
+            # 发送通知
+            if self._notify and mediainfo_dict:
+                self.post_message(
+                    mtype=schemas.NotificationType.Manual,
+                    title="【待手动处理的剧集组】",
+                    text=f"媒体名称：{mediainfo.title}\n发行年份: {mediainfo.year}\n剧集组数: {len(episode_groups)}"
+                )
             return
         # 延迟
         if self._delay:
             self.log_warn(f"{mediainfo.title} 将在 {self._delay} 秒后开始处理..")
             time.sleep(int(self._delay))
         # 开始处理
-        self.start_rt(mediainfo=mediainfo, episode_groups=episode_groups)
+        if self.start_rt(mediainfo=mediainfo, episode_groups=episode_groups):
+        	# 处理完成时， 属于自动匹配的, 发送通知
+            if self._notify and mediainfo_dict:
+                self.post_message(
+                    mtype=schemas.NotificationType.Manual,
+                    title="【已自动匹配的剧集组】",
+                    text=f"媒体名称：{mediainfo.title}\n发行年份: {mediainfo.year}\n剧集组数: {len(episode_groups)}"
+                )
+            return
 
     def start_rt(self, mediainfo: schemas.MediaInfo, episode_groups: Any | None, group_id: str = None) -> bool:
         """
