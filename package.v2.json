@@ -203,5 +203,14 @@
             "v2.1": "调整IYUU最新域名",
             "v2.0": "兼容MoviePilot V2 版本"
         }
+    },
+    "HistoryToV2": {
+        "name": "历史记录迁移",
+        "description": "将MoviePilot V1版本的整理历史记录迁移至V2版本。",
+        "labels": "整理,历史记录",
+        "version": "1.0",
+        "icon": "Moviepilot_A.png",
+        "author": "jxxghp",
+        "level": 1
     }
 }
