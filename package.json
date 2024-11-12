@@ -527,10 +527,15 @@
         "name": "TMDB剧集组刮削",
         "description": "从TMDB剧集组刮削季集的实际顺序。",
         "labels": "刮削",
-        "version": "1.1",
+        "version": "2.1",
         "icon": "Element_A.png",
         "author": "叮叮当",
-        "level": 1
+        "level": 1,
+        "v2": true,
+        "history": {
+            "v2.1": "增加发送通知提醒选择剧集组",
+            "v2.0": "增加手动选择剧集组的功能"
+        }
     },
     "CustomIndexer": {
         "name": "自定义索引站点",
