@@ -23,7 +23,6 @@ from app.schemas.types import EventType
 from app.utils.common import retry
 from app.utils.http import RequestUtils
 from app.db.models import PluginData
-from app.utils.object import ObjectUtils
 
 class ExistMediaInfo(BaseModel):
     # 类型 电影、电视剧
@@ -48,7 +47,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 主题色
     plugin_color = "#098663"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -360,6 +359,13 @@ class EpisodeGroupMeta(_PluginBase):
             "delay": 120
         }
 
+    def is_objstr(self, obj: Any):
+        if not isinstance(obj, str):
+            return False
+        return str(obj).startswith("{") \
+            or str(obj).startswith("[") \
+            or str(obj).startswith("(")
+
     def get_page(self) -> List[dict]:
         """
         拼装插件详情页面，需要返回页面配置，同时附带数据
@@ -372,7 +378,7 @@ class EpisodeGroupMeta(_PluginBase):
             try:
                 tmdb_id = plugin_data.key
                 # fix v1版本数据读取问题
-                if ObjectUtils.is_obj(plugin_data.value):
+                if self.is_objstr(plugin_data.value):
                     data = json.loads(plugin_data.value)
                 else:
                     data = plugin_data.value
