@@ -891,7 +891,7 @@
             "v1.0": "同步MoviePilot站点Cookie到CookieCloud"
         }
     },
-  "BangumiColl": {
+    "BangumiColl": {
         "name": "Bangumi收藏订阅",
         "description": "Bangumi用户收藏添加到订阅",
         "labels": "订阅",
@@ -905,5 +905,18 @@
             "v1.5.1": "修复季度信息未传递的问题. 新增站点列表同步删除",
             "v1.5": "修复总集数会同步TMDB变动的问题,增加开关选项"
         }
-  }
+    },
+    "IyuuMsg": {
+        "name": "IYUU消息推送",
+        "description": "支持使用IYUU发送消息通知。",
+        "labels": "消息通知,IYUU",
+        "version": "1.3",
+        "icon": "Iyuu_A.png",
+        "author": "jxxghp",
+        "level": 1,
+        "v2": true,
+        "history": {
+            "v1.3": "消息限流发送，以缓解IYUU服务器压力"
+        }
+    }
 }
