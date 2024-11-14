@@ -20,7 +20,7 @@ from app.log import logger
 from app.plugins import _PluginBase
 from app.plugins.dynamicwechat.update_help import PyCookieCloud
 from app.plugins.dynamicwechat.notify_helper import MySender
-from app.schemas.types import EventType, NotificationType
+from app.schemas.types import EventType
 
 
 class DynamicWeChat(_PluginBase):
@@ -31,7 +31,7 @@ class DynamicWeChat(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "1.5.0"
+    plugin_version = "1.5.1"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -42,6 +42,8 @@ class DynamicWeChat(_PluginBase):
     plugin_order = 47
     # 可使用的用户级别
     auth_level = 2
+    # 检测间隔时间,默认10分钟
+    _refresh_cron = '*/20 * * * *'
 
     # ------------------------------------------私有属性------------------------------------------
     _enabled = False  # 开关
@@ -70,8 +72,7 @@ class DynamicWeChat(_PluginBase):
     _current_ip_address = '0.0.0.0'
     # 企业微信登录
     _wechatUrl = 'https://work.weixin.qq.com/wework_admin/loginpage_wx?from=myhome'
-    # 检测间隔时间,默认10分钟
-    _refresh_cron = '*/20 * * * *'
+
     # 输入的企业应用id
     _input_id_list = ''
     # 二维码
@@ -99,6 +100,10 @@ class DynamicWeChat(_PluginBase):
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
 
+    if hasattr(settings, 'VERSION_FLAG'):
+        version = settings.VERSION_FLAG  # V2
+    else:
+        version = "v1"
     def init_plugin(self, config: dict = None):
         # 清空配置
         self._notification_token = ''
@@ -123,7 +128,10 @@ class DynamicWeChat(_PluginBase):
             self._use_cookiecloud = config.get("use_cookiecloud")
             self._cookie_header = config.get("cookie_header")
             self._ip_changed = config.get("ip_changed")
-        self._my_send = MySender(self._notification_token)
+        if self.version != "v1":
+            self._my_send = MySender(self._notification_token, func=self.post_message)
+        else:
+            self._my_send = MySender(self._notification_token)
         if not self._my_send.init_success:    # 没有输入通知方式，不通知
             self._my_send = None
         # 停止现有任务
@@ -258,12 +266,14 @@ class DynamicWeChat(_PluginBase):
             if not event_data or event_data.get("action") != "dynamicwechat":
                 return
 
-        logger.info("开始检测公网IP")
-        if self.CheckIP():
-            self.ChangeIP()
-            self.__update_config()
-
-        logger.info("----------------------本次任务结束----------------------")
+        if self._cookie_valid:
+            logger.info("开始检测公网IP")
+            if self.CheckIP():
+                self.ChangeIP()
+                self.__update_config()
+            logger.info("----------------------本次任务结束----------------------")
+        else:
+            logger.warning("cookie已失效请及时更新，不检测公网IP")
 
     def CheckIP(self):
         retry_urls = random.sample(self._ip_urls, len(self._ip_urls))
@@ -381,7 +391,7 @@ class DynamicWeChat(_PluginBase):
                 img_src, refuse_time = self.find_qrc(page)
                 if img_src:
                     if self._my_send:
-                        result = self._my_send.send("企业微信登录二维码", content=None, image=img_src, force_send=False)
+                        result = self._my_send.send(title="企业微信登录二维码", image=img_src)
                         if result:
                             logger.info(f"二维码发送失败，原因：{result}")
                             browser.close()
@@ -815,7 +825,7 @@ class DynamicWeChat(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '建议启用内建或自定义CookieCloud。支持微信、Server酱、PushPlus、AnPush，具体请查看作者主页'
+                                            'text': '建议启用内建或自定义CookieCloud。支持微信、Server酱等第三方通知，具体请查看作者主页'
                                         }
                                     }
                                 ]
@@ -835,7 +845,7 @@ class DynamicWeChat(_PluginBase):
                                         'component': 'VAlert',
                                         'props': {
                                             'type': 'info',
-                                            'text': 'cookie失效时通知用户，用户使用/push_qr让插件推送二维码。使用第三方通知时填写对应Token/API'
+                                            'text': 'Cookie失效时通知用户，用户使用/push_qr让插件推送二维码。使用第三方通知时填写对应Token/API'
                                         }
                                     }
                                 ]
@@ -1004,8 +1014,7 @@ class DynamicWeChat(_PluginBase):
                 image_src, refuse_time = self.find_qrc(page)
                 if image_src:
                     if self._my_send:
-                        # logger.info(f"远程推送任务: {image_src}")
-                        result = self._my_send.send("企业微信登录二维码", content=None, image=image_src, force_send=False)
+                        result = self._my_send.send("企业微信登录二维码", image=image_src)
                         if result:
                             logger.info(f"远程推送任务: 二维码发送失败，原因：{result}")
                             browser.close()
@@ -1019,7 +1028,7 @@ class DynamicWeChat(_PluginBase):
                             # logger.info("远程推送任务: 没有可用的CookieCloud服务器，只修改可信IP")
                             self.click_app_management_buttons(page)
                     else:
-                        logger.warning("远程推送任务: 任何通知方式")
+                        logger.warning("远程推送任务: 没有找到可用的通知方式")
                 else:
                     logger.warning("远程推送任务: 未找到二维码")
                 browser.close()
@@ -1032,7 +1041,7 @@ class DynamicWeChat(_PluginBase):
             {
                 "cmd": "/push_qr",
                 "event": EventType.PluginAction,
-                "desc": "立即推送登录二维码到",
+                "desc": "立即推送登录二维码",
                 "category": "",
                 "data": {
                     "action": "push_qrcode"
