@@ -1,47 +1,43 @@
 import re
 import requests
-from app.modules.wechat.wechat import WeChat
+from app.modules.wechat import WeChat
+from app.schemas.types import NotificationType
 
 
 class MySender:
-    def __init__(self, token=None):
-        if not token:  # 如果 token 为空
-            self.token = None
-            self.channel = None
-            self.init_success = False  # 标识初始化失败
-        else:
-            self.token = token
-            self.channel = self.send_channel()  # 初始化时确定发送渠道
-            self.first_text_sent = False  # 记录是否已经发送过纯文本消息
-            self.init_success = True  # 标识初始化成功
+    def __init__(self, token=None, func=None):
+        self.token = token
+        self.channel = self.send_channel() if token else None  # 初始化时确定发送渠道
+        self.first_text_sent = False  # 记录是否已发送过纯文本消息
+        self.init_success = bool(token)  # 标识初始化成功
+        self.post_message_func = func  # V2微信模式的 post_message 方法
 
     def send_channel(self):
-        if self.token:
-            if self.token == "WeChat":
-                return "WeChat"
+        if "WeChat" in self.token:
+            return "WeChat"
 
-            letters_only = ''.join(re.findall(r'[A-Za-z]', self.token))
-            # 判断其他推送渠道
-            if self.token.startswith("SCT"):
-                return "ServerChan"
-            elif letters_only.isupper():
-                return "AnPush"
-            else:
-                return "PushPlus"
-        return None
+        letters_only = ''.join(re.findall(r'[A-Za-z]', self.token))
+        if self.token.lower().startswith("sct".lower()):
+            return "ServerChan"
+        elif letters_only.isupper():
+            return "AnPush"
+        else:
+            return "PushPlus"
 
     # 标题，内容，图片，是否强制发送
-    def send(self, title, content, image=None, force_send=False, diy_channel=None):
+    def send(self, title, content=None, image=None, force_send=False, diy_channel=None):
         if not self.init_success:
             return  # 如果初始化失败，直接返回
-        # 判断发送的内容类型
-        contains_image = bool(image)  # 是否包含图片
 
-        if not contains_image and not force_send:
+        if not image and not force_send:
             if self.first_text_sent:
                 return
             else:
                 self.first_text_sent = True
+
+        # # 如果是 V2 微信通知直接处理
+        if self.channel == "WeChat" and self.post_message_func:
+            return self.send_v2_wechat(title, content, image)
 
         try:
             if not diy_channel:
@@ -50,7 +46,7 @@ class MySender:
                 channel = diy_channel
 
             if channel == "WeChat":
-                return MySender.send_wechat(title, content, image)
+                return MySender.send_wechat(title, content, image, self.token)
             elif channel == "ServerChan":
                 return self.send_serverchan(title, content, image)
             elif channel == "AnPush":
@@ -63,10 +59,14 @@ class MySender:
             return f"Error occurred: {str(e)}"
 
     @staticmethod
-    def send_wechat(title, content, image):
+    def send_wechat(title, content, image, token):
         wechat = WeChat()
+        if ',' in token:
+            channel, actual_userid = token.split(',', 1)
+        else:
+            actual_userid = None
         if image:
-            send_status = wechat.send_msg(title='企业微信登录二维码', image=image, link=image)
+            send_status = wechat.send_msg(title='企业微信登录二维码', image=image, link=image, userid=actual_userid)
         else:
             send_status = wechat.send_msg(title=title, text=content)
 
@@ -126,6 +126,21 @@ class MySender:
         result = response.json()
         if result.get('code') != 200:
             return f"PushPlus send failed: {result.get('msg')}"
+        return None
+
+    def send_v2_wechat(self, title, content, image):
+        """V2 微信通知发送"""
+        if not self.token or ',' not in self.token:
+            return '没有指定V2微信用户ID'
+        channel, actual_userid = self.token.split(',', 1)
+        self.post_message_func(
+            mtype=NotificationType.Plugin,
+            title=title,
+            text=content,
+            image=image,
+            link=image,
+            userid=actual_userid
+        )
         return None
 
     def reset_limit(self):
