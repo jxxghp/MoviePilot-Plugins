@@ -212,5 +212,17 @@
         "icon": "Moviepilot_A.png",
         "author": "jxxghp",
         "level": 1
+    },
+    "SyncCookieCloud": {
+        "name": "同步CookieCloud",
+        "description": "同步MoviePilot站点Cookie到本地CookieCloud。",
+        "labels": "站点",
+        "version": "2.1",
+        "icon": "Cookiecloud_A.png",
+        "author": "thsrite",
+        "level": 1,
+        "history": {
+            "v2.1": "兼容MoviePilot V2"
+        }
     }
 }

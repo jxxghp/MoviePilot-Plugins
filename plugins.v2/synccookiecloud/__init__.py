@@ -12,7 +12,8 @@ from typing import Any, List, Dict, Tuple, Optional
 from app.log import logger
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from app.utils.common import encrypt, decrypt
+
+from app.utils.crypto import CryptoJsUtils
 
 
 class SyncCookieCloud(_PluginBase):
@@ -23,7 +24,7 @@ class SyncCookieCloud(_PluginBase):
     # 插件图标
     plugin_icon = "Cookiecloud_A.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -125,7 +126,7 @@ class SyncCookieCloud(_PluginBase):
             crypt_key = self._get_crypt_key()
             try:
                 cookies = {'cookie_data': cookies}
-                encrypted_data = encrypt(json.dumps(cookies).encode('utf-8'), crypt_key).decode('utf-8')
+                encrypted_data = CryptoJsUtils.encrypt(json.dumps(cookies).encode('utf-8'), crypt_key).decode('utf-8')
             except Exception as e:
                 logger.error(f"CookieCloud加密失败，{e}")
                 return
@@ -146,7 +147,7 @@ class SyncCookieCloud(_PluginBase):
         else:
             crypt_key = self._get_crypt_key()
             try:
-                decrypted_data = decrypt(encrypted, crypt_key).decode('utf-8')
+                decrypted_data = CryptoJsUtils.decrypt(encrypted, crypt_key).decode('utf-8')
                 result = json.loads(decrypted_data)
             except Exception as e:
                 return {}, "cookie解密失败：" + str(e)
