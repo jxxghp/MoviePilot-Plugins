@@ -208,10 +208,13 @@
         "name": "历史记录迁移",
         "description": "将MoviePilot V1版本的整理历史记录迁移至V2版本。",
         "labels": "整理,历史记录",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "Moviepilot_A.png",
         "author": "jxxghp",
-        "level": 1
+        "level": 1,
+        "history": {
+            "v1.1": "修复启动提示信息"
+        }
     },
     "SyncCookieCloud": {
         "name": "同步CookieCloud",

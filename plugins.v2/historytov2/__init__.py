@@ -17,7 +17,7 @@ class HistoryToV2(_PluginBase):
     # 插件图标
     plugin_icon = "Moviepilot_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -43,35 +43,36 @@ class HistoryToV2(_PluginBase):
             self._username = config.get("username")
             self._password = config.get("password")
 
-            if self._enabled and self._host and self._username and self._password:
-                # 关闭开关
-                self.__close_config()
-                # 登录MP获取token
-                token = self.__login_mp()
-                if token:
-                    # 当前页码
-                    page = 1
-                    # 总记录数
-                    total = 0
-                    # 获取历史记录
-                    history = self.__get_history(token)
-                    while history:
-                        # 处理历史记录
-                        logger.info(f"开始处理第 {page} 页历史记录 ...")
-                        self.__insert_history(history)
-                        # 处理成功一批
-                        total += len(history)
-                        logger.info(f"第 {page} 页处理完成，共处理 {total} 条记录")
-                        # 获取下一页历史记录
-                        page += 1
-                        history = self.__get_history(token, page=page)
-                    # 处理完成
-                    logger.info(f"历史记录迁移完成，共迁移 {total} 条记录！")
-                    self.systemmessage.put(f"历史记录迁移完成，共迁移 {total} 条记录！", title="MoviePilot历史记录迁移")
-            else:
-                self.systemmessage.put(f"配置不完整，服务启动失败！", title="MoviePilot历史记录迁移")
-                # 关闭开关
-                self.__close_config()
+            if self._enabled:
+                if self._host and self._username and self._password:
+                    # 关闭开关
+                    self.__close_config()
+                    # 登录MP获取token
+                    token = self.__login_mp()
+                    if token:
+                        # 当前页码
+                        page = 1
+                        # 总记录数
+                        total = 0
+                        # 获取历史记录
+                        history = self.__get_history(token)
+                        while history:
+                            # 处理历史记录
+                            logger.info(f"开始处理第 {page} 页历史记录 ...")
+                            self.__insert_history(history)
+                            # 处理成功一批
+                            total += len(history)
+                            logger.info(f"第 {page} 页处理完成，共处理 {total} 条记录")
+                            # 获取下一页历史记录
+                            page += 1
+                            history = self.__get_history(token, page=page)
+                        # 处理完成
+                        logger.info(f"历史记录迁移完成，共迁移 {total} 条记录！")
+                        self.systemmessage.put(f"历史记录迁移完成，共迁移 {total} 条记录！", title="MoviePilot历史记录迁移")
+                else:
+                    self.systemmessage.put(f"配置不完整，服务启动失败！", title="MoviePilot历史记录迁移")
+                    # 关闭开关
+                    self.__close_config()
 
     def __close_config(self):
         """
