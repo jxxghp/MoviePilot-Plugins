@@ -2,6 +2,8 @@ import base64
 import json
 import threading
 import time
+import importlib.util
+import sys
 from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional, Union
 
@@ -22,7 +24,7 @@ from app.plugins import _PluginBase
 from app.schemas.types import EventType
 from app.utils.common import retry
 from app.utils.http import RequestUtils
-
+from app.db.models import PluginData
 
 class ExistMediaInfo(BaseModel):
     # 类型 电影、电视剧
@@ -31,7 +33,9 @@ class ExistMediaInfo(BaseModel):
     groupep: Optional[Dict[int, list]] = {}
     # 集在媒体服务器的ID
     groupid: Optional[Dict[int, List[list]]] = {}
-    # 媒体服务器
+    # 媒体服务器类型
+    server_type: Optional[str] = None
+    # 媒体服务器名字
     server: Optional[str] = None
     # 媒体ID
     itemid: Optional[Union[str, int]] = None
@@ -47,7 +51,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 主题色
     plugin_color = "#098663"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "2.5"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -63,25 +67,25 @@ class EpisodeGroupMeta(_PluginBase):
     _event = threading.Event()
 
     # 私有属性
-    mschain = None
     tv = None
     emby = None
     plex = None
     jellyfin = None
+    mediaserver_helper = None
 
     _enabled = False
+    _notify = True
+    _autorun = True
     _ignorelock = False
     _delay = 0
     _allowlist = []
 
     def init_plugin(self, config: dict = None):
-        self.mschain = MediaServerChain()
         self.tv = TV()
-        self.emby = Emby()
-        self.plex = Plex()
-        self.jellyfin = Jellyfin()
         if config:
             self._enabled = config.get("enabled")
+            self._notify = config.get("notify")
+            self._autorun = config.get("autorun")
             self._ignorelock = config.get("ignorelock")
             self._delay = config.get("delay") or 120
             self._allowlist = []
@@ -90,6 +94,14 @@ class EpisodeGroupMeta(_PluginBase):
                 if s and s not in self._allowlist:
                     self._allowlist.append(s)
             self.log_info(f"白名单数量: {len(self._allowlist)} > {self._allowlist}")
+            if not ("notify" in config):
+                # 新版本v2.0更新插件配置默认配置
+                self._notify = True
+                self._autorun = True
+                config["notify"] = True
+                config["autorun"] = True
+                self.update_config(config)
+                self.log_warn(f"新版本v{self.plugin_version} 配置修正 ...")
 
     def get_state(self) -> bool:
         return self._enabled
@@ -99,7 +111,80 @@ class EpisodeGroupMeta(_PluginBase):
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
-        pass
+        # plugin/EpisodeGroupMeta/delete_media_database
+        # plugin/EpisodeGroupMeta/start_rt
+        self.log_warn("api已添加: /start_rt")
+        self.log_warn("api已添加: /delete_media_database")
+        return [
+            {
+                "path": "/delete_media_database",
+                "endpoint": self.delete_media_database,
+                "methods": ["GET"],
+                "summary": "剧集组刮削",
+                "description": "移除待处理媒体信息",
+            },
+            {
+                "path": "/start_rt",
+                "endpoint": self.go_start_rt,
+                "methods": ["GET"],
+                "summary": "剧集组刮削",
+                "description": "刮削指定剧集组",
+            }
+        ]
+
+    def delete_media_database(self, tmdb_id: str, apikey: str) -> schemas.Response:
+        """
+        删除待处理剧集组的媒体信息
+        """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
+        if not tmdb_id:
+            return schemas.Response(success=False, message="缺少重要参数")
+        self.del_data(tmdb_id)
+        return schemas.Response(success=True, message="删除成功")
+
+    def go_start_rt(self, tmdb_id: str, group_id: str, apikey: str) -> schemas.Response:
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
+        if not tmdb_id or not group_id:
+            return schemas.Response(success=False, message="缺少重要参数")
+        # 解析待处理数据
+        try:
+            # 查询待处理数据
+            data = self.get_data(tmdb_id)
+            if not data:
+                return schemas.Response(success=False, message="未找到待处理数据")
+            mediainfo_dict = data.get("mediainfo_dict")
+            mediainfo: schemas.MediaInfo = schemas.MediaInfo.parse_obj(mediainfo_dict)
+            episode_groups = data.get("episode_groups")
+        except Exception as e:
+            self.log_error(f"解析媒体信息失败: {str(e)}")
+            return schemas.Response(success=False, message="解析媒体信息失败")
+        # 开始刮削
+        self.log_info(f"开始刮削: {mediainfo.title} | {mediainfo.year} | {episode_groups}")
+        self.systemmessage.put("正在刮削中，请稍等!", title="剧集组刮削")
+        if self.start_rt(mediainfo, episode_groups, group_id):
+            self.log_info("刮削剧集组, 执行成功!")
+            self.systemmessage.put("刮削剧集组, 执行成功!", title="剧集组刮削")
+            # 处理成功时， 发送通知
+            if self._notify:
+                self.post_message(
+                    mtype=schemas.NotificationType.Manual,
+                    title="【剧集组处理结果: 成功】",
+                    text=f"媒体名称：{mediainfo.title}\n发行年份: {mediainfo.year}\n剧集组数: {len(episode_groups)}"
+                )
+            return schemas.Response(success=True, message="刮削剧集组, 执行成功!")
+        else:
+            self.log_error("执行失败, 请查看插件日志！")
+            self.systemmessage.put("执行失败, 请查看插件日志！", title="剧集组刮削")
+            # 处理成功时， 发送通知
+            if self._notify:
+                self.post_message(
+                    mtype=schemas.NotificationType.Manual,
+                    title="【剧集组处理结果: 失败】",
+                    text=f"媒体名称：{mediainfo.title}\n发行年份: {mediainfo.year}\n剧集组数: {len(episode_groups)}\n注意: 失败原因请查看日志.."
+                )
+            return schemas.Response(success=False, message="执行失败, 请查看插件日志")
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -116,7 +201,7 @@ class EpisodeGroupMeta(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -132,18 +217,50 @@ class EpisodeGroupMeta(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 3
                                 },
                                 'content': [
                                     {
-                                        'component': 'VSwitch',
+                                        'component': 'VCheckboxBtn',
                                         'props': {
-                                            'model': 'ignorelock',
-                                            'label': '媒体信息锁定时也进行刮削',
+                                            'model': 'autorun',
+                                            'label': '季集匹配时自动刮削',
                                         }
                                     }
                                 ]
-                            }
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VCheckboxBtn',
+                                        'props': {
+                                            'model': 'ignorelock',
+                                            'label': '锁定的剧集也刮削',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VCheckboxBtn',
+                                        'props': {
+                                            'model': 'notify',
+                                            'label': '开启通知',
+                                        }
+                                    }
+                                ]
+                            },
                         ]
                     },
                     {
@@ -203,7 +320,7 @@ class EpisodeGroupMeta(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '注意：刮削白名单(留空), 则全部刮削. 否则仅刮削白名单.'
+                                            'text': '注意：刮削白名单(留空)则全部刮削. 否则仅刮削白名单.'
                                         }
                                     }
                                 ]
@@ -235,18 +352,220 @@ class EpisodeGroupMeta(_PluginBase):
             }
         ], {
             "enabled": False,
+            "notify": True,
+            "autorun": True,
             "ignorelock": False,
             "allowlist": "",
             "delay": 120
         }
 
+    def is_objstr(self, obj: Any):
+        if not isinstance(obj, str):
+            return False
+        return str(obj).startswith("{") \
+            or str(obj).startswith("[") \
+            or str(obj).startswith("(")
+
     def get_page(self) -> List[dict]:
-        pass
+        """
+        拼装插件详情页面，需要返回页面配置，同时附带数据
+        """
+        # 查询待处理数据列表
+        mediainfo_list: List[PluginData] = self.get_data()
+        # 拼装页面
+        contents = []
+        for plugin_data in mediainfo_list:
+            try:
+                tmdb_id = plugin_data.key
+                # fix v1版本数据读取问题
+                if self.is_objstr(plugin_data.value):
+                    data = json.loads(plugin_data.value)
+                else:
+                    data = plugin_data.value
+                mediainfo: schemas.MediaInfo = schemas.MediaInfo.parse_obj(data.get("mediainfo_dict"))
+                episode_groups = data.get("episode_groups")
+            except Exception as e:
+                self.log_error(f"解析媒体信息失败: {plugin_data.key} -> {plugin_data.value} \n ------ \n {str(e)}")
+                continue
+            # 剧集组菜单明细
+            groups_menu = []
+            index = 0
+            for group in episode_groups:
+                index += 1
+                title = group.get('name')
+                groups_menu.append({
+                    'component': 'VListItem',
+                    'props': {
+                        ':key': str(index),
+                        ':value': str(index)
+                    },
+                    'events': {
+                        'click': {
+                            'api': 'plugin/EpisodeGroupMeta/start_rt',
+                            'method': 'get',
+                            'params': {
+                                'apikey': settings.API_TOKEN,
+                                'tmdb_id': tmdb_id,
+                                'group_id': group.get('id')
+                            }
+                        }
+                    },
+                    'content': [
+                        {
+                            'component': 'VListItemTitle',
+                            'text': title
+                        },
+                        {
+                            'component': 'VListItemSubtitle',
+                            'text': f"{group.get('group_count')}组, {group.get('episode_count')}集"
+                        },
+                    ]
+                })
+            # 拼装待处理媒体卡片
+            contents.append(
+                {
+                    'component': 'VCard',
+                    'content': [
+                        {
+                            'component': 'VImg',
+                            'props': {
+                                'src': mediainfo.backdrop_path or mediainfo.poster_path,
+                                'height': '120px',
+                                'cover': True
+                            },
+                        },
+                        {
+                            'component': 'VCardTitle',
+                            'content': [
+                                {
+                                    'component': 'a',
+                                    'props': {
+                                        'href': f"{mediainfo.detail_link}/episode_groups",
+                                        'target': '_blank'
+                                    },
+                                    'text': mediainfo.title
+                                }
+                            ]
+                        },
+                        {
+                            'component': 'VCardSubtitle',
+                            'content': [
+                                {
+                                    'component': 'a',
+                                    'props': {
+                                        'href': f"{mediainfo.detail_link}/episode_groups",
+                                        'target': '_blank'
+                                    },
+                                    'text': f"{mediainfo.year} | 共{len(episode_groups)}个剧集组"
+                                }
+                            ]
+                        },
+                        {
+                            'component': 'VCardActions',
+                            'props': {
+                                'style': 'min-height:64px;'
+                            },
+                            'content': [
+                                {
+                                    'component': 'VBtn',
+                                    'props': {
+                                        'class': 'ms-2',
+                                        'size': 'small',
+                                        'rounded': 'xl',
+                                        'elevation': '20',
+                                        'append-icon': 'mdi-chevron-right'
+                                    },
+                                    'text': '选择剧集组',
+                                    'content': [
+                                        {
+                                            'component': 'VMenu',
+                                            'props': {
+                                                'activator': 'parent'
+                                            },
+                                            'content': [
+                                                {
+                                                    'component': 'VList',
+                                                    'content': groups_menu
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                },
+                                {
+                                    'component': 'VBtn',
+                                    'props': {
+                                        'class': 'ms-2',
+                                        'size': 'small',
+                                        'elevation': '20',
+                                        'rounded': 'xl',
+                                    },
+                                    'text': '忽略',
+                                    'events': {
+                                        'click': {
+                                            'api': 'plugin/EpisodeGroupMeta/delete_media_database',
+                                            'method': 'get',
+                                            'params': {
+                                                'apikey': settings.API_TOKEN,
+                                                'tmdb_id': tmdb_id
+                                            }
+                                        }
+                                    },
+                                }
+                            ]
+                        }
+                    ]
+                }
+            )
+
+        if not contents:
+            return [
+                {
+                    'component': 'div',
+                    'text': '暂无待处理数据',
+                    'props': {
+                        'class': 'text-center',
+                    }
+                }
+            ]
+        
+        return [
+            {
+                'component': 'VRow',
+                'props': {
+                    'class': 'mb-3'
+                },
+                'content': [
+                    {
+                        'component': 'VCol',
+                        'props': {
+                            'cols': 12,
+                        },
+                        'content': [
+                            {
+                                'component': 'VAlert',
+                                'props': {
+                                    'type': 'info',
+                                    'variant': 'tonal',
+                                    'text': '注意：1. 点击名字可跳转tmdb剧集组页面。2. 选择剧集组时后台已经开始执行，请通过日志查看进度，不要重复执行。'
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                'component': 'div',
+                'props': {
+                    'class': 'grid gap-6 grid-info-card',
+                },
+                'content': contents
+            }
+        ]
 
     @eventmanager.register(EventType.TransferComplete)
     def scrap_rt(self, event: Event):
         """
-        根据事件实时刮削剧集组信息
+        根据事件判断是否需要刮削
         """
         if not self.get_state():
             return
@@ -279,21 +598,111 @@ class EpisodeGroupMeta(_PluginBase):
         except Exception as e:
             self.log_error(f"{mediainfo.title} {str(e)}")
             return
+        # 写入至插件数据
+        mediainfo_dict = None
+        try:
+            # 实际传递的不是基于BaseModel的实例
+            mediainfo_dict = mediainfo.dict()
+        except Exception as e:
+            # app.core.context.MediaInfo
+            try:
+                mediainfo_dict = mediainfo.to_dict()
+            except Exception as e:
+                self.log_error(f"{mediainfo.title} 无法处理MediaInfo数据 {str(e)}")
+        if mediainfo_dict:
+            data = {
+                "episode_groups": episode_groups,
+                "mediainfo_dict": mediainfo_dict
+            }
+            self.save_data(str(mediainfo.tmdb_id), data)
+            self.log_info("写入待处理数据 - ok")
+        # 禁止自动刮削时直接返回
+        if not self._autorun:
+            self.log_warn(f"{mediainfo.title} 未勾选自动刮削, 无需处理")
+            # 发送通知
+            if self._notify and mediainfo_dict:
+                self.post_message(
+                    mtype=schemas.NotificationType.Manual,
+                    title="【待手动处理的剧集组】",
+                    text=f"媒体名称：{mediainfo.title}\n发行年份: {mediainfo.year}\n剧集组数: {len(episode_groups)}"
+                )
+            return
         # 延迟
         if self._delay:
             self.log_warn(f"{mediainfo.title} 将在 {self._delay} 秒后开始处理..")
             time.sleep(int(self._delay))
-        # 获取可用的媒体服务器
-        _existsinfo = self.chain.media_exists(mediainfo=mediainfo)
-        existsinfo: ExistMediaInfo = self.__media_exists(server=_existsinfo.server, mediainfo=mediainfo,
-                                                         existsinfo=_existsinfo)
-        if not existsinfo or not existsinfo.itemid:
-            self.log_warn(f"{mediainfo.title_year} 在媒体库中不存在")
+        # 开始处理
+        if self.start_rt(mediainfo=mediainfo, episode_groups=episode_groups):
+        	# 处理完成时， 属于自动匹配的, 发送通知
+            if self._notify and mediainfo_dict:
+                self.post_message(
+                    mtype=schemas.NotificationType.Manual,
+                    title="【已自动匹配的剧集组】",
+                    text=f"媒体名称：{mediainfo.title}\n发行年份: {mediainfo.year}\n剧集组数: {len(episode_groups)}"
+                )
             return
-        # 新增需要的属性
-        existsinfo.server = _existsinfo.server
-        existsinfo.type = _existsinfo.type
-        self.log_info(f"{mediainfo.title_year} 存在于媒体服务器: {_existsinfo.server}")
+
+    def start_rt(self, mediainfo: schemas.MediaInfo, episode_groups: Any | None, group_id: str = None) -> bool:
+        """
+        通过媒体信息读取剧集组并刮削季集信息
+        """
+        # 当不是从事件触发时，应再次判断是否存在剧集组
+        if not episode_groups:
+            try:
+                episode_groups = self.tv.episode_groups(mediainfo.tmdb_id)
+                if not episode_groups:
+                    self.log_warn(f"{mediainfo.title} 没有剧集组, 无需处理")
+                    return False
+                self.log_info(f"{mediainfo.title_year} 剧集组数量: {len(episode_groups)} - {episode_groups}")
+                # episodegroup = self.tv.group_episodes(episode_groups[0].get('id'))
+            except Exception as e:
+                self.log_error(f"{mediainfo.title} {str(e)}")
+                return False
+        # 获取全部可用的媒体服务器, 兼容v2
+        service_infos = self.service_infos()
+        if self.mediaserver_helper == None:
+            # v1版本 单一媒体服务器的方式
+            _existsinfo = self.chain.media_exists(mediainfo=mediainfo)
+            if not _existsinfo:
+                self.log_warn(f"{mediainfo.title_year} 无可用的媒体服务器")
+                return False
+            # 存在媒体服务器
+            existsinfo: ExistMediaInfo = self.__media_exists(mediainfo=mediainfo, existsinfo=_existsinfo)
+            if not existsinfo or not existsinfo.itemid:
+                self.log_warn(f"{mediainfo.title_year} 在媒体库中不存在")
+                return False
+            return self.__start_rt_mediaserver(mediainfo=mediainfo, existsinfo=existsinfo, episode_groups=episode_groups, group_id=group_id)
+        else:
+            # v2版本 遍历所有媒体服务器的方式
+            if not service_infos:
+                self.log_warn(f"{mediainfo.title_year} 无可用的媒体服务器")
+                return False
+            # 遍历媒体服务器
+            relust_bool = False
+            for name, info in service_infos.items():
+                self.log_info(f"正在查询媒体服务器: ({info.type}){name}")
+                _existsinfo = self.chain.media_exists(mediainfo=mediainfo, server=name)
+                if not _existsinfo:
+                    self.log_warn(f"{mediainfo.title_year} 在 ({info.type}){name} 媒体服务器中不存在")
+                    continue
+                existsinfo: ExistMediaInfo = self.__media_exists(mediainfo=mediainfo, existsinfo=_existsinfo, mediaserver_instance=info.instance)
+                if not existsinfo or not existsinfo.itemid:
+                    self.log_warn(f"{mediainfo.title_year} 在 ({info.type}){name} 媒体服务器中不存在")
+                    continue
+                _bool = self.__start_rt_mediaserver(mediainfo=mediainfo, existsinfo=existsinfo, episode_groups=episode_groups, group_id=group_id, mediaserver_instance=info.instance)
+                relust_bool = relust_bool or _bool
+            return relust_bool
+
+    def __start_rt_mediaserver(self,
+                               mediainfo: schemas.MediaInfo,
+                               existsinfo: ExistMediaInfo,
+                               episode_groups: Any | None,
+                               group_id: str = None,
+                               mediaserver_instance: Any = None) -> bool:
+        """
+        遍历媒体服务器剧集信息，并匹配合适的剧集组刷新季集信息
+        """
+        self.log_info(f"{mediainfo.title_year} 存在于 {existsinfo.server_type} 媒体服务器: {existsinfo.server}")
         # 获取全部剧集组信息
         copy_keys = ['Id', 'Name', 'ChannelNumber', 'OriginalTitle', 'ForcedSortName', 'SortName', 'CommunityRating',
                      'CriticRating', 'IndexNumber', 'ParentIndexNumber', 'SortParentIndexNumber', 'SortIndexNumber',
@@ -308,6 +717,9 @@ class EpisodeGroupMeta(_PluginBase):
                 id = episode_group.get('id')
                 name = episode_group.get('name')
                 if not id:
+                    continue
+                # 指定剧集组id时, 跳过其他剧集组
+                if group_id and str(id) != str(group_id):
                     continue
                 # 处理
                 self.log_info(f"正在匹配剧集组: {id}")
@@ -325,25 +737,33 @@ class EpisodeGroupMeta(_PluginBase):
                         continue
                     # 进行集数匹配, 确定剧集组信息
                     ep = existsinfo.groupep.get(order)
-                    if not ep or len(ep) != len(episodes):
-                        continue
-                    self.log_info(f"已匹配剧集组: {name}, {id}, 第 {order} 季")
+                    # 指定剧集组id时, 不再通过季集数量匹配
+                    if group_id:
+                        self.log_info(f"已指定剧集组: {name}, {id}, 第 {order} 季")
+                    else:
+                        # 进行集数匹配, 确定剧集组信息
+                        if not ep or len(ep) != len(episodes):
+                            continue
+                        self.log_info(f"已匹配剧集组: {name}, {id}, 第 {order} 季")
                     # 遍历全部媒体项并更新
+                    if existsinfo.groupid.get(order) is None:
+                        self.log_info(f"媒体库中不存在: {mediainfo.title_year}, 第 {order} 季")
+                        continue
                     for _index, _ids in enumerate(existsinfo.groupid.get(order)):
                         # 提取出媒体库中集id对应的集数index
                         ep_num = ep[_index]
                         for _id in _ids:
                             # 获取媒体服务器媒体项
-                            iteminfo = self.get_iteminfo(server=existsinfo.server, itemid=_id)
+                            iteminfo = self.get_iteminfo(server_type=existsinfo.server_type, itemid=_id, mediaserver_instance=mediaserver_instance)
                             if not iteminfo:
                                 self.log_info(f"未找到媒体项 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
                                 continue
-                            # 是否无视项目锁定
+                            # 锁定的剧集是否也刮削?
                             if not self._ignorelock:
                                 if iteminfo.get("LockData") or (
                                         "Name" in iteminfo.get("LockedFields", [])
                                         and "Overview" in iteminfo.get("LockedFields", [])):
-                                    self.log_warn(f"已锁定媒体项 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
+                                    self.log_warn(f"已锁定媒体项 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集, 如果需要刮削请打开设置中的“锁定的剧集也刮削”选项")
                                     continue
                             # 替换项目数据
                             episode = episodes[ep_num - 1]
@@ -361,11 +781,12 @@ class EpisodeGroupMeta(_PluginBase):
                             self.__append_to_list(new_dict["LockedFields"], "Name")
                             self.__append_to_list(new_dict["LockedFields"], "Overview")
                             # 更新数据
-                            self.set_iteminfo(server=existsinfo.server, itemid=_id, iteminfo=new_dict)
+                            self.set_iteminfo(server_type=existsinfo.server_type, itemid=_id, iteminfo=new_dict, mediaserver_instance=mediaserver_instance)
                             # still_path 图片
                             if episode.get("still_path"):
-                                self.set_item_image(server=existsinfo.server, itemid=_id,
-                                                    imageurl=f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{episode['still_path']}")
+                                self.set_item_image(server_type=existsinfo.server_type, itemid=_id,
+                                                    imageurl=f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{episode['still_path']}",
+                                                    mediaserver_instance=mediaserver_instance)
                             self.log_info(f"已修改剧集 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
                     # 移除已经处理成功的季
                     existsinfo.groupep.pop(order, 0)
@@ -376,25 +797,28 @@ class EpisodeGroupMeta(_PluginBase):
                 continue
 
         self.log_info(f"{mediainfo.title_year} 已经运行完毕了..")
+        return True
 
     @staticmethod
     def __append_to_list(list, item):
         if item not in list:
             list.append(item)
 
-    def __media_exists(self, server: str, mediainfo: schemas.MediaInfo,
-                       existsinfo: schemas.ExistMediaInfo) -> ExistMediaInfo:
+    def __media_exists(self, mediainfo: schemas.MediaInfo, existsinfo: schemas.ExistMediaInfo, mediaserver_instance: Any = None) -> ExistMediaInfo:
         """
         根据媒体信息，返回剧集列表与剧集ID列表
         :param mediainfo: 媒体信息
         :return: 剧集列表与剧集ID列表
         """
+        # fix v1版本对比v2版本， 属性含义发生变化， 代码做兼容处理
+        server_type = existsinfo.server_type if hasattr(existsinfo, 'server_type') else existsinfo.server
 
         def __emby_media_exists():
             # 获取系列id
             item_id = None
             try:
-                res = self.emby.get_data(("[HOST]emby/Items?"
+                instance = mediaserver_instance or self.emby
+                res = instance.get_data(("[HOST]emby/Items?"
                                           "IncludeItemTypes=Series"
                                           "&Fields=ProductionYear"
                                           "&StartIndex=0"
@@ -410,18 +834,18 @@ class EpisodeGroupMeta(_PluginBase):
                                 not mediainfo.year or str(res_item.get('ProductionYear')) == str(mediainfo.year)):
                             item_id = res_item.get('Id')
             except Exception as e:
-                self.log_error(f"连接Items出错：" + str(e))
+                self.log_error(f"媒体服务器 ({server_type}){existsinfo.server} 发生了错误, 连接Items出错：" + str(e))
             if not item_id:
                 return None
             # 验证tmdbid是否相同
-            item_info = self.emby.get_iteminfo(item_id)
+            item_info = instance.get_iteminfo(item_id)
             if item_info:
                 if mediainfo.tmdb_id and item_info.tmdbid:
                     if str(mediainfo.tmdb_id) != str(item_info.tmdbid):
                         self.log_error(f"tmdbid不匹配或不存在")
                         return None
             try:
-                res_json = self.emby.get_data(
+                res_json = instance.get_data(
                     "[HOST]emby/Shows/%s/Episodes?Season=&IsMissing=false&api_key=[APIKEY]" % item_id)
                 if res_json:
                     tv_item = res_json.json()
@@ -449,17 +873,21 @@ class EpisodeGroupMeta(_PluginBase):
                     return ExistMediaInfo(
                         itemid=item_id,
                         groupep=group_ep,
-                        groupid=group_id
+                        groupid=group_id,
+                        type=existsinfo.type,
+                        server_type=server_type,
+                        server=existsinfo.server,
                     )
             except Exception as e:
-                self.log_error(f"连接Shows/Id/Episodes出错：{str(e)}")
+                self.log_error(f"媒体服务器 ({server_type}){existsinfo.server} 发生了错误, 连接Shows/Id/Episodes出错：{str(e)}")
             return None
 
         def __jellyfin_media_exists():
             # 获取系列id
             item_id = None
             try:
-                res = self.jellyfin.get_data(url=f"[HOST]Users/[USER]/Items?api_key=[APIKEY]"
+                instance = mediaserver_instance or self.jellyfin
+                res = instance.get_data(url=f"[HOST]Users/[USER]/Items?api_key=[APIKEY]"
                                                  f"&searchTerm={mediainfo.title}"
                                                  f"&IncludeItemTypes=Series"
                                                  f"&Limit=10&Recursive=true")
@@ -470,18 +898,18 @@ class EpisodeGroupMeta(_PluginBase):
                                 not mediainfo.year or str(res_item.get('ProductionYear')) == str(mediainfo.year)):
                             item_id = res_item.get('Id')
             except Exception as e:
-                self.log_error(f"连接Items出错：" + str(e))
+                self.log_error(f"媒体服务器 ({server_type}){existsinfo.server} 发生了错误, 连接Items出错：" + str(e))
             if not item_id:
                 return None
             # 验证tmdbid是否相同
-            item_info = self.jellyfin.get_iteminfo(item_id)
+            item_info = instance.get_iteminfo(item_id)
             if item_info:
                 if mediainfo.tmdb_id and item_info.tmdbid:
                     if str(mediainfo.tmdb_id) != str(item_info.tmdbid):
                         self.log_error(f"tmdbid不匹配或不存在")
                         return None
             try:
-                res_json = self.jellyfin.get_data(
+                res_json = instance.get_data(
                     "[HOST]emby/Shows/%s/Episodes?Season=&IsMissing=false&api_key=[APIKEY]" % item_id)
                 if res_json:
                     tv_item = res_json.json()
@@ -509,15 +937,19 @@ class EpisodeGroupMeta(_PluginBase):
                     return ExistMediaInfo(
                         itemid=item_id,
                         groupep=group_ep,
-                        groupid=group_id
+                        groupid=group_id,
+                        type=existsinfo.type,
+                        server_type=server_type,
+                        server=existsinfo.server,
                     )
             except Exception as e:
-                self.log_error(f"连接Shows/Id/Episodes出错：{str(e)}")
+                self.log_error(f"媒体服务器 ({server_type}){existsinfo.server} 发生了错误, 连接Shows/Id/Episodes出错：{str(e)}")
             return None
 
         def __plex_media_exists():
             try:
-                _plex = self.plex.get_plex()
+                instance = mediaserver_instance or self.plex.get_plex()
+                _plex = instance.get_plex()
                 if not _plex:
                     return None
                 if existsinfo.itemid:
@@ -569,10 +1001,13 @@ class EpisodeGroupMeta(_PluginBase):
                 return ExistMediaInfo(
                     itemid=videos.key,
                     groupep=group_ep,
-                    groupid=group_id
+                    groupid=group_id,
+                    type=existsinfo.type,
+                    server_type=server_type,
+                    server=existsinfo.server,
                 )
             except Exception as e:
-                self.log_error(f"连接Shows/Id/Episodes出错：{str(e)}")
+                self.log_error(f"媒体服务器 ({server_type}){existsinfo.server} 发生了错误, 连接Shows/Id/Episodes出错：{str(e)}")
             return None
 
         def __get_ids(guids: List[Any]) -> dict:
@@ -598,14 +1033,14 @@ class EpisodeGroupMeta(_PluginBase):
                             break
             return ids
 
-        if server == "emby":
+        if server_type == "emby":
             return __emby_media_exists()
-        elif server == "jellyfin":
+        elif server_type == "jellyfin":
             return __jellyfin_media_exists()
         else:
             return __plex_media_exists()
 
-    def get_iteminfo(self, server: str, itemid: str) -> dict:
+    def get_iteminfo(self, server_type: str, itemid: str, mediaserver_instance: Any = None) -> dict:
         """
         获得媒体项详情
         """
@@ -615,9 +1050,10 @@ class EpisodeGroupMeta(_PluginBase):
             获得Emby媒体项详情
             """
             try:
+                instance = mediaserver_instance or self.emby
                 url = f'[HOST]emby/Users/[USER]/Items/{itemid}?' \
                       f'Fields=ChannelMappingInfo&api_key=[APIKEY]'
-                res = self.emby.get_data(url=url)
+                res = instance.get_data(url=url)
                 if res:
                     return res.json()
             except Exception as err:
@@ -629,8 +1065,9 @@ class EpisodeGroupMeta(_PluginBase):
             获得Jellyfin媒体项详情
             """
             try:
+                instance = mediaserver_instance or self.jellyfin
                 url = f'[HOST]Users/[USER]/Items/{itemid}?Fields=ChannelMappingInfo&api_key=[APIKEY]'
-                res = self.jellyfin.get_data(url=url)
+                res = instance.jellyfin.get_data(url=url)
                 if res:
                     result = res.json()
                     if result:
@@ -646,7 +1083,8 @@ class EpisodeGroupMeta(_PluginBase):
             """
             iteminfo = {}
             try:
-                plexitem = self.plex.get_plex().library.fetchItem(ekey=itemid)
+                instance = mediaserver_instance or self.plex
+                plexitem = instance.get_plex().library.fetchItem(ekey=itemid)
                 if 'movie' in plexitem.METADATA_TYPE:
                     iteminfo['Type'] = 'Movie'
                     iteminfo['IsFolder'] = False
@@ -675,27 +1113,27 @@ class EpisodeGroupMeta(_PluginBase):
                     if plexitem.title.locked:
                         iteminfo['LockedFields'].append('Name')
                 except Exception as err:
-                    logger.warn(f"获取Plex媒体项详情失败：{str(err)}")
+                    self.log_warn(f"获取Plex媒体项详情失败：{str(err)}")
                     pass
                 try:
                     if plexitem.summary.locked:
                         iteminfo['LockedFields'].append('Overview')
                 except Exception as err:
-                    logger.warn(f"获取Plex媒体项详情失败：{str(err)}")
+                    self.log_warn(f"获取Plex媒体项详情失败：{str(err)}")
                     pass
                 return iteminfo
             except Exception as err:
                 self.log_error(f"获取Plex媒体项详情失败：{str(err)}")
             return {}
 
-        if server == "emby":
+        if server_type == "emby":
             return __get_emby_iteminfo()
-        elif server == "jellyfin":
+        elif server_type == "jellyfin":
             return __get_jellyfin_iteminfo()
         else:
             return __get_plex_iteminfo()
 
-    def set_iteminfo(self, server: str, itemid: str, iteminfo: dict):
+    def set_iteminfo(self, server_type: str, itemid: str, iteminfo: dict, mediaserver_instance: Any = None):
         """
         更新媒体项详情
         """
@@ -705,7 +1143,8 @@ class EpisodeGroupMeta(_PluginBase):
             更新Emby媒体项详情
             """
             try:
-                res = self.emby.post_data(
+                instance = mediaserver_instance or self.emby
+                res = instance.post_data(
                     url=f'[HOST]emby/Items/{itemid}?api_key=[APIKEY]&reqformat=json',
                     data=json.dumps(iteminfo),
                     headers={
@@ -726,7 +1165,8 @@ class EpisodeGroupMeta(_PluginBase):
             更新Jellyfin媒体项详情
             """
             try:
-                res = self.jellyfin.post_data(
+                instance = mediaserver_instance or self.jellyfin
+                res = instance.post_data(
                     url=f'[HOST]Items/{itemid}?api_key=[APIKEY]',
                     data=json.dumps(iteminfo),
                     headers={
@@ -747,7 +1187,8 @@ class EpisodeGroupMeta(_PluginBase):
             更新Plex媒体项详情
             """
             try:
-                plexitem = self.plex.get_plex().library.fetchItem(ekey=itemid)
+                instance = mediaserver_instance or self.plex
+                plexitem = instance.get_plex().library.fetchItem(ekey=itemid)
                 if 'CommunityRating' in iteminfo and iteminfo['CommunityRating']:
                     edits = {
                         'audienceRating.value': iteminfo['CommunityRating'],
@@ -760,15 +1201,15 @@ class EpisodeGroupMeta(_PluginBase):
                 self.log_error(f"更新Plex媒体项详情失败：{str(err)}")
             return False
 
-        if server == "emby":
+        if server_type == "emby":
             return __set_emby_iteminfo()
-        elif server == "jellyfin":
+        elif server_type == "jellyfin":
             return __set_jellyfin_iteminfo()
         else:
             return __set_plex_iteminfo()
 
     @retry(RequestException, logger=logger)
-    def set_item_image(self, server: str, itemid: str, imageurl: str):
+    def set_item_image(self, server_type: str, itemid: str, imageurl: str, mediaserver_instance: Any = None):
         """
         更新媒体项图片
         """
@@ -797,8 +1238,9 @@ class EpisodeGroupMeta(_PluginBase):
             更新Emby媒体项图片
             """
             try:
+                instance = mediaserver_instance or self.emby
                 url = f'[HOST]emby/Items/{itemid}/Images/Primary?api_key=[APIKEY]'
-                res = self.emby.post_data(
+                res = instance.post_data(
                     url=url,
                     data=_base64,
                     headers={
@@ -820,9 +1262,10 @@ class EpisodeGroupMeta(_PluginBase):
             # FIXME 改为预下载图片
             """
             try:
+                instance = mediaserver_instance or self.jellyfin
                 url = f'[HOST]Items/{itemid}/RemoteImages/Download?' \
                       f'Type=Primary&ImageUrl={imageurl}&ProviderName=TheMovieDb&api_key=[APIKEY]'
-                res = self.jellyfin.post_data(url=url)
+                res = instance.post_data(url=url)
                 if res and res.status_code in [200, 204]:
                     return True
                 else:
@@ -838,23 +1281,65 @@ class EpisodeGroupMeta(_PluginBase):
             # FIXME 改为预下载图片
             """
             try:
-                plexitem = self.plex.get_plex().library.fetchItem(ekey=itemid)
+                instance = mediaserver_instance or self.plex
+                plexitem = instance.get_plex().library.fetchItem(ekey=itemid)
                 plexitem.uploadPoster(url=imageurl)
                 return True
             except Exception as err:
                 self.log_error(f"更新Plex媒体项图片失败：{err}")
             return False
 
-        if server == "emby":
+        if server_type == "emby":
             # 下载图片获取base64
             image_base64 = __download_image()
             if image_base64:
                 return __set_emby_item_image(image_base64)
-        elif server == "jellyfin":
+        elif server_type == "jellyfin":
             return __set_jellyfin_item_image()
         else:
             return __set_plex_item_image()
         return None
+
+    def service_infos(self, type_filter: Optional[str] = None):
+        """
+        服务信息
+        """
+        if self.mediaserver_helper == None:
+            # 动态载入媒体服务器帮助类
+            module_name = "app.helper.mediaserver"
+            spec = importlib.util.find_spec(module_name)
+            if spec is not None:
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[module_name] = module
+                spec.loader.exec_module(module)
+                if hasattr(module, 'MediaServerHelper'):
+                    self.log_info(f"v2版本初始化媒体库类")
+                    self.mediaserver_helper = module.MediaServerHelper()
+        if self.mediaserver_helper == None:
+            if self.emby == None:
+                self.log_info(f"v1版本初始化媒体库类")
+                self.emby = Emby()
+                self.plex = Plex()
+                self.jellyfin = Jellyfin()
+            return None
+
+        services = self.mediaserver_helper.get_services(type_filter=type_filter)#, name_filters=self._mediaservers)
+        if not services:
+            self.log_warn("获取媒体服务器实例失败，请检查配置")
+            return None
+
+        active_services = {}
+        for service_name, service_info in services.items():
+            if service_info.instance.is_inactive():
+                self.log_warn(f"媒体服务器 {service_name} 未连接，请检查配置")
+            else:
+                active_services[service_name] = service_info
+
+        if not active_services:
+            self.log_warn("没有已连接的媒体服务器，请检查配置")
+            return None
+
+        return active_services
 
     def log_error(self, ss: str):
         logger.error(f"<{self.plugin_name}> {str(ss)}")

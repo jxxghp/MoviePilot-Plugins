@@ -74,12 +74,14 @@
         "name": "豆瓣想看",
         "description": "同步豆瓣想看数据，自动添加订阅。",
         "labels": "订阅",
-        "version": "1.8",
+        "version": "1.9.1",
         "icon": "douban.png",
         "author": "jxxghp",
         "level": 2,
         "v2": true,
         "history": {
+            "v1.9.1": "修复版本兼容问题",
+            "v1.9": "请求豆瓣RSS时增加请求头",
             "v1.8": "不同步在看条目",
             "v1.7": "增强API安全性",
             "v1.6": "同步历史记录支持手动删除，需要主程序升级至v1.8.4+版本",
@@ -296,11 +298,12 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "labels": "做种,IYUU",
-        "version": "1.9.5",
+        "version": "1.9.6",
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2,
         "history": {
+            "v1.9.6": "调整IYUU最新域名",
             "v1.9.5": "Revert qBittorrent跳检之后自动开始",
             "v1.9.4": "修复qBittorrent辅种后不会自动开始做种",
             "v1.9.3": "修复Monika因缺少rsskey，种子下载失败的问题",
@@ -487,16 +490,6 @@
         "level": 1,
         "v2": true
     },
-    "IyuuMsg": {
-        "name": "IYUU消息推送",
-        "description": "支持使用IYUU发送消息通知。",
-        "labels": "消息通知,IYUU",
-        "version": "1.2",
-        "icon": "Iyuu_A.png",
-        "author": "jxxghp",
-        "level": 1,
-        "v2": true
-    },
     "PushDeerMsg": {
         "name": "PushDeer消息推送",
         "description": "支持使用PushDeer发送消息通知。",
@@ -534,10 +527,18 @@
         "name": "TMDB剧集组刮削",
         "description": "从TMDB剧集组刮削季集的实际顺序。",
         "labels": "刮削",
-        "version": "1.1",
+        "version": "2.5",
         "icon": "Element_A.png",
         "author": "叮叮当",
-        "level": 1
+        "level": 1,
+        "v2": true,
+        "history": {
+            "v2.5": "修复当媒体服务器中剧集的季不完整时会中断的问题",
+            "v2.3": "修复v2版本无法读取媒体库的问题",
+            "v2.2": "修复v2版本无法读取数据的问题",
+            "v2.1": "增加发送通知提醒选择剧集组",
+            "v2.0": "增加手动选择剧集组的功能"
+        }
     },
     "CustomIndexer": {
         "name": "自定义索引站点",
@@ -859,53 +860,66 @@
         "v2": true
     },
     "DynamicWeChat": {
-        "name": "修改企业微信可信IP",
-        "description": "优先使用cookie，可本地扫码刷新Cookie，当填写两个第三方token时可手机远程更新cookie。",
+        "name": "动态企微可信IP",
+        "description": "修改企微应用可信IP，支持Srever酱等第三方通知。验证码以？结尾发送到企业微信应用",
         "labels": "消息通知",
-        "version": "1.3.1",
+        "version": "1.5.1",
         "icon": "Wecom_A.png",
         "author": "RamenRa",
         "level": 2,
         "v2": true,
         "history": {
+            "v1.5.1": "修复v2微信通知，可以指定微信通知ID",
+            "v1.5.0": "支持企微应用通知和第Serve酱等第三方推送。按要求修改插件名称",
+            "v1.4.1": "完善面板说明",
+            "v1.4.0": "修复强制更改IP时配置面板延时过长的问题。庆祝v2进入正式版，显示了一个没用的参数",
             "v1.3.1": "修正一些逻辑判断，修改ip成功会通知一次",
             "v1.3.0": "兼容v2，操作cookie前检查一次CookieCloud",
-            "v1.2.0": "远程命令/push_qr，立即推送一次二维码到pushplus。添加<本地扫码刷新cookie>",
-            "v1.1.5": "将chromium运行设置为headless模式",
-            "v1.1.4": "放弃self.post_message()的消息推送，还原成send_pushplus_message()",
-            "v1.1.3": "关闭cookie输入框，延长cookie任务成功时不输出日志，使用设定中的CookieCloud设置"
+            "v1.2.0": "远程命令/push_qr，立即推送一次二维码到pushplus。添加<本地扫码刷新cookie>"
         }
     },
     "SyncCookieCloud": {
         "name": "同步CookieCloud",
         "description": "同步MoviePilot站点Cookie到本地CookieCloud。",
         "labels": "站点",
-        "version": "2.0",
+        "version": "1.4",
         "icon": "Cookiecloud_A.png",
         "author": "thsrite",
         "level": 1,
         "history": {
-            "v2.0": "调整逻辑，修复问题",
+            "v1.4": "调整逻辑，修复问题",
             "v1.3": "感谢MidnightShake共享代码（同步时保留MoviePilot不匹配站点的cookie）",
             "v1.2": "同步到本地CookieCloud",
             "v1.1": "修复CookieCloud覆盖到浏览器",
             "v1.0": "同步MoviePilot站点Cookie到CookieCloud"
         }
     },
-  "BangumiColl": {
-    "name": "Bangumi收藏订阅",
-    "description": "Bangumi用户收藏添加到订阅",
-    "labels": "订阅",
-    "version": "1.5.1",
-    "icon": "bangumi_b.png",
-    "author": "Attente",
-    "level": 1,
-    "v2": true,
-    "history": {
-      "v1.5.1": "修复季度信息未传递的问题. 新增站点列表同步删除",
-      "v1.5": "修复总集数会同步TMDB变动的问题,增加开关选项",
-      "v1.4": "结构优化",
-      "v1.3.1": "修复因修改季号导致未下载剧集而完成订阅的问题"
+    "BangumiColl": {
+        "name": "Bangumi收藏订阅",
+        "description": "Bangumi用户收藏添加到订阅",
+        "labels": "订阅",
+        "version": "1.5.2",
+        "icon": "bangumi_b.png",
+        "author": "Attente",
+        "level": 1,
+        "v2": true,
+        "history": {
+            "v1.5.2": "修复定时任务未正确注册的问题",
+            "v1.5.1": "修复季度信息未传递的问题. 新增站点列表同步删除",
+            "v1.5": "修复总集数会同步TMDB变动的问题,增加开关选项"
+        }
+    },
+    "IyuuMsg": {
+        "name": "IYUU消息推送",
+        "description": "支持使用IYUU发送消息通知。",
+        "labels": "消息通知,IYUU",
+        "version": "1.3",
+        "icon": "Iyuu_A.png",
+        "author": "jxxghp",
+        "level": 1,
+        "v2": true,
+        "history": {
+            "v1.3": "消息限流发送，以缓解IYUU服务器压力"
+        }
     }
-  }
 }

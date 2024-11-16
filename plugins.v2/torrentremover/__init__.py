@@ -26,7 +26,7 @@ class TorrentRemover(_PluginBase):
     # 插件图标
     plugin_icon = "delete.jpg"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -814,7 +814,7 @@ class TorrentRemover(_PluginBase):
                 name = remove_torrent.get("name")
                 size = remove_torrent.get("size")
                 for torrent in torrents:
-                    if downloader == "qbittorrent":
+                    if downloader_config.type == "qbittorrent":
                         plus_id = torrent.hash
                         plus_name = torrent.name
                         plus_size = torrent.size

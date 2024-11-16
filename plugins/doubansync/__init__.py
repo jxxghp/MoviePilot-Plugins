@@ -34,7 +34,7 @@ class DoubanSync(_PluginBase):
     # 插件图标
     plugin_icon = "douban.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.9.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -498,6 +498,11 @@ class DoubanSync(_PluginBase):
         """
         if not self._users:
             return
+        # 版本
+        if hasattr(settings, 'VERSION_FLAG'):
+            version = settings.VERSION_FLAG  # V2
+        else:
+            version = "v1"
         # 读取历史记录
         if self._clearflag:
             history = []
@@ -509,7 +514,12 @@ class DoubanSync(_PluginBase):
                 continue
             logger.info(f"开始同步用户 {user_id} 的豆瓣想看数据 ...")
             url = self._interests_url % user_id
-            results = self.rsshelper.parse(url)
+            if version == "v2":
+                results = self.rsshelper.parse(url, headers={
+                    "User-Agent": settings.USER_AGENT
+                })
+            else:
+                results = self.rsshelper.parse(url)
             if not results:
                 logger.warn(f"未获取到用户 {user_id} 豆瓣RSS数据：{url}")
                 continue

@@ -178,32 +178,16 @@
             "v2.0": "兼容MoviePilot V2 版本"
         }
     },
-    "ConfigCenter": {
-        "name": "配置中心",
-        "description": "快速调整部分系统设定。",
-        "labels": "系统设置",
-        "version": "3.2",
-        "icon": "setting.png",
-        "author": "jxxghp",
-        "level": 1,
-        "history": {
-            "v3.2": "优化显示，按功能区分",
-            "v3.1": "重构配置更新逻辑，从而与主程序保持一致",
-            "v3.0": "兼容MoviePilot V2 版本",
-            "v2.6": "支持DOH相关配置项",
-            "v2.5": "增加Github加速服务器设置项"
-        }
-    },
     "TorrentRemover": {
         "name": "自动删种",
         "description": "自动删除下载器中的下载任务。",
         "labels": "做种",
-        "version": "2.1",
+        "version": "2.1.1",
         "icon": "delete.jpg",
         "author": "jxxghp",
         "level": 2,
         "history": {
-            "v2.1": "修复兼容MoviePilot V2 版本",
+            "v2.1.1": "修复兼容MoviePilot V2 版本",
             "v2.0": "兼容MoviePilot V2 版本"
         }
     },
@@ -211,11 +195,12 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "labels": "做种,IYUU",
-        "version": "2.0.1",
+        "version": "2.1",
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2,
         "history": {
+            "v2.1": "调整IYUU最新域名",
             "v2.0": "兼容MoviePilot V2 版本"
         }
     },
@@ -229,6 +214,30 @@
         "level": 1,
         "history": {
             "v2.0": "适配MoviePilot V2 版本"
+        }
+    },
+    "HistoryToV2": {
+        "name": "历史记录迁移",
+        "description": "将MoviePilot V1版本的整理历史记录迁移至V2版本。",
+        "labels": "整理,历史记录",
+        "version": "1.1",
+        "icon": "Moviepilot_A.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v1.1": "修复启动提示信息"
+        }
+    },
+    "SyncCookieCloud": {
+        "name": "同步CookieCloud",
+        "description": "同步MoviePilot站点Cookie到本地CookieCloud。",
+        "labels": "站点",
+        "version": "2.1",
+        "icon": "Cookiecloud_A.png",
+        "author": "thsrite",
+        "level": 1,
+        "history": {
+            "v2.1": "兼容MoviePilot V2"
         }
     }
 }
