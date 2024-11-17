@@ -227,5 +227,17 @@
         "history": {
             "v2.1": "兼容MoviePilot V2"
         }
+    },
+    "ChineseSubFinder": {
+        "name": "ChineseSubFinder",
+        "description": "整理入库时通知ChineseSubFinder下载字幕。",
+        "labels": "字幕",
+        "version": "2.0",
+        "icon": "chinesesubfinder.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0": "兼容MoviePilot V2"
+        }
     }
 }

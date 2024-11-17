@@ -112,8 +112,7 @@
         "version": "1.1",
         "icon": "chinesesubfinder.png",
         "author": "jxxghp",
-        "level": 1,
-        "v2": true
+        "level": 1
     },
     "DoubanRank": {
         "name": "豆瓣榜单订阅",
