@@ -252,13 +252,13 @@
             "v2.0": "兼容MoviePilot V2"
         }
     },
-    "PlayletCategory": {
+    "PlayletCategory_v2": {
         "name": "短剧自动分类",
         "description": "网络短剧自动整理到独立的分类目录。",
         "labels": "文件整理",
         "version": "2.1",
         "icon": "Amule_A.png",
-        "author": "jxxghp",
+        "author": "longqiuyu",
         "level": 1,
         "v2": true,
         "history": {
