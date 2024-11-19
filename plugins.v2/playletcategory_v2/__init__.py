@@ -25,7 +25,7 @@ class PlayletCategory_v2(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "2.2"
+    plugin_version = "2.3"
     # 插件作者
     plugin_author = "longqiuyu"
     # 作者主页
@@ -202,18 +202,26 @@ class PlayletCategory_v2(_PluginBase):
         """
         根据事件实时刮削剧集组信息
         """
+        logger.info(f"触发短剧分类！")
         if not event:
+            logger.info(f"短剧分类异常：{event}")
             return
         if not self.get_state():
+            logger.info(f"短剧分类异常：{event}")
             return
         event_data = event.event_data
         mediainfo: MediaInfo = event_data.get("mediainfo")
         transferinfo: TransferInfo = event_data.get("transferinfo")
+        logger.info(f"mediainfo：{mediainfo}")
+        logger.info(f"transferinfo：{transferinfo}")
         if not mediainfo or not transferinfo:
+            logger.info(f"1")
             return
         if not transferinfo.target_path:
+            logger.info(f"2")
             return
         if not transferinfo.target_path.exists():
+            logger.info(f"3")
             return
         if mediainfo.type != MediaType.TV:
             logger.info(f"{transferinfo.target_path} 不是电视剧，跳过分类处理")
@@ -275,7 +283,9 @@ class PlayletCategory_v2(_PluginBase):
         移动文件到分类目录
         :param target_path: 电视剧时为季的目录
         """
+        logger.info(f"target_path: {target_path}")
         if not target_path.exists():
+            logger.info(f"4")
             return
         if target_path.is_file():
             target_path = target_path.parent
