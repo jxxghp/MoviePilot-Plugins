@@ -25,7 +25,7 @@ class PlayletCategory_v2(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "2.4"
+    plugin_version = "2.5"
     # 插件作者
     plugin_author = "longqiuyu"
     # 作者主页
@@ -212,19 +212,17 @@ class PlayletCategory_v2(_PluginBase):
         event_data = event.event_data
         mediainfo: MediaInfo = event_data.get("mediainfo")
         transferinfo: TransferInfo = event_data.get("transferinfo")
-        logger.info(f"mediainfo：{mediainfo}")
-        logger.info(f"transferinfo：{transferinfo}")
         if not mediainfo or not transferinfo:
-            logger.info(f"1")
+            logger.info(f"关键信息不存在！")
             return
-        if not transferinfo.target_path:
+        if not transferinfo.target_item.path:
             logger.info(f"2")
             return
-        if not transferinfo.target_path.exists():
+        if not transferinfo.target_item.path.exists():
             logger.info(f"3")
             return
         if mediainfo.type != MediaType.TV:
-            logger.info(f"{transferinfo.target_path} 不是电视剧，跳过分类处理")
+            logger.info(f"{transferinfo.target_item.path} 不是电视剧，跳过分类处理")
             return
         # 加锁
         with lock:
@@ -232,10 +230,9 @@ class PlayletCategory_v2(_PluginBase):
             # 过滤掉不存在的文件
             file_list = [file for file in file_list if Path(file).exists()]
             if not file_list:
-                logger.info(f"{transferinfo.target_path} 无文件，跳过分类处理")
-                logger.warn(f"{transferinfo.target_path} 无文件，跳过分类处理")
+                logger.warn(f"{transferinfo.target_item.path} 无文件，跳过分类处理")
                 return
-            logger.info(f"开始处理 {transferinfo.target_path} 短剧分类，共有 {len(file_list)} 个文件")
+            logger.info(f"开始处理 {transferinfo.target_item.path} 短剧分类，共有 {len(file_list)} 个文件")
             # 从文件列表中随机抽取3个文件
             if len(file_list) > 3:
                 check_files = random.choices(file_list, k=3)
@@ -253,11 +250,11 @@ class PlayletCategory_v2(_PluginBase):
                 else:
                     logger.info(f"{file} 时长：{duration} 分钟")
             if need_category:
-                logger.info(f"{transferinfo.target_path} 需要分类处理，开始移动文件...")
-                self.__move_files(target_path=transferinfo.target_path)
-                logger.info(f"{transferinfo.target_path} 短剧分类处理完成")
+                logger.info(f"{transferinfo.target_item.path} 需要分类处理，开始移动文件...")
+                self.__move_files(target_path=transferinfo.target_item.path)
+                logger.info(f"{transferinfo.target_item.path} 短剧分类处理完成")
             else:
-                logger.info(f"{transferinfo.target_path} 不是短剧，无需分类处理")
+                logger.info(f"{transferinfo.target_item.path} 不是短剧，无需分类处理")
 
     @staticmethod
     def __get_duration(video_path: str) -> float:
