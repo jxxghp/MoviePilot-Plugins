@@ -25,7 +25,7 @@ class PlayletCategory_v2(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "2.5"
+    plugin_version = "2.6"
     # 插件作者
     plugin_author = "longqiuyu"
     # 作者主页
@@ -224,9 +224,10 @@ class PlayletCategory_v2(_PluginBase):
         if mediainfo.type != MediaType.TV:
             logger.info(f"{transferinfo.target_item.path} 不是电视剧，跳过分类处理")
             return
+        logger.info("开始整理！")
         # 加锁
         with lock:
-            file_list = transferinfo.file_list_new or []
+            file_list = transferinfo.target_item.file_list_new or []
             # 过滤掉不存在的文件
             file_list = [file for file in file_list if Path(file).exists()]
             if not file_list:
