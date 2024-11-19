@@ -25,7 +25,7 @@ class PlayletCategory_v2(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "2.3"
+    plugin_version = "2.4"
     # 插件作者
     plugin_author = "longqiuyu"
     # 作者主页
@@ -232,6 +232,7 @@ class PlayletCategory_v2(_PluginBase):
             # 过滤掉不存在的文件
             file_list = [file for file in file_list if Path(file).exists()]
             if not file_list:
+                logger.info(f"{transferinfo.target_path} 无文件，跳过分类处理")
                 logger.warn(f"{transferinfo.target_path} 无文件，跳过分类处理")
                 return
             logger.info(f"开始处理 {transferinfo.target_path} 短剧分类，共有 {len(file_list)} 个文件")
