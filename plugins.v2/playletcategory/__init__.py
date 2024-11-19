@@ -17,7 +17,7 @@ from app.utils.system import SystemUtils
 lock = threading.Lock()
 
 
-class PlayletCategory(_PluginBase):
+class PlayletCategory_v2(_PluginBase):
     # 插件名称
     plugin_name = "短剧自动分类"
     # 插件描述
@@ -25,13 +25,13 @@ class PlayletCategory(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
     author_url = "https://github.com/jxxghp"
     # 插件配置项ID前缀
-    plugin_config_prefix = "playletcategory_"
+    plugin_config_prefix = "playletcategory_v2_"
     # 加载顺序
     plugin_order = 29
     # 可使用的用户级别
