@@ -26,7 +26,7 @@ class PlayletCategory_v2(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "2.11"
+    plugin_version = "2.12"
     # 插件作者
     plugin_author = "longqiuyu"
     # 作者主页
@@ -212,25 +212,28 @@ class PlayletCategory_v2(_PluginBase):
             return
         try:
             event_data = event.event_data
-            mediainfo: MediaInfo = event_data.get("mediainfo")
-            transferinfo: TransferInfo = event_data.get("transferinfo")
+            media_info: MediaInfo = event_data.get("mediainfo")
+            transfer_info: TransferInfo = event_data.get("transferinfo")
             logger.info(transferinfo.target_diritem)
             logger.info(transferinfo.target_diritem.path)
-            if not mediainfo or not transferinfo:
+            if not media_info or not transfer_info:
                 return
-            if not transferinfo.target_diritem.path:
-                logger.debug(f"文件路径不存在:{transferinfo.target_diritem.path}")
+            if not transfer_info.success:
+                logger.debug(f"整理失败不做处理！")
                 return
-            target_path = Path(transferinfo.target_diritem.path)
+            if not transfer_info.target_diritem.path:
+                logger.debug(f"文件路径不存在:{transfer_info.target_diritem.path}")
+                return
+            target_path = Path(transfer_info.target_diritem.path)
             if not target_path.exists():
                 logger.debug(f"文件路径不存在:{target_path}")
                 return
-            if mediainfo.type != MediaType.TV:
+            if media_info.type != MediaType.TV:
                 logger.info(f"{target_path} 不是电视剧，跳过分类处理")
                 return
             # 加锁
             with lock:
-                file_list = transferinfo.file_list_new or []
+                file_list = transfer_info.file_list_new or []
                 # 过滤掉不存在的文件
                 file_list = [file for file in file_list if Path(file).exists()]
                 if not file_list:
@@ -254,8 +257,11 @@ class PlayletCategory_v2(_PluginBase):
                         logger.info(f"{file} 时长：{duration} 分钟")
                 if need_category:
                     logger.info(f"{target_path} 需要分类处理，开始移动文件...")
-                    self.__move_files(target_path=target_path)
-                    logger.info(f"{target_path} 短剧分类处理完成")
+                    result = self.__move_files(target_path=target_path)
+                    if result:
+                        logger.info(f"{target_path} 短剧分类处理完成")
+                    else:
+                        logger.info(f"{target_path} 短剧分类移动失败！")
                 else:
                     logger.info(f"{target_path} 不是短剧，无需分类处理")
         except Exception as e:
@@ -281,7 +287,7 @@ class PlayletCategory_v2(_PluginBase):
         # 获取视频时长（秒），转换为分钟
         return round(float(output) / 60, 1)
 
-    def __move_files(self, target_path: Path):
+    def __move_files(self, target_path: Path) -> bool:
         """
         移动文件到分类目录
         :param target_path: 电视剧时为季的目录
@@ -289,7 +295,7 @@ class PlayletCategory_v2(_PluginBase):
         logger.info(f"target_path: {target_path}")
         if not target_path.exists():
             logger.warning(f"目标路径 {target_path} 不存在，跳过处理。")
-            return
+            return False
         if target_path.is_file():
             target_path = target_path.parent
         # 剧集的根目录
@@ -304,18 +310,29 @@ class PlayletCategory_v2(_PluginBase):
                 shutil.move(target_path, new_path)
             except Exception as e:
                 logger.error(f"移动文件失败：{e}")
-                return
+                return False
         else:
             # 遍历目录下的所有文件，并移动到目的目录
             for file in target_path.iterdir():
+                logger.info("f{file}")
                 if file.is_file():
                     try:
                         # 相对路径
                         relative_path = file.relative_to(target_path)
-                        shutil.move(file, new_path / relative_path)
+                        logger.info(f"relative_path:{to_path}")
+                        to_path = new_path / relative_path
+                        logger.info(f"to_path:{to_path}")
+                        shutil.move(file, to_path)
                     except Exception as e:
                         logger.error(f"移动文件失败：{e}")
-                        return
+                        return False
+                else:
+                    # 整季移动
+                    try:
+                        shutil.move(file, new_path)
+                    except Exception as e:
+                        logger.error(f"移动文件失败：{e}")
+                        return False
             # 删除空目录
             if not SystemUtils.list_files(target_path, extensions=settings.RMT_MEDIAEXT + settings.DOWNLOAD_TMPEXT):
                 try:
@@ -330,6 +347,7 @@ class PlayletCategory_v2(_PluginBase):
                 title="【短剧自动分类】",
                 text=f"已将 {tv_path.name} 分类到 {self._category_dir} 目录",
             )
+        return True
 
     def stop_service(self):
         """
