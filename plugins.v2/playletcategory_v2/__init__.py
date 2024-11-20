@@ -1,4 +1,5 @@
 import random
+import time
 import shutil
 import subprocess
 import threading
@@ -26,7 +27,7 @@ class PlayletCategory_v2(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "2.14"
+    plugin_version = "2.15"
     # 插件作者
     plugin_author = "longqiuyu"
     # 作者主页
@@ -230,6 +231,9 @@ class PlayletCategory_v2(_PluginBase):
             if media_info.type != MediaType.TV:
                 logger.info(f"{target_path} 不是电视剧，跳过分类处理")
                 return
+            if self._delay > 0:
+                # 进行延迟
+                time.sleep(self._delay)
             # 加锁
             with lock:
                 file_list = transfer_info.file_list_new or []
