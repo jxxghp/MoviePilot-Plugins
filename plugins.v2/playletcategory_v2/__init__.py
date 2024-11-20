@@ -27,7 +27,7 @@ class PlayletCategory_v2(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "2.16"
+    plugin_version = "2.17"
     # 插件作者
     plugin_author = "longqiuyu"
     # 作者主页
@@ -231,9 +231,9 @@ class PlayletCategory_v2(_PluginBase):
             if media_info.type != MediaType.TV:
                 logger.info(f"{target_path} 不是电视剧，跳过分类处理")
                 return
-            if self._delay > 0:
+            if int(self._delay) > 0:
                 # 进行延迟
-                time.sleep(self._delay)
+                time.sleep(int(self._delay))
             # 加锁
             with lock:
                 file_list = transfer_info.file_list_new or []
