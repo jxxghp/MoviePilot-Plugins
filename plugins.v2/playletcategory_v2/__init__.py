@@ -26,7 +26,7 @@ class PlayletCategory_v2(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "2.13"
+    plugin_version = "2.14"
     # 插件作者
     plugin_author = "longqiuyu"
     # 作者主页
@@ -157,7 +157,7 @@ class PlayletCategory_v2(_PluginBase):
                                         'props': {
                                             'model': 'delay',
                                             'label': '入库延迟时间（秒）',
-                                            'placeholder': ''
+                                            'placeholder': '使用刮削尽量设置大一些'
                                         }
                                     }
                                 ]
@@ -214,7 +214,7 @@ class PlayletCategory_v2(_PluginBase):
             event_data = event.event_data
             media_info: MediaInfo = event_data.get("mediainfo")
             transfer_info: TransferInfo = event_data.get("transferinfo")
-            logger.debug(transfer_info)
+            # logger.debug(transfer_info)
             if not media_info or not transfer_info:
                 return
             if not transfer_info.success:
@@ -291,7 +291,7 @@ class PlayletCategory_v2(_PluginBase):
         移动文件到分类目录
         :param target_path: 电视剧时为季的目录
         """
-        logger.info(f"target_path: {target_path}")
+        logger.debug(f"target_path: {target_path}")
         if not target_path.exists():
             logger.warning(f"目标路径 {target_path} 不存在，跳过处理。")
             return False
@@ -299,10 +299,9 @@ class PlayletCategory_v2(_PluginBase):
             target_path = target_path.parent
         # 剧集的根目录
         tv_path = target_path
-        logger.info(f"{tv_path}")
         # 新的文件目录
         new_path = Path(self._category_dir) / target_path.name
-        logger.info(f"{new_path}")
+        logger.debug(f"{new_path}")
         if not new_path.exists():
             # 移动目录
             try:
@@ -313,14 +312,14 @@ class PlayletCategory_v2(_PluginBase):
         else:
             # 遍历目录下的所有文件，并移动到目的目录
             for file in target_path.iterdir():
-                logger.info("f{file}")
+                logger.debug(f"{file}")
                 if file.is_file():
                     try:
                         # 相对路径
                         relative_path = file.relative_to(target_path)
-                        logger.info(f"relative_path:{to_path}")
+                        logger.debug(f"relative_path:{to_path}")
                         to_path = new_path / relative_path
-                        logger.info(f"to_path:{to_path}")
+                        logger.debug(f"to_path:{to_path}")
                         shutil.move(file, to_path)
                     except Exception as e:
                         logger.error(f"移动文件失败：{e}")
