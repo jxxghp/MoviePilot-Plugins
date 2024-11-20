@@ -26,7 +26,7 @@ class PlayletCategory_v2(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "2.12"
+    plugin_version = "2.13"
     # 插件作者
     plugin_author = "longqiuyu"
     # 作者主页
@@ -214,8 +214,7 @@ class PlayletCategory_v2(_PluginBase):
             event_data = event.event_data
             media_info: MediaInfo = event_data.get("mediainfo")
             transfer_info: TransferInfo = event_data.get("transferinfo")
-            logger.info(transferinfo.target_diritem)
-            logger.info(transferinfo.target_diritem.path)
+            logger.debug(transfer_info)
             if not media_info or not transfer_info:
                 return
             if not transfer_info.success:
