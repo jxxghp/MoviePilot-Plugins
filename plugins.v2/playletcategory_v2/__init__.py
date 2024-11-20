@@ -26,7 +26,7 @@ class PlayletCategory_v2(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "2.9"
+    plugin_version = "2.10"
     # 插件作者
     plugin_author = "longqiuyu"
     # 作者主页
@@ -214,14 +214,14 @@ class PlayletCategory_v2(_PluginBase):
             event_data = event.event_data
             mediainfo: MediaInfo = event_data.get("mediainfo")
             transferinfo: TransferInfo = event_data.get("transferinfo")
-            logger.info(transferinfo.target_item)
-            logger.info(transferinfo.target_item.path)
+            logger.info(transferinfo.target_diritem)
+            logger.info(transferinfo.target_diritem.path)
             if not mediainfo or not transferinfo:
                 return
-            if not transferinfo.target_item.path:
-                logger.debug(f"文件路径不存在:{transferinfo.target_item.path}")
+            if not transferinfo.target_diritem.path:
+                logger.debug(f"文件路径不存在:{transferinfo.target_diritem.path}")
                 return
-            target_path = Path(transferinfo.target_item.path)
+            target_path = Path(transferinfo.target_diritem.path)
             if not target_path.exists():
                 logger.debug(f"文件路径不存在:{target_path}")
                 return
@@ -231,9 +231,8 @@ class PlayletCategory_v2(_PluginBase):
             logger.info("开始整理！")
             # 加锁
             with lock:
-                target_item: FileItem = transferinfo.target_item
-                logger.debug(f"target_item: {target_item}")
-                file_list = target_item.file_list_new or []
+                file_list = transferinfo.file_list_new or []
+                logger.debug(f"target_item: {file_list}")
                 # 过滤掉不存在的文件
                 file_list = [file for file in file_list if Path(file).exists()]
                 if not file_list:
