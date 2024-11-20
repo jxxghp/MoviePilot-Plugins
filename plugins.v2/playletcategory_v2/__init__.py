@@ -11,6 +11,7 @@ from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import TransferInfo
+from app.schemas.file import FileItem
 from app.schemas.types import EventType, MediaType, NotificationType
 from app.utils.system import SystemUtils
 
@@ -25,7 +26,7 @@ class PlayletCategory_v2(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "2.8"
+    plugin_version = "2.9"
     # 插件作者
     plugin_author = "longqiuyu"
     # 作者主页
@@ -230,7 +231,9 @@ class PlayletCategory_v2(_PluginBase):
             logger.info("开始整理！")
             # 加锁
             with lock:
-                file_list = transferinfo.target_item.file_list_new or []
+                target_item: FileItem = transferinfo.target_item
+                logger.debug(f"target_item: {target_item}")
+                file_list = target_item.file_list_new or []
                 # 过滤掉不存在的文件
                 file_list = [file for file in file_list if Path(file).exists()]
                 if not file_list:
