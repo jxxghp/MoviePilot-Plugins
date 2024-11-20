@@ -23,8 +23,7 @@ class ChineseSubFinder(_PluginBase):
     # 插件版本
     plugin_version = "2.0"
     # 插件作者
-    # plugin_author = "jxxghp"
-    plugin_author = "longqiuyu"
+    plugin_author = "jxxghp"
     # 作者主页
     author_url = "https://github.com/jxxghp"
     # 插件配置项ID前缀
