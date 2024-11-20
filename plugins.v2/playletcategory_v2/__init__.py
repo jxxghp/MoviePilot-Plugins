@@ -25,7 +25,7 @@ class PlayletCategory_v2(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "2.7"
+    plugin_version = "2.8"
     # 插件作者
     plugin_author = "longqiuyu"
     # 作者主页
@@ -213,52 +213,53 @@ class PlayletCategory_v2(_PluginBase):
             event_data = event.event_data
             mediainfo: MediaInfo = event_data.get("mediainfo")
             transferinfo: TransferInfo = event_data.get("transferinfo")
+            logger.info(transferinfo.target_item)
+            logger.info(transferinfo.target_item.path)
             if not mediainfo or not transferinfo:
-                logger.info(f"关键信息不存在！")
                 return
             if not transferinfo.target_item.path:
-                logger.info(f"2")
+                logger.debug(f"文件路径不存在:{transferinfo.target_item.path}")
                 return
-            if not transferinfo.target_item.path.exists():
-                logger.info(f"3")
+            target_path = Path(transferinfo.target_item.path)
+            if not target_path.exists():
+                logger.debug(f"文件路径不存在:{target_path}")
                 return
             if mediainfo.type != MediaType.TV:
-                logger.info(f"{transferinfo.target_item.path} 不是电视剧，跳过分类处理")
+                logger.info(f"{target_path} 不是电视剧，跳过分类处理")
                 return
-        except Exception as e:
-            logger.info(f"目录异常:{str(e)}")
-        logger.info("开始整理！")
-        # 加锁
-        with lock:
-            file_list = transferinfo.target_item.file_list_new or []
-            # 过滤掉不存在的文件
-            file_list = [file for file in file_list if Path(file).exists()]
-            if not file_list:
-                logger.warn(f"{transferinfo.target_item.path} 无文件，跳过分类处理")
-                return
-            logger.info(f"开始处理 {transferinfo.target_item.path} 短剧分类，共有 {len(file_list)} 个文件")
-            # 从文件列表中随机抽取3个文件
-            if len(file_list) > 3:
-                check_files = random.choices(file_list, k=3)
-            else:
-                check_files = file_list
-            # 计算文件时长，有任意文件时长大于单集时长则不处理
-            need_category = True
-            for file in check_files:
-                duration = self.__get_duration(file)
-                if duration > float(self._episode_duration):
-                    logger.info(
-                        f"{file} 时长 {duration} 分钟，大于单集时长 {self._episode_duration} 分钟，不需要分类处理")
-                    need_category = False
-                    break
+            logger.info("开始整理！")
+            # 加锁
+            with lock:
+                file_list = transferinfo.target_item.file_list_new or []
+                # 过滤掉不存在的文件
+                file_list = [file for file in file_list if Path(file).exists()]
+                if not file_list:
+                    logger.warn(f"{target_path} 无文件，跳过分类处理")
+                    return
+                logger.info(f"开始处理 {target_path} 短剧分类，共有 {len(file_list)} 个文件")
+                # 从文件列表中随机抽取3个文件
+                if len(file_list) > 3:
+                    check_files = random.choices(file_list, k=3)
                 else:
-                    logger.info(f"{file} 时长：{duration} 分钟")
-            if need_category:
-                logger.info(f"{transferinfo.target_item.path} 需要分类处理，开始移动文件...")
-                self.__move_files(target_path=transferinfo.target_item.path)
-                logger.info(f"{transferinfo.target_item.path} 短剧分类处理完成")
-            else:
-                logger.info(f"{transferinfo.target_item.path} 不是短剧，无需分类处理")
+                    check_files = file_list
+                # 计算文件时长，有任意文件时长大于单集时长则不处理
+                need_category = True
+                for file in check_files:
+                    duration = self.__get_duration(file)
+                    if duration > float(self._episode_duration):
+                        logger.info(f"{file} 时长 {duration} 分钟，大于单集时长 {self._episode_duration} 分钟，不需要分类处理")
+                        need_category = False
+                        break
+                    else:
+                        logger.info(f"{file} 时长：{duration} 分钟")
+                if need_category:
+                    logger.info(f"{target_path} 需要分类处理，开始移动文件...")
+                    self.__move_files(target_path=target_path)
+                    logger.info(f"{target_path} 短剧分类处理完成")
+                else:
+                    logger.info(f"{target_path} 不是短剧，无需分类处理")
+        except Exception as e:
+            logger.info(f"短剧分类异常:{str(e)}")
 
     @staticmethod
     def __get_duration(video_path: str) -> float:
@@ -287,14 +288,15 @@ class PlayletCategory_v2(_PluginBase):
         """
         logger.info(f"target_path: {target_path}")
         if not target_path.exists():
-            logger.info(f"4")
             return
         if target_path.is_file():
             target_path = target_path.parent
         # 剧集的根目录
         tv_path = target_path.parent
+        logger.info(f"{tv_path}")
         # 新的文件目录
         new_path = Path(self._category_dir) / tv_path.name
+        logger.info(f"{new_path}")
         if not new_path.exists():
             # 移动目录
             try:
