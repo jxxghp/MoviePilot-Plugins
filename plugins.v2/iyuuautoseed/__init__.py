@@ -33,7 +33,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -140,21 +140,20 @@ class IYUUAutoSeed(_PluginBase):
                                         run_date=datetime.now(
                                             tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3)
                                         )
-
                 # 关闭一次性开关
                 self._onlyonce = False
-                if self._scheduler.get_jobs():
-                    # 追加种子校验服务
-                    self._scheduler.add_job(self.check_recheck, 'interval', minutes=3)
-                    # 启动服务
-                    self._scheduler.print_jobs()
-                    self._scheduler.start()
 
             if self._clearcache:
                 # 关闭清除缓存开关
                 self._clearcache = False
             # 保存配置
             self.__update_config()
+
+            # 追加种子校验服务
+            self._scheduler.add_job(self.check_recheck, 'interval', minutes=3)
+            # 启动服务
+            self._scheduler.print_jobs()
+            self._scheduler.start()
 
     @property
     def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
