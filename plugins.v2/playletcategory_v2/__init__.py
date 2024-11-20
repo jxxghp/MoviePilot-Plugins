@@ -25,7 +25,7 @@ class PlayletCategory_v2(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "2.6"
+    plugin_version = "2.7"
     # 插件作者
     plugin_author = "longqiuyu"
     # 作者主页
@@ -209,21 +209,24 @@ class PlayletCategory_v2(_PluginBase):
         if not self.get_state():
             logger.info(f"短剧分类异常：{event}")
             return
-        event_data = event.event_data
-        mediainfo: MediaInfo = event_data.get("mediainfo")
-        transferinfo: TransferInfo = event_data.get("transferinfo")
-        if not mediainfo or not transferinfo:
-            logger.info(f"关键信息不存在！")
-            return
-        if not transferinfo.target_item.path:
-            logger.info(f"2")
-            return
-        if not transferinfo.target_item.path.exists():
-            logger.info(f"3")
-            return
-        if mediainfo.type != MediaType.TV:
-            logger.info(f"{transferinfo.target_item.path} 不是电视剧，跳过分类处理")
-            return
+        try:
+            event_data = event.event_data
+            mediainfo: MediaInfo = event_data.get("mediainfo")
+            transferinfo: TransferInfo = event_data.get("transferinfo")
+            if not mediainfo or not transferinfo:
+                logger.info(f"关键信息不存在！")
+                return
+            if not transferinfo.target_item.path:
+                logger.info(f"2")
+                return
+            if not transferinfo.target_item.path.exists():
+                logger.info(f"3")
+                return
+            if mediainfo.type != MediaType.TV:
+                logger.info(f"{transferinfo.target_item.path} 不是电视剧，跳过分类处理")
+                return
+        except Exception as e:
+            logger.info(f"目录异常:{str(e)}")
         logger.info("开始整理！")
         # 加锁
         with lock:
