@@ -653,7 +653,7 @@
         "icon": "Amule_A.png",
         "author": "jxxghp",
         "level": 1,
-        "v2": true,
+        // "v2": true,
         "history": {
             "v2.0": "适配新的目录结构变化，短剧分类名称调整为配置目录路径，升级后需要重新调整设置后才能使用。"
         }

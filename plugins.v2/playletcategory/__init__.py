@@ -19,7 +19,7 @@ from app.utils.system import SystemUtils
 lock = threading.Lock()
 
 
-class PlayletCategory_v2(_PluginBase):
+class PlayletCategory(_PluginBase):
     # 插件名称
     plugin_name = "短剧自动分类"
     # 插件描述
@@ -27,13 +27,13 @@ class PlayletCategory_v2(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_A.png"
     # 插件版本
-    plugin_version = "2.17"
+    plugin_version = "2.1"
     # 插件作者
-    plugin_author = "longqiuyu"
+    plugin_author = "jxxghp,longqiuyu"
     # 作者主页
-    author_url = "https://github.com/LongShengWen"
+    author_url = "https://github.com/jxxghp"
     # 插件配置项ID前缀
-    plugin_config_prefix = "playletcategory_v2_"
+    plugin_config_prefix = "playletcategory_"
     # 加载顺序
     plugin_order = 29
     # 可使用的用户级别
@@ -215,7 +215,6 @@ class PlayletCategory_v2(_PluginBase):
             event_data = event.event_data
             media_info: MediaInfo = event_data.get("mediainfo")
             transfer_info: TransferInfo = event_data.get("transferinfo")
-            # logger.debug(transfer_info)
             if not media_info or not transfer_info:
                 return
             if not transfer_info.success:
