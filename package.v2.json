@@ -195,11 +195,12 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "labels": "做种,IYUU",
-        "version": "2.1",
+        "version": "2.2",
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2,
         "history": {
+            "v2.2": "修复种子校验服务未生效",
             "v2.1": "调整IYUU最新域名",
             "v2.0": "兼容MoviePilot V2 版本"
         }
@@ -262,6 +263,19 @@
         "level": 1,
         "history": {
             "v2.0": "适配 MoviePilot V2"
+        }
+    },
+    "PlayletCategory": {
+        "name": "短剧自动分类",
+        "description": "网络短剧自动整理到独立的分类目录。",
+        "labels": "文件整理",
+        "version": "2.1",
+        "icon": "Amule_A.png",
+        "author": "jxxghp,longqiuyu",
+        "level": 1,
+        "history": {
+            "v2.1": "兼容MoviePilot V2",
+            "v2.0": "适配新的目录结构变化，短剧分类名称调整为配置目录路径，升级后需要重新调整设置后才能使用。"
         }
     }
 }
