@@ -253,6 +253,18 @@
             "v2.0": "兼容MoviePilot V2"
         }
     },
+    "CleanInvalidSeed": {
+        "name": "清理QB无效做种",
+        "description": "清理已经被站点删除的种子及对应源文件，仅支持QB",
+        "labels": "Qbittorrent",
+        "version": "2.0",
+        "icon": "clean_a.png",
+        "author": "DzAvril",
+        "level": 1,
+        "history": {
+            "v2.0": "适配 MoviePilot V2"
+        }
+    },
     "PlayletCategory": {
         "name": "短剧自动分类",
         "description": "网络短剧自动整理到独立的分类目录。",
