@@ -75,7 +75,7 @@ class DoubanHelper:
         response = RequestUtils(headers=self.headers).get_res(url)
         if not response.status_code == 200:
             logger.error(f"搜索 {title} 失败 状态码：{response.status_code}")
-            return None
+            return None, None, None
         # self.headers["Cookie"] = response.cookies
         soup = BeautifulSoup(response.text.encode('utf-8'), 'lxml')
         title_divs = soup.find_all("div", class_="title")
