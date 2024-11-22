@@ -1,53 +1,140 @@
-import re
-import time
-import hmac
-import hashlib
-import base64
-import urllib.parse
+import json
+import requests
 
-from app.plugins import _PluginBase
-from app.core.event import eventmanager, Event
-from app.schemas.types import EventType, NotificationType
-from app.utils.http import RequestUtils
 from typing import Any, List, Dict, Tuple
+
+from pypushdeer import PushDeer
+
+from app.core.event import eventmanager, Event
 from app.log import logger
+from app.plugins import _PluginBase
+from app.schemas.types import EventType, NotificationType
 
 
-class DingdingMsg(_PluginBase):
+class ExternalMessageForwarding(_PluginBase):
     # 插件名称
-    plugin_name = "钉钉机器人"
+    plugin_name = "外部消息转发"
     # 插件描述
-    plugin_desc = "支持使用钉钉机器人发送消息通知。"
+    plugin_desc = "外部应用使用apikey 推送mp消息（密钥认证）。"
     # 插件图标
-    plugin_icon = "Dingding_A.png"
+    plugin_icon = "forward.png"
     # 插件版本
-    plugin_version = "1.12"
+    plugin_version = "1.0"
     # 插件作者
-    plugin_author = "nnlegenda"
+    plugin_author = "KoWming"
     # 作者主页
-    author_url = "https://github.com/nnlegenda"
+    author_url = "https://github.com/KoWming/MoviePilot-Plugins"
     # 插件配置项ID前缀
-    plugin_config_prefix = "dingdingmsg_"
+    plugin_config_prefix = "externalmessageforwarding_"
     # 加载顺序
-    plugin_order = 25
+    plugin_order = 14
     # 可使用的用户级别
     auth_level = 1
 
+
     # 私有属性
     _enabled = False
-    _token = None
-    _secret = None
+    _server = None
+    _apikey = None
     _msgtypes = []
+
+    # 读取JSON文件
+    with open('api_spec.json', 'r') as file:
+        api_spec = json.load(file)
+
+    def send_external_push_message(self, title, text="", image=""):
+        """
+          	外部应用使用apikey 推送ms消息
+        :param title: 标题 （必填）
+        :param text: 内容 （选填）
+        :param image: 图片URL （选填）
+        :return: 
+        """
+        self.send_message(title=title, app_switch='external_push', client_switch='external_push', text=text, image=image)
+
+    def get_message_client_info(self, cid=None):
+        """
+        	获取消息端信息
+        """
+        if cid:
+            return self._client_configs.get(str(cid))
+        return self._client_configs
+
+    def get_interactive_client(self, client_type=None):
+        """
+        	查询当前可以交互的渠道
+        """
+        if client_type:
+            return self._active_interactive_clients.get(client_type)
+        else:
+            return [client for client in self._active_interactive_clients.values()]
+
+    @staticmethod
+    def get_search_types():
+        """
+        	查询可交互的渠道
+        """
+        return [info.get("search_type")
+                for info in ModuleConf.MESSAGE_CONF.get('client').values()
+                if info.get('search_type')]
+
+
+    def delete_message_client(self, cid):
+        """
+        	删除消息端
+        """
+        ret = self.dbhelper.delete_message_client(cid=cid)
+        self.init_config()
+        return ret
+
+    def check_message_client(self, cid=None, interactive=None, enabled=None, ctype=None):
+        """
+        	设置消息端
+        """
+        ret = self.dbhelper.check_message_client(
+            cid=cid,
+            interactive=interactive,
+            enabled=enabled,
+            ctype=ctype
+        )
+        self.init_config()
+        return ret
+
+    def insert_message_client(self,
+                              name,
+                              ctype,
+                              config,
+                              switchs: list,
+                              plugin_switchs: list,
+                              interactive,
+                              enabled,
+                              note=''):
+        """
+        	插入消息端
+        """
+        ret = self.dbhelper.insert_message_client(
+            name=name,
+            ctype=ctype,
+            config=config,
+            switchs=switchs,
+            plugin_switchs=plugin_switchs,
+            interactive=interactive,
+            enabled=enabled,
+            note=note
+        )
+        self.init_config()
+        return ret
+
 
     def init_plugin(self, config: dict = None):
         if config:
             self._enabled = config.get("enabled")
-            self._token = config.get("token")
-            self._secret = config.get("secret")
             self._msgtypes = config.get("msgtypes") or []
+            self._server = config.get("server")
+            self._apikey = config.get("apikey")
 
     def get_state(self) -> bool:
-        return self._enabled and (True if self._token else False) and (True if self._secret else False)
+        return self._enabled and (True if self._server and self._apikey else False)
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -98,36 +185,33 @@ class DingdingMsg(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12
+                                    'cols': 12,
+                                    'md': 6
                                 },
                                 'content': [
                                     {
                                         'component': 'VTextField',
                                         'props': {
-                                            'model': 'token',
-                                            'label': '钉钉机器人token',
-                                            'placeholder': 'xxxxxx',
+                                            'model': 'server',
+                                            'label': '服务器',
+                                            'placeholder': 'https://api2.pushdeer.com',
                                         }
                                     }
                                 ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
+                            },
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12
+                                    'cols': 12,
+                                    'md': 6
                                 },
                                 'content': [
                                     {
                                         'component': 'VTextField',
                                         'props': {
-                                            'model': 'secret',
-                                            'label': '加签',
-                                            'placeholder': 'SECxxx',
+                                            'model': 'apikey',
+                                            'label': '密钥',
+                                            'placeholder': 'PDUxxx',
                                         }
                                     }
                                 ]
@@ -161,8 +245,9 @@ class DingdingMsg(_PluginBase):
             }
         ], {
             "enabled": False,
-            'token': '',
-            'msgtypes': []
+            'msgtypes': [],
+            'server': 'https://api2.pushdeer.com',
+            'apikey': ''
         }
 
     def get_page(self) -> List[dict]:
@@ -190,8 +275,6 @@ class DingdingMsg(_PluginBase):
         title = msg_body.get("title")
         # 文本
         text = msg_body.get("text")
-        # 封面
-        cover = msg_body.get("image")
 
         if not title and not text:
             logger.warn("标题和内容不能同时为空")
@@ -202,68 +285,20 @@ class DingdingMsg(_PluginBase):
             logger.info(f"消息类型 {msg_type.value} 未开启消息发送")
             return
 
-        sc_url = self.url_sign(self._token, self._secret)
-
         try:
-
-            if text:
-                # 对text进行Markdown特殊字符转义
-                text = re.sub(r"([_`])", r"\\\1", text)
+            if not self._server or not self._apikey:
+                return False, "参数未配置"
+            pushdeer = PushDeer(server=self._server, pushkey=self._apikey)
+            res = pushdeer.send_markdown(title, desp=text)
+            if res:
+                logger.info(f"PushDeer消息发送成功")
             else:
-                text = ""
-
-            if cover:
-                data = {
-                    "msgtype": "markdown",
-                    "markdown": {
-                        "title": title,
-                        "text": "### %s\n\n"
-                                "![Cover](%s)\n\n"
-                                "> %s\n\n > MoviePilot %s\n" % (title, cover, text, msg_type.value)
-                    }
-                }
-            else:
-                data = {
-                    "msgtype": "markdown",
-                    "markdown": {
-                        "title": title,
-                        "text": "### %s\n\n"
-                                "> %s\n\n > MoviePilot %s\n" % (title, text, msg_type.value)
-                    }
-                }
-            res = RequestUtils(content_type="application/json").post_res(sc_url, json=data)
-            if res and res.status_code == 200:
-                ret_json = res.json()
-                errno = ret_json.get('errcode')
-                error = ret_json.get('errmsg')
-                if errno == 0:
-                    logger.info("钉钉机器人消息发送成功")
-                else:
-                    logger.warn(f"钉钉机器人消息发送失败，错误码：{errno}，错误原因：{error}")
-            elif res is not None:
-                logger.warn(f"钉钉机器人消息发送失败，错误码：{res.status_code}，错误原因：{res.reason}")
-            else:
-                logger.warn("钉钉机器人消息发送失败，未获取到返回信息")
+                logger.warn(f"PushDeer消息发送失败！")
         except Exception as msg_e:
-            logger.error(f"钉钉机器人消息发送失败，{str(msg_e)}")
+            logger.error(f"PushDeer消息发送失败，错误信息：{str(msg_e)}")
 
     def stop_service(self):
         """
         退出插件
         """
         pass
-
-    def url_sign(self, access_token: str, secret: str) -> str:
-        """
-        加签
-        """
-        # 生成时间戳和签名
-        timestamp = str(round(time.time() * 1000))
-        secret_enc = secret.encode('utf-8')
-        string_to_sign = '{}\n{}'.format(timestamp, secret)
-        string_to_sign_enc = string_to_sign.encode('utf-8')
-        hmac_code = hmac.new(secret_enc, string_to_sign_enc, digestmod=hashlib.sha256).digest()
-        sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
-        # 组合请求的完整 URL
-        full_url = f'https://oapi.dingtalk.com/robot/send?access_token={access_token}&timestamp={timestamp}&sign={sign}'
-        return full_url

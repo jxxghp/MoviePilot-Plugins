@@ -1,0 +1,37 @@
+{
+  "/message/external_push/send_json": {
+    "post": {
+      "responses": {
+        "200": {
+          "description": "Success"
+        }
+      },
+      "summary": "外部应用使用apikey 推送ms消息（密钥认证）",
+      "operationId": "post_external_push_send_json",
+      "parameters": [
+        {
+          "name": "payload",
+          "in": "body",
+          "required": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "image": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "tags": [
+        "message"
+      ]
+    }
+  }
+}
