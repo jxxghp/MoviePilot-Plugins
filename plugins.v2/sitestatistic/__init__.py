@@ -32,7 +32,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "lightolly,jxxghp"
     # 作者主页
@@ -246,6 +246,18 @@ class SiteStatistic(_PluginBase):
                 return value.isdigit()
             return False
 
+        def __to_numeric(value: any) -> int:
+            """
+            将值转换为整数
+            """
+            if isinstance(value, str):
+                return int(float(value))
+            elif isinstance(value, float) or isinstance(value, int):
+                return int(value)
+            else:
+                logger.error(f'数据类型转换错误 ({value})')
+                return 0
+
         def __sub_data(d1: dict, d2: dict) -> dict:
             """
             计算两个字典相同Key值的差值（如果值为数字），返回新字典
@@ -254,7 +266,7 @@ class SiteStatistic(_PluginBase):
                 return {}
             if not d2:
                 return d1
-            d = {k: d1.get(k) - d2.get(k) for k in d1
+            d = {k: __to_numeric(d1.get(k)) - __to_numeric(d2.get(k)) for k in d1
                  if k in d2 and __is_digit(d1.get(k)) and __is_digit(d2.get(k))}
             # 把小于0的数据变成0
             for k, v in d.items():
