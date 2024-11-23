@@ -32,7 +32,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "lightolly,jxxghp"
     # 作者主页
@@ -80,19 +80,7 @@ class SiteStatistic(_PluginBase):
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
-        """
-        定义远程控制命令
-        :return: 命令关键字、事件、描述、附带数据
-        """
-        return [{
-            "cmd": "/site_statistic",
-            "event": EventType.PluginAction,
-            "desc": "站点数据统计",
-            "category": "站点",
-            "data": {
-                "action": "site_statistic"
-            }
-        }]
+        pass
 
     def get_api(self) -> List[Dict[str, Any]]:
         """
@@ -900,24 +888,6 @@ class SiteStatistic(_PluginBase):
 
     def stop_service(self):
         pass
-
-    @eventmanager.register(EventType.PluginAction)
-    def refresh(self, event: Optional[Event] = None):
-        """
-        刷新站点数据
-        """
-        if event:
-            event_data = event.event_data
-            if not event_data or event_data.get("action") != "site_statistic":
-                return
-            logger.info("收到命令，开始刷新站点数据 ...")
-            self.post_message(channel=event.event_data.get("channel"),
-                              title="开始刷新站点数据 ...",
-                              userid=event.event_data.get("user"))
-        SiteChain().refresh_userdatas()
-        if event:
-            self.post_message(channel=event.event_data.get("channel"),
-                              title="站点数据刷新完成！", userid=event.event_data.get("user"))
 
     def refresh_by_domain(self, domain: str, apikey: str) -> schemas.Response:
         """
