@@ -10,5 +10,17 @@
         "history": {
             "v1.0": "第一个测试版"
         }
+    },
+    "HttpMessageForwarder": {
+        "name": "HTTP消息转发器",
+        "description": "接收HTTP请求并将消息转发到指定的URL。",
+        "labels": "消息通知",
+        "version": "1.0",
+        "icon": "forward.png",
+        "author": "KoWming",
+        "level": 2,
+        "history": {
+            "v1.0": "第一个测试版"
+        }
     }
 }
