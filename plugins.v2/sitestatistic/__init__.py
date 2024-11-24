@@ -198,11 +198,13 @@ class SiteStatistic(_PluginBase):
         }
 
     @eventmanager.register(EventType.SiteRefreshed)
-    def send_msg(self, _: Event):
+    def send_msg(self, event: Event):
         """
         站点数据刷新事件时发送消息
         """
         if not self._notify_type:
+            return
+        if event.event_data.get('site_id') != "*":
             return
         # 获取站点数据
         today, today_data, yesterday_data = self.__get_data()
