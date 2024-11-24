@@ -1,22 +1,18 @@
-import time
 import warnings
 from datetime import datetime, timedelta
 from threading import Lock
 from typing import Optional, Any, List, Dict, Tuple
 
-import pytz
-from apscheduler.schedulers.background import BackgroundScheduler
-
 from app import schemas
 from app.chain.site import SiteChain
 from app.core.config import settings
-from app.core.event import Event, eventmanager
+from app.core.event import eventmanager, Event
 from app.db.models.siteuserdata import SiteUserData
 from app.db.site_oper import SiteOper
 from app.helper.sites import SitesHelper
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas.types import EventType
+from app.schemas.types import EventType, NotificationType
 from app.utils.string import StringUtils
 
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -32,7 +28,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "lightolly,jxxghp"
     # 作者主页
@@ -47,14 +43,16 @@ class SiteStatistic(_PluginBase):
     # 配置属性
     siteoper = None
     siteshelper = None
+    sitechain = None
     _enabled: bool = False
     _onlyonce: bool = False
     _dashboard_type: str = "today"
-    _scheduler = None
+    _notify_type = ""
 
     def init_plugin(self, config: dict = None):
         self.siteoper = SiteOper()
         self.siteshelper = SitesHelper()
+        self.sitechain = SiteChain()
 
         # 停止现有任务
         self.stop_service()
@@ -64,15 +62,11 @@ class SiteStatistic(_PluginBase):
             self._enabled = config.get("enabled")
             self._onlyonce = config.get("onlyonce")
             self._dashboard_type = config.get("dashboard_type") or "today"
+            self._notify_type = config.get("notify_type") or ""
 
         if self._onlyonce:
             config["onlyonce"] = False
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            self._scheduler.add_job(self.refresh, "date",
-                                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                                    name="站点数据统计服务")
-            self._scheduler.print_jobs()
-            self._scheduler.start()
+            self.sitechain.refresh_userdatas()
             self.update_config(config=config)
 
     def get_state(self) -> bool:
@@ -171,6 +165,27 @@ class SiteStatistic(_PluginBase):
                                         }
                                     }
                                 ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'notify_type',
+                                            'label': '数据刷新时发送通知',
+                                            'items': [
+                                                {'title': '不发送', 'value': ''},
+                                                {'title': '今日增量数据', 'value': 'inc'},
+                                                {'title': '累计全量数据', 'value': 'all'}
+                                            ]
+                                        }
+                                    }
+                                ]
                             }
                         ]
                     }
@@ -181,6 +196,60 @@ class SiteStatistic(_PluginBase):
             "onlyonce": False,
             "dashboard_type": 'today'
         }
+
+    @eventmanager.register(EventType.SiteRefreshed)
+    def send_msg(self, _: Event):
+        """
+        站点数据刷新事件时发送消息
+        """
+        if not self._notify_type:
+            return
+        # 获取站点数据
+        today, today_data, yesterday_data = self.__get_data()
+        # 转换为字典
+        today_data_dict = {data.name: data for data in today_data}
+        yesterday_data_dict = {data.name: data for data in yesterday_data}
+        # 消息内容
+        messages = {}
+        # 总上传
+        incUploads = 0
+        # 总下载
+        incDownloads = 0
+        # 今天的日期
+        today_date = datetime.now().strftime("%Y-%m-%d")
+
+        for rand, site in enumerate(today_data_dict.keys()):
+            upload = int(today_data_dict[site].upload or 0)
+            download = int(today_data_dict[site].download or 0)
+            updated_date = today_data_dict[site].updated_day
+
+            if self._notify_type == "inc" and yesterday_data_dict.get(site):
+                upload -= int(yesterday_data[site].get("upload") or 0)
+                download -= int(yesterday_data[site].get("download") or 0)
+
+            if updated_date and updated_date != today_date:
+                updated_date = f"（{updated_date}）"
+            else:
+                updated_date = ""
+
+            if upload > 0 or download > 0:
+                incUploads += upload
+                incDownloads += download
+                messages[upload + (rand / 1000)] = (
+                        f"【{site}】{updated_date}\n"
+                        + f"上传量：{StringUtils.str_filesize(upload)}\n"
+                        + f"下载量：{StringUtils.str_filesize(download)}\n"
+                        + "————————————"
+                )
+
+        if incDownloads or incUploads:
+            sorted_messages = [messages[key] for key in sorted(messages.keys(), reverse=True)]
+            sorted_messages.insert(0, f"【汇总】\n"
+                                      f"总上传：{StringUtils.str_filesize(incUploads)}\n"
+                                      f"总下载：{StringUtils.str_filesize(incDownloads)}\n"
+                                      f"————————————")
+            self.post_message(mtype=NotificationType.SiteMessage,
+                              title="站点数据统计", text="\n".join(sorted_messages))
 
     def __get_data(self) -> Tuple[str, List[SiteUserData], List[SiteUserData]]:
         """

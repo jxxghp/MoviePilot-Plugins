@@ -3,11 +3,12 @@
         "name": "站点数据统计",
         "description": "站点统计数据图表。",
         "labels": "站点,仪表板",
-        "version": "1.3",
+        "version": "1.4",
         "icon": "statistic.png",
         "author": "lightolly,jxxghp",
         "level": 2,
         "history": {
+            "v1.4": "支持数据刷新时发送消息通知",
             "v1.3": "远程刷新命令移植到主程序",
             "v1.2": "继续修复增量数据统计问题",
             "v1.1": "修复增量数据统计问题",
