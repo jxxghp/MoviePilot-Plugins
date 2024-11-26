@@ -18,7 +18,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -91,6 +91,13 @@ class MediaServerMsg(_PluginBase):
             return None
 
         return active_services
+
+    def service_info(self, name: str) -> Optional[ServiceInfo]:
+        """
+        服务信息
+        """
+        service_infos = self.service_infos() or {}
+        return service_infos.get(name)
 
     def get_state(self) -> bool:
         return self._enabled
@@ -259,6 +266,18 @@ class MediaServerMsg(_PluginBase):
                 break
         if not msgflag:
             logger.info(f"未开启 {event_info.event} 类型的消息通知")
+            return
+
+        if not self.service_infos():
+            logger.info(f"未开启任一媒体服务器的消息通知")
+            return
+
+        if event_info.server_name and not self.service_info(name=event_info.server_name):
+            logger.info(f"未开启媒体服务器 {event_info.server_name} 的消息通知")
+            return
+
+        if event_info.channel and not self.service_infos(type_filter=event_info.channel):
+            logger.info(f"未开启媒体服务器类型 {event_info.channel} 的消息通知")
             return
 
         expiring_key = f"{event_info.item_id}-{event_info.client}-{event_info.user_name}"
