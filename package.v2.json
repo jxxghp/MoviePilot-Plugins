@@ -1,11 +1,11 @@
 {
     "ExternalMessageForwarding": {
         "name": "外部消息转发",
-        "description": "外部应用使用apikey 推送mp消息（密钥认证）。",
+        "description": "接收外部消息并通过当前通知渠道发送消息。",
         "labels": "消息通知",
         "version": "1.0",
         "icon": "forward.png",
-        "author": "KoWming",
+        "author": "jxxghp,KoWming",
         "level": 2,
         "history": {
             "v1.0": "第一个测试版"
