@@ -256,17 +256,17 @@ class ExternalMessageNotifier(_PluginBase):
         if not event_info:
             return
         # 检查是否支持该类型的消息
-        if not self._webhook_actions.get(event_info.event):
-            return
+     #   if not self._webhook_actions.get(event_info.event):
+     #       return
         # 检查是否选择了该类型的消息
-        msgflag = False
-        for _type in self._types:
-            if event_info.event in _type.split("|"):
-                msgflag = True
-                break
-        if not msgflag:
-            logger.info(f"未开启 {event_info.event} 类型的消息通知")
-            return
+     #   msgflag = False
+     #   for _type in self._types:
+     #       if event_info.event in _type.split("|"):
+     #           msgflag = True
+     #           break
+     #   if not msgflag:
+     #       logger.info(f"未开启 {event_info.event} 类型的消息通知")
+     #       return
         # 构建消息标题
         if event_info.item_type in ["TV", "SHOW"]:
             message_title = f"{self._webhook_actions.get(event_info.event)}剧集 {event_info.item_name}"
@@ -329,8 +329,8 @@ class ExternalMessageNotifier(_PluginBase):
             self.__remove_element(expiring_key)
 
         # 发送消息
-        self.post_message(mtype=NotificationType.MediaServer,
-                          title=message_title, text=message_content, image=image_url, link=play_link)
+     #   self.post_message(mtype=NotificationType.MediaServer,
+     #                     title=message_title, text=message_content, image=image_url, link=play_link)
 
     # 处理Webhook请求
     async def handle_webhook(self, request: Request):
@@ -363,6 +363,10 @@ class ExternalMessageNotifier(_PluginBase):
         except Exception as e:
             logger.error(f"处理Webhook请求时出错：{str(e)}")
             raise HTTPException(status_code=400, detail=str(e))
+            
+        # 发送消息
+        self.post_message(mtype=NotificationType.MediaServer,
+                          title=webhook_request.title, text=webhook_request.text)
 
     # 添加元素到过期字典
     def __add_element(self, key, duration=600):
