@@ -4,8 +4,8 @@
         "description": "接收外部消息并通过当前通知渠道发送消息。",
         "labels": "消息通知",
         "version": "1.0",
-        "icon": "forward.png",
-        "author": "jxxghp,KoWming",
+        "icon": "message.png",
+        "author": "KoWming",
         "level": 2,
         "history": {
             "v1.0": "第一个测试版"
@@ -28,8 +28,12 @@
         "description": "接收外部消息并通过当前通知渠道发送消息。",
         "labels": "消息通知",
         "version": "1.1",
-        "icon": "message.png",
-        "author": "KoWming",
+        "icon": "forward.png",
+        "author": "jxxghp,KoWming",
         "level": 1
+        "history": {
+            "v1.1": "第二个测试版"
+            "v1.0": "第一个测试版"
+        }
   }
 }
