@@ -13,29 +13,15 @@ from pydantic import BaseModel
 router = APIRouter()
 
 class WebhookRequest(BaseModel):
-    event: str
-    item_id: str
-    item_name: str
-    item_type: str
-    user_name: Optional[str]
-    client: Optional[str]
-    device_name: Optional[str]
-    ip: Optional[str]
-    percentage: Optional[float]
-    overview: Optional[str]
-    image_url: Optional[str]
-    tmdb_id: Optional[str]
-    season_id: Optional[str]
-    episode_id: Optional[str]
-    server_name: Optional[str]
-    channel: Optional[str]
+    title: str
+    text: str
 
 class ExternalMessageNotifier(_PluginBase):
     # 插件基本信息
     plugin_name = "外部消息通知"  # 插件名称
     plugin_desc = "接收外部消息并通过当前通知渠道发送消息。"  # 插件描述
     plugin_icon = "forward.png"  # 插件图标
-    plugin_version = "1.0"  # 插件版本
+    plugin_version = "1.1"  # 插件版本
     plugin_author = "jxxghp,KoWming"  # 插件作者
     author_url = "https://github.com/KoWming/MoviePilot-Plugins"  # 作者主页
     plugin_config_prefix = "externalmessagenotifier_"  # 插件配置项ID前缀
@@ -281,11 +267,6 @@ class ExternalMessageNotifier(_PluginBase):
         if not msgflag:
             logger.info(f"未开启 {event_info.event} 类型的消息通知")
             return
-        # 处理重复的停止播放消息
-        expiring_key = f"{event_info.item_id}-{event_info.client}-{event_info.user_name}"
-        if str(event_info.event) == "playback.stop" and expiring_key in self._webhook_msg_keys.keys():
-            self.__add_element(expiring_key)
-            return
         # 构建消息标题
         if event_info.item_type in ["TV", "SHOW"]:
             message_title = f"{self._webhook_actions.get(event_info.event)}剧集 {event_info.item_name}"
@@ -357,22 +338,24 @@ class ExternalMessageNotifier(_PluginBase):
             data = await request.json()
             webhook_request = WebhookRequest(**data)
             event_info = WebhookEventInfo(
-                event=webhook_request.event,
-                item_id=webhook_request.item_id,
-                item_name=webhook_request.item_name,
-                item_type=webhook_request.item_type,
-                user_name=webhook_request.user_name,
-                client=webhook_request.client,
-                device_name=webhook_request.device_name,
-                ip=webhook_request.ip,
-                percentage=webhook_request.percentage,
-                overview=webhook_request.overview,
-                image_url=webhook_request.image_url,
-                tmdb_id=webhook_request.tmdb_id,
-                season_id=webhook_request.season_id,
-                episode_id=webhook_request.episode_id,
-                server_name=webhook_request.server_name,
-                channel=webhook_request.channel
+                event="custom",  # 自定义事件类型
+                item_id=None,
+                item_name=None,
+                item_type=None,
+                user_name=None,
+                client=None,
+                device_name=None,
+                ip=None,
+                percentage=None,
+                overview=None,
+                image_url=None,
+                tmdb_id=None,
+                season_id=None,
+                episode_id=None,
+                server_name=None,
+                channel=None,
+                title=webhook_request.title,
+                text=webhook_request.text
             )
             event = Event(event_type=EventType.WebhookMessage, event_data=event_info)
             self.send(event)

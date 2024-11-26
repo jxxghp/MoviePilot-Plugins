@@ -27,7 +27,7 @@
         "name": "外部消息通知",
         "description": "接收外部消息并通过当前通知渠道发送消息。",
         "labels": "消息通知",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "message.png",
         "author": "KoWming",
         "level": 1
