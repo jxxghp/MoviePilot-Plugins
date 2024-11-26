@@ -287,7 +287,6 @@
         "icon": "Time_machine_B.png",
         "author": "thsrite",
         "level": 1,
-        "v2": true,
         "history": {
             "v1.3": "去除已废弃的环境变量引用",
             "v1.2": "增强API安全性"
