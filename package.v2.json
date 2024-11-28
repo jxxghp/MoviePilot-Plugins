@@ -27,11 +27,12 @@
         "name": "外部消息通知",
         "description": "接收外部消息并通过当前通知渠道发送消息。",
         "labels": "消息通知",
-        "version": "1.3",
+        "version": "1.4",
         "icon": "forward.png",
         "author": "jxxghp,KoWming",
         "level": 1,
         "history": {
+            "v1.5": "第五个测试版",
             "v1.3": "第四个测试版",
             "v1.2": "第三个测试版",
             "v1.1": "第二个测试版",
