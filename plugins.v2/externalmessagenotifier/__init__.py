@@ -17,7 +17,7 @@ class ExternalMessageNotifier(_PluginBase):
     plugin_name = "外部消息通知"  # 插件名称
     plugin_desc = "接收外部消息并通过当前通知渠道发送消息。"  # 插件描述
     plugin_icon = "forward.png"  # 插件图标
-    plugin_version = "1.3"  # 插件版本
+    plugin_version = "1.4"  # 插件版本
     plugin_author = "jxxghp,KoWming"  # 插件作者
     author_url = "https://github.com/KoWming/MoviePilot-Plugins"  # 作者主页
     plugin_config_prefix = "externalmessagenotifier_"  # 插件配置项ID前缀
@@ -45,7 +45,7 @@ class ExternalMessageNotifier(_PluginBase):
     def get_api(self) -> List[Dict[str, Any]]:
         return [
             {
-                "path": "/webhook",
+                "path": "/api/v1/webhook",
                 "endpoint": self.handle_webhook,
                 "method": "POST",
                 "summary": "处理Webhook消息",
