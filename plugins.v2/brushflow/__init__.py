@@ -6,7 +6,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 from typing import Any, List, Dict, Tuple, Optional, Union, Set
-from urllib.parse import urlparse, parse_qs, unquote
+from urllib.parse import urlparse, parse_qs, unquote, parse_qsl, urlencode, urlunparse
 
 import pytz
 from app.helper.sites import SitesHelper
@@ -1943,7 +1943,7 @@ class BrushFlow(_PluginBase):
         """
         siteinfo = self.site_oper.get(siteid)
         if not siteinfo:
-            logger.warn(f"站点不存在：{siteid}")
+            logger.warning(f"站点不存在：{siteid}")
             return True
 
         logger.info(f"开始获取站点 {siteinfo.name} 的新种子 ...")
@@ -1995,7 +1995,7 @@ class BrushFlow(_PluginBase):
             # 添加下载任务
             hash_string = self.__download(torrent=torrent)
             if not hash_string:
-                logger.warn(f"{torrent.title} 添加刷流任务失败！")
+                logger.warning(f"{torrent.title} 添加刷流任务失败！")
                 continue
 
             # 触发刷流下载时间并保存任务信息
@@ -2222,7 +2222,7 @@ class BrushFlow(_PluginBase):
         """
         if not passed:
             if not torrent:
-                logger.warn(f"没有通过前置刷流条件校验，原因：{reason}")
+                logger.warning(f"没有通过前置刷流条件校验，原因：{reason}")
             else:
                 logger.debug(f"种子没有通过刷流条件校验，原因：{reason} 种子：{torrent.title}|{torrent.description}")
 
@@ -2247,7 +2247,7 @@ class BrushFlow(_PluginBase):
             downloader = self.downloader
             seeding_torrents, error = downloader.get_torrents()
             if error:
-                logger.warn("连接下载器出错，将在下个时间周期重试")
+                logger.warning("连接下载器出错，将在下个时间周期重试")
                 return
 
             seeding_torrents_dict = {self.__get_hash(torrent): torrent for torrent in seeding_torrents}
@@ -3006,6 +3006,30 @@ class BrushFlow(_PluginBase):
                 return data
         return None
 
+    def __reset_download_url(self, torrent_url, site_id):
+        """
+        处理下载地址
+        """
+        try:
+            # 检查 torrent_url 是否为有效的下载 URL，并且 site 是 NexusPHP
+            if not torrent_url or torrent_url.startswith("magnet") or not self.__is_nexusphp(site_id):
+                return torrent_url
+
+            # 解析 URL
+            parsed_url = urlparse(torrent_url)
+
+            # 如果 URL 中已有查询参数，使用 urlencode 进行拼接
+            query_params = dict(parse_qsl(parsed_url.query))
+            query_params["letdown"] = "1"
+
+            # 重新构造带有新参数的 URL
+            new_query = urlencode(query_params)
+            new_url = urlunparse(parsed_url._replace(query=new_query))
+            return new_url
+        except Exception as e:
+            logger.error(f"Error while resetting downloader URL for torrent: {torrent_url}. Error: {str(e)}")
+            return torrent_url
+
     def __download(self, torrent: TorrentInfo) -> Optional[str]:
         """
         添加下载任务
@@ -3039,6 +3063,7 @@ class BrushFlow(_PluginBase):
             logger.error(f"获取下载链接失败：{torrent.title}")
             return None
 
+        torrent_content = self.__reset_download_url(torrent_url=torrent_content, site_id=torrent.site)
         downloader = self.downloader
         if not downloader:
             return None
@@ -3467,7 +3492,7 @@ class BrushFlow(_PluginBase):
 
             torrents = downloader.get_downloading_torrents(tags=brush_config.brush_tag)
             if torrents is None:
-                logger.warn("获取下载数量失败，可能是下载器连接发生异常")
+                logger.warning("获取下载数量失败，可能是下载器连接发生异常")
                 return 0
 
             return len(torrents)
@@ -3813,3 +3838,17 @@ class BrushFlow(_PluginBase):
 
         # 当找不到对应的站点信息时，返回一个默认值
         return 0, domain
+
+    def __is_nexusphp(self, site_id):
+        """
+        是否NexusPHP站点
+        """
+        indexers = self.sites_helper.get_indexers()
+        if not indexers:
+            return False
+
+        site = next((item for item in indexers if item.get("id") == site_id), None)
+        if not site:
+            return False
+
+        return site.get("schema", "").startswith("Nexus")
