@@ -74,6 +74,7 @@ class BrushConfig:
         self.active_time_range = config.get("active_time_range")
         self.qb_category = config.get("qb_category")
         self.site_hr_active = config.get("site_hr_active", False)
+        self.site_skip_tips = config.get("site_skip_tips", False)
 
         self.brush_tag = "刷流"
         # 站点独立配置
@@ -115,7 +116,8 @@ class BrushConfig:
             "save_path",
             "proxy_delete",
             "qb_category",
-            "site_hr_active"
+            "site_hr_active",
+            "site_skip_tips"
             # 当新增支持字段时，仅在此处添加字段名
         }
         try:
@@ -180,7 +182,8 @@ class BrushConfig:
     "save_path": "/downloads/site1",
     "proxy_delete": false,
     "qb_category": "刷流",
-    "site_hr_active": true
+    "site_hr_active": true,
+    "site_skip_tips": true
 }]"""
         return desc + config
 
@@ -3006,13 +3009,22 @@ class BrushFlow(_PluginBase):
                 return data
         return None
 
-    def __reset_download_url(self, torrent_url, site_id):
+    def __reset_download_url(self, torrent_url, site_id) -> str:
         """
         处理下载地址
         """
         try:
             # 检查 torrent_url 是否为有效的下载 URL，并且 site 是 NexusPHP
-            if not torrent_url or torrent_url.startswith("magnet") or not self.__is_nexusphp(site_id):
+            if not torrent_url or torrent_url.startswith("magnet"):
+                return torrent_url
+
+            indexers = self.sites_helper.get_indexers()
+            if not indexers:
+                return torrent_url
+
+            unsupported_sites = {"天空"}
+            site = next((item for item in indexers if item.get("id") == site_id), None)
+            if site.get("name") in unsupported_sites or not site.get("schema", "").startswith("Nexus"):
                 return torrent_url
 
             # 解析 URL
@@ -3024,7 +3036,7 @@ class BrushFlow(_PluginBase):
 
             # 重新构造带有新参数的 URL
             new_query = urlencode(query_params)
-            new_url = urlunparse(parsed_url._replace(query=new_query))
+            new_url = str(urlunparse(parsed_url._replace(query=new_query)))
             return new_url
         except Exception as e:
             logger.error(f"Error while resetting downloader URL for torrent: {torrent_url}. Error: {str(e)}")
@@ -3063,7 +3075,10 @@ class BrushFlow(_PluginBase):
             logger.error(f"获取下载链接失败：{torrent.title}")
             return None
 
-        torrent_content = self.__reset_download_url(torrent_url=torrent_content, site_id=torrent.site)
+        if brush_config.site_skip_tips:
+            torrent_content = self.__reset_download_url(torrent_url=torrent_content, site_id=torrent.site)
+            logger.debug(f"站点 {torrent.site_name} 已启用自动跳过提示，种子下载地址更新为 {torrent_content}")
+
         downloader = self.downloader
         if not downloader:
             return None
@@ -3838,17 +3853,3 @@ class BrushFlow(_PluginBase):
 
         # 当找不到对应的站点信息时，返回一个默认值
         return 0, domain
-
-    def __is_nexusphp(self, site_id):
-        """
-        是否NexusPHP站点
-        """
-        indexers = self.sites_helper.get_indexers()
-        if not indexers:
-            return False
-
-        site = next((item for item in indexers if item.get("id") == site_id), None)
-        if not site:
-            return False
-
-        return site.get("schema", "").startswith("Nexus")
