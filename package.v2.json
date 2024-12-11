@@ -12,7 +12,7 @@
         }
     },
     "WebhookServer": {
-        "name": "Webhook Server",
+        "name": "WebhookServer",
         "description": "接收外部应用请求并推送消息。",
         "labels": "消息通知",
         "version": "1.0",
