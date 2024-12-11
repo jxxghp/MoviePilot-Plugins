@@ -1,4 +1,5 @@
 import time
+from app.plugins import _PluginBase
 from typing import Any, List, Dict, Tuple, Optional
 from app.core.event import eventmanager, Event
 from app.schemas import WebhookEventInfo, ServiceInfo
