@@ -4,6 +4,7 @@ from app.core.event import eventmanager, Event
 from typing import Any, List, Dict, Tuple, Optional
 from app.core.event import eventmanager, Event
 from app.schemas import WebhookEventInfo, ServiceInfo
+from app.schemas.types import EventType, NotificationType
 from app.schemas.types import NotificationType
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
