@@ -10,5 +10,17 @@
         "history": {
             "v1.0": "第一个测试版"
         }
+    },
+    "WebhookServer": {
+        "name": "Webhook Server",
+        "description": "接收外部应用请求并推送消息。",
+        "labels": "消息通知",
+        "version": "1.0",
+        "icon": "forward.png",
+        "author": "jxxghp,KoWming",
+        "level": 1,
+        "history": {
+            "v1.0": "第一个测试版"
+        }
     }
 }
