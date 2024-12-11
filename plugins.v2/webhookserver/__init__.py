@@ -1,15 +1,12 @@
 import time
+from typing import Any, List, Dict, Optional
+from app.core.event import eventmanager, Event
+from app.helper.notification import NotificationHelper
+from app.log import logger
 from app.plugins import _PluginBase
-from app.core.event import eventmanager, Event
-from typing import Any, List, Dict, Tuple, Optional
-from app.core.event import eventmanager, Event
 from app.schemas import WebhookEventInfo, ServiceInfo
-from app.schemas.types import EventType, NotificationType
-from app.schemas.types import NotificationType
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-
-app = FastAPI()
+from app.schemas.types import EventType, MediaType, MediaImageType, NotificationType
+from app.utils.web import WebUtils
 
 class WebhookServer(_PluginBase):
     # 插件名称
@@ -32,90 +29,43 @@ class WebhookServer(_PluginBase):
     auth_level = 1
     # 私有属性
     _enabled = False
-    _webhook_msg_keys = {}
+    _notification_helper = None
 
     def init_plugin(self, config: dict = None):
+        self._notification_helper = NotificationHelper()
         if config:
-            self._enabled = config.get("enabled", False)
+            self._enabled = config.get("enabled")
 
     def get_state(self) -> bool:
         return self._enabled
 
-    def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """
-        拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
-        """
+    def get_form(self) -> List[dict]:
         return [
             {
-                'component': 'VForm',
-                'content': [
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'enabled',
-                                            'label': '启用插件',
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ]
+                "type": "switch",
+                "id": "enabled",
+                "name": "启用插件",
+                "default": False
             }
-        ], {
-            "enabled": False,
-        }
+        ]
 
-    @eventmanager.register(EventType.WebhookMessage)
-    def send(self, event: Event):
-        """
-        发送通知消息
-        """
+    def send_message(self, title: str, content: str, image: Optional[str] = None):
         if not self._enabled:
             return
-        event_info: WebhookEventInfo = event.event_data
-        if not event_info:
-            return
+        self._notification_helper.send_message(
+            title=title,
+            text=content,
+            image=image
+        )
 
-        # 消息标题
-        message_title = event_info.title
-        # 消息内容
-        message_content = event_info.text
-        # 时间
-        current_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
-
-        # 构建完整的消息内容
-        full_message = f"{message_content}\n时间：{current_time}"
-
-        # 发送消息
-        self.post_message(mtype=NotificationType.Webhook,
-                          title=message_title, text=full_message)
-
-    def post_message(self, mtype: NotificationType, title: str, text: str, image: Optional[str] = None, link: Optional[str] = None):
-        # 这里应该调用实际的通知发送逻辑，例如通过邮件、短信等
-        print(f"Sending notification: {title} - {text}")
+    @eventmanager.register(EventType.ExternalMessage)
+    def handle_external_message(self, event: Event):
+        event_data = event.event_data or {}
+        title = event_data.get("title")
+        content = event_data.get("content")
+        image = event_data.get("image")
+        if title and content:
+            self.send_message(title, content, image)
 
     def stop_service(self):
-        """
-        退出插件
-        """
         pass
-
-# 定义路由以处理POST请求
-@app.post("/webhook")
-async def webhook(request: Request):
-    webhook_server = WebhookServer()
-    data = await request.json()
-    event = Event(event_type=EventType.WebhookMessage, event_data=WebhookEventInfo(title=data.get('title'), text=data.get('text')))
-    webhook_server.send(event)
-    return JSONResponse(content={"status": "success"}, status_code=200)
