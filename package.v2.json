@@ -1,29 +1,4 @@
 {
-    "ExternalMessageNotifier": {
-        "name": "通用Webhook消息通知",
-        "description": "发送来自任意webhook的消息通知，支持添加播放链接。",
-        "labels": "消息通知",
-        "version": "1.0",
-        "icon": "forward.png",
-        "author": "jxxghp,KoWming",
-        "level": 1,
-        "history": {
-            "v1.0": "第一个测试版"
-        }
-    },
-    "WebhookServer": {
-        "name": "Webhook Server",
-        "description": "接收外部应用请求并推送消息。",
-        "labels": "消息通知",
-        "version": "1.1",
-        "icon": "forward.png",
-        "author": "jxxghp,KoWming",
-        "level": 1,
-        "history": {
-            "v1.1": "第二个测试版",
-            "v1.0": "第一个测试版"
-        }
-    },
     "ExternalMessage": {
         "name": "External Message",
         "description": "外部应用消息推送。",
