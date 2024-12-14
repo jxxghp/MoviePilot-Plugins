@@ -23,5 +23,17 @@
             "v1.1": "第二个测试版",
             "v1.0": "第一个测试版"
         }
+    },
+    "ExternalMessage": {
+        "name": "External Message",
+        "description": "外部应用消息推送。",
+        "labels": "消息通知",
+        "version": "1.0",
+        "icon": "forward.png",
+        "author": "KoWming",
+        "level": 1,
+        "history": {
+            "v1.0": "第一个测试版"
+        }
     }
 }
