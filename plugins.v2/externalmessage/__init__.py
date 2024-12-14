@@ -91,7 +91,7 @@ class ExternalMessage(_PluginBase):
         }]
         """
         return [{
-            "path": "/external_push/send_json",
+            "path": "/send_json",
             "endpoint": self.ExternalPushSendJson,
             "methods": ["POST"],
             "summary": "外部应用自定义消息接口使用的API",
@@ -152,7 +152,7 @@ class ExternalMessage(_PluginBase):
                                         'content': [
                                             {
                                                 'component': 'span',
-                                                'text': 'API接口地址参考：http://MoviePilot_IP:PORT/api/v1/plugin/HomePage/external_push/send_json?apikey=api_token'
+                                                'text': 'API接口地址参考：http://MoviePilot_IP:PORT/api/v1/plugin/ExternalMessage/send_json?apikey=api_token'
                                             },
                                         ]
                                     }
