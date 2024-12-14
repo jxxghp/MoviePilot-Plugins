@@ -247,11 +247,15 @@
     "WebHook": {
         "name": "Webhook",
         "description": "事件发生时向第三方地址发送请求。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "webhook.png",
         "author": "jxxghp",
         "level": 1,
-        "v2": true
+        "v2": true,
+        "history": {
+            "v1.1": "兼容MoviePilot V2 版本",
+            "v1.0": "新增Webhook插件，支持事件发生时向第三方地址发送请求"
+        }
     },
     "ChatGPT": {
         "name": "ChatGPT",
