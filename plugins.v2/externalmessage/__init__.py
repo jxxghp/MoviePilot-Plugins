@@ -43,7 +43,7 @@ class ExternalMessage(_PluginBase):
     def get_state(self) -> bool:
         return self._enabled
 
-    def ExternalPushSendJson(self, apikey: str) -> Any:
+    def send_json(self, apikey: str) -> Any:
         """
         外部应用自定义消息接口使用的API
         """
@@ -92,7 +92,7 @@ class ExternalMessage(_PluginBase):
         """
         return [{
             "path": "/send_json",
-            "endpoint": self.ExternalPushSendJson,
+            "endpoint": self.send_json,
             "methods": ["POST"],
             "summary": "外部应用自定义消息接口使用的API",
             "description": "接收外部应用的json自定义消息接口",
