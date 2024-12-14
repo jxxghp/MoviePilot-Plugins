@@ -47,35 +47,39 @@ class ExternalMessage(_PluginBase):
         """
         外部应用自定义消息接口使用的API
         """
-        if apikey != settings.API_TOKEN:
-            return schemas.Response(success=False, message="API密钥错误")
-        
-        # 解析请求体中的JSON数据
-        data = request.get_json()
-        if not data:
-            logger.warn("请求体为空或格式不正确")
-            return schemas.Response(success=False, message="请求体为空或格式不正确")
-        
-        # 提取title和text字段
-        title = data.get('title')
-        content = data.get('content')
+        try:
+            if apikey != settings.API_TOKEN:
+                return schemas.Response(success=False, message="API密钥错误")
+            
+            # 解析请求体中的JSON数据
+            data = request.get_json()
+            if not data:
+                logger.warn("请求体为空或格式不正确")
+                return schemas.Response(success=False, message="请求体为空或格式不正确")
+            
+            # 提取title和text字段
+            title = data.get('title')
+            content = data.get('content')
 
-        if not title or not content:
-            logger.warn("缺少必要的字段title或content")
-            return schemas.Response(success=False, message="缺少必要的字段title或content")
-        
-        # 记录title和text到日志
-        logger.info(f"Received title: {title}, text: {content}")
+            if not title or not content:
+                logger.warn("缺少必要的字段title或content")
+                return schemas.Response(success=False, message="缺少必要的字段title或content")
+            
+            # 记录title和text到日志
+            logger.info(f"Received title: {title}, text: {content}")
 
-        # 调用post_message方法发送消息
-        self.post_message(
-            mtype=NotificationType.Plugin,
-            title=f"{title}\n",
-            text=f"{title}\n内容: {content}"
-        )
+            # 调用post_message方法发送消息
+            self.post_message(
+                mtype=NotificationType.Plugin,
+                title=f"{title}\n",
+                text=f"{title}\n内容: {content}"
+            )
 
-        return schemas.Response(success=True, message="消息接收成功", data={"title": title, "content": content})
+            return schemas.Response(success=True, message="消息接收成功", data={"title": title, "content": content})
 
+        except Exception as e:
+            logger.error(f"处理消息时发生错误: {e}")
+            return schemas.Response(success=False, message=f"处理消息时发生错误: {e}")
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
         pass
