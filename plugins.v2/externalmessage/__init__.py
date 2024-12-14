@@ -60,7 +60,7 @@ class ExternalMessage(_PluginBase):
         title = data.get('title')
         content = data.get('content')
 
-        if not title or not text:
+        if not title or not content:
             logger.warn("缺少必要的字段title或content")
             return schemas.Response(success=False, message="缺少必要的字段title或content")
         
