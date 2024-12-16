@@ -11,11 +11,11 @@ class PushPlusMsg(_PluginBase):
     # 插件名称
     plugin_name = "PushPlus消息推送"
     # 插件描述
-    plugin_desc = "支持使用PushPlus发送消息通知。"
+    plugin_desc = "支持使用PushPlus发送消息通知（需实名认证）。"
     # 插件图标
     plugin_icon = "Pushplus_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "cheng"
     # 作者主页
@@ -128,6 +128,27 @@ class PushPlusMsg(_PluginBase):
                             }
                         ]
                     },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '由于pushplus规则更新，没有实名认证的用户无法发送消息，所以需要用户自己去官网进行认证。官网地址:https://www.pushplus.plus'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
                 ]
             }
         ], {

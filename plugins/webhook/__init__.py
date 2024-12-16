@@ -1,9 +1,11 @@
-from app.plugins import _PluginBase
+from typing import Any, List, Dict, Tuple
+
+from app.core.config import settings
 from app.core.event import eventmanager
+from app.log import logger
+from app.plugins import _PluginBase
 from app.schemas.types import EventType
 from app.utils.http import RequestUtils
-from typing import Any, List, Dict, Tuple
-from app.log import logger
 
 
 class WebHook(_PluginBase):
@@ -14,7 +16,7 @@ class WebHook(_PluginBase):
     # 插件图标
     plugin_icon = "webhook.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -134,6 +136,9 @@ class WebHook(_PluginBase):
         if not self._enabled or not self._webhook_url:
             return
 
+        if not event or not event.event_type:
+            return
+
         def __to_dict(_event):
             """
             递归将对象转换为字典
@@ -159,21 +164,27 @@ class WebHook(_PluginBase):
             else:
                 return str(_event)
 
+        version = getattr(settings, "VERSION_FLAG", "v1")
+        event_type = event.event_type if version == "v1" else event.event_type.value
+
         event_info = {
-            "type": event.event_type,
+            "type": event_type,
             "data": __to_dict(event.event_data)
         }
 
-        if self._method == 'POST':
-            ret = RequestUtils(content_type="application/json").post_res(self._webhook_url, json=event_info)
-        else:
-            ret = RequestUtils().get_res(self._webhook_url, params=event_info)
-        if ret:
-            logger.info("发送成功：%s" % self._webhook_url)
-        elif ret is not None:
-            logger.error(f"发送失败，状态码：{ret.status_code}，返回信息：{ret.text} {ret.reason}")
-        else:
-            logger.error("发送失败，未获取到返回信息")
+        try:
+            if self._method == 'POST':
+                ret = RequestUtils(content_type="application/json").post_res(self._webhook_url, json=event_info)
+            else:
+                ret = RequestUtils().get_res(self._webhook_url, params=event_info)
+            if ret:
+                logger.info(f"发送成功：{self._webhook_url}")
+            elif ret is not None:
+                logger.error(f"发送失败，状态码：{ret.status_code}，返回信息：{ret.text} {ret.reason}")
+            else:
+                logger.error("发送失败，未获取到返回信息")
+        except Exception as e:
+            logger.error(f"发送请求时发生异常：{e}")
 
     def stop_service(self):
         """

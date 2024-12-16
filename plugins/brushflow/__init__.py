@@ -25,6 +25,7 @@ from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
 from app.schemas import NotificationType, TorrentInfo, MediaType
+from app.schemas.types import EventType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
@@ -63,15 +64,15 @@ class BrushConfig:
         self.delete_size_range = config.get("delete_size_range")
         self.up_speed = self.__parse_number(config.get("up_speed"))
         self.dl_speed = self.__parse_number(config.get("dl_speed"))
+        self.auto_archive_days = self.__parse_number(config.get("auto_archive_days"))
         self.save_path = config.get("save_path")
         self.clear_task = config.get("clear_task", False)
         self.archive_task = config.get("archive_task", False)
-        self.except_tags = config.get("except_tags", True)
+        self.delete_except_tags = config.get("delete_except_tags")
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
         self.proxy_download = config.get("proxy_download", False)
         self.proxy_delete = config.get("proxy_delete", False)
-        self.log_more = config.get("log_more", False)
         self.active_time_range = config.get("active_time_range")
         self.downloader_monitor = config.get("downloader_monitor")
         self.qb_category = config.get("qb_category")
@@ -257,7 +258,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "3.3"
+    plugin_version = "3.8"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -295,7 +296,6 @@ class BrushFlow(_PluginBase):
     # endregion
 
     def init_plugin(self, config: dict = None):
-        logger.info(f"站点刷流服务初始化")
         self.siteshelper = SitesHelper()
         self.siteoper = SiteOper()
         self.torrents = TorrentsChain()
@@ -340,11 +340,10 @@ class BrushFlow(_PluginBase):
             brush_config.archive_task = False
             self.__update_config()
 
-        if brush_config.log_more:
-            if brush_config.enable_site_config:
-                logger.info(f"已开启站点独立配置，配置信息：{brush_config}")
-            else:
-                logger.info(f"没有开启站点独立配置，配置信息：{brush_config}")
+        if brush_config.enable_site_config:
+            logger.debug(f"已开启站点独立配置，配置信息：{brush_config}")
+        else:
+            logger.debug(f"没有开启站点独立配置，配置信息：{brush_config}")
 
         # 停止现有任务
         self.stop_service()
@@ -365,8 +364,6 @@ class BrushFlow(_PluginBase):
 
         # 如果开启&存在站点时，才需要启用后台任务
         self._task_brush_enable = brush_config.enabled and brush_config.brushsites
-
-        # brush_config.onlyonce = True
 
         # 检查是否启用了一次性任务
         if brush_config.onlyonce:
@@ -974,11 +971,6 @@ class BrushFlow(_PluginBase):
                         'component': 'VWindow',
                         'props': {
                             'model': '_tabs'
-                            # VWindow设置paddnig会导致切换Tab时页面高度变动，调整为修改VRow的方案
-                            # 'style': {
-                            #     'padding-top': '24px',
-                            #     'padding-bottom': '24px',
-                            # },
                         },
                         'content': [
                             {
@@ -1137,6 +1129,25 @@ class BrushFlow(_PluginBase):
                                                             'model': 'dl_speed',
                                                             'label': '单任务下载限速（KB/s）',
                                                             'placeholder': '种子下载限速'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'auto_archive_days',
+                                                            'label': '自动归档记录天数',
+                                                            'placeholder': '超过此天数后自动归档',
+                                                            'type': 'number',
+                                                            "min": "0"
                                                         }
                                                     }
                                                 ]
@@ -1426,8 +1437,25 @@ class BrushFlow(_PluginBase):
                                                         'component': 'VTextField',
                                                         'props': {
                                                             'model': 'seed_inactivetime',
-                                                            'label': '未活动时间（分钟） ',
+                                                            'label': '未活动时间（分钟）',
                                                             'placeholder': '超过时删除任务'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    "cols": 12,
+                                                    "md": 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'delete_except_tags',
+                                                            'label': '删除排除标签',
+                                                            'placeholder': '如：MOVIEPILOT,H&R'
                                                         }
                                                     }
                                                 ]
@@ -1476,8 +1504,8 @@ class BrushFlow(_PluginBase):
                                                     {
                                                         'component': 'VSwitch',
                                                         'props': {
-                                                            'model': 'except_tags',
-                                                            'label': '删种排除MoviePilot任务',
+                                                            'model': 'except_subscribe',
+                                                            'label': '排除订阅（实验性功能）',
                                                         }
                                                     }
                                                 ]
@@ -1492,8 +1520,8 @@ class BrushFlow(_PluginBase):
                                                     {
                                                         'component': 'VSwitch',
                                                         'props': {
-                                                            'model': 'except_subscribe',
-                                                            'label': '排除订阅（实验性功能）',
+                                                            'model': 'qb_first_last_piece',
+                                                            'label': '优先下载首尾文件块',
                                                         }
                                                     }
                                                 ]
@@ -1640,43 +1668,6 @@ class BrushFlow(_PluginBase):
                                                         }
                                                     }
                                                 ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSwitch',
-                                                        'props': {
-                                                            'model': 'qb_first_last_piece',
-                                                            'label': '优先下载首尾文件块',
-                                                        }
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'VRow',
-                                        "content": [
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSwitch',
-                                                        'props': {
-                                                            'model': 'log_more',
-                                                            'label': '记录更多日志',
-                                                        }
-                                                    }
-                                                ]
                                             }
                                         ]
                                     }
@@ -1742,7 +1733,7 @@ class BrushFlow(_PluginBase):
                                         'props': {
                                             'type': 'error',
                                             'variant': 'tonal',
-                                            'text': '注意：排除H&R并不保证能完全适配所有站点（部分站点在列表页不显示H&R标志，但实际上是有H&R的），请注意核对使用！'
+                                            'text': '注意：排除H&R并不保证能完全适配所有站点（部分站点在列表页不显示H&R标志，但实际上是有H&R的），请注意核对使用'
                                         }
                                     }
                                 ]
@@ -1849,7 +1840,7 @@ class BrushFlow(_PluginBase):
             "onlyonce": False,
             "clear_task": False,
             "archive_task": False,
-            "except_tags": True,
+            "delete_except_tags": f"{settings.TORRENT_TAG},H&R" if settings.TORRENT_TAG else "H&R",
             "except_subscribe": True,
             "brush_sequential": False,
             "proxy_download": False,
@@ -1857,7 +1848,6 @@ class BrushFlow(_PluginBase):
             "freeleech": "free",
             "hr": "yes",
             "enable_site_config": False,
-            "log_more": False,
             "downloader_monitor": False,
             "auto_qb_category": False,
             "qb_first_last_piece": False,
@@ -2055,9 +2045,6 @@ class BrushFlow(_PluginBase):
 
         if brush_config.site_hr_active:
             logger.info(f"站点 {siteinfo.name} 已开启全站H&R选项，所有种子设置为H&R种子")
-            # 由于缓存原因，这里不能直接改torrents，在后续加入任务中调整
-            # for torrent in torrents:
-            #     torrent.hit_and_run = True
 
         # 排除包含订阅的种子
         if brush_config.except_subscribe:
@@ -2068,7 +2055,7 @@ class BrushFlow(_PluginBase):
 
         torrents_size = self.__calculate_seeding_torrents_size(torrent_tasks=torrent_tasks)
 
-        logger.info(f"正在准备种子刷流，数量：{len(torrents)}")
+        logger.info(f"正在准备种子刷流，数量 {len(torrents)}")
 
         # 过滤种子
         for torrent in torrents:
@@ -2077,6 +2064,8 @@ class BrushFlow(_PluginBase):
             self.__log_brush_conditions(passed=pre_condition_passed, reason=reason)
             if not pre_condition_passed:
                 return False
+
+            logger.debug(f"种子详情：{torrent}")
 
             # 判断能否通过保种体积刷流条件
             size_condition_passed, reason = self.__evaluate_size_condition_for_brush(torrents_size=torrents_size,
@@ -2098,8 +2087,8 @@ class BrushFlow(_PluginBase):
                 logger.warn(f"{torrent.title} 添加刷流任务失败！")
                 continue
 
-            # 保存任务信息
-            torrent_tasks[hash_string] = {
+            # 触发刷流下载时间并保存任务信息
+            torrent_task = {
                 "site": siteinfo.id,
                 "site_name": siteinfo.name,
                 "title": torrent.title,
@@ -2133,6 +2122,13 @@ class BrushFlow(_PluginBase):
                 "deleted": False,
                 "time": time.time()
             }
+
+            self.eventmanager.send_event(etype=EventType.PluginAction, data={
+                "action": "brushflow_download_added",
+                "hash": hash_string,
+                "data": torrent_task
+            })
+            torrent_tasks[hash_string] = torrent_task
 
             # 统计数据
             torrents_size += torrent.size
@@ -2306,7 +2302,8 @@ class BrushFlow(_PluginBase):
 
         return True, None
 
-    def __log_brush_conditions(self, passed: bool, reason: str, torrent: Any = None):
+    @staticmethod
+    def __log_brush_conditions(passed: bool, reason: str, torrent: Any = None):
         """
         记录刷流日志
         """
@@ -2314,9 +2311,7 @@ class BrushFlow(_PluginBase):
             if not torrent:
                 logger.warn(f"没有通过前置刷流条件校验，原因：{reason}")
             else:
-                brush_config = self.__get_brush_config()
-                if brush_config.log_more:
-                    logger.warn(f"种子没有通过刷流条件校验，原因：{reason} 种子：{torrent.title}|{torrent.description}")
+                logger.debug(f"种子没有通过刷流条件校验，原因：{reason} 种子：{torrent.title}|{torrent.description}")
 
     # endregion
 
@@ -2329,10 +2324,6 @@ class BrushFlow(_PluginBase):
         brush_config = self.__get_brush_config()
 
         if not brush_config.downloader:
-            return
-
-        if not self.__is_current_time_in_range():
-            logger.info(f"当前不在指定的刷流时间区间内，检查操作将暂时暂停")
             return
 
         with lock:
@@ -2372,34 +2363,58 @@ class BrushFlow(_PluginBase):
             # 更新刷流任务列表中在下载器中删除的种子为删除状态
             self.__update_undeleted_torrents_missing_in_downloader(torrent_tasks, torrent_check_hashes, check_torrents)
 
-            # 排除MoviePilot种子
-            if check_torrents and brush_config.except_tags:
-                check_torrents = self.__filter_torrents_by_tag(torrents=check_torrents,
-                                                               exclude_tag=settings.TORRENT_TAG)
+            # 根据配置的标签进行种子排除
+            if check_torrents:
+                logger.info(f"当前刷流任务共 {len(check_torrents)} 个有效种子，正在准备按设定的种子标签进行排除")
+                # 初始化一个空的列表来存储需要排除的标签
+                tags_to_exclude = set()
+                # 如果 delete_except_tags 非空且不是纯空白，则添加到排除列表中
+                if brush_config.delete_except_tags and brush_config.delete_except_tags.strip():
+                    tags_to_exclude.update(tag.strip() for tag in brush_config.delete_except_tags.split(','))
+                # 将所有需要排除的标签组合成一个字符串，每个标签之间用逗号分隔
+                combined_tags = ",".join(tags_to_exclude)
+                if combined_tags:  # 确保有标签需要排除
+                    pre_filter_count = len(check_torrents)  # 获取过滤前的任务数量
+                    check_torrents = self.__filter_torrents_by_tag(torrents=check_torrents, exclude_tag=combined_tags)
+                    post_filter_count = len(check_torrents)  # 获取过滤后的任务数量
+                    excluded_count = pre_filter_count - post_filter_count  # 计算被排除的任务数量
+                    logger.info(
+                        f"有效种子数 {pre_filter_count}，排除标签 '{combined_tags}' 后，"
+                        f"剩余种子数 {post_filter_count}，排除种子数 {excluded_count}")
+                else:
+                    logger.info("没有配置有效的排除标签，所有种子均参与后续处理")
 
-            need_delete_hashes = []
-
-            # 如果配置了动态删除以及删种阈值，则根据动态删种进行分组处理
-            if brush_config.proxy_delete and brush_config.delete_size_range:
-                logger.info("已开启动态删种，按系统默认动态删种条件开始检查任务")
-                proxy_delete_hashes = self.__delete_torrent_for_proxy(torrents=check_torrents,
-                                                                      torrent_tasks=torrent_tasks) or []
-                need_delete_hashes.extend(proxy_delete_hashes)
-            # 否则均认为是没有开启动态删种
+            # 种子删除检查
+            if not check_torrents:
+                logger.info("没有需要检查的任务，跳过")
             else:
-                logger.info("没有开启动态删种，按用户设置删种条件开始检查任务")
-                not_proxy_delete_hashes = self.__delete_torrent_for_evaluate_conditions(torrents=check_torrents,
-                                                                                        torrent_tasks=torrent_tasks) or []
-                need_delete_hashes.extend(not_proxy_delete_hashes)
+                need_delete_hashes = []
 
-            if need_delete_hashes:
-                # 如果是QB，则重新汇报Tracker
-                if brush_config.downloader == "qbittorrent":
-                    self.__qb_torrents_reannounce(torrent_hashes=need_delete_hashes)
-                # 删除种子
-                if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
-                    for torrent_hash in need_delete_hashes:
-                        torrent_tasks[torrent_hash]["deleted"] = True
+                # 如果配置了动态删除以及删种阈值，则根据动态删种进行分组处理
+                if brush_config.proxy_delete and brush_config.delete_size_range:
+                    logger.info("已开启动态删种，按系统默认动态删种条件开始检查任务")
+                    proxy_delete_hashes = self.__delete_torrent_for_proxy(torrents=check_torrents,
+                                                                          torrent_tasks=torrent_tasks) or []
+                    need_delete_hashes.extend(proxy_delete_hashes)
+                # 否则均认为是没有开启动态删种
+                else:
+                    logger.info("没有开启动态删种，按用户设置删种条件开始检查任务")
+                    not_proxy_delete_hashes = self.__delete_torrent_for_evaluate_conditions(torrents=check_torrents,
+                                                                                            torrent_tasks=torrent_tasks) or []
+                    need_delete_hashes.extend(not_proxy_delete_hashes)
+
+                if need_delete_hashes:
+                    # 如果是QB，则重新汇报Tracker
+                    if brush_config.downloader == "qbittorrent":
+                        self.__qb_torrents_reannounce(torrent_hashes=need_delete_hashes)
+                    # 删除种子
+                    if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
+                        for torrent_hash in need_delete_hashes:
+                            torrent_tasks[torrent_hash]["deleted"] = True
+                            torrent_tasks[torrent_hash]["deleted_time"] = time.time()
+
+            # 归档数据
+            self.__auto_archive_tasks(torrent_tasks=torrent_tasks)
 
             self.__update_and_save_statistic_info(torrent_tasks)
 
@@ -2618,8 +2633,7 @@ class BrushFlow(_PluginBase):
                                            reason=reason)
                 logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
             else:
-                if brush_config.log_more:
-                    logger.info(f"站点：{site_name}，{reason}，不删除种子：{torrent_title}|{torrent_desc}")
+                logger.debug(f"站点：{site_name}，{reason}，不删除种子：{torrent_title}|{torrent_desc}")
 
         return delete_hashes
 
@@ -2657,8 +2671,7 @@ class BrushFlow(_PluginBase):
                                            reason=reason)
                 logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
             else:
-                if brush_config.log_more:
-                    logger.info(f"站点：{site_name}，{reason}，不删除种子：{torrent_title}|{torrent_desc}")
+                logger.debug(f"站点：{site_name}，{reason}，不删除种子：{torrent_title}|{torrent_desc}")
 
         return delete_hashes
 
@@ -2829,6 +2842,7 @@ class BrushFlow(_PluginBase):
             torrent_task = torrent_tasks[hash_value]
             # 标记为已删除
             torrent_task["deleted"] = True
+            torrent_task["deleted_time"] = time.time()
             # 处理日志相关内容
             delete_tasks.append(torrent_task)
             site_name = torrent_task.get("site_name", "")
@@ -2914,7 +2928,7 @@ class BrushFlow(_PluginBase):
             "active_downloaded": active_downloaded
         })
 
-        logger.info(f"刷流任务统计数据：总任务数：{total_count}，活跃任务数：{active_count}，已删除：{total_deleted}，"
+        logger.info(f"刷流任务统计数据，总任务数：{total_count}，活跃任务数：{active_count}，已删除：{total_deleted}，"
                     f"待归档：{total_unarchived}，"
                     f"活跃上传量：{StringUtils.str_filesize(active_uploaded)}，"
                     f"活跃下载量：{StringUtils.str_filesize(active_downloaded)}，"
@@ -2954,7 +2968,8 @@ class BrushFlow(_PluginBase):
             "seed_avgspeed": "平均上传速度",
             "seed_inactivetime": "未活动时间",
             "up_speed": "单任务上传限速",
-            "dl_speed": "单任务下载限速"
+            "dl_speed": "单任务下载限速",
+            "auto_archive_days": "自动清理记录天数"
         }
 
         config_range_number_attr_to_desc = {
@@ -3026,15 +3041,15 @@ class BrushFlow(_PluginBase):
             "delete_size_range": brush_config.delete_size_range,
             "up_speed": brush_config.up_speed,
             "dl_speed": brush_config.dl_speed,
+            "auto_archive_days": brush_config.auto_archive_days,
             "save_path": brush_config.save_path,
             "clear_task": brush_config.clear_task,
             "archive_task": brush_config.archive_task,
-            "except_tags": brush_config.except_tags,
+            "delete_except_tags": brush_config.delete_except_tags,
             "except_subscribe": brush_config.except_subscribe,
             "brush_sequential": brush_config.brush_sequential,
             "proxy_download": brush_config.proxy_download,
             "proxy_delete": brush_config.proxy_delete,
-            "log_more": brush_config.log_more,
             "active_time_range": brush_config.active_time_range,
             "downloader_monitor": brush_config.downloader_monitor,
             "qb_category": brush_config.qb_category,
@@ -3131,7 +3146,7 @@ class BrushFlow(_PluginBase):
                     data = data.get(key)
                     if not data:
                         return None
-                logger.info(f"获取到下载地址：{data}")
+                logger.debug(f"获取到下载地址：{data}")
                 return data
         return None
 
@@ -3201,8 +3216,7 @@ class BrushFlow(_PluginBase):
                     # 获取种子Hash
                     torrent_hash = self.qb.get_torrent_id_by_tag(tags=tag)
                     if not torrent_hash:
-                        logger.error(f"{brush_config.downloader} 获取种子Hash失败"
-                                     f"{'，请尝试启用「代理下载种子」配置项' if not brush_config.proxy_download else ''}")
+                        logger.error(f"{brush_config.downloader} 获取种子Hash失败，详细信息请查看 README")
                         return None
                     return torrent_hash
             return None
@@ -3654,12 +3668,21 @@ class BrushFlow(_PluginBase):
         """
         获取正在下载的任务数量
         """
-        brush_config = self.__get_brush_config()
-        downloader = self.__get_downloader(brush_config.downloader)
-        if not downloader:
+        try:
+            brush_config = self.__get_brush_config()
+            downloader = self.__get_downloader(brush_config.downloader)
+            if not downloader:
+                return 0
+
+            torrents = downloader.get_downloading_torrents(tags=brush_config.brush_tag)
+            if torrents is None:
+                logger.warn("获取下载数量失败，可能是下载器连接发生异常")
+                return 0
+
+            return len(torrents)
+        except Exception as e:
+            logger.error(f"获取下载数量发生异常: {e}")
             return 0
-        torrents = downloader.get_downloading_torrents()
-        return len(torrents) or 0
 
     @staticmethod
     def __get_pubminutes(pubdate: str) -> float:
@@ -3705,14 +3728,21 @@ class BrushFlow(_PluginBase):
 
     def __filter_torrents_by_tag(self, torrents: List[Any], exclude_tag: str) -> List[Any]:
         """
-        根据标签过滤torrents
+        根据标签过滤torrents，排除标签格式为逗号分隔的字符串，例如 "MOVIEPILOT, H&R"
         """
+        # 如果排除标签字符串为空，则返回原始列表
+        if not exclude_tag:
+            return torrents
+
+        # 将 exclude_tag 字符串分割成一个集合，并去除每个标签两端的空白，忽略空白标签并自动去重
+        exclude_tags = set(tag.strip() for tag in exclude_tag.split(',') if tag.strip())
+
         filter_torrents = []
         for torrent in torrents:
             # 使用 __get_label 方法获取每个 torrent 的标签列表
             labels = self.__get_label(torrent)
-            # 如果排除的标签不在这个列表中，则添加到过滤后的列表
-            if exclude_tag not in labels:
+            # 检查是否有任何一个排除标签存在于标签列表中
+            if not any(exclude in labels for exclude in exclude_tags):
                 filter_torrents.append(torrent)
         return filter_torrents
 
@@ -3752,7 +3782,8 @@ class BrushFlow(_PluginBase):
                                                                       doubanid=subscribe.doubanid,
                                                                       cache=True)
                     if mediainfo:
-                        logger.info(f"subscribe {subscribe.name} {mediainfo.to_dict()}")
+                        logger.info(f"订阅 {subscribe.name} 已识别到媒体信息")
+                        logger.debug(f"subscribe {subscribe.name} {mediainfo.to_dict()}")
                         subscribe_titles.extend(mediainfo.names)
                         subscribe_titles = [title.strip() for title in subscribe_titles if title and title.strip()]
                         self._subscribe_infos[subscribe_key] = subscribe_titles
@@ -3766,7 +3797,8 @@ class BrushFlow(_PluginBase):
             for key in set(self._subscribe_infos) - current_keys:
                 del self._subscribe_infos[key]
 
-        logger.info(f"订阅标题匹配完成，当前订阅的标题集合为：{self._subscribe_infos}")
+        logger.info("订阅标题匹配完成")
+        logger.debug(f"当前订阅的标题集合为：{self._subscribe_infos}")
         unique_titles = {title for titles in self._subscribe_infos.values() for title in titles}
         return unique_titles
 
@@ -3833,6 +3865,45 @@ class BrushFlow(_PluginBase):
         """
         return sum(task.get("size", 0) for task in torrent_tasks.values() if not task.get("deleted", False))
 
+    def __auto_archive_tasks(self, torrent_tasks: Dict[str, dict]) -> None:
+        """
+       自动归档已经删除的种子数据
+       """
+        if not self._brush_config.auto_archive_days or self._brush_config.auto_archive_days <= 0:
+            logger.info("自动归档记录天数小于等于0，取消自动归档")
+            return
+
+        # 用于存储已删除的数据
+        archived_tasks: Dict[str, dict] = self.get_data("archived") or {}
+
+        current_time = time.time()
+        archive_threshold_seconds = self._brush_config.auto_archive_days * 86400  # 将天数转换为秒数
+
+        # 准备一个列表，记录所有需要从原始数据中删除的键
+        keys_to_delete = set()
+
+        # 遍历所有 torrent 条目
+        for key, value in torrent_tasks.items():
+            deleted_time = value.get("deleted_time")
+            # 场景 1: 检查任务是否已被标记为删除且超出保留天数
+            if (value.get("deleted") and isinstance(deleted_time, (int, float)) and
+                    current_time - deleted_time > archive_threshold_seconds):
+                keys_to_delete.add(key)
+                archived_tasks[key] = value
+                continue
+
+            # 场景 2: 检查没有明确删除时间的历史数据
+            if value.get("deleted") and deleted_time is None:
+                keys_to_delete.add(key)
+                archived_tasks[key] = value
+                continue
+
+        # 从原始字典中移除已删除的条目
+        for key in keys_to_delete:
+            del torrent_tasks[key]
+
+        self.save_data("archived", archived_tasks)
+
     def __archive_tasks(self):
         """
         归档已经删除的种子数据
@@ -3843,7 +3914,7 @@ class BrushFlow(_PluginBase):
         archived_tasks: Dict[str, dict] = self.get_data("archived") or {}
 
         # 准备一个列表，记录所有需要从原始数据中删除的键
-        keys_to_delete = []
+        keys_to_delete = set()
 
         # 遍历所有 torrent 条目
         for key, value in torrent_tasks.items():
@@ -3852,7 +3923,7 @@ class BrushFlow(_PluginBase):
                 # 如果是，加入到归档字典中
                 archived_tasks[key] = value
                 # 记录键，稍后删除
-                keys_to_delete.append(key)
+                keys_to_delete.add(key)
 
         # 从原始字典中移除已删除的条目
         for key in keys_to_delete:

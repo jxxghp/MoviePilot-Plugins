@@ -1,0 +1,298 @@
+{
+    "SiteStatistic": {
+        "name": "站点数据统计",
+        "description": "站点统计数据图表。",
+        "labels": "站点,仪表板",
+        "version": "1.4.1",
+        "icon": "statistic.png",
+        "author": "lightolly,jxxghp",
+        "level": 2,
+        "history": {
+            "v1.4.1": "支持数据刷新时发送消息通知",
+            "v1.3": "远程刷新命令移植到主程序",
+            "v1.2": "继续修复增量数据统计问题",
+            "v1.1": "修复增量数据统计问题",
+            "v1.0": "MoviePilot V2 版本站点数据统计插件"
+        }
+    },
+    "BrushFlow": {
+        "name": "站点刷流",
+        "description": "自动托管刷流，将会提高对应站点的访问频率。",
+        "labels": "刷流,仪表板",
+        "version": "4.0.1",
+        "icon": "brush.jpg",
+        "author": "jxxghp,InfinityPacer",
+        "level": 2,
+        "history": {
+            "v4.0.1": "NexusPHP 站点支持自动跳过下载提示页调整为站点独立配置项",
+            "v4.0": "NexusPHP 站点支持自动跳过下载提示页",
+            "v3.9": "MoviePilot V2 版本站点刷流插件"
+        }
+    },
+    "AutoSignIn": {
+        "name": "站点自动签到",
+        "description": "自动模拟登录、签到站点。",
+        "labels": "站点",
+        "version": "2.5",
+        "icon": "signin.png",
+        "author": "thsrite",
+        "level": 2,
+        "history": {
+            "v2.5": "MoviePilot V2 版本站点自动签到插件"
+        }
+    },
+    "DownloadSiteTag": {
+        "name": "下载任务分类与标签",
+        "description": "自动给下载任务分类与打站点标签、剧集名称标签",
+        "labels": "下载管理",
+        "version": "2.2",
+        "icon": "Youtube-dl_B.png",
+        "author": "叮叮当",
+        "level": 1,
+        "history": {
+            "v2.2": "MoviePilot V2 版本下载任务分类与标签插件"
+        }
+    },
+    "MediaServerRefresh": {
+        "name": "媒体库服务器刷新",
+        "description": "入库后自动刷新Emby/Jellyfin/Plex服务器海报墙。",
+        "labels": "媒体库",
+        "version": "1.3.1",
+        "icon": "refresh2.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v1.3": "MoviePilot V2 版本媒体库服务器刷新插件",
+            "v1.3.1": "修复兼容性问题"
+        }
+    },
+    "MediaServerMsg": {
+        "name": "媒体库服务器通知",
+        "description": "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。",
+        "labels": "消息通知,媒体库",
+        "version": "1.5",
+        "icon": "mediaplay.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v1.5": "支持独立控制媒体服务器通知",
+            "v1.4": "MoviePilot V2 版本媒体库服务器通知插件"
+        }
+    },
+    "ChatGPT": {
+        "name": "ChatGPT",
+        "description": "消息交互支持与ChatGPT对话。",
+        "labels": "消息通知,识别",
+        "version": "2.0.1",
+        "icon": "Chatgpt_A.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0.1": "修复辅助识别",
+            "v2.0": "适配MoviePilot V2 版本，采用链式事件机制"
+        }
+    },
+    "TorrentTransfer": {
+        "name": "自动转移做种",
+        "description": "定期转移下载器中的做种任务到另一个下载器。",
+        "labels": "做种",
+        "version": "1.7.1",
+        "icon": "seed.png",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v1.7": "MoviePilot V2 版本自动转移做种插件",
+            "v1.7.1": "修复兼容性问题"
+        }
+    },
+    "RssSubscribe": {
+        "name": "自定义订阅",
+        "description": "定时刷新RSS报文，识别内容后添加订阅或直接下载。",
+        "labels": "订阅",
+        "version": "2.0",
+        "icon": "rss.png",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本"
+        }
+    },
+    "FFmpegThumb": {
+        "name": "FFmpeg缩略图",
+        "description": "TheMovieDb没有背景图片时使用FFmpeg截取视频文件缩略图",
+        "labels": "刮削",
+        "version": "2.0",
+        "icon": "ffmpeg.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本"
+        }
+    },
+    "LibraryScraper": {
+        "name": "媒体库刮削",
+        "description": "定时对媒体库进行刮削，补齐缺失元数据和图片。",
+        "labels": "刮削",
+        "version": "2.0",
+        "icon": "scraper.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本",
+            "v1.5": "修复未获取fanart图片的问题",
+            "v1.4.1": "修复nfo文件读取失败时任务中断问题"
+        }
+    },
+    "PersonMeta": {
+        "name": "演职人员刮削",
+        "description": "刮削演职人员图片以及中文名称。",
+        "labels": "媒体库,刮削",
+        "version": "2.0.1",
+        "icon": "actor.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本",
+            "v1.4": "人物图片调整为优先从TMDB获取，避免douban图片CDN加载过慢的问题",
+            "v1.3": "修复v1.8.5版本后刮削报错问题"
+        }
+    },
+    "SpeedLimiter": {
+        "name": "播放限速",
+        "description": "外网播放媒体库视频时，自动对下载器进行限速。",
+        "labels": "网络",
+        "version": "2.1",
+        "icon": "Librespeed_A.png",
+        "author": "Shurelol",
+        "level": 1,
+        "history": {
+            "v2.1": "修复表单参数",
+            "v2.0": "兼容MoviePilot V2 版本",
+            "v1.2": "增加不限速路径配置，以应对网盘直链播放的情况"
+        }
+    },
+    "AutoClean": {
+        "name": "定时清理媒体库",
+        "description": "定时清理用户下载的种子、源文件、媒体库文件。",
+        "labels": "媒体库",
+        "version": "2.0",
+        "icon": "clean.png",
+        "author": "thsrite",
+        "level": 2,
+        "history": {
+            "v2.0": "兼容MoviePilot V2 版本"
+        }
+    },
+    "TorrentRemover": {
+        "name": "自动删种",
+        "description": "自动删除下载器中的下载任务。",
+        "labels": "做种",
+        "version": "2.1.1",
+        "icon": "delete.jpg",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v2.1.1": "修复兼容MoviePilot V2 版本",
+            "v2.0": "兼容MoviePilot V2 版本"
+        }
+    },
+    "IYUUAutoSeed": {
+        "name": "IYUU自动辅种",
+        "description": "基于IYUU官方Api实现自动辅种。",
+        "labels": "做种,IYUU",
+        "version": "2.2",
+        "icon": "IYUU.png",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v2.2": "修复种子校验服务未生效",
+            "v2.1": "调整IYUU最新域名",
+            "v2.0": "兼容MoviePilot V2 版本"
+        }
+    },
+    "QbCommand": {
+        "name": "QB远程操作",
+        "description": "通过定时任务或交互命令远程操作QB暂停/开始/限速等。",
+        "labels": "下载管理,Qbittorrent",
+        "version": "2.0",
+        "icon": "Qbittorrent_A.png",
+        "author": "DzAvril",
+        "level": 1,
+        "history": {
+            "v2.0": "适配MoviePilot V2 版本"
+        }
+    },
+    "HistoryToV2": {
+        "name": "历史记录迁移",
+        "description": "将MoviePilot V1版本的整理历史记录迁移至V2版本。",
+        "labels": "整理,历史记录",
+        "version": "1.1",
+        "icon": "Moviepilot_A.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v1.1": "修复启动提示信息"
+        }
+    },
+    "SyncCookieCloud": {
+        "name": "同步CookieCloud",
+        "description": "同步MoviePilot站点Cookie到本地CookieCloud。",
+        "labels": "站点",
+        "version": "2.1",
+        "icon": "Cookiecloud_A.png",
+        "author": "thsrite",
+        "level": 1,
+        "history": {
+            "v2.1": "兼容MoviePilot V2"
+        }
+    },
+    "ChineseSubFinder": {
+        "name": "ChineseSubFinder",
+        "description": "整理入库时通知ChineseSubFinder下载字幕。",
+        "labels": "字幕",
+        "version": "2.0",
+        "icon": "chinesesubfinder.png",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v2.0": "兼容MoviePilot V2"
+        }
+    },
+    "CleanInvalidSeed": {
+        "name": "清理QB无效做种",
+        "description": "清理已经被站点删除的种子及对应源文件，仅支持QB",
+        "labels": "Qbittorrent",
+        "version": "2.0",
+        "icon": "clean_a.png",
+        "author": "DzAvril",
+        "level": 1,
+        "history": {
+            "v2.0": "适配 MoviePilot V2"
+        }
+    },
+    "PlayletCategory": {
+        "name": "短剧自动分类",
+        "description": "网络短剧自动整理到独立的分类目录。",
+        "labels": "文件整理",
+        "version": "2.1",
+        "icon": "Amule_A.png",
+        "author": "jxxghp,longqiuyu",
+        "level": 1,
+        "history": {
+            "v2.1": "兼容MoviePilot V2",
+            "v2.0": "适配新的目录结构变化，短剧分类名称调整为配置目录路径，升级后需要重新调整设置后才能使用。"
+        }
+    },
+    "MoviePilotUpdateNotify": {
+        "name": "MoviePilot更新推送",
+        "description": "MoviePilot推送release更新通知、自动重启。",
+        "labels": "消息通知,自动更新",
+        "version": "2.0",
+        "icon": "Moviepilot_A.png",
+        "author": "thsrite",
+        "level": 1,
+        "history": {
+            "v2.0": "兼容MoviePilot V2"
+        }
+    }
+}

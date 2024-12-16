@@ -118,7 +118,7 @@ class NexusPhpSiteUserInfo(ISiteUserInfo):
             if bonus_match and bonus_match.group(1).strip():
                 self.bonus = StringUtils.str_float(bonus_match.group(1))
                 return
-        bonus_match = re.search(r"mybonus.[\[\]:：<>/a-zA-Z_\-=\"'\s#;.(使用魔力值豆]+\s*([\d,.]+)[<()&\s]", html_text)
+        bonus_match = re.search(r"mybonus.[\[\]:：<>/a-zA-Z_\-=\"'\s#;.(使用&说明魔力值豆]+\s*([\d,.]+)[\[<()&\s]", html_text)
         try:
             if bonus_match and bonus_match.group(1).strip():
                 self.bonus = StringUtils.str_float(bonus_match.group(1))
@@ -338,6 +338,12 @@ class NexusPhpSiteUserInfo(ISiteUserInfo):
                                       'following-sibling::td[1]')
         if user_levels_text:
             self.user_level = user_levels_text[0].xpath("string(.)").strip()
+            return
+
+        # 适配PTT用户等级
+        user_levels_text = html.xpath('//tr/td[text()="用户等级"]/following-sibling::td[1]/b/@title')
+        if user_levels_text:
+            self.user_level = user_levels_text[0].strip()
             return
 
         user_levels_text = html.xpath('//a[contains(@href, "userdetails")]/text()')

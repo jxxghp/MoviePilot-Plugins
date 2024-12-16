@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "1.9.3"
+    plugin_version = "1.9.6"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -957,6 +957,10 @@ class IYUUAutoSeed(_PluginBase):
             if self._skipverify:
                 # 跳过校验
                 logger.info(f"{download_id} 跳过校验，请自行检查...")
+                # 请注意这里是故意不自动开始的
+                # 跳过校验存在直接失败、种子目录相同文件不同等异常情况
+                # 必须要用户自行二次确认之后才能开始做种
+                # 否则会出现反复下载刷掉分享率、做假种的情况
             else:
                 # 追加校验任务
                 logger.info(f"添加校验检查任务：{download_id} ...")

@@ -506,3 +506,7 @@ def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Di
 }
 ```
 - 新增加的插件请配置在`package.json`中的末尾，这样可被识别为最新增加，可用于用户排序。
+
+### 10. 如何开发V2版本的插件以及实现插件多版本兼容？
+
+- 请参阅 [V2版本插件开发指南](./docs/V2_Plugin_Development.md)

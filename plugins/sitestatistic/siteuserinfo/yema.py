@@ -62,8 +62,8 @@ class TYemaSiteUserInfo(ISiteUserInfo):
         self.user_level = user_info.get("level")
         self.join_at = StringUtils.unify_datetime_str(user_info.get("registerTime"))
 
-        self.upload = user_info.get('uploadSize')
-        self.download = user_info.get('downloadSize')
+        self.upload = user_info.get('promotionUploadSize')
+        self.download = user_info.get('promotionDownloadSize')
         self.ratio = round(self.upload / (self.download or 1), 2)
         self.bonus = user_info.get("bonus")
         self.message_unread = 0

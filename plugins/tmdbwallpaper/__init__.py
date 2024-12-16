@@ -21,7 +21,7 @@ class TmdbWallpaper(_PluginBase):
     # 插件图标
     plugin_icon = "Macos_Sierra.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -220,24 +220,30 @@ class TmdbWallpaper(_PluginBase):
         """
         下载MoviePilot的登录壁纸到本地
         """
-        if not self._savepath:
-            return
-        if settings.WALLPAPER == "tmdb":
-            url = TmdbChain().get_random_wallpager()
-            filename = url.split("/")[-1]
-        else:
-            url = WebUtils.get_bing_wallpaper()
-            filename = f"{datetime.now().strftime('%Y%m%d')}.jpg"
-        # 下载壁纸
-        if url:
+
+        def __save_file(_url: str, _filename: str):
+            """
+            保存文件
+            """
             try:
                 savepath = Path(self._savepath)
-                logger.info(f"下载壁纸：{url}")
-                r = RequestUtils().get_res(url)
+                logger.info(f"下载壁纸：{_url}")
+                r = RequestUtils().get_res(_url)
                 if r and r.status_code == 200:
-                    with open(savepath / filename, "wb") as f:
+                    with open(savepath / _filename, "wb") as f:
                         f.write(r.content)
             except Exception as e:
                 logger.error(f"下载壁纸失败：{str(e)}")
+
+        if not self._savepath:
+            return
+        if settings.WALLPAPER == "tmdb":
+            urls = TmdbChain().get_trending_wallpapers() or []
+            for url in urls:
+                filename = url.split("/")[-1]
+                __save_file(url, filename)
         else:
-            logger.error(f"获取壁纸地址失败")
+            url = WebUtils.get_bing_wallpaper()
+            if url:
+                filename = f"{datetime.now().strftime('%Y%m%d')}.jpg"
+                __save_file(url, filename)
