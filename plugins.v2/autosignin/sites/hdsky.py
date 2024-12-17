@@ -42,7 +42,7 @@ class HDSky(_ISiteSigninHandler):
         ua = site_info.get("ua")
         proxy = site_info.get("proxy")
         render = site_info.get("render")
-	referer = site_info.get("url")
+        referer = site_info.get("url")
 
         # 判断今日是否已签到
         html_text = self.get_page_source(url='https://hdsky.me',
@@ -118,7 +118,7 @@ class HDSky(_ISiteSigninHandler):
                 # 访问签到链接
                 res = RequestUtils(cookies=site_cookie,
                                    ua=ua,
-				   referer=referer,
+                                   referer=referer,
                                    proxies=settings.PROXY if proxy else None
                                    ).post_res(url='https://hdsky.me/showup.php', data=data)
                 if res and res.status_code == 200:
