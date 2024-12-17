@@ -851,6 +851,15 @@
             "v1.0": "同步极影视在看/已看状态到豆瓣"
         }
     },
+    "MqttPush": {
+        "name": "MQTT消息推送",
+        "description": "支持使用MQTT发送消息通知。",
+        "labels": "消息通知",
+        "version": "1.0",
+        "icon": "Mosquitto_A.png",
+        "author": "blacklips",
+        "level": 1
+    },
     "DingdingMsg": {
         "name": "钉钉机器人",
         "description": "支持使用钉钉机器人发送消息通知。",
