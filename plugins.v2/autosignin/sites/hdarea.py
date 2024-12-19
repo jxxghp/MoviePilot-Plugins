@@ -48,7 +48,7 @@ class HDArea(_ISiteSigninHandler):
         html_res = RequestUtils(cookies=site_cookie,
                                 ua=ua,
                                 proxies=proxies
-                                ).post_res(url="https://www.hdarea.club/sign_in.php", data=data)
+                                ).post_res(url="https://hdarea.club/sign_in.php", data=data)
         if not html_res or html_res.status_code != 200:
             logger.error(f"{site} 签到失败，请检查站点连通性")
             return False, '签到失败，请检查站点连通性'
