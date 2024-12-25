@@ -3,13 +3,16 @@ from datetime import datetime, timedelta
 from threading import Lock
 from typing import Optional, Any, List, Dict, Tuple
 
+import pytz
+from app.helper.sites import SitesHelper
+from apscheduler.schedulers.background import BackgroundScheduler
+
 from app import schemas
 from app.chain.site import SiteChain
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.db.models.siteuserdata import SiteUserData
 from app.db.site_oper import SiteOper
-from app.helper.sites import SitesHelper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import EventType, NotificationType
@@ -48,6 +51,7 @@ class SiteStatistic(_PluginBase):
     _onlyonce: bool = False
     _dashboard_type: str = "today"
     _notify_type = ""
+    _scheduler = None
 
     def init_plugin(self, config: dict = None):
         self.siteoper = SiteOper()
@@ -66,7 +70,12 @@ class SiteStatistic(_PluginBase):
 
         if self._onlyonce:
             config["onlyonce"] = False
-            self.sitechain.refresh_userdatas()
+            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+            self._scheduler.add_job(self.sitechain.refresh_userdatas, "date",
+                                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+                                    name="站点数据统计服务")
+            self._scheduler.print_jobs()
+            self._scheduler.start()
             self.update_config(config=config)
 
     def get_state(self) -> bool:
