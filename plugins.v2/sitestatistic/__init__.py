@@ -235,8 +235,8 @@ class SiteStatistic(_PluginBase):
             updated_date = today_data_dict[site].updated_day
 
             if self._notify_type == "inc" and yesterday_data_dict.get(site):
-                upload -= int(yesterday_data[site].get("upload") or 0)
-                download -= int(yesterday_data[site].get("download") or 0)
+                upload -= int(yesterday_data_dict[site].upload or 0)
+                download -= int(yesterday_data_dict[site].download or 0)
 
             if updated_date and updated_date != today_date:
                 updated_date = f"（{updated_date}）"
