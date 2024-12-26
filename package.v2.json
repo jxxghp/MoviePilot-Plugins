@@ -3,7 +3,7 @@
         "name": "站点数据统计",
         "description": "站点统计数据图表。",
         "labels": "站点,仪表板",
-        "version": "1.4.1",
+        "version": "1.5",
         "icon": "statistic.png",
         "author": "lightolly,jxxghp",
         "level": 2,
