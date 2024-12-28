@@ -20,7 +20,7 @@ from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import EventType
 
-from app.plugins.dynamicwechat.helper import PyCookieCloud, MySender
+from app.plugins.dynamicwechat.helper import PyCookieCloud, MySender, IpLocationParser
 
 
 class DynamicWeChat(_PluginBase):
@@ -31,7 +31,7 @@ class DynamicWeChat(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "1.7.0"
+    plugin_version = "1.7.1"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -152,7 +152,6 @@ class DynamicWeChat(_PluginBase):
         if "||wan2" in self._input_id_list:  # 多wan口
             self.wan2 = IpLocationParser(self._settings_file_path)
             self._current_ip_address = self.wan2.read_ips("ips")  # 从文件中读取
-            logger.info(f"当前记录的IP：{self._current_ip_address}，如为空或不一致，预计检测1-2轮内会修正")
         else:
             self.wan2 = None
             _, self._current_ip_address = self.get_ip_from_url()  # 直接从网页获取
@@ -163,14 +162,24 @@ class DynamicWeChat(_PluginBase):
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
             # 运行一次定时服务
             if self._onlyonce:  # 多网口ip检测禁用立即检测
-                if not self.wan2:
+                if self.wan2:
                     if not self._forced_update or not self._local_scan:
-                        # logger.info("立即检测公网IP")
+                        logger.info("多网络出口检查需要时间较长，预计25秒内完成")
+                        self._scheduler.add_job(func=self.write_wan2_ip, trigger='date',
+                                                run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(
+                                                    seconds=3),
+                                                name="多网络出口获取IP")  # 添加任务
+                        self._scheduler.add_job(func=self.check, trigger='date',
+                                                run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(
+                                                    seconds=20),
+                                                name="多网络出口检查IP")  # 添加任务
+
+                else:
+                    if not self._forced_update or not self._local_scan:
                         self._scheduler.add_job(func=self.check, trigger='date',
                                                 run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                                                 name="检测公网IP")  # 添加任务
-                else:
-                    logger.info("启用多网口检测时禁用‘立即检测一次’功能")
+                        # logger.info("启用多网口检测时禁用‘立即检测一次’功能")
                 # 关闭一次性开关
                 self._onlyonce = False
 
@@ -222,7 +231,7 @@ class DynamicWeChat(_PluginBase):
                 image=None, force_send=False
             )
             if error:
-                logger.info(f"cookie失效通知发送失败,原因：{result}")
+                logger.info(f"cookie失效通知发送失败,原因：{error}")
 
     @eventmanager.register(EventType.PluginAction)
     def forced_change(self, event: Event = None):
@@ -300,6 +309,41 @@ class DynamicWeChat(_PluginBase):
                 browser.close()
         except Exception as e:
             logger.error(f"本地扫码任务: 本地扫码失败: {e}")
+
+    @eventmanager.register(EventType.PluginAction)
+    def write_wan2_ip(self):
+        if not self._enabled:
+            logger.error("插件未开启")
+            return
+        if event:
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "dynamicwechat":
+                return
+        urls = ["https://ip.skk.moe/multi", "https://ip.m27.tech", "https://ip.orz.tools"]
+        random.shuffle(urls)
+        self.wan2_url = None
+        # 创建一个 Playwright 实例
+        with sync_playwright() as p:
+            browser = None  # 定义浏览器变量
+            for url in urls:
+                try:
+                    # 启动浏览器
+                    if url == "https://ip.skk.moe/multi":
+                        browser = p.chromium.launch(headless=False, args=['--lang=zh-CN'])
+                    else:
+                        browser = p.chromium.launch(headless=True, args=['--lang=zh-CN'])
+                    page = browser.new_page()
+                    china_ips = self.wan2.get_ipv4(page, url)
+                    if china_ips:
+                        self.wan2.overwrite_ips("url_ip", china_ips)  # 将获取到的IP写入文件 覆盖写入
+                        self.wan2_url = url
+                        break
+                except Exception as e:
+                    logger.warning(f"{url} 多出口IP获取失败, Error: {e}")
+                finally:
+                    if browser:
+                        browser.close()
+                    browser = None  # 重置浏览器变量
 
     @eventmanager.register(EventType.PluginAction)
     def check(self, event: Event = None):
@@ -425,14 +469,13 @@ class DynamicWeChat(_PluginBase):
                     if response.status_code == 200:
                         ip_address = re.search(self._ip_pattern, response.text)
                         if ip_address:
-                            # self.wan1.overwrite_ips("url_ip", ip_address.group())
                             return url, ip_address.group()  # 返回匹配的 IP 地址
                 except Exception as e:
                     if "104" not in str(e) and 'Read timed out' not in str(e):  # 忽略网络波动,都失败会返回None, "获取IP失败"
                         logger.warning(f"{url} 获取IP失败, Error: {e}")
             return None, "获取IP失败"
         else:
-            urls = ["https://ip.skk.moe/multi", "https://ip.orz.tools"]
+            urls = ["https://ip.skk.moe/multi", "https://ip.m27.tech", "https://ip.orz.tools"]
             random.shuffle(urls)
             # 创建一个 Playwright 实例
             with sync_playwright() as p:
@@ -456,6 +499,7 @@ class DynamicWeChat(_PluginBase):
                         if browser:
                             browser.close()
                         browser = None  # 重置浏览器变量
+            self.wan2_url = None
             return None, "获取IP失败"
 
     def find_qrc(self, page):
@@ -697,7 +741,7 @@ class DynamicWeChat(_PluginBase):
             captcha_panel = page.wait_for_selector('.receive_captcha_panel', timeout=5000)  # 检查验证码面板
             if captcha_panel:  # 出现了短信验证界面
                 if task == 'local_scanning':
-                    time.sleep(6)
+                    time.sleep(3)
                 else:
                     logger.info("等待30秒,请将短信验证码请以'？'结束,发送到<企业微信应用> 如： 110301？")
                     time.sleep(30)  # 多等30秒
@@ -728,7 +772,8 @@ class DynamicWeChat(_PluginBase):
 
     def click_app_management_buttons(self, page):
         self._cookie_valid = True
-        self._my_send.reset_limit()  # 解除限制 可以发送cookie失效提醒
+        if self._my_send:
+            self._my_send.reset_limit()  # 解除限制 可以发送cookie失效提醒
         bash_url = "https://work.weixin.qq.com/wework_admin/frame#apps/modApiApp/"
         # 按钮的选择器和名称
         buttons = [
@@ -1277,9 +1322,10 @@ class DynamicWeChat(_PluginBase):
         }]
         """
         if self._enabled and self._cron:
-            logger.info(f"服务启动")
-            if self.wan2:
-                logger.info("多网口检测第一次获取IP可能会失败")
+            if not self.wan2:
+                logger.info(f"服务启动")
+            else:
+                logger.info(f"当前记录的IP：{self._current_ip_address}，首次使用可能为空或检测IP失败")
             return [{
                 "id": self.__class__.__name__,
                 "name": f"{self.plugin_name}服务",
