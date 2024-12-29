@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "1.9.7"
+    plugin_version = "1.9.8"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -633,7 +633,7 @@ class IYUUAutoSeed(_PluginBase):
                 self.check_recheck()
             else:
                 logger.info(f"没有需要辅种的种子")
-        #qb 中，辅种结束后，一起开始所有辅种后暂停的种子（排除了出错的种子），及时人工确认也是手动开始这部分种子
+        # qb 中，辅种结束后，一起开始所有辅种后暂停的种子（排除了出错的种子），及时人工确认也是手动开始这部分种子
         for downloader in self._downloaders:
             # 只处理 qb
             if downloader == "qbittorrent":
@@ -642,12 +642,12 @@ class IYUUAutoSeed(_PluginBase):
                 # errored_torrents, _ = downloader_obj.get_torrents(status=["errored"])
                 pausedUP_torrent_hashs = []
                 for torrent in paused_torrents:
-                    if 'pausedUP' == torrent.state:
+                    if torrent.state in ['pausedUP', 'stoppedUP']:
                         pausedUP_torrent_hashs.append(torrent.hash)
                         logger.info(f"下载器 {downloader} 自动开始种子 {torrent.name}")
                     else:
                         logger.info(f"下载器 {downloader} 不自动开始种子 {torrent.name}, state={torrent.state}")
-                downloader_obj.start_torrents(ids=pausedUP_torrent_hashs)    
+                downloader_obj.start_torrents(ids=pausedUP_torrent_hashs)
         # 保存缓存
         self.__update_config()
         # 发送消息
@@ -1059,7 +1059,7 @@ class IYUUAutoSeed(_PluginBase):
             判断是否为mteam站点
             """
             return True if "m-team." in url else False
-        
+
         def __is_monika(url: str):
             """
             判断是否为monika站点
@@ -1078,7 +1078,7 @@ class IYUUAutoSeed(_PluginBase):
             将mteam种子下载链接域名替换为使用API
             """
             api_url = re.sub(r'//[^/]+\.m-team', '//api.m-team', site.get('url'))
-            
+
             res = RequestUtils(
                 headers={
                     'Content-Type': 'application/json',
@@ -1093,7 +1093,7 @@ class IYUUAutoSeed(_PluginBase):
                 logger.warn(f"m-team 获取种子下载链接失败：{tid}")
                 return None
             return res.json().get("data")
-        
+
         def __get_monika_torrent(tid: str, rssurl: str):
             """
             Monika下载需要使用rsskey从站点配置中获取并拼接下载链接
@@ -1101,11 +1101,10 @@ class IYUUAutoSeed(_PluginBase):
             if not rssurl:
                 logger.error("Monika站点的rss链接未配置")
                 return None
-           
+
             rss_match = re.search(r'/rss/\d+\.(\w+)', rssurl)
             rsskey = rss_match.group(1)
-            download_url = f"{site.get('url')}torrents/download/{tid}.{rsskey}"
-            return download_url
+            return f"{site.get('url')}torrents/download/{tid}.{rsskey}"
 
         def __is_special_site(url: str):
             """

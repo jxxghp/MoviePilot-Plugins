@@ -301,11 +301,12 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "labels": "做种,IYUU",
-        "version": "1.9.7",
+        "version": "1.9.8",
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2,
         "history": {
+            "v1.9.8": "辅种结束后，一起开始所有辅种后暂停的种子（排除了出错的种子）",
             "v1.9.7": "支持qbittorrent 5",
             "v1.9.6": "调整IYUU最新域名",
             "v1.9.5": "Revert qBittorrent跳检之后自动开始",
