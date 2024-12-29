@@ -678,7 +678,7 @@ class QbCommand(_PluginBase):
 
         torrents = []
         for torrent in all_torrents:
-            if torrent.get("state") == "pausedUP":
+            if torrent.get("state") == "pausedUP" or torrent.get("state") == "stoppedUP":
                 tracker_url = self.get_torrent_tracker(torrent)
                 if not tracker_url:
                     logger.info(f"获取种子 {torrent.name} Tracker失败，不过滤该种子")
