@@ -27,7 +27,7 @@ class QbCommand(_PluginBase):
     # 插件图标
     plugin_icon = "Qbittorrent_A.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -61,6 +61,7 @@ class QbCommand(_PluginBase):
     _multi_level_root_domain = ["edu.cn", "com.cn", "net.cn", "org.cn"]
     _scheduler = None
     _exclude_dirs = ""
+
     def init_plugin(self, config: dict = None):
         self._sites = SitesHelper()
         self._siteoper = SiteOper()
@@ -98,8 +99,7 @@ class QbCommand(_PluginBase):
                 self._scheduler.add_job(
                     self.pause_torrent,
                     "date",
-                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
-                    + timedelta(seconds=3),
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                 )
             elif self._only_resume_once:
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -107,8 +107,7 @@ class QbCommand(_PluginBase):
                 self._scheduler.add_job(
                     self.resume_torrent,
                     "date",
-                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
-                    + timedelta(seconds=3),
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                 )
 
             self._only_resume_once = False
@@ -132,9 +131,9 @@ class QbCommand(_PluginBase):
                 self._scheduler.start()
 
         if (
-            self._only_pause_upload
-            or self._only_pause_download
-            or self._only_pause_checking
+                self._only_pause_upload
+                or self._only_pause_download
+                or self._only_pause_checking
         ):
             if self._only_pause_upload:
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -142,8 +141,7 @@ class QbCommand(_PluginBase):
                 self._scheduler.add_job(
                     self.pause_torrent,
                     "date",
-                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
-                    + timedelta(seconds=3),
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                     kwargs={
                         'type': self.TorrentType.UPLOADING
                     }
@@ -154,8 +152,7 @@ class QbCommand(_PluginBase):
                 self._scheduler.add_job(
                     self.pause_torrent,
                     "date",
-                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
-                    + timedelta(seconds=3),
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                     kwargs={
                         'type': self.TorrentType.DOWNLOADING
                     }
@@ -166,8 +163,7 @@ class QbCommand(_PluginBase):
                 self._scheduler.add_job(
                     self.pause_torrent,
                     "date",
-                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
-                    + timedelta(seconds=3),
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                     kwargs={
                         'type': self.TorrentType.CHECKING
                     }
@@ -364,9 +360,9 @@ class QbCommand(_PluginBase):
             if torrent.state_enum.is_uploading and not torrent.state_enum.is_paused:
                 uploading_torrents.append(torrent.get("hash"))
             elif (
-                torrent.state_enum.is_downloading
-                and not torrent.state_enum.is_paused
-                and not torrent.state_enum.is_checking
+                    torrent.state_enum.is_downloading
+                    and not torrent.state_enum.is_paused
+                    and not torrent.state_enum.is_checking
             ):
                 downloading_torrents.append(torrent.get("hash"))
             elif torrent.state_enum.is_checking:
@@ -448,12 +444,12 @@ class QbCommand(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【QB暂停任务启动】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                f"做种数量:  {len(hash_uploading)}\n"
-                f"下载数量:  {len(hash_downloading)}\n"
-                f"检查数量:  {len(hash_checking)}\n"
-                f"暂停数量:  {len(hash_paused)}\n"
-                f"错误数量:  {len(hash_error)}\n"
-                f"暂停操作中请稍等...\n",
+                     f"做种数量:  {len(hash_uploading)}\n"
+                     f"下载数量:  {len(hash_downloading)}\n"
+                     f"检查数量:  {len(hash_checking)}\n"
+                     f"暂停数量:  {len(hash_paused)}\n"
+                     f"错误数量:  {len(hash_error)}\n"
+                     f"暂停操作中请稍等...\n",
             )
         pause_torrents = self.filter_pause_torrents(all_torrents)
         hash_downloading, hash_uploading, hash_paused, hash_checking, hash_error = (
@@ -501,11 +497,11 @@ class QbCommand(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【QB暂停任务完成】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                f"做种数量:  {len(hash_uploading)}\n"
-                f"下载数量:  {len(hash_downloading)}\n"
-                f"检查数量:  {len(hash_checking)}\n"
-                f"暂停数量:  {len(hash_paused)}\n"
-                f"错误数量:  {len(hash_error)}\n",
+                     f"做种数量:  {len(hash_uploading)}\n"
+                     f"下载数量:  {len(hash_downloading)}\n"
+                     f"检查数量:  {len(hash_checking)}\n"
+                     f"暂停数量:  {len(hash_paused)}\n"
+                     f"错误数量:  {len(hash_error)}\n",
             )
 
     def __is_excluded(self, file_path) -> bool:
@@ -516,6 +512,7 @@ class QbCommand(_PluginBase):
             if exclude_dir and exclude_dir in str(file_path):
                 return True
         return False
+
     def filter_pause_torrents(self, all_torrents):
         torrents = []
         for torrent in all_torrents:
@@ -557,12 +554,12 @@ class QbCommand(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【QB开始任务启动】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                f"做种数量:  {len(hash_uploading)}\n"
-                f"下载数量:  {len(hash_downloading)}\n"
-                f"检查数量:  {len(hash_checking)}\n"
-                f"暂停数量:  {len(hash_paused)}\n"
-                f"错误数量:  {len(hash_error)}\n"
-                f"开始操作中请稍等...\n",
+                     f"做种数量:  {len(hash_uploading)}\n"
+                     f"下载数量:  {len(hash_downloading)}\n"
+                     f"检查数量:  {len(hash_checking)}\n"
+                     f"暂停数量:  {len(hash_paused)}\n"
+                     f"错误数量:  {len(hash_error)}\n"
+                     f"开始操作中请稍等...\n",
             )
 
         resume_torrents = self.filter_resume_torrents(all_torrents)
@@ -599,11 +596,11 @@ class QbCommand(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【QB开始任务完成】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                f"做种数量:  {len(hash_uploading)}\n"
-                f"下载数量:  {len(hash_downloading)}\n"
-                f"检查数量:  {len(hash_checking)}\n"
-                f"暂停数量:  {len(hash_paused)}\n"
-                f"错误数量:  {len(hash_error)}\n",
+                     f"做种数量:  {len(hash_uploading)}\n"
+                     f"下载数量:  {len(hash_downloading)}\n"
+                     f"检查数量:  {len(hash_checking)}\n"
+                     f"暂停数量:  {len(hash_paused)}\n"
+                     f"错误数量:  {len(hash_error)}\n",
             )
 
     def filter_resume_torrents(self, all_torrents):
@@ -622,7 +619,7 @@ class QbCommand(_PluginBase):
 
         torrents = []
         for torrent in all_torrents:
-            if torrent.get("state") == "pausedUP" or torrent.get("state") == "stoppedUP":
+            if torrent.get("state") in ["pausedUP", "stoppedUP"]:
                 tracker_url = self.get_torrent_tracker(torrent)
                 if not tracker_url:
                     logger.info(f"获取种子 {torrent.name} Tracker失败，不过滤该种子")
@@ -673,11 +670,11 @@ class QbCommand(_PluginBase):
                 mtype=NotificationType.SiteMessage,
                 title=f"【QB任务状态】",
                 text=f"种子总数:  {len(all_torrents)} \n"
-                f"做种数量:  {len(hash_uploading)}\n"
-                f"下载数量:  {len(hash_downloading)}\n"
-                f"检查数量:  {len(hash_checking)}\n"
-                f"暂停数量:  {len(hash_paused)}\n"
-                f"错误数量:  {len(hash_error)}\n"
+                     f"做种数量:  {len(hash_uploading)}\n"
+                     f"下载数量:  {len(hash_downloading)}\n"
+                     f"检查数量:  {len(hash_checking)}\n"
+                     f"暂停数量:  {len(hash_paused)}\n"
+                     f"错误数量:  {len(hash_error)}\n"
             )
 
     @eventmanager.register(EventType.PluginAction)
@@ -705,10 +702,10 @@ class QbCommand(_PluginBase):
             return True
 
         if (
-            not upload_limit
-            or not upload_limit.isdigit()
-            or not download_limit
-            or not download_limit.isdigit()
+                not upload_limit
+                or not upload_limit.isdigit()
+                or not download_limit
+                or not download_limit.isdigit()
         ):
             self.post_message(
                 mtype=NotificationType.SiteMessage,
@@ -854,11 +851,11 @@ class QbCommand(_PluginBase):
         customSites = self.__custom_sites()
 
         site_options = [
-            {"title": site.name, "value": site.id}
-            for site in self._siteoper.list_order_by_pri()
-        ] + [
-            {"title": site.get("name"), "value": site.get("id")} for site in customSites
-        ]
+                           {"title": site.name, "value": site.id}
+                           for site in self._siteoper.list_order_by_pri()
+                       ] + [
+                           {"title": site.get("name"), "value": site.get("id")} for site in customSites
+                       ]
         return [
             {
                 "component": "VForm",

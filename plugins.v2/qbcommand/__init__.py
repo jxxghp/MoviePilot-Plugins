@@ -28,7 +28,7 @@ class QbCommand(_PluginBase):
     # 插件图标
     plugin_icon = "Qbittorrent_A.png"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -678,7 +678,7 @@ class QbCommand(_PluginBase):
 
         torrents = []
         for torrent in all_torrents:
-            if torrent.get("state") == "pausedUP" or torrent.get("state") == "stoppedUP":
+            if torrent.get("state") in ["pausedUP", "stoppedUP"]:
                 tracker_url = self.get_torrent_tracker(torrent)
                 if not tracker_url:
                     logger.info(f"获取种子 {torrent.name} Tracker失败，不过滤该种子")

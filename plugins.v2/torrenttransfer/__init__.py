@@ -28,7 +28,7 @@ class TorrentTransfer(_PluginBase):
     # 插件图标
     plugin_icon = "seed.png"
     # 插件版本
-    plugin_version = "1.7.1"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -952,7 +952,7 @@ class TorrentTransfer(_PluginBase):
         判断种子是否可以做种并处于暂停状态
         """
         try:
-            return (torrent.get("state") == "pausedUP" or torrent.get("state") == "stoppedUP") if dl_type == "qbittorrent" \
+            return (torrent.get("state") in ["pausedUP", "stoppedUP"]) if dl_type == "qbittorrent" \
                 else (torrent.status.stopped and torrent.percent_done == 1)
         except Exception as e:
             print(str(e))

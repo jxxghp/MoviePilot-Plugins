@@ -99,11 +99,12 @@
         "name": "自动转移做种",
         "description": "定期转移下载器中的做种任务到另一个下载器。",
         "labels": "做种",
-        "version": "1.7.1",
+        "version": "1.8",
         "icon": "seed.png",
         "author": "jxxghp",
         "level": 2,
         "history": {
+            "v1.8": "支持qbittorrent 5",
             "v1.7": "MoviePilot V2 版本自动转移做种插件",
             "v1.7.1": "修复兼容性问题"
         }
@@ -203,11 +204,12 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "labels": "做种,IYUU",
-        "version": "2.2",
+        "version": "2.3",
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2,
         "history": {
+            "v2.3": "支持qbittorrent 5",
             "v2.2": "修复种子校验服务未生效",
             "v2.1": "调整IYUU最新域名",
             "v2.0": "兼容MoviePilot V2 版本"
@@ -217,11 +219,12 @@
         "name": "QB远程操作",
         "description": "通过定时任务或交互命令远程操作QB暂停/开始/限速等。",
         "labels": "下载管理,Qbittorrent",
-        "version": "2.0",
+        "version": "2.1",
         "icon": "Qbittorrent_A.png",
         "author": "DzAvril",
         "level": 1,
         "history": {
+            "v2.1": "支持qbittorrent 5",
             "v2.0": "适配MoviePilot V2 版本"
         }
     },
