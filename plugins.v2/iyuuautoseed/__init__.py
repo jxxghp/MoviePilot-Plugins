@@ -33,7 +33,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.4"
+    plugin_version = "2.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -649,7 +649,7 @@ class IYUUAutoSeed(_PluginBase):
             downloader_obj = service.instance
             # 只处理 qb
             if service.type == "qbittorrent":
-                paused_torrents, _ = downloader_obj.get_torrents(status=["paused"])
+                paused_torrents, _ = downloader_obj.get_torrents(status="paused")
                 # errored_torrents, _ = downloader_obj.get_torrents(status=["errored"])
                 pausedUP_torrent_hashs = []
                 for torrent in paused_torrents:
