@@ -571,11 +571,14 @@
         "name": "PushPlus消息推送",
         "description": "支持使用PushPlus发送消息通知。",
         "labels": "消息通知",
-        "version": "1.0",
+        "version": "1.2",
         "icon": "Pushplus_A.png",
         "author": "cheng",
         "level": 1,
-        "v2": true
+        "v2": true,
+        "history": {
+            "v1.2": "增加群组编码,支持发送群组消息"
+        }
     },
     "DownloadSiteTag": {
         "name": "下载任务分类与标签",

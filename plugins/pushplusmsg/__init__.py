@@ -15,7 +15,7 @@ class PushPlusMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Pushplus_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "cheng"
     # 作者主页
@@ -31,12 +31,14 @@ class PushPlusMsg(_PluginBase):
     _enabled = False
     _token = None
     _msgtypes = []
+    _topic = None  # 新增topic字段
 
     def init_plugin(self, config: dict = None):
         if config:
             self._enabled = config.get("enabled")
             self._token = config.get("token")
             self._msgtypes = config.get("msgtypes") or []
+            self._topic = config.get("topic")  # 新增topic字段
 
     def get_state(self) -> bool:
         return self._enabled and (True if self._token else False)
@@ -115,6 +117,27 @@ class PushPlusMsg(_PluginBase):
                                 },
                                 'content': [
                                     {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'topic',
+                                            'label': '群组编码',
+                                            'placeholder': '输入群组编码（可选）',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
                                         'component': 'VSelect',
                                         'props': {
                                             'multiple': True,
@@ -154,6 +177,7 @@ class PushPlusMsg(_PluginBase):
         ], {
             "enabled": False,
             'token': '',
+            'topic': '',
             'msgtypes': []
         }
 
@@ -199,8 +223,12 @@ class PushPlusMsg(_PluginBase):
                 "title": title,
                 "content": text,
                 "template": "txt",
-                "channel": "wechat"
+                "channel": "wechat",
             }
+            # 如果配置了topic，添加到请求参数
+            if self._topic:
+                event_info["topic"] = self._topic
+
             res = RequestUtils(content_type="application/json").post_res(sc_url, json=event_info)
             if res and res.status_code == 200:
                 ret_json = res.json()
