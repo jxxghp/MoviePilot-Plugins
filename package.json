@@ -638,11 +638,14 @@
         "name": "共享识别词",
         "description": "从Github、Etherpad等远程文件中获取共享识别词并应用。",
         "labels": "识别",
-        "version": "2.2",
+        "version": "2.3",
         "icon": "words.png",
         "author": "honue",
         "level": 1,
-        "v2": true
+        "v2": true,
+        "history": {
+            "v2.3": "更换默认共享识别词地址"
+        }
     },
     "NeoDBSync": {
         "name": "NeoDB 想看",
