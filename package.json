@@ -626,13 +626,16 @@
     },
     "CategoryEditor": {
         "name": "二级分类策略",
-        "description": "编辑下载目录和媒体库目录的二级分类规则。",
+        "description": "编辑下载和整理时自动二级分类的目录规则。",
         "labels": "文件整理",
-        "version": "1.2",
+        "version": "1.3",
         "icon": "Bookstack_A.png",
         "author": "jxxghp",
         "level": 1,
-        "v2": true
+        "v2": true,
+        "history": {
+            "v1.3": "插件实际无需一直开启，启用一次后自动关闭"
+        }
     },
     "RemoteIdentifiers": {
         "name": "共享识别词",

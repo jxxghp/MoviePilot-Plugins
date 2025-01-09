@@ -9,11 +9,11 @@ class CategoryEditor(_PluginBase):
     # 插件名称
     plugin_name = "二级分类策略"
     # 插件描述
-    plugin_desc = "编辑下载目录和媒体库目录的二级分类规则。"
+    plugin_desc = "编辑下载和整理时自动二级分类的目录规则。"
     # 插件图标
     plugin_icon = "Bookstack_A.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -41,7 +41,12 @@ class CategoryEditor(_PluginBase):
                 self.user_yaml.write_text(self._content, encoding="utf-8")
                 # 立即生效
                 CategoryHelper().init()
-                self.systemmessage.put("二级分类策略已更新，请注意同步调整目录设置！", title="二级分类策略")
+                self.systemmessage.put("二级分类策略已更新，请注意同步调整目录设置，插件将恢复关闭状态！", title="二级分类策略")
+                self._enabled = False
+                self.update_config({
+                    "enabled": False,
+                    "content": self._content
+                })
 
     def get_state(self) -> bool:
         return self._enabled
@@ -75,7 +80,7 @@ class CategoryEditor(_PluginBase):
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'enabled',
-                                            'label': '启用插件',
+                                            'label': '启用插件（写入配置文件）',
                                         }
                                     }
                                 ]
