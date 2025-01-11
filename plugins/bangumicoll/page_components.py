@@ -72,6 +72,7 @@ def form(sites_options) -> list:
                             'content': [
                                 {
                                     'component': 'VTextField',
+                                    # 'component': 'VCronField', # 暂不支持
                                     'props': {
                                         'model': 'cron',
                                         'label': '执行周期',
@@ -109,39 +110,6 @@ def form(sites_options) -> list:
                                             {'title': '在看', 'value': 3},
                                             {'title': '想看', 'value': 1},
                                         ],
-                                    },
-                                }
-                            ],
-                        },
-                    ],
-                },
-                {
-                    'component': 'VRow',
-                    'content': [
-                        {
-                            'component': 'VCol',
-                            'props': {'cols': 12, 'md': 6},
-                            'content': [
-                                {
-                                    'component': 'VTextField',
-                                    'props': {
-                                        'model': 'include',
-                                        'label': '包含',
-                                        'placeholder': '暂未实现',
-                                    },
-                                }
-                            ],
-                        },
-                        {
-                            'component': 'VCol',
-                            'props': {'cols': 12, 'md': 6},
-                            'content': [
-                                {
-                                    'component': 'VTextField',
-                                    'props': {
-                                        'model': 'exclude',
-                                        'label': '排除',
-                                        'placeholder': '暂未实现',
                                     },
                                 }
                             ],
@@ -262,8 +230,6 @@ def form(sites_options) -> list:
         "cron": "",
         "uid": "",
         "collection_type": [3],
-        "include": "",
-        "exclude": "",
         "save_path": "",
         "sites": [],
     }
