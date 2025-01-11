@@ -36,7 +36,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "bangumi_b.png"
     # 插件版本
-    plugin_version = "1.5.2"
+    plugin_version = "1.5.3"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页
@@ -60,8 +60,6 @@ class BangumiColl(_PluginBase):
     _cron: str = ""
     _notify: bool = False
     _onlyonce: bool = False
-    _include: str = ""
-    _exclude: str = ""
     _uid: str = ""
     _collection_type = []
     _save_path: str = ""
@@ -130,8 +128,6 @@ class BangumiColl(_PluginBase):
                 "cron": self._cron,
                 "uid": self._uid,
                 "collection_type": self._collection_type,
-                "include": self._include,
-                "exclude": self._exclude,
                 "save_path": self._save_path,
                 "sites": self._sites,
             }
@@ -151,7 +147,7 @@ class BangumiColl(_PluginBase):
         """
         注册插件公共服务
         """
-        if self._enabled or self._cron:
+        if self._enabled:
             trigger = CronTrigger.from_crontab(self._cron) if self._cron else "interval"
             kwargs = {"hours": 6} if not self._cron else {}
             return [
@@ -219,7 +215,6 @@ class BangumiColl(_PluginBase):
             logger.error(f"Bangumi用户：{self._uid} ，没有任何收藏")
             return {}
 
-        logger.info("解析Bangumi条目信息...")
         return {
             item.get("subject_id"): {
                 "name": item['subject'].get('name'),
@@ -264,14 +259,18 @@ class BangumiColl(_PluginBase):
 
         fail_items = {}
         for self._subid, item in items.items():
-            meta = MetaInfo(item.get("name_cn"))
+            if item.get("name_cn"):
+                meta = MetaInfo(item.get("name_cn"))
+                meta.en_name = item.get("name")
+            else:
+                meta = MetaInfo(item.get("name"))
             if not meta.name:
-                fail_items[self._subid] = f"{item.get('name_cn')} 未识别到有效数据"
-                logger.warn(f"{item.get('name_cn')} 未识别到有效数据")
+                fail_items[self._subid] = f"{self._subid} 未识别到有效数据"
+                logger.warn(f"{self._subid} 未识别到有效数据")
                 continue
 
             meta.year = item.get("date")[:4] if item.get("date") else None
-            mediainfo = self.chain.recognize_media(meta=meta)
+            mediainfo = self.chain.recognize_media(meta=meta, cache=False)
             meta.total_episode = item.get("eps", 0)
             if not mediainfo:
                 fail_items[self._subid] = f"{item.get('name_cn')} 媒体信息识别失败"
@@ -301,7 +300,7 @@ class BangumiColl(_PluginBase):
                 **self.prepare_kwargs(meta, mediainfo),
             )
             if not sid:
-                fail_items[self._subid] = f"{item.get('name_cn')} {msg}"
+                fail_items[self._subid] = f"{item.get('name_cn') or item.get('name')} {msg}"
 
         return fail_items
 
@@ -362,8 +361,9 @@ class BangumiColl(_PluginBase):
             data = res.json().get("data", [{}])[0]
             prev = data.get("sort", 1) - data.get("ep", 1)
             total = res.json().get("total", None)
-            meta.begin_episode = prev + 1
-            meta.end_episode = prev + total if total else None
+            begin = prev + 1
+            end = prev + total if total else None
+            meta.set_episodes(begin, end)
         except Exception as e:
             logger.error(f"获取集数信息失败: {str(e)}")
         finally:
