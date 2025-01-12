@@ -2142,16 +2142,15 @@ class BrushFlow(_PluginBase):
         ]
 
         if include_network_conditions:
-            downloader_info = self.__get_downloader_info()
-            if downloader_info:
-                current_upload_speed = downloader_info.upload_speed or 0
-                current_download_speed = downloader_info.download_speed or 0
+            # 获取平均带宽
+            avg_upload_speed, avg_download_speed = self.__get_average_bandwidth()
+            if avg_upload_speed is not None and avg_download_speed is not None:
                 reasons.extend([
-                    ("maxupspeed", lambda config: current_upload_speed >= float(config) * 1024,
-                     lambda config: f"当前总上传带宽 {StringUtils.str_filesize(current_upload_speed)}，"
+                    ("maxupspeed", lambda config: avg_upload_speed >= float(config) * 1024,
+                     lambda config: f"当前总上传带宽 {StringUtils.str_filesize(avg_upload_speed)}，"
                                     f"已达到最大值 {config} KB/s，暂时停止新增任务"),
-                    ("maxdlspeed", lambda config: current_download_speed >= float(config) * 1024,
-                     lambda config: f"当前总下载带宽 {StringUtils.str_filesize(current_download_speed)}，"
+                    ("maxdlspeed", lambda config: avg_download_speed >= float(config) * 1024,
+                     lambda config: f"当前总下载带宽 {StringUtils.str_filesize(avg_download_speed)}，"
                                     f"已达到最大值 {config} KB/s，暂时停止新增任务"),
                 ])
 
@@ -3507,6 +3506,32 @@ class BrushFlow(_PluginBase):
             return 0
         total_size = sum([task.get("size") or 0 for task in task_info.values()])
         return total_size
+
+    def __get_average_bandwidth(self, sample_count: int = 5, interval: float = 3.0) \
+            -> Tuple[Optional[float], Optional[float]]:
+        """
+        多次采样上传和下载带宽，取平均值
+        """
+        upload_speeds = []
+        download_speeds = []
+        start_time = time.time()
+        for _ in range(sample_count):
+            downloader_info = self.__get_downloader_info()
+            if downloader_info:
+                upload_speeds.append(downloader_info.upload_speed or 0)
+                download_speeds.append(downloader_info.download_speed or 0)
+            # 采样间隔
+            time.sleep(interval)
+        end_time = time.time()
+        total_duration = end_time - start_time
+        if not upload_speeds or not download_speeds:
+            return None, None
+        avg_upload_speed = sum(upload_speeds) / len(upload_speeds) if upload_speeds else 0
+        avg_download_speed = sum(download_speeds) / len(download_speeds) if download_speeds else 0
+        logger.debug(f"平均上传带宽 {StringUtils.str_filesize(avg_upload_speed)}, "
+                     f"平均下载带宽 {StringUtils.str_filesize(avg_download_speed)}, "
+                     f"采样次数={sample_count}, 时长={total_duration:.2f} 秒")
+        return avg_upload_speed, avg_download_speed
 
     def __get_downloader_info(self) -> schemas.DownloaderInfo:
         """
