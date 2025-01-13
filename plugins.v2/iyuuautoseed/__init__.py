@@ -186,7 +186,7 @@ class IYUUAutoSeed(_PluginBase):
         return active_services
 
     @property
-    def auto_service_info(self) -> Optional[Dict[str, ServiceInfo]]:
+    def auto_service_info(self) -> ServiceInfo | None:
         """
         服务信息
         """
@@ -376,6 +376,8 @@ class IYUUAutoSeed(_PluginBase):
                                     {
                                         'component': 'VSelect',
                                         'props': {
+                                            'chips': True,
+                                            'clearable': True,
                                             'model': 'auto_downloader',
                                             'label': '主辅分离',
                                             'items': [{"title": config.name, "value": config.name}
@@ -835,9 +837,14 @@ class IYUUAutoSeed(_PluginBase):
                     logger.info(f"种子 {seed.get('info_hash')} 辅种失败且已缓存，跳过 ...")
                     continue
                 # 添加任务 如果配置了主辅分离使用辅种下载器
-                success = self.__download_torrent(seed=seed,
-                                                  service=self.auto_service_info if self.auto_service_info else service,
-                                                  save_path=save_paths.get(current_hash))
+                if self._auto_downloader:
+                    success = self.__download_torrent(seed=seed,
+                                                      service=self.auto_service_info,
+                                                      save_path=save_paths.get(current_hash))
+                else:
+                    success = self.__download_torrent(seed=seed,
+                                                      service=service,
+                                                      save_path=save_paths.get(current_hash))
                 if success:
                     success_torrents.append(seed.get("info_hash"))
 
