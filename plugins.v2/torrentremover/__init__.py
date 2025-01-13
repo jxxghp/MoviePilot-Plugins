@@ -26,7 +26,7 @@ class TorrentRemover(_PluginBase):
     # 插件图标
     plugin_icon = "delete.jpg"
     # 插件版本
-    plugin_version = "2.1.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -207,7 +207,7 @@ class TorrentRemover(_PluginBase):
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextField',
+                                        'component': 'VCronField',
                                         'props': {
                                             'model': 'cron',
                                             'label': '执行周期',
