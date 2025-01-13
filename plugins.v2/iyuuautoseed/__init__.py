@@ -33,9 +33,9 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.6"
+    plugin_version = "2.7"
     # 插件作者
-    plugin_author = "jxxghp"
+    plugin_author = "jxxghp,ckun"
     # 作者主页
     author_url = "https://github.com/jxxghp"
     # 插件配置项ID前缀
@@ -59,6 +59,8 @@ class IYUUAutoSeed(_PluginBase):
     _onlyonce = False
     _token = None
     _downloaders = []
+    # 辅种下载器
+    _auto_downloader = None
     _sites = []
     _notify = False
     _nolabels = None
@@ -107,6 +109,7 @@ class IYUUAutoSeed(_PluginBase):
             self._cron = config.get("cron")
             self._token = config.get("token")
             self._downloaders = config.get("downloaders")
+            self._auto_downloader = config.get("auto_downloader")
             self._sites = config.get("sites") or []
             self._notify = config.get("notify")
             self._nolabels = config.get("nolabels")
@@ -181,6 +184,25 @@ class IYUUAutoSeed(_PluginBase):
             return None
 
         return active_services
+
+    @property
+    def auto_service_info(self) -> ServiceInfo | None:
+        """
+        服务信息
+        """
+        if not self._auto_downloader:
+            logger.warning("尚未配置主辅分离下载器，请检查配置")
+            return None
+
+        service = self.downloader_helper.get_service(name=self._auto_downloader)
+        if not service:
+            logger.warning("获取主辅分离下载器实例失败，请检查配置")
+            return None
+
+        if service.instance.is_inactive():
+            logger.warning(f"下载器 {service.name} 未连接，请检查配置")
+            return None
+        return service
 
     def get_state(self) -> bool:
         return True if self._enabled and self._cron and self._token and self._downloaders else False
@@ -327,7 +349,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -348,7 +370,27 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'chips': True,
+                                            'clearable': True,
+                                            'model': 'auto_downloader',
+                                            'label': '主辅分离',
+                                            'items': [{"title": config.name, "value": config.name}
+                                                      for config in self.downloader_helper.get_configs().values()]
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -524,6 +566,7 @@ class IYUUAutoSeed(_PluginBase):
             "cron": "",
             "token": "",
             "downloaders": [],
+            "auto_downloader": "",
             "sites": [],
             "nopaths": "",
             "nolabels": "",
@@ -544,6 +587,7 @@ class IYUUAutoSeed(_PluginBase):
             "cron": self._cron,
             "token": self._token,
             "downloaders": self._downloaders,
+            "auto_downloader": self._auto_downloader,
             "sites": self._sites,
             "notify": self._notify,
             "nolabels": self._nolabels,
@@ -643,22 +687,13 @@ class IYUUAutoSeed(_PluginBase):
                 self.check_recheck()
             else:
                 logger.info(f"没有需要辅种的种子")
-        # qb 中，辅种结束后，一起开始所有辅种后暂停的种子（排除了出错的种子），及时人工确认也是手动开始这部分种子
-        for service in self.service_infos.values():
-            downloader = service.name
-            downloader_obj = service.instance
-            # 只处理 qb
-            if service.type == "qbittorrent":
-                paused_torrents, _ = downloader_obj.get_torrents(status="paused")
-                # errored_torrents, _ = downloader_obj.get_torrents(status=["errored"])
-                pausedUP_torrent_hashs = []
-                for torrent in paused_torrents:
-                    if torrent.state in ['pausedUP', 'stoppedUP']:
-                        pausedUP_torrent_hashs.append(torrent.hash)
-                        logger.info(f"下载器 {downloader} 自动开始种子 {torrent.name}")
-                    else:
-                        logger.info(f"下载器 {downloader} 不自动开始种子 {torrent.name}, state={torrent.state}")
-                downloader_obj.start_torrents(ids=pausedUP_torrent_hashs)
+        # 指定主辅分离时只检查辅种下载器
+        if not self.auto_service_info:
+            self.start_service_torrents(self.auto_service_info)
+        else:
+            # qb 中，辅种结束后，一起开始所有辅种后暂停的种子（排除了出错的种子），及时人工确认也是手动开始这部分种子
+            for service in self.service_infos.values():
+                self.start_service_torrents(service)
         # 保存缓存
         self.__update_config()
         # 发送消息
@@ -676,48 +711,79 @@ class IYUUAutoSeed(_PluginBase):
                 )
         logger.info("辅种任务执行完成")
 
+    def start_service_torrents(self, service: ServiceInfo):
+        """
+        指定下载器开始种子
+        """
+        downloader = service.name
+        downloader_obj = service.instance
+        # 只处理 qb
+        if service.type == "qbittorrent":
+            paused_torrents, _ = downloader_obj.get_torrents(status="paused")
+            # errored_torrents, _ = downloader_obj.get_torrents(status=["errored"])
+            pausedUP_torrent_hashs = []
+            for torrent in paused_torrents:
+                if torrent.state in ['pausedUP', 'stoppedUP']:
+                    pausedUP_torrent_hashs.append(torrent.hash)
+                    logger.info(f"下载器 {downloader} 自动开始种子 {torrent.name}")
+                else:
+                    logger.info(f"下载器 {downloader} 不自动开始种子 {torrent.name}, state={torrent.state}")
+            downloader_obj.start_torrents(ids=pausedUP_torrent_hashs)
+
     def check_recheck(self):
         """
         定时检查下载器中种子是否校验完成，校验完成且完整的自动开始辅种
         """
-        if not self.service_infos:
-            return
         if not self._recheck_torrents:
             return
         if self._is_recheck_running:
             return
         self._is_recheck_running = True
+        if not self.auto_service_info:
+            # 检查指定下载器
+            self.check_recheck_service(self.auto_service_info)
+            self._is_recheck_running = False
+            return
+        if not self.service_infos:
+            return
         for service in self.service_infos.values():
             # 需要检查的种子
-            downloader = service.name
-            downloader_obj = service.instance
-            recheck_torrents = self._recheck_torrents.get(downloader) or []
-            if not recheck_torrents:
-                continue
-            logger.info(f"开始检查下载器 {downloader} 的校验任务 ...")
-            # 获取下载器中的种子状态
-            torrents, _ = downloader_obj.get_torrents(ids=recheck_torrents)
-            if torrents:
-                can_seeding_torrents = []
-                for torrent in torrents:
-                    # 获取种子hash
-                    hash_str = self.__get_hash(torrent=torrent, dl_type=service.type)
-                    if self.__can_seeding(torrent=torrent, dl_type=service.type):
-                        can_seeding_torrents.append(hash_str)
-                if can_seeding_torrents:
-                    logger.info(f"共 {len(can_seeding_torrents)} 个任务校验完成，开始辅种 ...")
-                    # 开始任务
-                    downloader_obj.start_torrents(ids=can_seeding_torrents)
-                    # 去除已经处理过的种子
-                    self._recheck_torrents[downloader] = list(
-                        set(recheck_torrents).difference(set(can_seeding_torrents)))
-            elif torrents is None:
-                logger.info(f"下载器 {downloader} 查询校验任务失败，将在下次继续查询 ...")
-                continue
-            else:
-                logger.info(f"下载器 {downloader} 中没有需要检查的校验任务，清空待处理列表 ...")
-                self._recheck_torrents[downloader] = []
+            self.check_recheck_service(service)
         self._is_recheck_running = False
+
+    def check_recheck_service(self, service: ServiceInfo):
+        """
+        检查指定下载器中种子是否校验完成，校验完成且完整的自动开始辅种
+        """
+        # 需要检查的种子
+        downloader = service.name
+        downloader_obj = service.instance
+        recheck_torrents = self._recheck_torrents.get(downloader) or []
+        if not recheck_torrents:
+            return
+        logger.info(f"开始检查下载器 {downloader} 的校验任务 ...")
+        # 获取下载器中的种子状态
+        torrents, _ = downloader_obj.get_torrents(ids=recheck_torrents)
+        if torrents:
+            can_seeding_torrents = []
+            for torrent in torrents:
+                # 获取种子hash
+                hash_str = self.__get_hash(torrent=torrent, dl_type=service.type)
+                if self.__can_seeding(torrent=torrent, dl_type=service.type):
+                    can_seeding_torrents.append(hash_str)
+            if can_seeding_torrents:
+                logger.info(f"共 {len(can_seeding_torrents)} 个任务校验完成，开始辅种 ...")
+                # 开始任务
+                downloader_obj.start_torrents(ids=can_seeding_torrents)
+                # 去除已经处理过的种子
+                self._recheck_torrents[downloader] = list(
+                    set(recheck_torrents).difference(set(can_seeding_torrents)))
+        elif torrents is None:
+            logger.info(f"下载器 {downloader} 查询校验任务失败，将在下次继续查询 ...")
+            return
+        else:
+            logger.info(f"下载器 {downloader} 中没有需要检查的校验任务，清空待处理列表 ...")
+            self._recheck_torrents[downloader] = []
 
     def __seed_torrents(self, hash_strs: list, service: ServiceInfo):
         """
@@ -770,10 +836,15 @@ class IYUUAutoSeed(_PluginBase):
                 if seed.get("info_hash") in self._error_caches or seed.get("info_hash") in self._permanent_error_caches:
                     logger.info(f"种子 {seed.get('info_hash')} 辅种失败且已缓存，跳过 ...")
                     continue
-                # 添加任务
-                success = self.__download_torrent(seed=seed,
-                                                  service=service,
-                                                  save_path=save_paths.get(current_hash))
+                # 添加任务 如果配置了主辅分离使用辅种下载器
+                if self._auto_downloader:
+                    success = self.__download_torrent(seed=seed,
+                                                      service=self.auto_service_info,
+                                                      save_path=save_paths.get(current_hash))
+                else:
+                    success = self.__download_torrent(seed=seed,
+                                                      service=service,
+                                                      save_path=save_paths.get(current_hash))
                 if success:
                     success_torrents.append(seed.get("info_hash"))
 
