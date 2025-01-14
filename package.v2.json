@@ -213,11 +213,12 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "labels": "做种,IYUU",
-        "version": "2.7",
+        "version": "2.8",
         "icon": "IYUU.png",
         "author": "jxxghp,ckun",
         "level": 2,
         "history": {
+            "v2.8": "为配置主辅分离时，不走辅种下载器检查",
             "v2.7": "增加主辅分离配置，单独指定辅种下载器",
             "v2.6": "优化执行周期输入，需要MoviePilot v2.2.1+",
             "v2.5": "修复qb辅种结束后自动开始暂停的种子",
