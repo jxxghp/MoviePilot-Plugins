@@ -33,7 +33,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.7"
+    plugin_version = "2.8"
     # 插件作者
     plugin_author = "jxxghp,ckun"
     # 作者主页
@@ -191,7 +191,7 @@ class IYUUAutoSeed(_PluginBase):
         服务信息
         """
         if not self._auto_downloader:
-            logger.warning("尚未配置主辅分离下载器，请检查配置")
+            logger.info("尚未配置主辅分离下载器，辅种不分离")
             return None
 
         service = self.downloader_helper.get_service(name=self._auto_downloader)
@@ -688,7 +688,7 @@ class IYUUAutoSeed(_PluginBase):
             else:
                 logger.info(f"没有需要辅种的种子")
         # 指定主辅分离时只检查辅种下载器
-        if not self.auto_service_info:
+        if self.auto_service_info:
             self.start_service_torrents(self.auto_service_info)
         else:
             # qb 中，辅种结束后，一起开始所有辅种后暂停的种子（排除了出错的种子），及时人工确认也是手动开始这部分种子
@@ -739,7 +739,7 @@ class IYUUAutoSeed(_PluginBase):
         if self._is_recheck_running:
             return
         self._is_recheck_running = True
-        if not self.auto_service_info:
+        if self.auto_service_info:
             # 检查指定下载器
             self.check_recheck_service(self.auto_service_info)
             self._is_recheck_running = False
