@@ -20,11 +20,12 @@
         "name": "站点刷流",
         "description": "自动托管刷流，将会提高对应站点的访问频率。",
         "labels": "刷流,仪表板",
-        "version": "4.2",
+        "version": "4.3",
         "icon": "brush.jpg",
         "author": "jxxghp,InfinityPacer",
         "level": 2,
         "history": {
+            "v4.3": "支持带宽采样并计算平均值，以优化刷流效率",
             "v4.2": "优化执行周期输入，需要MoviePilot v2.2.1+",
             "v4.1": "支持通过CRON表达式配置开启时间，固定10分钟为执行周期",
             "v4.0": "站点独立配置项支持配置NexusPHP 站点自动跳过下载提示页",
