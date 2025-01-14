@@ -37,7 +37,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "2.5.2"
+    plugin_version = "2.5.3"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -359,7 +359,7 @@ class AutoSignIn(_PluginBase):
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextField',
+                                        'component': 'VCronField',
                                         'props': {
                                             'model': 'cron',
                                             'label': '执行周期',
@@ -856,9 +856,10 @@ class AutoSignIn(_PluginBase):
                 message=f"站点【{url}】不存在"
             )
         else:
+            site_name, message = self.signin_site(site_info)
             return schemas.Response(
                 success=True,
-                message=self.signin_site(site_info)
+                message=f"站点【{site_name}】{message or '签到成功'}"
             )
 
     def signin_site(self, site_info: CommentedMap) -> Tuple[str, str]:
