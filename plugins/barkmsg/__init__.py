@@ -109,6 +109,7 @@ class BarkMsg(_PluginBase):
                                     }
                                 ]
                             },
+                        
                             {
                                 'component': 'VCol',
                                 'props': {
@@ -119,8 +120,8 @@ class BarkMsg(_PluginBase):
                                     {
                                         'component': 'VTextField',
                                         'props': {
-                                            'model': 'apikey',
-                                            'label': '密钥',
+                                            'model': 'params',
+                                            'label': '附加参数',
                                             'placeholder': '',
                                         }
                                     }
@@ -134,10 +135,10 @@ class BarkMsg(_PluginBase):
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextField',
+                                        'component': 'VTextarea',
                                         'props': {
-                                            'model': 'params',
-                                            'label': '附加参数',
+                                            'model': 'apikey',
+                                            'label': '密钥',
                                             'placeholder': '',
                                         }
                                     }
@@ -216,22 +217,23 @@ class BarkMsg(_PluginBase):
         try:
             if not self._server or not self._apikey:
                 return False, "参数未配置"
-            sc_url = "%s/%s/%s/%s" % (self._server, self._apikey, quote_plus(title), quote_plus(text))
-            if self._params:
-                sc_url = "%s?%s" % (sc_url, self._params)
-            res = RequestUtils().post_res(sc_url)
-            if res and res.status_code == 200:
-                ret_json = res.json()
-                code = ret_json['code']
-                message = ret_json['message']
-                if code == 200:
-                    logger.info("Bark消息发送成功")
+            for apikey in self._apikey.split()
+                sc_url = "%s/%s/%s/%s" % (self._server, apikey, quote_plus(title), quote_plus(text))
+                if self._params:
+                    sc_url = "%s?%s" % (sc_url, self._params)
+                res = RequestUtils().post_res(sc_url)
+                if res and res.status_code == 200:
+                    ret_json = res.json()
+                    code = ret_json['code']
+                    message = ret_json['message']
+                    if code == 200:
+                        logger.info("Bark消息发送成功")
+                    else:
+                        logger.warn(f"Bark消息发送失败：{message}")
+                elif res is not None:
+                    logger.warn(f"Bark消息发送失败，错误码：{res.status_code}，错误原因：{res.reason}")
                 else:
-                    logger.warn(f"Bark消息发送失败：{message}")
-            elif res is not None:
-                logger.warn(f"Bark消息发送失败，错误码：{res.status_code}，错误原因：{res.reason}")
-            else:
-                logger.warn(f"Bark消息发送失败：未获取到返回信息")
+                    logger.warn(f"Bark消息发送失败：未获取到返回信息")
         except Exception as msg_e:
             logger.error(f"Bark消息发送失败：{str(msg_e)}")
 
