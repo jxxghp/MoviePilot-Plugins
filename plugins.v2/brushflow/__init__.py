@@ -435,7 +435,7 @@ class BrushFlow(_PluginBase):
         if self._task_brush_enable:
             if brush_config.cron:
                 values = brush_config.cron.split()
-                values[0] = f"{datetime.now().minute % 10}/5"
+                values[0] = f"{datetime.now().minute % 10}/10"
                 cron = " ".join(values)
                 logger.info(f"站点刷流定时服务启动，执行周期 {cron}")
                 cron_trigger = CronTrigger.from_crontab(cron)
