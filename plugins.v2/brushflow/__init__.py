@@ -251,7 +251,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "4.3"
+    plugin_version = "4.3.1"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -435,7 +435,7 @@ class BrushFlow(_PluginBase):
         if self._task_brush_enable:
             if brush_config.cron:
                 values = brush_config.cron.split()
-                values[0] = f"{datetime.now().minute % 10}/5"
+                values[0] = f"{datetime.now().minute % 10}/10"
                 cron = " ".join(values)
                 logger.info(f"站点刷流定时服务启动，执行周期 {cron}")
                 cron_trigger = CronTrigger.from_crontab(cron)
