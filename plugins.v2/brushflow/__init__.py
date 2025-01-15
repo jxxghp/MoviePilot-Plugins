@@ -251,7 +251,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "4.3"
+    plugin_version = "4.3.1"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
