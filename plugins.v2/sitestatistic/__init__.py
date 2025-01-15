@@ -1,4 +1,5 @@
 import warnings
+from collections import defaultdict
 from datetime import datetime, timedelta
 from threading import Lock
 from typing import Optional, Any, List, Dict, Tuple
@@ -31,7 +32,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "lightolly,jxxghp"
     # 作者主页
@@ -264,28 +265,67 @@ class SiteStatistic(_PluginBase):
 
     def __get_data(self) -> Tuple[str, List[SiteUserData], List[SiteUserData]]:
         """
-        获取今天的日期、今天的站点数据、昨天的站点数据
+        获取最近一次统计的日期、最近一次统计的站点数据、上一次的站点数据
+        如果上一次某个站点数据缺失，则 fallback 到该站点之前最近有数据的日期
         """
-        # 获取最近所有数据
-        data_list: List[SiteUserData] = self.siteoper.get_userdata()
-        if not data_list:
+        # 获取所有原始数据
+        raw_data_list: List[SiteUserData] = self.siteoper.get_userdata()
+        if not raw_data_list:
             return "", [], []
+
         # 每个日期、每个站点只保留最后一条数据
-        data_list = list({f"{data.updated_day}_{data.name}": data for data in data_list}.values())
+        data_list = list({f"{data.updated_day}_{data.name}": data for data in raw_data_list}.values())
+
         # 按日期倒序排序
         data_list.sort(key=lambda x: x.updated_day, reverse=True)
-        # 获取今天的日期
-        today = data_list[0].updated_day
-        # 获取昨天的日期
-        yestoday = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
-        # 今天的数据
-        stattistic_data = [data for data in data_list if data.updated_day == today]
-        # 今日数据按数据量降序排序
-        stattistic_data.sort(key=lambda x: x.upload, reverse=True)
-        # 昨天的数据
-        yesterday_sites_data = [data for data in data_list if data.updated_day == yestoday]
 
-        return today, stattistic_data, yesterday_sites_data
+        # 按日期分组数据
+        data_by_day = defaultdict(list)
+        for data in data_list:
+            data_by_day[data.updated_day].append(data)
+
+        # 获取最近一次统计的日期
+        latest_day = data_list[0].updated_day
+
+        # 筛选最近一次统计的数据（可能为空）
+        latest_data = [data for data in data_list if data.updated_day == latest_day]
+        # 最近一次统计按上传量降序排序
+        latest_data.sort(key=lambda x: x.upload, reverse=True)
+
+        # 获取所有日期倒序排序后的列表
+        sorted_dates = sorted(data_by_day.keys(), reverse=True)
+
+        # 计算前一天的日期字符串（相对于最近一次日期）
+        previous_day_str = (datetime.strptime(latest_day, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+        # 获取前一天的站点数据
+        previous_day_sites = data_by_day.get(previous_day_str, [])
+        # 构建前一天站点到数据的映射
+        previous_by_site = {data.name: data for data in previous_day_sites}
+
+        # 准备查找早于前一天的日期列表，用于 fallback
+        fallback_dates = [d for d in sorted_dates if d < previous_day_str]
+
+        # 按站点细化进行上一次数据的 fallback 处理
+        previous_data = []
+        for current_site in latest_data:
+            site_name = current_site.name
+            # 优先尝试获取前一天的同一站点数据
+            site_prev = previous_by_site.get(site_name)
+
+            # 如果前一天没有该站点的数据，则进行逐日回退查找
+            if site_prev is None or site_prev.err_msg:
+                for d in fallback_dates:
+                    # 在每个候选日期中查找对应站点数据
+                    candidate = next((x for x in data_by_day[d] if x.name == site_name), None)
+                    if candidate:
+                        site_prev = candidate
+                        break
+
+            # 如果找到了上一次的数据，加入结果列表
+            if site_prev:
+                previous_data.append(site_prev)
+
+        return latest_day, latest_data, previous_data
 
     @staticmethod
     def __get_total_elements(today: str, stattistic_data: List[SiteUserData], yesterday_sites_data: List[SiteUserData],
