@@ -33,7 +33,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.8"
+    plugin_version = "2.9"
     # 插件作者
     plugin_author = "jxxghp,ckun"
     # 作者主页
@@ -191,7 +191,7 @@ class IYUUAutoSeed(_PluginBase):
         服务信息
         """
         if not self._auto_downloader:
-            logger.info("尚未配置主辅分离下载器，辅种不分离")
+            logger.debug("尚未配置主辅分离下载器，辅种不分离")
             return None
 
         service = self.downloader_helper.get_service(name=self._auto_downloader)
@@ -1053,23 +1053,28 @@ class IYUUAutoSeed(_PluginBase):
             return False
         else:
             self.success += 1
-            if self._skipverify:
-                # 跳过校验
-                logger.info(f"{download_id} 跳过校验，请自行检查...")
-                # 请注意这里是故意不自动开始的
-                # 跳过校验存在直接失败、种子目录相同文件不同等异常情况
-                # 必须要用户自行二次确认之后才能开始做种
-                # 否则会出现反复下载刷掉分享率、做假种的情况
+            if service.type == "qbittorrent":
+                if self._skipverify:
+                    # 跳过校验
+                    logger.info(f"{download_id} 跳过校验，请自行检查...")
+                    # 请注意这里是故意不自动开始的
+                    # 跳过校验存在直接失败、种子目录相同文件不同等异常情况
+                    # 必须要用户自行二次确认之后才能开始做种
+                    # 否则会出现反复下载刷掉分享率、做假种的情况
+                else:
+                    # 追加校验任务
+                    logger.info(f"添加校验检查任务：{download_id} ...")
+                    if not self._recheck_torrents.get(service.name):
+                        self._recheck_torrents[service.name] = []
+                    self._recheck_torrents[service.name].append(download_id)
+                    # 开始校验种子
+                    downloader_obj.recheck_torrents(ids=[download_id])
             else:
                 # 追加校验任务
                 logger.info(f"添加校验检查任务：{download_id} ...")
                 if not self._recheck_torrents.get(service.name):
                     self._recheck_torrents[service.name] = []
                 self._recheck_torrents[service.name].append(download_id)
-                # TR会自动校验
-                if service.type == "qbittorrent":
-                    # 开始校验种子
-                    downloader_obj.recheck_torrents(ids=[download_id])
             # 下载成功
             logger.info(f"成功添加辅种下载，站点：{site_info.get('name')}，种子链接：{torrent_url}")
             # 成功也加入缓存，有一些改了路径校验不通过的，手动删除后，下一次又会辅上
