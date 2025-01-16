@@ -79,7 +79,6 @@
         "icon": "douban.png",
         "author": "jxxghp",
         "level": 2,
-        "v2": true,
         "history": {
             "v1.9.1": "修复版本兼容问题",
             "v1.9": "请求豆瓣RSS时增加请求头",
@@ -123,7 +122,6 @@
         "icon": "movie.jpg",
         "author": "jxxghp",
         "level": 2,
-        "v2": true,
         "history": {
             "v1.9.1": "优化媒体类型的判断处理",
             "v1.9": "增强API安全性",
@@ -491,11 +489,14 @@
         "name": "Bark消息推送",
         "description": "支持使用Bark发送消息通知。",
         "labels": "消息通知",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "Bark_A.png",
         "author": "jxxghp",
         "level": 1,
-        "v2": true
+        "v2": true,
+        "history": {
+            "v1.2": "支持多人消息发送"
+        }
     },
     "PushDeerMsg": {
         "name": "PushDeer消息推送",

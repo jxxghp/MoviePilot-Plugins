@@ -3,11 +3,12 @@
         "name": "站点数据统计",
         "description": "站点统计数据图表。",
         "labels": "站点,仪表板",
-        "version": "1.5",
+        "version": "1.6",
         "icon": "statistic.png",
         "author": "lightolly,jxxghp",
         "level": 2,
         "history": {
+            "v1.6": "优化了站点数据获取失败时的回退逻辑",
             "v1.5": "修复了发送增量通知失败等一些问题",
             "v1.4.1": "支持数据刷新时发送消息通知",
             "v1.3": "远程刷新命令移植到主程序",
@@ -20,11 +21,13 @@
         "name": "站点刷流",
         "description": "自动托管刷流，将会提高对应站点的访问频率。",
         "labels": "刷流,仪表板",
-        "version": "4.2",
+        "version": "4.3.1",
         "icon": "brush.jpg",
         "author": "jxxghp,InfinityPacer",
         "level": 2,
         "history": {
+            "v4.3.1": "修复了一些细节问题",
+            "v4.3": "支持带宽采样并计算平均值，以优化刷流效率",
             "v4.2": "优化执行周期输入，需要MoviePilot v2.2.1+",
             "v4.1": "支持通过CRON表达式配置开启时间，固定10分钟为执行周期",
             "v4.0": "站点独立配置项支持配置NexusPHP 站点自动跳过下载提示页",
@@ -316,6 +319,30 @@
         "history": {
             "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
             "v2.0": "兼容MoviePilot V2"
+        }
+    },
+    "DoubanRank": {
+        "name": "豆瓣榜单订阅",
+        "description": "监控豆瓣热门榜单，自动添加订阅。",
+        "labels": "订阅",
+        "version": "2.0.0",
+        "icon": "movie.jpg",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v2.0.0": "优化cron表达式输入"
+        }
+    },
+    "DoubanSync": {
+        "name": "豆瓣想看",
+        "description": "同步豆瓣想看数据，自动添加订阅。",
+        "labels": "订阅",
+        "version": "2.0.0",
+        "icon": "douban.png",
+        "author": "jxxghp",
+        "level": 2,
+        "history": {
+            "v2.0.0": "优化cron表达式输入"
         }
     }
 }

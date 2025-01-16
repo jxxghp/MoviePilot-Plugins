@@ -16,7 +16,7 @@ class BarkMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Bark_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -109,23 +109,7 @@ class BarkMsg(_PluginBase):
                                     }
                                 ]
                             },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'apikey',
-                                            'label': '密钥',
-                                            'placeholder': '',
-                                        }
-                                    }
-                                ]
-                            },
+                        
                             {
                                 'component': 'VCol',
                                 'props': {
@@ -139,6 +123,23 @@ class BarkMsg(_PluginBase):
                                             'model': 'params',
                                             'label': '附加参数',
                                             'placeholder': '',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextarea',
+                                        'props': {
+                                            'model': 'apikey',
+                                            'label': '密钥',
+                                            'placeholder': '每行一个用户密钥',
                                         }
                                     }
                                 ]
@@ -216,22 +217,23 @@ class BarkMsg(_PluginBase):
         try:
             if not self._server or not self._apikey:
                 return False, "参数未配置"
-            sc_url = "%s/%s/%s/%s" % (self._server, self._apikey, quote_plus(title), quote_plus(text))
-            if self._params:
-                sc_url = "%s?%s" % (sc_url, self._params)
-            res = RequestUtils().post_res(sc_url)
-            if res and res.status_code == 200:
-                ret_json = res.json()
-                code = ret_json['code']
-                message = ret_json['message']
-                if code == 200:
-                    logger.info("Bark消息发送成功")
+            for apikey in self._apikey.split():
+                sc_url = "%s/%s/%s/%s" % (self._server, apikey, quote_plus(title), quote_plus(text))
+                if self._params:
+                    sc_url = "%s?%s" % (sc_url, self._params)
+                res = RequestUtils().post_res(sc_url)
+                if res and res.status_code == 200:
+                    ret_json = res.json()
+                    code = ret_json['code']
+                    message = ret_json['message']
+                    if code == 200:
+                        logger.info(f"{apikey} Bark消息发送成功")
+                    else:
+                        logger.warn(f"{apikey} Bark消息发送失败：{message}")
+                elif res is not None:
+                    logger.warn(f"{apikey} Bark消息发送失败，错误码：{res.status_code}，错误原因：{res.reason}")
                 else:
-                    logger.warn(f"Bark消息发送失败：{message}")
-            elif res is not None:
-                logger.warn(f"Bark消息发送失败，错误码：{res.status_code}，错误原因：{res.reason}")
-            else:
-                logger.warn(f"Bark消息发送失败：未获取到返回信息")
+                    logger.warn(f"{apikey} Bark消息发送失败：未获取到返回信息")
         except Exception as msg_e:
             logger.error(f"Bark消息发送失败：{str(msg_e)}")
 
