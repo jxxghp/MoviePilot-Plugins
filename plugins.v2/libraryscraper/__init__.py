@@ -27,7 +27,7 @@ class LibraryScraper(_PluginBase):
     # 插件图标
     plugin_icon = "scraper.png"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -346,16 +346,19 @@ class LibraryScraper(_PluginBase):
                 if not mtype:
                     file_meta = MetaInfoPath(file_path)
                     mtype = file_meta.type
-                if mtype == MediaType.TV:
-                    dir_item = (file_path.parent.parent, mtype)
-                    if dir_item not in scraper_paths:
-                        logger.info(f"发现电视剧目录：{dir_item}")
-                        scraper_paths.append(dir_item)
-                else:
-                    dir_item = (file_path.parent, mtype)
-                    if dir_item not in scraper_paths:
-                        logger.info(f"发现电影目录：{dir_item}")
-                        scraper_paths.append(dir_item)
+                # 重命名格式
+                rename_format = settings.TV_RENAME_FORMAT \
+                    if mtype == MediaType.TV else settings.MOVIE_RENAME_FORMAT
+                # 计算重命名中的文件夹层数
+                rename_format_level = len(rename_format.split("/")) - 1
+                if rename_format_level < 1:
+                    continue
+                # 取相对路径的第1层目录
+                media_path = file_path.parents[rename_format_level - 1]
+                dir_item = (media_path, mtype)
+                if dir_item not in scraper_paths:
+                    logger.info(f"发现目录：{dir_item}")
+                    scraper_paths.append(dir_item)
         # 开始刮削
         if scraper_paths:
             for item in scraper_paths:

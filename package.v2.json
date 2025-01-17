@@ -145,11 +145,12 @@
         "name": "媒体库刮削",
         "description": "定时对媒体库进行刮削，补齐缺失元数据和图片。",
         "labels": "刮削",
-        "version": "2.1",
+        "version": "2.1.1",
         "icon": "scraper.png",
         "author": "jxxghp",
         "level": 1,
         "history": {
+            "v2.1.1": "调整目录计算方法，以支持更多重命名格式",
             "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
             "v2.0": "兼容MoviePilot V2 版本",
             "v1.5": "修复未获取fanart图片的问题",
