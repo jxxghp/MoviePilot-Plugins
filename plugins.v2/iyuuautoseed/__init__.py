@@ -33,7 +33,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.9"
+    plugin_version = "2.10"
     # 插件作者
     plugin_author = "jxxghp,ckun"
     # 作者主页
@@ -687,13 +687,7 @@ class IYUUAutoSeed(_PluginBase):
                 self.check_recheck()
             else:
                 logger.info(f"没有需要辅种的种子")
-        # 指定主辅分离时只检查辅种下载器
-        if self.auto_service_info:
-            self.start_service_torrents(self.auto_service_info)
-        else:
-            # qb 中，辅种结束后，一起开始所有辅种后暂停的种子（排除了出错的种子），及时人工确认也是手动开始这部分种子
-            for service in self.service_infos.values():
-                self.start_service_torrents(service)
+
         # 保存缓存
         self.__update_config()
         # 发送消息
@@ -710,25 +704,6 @@ class IYUUAutoSeed(_PluginBase):
                          f"{self.cached} 条失败记录已加入缓存"
                 )
         logger.info("辅种任务执行完成")
-
-    def start_service_torrents(self, service: ServiceInfo):
-        """
-        指定下载器开始种子
-        """
-        downloader = service.name
-        downloader_obj = service.instance
-        # 只处理 qb
-        if service.type == "qbittorrent":
-            paused_torrents, _ = downloader_obj.get_torrents(status="paused")
-            # errored_torrents, _ = downloader_obj.get_torrents(status=["errored"])
-            pausedUP_torrent_hashs = []
-            for torrent in paused_torrents:
-                if torrent.state in ['pausedUP', 'stoppedUP']:
-                    pausedUP_torrent_hashs.append(torrent.hash)
-                    logger.info(f"下载器 {downloader} 自动开始种子 {torrent.name}")
-                else:
-                    logger.info(f"下载器 {downloader} 不自动开始种子 {torrent.name}, state={torrent.state}")
-            downloader_obj.start_torrents(ids=pausedUP_torrent_hashs)
 
     def check_recheck(self):
         """
