@@ -71,6 +71,7 @@ class BrushConfig:
         self.delete_except_tags = config.get("delete_except_tags")
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
+        self.brush_rss = config.get("brush_rss", False)
         self.proxy_delete = config.get("proxy_delete", False)
         self.active_time_range = config.get("active_time_range")
         self.cron = config.get("cron")
@@ -119,7 +120,8 @@ class BrushConfig:
             "proxy_delete",
             "qb_category",
             "site_hr_active",
-            "site_skip_tips"
+            "site_skip_tips",
+            "brush_rss"
             # 当新增支持字段时，仅在此处添加字段名
         }
         try:
@@ -1621,7 +1623,33 @@ class BrushFlow(_PluginBase):
                                                 ]
                                             }
                                         ]
-                                    }
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'props': {
+                                            'style': {
+                                                'margin-top': '-16px'
+                                            }
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'brush_rss',
+                                                            'label': '使用rss获取种子',
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    },
                                 ]
                             }
                         ]
@@ -1793,6 +1821,7 @@ class BrushFlow(_PluginBase):
             "delete_except_tags": f"{settings.TORRENT_TAG},H&R" if settings.TORRENT_TAG else "H&R",
             "except_subscribe": True,
             "brush_sequential": False,
+            "brush_rss": False,
             "proxy_delete": False,
             "freeleech": "free",
             "hr": "yes",
@@ -1982,12 +2011,16 @@ class BrushFlow(_PluginBase):
             return True
 
         logger.info(f"开始获取站点 {siteinfo.name} 的新种子 ...")
-        torrents = self.torrents_chain.browse(domain=siteinfo.domain)
+        brush_config = self.__get_brush_config(sitename=siteinfo.name)
+        # 判断是使用站点首页种子，还是rss种子
+        if brush_config.brush_rss:
+            torrents = self.torrents_chain.rss(domain=siteinfo.domain)
+        else:
+            torrents = self.torrents_chain.browse(domain=siteinfo.domain)
+
         if not torrents:
             logger.info(f"站点 {siteinfo.name} 没有获取到种子")
             return True
-
-        brush_config = self.__get_brush_config(sitename=siteinfo.name)
 
         if brush_config.site_hr_active:
             logger.info(f"站点 {siteinfo.name} 已开启全站H&R选项，所有种子设置为H&R种子")
@@ -2974,6 +3007,7 @@ class BrushFlow(_PluginBase):
             "delete_except_tags": brush_config.delete_except_tags,
             "except_subscribe": brush_config.except_subscribe,
             "brush_sequential": brush_config.brush_sequential,
+            "brush_rss": brush_config.brush_rss,
             "proxy_delete": brush_config.proxy_delete,
             "active_time_range": brush_config.active_time_range,
             "cron": brush_config.cron,
