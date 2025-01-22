@@ -1102,10 +1102,6 @@ class IYUUAutoSeed(_PluginBase):
                 if self._skipverify:
                     # 跳过校验
                     logger.info(f"{download_id} 跳过校验，请自行检查...")
-                    # 请注意这里是故意不自动开始的
-                    # 跳过校验存在直接失败、种子目录相同文件不同等异常情况
-                    # 必须要用户自行二次确认之后才能开始做种
-                    # 否则会出现反复下载刷掉分享率、做假种的情况
                 else:
                     # 开始校验种子
                     downloader_obj.recheck_torrents(ids=[download_id])
