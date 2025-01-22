@@ -235,6 +235,8 @@ class ChatGPT(_PluginBase):
         """
         监听识别事件，使用ChatGPT辅助识别名称
         """
+        if not self.openai:
+            return
         if not self._recognize:
             return
         if not event.event_data:
