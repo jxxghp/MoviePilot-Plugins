@@ -31,7 +31,7 @@ class DynamicWeChat(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "1.7.1"
+    plugin_version = "1.7.2"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -43,7 +43,7 @@ class DynamicWeChat(_PluginBase):
     # 可使用的用户级别
     auth_level = 2
     # 检测间隔时间,默认10分钟
-    _refresh_cron = '*/20 * * * *'
+    _refresh_cron = '*/10 * * * *'
 
     # ------------------------------------------私有属性------------------------------------------
     _enabled = False  # 开关
@@ -149,8 +149,13 @@ class DynamicWeChat(_PluginBase):
             self._my_send = None
         if self._my_send and not self._my_send.other_channel:   # 确保跟随通知配置，一定要配置了第三方才可以使用
             self._await_ip = False
-        if "||wan2" in self._input_id_list:  # 多wan口
-            self.wan2 = IpLocationParser(self._settings_file_path)
+        if "||wan" in self._input_id_list:  # 多wan口
+            last_char = self._input_id_list[-1] if self._input_id_list else None
+            if isinstance(last_char, str) and last_char.isdigit():
+                max_ips = int(last_char)
+            else:
+                max_ips = 3  # 默认为 3
+            self.wan2 = IpLocationParser(self._settings_file_path, max_ips=max_ips)
             self._current_ip_address = self.wan2.read_ips("ips")  # 从文件中读取
         else:
             self.wan2 = None
@@ -311,7 +316,7 @@ class DynamicWeChat(_PluginBase):
             logger.error(f"本地扫码任务: 本地扫码失败: {e}")
 
     @eventmanager.register(EventType.PluginAction)
-    def write_wan2_ip(self):
+    def write_wan2_ip(self, event: Event = None):
         if not self._enabled:
             logger.error("插件未开启")
             return
@@ -710,7 +715,7 @@ class DynamicWeChat(_PluginBase):
                 if self._cookie_valid:
                     if self._my_send:
                         self._my_send.reset_limit()
-                    PyCookieCloud.increase_cookie_lifetime(self._settings_file_path, 1200)
+                    PyCookieCloud.increase_cookie_lifetime(self._settings_file_path, 600)
                     self._cookie_lifetime = PyCookieCloud.load_cookie_lifetime(self._settings_file_path)
                 browser.close()
         except Exception as e:
@@ -1106,7 +1111,7 @@ class DynamicWeChat(_PluginBase):
         # 判断二维码是否过期
         if current_time > self._future_timestamp:
             vaild_text = "二维码已过期或没有扫码任务"
-            color = "#ff0000" if self._enabled else "#bbbbbb"
+            color = "#9B50FF" if self._enabled else "#bbbbbb"
             self._qr_code_image = None
         else:
             # 二维码有效,格式化过期时间为 年-月-日 时:分:秒
@@ -1122,7 +1127,7 @@ class DynamicWeChat(_PluginBase):
                 "props": {
                     "style": {
                         "fontSize": "22px",
-                        "color": "#ff0000",
+                        "color": "#FFB90F",
                         "textAlign": "center",
                         "margin": "20px"
                     }
@@ -1306,9 +1311,11 @@ class DynamicWeChat(_PluginBase):
         if not self._enabled:
             return
         self.text = event.event_data.get("text")
-        if self.text[:6].isdigit() and len(self.text) == 7:
-            self._verification_code = self.text[:6]
-            logger.info(f"收到验证码：{self._verification_code}")
+        if len(self.text) == 7 and re.fullmatch(r".*\d{6}.*", self.text):
+            match = re.search(r"\d{6}", self.text)
+            if match:
+                self._verification_code = match.group(0)
+                logger.info(f"收到验证码：{self._verification_code}")
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
