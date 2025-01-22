@@ -33,7 +33,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.11"
+    plugin_version = "2.12"
     # 插件作者
     plugin_author = "jxxghp,ckun"
     # 作者主页
@@ -61,6 +61,8 @@ class IYUUAutoSeed(_PluginBase):
     _downloaders = []
     # 辅种下载器
     _auto_downloader = None
+    # 自动分类
+    _auto_category = False
     _sites = []
     _notify = False
     _nolabels = None
@@ -116,6 +118,7 @@ class IYUUAutoSeed(_PluginBase):
             self._nopaths = config.get("nopaths")
             self._labelsafterseed = config.get("labelsafterseed") if config.get("labelsafterseed") else "已整理,辅种"
             self._categoryafterseed = config.get("categoryafterseed")
+            self._auto_category = config.get("auto_category")
             self._addhosttotag = config.get("addhosttotag")
             self._size = float(config.get("size")) if config.get("size") else 0
             self._clearcache = config.get("clearcache")
@@ -508,7 +511,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -524,7 +527,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -540,7 +543,23 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'auto_category',
+                                            'label': '分类复用(仅QB有效)',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -549,6 +568,50 @@ class IYUUAutoSeed(_PluginBase):
                                             'model': 'clearcache',
                                             'label': '清除缓存后运行',
                                         }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'props': {
+                            'style': {
+                                'margin-top': '12px'
+                            },
+                        },
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'error',
+                                            'variant': 'tonal'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'text': '注意：详细配置说明和注意事项请参考：'
+                                            },
+                                            {
+                                                'component': 'a',
+                                                'props': {
+                                                    'href': 'https://github.com/jxxghp/MoviePilot-Plugins/tree/main/plugins.v2/iyuuautoseed/README.md',
+                                                    'target': '_blank'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'u',
+                                                        'text': 'README'
+                                                    }
+                                                ]
+                                            }
+                                        ]
                                     }
                                 ]
                             }
@@ -563,6 +626,7 @@ class IYUUAutoSeed(_PluginBase):
             "notify": False,
             "clearcache": False,
             "addhosttotag": False,
+            "auto_category": False,
             "cron": "",
             "token": "",
             "downloaders": [],
@@ -595,6 +659,7 @@ class IYUUAutoSeed(_PluginBase):
             "labelsafterseed": self._labelsafterseed,
             "categoryafterseed": self._categoryafterseed,
             "addhosttotag": self._addhosttotag,
+            "auto_category": self._auto_category,
             "size": self._size,
             "success_caches": self._success_caches,
             "error_caches": self._error_caches,
@@ -662,16 +727,16 @@ class IYUUAutoSeed(_PluginBase):
                             break
                     if is_skip:
                         continue
-
                 # 体积排除辅种
                 torrent_size = self.__get_torrent_size(torrent=torrent, dl_type=service.type) / 1024 / 1024 / 1024
                 if self._size and torrent_size < self._size:
                     logger.info(f"种子 {hash_str} 大小:{torrent_size:.2f}GB，小于设定 {self._size}GB，跳过 ...")
                     continue
-
+                category = self.__get_category(torrent=torrent, dl_type=service.type) if self._auto_category else None
                 hash_strs.append({
                     "hash": hash_str,
-                    "save_path": save_path
+                    "save_path": save_path,
+                    "category": category or self._categoryafterseed
                 })
             if hash_strs:
                 logger.info(f"总共需要辅种的种子数：{len(hash_strs)}")
@@ -771,8 +836,10 @@ class IYUUAutoSeed(_PluginBase):
         hashs = [item.get("hash") for item in hash_strs]
         # 每个Hash的保存目录
         save_paths = {}
+        save_category = {}
         for item in hash_strs:
             save_paths[item.get("hash")] = item.get("save_path")
+            save_category[item.get("hash")] = item.get("category")
         # 查询可辅种数据
         seed_list, msg = self.iyuu_helper.get_seed_info(hashs)
         if not isinstance(seed_list, dict):
@@ -815,11 +882,13 @@ class IYUUAutoSeed(_PluginBase):
                 if self._auto_downloader:
                     success = self.__download_torrent(seed=seed,
                                                       service=self.auto_service_info,
-                                                      save_path=save_paths.get(current_hash))
+                                                      save_path=save_paths.get(current_hash),
+                                                      save_category=save_category.get(current_hash))
                 else:
                     success = self.__download_torrent(seed=seed,
                                                       service=service,
-                                                      save_path=save_paths.get(current_hash))
+                                                      save_path=save_paths.get(current_hash),
+                                                      save_category=save_category.get(current_hash))
                 if success:
                     success_torrents.append(seed.get("info_hash"))
 
@@ -884,7 +953,7 @@ class IYUUAutoSeed(_PluginBase):
             print(str(e))
 
     def __download(self, service: ServiceInfo, content: bytes,
-                   save_path: str, site_name: str) -> Optional[str]:
+                   save_path: str, save_category: str, site_name: str) -> Optional[str]:
 
         torrent_tags = self._labelsafterseed.split(',')
 
@@ -905,7 +974,7 @@ class IYUUAutoSeed(_PluginBase):
                                                  download_dir=save_path,
                                                  is_paused=True,
                                                  tag=torrent_tags,
-                                                 category=self._categoryafterseed,
+                                                 category=save_category,
                                                  is_skip_checking=self._skipverify)
             if not state:
                 return None
@@ -930,7 +999,7 @@ class IYUUAutoSeed(_PluginBase):
         logger.error(f"不支持的下载器：{service.type}")
         return None
 
-    def __download_torrent(self, seed: dict, service: ServiceInfo, save_path: str):
+    def __download_torrent(self, seed: dict, service: ServiceInfo, save_path: str, save_category: str):
         """
         下载种子
         torrent: {
@@ -1019,6 +1088,7 @@ class IYUUAutoSeed(_PluginBase):
         download_id = self.__download(service=service,
                                       content=content,
                                       save_path=save_path,
+                                      save_category=save_category,
                                       site_name=site_info.get("name"))
         if not download_id:
             # 下载失败
@@ -1069,6 +1139,17 @@ class IYUUAutoSeed(_PluginBase):
         try:
             return [str(tag).strip() for tag in torrent.get("tags").split(',')] \
                 if dl_type == "qbittorrent" else torrent.labels or []
+        except Exception as e:
+            print(str(e))
+            return []
+
+    @staticmethod
+    def __get_category(torrent: Any, dl_type: str):
+        """
+        获取种子标签
+        """
+        try:
+            return torrent.get("category") if dl_type == "qbittorrent" else None
         except Exception as e:
             print(str(e))
             return []
