@@ -1146,7 +1146,7 @@ class IYUUAutoSeed(_PluginBase):
     @staticmethod
     def __get_category(torrent: Any, dl_type: str):
         """
-        获取种子标签
+        获取种子分类
         """
         try:
             return torrent.get("category") if dl_type == "qbittorrent" else None
