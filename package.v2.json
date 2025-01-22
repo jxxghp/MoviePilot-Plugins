@@ -217,11 +217,12 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "labels": "做种,IYUU",
-        "version": "2.10",
+        "version": "2.11",
         "icon": "IYUU.png",
         "author": "jxxghp,ckun",
         "level": 2,
         "history": {
+            "v2.11": "修复qb跳过校验不自动开始的问题",
             "v2.10": "Revert 辅种结束后，一起开始所有辅种后暂停的种子（排除了出错的种子）",
             "v2.9": "修复开启跳过校验后，Tr下载器不自动开始的问题",
             "v2.8": "为配置主辅分离时，不走辅种下载器检查",
