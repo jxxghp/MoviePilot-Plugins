@@ -143,12 +143,12 @@ class MySender:
         返回非 WeChat 通道及其对应 token 的列表
         :return: [(channel, token), ...]
         """
-        return [(channel, token) for channel, token in zip(self.channels, self.tokens) if channel != "WeChat"]
+        return [(channel, token) for channel, token in zip(self.channels, self.tokens) if channel.lower() != "wechat"]
 
     @staticmethod
     def _detect_channel(token):
         """根据 token 确定通知渠道"""
-        if "WeChat" in token:
+        if "WeChat" in token or "wechat" in token:
             return "WeChat"
 
         letters_only = ''.join(re.findall(r'[A-Za-z]', token))
@@ -214,7 +214,7 @@ class MySender:
         else:
             send_status = wechat.send_msg(title=title, text=content, userid=actual_userid)
 
-        if send_status is None:
+        if not send_status:
             return "微信通知发送错误"
         return None
 
