@@ -9,6 +9,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app import schemas
 from app.chain.media import MediaChain
+from app.db.user_oper import UserOper
 from app.schemas.types import MediaType
 
 from app.chain.download import DownloadChain
@@ -34,7 +35,7 @@ class DoubanSync(_PluginBase):
     # 插件图标
     plugin_icon = "douban.png"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.0.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -55,6 +56,7 @@ class DoubanSync(_PluginBase):
     searchchain = None
     subscribechain = None
     mediachain = None
+    useroper = None
 
     # 配置属性
     _enabled: bool = False
@@ -72,6 +74,7 @@ class DoubanSync(_PluginBase):
         self.searchchain = SearchChain()
         self.subscribechain = SubscribeChain()
         self.mediachain = MediaChain()
+        self.useroper = UserOper()
 
         # 停止现有任务
         self.stop_service()
@@ -492,6 +495,20 @@ class DoubanSync(_PluginBase):
         except Exception as e:
             logger.error("退出插件失败：%s" % str(e))
 
+    def __get_username_by_douban(self, user_id: str) -> Optional[str]:
+        """
+        根据豆瓣ID获取用户名
+        """
+        try:
+            users = self.useroper.list()
+            for user in users:
+                user_settings = user.settings
+                if user_settings and user_settings.get("douban_userid") == user_id:
+                    return user.name
+        except Exception as err:
+            logger.warn(f'{err}, 需要 MoviePilot v2.2.6+ 版本')
+        return None
+
     def sync(self):
         """
         通过用户RSS同步豆瓣想看数据
@@ -571,6 +588,8 @@ class DoubanSync(_PluginBase):
                         logger.info(f'{mediainfo.title_year} 媒体库中已存在')
                         action = "exist"
                     else:
+                        # 用户转换
+                        real_name = self.__get_username_by_douban(user_id)
                         # 添加订阅
                         logger.info(f'{mediainfo.title_year} 媒体库中不存在或不完整，添加订阅 ...')
                         self.subscribechain.add(title=mediainfo.title,
@@ -579,7 +598,7 @@ class DoubanSync(_PluginBase):
                                                 tmdbid=mediainfo.tmdb_id,
                                                 season=meta.begin_season,
                                                 exist_ok=True,
-                                                username="豆瓣想看")
+                                                username=real_name or "豆瓣想看")
                         action = "subscribe"
                     # 存储历史记录
                     history.append({
