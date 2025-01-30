@@ -500,11 +500,7 @@ class DoubanSync(_PluginBase):
         根据豆瓣ID获取用户名
         """
         try:
-            users = self.useroper.list()
-            for user in users:
-                user_settings = user.settings
-                if user_settings and user_settings.get("douban_userid") == user_id:
-                    return user.name
+            return self.useroper.get_name(douban_userid=user_id)
         except Exception as err:
             logger.warn(f'{err}, 需要 MoviePilot v2.2.6+ 版本')
         return None
