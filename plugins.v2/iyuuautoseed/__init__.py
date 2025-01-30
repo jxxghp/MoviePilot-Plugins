@@ -33,9 +33,9 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.12"
+    plugin_version = "2.13"
     # 插件作者
-    plugin_author = "jxxghp,ckun"
+    plugin_author = "jxxghp,CKun"
     # 作者主页
     author_url = "https://github.com/jxxghp"
     # 插件配置项ID前缀
@@ -119,6 +119,7 @@ class IYUUAutoSeed(_PluginBase):
             self._labelsafterseed = config.get("labelsafterseed") if config.get("labelsafterseed") else "已整理,辅种"
             self._categoryafterseed = config.get("categoryafterseed")
             self._auto_category = config.get("auto_category")
+            self._auto_start = config.get("auto_start")
             self._addhosttotag = config.get("addhosttotag")
             self._size = float(config.get("size")) if config.get("size") else 0
             self._clearcache = config.get("clearcache")
@@ -261,7 +262,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -277,7 +278,7 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -293,7 +294,23 @@ class IYUUAutoSeed(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'clearcache',
+                                            'label': '清除缓存后运行',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -549,8 +566,8 @@ class IYUUAutoSeed(_PluginBase):
                                     {
                                         'component': 'VSwitch',
                                         'props': {
-                                            'model': 'auto_category',
-                                            'label': '分类复用(仅QB有效)',
+                                            'model': 'auto_start',
+                                            'label': '自动开始(跳过校验有效)',
                                         }
                                     }
                                 ]
@@ -565,8 +582,8 @@ class IYUUAutoSeed(_PluginBase):
                                     {
                                         'component': 'VSwitch',
                                         'props': {
-                                            'model': 'clearcache',
-                                            'label': '清除缓存后运行',
+                                            'model': 'auto_category',
+                                            'label': '分类复用(仅QB有效)',
                                         }
                                     }
                                 ]
@@ -627,6 +644,7 @@ class IYUUAutoSeed(_PluginBase):
             "clearcache": False,
             "addhosttotag": False,
             "auto_category": False,
+            "auto_start": False,
             "cron": "",
             "token": "",
             "downloaders": [],
@@ -660,6 +678,7 @@ class IYUUAutoSeed(_PluginBase):
             "categoryafterseed": self._categoryafterseed,
             "addhosttotag": self._addhosttotag,
             "auto_category": self._auto_category,
+            "auto_start": self._auto_start,
             "size": self._size,
             "success_caches": self._success_caches,
             "error_caches": self._error_caches,
@@ -1100,21 +1119,30 @@ class IYUUAutoSeed(_PluginBase):
             self.success += 1
             if service.type == "qbittorrent":
                 if self._skipverify:
-                    # 跳过校验
-                    logger.info(f"{download_id} 跳过校验，请自行检查...")
+                    if self._auto_start:
+                        logger.info(f"{download_id} 跳过校验，开启自动开始，注意观察种子的完整性")
+                        self.__add_recheck_torrents(service, download_id)
+                    else:
+                        # 跳过校验
+                        logger.info(f"{download_id} 跳过校验，请自行检查手动开始任务...")
                 else:
                     # 开始校验种子
                     downloader_obj.recheck_torrents(ids=[download_id])
-            # 追加校验任务
-            logger.info(f"添加校验检查任务：{download_id} ...")
-            if not self._recheck_torrents.get(service.name):
-                self._recheck_torrents[service.name] = []
-            self._recheck_torrents[service.name].append(download_id)
+                    self.add_torrent(service, download_id)
+            else:
+                self.add_torrent(service, download_id)
             # 下载成功
             logger.info(f"成功添加辅种下载，站点：{site_info.get('name')}，种子链接：{torrent_url}")
             # 成功也加入缓存，有一些改了路径校验不通过的，手动删除后，下一次又会辅上
             self._success_caches.append(seed.get("info_hash"))
             return True
+
+    def __add_recheck_torrents(self, service: ServiceInfo, download_id: str):
+        # 追加校验任务
+        logger.info(f"添加校验检查任务：{download_id} ...")
+        if not self._recheck_torrents.get(service.name):
+            self._recheck_torrents[service.name] = []
+        self._recheck_torrents[service.name].append(download_id)
 
     @staticmethod
     def __get_hash(torrent: Any, dl_type: str):
