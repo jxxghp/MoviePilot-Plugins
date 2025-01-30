@@ -1128,9 +1128,9 @@ class IYUUAutoSeed(_PluginBase):
                 else:
                     # 开始校验种子
                     downloader_obj.recheck_torrents(ids=[download_id])
-                    self.add_torrent(service, download_id)
+                    self.__add_recheck_torrents(service, download_id)
             else:
-                self.add_torrent(service, download_id)
+                self.__add_recheck_torrents(service, download_id)
             # 下载成功
             logger.info(f"成功添加辅种下载，站点：{site_info.get('name')}，种子链接：{torrent_url}")
             # 成功也加入缓存，有一些改了路径校验不通过的，手动删除后，下一次又会辅上
