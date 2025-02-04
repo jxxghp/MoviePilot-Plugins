@@ -818,23 +818,21 @@ class TorrentTransfer(_PluginBase):
                     # 下载成功
                     logger.info(f"成功添加转移做种任务，种子文件：{torrent_file}")
 
-                    if self._skipverify:
-                        # 跳过校验
-                        logger.info(f"{download_id} 跳过校验，请自行检查...")
-                        # 请注意这里是故意不自动开始的
-                        # 跳过校验存在直接失败、种子目录相同文件不同等异常情况
-                        # 必须要用户自行二次确认之后才能开始做种
-                        # 否则会出现反复下载刷掉分享率、做假种的情况
+                    # TR会自动校验，QB需要手动校验
+                    if self.downloader_helper.is_downloader("qbittorrent", service=to_service):
+                        if self._skipverify:
+                            if self._autostart:
+                                logger.info(f"{download_id} 跳过校验，开启自动开始，注意观察种子的完整性")
+                                self.__add_recheck_torrents(to_service, download_id)
+                            else:
+                                # 跳过校验
+                                logger.info(f"{download_id} 跳过校验，请自行检查手动开始任务...")
+                        else:
+                            logger.info(f"qbittorrent 开始校验 {download_id} ...")
+                            to_downloader.recheck_torrents(ids=[download_id])
+                            self.__add_recheck_torrents(to_service, download_id)
                     else:
-                        # 追加校验任务
-                        logger.info(f"添加校验检查任务：{download_id} ...")
-                        if not self._recheck_torrents.get(to_service.name):
-                            self._recheck_torrents[to_service.name] = []
-                        self._recheck_torrents[to_service.name].append(download_id)
-                        # TR会自动校验，QB需要手动校验
-                        if self.downloader_helper.is_downloader("qbittorrent", service=to_service):
-                             logger.info(f"qbittorrent 开始校验 {download_id} ...")
-                             to_downloader.recheck_torrents(ids=[download_id])
+                        self.__add_recheck_torrents(to_service, download_id)
 
                     # 删除源种子，不能删除文件！
                     if self._deletesource:
@@ -866,6 +864,13 @@ class TorrentTransfer(_PluginBase):
         else:
             logger.info(f"没有需要转移的种子")
         logger.info("转移做种任务执行完成")
+
+    def __add_recheck_torrents(self, service: ServiceInfo, download_id: str):
+        # 追加校验任务
+        logger.info(f"添加校验检查任务：{download_id} ...")
+        if not self._recheck_torrents.get(service.name):
+            self._recheck_torrents[service.name] = []
+        self._recheck_torrents[service.name].append(download_id)
 
     def check_recheck(self):
         """
