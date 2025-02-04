@@ -109,7 +109,7 @@
         "author": "jxxghp",
         "level": 2,
         "history": {
-            "v1.10": "支持跳过校验（仅支持 qBittorrent），开启跳过校验后需手动开启自动开始",
+            "v1.10": "支持跳过校验（仅支持 qBittorrent）",
             "v1.9": "优化执行周期输入，需要MoviePilot v2.2.1+",
             "v1.8": "支持qbittorrent 5",
             "v1.7": "MoviePilot V2 版本自动转移做种插件",
