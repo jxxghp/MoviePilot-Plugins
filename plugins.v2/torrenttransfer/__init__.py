@@ -818,11 +818,6 @@ class TorrentTransfer(_PluginBase):
                     # 下载成功
                     logger.info(f"成功添加转移做种任务，种子文件：{torrent_file}")
 
-                    # TR会自动校验，QB需要手动校验
-                    if self.downloader_helper.is_downloader("qbittorrent", service=to_service):
-                        logger.info(f"qbittorrent 开始校验 {download_id} ...")
-                        to_downloader.recheck_torrents(ids=[download_id])
-
                     if self._skipverify:
                         # 跳过校验
                         logger.info(f"{download_id} 跳过校验，请自行检查...")
@@ -836,6 +831,10 @@ class TorrentTransfer(_PluginBase):
                         if not self._recheck_torrents.get(to_service.name):
                             self._recheck_torrents[to_service.name] = []
                         self._recheck_torrents[to_service.name].append(download_id)
+                        # TR会自动校验，QB需要手动校验
+                        if self.downloader_helper.is_downloader("qbittorrent", service=to_service):
+                             logger.info(f"qbittorrent 开始校验 {download_id} ...")
+                             to_downloader.recheck_torrents(ids=[download_id])
 
                     # 删除源种子，不能删除文件！
                     if self._deletesource:
