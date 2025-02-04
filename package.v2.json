@@ -239,6 +239,18 @@
             "v2.0": "兼容MoviePilot V2 版本"
         }
     },
+    "CrossSeed": {
+        "name": "青蛙辅种助手",
+        "description": "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙、AGSVPT、麒麟、UBits、聆音、憨憨等。",
+        "labels": "做种",
+        "version": "3.0",
+        "icon": "qingwa.png",
+        "author": "233@qingwa",
+        "level": 2,
+        "history": {
+            "v3.0": "兼容MoviePilot V2 版本"
+        }
+    },
     "QbCommand": {
         "name": "QB远程操作",
         "description": "通过定时任务或交互命令远程操作QB暂停/开始/限速等。",
