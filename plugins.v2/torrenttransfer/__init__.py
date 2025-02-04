@@ -28,7 +28,7 @@ class TorrentTransfer(_PluginBase):
     # 插件图标
     plugin_icon = "seed.png"
     # 插件版本
-    plugin_version = "1.9"
+    plugin_version = "1.10"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -61,6 +61,7 @@ class TorrentTransfer(_PluginBase):
     _deleteduplicate = False
     _fromtorrentpath = None
     _autostart = False
+    _skipverify = False
     _transferemptylabel = False
     _add_torrent_tags = None
     # 退出事件
@@ -92,6 +93,7 @@ class TorrentTransfer(_PluginBase):
             self._fromtorrentpath = config.get("fromtorrentpath")
             self._nopaths = config.get("nopaths")
             self._autostart = config.get("autostart")
+            self._skipverify = config.get("skipverify")
             self._transferemptylabel = config.get("transferemptylabel")
             self._add_torrent_tags = config.get("add_torrent_tags") or ""
             self._torrent_tags = self._add_torrent_tags.strip().split(",") if self._add_torrent_tags else []
@@ -468,6 +470,19 @@ class TorrentTransfer(_PluginBase):
                                 ]
                             },
                             {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "skipverify",
+                                            "label": "跳过校验(仅QB有效)",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
@@ -536,6 +551,7 @@ class TorrentTransfer(_PluginBase):
             "fromtorrentpath": "",
             "nopaths": "",
             "autostart": True,
+            "skipverify": False,
             "transferemptylabel": False,
             "add_torrent_tags": "已整理,转移做种"
         }
@@ -572,7 +588,8 @@ class TorrentTransfer(_PluginBase):
             state = downloader.add_torrent(content=content,
                                            download_dir=save_path,
                                            is_paused=True,
-                                           tag=self._torrent_tags + [tag])
+                                           tag=self._torrent_tags + [tag],
+                                           is_skip_checking=self._skipverify)
             if not state:
                 return None
             else:
@@ -803,14 +820,19 @@ class TorrentTransfer(_PluginBase):
 
                     # TR会自动校验，QB需要手动校验
                     if self.downloader_helper.is_downloader("qbittorrent", service=to_service):
-                        logger.info(f"qbittorrent 开始校验 {download_id} ...")
-                        to_downloader.recheck_torrents(ids=[download_id])
-
-                    # 追加校验任务
-                    logger.info(f"添加校验检查任务：{download_id} ...")
-                    if not self._recheck_torrents.get(to_service.name):
-                        self._recheck_torrents[to_service.name] = []
-                    self._recheck_torrents[to_service.name].append(download_id)
+                        if self._skipverify:
+                            if self._autostart:
+                                logger.info(f"{download_id} 跳过校验，开启自动开始，注意观察种子的完整性")
+                                self.__add_recheck_torrents(to_service, download_id)
+                            else:
+                                # 跳过校验
+                                logger.info(f"{download_id} 跳过校验，请自行检查手动开始任务...")
+                        else:
+                            logger.info(f"qbittorrent 开始校验 {download_id} ...")
+                            to_downloader.recheck_torrents(ids=[download_id])
+                            self.__add_recheck_torrents(to_service, download_id)
+                    else:
+                        self.__add_recheck_torrents(to_service, download_id)
 
                     # 删除源种子，不能删除文件！
                     if self._deletesource:
@@ -842,6 +864,13 @@ class TorrentTransfer(_PluginBase):
         else:
             logger.info(f"没有需要转移的种子")
         logger.info("转移做种任务执行完成")
+
+    def __add_recheck_torrents(self, service: ServiceInfo, download_id: str):
+        # 追加校验任务
+        logger.info(f"添加校验检查任务：{download_id} ...")
+        if not self._recheck_torrents.get(service.name):
+            self._recheck_torrents[service.name] = []
+        self._recheck_torrents[service.name].append(download_id)
 
     def check_recheck(self):
         """
