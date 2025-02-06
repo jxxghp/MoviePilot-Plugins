@@ -16,7 +16,7 @@ class ChatGPT(_PluginBase):
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "2.0.1"
+    plugin_version = "2.0.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -250,7 +250,7 @@ class ChatGPT(_PluginBase):
         if response:
             event.event_data = {
                 'title': title,
-                'name': response.get("title"),
+                'name': response.get("name"),
                 'year': response.get("year"),
                 'season': response.get("season"),
                 'episode': response.get("episode")
