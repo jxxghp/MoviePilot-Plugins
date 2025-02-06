@@ -123,7 +123,7 @@ class OpenAi:
         try:
             _filename_prompt = "I will give you a movie/tvshow file name.You need to return a Json." \
                                "\nPay attention to the correct identification of the film name." \
-                               "\n{\"title\":string,\"version\":string,\"part\":string,\"year\":string,\"resolution\":string,\"season\":number|null,\"episode\":number|null}"
+                               "\n{\"name\":string,\"version\":string,\"part\":string,\"year\":string,\"resolution\":string,\"season\":number|null,\"episode\":number|null}"
             completion = self.__get_model(prompt=_filename_prompt, message=filename)
             result = completion.choices[0].message.content
             return json.loads(result)
