@@ -45,7 +45,7 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
     }
     ```
   
-- MoviePilot中所有事件清单（V2版本），可以通过实现这些事情来扩展功能，同时插件之前也可以通过发送和监听事件实现联动（V1V2事件清单不可，且可能会变化，最新请参考源代码）。
+- MoviePilot中所有事件清单（V2版本），可以通过实现这些事情来扩展功能，同时插件之前也可以通过发送和监听事件实现联动（V1、V2事件清单有差异，且可能会变化，最新请参考源代码）。
 ```python
 # 异步广播事件
 class EventType(Enum):
