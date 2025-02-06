@@ -176,8 +176,8 @@ class ChainEventType(Enum):
     ```
 
 ### 5. 如何通过插件增强MoviePilot的识别功能？
-- V1按如下步骤实现，V2版本直搞实现对应链式事件即可，参考ChatGPT插件。
-- 注册 `NameRecognize` 事件，实现识别逻辑。注意：只有主程序无法识别时才会触发该事件
+- V1按如下步骤实现，V2版本直接实现对应链式事件即可，参考ChatGPT插件。注意：只有主程序无法识别时才会触发。
+- 注册 `NameRecognize` 事件，实现识别逻辑。
     ```python
     @eventmanager.register(EventType.NameRecognize)
     ```
