@@ -563,7 +563,7 @@ class DiscoverSourceEventData(ChainEventData):
     extra_sources: List[DiscoverMediaSource] = Field(default_factory=list, description="额外媒体数据源")
 ```
 
-- 2. 实现`ChainEventType.MediaRecognizeConvert`链式事件响应，根据媒体ID和转换类型，返回TheMovieDb或豆瓣的媒体数据，将转换后的数据注入事件数据`media_dict`中，可参考`app/chain/media.py`中的`get_tmdbinfo_by_bangumiid`。
+- 2. 实现`ChainEventType.MediaRecognizeConvert`链式事件响应（**可选**，如不实现则默认按标题重新识别媒体信息），根据媒体ID和转换类型，返回TheMovieDb或豆瓣的媒体数据，将转换后的数据注入事件数据`media_dict`中，可参考`app/chain/media.py`中的`get_tmdbinfo_by_bangumiid`。
 
   - `mediaid`：媒体ID，格式为`mediaid_prefix:media_id`，如 tmdb:12345、douban:1234567
 
