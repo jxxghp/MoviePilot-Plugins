@@ -45,7 +45,7 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
     }
     ```
   
-- MoviePilot中所有事件清单，可以通过实现这些事情来扩展功能，同时插件之前也可以通过发送和监听事件实现联动（事件清单可能发生变化，最新请参考源代码）。
+- MoviePilot中所有事件清单（V2版本），可以通过实现这些事情来扩展功能，同时插件之前也可以通过发送和监听事件实现联动（V1V2事件清单不可，且可能会变化，最新请参考源代码）。
 ```python
 # 异步广播事件
 class EventType(Enum):
@@ -176,7 +176,8 @@ class ChainEventType(Enum):
     ```
 
 ### 5. 如何通过插件增强MoviePilot的识别功能？
-- 注册 `NameRecognize` 事件，实现识别逻辑（参考ChatGPT插件），注意：只有主程序无法识别时才会触发该事件
+- V1按如下步骤实现，V2版本直搞实现对应链式事件即可，参考ChatGPT插件。
+- 注册 `NameRecognize` 事件，实现识别逻辑。注意：只有主程序无法识别时才会触发该事件
     ```python
     @eventmanager.register(EventType.NameRecognize)
     ```
