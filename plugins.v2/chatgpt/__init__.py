@@ -16,7 +16,7 @@ class ChatGPT(_PluginBase):
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "2.0.2"
+    plugin_version = "2.1.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -247,7 +247,7 @@ class ChatGPT(_PluginBase):
         # 调用ChatGPT
         response = self.openai.get_media_name(filename=title)
         logger.info(f"ChatGPT返回结果：{response}")
-        if response:
+        if response and response.get("name"):
             event.event_data = {
                 'title': title,
                 'name': response.get("name"),
@@ -255,8 +255,6 @@ class ChatGPT(_PluginBase):
                 'season': response.get("season"),
                 'episode': response.get("episode")
             }
-        else:
-            event.event_data = {}
 
     def stop_service(self):
         """
