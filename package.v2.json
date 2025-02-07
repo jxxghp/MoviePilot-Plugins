@@ -365,5 +365,17 @@
             "v2.0.1": "支持将豆瓣ID转换为MoviePilot中已有用户（在用户个人信息中绑定豆瓣ID），需要MoviePilot v2.2.6+",
             "v2.0.0": "优化cron表达式输入"
         }
+    },
+    "TvdbDiscover": {
+        "name": "TheTVDB探索",
+        "description": "让探索支持TheTVDB的数据浏览。",
+        "labels": "探索",
+        "version": "1.0",
+        "icon": "https://www.thetvdb.com/images/logo.svg",
+        "author": "jxxghp",
+        "level": 1,
+        "history": {
+            "v1.0": "需要MoviePilot v2.2.7-1+ 版本，否则无法显示图片"
+        }
     }
 }
