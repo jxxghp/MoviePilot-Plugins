@@ -371,7 +371,7 @@
         "description": "让探索支持TheTVDB的数据浏览。",
         "labels": "探索",
         "version": "1.0",
-        "icon": "https://www.thetvdb.com/images/logo.svg",
+        "icon": "http://mirrors.kodi.tv/addons/omega/metadata.movies.thetvdb.com.v4.python/media/icon.png",
         "author": "jxxghp",
         "level": 1,
         "history": {
