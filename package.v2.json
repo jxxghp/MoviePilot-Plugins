@@ -370,12 +370,12 @@
         "name": "TheTVDB探索",
         "description": "让探索支持TheTVDB的数据浏览。",
         "labels": "探索",
-        "version": "1.0",
-        "icon": "http://mirrors.kodi.tv/addons/omega/metadata.movies.thetvdb.com.v4.python/media/icon.png",
+        "version": "1.1",
+        "icon": "TheTVDB_A.png",
         "author": "jxxghp",
         "level": 1,
         "history": {
-            "v1.0": "需要MoviePilot v2.2.7-1+ 版本，否则无法显示图片"
+            "v1.1": "需要MoviePilot v2.2.7-1+ 版本，否则无法显示图片"
         }
     }
 }
