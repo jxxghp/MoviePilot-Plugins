@@ -8,7 +8,7 @@
         "author": "thsrite",
         "level": 2,
         "history": {
-	    "v2.4.3": "修复空签到失败问题",
+            "v2.4.3": "修复空签到失败问题",
             "v2.4.2": "修复PT时间签到失败问题",
             "v2.4.1": "修复海胆签到失败问题",
             "v2.4": "适配m-team Api地址变化",
@@ -496,6 +496,7 @@
         "level": 1,
         "v2": true,
         "history": {
+            "v1.3": "将标题、推送内容放入请求体中，避免编码后 URI 过长导致无法推送",
             "v1.2": "支持多人消息发送"
         }
     },
@@ -909,7 +910,6 @@
             "v1.4.0": "修复强制更改IP时配置面板延时过长的问题。庆祝v2进入正式版，显示了一个没用的参数"
         }
     },
-
     "SyncCookieCloud": {
         "name": "同步CookieCloud",
         "description": "同步MoviePilot站点Cookie到本地CookieCloud。",
