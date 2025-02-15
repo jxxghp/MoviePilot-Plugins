@@ -23,7 +23,7 @@ class InvitesSignin(_PluginBase):
     # 插件图标
     plugin_icon = "invites.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.4.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -86,7 +86,7 @@ class InvitesSignin(_PluginBase):
         """
         药丸签到
         """
-        res = RequestUtils(cookies=self._cookie).get_res(url="https://invites.fun")
+        res = RequestUtils(cookies=self._cookie).get_res(url="https://www.invites.fun")
         if not res or res.status_code != 200:
             logger.error("请求药丸错误")
             return
@@ -130,7 +130,7 @@ class InvitesSignin(_PluginBase):
         }
 
         # 开始签到
-        res = RequestUtils(headers=headers).post_res(url=f"https://invites.fun/api/users/{userId}", json=data)
+        res = RequestUtils(headers=headers).post_res(url=f"https://www.invites.fun/api/users/{userId}", json=data)
 
         if not res or res.status_code != 200:
             logger.error("药丸签到失败")
