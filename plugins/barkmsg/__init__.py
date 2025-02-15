@@ -16,7 +16,7 @@ class BarkMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Bark_A.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.3-1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -221,21 +221,25 @@ class BarkMsg(_PluginBase):
             req_body.update({
                 "title": title,
                 "body": text,
-                "device_keys": self._apikey.split(),
             })
-            res = RequestUtils().post_res(f"{self._server}/push", json=req_body)
-            if res and res.status_code == 200:
-                ret_json = res.json()
-                code = ret_json['code']
-                message = ret_json['message']
-                if code == 200:
-                    logger.info(f"Bark消息发送成功")
+            for apikey in self._apikey.split():
+                req_body.update({
+                    "device_key": apikey,
+                })
+                self._send(req_body)
+                res = RequestUtils().post_res(f"{self._server}/push", json=req_body)
+                if res and res.status_code == 200:
+                    ret_json = res.json()
+                    code = ret_json['code']
+                    message = ret_json['message']
+                    if code == 200:
+                        logger.info(f"{apikey} Bark消息发送成功")
+                    else:
+                        logger.warn(f"{apikey} Bark消息发送失败：{message}")
+                elif res is not None:
+                    logger.warn(f"{apikey} Bark消息发送失败，错误码：{res.status_code}，错误原因：{res.reason}")
                 else:
-                    logger.warn(f"Bark消息发送失败：{message}")
-            elif res is not None:
-                logger.warn(f"Bark消息发送失败，错误码：{res.status_code}，错误原因：{res.reason}")
-            else:
-                logger.warn(f"Bark消息发送失败：未获取到返回信息")
+                    logger.warn(f"{apikey} Bark消息发送失败：未获取到返回信息")
         except Exception as msg_e:
             logger.error(f"Bark消息发送失败：{str(msg_e)}")
 
