@@ -1,4 +1,4 @@
-from typing import Any, List, Dict, Tuple
+from typing import Any, List, Dict, Tuple, Optional
 from urllib.parse import parse_qs
 
 from app.core.event import eventmanager, Event
@@ -16,7 +16,7 @@ class BarkMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Bark_A.png"
     # 插件版本
-    plugin_version = "1.3-1"
+    plugin_version = "1.3-2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -30,6 +30,7 @@ class BarkMsg(_PluginBase):
 
     # 私有属性
     _enabled = False
+    _onlyonce = False
     _server = None
     _apikey = None
     _params = None
@@ -38,10 +39,15 @@ class BarkMsg(_PluginBase):
     def init_plugin(self, config: dict = None):
         if config:
             self._enabled = config.get("enabled")
+            self._onlyonce = config.get("onlyonce")
             self._msgtypes = config.get("msgtypes") or []
             self._server = config.get("server")
             self._apikey = config.get("apikey")
             self._params = config.get("params")
+
+        if self._onlyonce:
+            self._onlyonce = False
+            self._send("Bark消息测试通知", "Bark消息通知插件已启用")
 
     def get_state(self) -> bool:
         return self._enabled and (True if self._server and self._apikey else False)
@@ -83,6 +89,22 @@ class BarkMsg(_PluginBase):
                                         'props': {
                                             'model': 'enabled',
                                             'label': '启用插件',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'onlyonce',
+                                            'label': '测试插件（立即运行）',
                                         }
                                     }
                                 ]
@@ -182,6 +204,46 @@ class BarkMsg(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
+    def _send(self, title: str, text: str) -> Optional[Tuple[bool, str]]:
+        """
+        发送消息
+        :param title: 标题
+        :param text: 内容
+        """
+        try:
+            if not self._server or not self._apikey:
+                return False, "参数未配置"
+            req_body = {k: v[0] for k, v in parse_qs(self._params).items()}
+            req_body.update(
+                {
+                    "title": title,
+                    "body": text,
+                }
+            )
+            for apikey in self._apikey.split():
+                req_body.update(
+                    {
+                        "device_key": apikey,
+                    }
+                )
+                res = RequestUtils().post_res(f"{self._server}/push", data=req_body)
+                if res and res.status_code == 200:
+                    ret_json = res.json()
+                    code = ret_json["code"]
+                    message = ret_json["message"]
+                    if code == 200:
+                        logger.info(f"{apikey} Bark消息发送成功")
+                    else:
+                        logger.warn(f"{apikey} Bark消息发送失败：{message}")
+                elif res is not None:
+                    logger.warn(
+                        f"{apikey} Bark消息发送失败，错误码：{res.status_code}，错误原因：{res.reason}"
+                    )
+                else:
+                    logger.warn(f"{apikey} Bark消息发送失败：未获取到返回信息")
+        except Exception as msg_e:
+            logger.error(f"Bark消息发送失败：{str(msg_e)}")
+
     @eventmanager.register(EventType.NoticeMessage)
     def send(self, event: Event):
         """
@@ -214,34 +276,7 @@ class BarkMsg(_PluginBase):
             logger.info(f"消息类型 {msg_type.value} 未开启消息发送")
             return
 
-        try:
-            if not self._server or not self._apikey:
-                return False, "参数未配置"
-            req_body = {k: v[0] for k, v in parse_qs(self._params).items()}
-            req_body.update({
-                "title": title,
-                "body": text,
-            })
-            for apikey in self._apikey.split():
-                req_body.update({
-                    "device_key": apikey,
-                })
-                self._send(req_body)
-                res = RequestUtils().post_res(f"{self._server}/push", json=req_body)
-                if res and res.status_code == 200:
-                    ret_json = res.json()
-                    code = ret_json['code']
-                    message = ret_json['message']
-                    if code == 200:
-                        logger.info(f"{apikey} Bark消息发送成功")
-                    else:
-                        logger.warn(f"{apikey} Bark消息发送失败：{message}")
-                elif res is not None:
-                    logger.warn(f"{apikey} Bark消息发送失败，错误码：{res.status_code}，错误原因：{res.reason}")
-                else:
-                    logger.warn(f"{apikey} Bark消息发送失败：未获取到返回信息")
-        except Exception as msg_e:
-            logger.error(f"Bark消息发送失败：{str(msg_e)}")
+        return self._send(title, text)
 
     def stop_service(self):
         """
