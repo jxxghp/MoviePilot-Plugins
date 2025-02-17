@@ -491,14 +491,13 @@
         "name": "Bark消息推送",
         "description": "支持使用Bark发送消息通知。",
         "labels": "消息通知",
-        "version": "1.3-2",
+        "version": "1.4",
         "icon": "Bark_A.png",
         "author": "jxxghp",
         "level": 1,
         "v2": true,
         "history": {
-            "v1.3-2": "新增消息性测试功能",
-            "v1.3-1": "修使用post方式发送消息时无法使用device_keys用于批量推送",
+            "v1.4": "新增消息性测试功能",
             "v1.3": "将标题、推送内容放入请求体中，避免编码后 URI 过长导致无法推送",
             "v1.2": "支持多人消息发送"
         }
