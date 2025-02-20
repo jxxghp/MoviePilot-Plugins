@@ -780,6 +780,16 @@
         "level": 1,
         "v2": true
     },
+    "GotifyMsg": {
+        "name": "gotify消息推送",
+        "description": "支持使用gotify发送消息通知。",
+        "labels": "消息通知",
+        "version": "1.1",
+        "icon": "https://raw.githubusercontent.com/gotify/logo/refs/heads/master/gotify-logo.png",
+        "author": "lethargicScribe",
+        "level": 1,
+        "v2": true
+    },
     "TmdbWallpaper": {
         "name": "登录壁纸本地化",
         "description": "将MoviePilot的登录壁纸下载到本地。",
