@@ -13,10 +13,13 @@ class OpenAi:
     _api_url: str = None
     _model: str = "gpt-3.5-turbo"
 
-    def __init__(self, api_key: str = None, api_url: str = None, proxy: dict = None, model: str = None):
+    def __init__(self, api_key: str = None, api_url: str = None, proxy: dict = None, model: str = None, compatible: bool = False):
         self._api_key = api_key
         self._api_url = api_url
-        openai.api_base = self._api_url + "/v1"
+        if compatible:
+            openai.api_base = self._api_url
+        else:
+            openai.api_base = self._api_url + "/v1"
         openai.api_key = self._api_key
         if proxy and proxy.get("https"):
             openai.proxy = proxy.get("https")
