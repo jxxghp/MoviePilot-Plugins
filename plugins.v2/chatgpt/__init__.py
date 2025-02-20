@@ -50,7 +50,7 @@ class ChatGPT(_PluginBase):
             if self._openai_url and self._openai_key:
                 self.openai = OpenAi(api_key=self._openai_key, api_url=self._openai_url,
                                      proxy=settings.PROXY if self._proxy else None,
-                                     model=self._model, compatible=bool(self._compatible)
+                                     model=self._model, compatible=bool(self._compatible))
 
     def get_state(self) -> bool:
         return self._enabled
@@ -263,7 +263,7 @@ class ChatGPT(_PluginBase):
         title = event.event_data.get("title")
         if not title:
             return
-        # 调用ChatGPT
+        # 调用ChatGPT 
         response = self.openai.get_media_name(filename=title)
         logger.info(f"ChatGPT返回结果：{response}")
         if response and response.get("name"):
