@@ -790,6 +790,16 @@
         "level": 1,
         "v2": true
     },
+    "AppriseMsg": {
+        "name": "Apprise 消息推送",
+        "description": "Apprise - 适用于几乎所有平台的推送通知！",
+        "labels": "消息通知",
+        "version": "1.0",
+        "icon": "Ntfy_A.png",
+        "author": "lethargicScribe",
+        "level": 1,
+        "v2": true
+    },
     "TmdbWallpaper": {
         "name": "登录壁纸本地化",
         "description": "将MoviePilot的登录壁纸下载到本地。",
