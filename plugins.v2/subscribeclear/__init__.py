@@ -5,6 +5,7 @@ from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import ServiceInfo
 from app.db.downloadhistory_oper import DownloadHistoryOper, DownloadHistory
+from app.helper.downloader import DownloaderHelper
 
 lock = threading.Lock()
 
@@ -32,8 +33,10 @@ class SubscribeClear(_PluginBase):
     # 私有属性
     _titles = []
     _episodes = []
+    downloader_helper = None
 
     def init_plugin(self, config: dict = None):
+        self.downloader_helper = DownloaderHelper()
         if config:
             self._titles = config.get("titles") or []
             self._episodes = config.get("episodes") or []
@@ -114,7 +117,7 @@ class SubscribeClear(_PluginBase):
 
             
     def get_state(self) -> bool:
-        return True if self._enabled else False
+        return True
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
