@@ -761,12 +761,13 @@
         "name": "IYUU站点绑定",
         "description": "为IYUU账号绑定认证站点，以便用于用户认证和辅种。",
         "labels": "IYUU",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "Iyuu_A.png",
         "author": "jxxghp",
         "level": 1,
         "v2": true,
         "history": {
+            "v1.2": "调整IYUU域名地址",
             "v1.1": "修复IYUU站点绑定失败问题"
         }
     },
