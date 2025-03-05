@@ -36,7 +36,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "bangumi_b.png"
     # 插件版本
-    plugin_version = "1.5.3"
+    plugin_version = "1.5.4"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页
@@ -401,11 +401,17 @@ class BangumiColl(_PluginBase):
         return RequestUtils(headers=headers).get_res(url=url[addr])
 
     @staticmethod
-    def are_dates(date_str1, date_str2, threshold_days: int = 7) -> bool:
+    def are_dates(date_str1: str, date_str2: str, threshold_days: int = 7) -> bool:
         """对比两个日期字符串是否接近"""
-        date1 = datetime.datetime.strptime(date_str1, '%Y-%m-%d')
-        date2 = datetime.datetime.strptime(date_str2, '%Y-%m-%d')
-        return abs((date1 - date2).days) <= threshold_days
+        if date_str1 is None or date_str2 is None:
+            return False
+        try:
+            date1 = datetime.datetime.strptime(date_str1, '%Y-%m-%d')
+            date2 = datetime.datetime.strptime(date_str2, '%Y-%m-%d')
+            return abs((date1 - date2).days) <= threshold_days
+        except ValueError as e:
+            logger.error(f"日期格式错误: {str(e)}")
+            return False
 
     @db_query
     def get_subscribe_history(self, db: Session = None) -> set:
