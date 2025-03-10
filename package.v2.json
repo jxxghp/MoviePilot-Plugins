@@ -390,5 +390,17 @@
         "history": {
             "v1.0": "支持清理QB中已下载的订阅文件"
         }
+    },
+    "ToBypassTrackers": {
+        "name": "绕过Trackers",
+        "description": "提供tracker服务器IP地址列表，帮助IPv6连接绕过OpenClash",
+        "labels": "工具",
+        "version": "1.0",
+        "icon": "Clash_A.png",
+        "author": "wumode",
+        "level": 2,
+        "history": {
+        "v1.0": "支持自定义Trackers"
+        }
     }
 }
