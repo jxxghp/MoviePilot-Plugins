@@ -543,6 +543,10 @@ class DoubanSync(_PluginBase):
                 try:
                     dtype = result.get("title", "")[:2]
                     title = result.get("title", "")[2:]
+                    # 增加豆瓣昵称，数据来源自app.helper.rss.py
+                    nickname = result.get("nickname","")
+                    if nickname=="":
+                        nickname = f"[{nickname}]"
                     if dtype not in ["想看"]:
                         logger.info(f'标题：{title}，非想看数据，跳过')
                         continue
@@ -594,7 +598,7 @@ class DoubanSync(_PluginBase):
                                                 tmdbid=mediainfo.tmdb_id,
                                                 season=meta.begin_season,
                                                 exist_ok=True,
-                                                username=real_name or "豆瓣想看")
+                                                username=real_name or f"豆瓣{nickname}想看")
                         action = "subscribe"
                     # 存储历史记录
                     history.append({
