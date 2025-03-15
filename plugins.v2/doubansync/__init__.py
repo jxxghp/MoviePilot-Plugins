@@ -545,7 +545,7 @@ class DoubanSync(_PluginBase):
                     title = result.get("title", "")[2:]
                     # 增加豆瓣昵称，数据来源自app.helper.rss.py
                     nickname = result.get("nickname","")
-                    if nickname=="":
+                    if nickname:
                         nickname = f"[{nickname}]"
                     if dtype not in ["想看"]:
                         logger.info(f'标题：{title}，非想看数据，跳过')
