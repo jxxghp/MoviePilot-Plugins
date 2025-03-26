@@ -38,11 +38,12 @@
         "name": "站点自动签到",
         "description": "自动模拟登录、签到站点。",
         "labels": "站点",
-        "version": "2.5.3",
+        "version": "2.5.4",
         "icon": "signin.png",
         "author": "thsrite",
         "level": 2,
         "history": {
+            "v2.5.4": "增加保号风险提示",
             "v2.5.3": "优化执行周期输入，需要MoviePilot v2.2.1+",
             "v2.5.2": "修复HDArea签到",
             "v2.5.1": "修复空签到失败问题",

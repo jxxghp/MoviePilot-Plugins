@@ -3,11 +3,12 @@
         "name": "站点自动签到",
         "description": "自动模拟登录、签到站点。",
         "labels": "站点",
-        "version": "2.4.3",
+        "version": "2.4.4",
         "icon": "signin.png",
         "author": "thsrite",
         "level": 2,
         "history": {
+            "v2.4.4": "增加保号风险提示",
             "v2.4.3": "修复空签到失败问题",
             "v2.4.2": "修复PT时间签到失败问题",
             "v2.4.1": "修复海胆签到失败问题",
