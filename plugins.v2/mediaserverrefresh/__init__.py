@@ -19,7 +19,7 @@ class MediaServerRefresh(_PluginBase):
     # 插件图标
     plugin_icon = "refresh2.png"
     # 插件版本
-    plugin_version = "1.3.1"
+    plugin_version = "1.3.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -203,18 +203,13 @@ class MediaServerRefresh(_PluginBase):
         ]
 
         for name, service in self.service_infos.items():
-            # Emby
-            if self.mediaserver_helper.is_media_server("emby", service=service):
+            if hasattr(service.instance, 'refresh_library_by_items'):
                 service.instance.refresh_library_by_items(items)
-
-            # Jeyllyfin
-            if self.mediaserver_helper.is_media_server("jellyfin", service=service):
+            elif hasattr(service.instance, 'refresh_root_library'):
                 # FIXME Jellyfin未找到刷新单个项目的API
                 service.instance.refresh_root_library()
-
-            # Plex
-            if self.mediaserver_helper.is_media_server("plex", service=service):
-                service.instance.refresh_library_by_items(items)
+            else:
+                logger.warning(f"{name} 不支持刷新")
 
     def stop_service(self):
         """
