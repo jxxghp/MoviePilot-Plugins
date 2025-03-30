@@ -871,11 +871,14 @@
         "name": "每日一言",
         "description": "在仪表板中显示每日一言卡片。",
         "labels": "仪表板",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "Calibre_B.png",
         "author": "jxxghp",
         "level": 1,
-        "v2": true
+        "v2": true,
+        "history": {
+            "v1.2": "修复每日一言图文API接口"
+        }
     },
     "ZvideoHelper": {
         "name": "极影视助手",

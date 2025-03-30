@@ -14,7 +14,7 @@ class DailyWord(_PluginBase):
     # 插件图标
     plugin_icon = "Calibre_B.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -123,12 +123,25 @@ class DailyWord(_PluginBase):
     @lru_cache(maxsize=1)
     def __get_youngam(self, **kwargs) -> Optional[dict]:
         """
-        获取每日一言，缓存12小时
+        获取每日一言，缓存24小时
         """
-        res = RequestUtils().get_res("https://apier.youngam.cn/essay/one")
+        # 1. 获取前十天的图文id数组集合 data 数组中的第一项是今天的图文id，最后一项是10天前的图文id。
+        res = RequestUtils().get_res("http://v3.wufazhuce.com:8000/api/onelist/idlist")
         if res:
-            datalist = res.json().get("dataList")
-            return datalist[0] if datalist else {}
+            data_id = res.json().get("data")[0]
+            # 2. 根据id获取某一天的图文列表
+            res2 = RequestUtils().get_res(f"http://v3.wufazhuce.com:8000/api/onelist/{data_id}/0")
+            if res2:
+                content_list = res2.json().get("data", {}).get("content_list")
+                content = next((item for item in content_list if item.get("category") == "0"), None)
+                if content:
+                    return {
+                        "src": content.get("img_url"),
+                        "text": content.get("forward"),
+                        "year": content.get("post_date")[:4],
+                        "month": content.get("post_date")[5:7],
+                        "day": content.get("post_date")[8:10]
+                    }
         return {}
 
     def get_dashboard(self, key: str = None, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
