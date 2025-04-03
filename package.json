@@ -22,6 +22,18 @@
             "v1.9": "支持馒头新架构自动签到"
         }
     },
+    "AutoSubv2": {
+        "name": "AI字幕自动生成(v2)",
+        "description": "使用whisper自动生成视频文件字幕,使用大模型翻译字幕成中文。",
+        "version": "1.0",
+        "icon": "autosubtitles.jpeg",
+        "author": "TimoYoung",
+        "level": 1,
+        "v2": true,
+        "history": {
+          "v1.0": "first stable version"
+        }
+    },
     "CustomSites": {
         "name": "自定义站点",
         "description": "增加自定义站点为签到和统计使用。",
