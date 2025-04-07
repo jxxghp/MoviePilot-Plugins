@@ -2,13 +2,13 @@ from typing import Any, List, Dict, Tuple, Optional
 from datetime import datetime, timedelta
 import ipaddress
 import socket
+import base64
+import json
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import Response
 from apscheduler.triggers.cron import CronTrigger
 import pytz
-import base64
-import json
 
 from app.chain.site import SiteChain
 from app.core.config import settings
@@ -30,7 +30,7 @@ class ToBypassTrackers(_PluginBase):
     # 插件图标
     plugin_icon = "Clash_A.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
