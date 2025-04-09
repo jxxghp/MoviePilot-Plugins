@@ -362,11 +362,12 @@
         "name": "豆瓣想看",
         "description": "同步豆瓣想看数据，自动添加订阅。",
         "labels": "订阅",
-        "version": "2.0.1",
+        "version": "2.1.0",
         "icon": "douban.png",
-        "author": "jxxghp",
+        "author": "jxxghp,dwhmofly",
         "level": 2,
         "history": {
+            "v2.1.0": "新增配置项-搜索下载，开启后会优先搜索站点资源进行下载，下载不到才会添加订阅",
             "v2.0.1": "支持将豆瓣ID转换为MoviePilot中已有用户（在用户个人信息中绑定豆瓣ID），需要MoviePilot v2.2.6+",
             "v2.0.0": "优化cron表达式输入"
         }
