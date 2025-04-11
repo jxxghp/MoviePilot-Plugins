@@ -31,7 +31,7 @@ class ZvideoHelper(_PluginBase):
     # 插件图标
     plugin_icon = "zvideo.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -292,8 +292,12 @@ class ZvideoHelper(_PluginBase):
                         )
 
             for meta_info in meta_info_list:
-                douban_id = meta_info["relation"]["douban"]["douban_id"]
-                title = meta_info["title"]
+                try:
+                    douban_id = meta_info["relation"]["douban"]["douban_id"]
+                    title = meta_info["title"]
+                except Exception as e:
+                    logger.error(f"meta_info: {meta_info}，解析失败: {e}")
+                    continue
                 if self._cached_data.get(title) != None:
                     logger.info(f"已处理过: {title}，跳过...")
                     continue
@@ -374,8 +378,12 @@ class ZvideoHelper(_PluginBase):
                         )
 
             for meta_info in meta_info_list:
-                douban_id = meta_info["relation"]["douban"]["douban_id"]
-                title = meta_info["title"]
+                try:
+                    douban_id = meta_info["relation"]["douban"]["douban_id"]
+                    title = meta_info["title"]
+                except Exception as e:
+                    logger.error(f"meta_info: {meta_info}，解析失败: {e}")
+                    continue
                 if self._cached_data.get(title) == DoubanStatus.DONE.value:
                     logger.info(f"已处理过: {title}，跳过...")
                     continue
@@ -491,7 +499,7 @@ class ZvideoHelper(_PluginBase):
         cursor.execute(
             """
             UPDATE zvideo_collection
-            SET meta_info = JSON_SET(meta_info, '$.score', CAST(JSON_EXTRACT(meta_info, '$.douban_score') AS JSON))
+            SET score = CAST(JSON_EXTRACT(meta_info, '$.douban_score') AS DECIMAL(3,1))
             WHERE CAST(JSON_EXTRACT(meta_info, '$.douban_score') AS DECIMAL(3,1)) <> 0.0
             """
         )
@@ -511,7 +519,8 @@ class ZvideoHelper(_PluginBase):
         cursor.execute(
             """
             UPDATE zvideo_collection
-            SET meta_info = JSON_SET(meta_info, '$.score', CAST(score AS JSON))
+            SET score = CAST(JSON_EXTRACT(meta_info, '$.score') AS DECIMAL(3,1))
+            WHERE JSON_EXTRACT(meta_info, '$.score') IS NOT NULL
             """
         )
         conn.commit()
