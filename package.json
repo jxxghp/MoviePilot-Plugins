@@ -739,11 +739,17 @@
         "name": "Tracker替换",
         "description": "批量替换种子tracker，支持周期性巡检（如为TR，仅支持4.0以上版本）。",
         "labels": "做种",
-        "version": "1.5",
+        "version": "1.7",
         "icon": "trackereditor_A.png",
         "author": "honue",
         "level": 1,
-        "v2": true
+        "v2": true,
+        "history": {
+            "v1.7": "支持多个tracker替换配置",
+            "v1.6": "支持qbittorrent 5",
+            "v1.5": "可选特定路径下的做种不会被暂停",
+            "v1.4": "可选某些站点不再做种（暂停做种后不会被恢复）"
+        }
     },
     "ContractCheck": {
         "name": "契约检查",
