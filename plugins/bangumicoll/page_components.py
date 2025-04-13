@@ -1,7 +1,7 @@
 from bs4 import BeautifulSoup
 
 
-def form(sites_options) -> list:
+def form(sites_options: list[dict], is_v2: bool = True) -> list:
     return [
         {
             'component': 'VForm',
@@ -43,7 +43,7 @@ def form(sites_options) -> list:
                                     'component': 'VSwitch',
                                     'props': {
                                         'model': 'total_change',
-                                        'label': '不跟随TMDB变动',
+                                        'label': '不更新元数据',
                                     },
                                 }
                             ],
@@ -71,8 +71,8 @@ def form(sites_options) -> list:
                             'props': {'cols': 8, 'md': 4},
                             'content': [
                                 {
-                                    'component': 'VTextField',
-                                    # 'component': 'VCronField', # 暂不支持
+                                    # 'component': 'VTextField', # 组件替换为VCronField
+                                    'component': 'VCronField',
                                     'props': {
                                         'model': 'cron',
                                         'label': '执行周期',
@@ -121,6 +121,74 @@ def form(sites_options) -> list:
                     'content': [
                         {
                             'component': 'VCol',
+                            'props': {
+                                'cols': 12,
+                            },
+                            'content': [
+                                {
+                                    'component': 'VAlert',
+                                    'props': {
+                                        'type': 'info',
+                                        'variant': 'tonal',
+                                    },
+                                    'content': parse_html(
+                                        '<p>提示： <strong>剧集组优先级</strong>越靠前优先级越高。</p>'
+                                    ),
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    'component': 'VRow',
+                    'content': [
+                        {
+                            'component': 'VCol',
+                            'props': {'cols': 8, 'md': 4},
+                            'content': [
+                                {
+                                    'component': 'VSwitch',
+                                    'props': {
+                                        'model': 'match_groups',
+                                        'disabled': not is_v2,
+                                        'label': '剧集组填充(实验性)',
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            'component': 'VCol',
+                            'props': {'cols': 8},
+                            'content': [
+                                {
+                                    'component': 'VSelect',
+                                    'props': {
+                                        'model': 'group_select_order',
+                                        'label': '剧集组优先级',
+                                        'disabled': not is_v2,
+                                        'chips': True,
+                                        'multiple': True,
+                                        'clearable': True,
+                                        'items': [
+                                            {"title": "初始播出日期", "value": 1},
+                                            {"title": "绝对", "value": 2},
+                                            {"title": "DVD", "value": 3},
+                                            {"title": "数字", "value": 4},
+                                            {"title": "故事线", "value": 5},
+                                            {"title": "制片", "value": 6},
+                                            {"title": "电视", "value": 7},
+                                        ],
+                                    },
+                                }
+                            ]
+                        },
+                    ]
+                },
+                {
+                    'component': 'VRow',
+                    'content': [
+                        {
+                            'component': 'VCol',
                             'props': {'cols': 12, 'md': 6},
                             'content': [
                                 {
@@ -144,6 +212,7 @@ def form(sites_options) -> list:
                                         'label': '选择站点',
                                         'chips': True,
                                         'multiple': True,
+                                        'clearable': True,
                                         'items': sites_options,
                                     },
                                 }
@@ -215,7 +284,7 @@ def form(sites_options) -> list:
                                 'variant': 'tonal',
                             },
                             'content': parse_html(
-                                '<p>注意： 开启<strong>不跟随TMDB变动</strong>后，从<a href="https://bangumi.github.io/api/#/%E7%AB%A0%E8%8A%82/getEpisodes" target="_blank"><u>Bangumi API</u></a>获取的总集数将不再跟随TMDB的集数变动。</p>'
+                                '<p>注意： 开启<strong>不更新元数据</strong>后，从<a href="https://bangumi.github.io/api/#/%E7%AB%A0%E8%8A%82/getEpisodes" target="_blank"><u>Bangumi API</u></a>获取到总集数将不会因<strong>订阅元数据更新</strong>改变。</p>'
                             ),
                         },
                     ],
@@ -232,6 +301,8 @@ def form(sites_options) -> list:
         "collection_type": [3],
         "save_path": "",
         "sites": [],
+        "match_groups": False,
+        "group_select_order": [],
     }
 
 

@@ -1,17 +1,17 @@
 # 基础库
 import datetime
 import json
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List
 
 # 第三方库
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
-from sqlalchemy import JSON
 from sqlalchemy.orm import Session
 
 # 项目库
-from app.chain.subscribe import SubscribeChain, Subscribe
+from app.chain.download import DownloadChain
+from app.chain.subscribe import SubscribeChain
 from app.core.config import settings
 from app.core.context import MediaInfo
 from app.core.event import eventmanager, Event
@@ -23,8 +23,9 @@ from app.db.subscribe_oper import SubscribeOper
 from app.db import db_query
 from app.helper.subscribe import SubscribeHelper
 from app.log import logger
+from app.modules.themoviedb import TmdbApi
 from app.plugins import _PluginBase
-from app.schemas.types import EventType, NotificationType
+from app.schemas.types import EventType, MediaType, NotificationType
 from app.utils.http import RequestUtils
 
 
@@ -36,7 +37,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "bangumi_b.png"
     # 插件版本
-    plugin_version = "1.5.4"
+    plugin_version = "1.5.5"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页
@@ -50,9 +51,7 @@ class BangumiColl(_PluginBase):
 
     # 私有属性
     _scheduler = None
-    siteoper: SiteOper = None
-    subscribehelper: SubscribeHelper = None
-    subscribeoper: SubscribeOper = None
+    _is_v2 = True if settings.VERSION_FLAG else False
 
     # 配置属性
     _enabled: bool = False
@@ -64,12 +63,16 @@ class BangumiColl(_PluginBase):
     _collection_type = []
     _save_path: str = ""
     _sites: list = []
+    _match_groups: bool = False
+    _group_select_order: list = []
 
     def init_plugin(self, config: dict = None):
-        self.subscribechain = SubscribeChain()
+        self.downloadchain = DownloadChain()
         self.siteoper = SiteOper()
+        self.subscribechain = SubscribeChain()
         self.subscribehelper = SubscribeHelper()
         self.subscribeoper = SubscribeOper()
+        self.tmdbapi = TmdbApi()
 
         # 停止现有任务
         self.stop_service()
@@ -92,6 +95,8 @@ class BangumiColl(_PluginBase):
                 "collection_type",
                 "save_path",
                 "sites",
+                "match_groups",
+                "group_select_order",
             ):
                 setattr(self, f"_{key}", config.get(key, getattr(self, f"_{key}")))
             # 获得所有站点
@@ -130,6 +135,8 @@ class BangumiColl(_PluginBase):
                 "collection_type": self._collection_type,
                 "save_path": self._save_path,
                 "sites": self._sites,
+                "match_groups": self._match_groups,
+                "group_select_order": self._group_select_order,
             }
         )
 
@@ -141,7 +148,7 @@ class BangumiColl(_PluginBase):
             {"title": site.name, "value": site.id}
             for site in self.siteoper.list_order_by_pri()
         ]
-        return form(sites_options)
+        return form(sites_options, self._is_v2)
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
@@ -185,13 +192,31 @@ class BangumiColl(_PluginBase):
         pass
 
     def get_command(self):
-        pass
+        return [
+            {
+            "cmd": "/bangumi_coll",
+            "event": EventType.PluginAction,
+            "desc": "命令名称",
+            "category": "",
+            "data": {"action": "dbangumi_coll"}
+            }
+        ]
 
     def get_page(self):
         pass
 
     def get_state(self):
         return self._enabled
+
+    @eventmanager.register(EventType.PluginAction)
+    def action_event_handler(self, event: Event):
+        """
+        远程命令处理
+        """
+        event_data = event.event_data
+        if not event_data or event_data.get("action") != "bangumi_coll":
+            return
+        self.bangumi_coll()
 
     def bangumi_coll(self):
         """订阅Bangumi用户收藏"""
@@ -221,9 +246,12 @@ class BangumiColl(_PluginBase):
                 "name_cn": item['subject'].get('name_cn'),
                 "date": item['subject'].get('date'),
                 "eps": item['subject'].get('eps'),
+                "tags": [tag.get('name') for tag in item['subject'].get('tags', [{}])]
             }
             for item in data
-            if item.get("type") in self._collection_type
+            if item.get("type") in self._collection_type and item['subject'].get('date')\
+            # 只添加未来30天内放送的条目
+            and self.is_date_in_range(item['subject'].get('date'), threshold_days=30)[0]
         }
 
     def manage_subscriptions(self, items: Dict[int, Dict[str, Any]]):
@@ -258,74 +286,242 @@ class BangumiColl(_PluginBase):
         """添加订阅"""
 
         fail_items = {}
-        for self._subid, item in items.items():
+        for subid, item in items.items():
             if item.get("name_cn"):
                 meta = MetaInfo(item.get("name_cn"))
                 meta.en_name = item.get("name")
             else:
                 meta = MetaInfo(item.get("name"))
             if not meta.name:
-                fail_items[self._subid] = f"{self._subid} 未识别到有效数据"
-                logger.warn(f"{self._subid} 未识别到有效数据")
+                fail_items[subid] = f"{subid} 未识别到有效数据"
+                logger.warn(f"{subid} 未识别到有效数据")
                 continue
-
-            meta.year = item.get("date")[:4] if item.get("date") else None
-            mediainfo = self.chain.recognize_media(meta=meta, cache=False)
+            sub_air_date = item.get("date")
+            meta.year = sub_air_date[:4] if sub_air_date else None
+            # 通过`tags`识别类型
+            mtype = MediaType.MOVIE if "剧场版" in item.get("tags") else MediaType.TV
+            mediainfo = self.chain.recognize_media(meta=meta, mtype=mtype, cache=False)
             meta.total_episode = item.get("eps", 0)
             if not mediainfo:
-                fail_items[self._subid] = f"{item.get('name_cn')} 媒体信息识别失败"
+                fail_items[subid] = f"{item.get('name_cn')} 媒体信息识别失败"
                 continue
+            mediainfo.bangumi_id = subid
+            # 根据发行日期判断是不是续作
+            if mediainfo.type == MediaType.TV \
+                and not self.is_date_in_range(sub_air_date, mediainfo.release_date)[0]:
+                # 识别剧集组标志
+                group_flag: bool = True
+                if "OVA" in item.get("tags"):
+                    # 季0 处理
+                    if tmdb_info := self.chain.tmdb_info(mediainfo.tmdb_id, mediainfo.type, 0):
+                        for info in tmdb_info.get("episodes", []):
+                            if self.is_date_in_range(sub_air_date, info.get("air_date"), 2)[0]:
+                                mediainfo.season = 0
+                                meta.begin_episode = info.get("episode_number")
+                    else: # 信息不完整, 跳过条目
+                        continue
 
-            self.update_media_info(item, mediainfo)
+                else:
+                    # 过滤信息不完整和第0季
+                    season_info = [info for info in mediainfo.season_info if info.get("season_number") and info.get("air_date") and info.get("episode_count")]
+                    # 获取 bangumi 信息
+                    meta = self.get_eps(meta, subid)
+                    # 先通过season_info处理三季及以上的情况, tmdb存在第二季也不能保证不会被合并
+                    if len(season_info) > 2:
+                        # tmdb不合并季, 更新季信息
+                        mediainfo.season = self.get_best_season_number(sub_air_date, mediainfo.season_info)
+                        group_flag = False
+                    elif len(season_info) == 2:
+                        # 第二季特殊处理, 通过bangumi 'sort'字段判断集号连续性
+                        if meta.begin_episode:
+                            if meta.begin_episode == 1:
+                                # 不合并季
+                                mediainfo.season = self.get_best_season_number(sub_air_date, mediainfo.season_info)
+                                group_flag = False
+                            else:
+                                group_flag = True
 
+                if self._match_groups and group_flag and mediainfo.episode_groups:
+                    # tmdb季分割
+                    season_data = self._season_split(mediainfo)
+                    # 总季数传递
+                    meta.total_season = len(season_data)
+                    # 根据bgm 和 tmdb 信息判断
+                    if len(season_data) > 1:
+                        # 转换为方法入参格式
+                        _season = [{"season_number": k, "air_date": v.get('air_date')} for k, v in season_data.items()]
+                        season_num = self.get_best_season_number(sub_air_date, _season)
+                        # 季分割后的播出时间
+                        air_date = season_data[season_num].get('air_date')
+                        # 季集的可能性
+                        season_list = []
+                        for info in mediainfo.season_info:
+                            if info.get("season_number") == 0:
+                                season_list.append((len(season_info)+1, len(mediainfo.seasons[1])+info.get("episode_count")))
+                        season_list.append((len(season_info), len(mediainfo.seasons[1])))
+                        # 预匹配剧集组
+                        candidate_groups = (
+                            group for group in mediainfo.episode_groups
+                            if any(
+                                group.get("group_count") == s[0] and
+                                group.get("episode_count") == s[1]
+                                for s in season_list
+                            )
+                        )
+
+                        for group in candidate_groups:
+                            if season_num := self.get_group_season(group.get("id"), air_date, mediainfo):
+                                mediainfo.episode_group = group.get("id")
+                                mediainfo.season = season_num
+                                break
+                        else:
+                            mediainfo = self._match_group(air_date, meta, mediainfo)
+
+            exist_flag, _ = self.downloadchain.get_no_exists_info(meta=meta, mediainfo=mediainfo)
+            if exist_flag:
+                logger.info(f'{mediainfo.title_year} 媒体库中已存在')
+                continue
             sid = self.subscribeoper.list_by_tmdbid(
-                mediainfo.tmdb_id, mediainfo.number_of_seasons
+                mediainfo.tmdb_id, mediainfo.season
             )
             if sid:
                 logger.info(f"{mediainfo.title_year} 正在订阅中")
                 if len(sid) == 1:
                     self.subscribeoper.update(
-                        sid=sid[0].id, payload={"bangumiid": self._subid}
+                        sid=sid[0].id, payload={"bangumiid": subid}
                     )
                     logger.info(f"{mediainfo.title_year} Bangumi条目id更新成功")
                 continue
-
-            sid, msg = self.subscribechain.add(
-                title=mediainfo.title,
-                year=mediainfo.year,
-                season=mediainfo.number_of_seasons,
-                bangumiid=self._subid,
-                exist_ok=True,
-                username="Bangumi订阅",
-                **self.prepare_kwargs(meta, mediainfo),
-            )
+            # 添加订阅
+            sid, msg = self.subscribechain.add(**self.prepare_add_args(meta, mediainfo))
             if not sid:
-                fail_items[self._subid] = f"{item.get('name_cn') or item.get('name')} {msg}"
+                fail_items[subid] = f"{item.get('name_cn') or item.get('name')} {msg}"
 
         return fail_items
 
-    def prepare_kwargs(self, meta: MetaBase, mediainfo: MediaInfo) -> Dict:
-        """准备额外参数"""
-        kwargs = {
+    def _season_split(self, mediainfo: MediaInfo, season: int = 1) -> Dict[int, dict]:
+        """
+        将tmdb多季合并的季信息进行拆分
+        """
+        if tmdb_info := self.chain.tmdb_info(mediainfo.tmdb_id, mediainfo.type, season):
+            season = 1
+            air_date = tmdb_info.get("air_date")
+            episodes: list[dict] = tmdb_info.get("episodes", [])
+            season_data = {season: {"air_date": air_date, "count": 0}}
+
+            for ep in episodes:
+                if not air_date:
+                    air_date = ep.get("air_date")
+                    season_data[season] = {"air_date": air_date, "count": 0}
+
+                season_data[season]["count"] += 1
+
+                if ep.get("episode_type") == "finale":
+                    air_date = None
+                    # 季号递增
+                    season += 1
+        return season_data
+
+    def _match_group(self, air_date: str, meta: MetaBase, mediainfo: MediaInfo) -> MediaInfo:
+        """
+        根据剧集组类型匹配剧集组
+        :param air_date: 播出日期
+        :param meta: bangumi 元数据
+        :param mediainfo: 媒体信息
+        :return: MediaInfo
+        """
+        if not mediainfo.episode_groups:
+            return mediainfo
+
+        # 处理元数据
+        begin_ep = meta.begin_episode or 1
+        total_season = meta.total_season or 2
+
+        # 按类型预分组
+        episode_groups_by_type: dict[int, list[dict]] = {}
+        for group in mediainfo.episode_groups:
+            group_type = group.get("type")
+            if group_type not in episode_groups_by_type:
+                episode_groups_by_type[group_type] = []
+            episode_groups_by_type[group_type].append(group)
+
+        # 按优先级遍历类型
+        for group_type in self._group_select_order:
+            # 获取当前类型的所有剧集组
+            groups = episode_groups_by_type.get(group_type, [])
+            for group in groups:
+                group_count = group.get("group_count", 0)
+                episode_count = group.get("episode_count", 0)
+
+                if (
+                    group_count >= total_season
+                    and episode_count >= begin_ep
+                ):
+                    logger.info(
+                        f"{mediainfo.title_year} 正在匹配 剧集组: "
+                        f"{group.get('name', '未知')}({group.get('id')}) "
+                        f"共 {group_count} 季 {episode_count} 集")
+
+                    if season_num := self.get_group_season(
+                        group.get("id"), air_date, mediainfo
+                        ):
+                        mediainfo.episode_group = group.get("id")
+                        mediainfo.season = season_num
+                        return mediainfo
+        return mediainfo
+
+    def get_group_season(self, group_id: str, air_date: str, mediainfo: MediaInfo) -> int:
+        """
+        根据播出日期赋值剧集组季号
+        :param group_id: 剧集组id
+        :param air_date: 播出日期
+        :param mediainfo: MediaInfo
+        :return: 季号
+        """
+        if group_seasons := self.tmdbapi.get_tv_group_seasons(group_id):
+            for group_season in group_seasons:
+                if self.is_date_in_range(air_date, group_season.get("episodes")[0].get("air_date"))[0]:
+                    logger.info(f"{mediainfo.title_year} 剧集组: {group_id} 第{group_season.get('order')}季 ")
+                    return group_season.get("order")
+
+    def prepare_add_args(self, meta: MetaBase, mediainfo: MediaInfo) -> Dict:
+        """
+        订阅参数
+        """
+        add_args = {
+            "title": mediainfo.title,
+            "year": mediainfo.year,
+            "mtype": mediainfo.type,
+            "tmdbid": mediainfo.tmdb_id,
+            "season": mediainfo.season or 1,
+            "bangumiid": mediainfo.bangumi_id,
+            "exist_ok": True,
+            "username": "Bangumi订阅",
             "save_path": self._save_path,
             "sites": (
                 self._sites
-                if self.are_types_equal(attribute_name='sites')
+                if self._is_v2
                 else json.dumps(self._sites)
             ),
         }
+        # 仅v2支持剧集组
+        if self._is_v2:
+            add_args["episode_group"] = mediainfo.episode_group
 
-        total_episode = len(mediainfo.seasons.get(mediainfo.number_of_seasons) or [])
+        if self._match_groups and mediainfo.episode_group:
+            return add_args
+
+        total_episode = len(mediainfo.seasons.get(mediainfo.season or 1) or [])
         if (
             meta.begin_season
-            and mediainfo.number_of_seasons != meta.begin_season
+            and mediainfo.season != meta.begin_season
             or total_episode != meta.total_episode
         ):
-            meta = self.get_eps(meta)
+            meta = self.get_eps(meta, mediainfo.bangumi_id)
             total_ep: int = meta.end_episode if meta.end_episode else total_episode
             lock_eps: int = total_ep - meta.begin_episode + 1
             prev_eps: list = [i for i in range(1, meta.begin_episode)]
-            kwargs.update(
+            add_args.update(
                 {
                     "total_episode": total_ep,
                     "start_episode": meta.begin_episode,
@@ -335,7 +531,7 @@ class BangumiColl(_PluginBase):
                     ),  # 手动修改过总集数
                     "note": (
                         prev_eps
-                        if self.are_types_equal("note")
+                        if self._is_v2
                         else json.dumps(prev_eps)
                     ),
                 }
@@ -344,22 +540,31 @@ class BangumiColl(_PluginBase):
                 f"{mediainfo.title_year} 更新总集数为: {total_ep}，开始集数为: {meta.begin_episode}"
             )
 
-        return kwargs
+        return add_args
 
-    def update_media_info(self, item: dict, mediainfo: MediaInfo):
-        """更新媒体信息"""
-        for info in mediainfo.season_info:
-            if self.are_dates(item.get("date"), info.get("air_date")):
-                mediainfo.number_of_seasons = info.get("season_number")
-                mediainfo.number_of_episodes = info.get("episode_count")
+    def get_best_season_number(self, air_date: str, season_info: list[dict]) -> int:
+        """更新媒体季信息"""
+        best_info = None
+        min_days = float('inf')
+        
+        for info in season_info:
+            result, days = self.is_date_in_range(air_date, info.get("air_date"))
+            if result:
+                best_info = info
                 break
+            elif 0 < days < min_days:
+                min_days = days
+                best_info = info
 
-    def get_eps(self, meta: MetaBase) -> MetaBase:
+        if best_info:
+            return best_info.get("season_number")
+
+    def get_eps(self, meta: MetaBase, sub_id: int) -> MetaBase:
         """获取Bangumi条目的集数信息"""
         try:
-            res = self.get_bgm_res(addr="getEpisodes", id=self._subid)
+            res = self.get_bgm_res(addr="getEpisodes", id=sub_id)
             data = res.json().get("data", [{}])[0]
-            prev = data.get("sort", 1) - data.get("ep", 1)
+            prev = data.get("sort", 0) - data.get("ep", 1)
             total = res.json().get("total", None)
             begin = prev + 1
             end = prev + total if total else None
@@ -374,8 +579,7 @@ class BangumiColl(_PluginBase):
         """删除订阅"""
         for subscribe_id in del_items.keys():
             try:
-                subscribe = self.subscribeoper.get(subscribe_id)
-                if subscribe:
+                if subscribe := self.subscribeoper.get(subscribe_id):
                     self.subscribeoper.delete(subscribe_id)
                     self.subscribehelper.sub_done_async(
                         {"tmdbid": subscribe.tmdbid, "doubanid": subscribe.doubanid}
@@ -383,7 +587,10 @@ class BangumiColl(_PluginBase):
                     self.post_message(
                         mtype=NotificationType.Subscribe,
                         title=f"{subscribe.name}({subscribe.year}) 第{subscribe.season}季 已取消订阅",
-                        text=f"原因: 未在Bangumi收藏中找到该条目\n订阅用户: {subscribe.username}\n创建时间: {subscribe.date}",
+                        text=(
+                            f"原因: 未在Bangumi收藏中找到该条目\n"
+                            f"订阅用户: {subscribe.username}\n"
+                            f"创建时间: {subscribe.date}"),
                         image=subscribe.backdrop,
                     )
             except Exception as e:
@@ -401,17 +608,37 @@ class BangumiColl(_PluginBase):
         return RequestUtils(headers=headers).get_res(url=url[addr])
 
     @staticmethod
-    def are_dates(date_str1: str, date_str2: str, threshold_days: int = 7) -> bool:
-        """对比两个日期字符串是否接近"""
-        if date_str1 is None or date_str2 is None:
-            return False
+    def is_date_in_range(air_date: str, reference_date: str = None, threshold_days: int = 8) -> tuple[bool, int]:
+        """
+        两个日期接近或在未来指定天数内, 并返回target_date - reference_date(或当前时间)的天数差
+
+        :param air_date: 目标日期
+        :param reference_date: 参考日期
+        :param threshold_days: 阈值天数
+        :return: bool, int
+
+        只传入 target_date 时，判断是否在未来 threshold_days 天内
+        传入 target_date 和 reference_date 时，判断两个日期是否接近
+        """
         try:
-            date1 = datetime.datetime.strptime(date_str1, '%Y-%m-%d')
-            date2 = datetime.datetime.strptime(date_str2, '%Y-%m-%d')
-            return abs((date1 - date2).days) <= threshold_days
-        except ValueError as e:
+            # 解析目标日期
+            date1 = datetime.datetime.strptime(air_date, '%Y-%m-%d').date()
+
+            # 单日期模式：是否在未来threshold_days内
+            if reference_date is None:
+                today = datetime.datetime.now().date()
+                delta = (date1 - today).days
+                return delta <= threshold_days, delta
+
+            # 双日期模式：两个日期是否接近
+            date2 = datetime.datetime.strptime(reference_date, '%Y-%m-%d').date()
+            # 天数差
+            delta = (date1 - date2).days
+            return abs(delta) <= threshold_days, delta
+
+        except (ValueError, TypeError) as e:
             logger.error(f"日期格式错误: {str(e)}")
-            return False
+            return False, 0
 
     @db_query
     def get_subscribe_history(self, db: Session = None) -> set:
@@ -427,14 +654,3 @@ class BangumiColl(_PluginBase):
             logger.error(f"获取订阅历史失败: {str(e)}")
             return set()
 
-    @staticmethod
-    def are_types_equal(
-        attribute_name: str, expected_type: Type[Any] = JSON(), class_=Subscribe
-    ) -> bool:
-        """比较类中属性的类型与expected_type是否一致"""
-        column = class_.__table__.columns.get(attribute_name)
-        if column is None:
-            raise AttributeError(
-                f"Class: {class_.__name__} 没有属性: '{attribute_name}'"
-            )
-        return isinstance(column.type, type(expected_type))
