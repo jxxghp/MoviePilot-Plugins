@@ -31,7 +31,7 @@ class ZvideoHelper(_PluginBase):
     # 插件图标
     plugin_icon = "zvideo.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -55,6 +55,7 @@ class ZvideoHelper(_PluginBase):
     _cached_data: dict = {}
     _db_path = ""
     _cookie = ""
+    _douban_score_update_days = 0
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
 
@@ -72,6 +73,7 @@ class ZvideoHelper(_PluginBase):
             self._sync_douban_status = config.get("sync_douban_status")
             self._clean_cache = config.get("clean_cache")
             self._use_douban_score = config.get("use_douban_score")
+            self._douban_score_update_days = int(config.get("douban_score_update_days"))
             self._douban_helper = DoubanHelper(user_cookie=self._cookie)
 
         # 获取历史数据
@@ -134,6 +136,7 @@ class ZvideoHelper(_PluginBase):
                 "sync_douban_status": self._sync_douban_status,
                 "clean_cache": self._clean_cache,
                 "use_douban_score": self._use_douban_score,
+                "douban_score_update_days": self._douban_score_update_days,
             }
         )
 
@@ -445,11 +448,11 @@ class ZvideoHelper(_PluginBase):
         conn.text_factory = str
         cursor = conn.cursor()
 
-        cursor.execute("SELECT rowid, extend_type, meta_info FROM zvideo_collection")
+        cursor.execute("SELECT rowid, extend_type, meta_info, updated_at FROM zvideo_collection")
         rows = cursor.fetchall()
         message = ""
         for row in rows:
-            rowid, extend_type, meta_info_json = row
+            rowid, extend_type, meta_info_json, updated_at = row
             # 合集，不处理
             if extend_type == 7:
                 continue
@@ -457,28 +460,106 @@ class ZvideoHelper(_PluginBase):
             # 如果meta_info为空，跳过
             if meta_info_dict.get("douban_score") == None:
                 continue
-            if meta_info_dict["douban_score"] == 0:
-                title = meta_info_dict["title"]
+                
+            title = meta_info_dict["title"]
+            current_time = datetime.now()
+            need_update = False
+            
+            # 检查是否需要更新评分
+            try:
+                # 确保douban_score是数值类型
+                douban_score = float(meta_info_dict.get("douban_score", 0))
+            except (TypeError, ValueError):
+                douban_score = 0
+                
+            if douban_score == 0:
+                need_update = True
+                logger.info(f"未找到豆瓣评分，需要更新：{title}")
+            elif updated_at and self._douban_score_update_days > 0:
+                try:
+                    # 处理update_at的时间格式，去掉时区信息
+                    update_at_str = updated_at.split('+')[0]
+                    
+                    # 根据格式选择不同的解析方式
+                    if '.' in update_at_str:
+                        # 处理微秒部分，确保最多6位数字
+                        parts = update_at_str.split('.')
+                        if len(parts) > 1:
+                            # 截取微秒部分最多6位
+                            microseconds = parts[1][:6]
+                            update_at_str = f"{parts[0]}.{microseconds}"
+                        update_time = datetime.strptime(update_at_str, "%Y-%m-%d %H:%M:%S.%f")
+                    else:
+                        # 没有微秒部分的时间格式
+                        update_time = datetime.strptime(update_at_str, "%Y-%m-%d %H:%M:%S")
+                    
+                    time_diff = current_time - update_time
+                    # 检查是否超过更新周期
+                    if time_diff.days >= self._douban_score_update_days:
+                        need_update = True
+                        logger.info(f"豆瓣评分已过期，需要更新：{title}，上次更新时间：{update_at_str}")
+                except Exception as e:
+                    logger.error(f"解析update_at时间失败: {e}, 原始值: {updated_at}")
+                    need_update = True
+            elif not updated_at and self._douban_score_update_days > 0:
+                need_update = True
+                logger.info(f"未找到更新时间，需要更新豆瓣评分：{title}")
+                
+            if need_update:
+                # 记录原来的评分
+                old_score = meta_info_dict.get("douban_score", 0)
+                # 确保转换为浮点数进行比较
+                try:
+                    old_score = float(old_score)
+                except (TypeError, ValueError):
+                    old_score = 0
+                
                 _, _, score = self.get_douban_info_by_name(title)
                 if score:
+                    # 确保score也是浮点数
+                    try:
+                        score = float(score)
+                    except (TypeError, ValueError):
+                        score = 0
+                        
+                    # 判断评分是否变化
+                    score_changed = old_score > 0 and old_score != score
                     meta_info_dict["douban_score"] = score
-                    logger.info(f"更新豆瓣评分：{title} {score}")
-                    message += f"{title} 更新豆瓣评分：{score}\n"
+                    # 更新meta_info
+                    updated_meta_info_json = json.dumps(meta_info_dict, ensure_ascii=False)
+                    # 生成带微秒和时区信息的时间字符串，确保与原格式一致
+                    tz = pytz.timezone(settings.TZ)
+                    current_time = datetime.now(tz)
+                    # 格式化为"2024-01-31 23:25:28.609023+08:00"格式
+                    current_time_str = current_time.strftime("%Y-%m-%d %H:%M:%S.%f") + current_time.strftime("%z")[:3] + ":" + current_time.strftime("%z")[3:]
+                    # 更新meta_info和updated_at
+                    cursor.execute(
+                        "UPDATE zvideo_collection SET meta_info = ?, updated_at = ? WHERE rowid = ?",
+                        (updated_meta_info_json, current_time_str, rowid),
+                    )
+                    conn.commit()
+                    
+                    # 生成包含评分变化的日志和通知信息
+                    if score_changed:
+                        change_direction = "上升" if score > old_score else "下降"
+                        change_amount = abs(score - old_score)
+                        change_msg = f"更新豆瓣评分：{title} {old_score} → {score} ({change_direction}{change_amount:.1f})"
+                        logger.info(change_msg)
+                        message += f"{title} 评分{change_direction}：{old_score} → {score}\n"
+                    elif old_score == 0 and score > 0:
+                        # 首次获取评分
+                        logger.info(f"首次获取豆瓣评分：{title} {score}")
+                        message += f"{title} 获取豆瓣评分：{score}\n"
+                    else:
+                        # 评分未变化，只记录日志不发送通知
+                        logger.info(f"豆瓣评分未变化：{title} {score}")
                 else:
                     logger.error(f"未找到豆瓣评分：{title}")
             else:
                 logger.info(
-                    f"已存在豆瓣评分：{meta_info_dict['title']} {meta_info_dict['douban_score']}"
+                    f"无需更新豆瓣评分：{title} {meta_info_dict['douban_score']}"
                 )
-                continue
-
-            # 使用ensure_ascii=False来保持中文字符不变
-            updated_meta_info_json = json.dumps(meta_info_dict, ensure_ascii=False)
-            cursor.execute(
-                "UPDATE zvideo_collection SET meta_info = ? WHERE rowid = ?",
-                (updated_meta_info_json, rowid),
-            )
-            conn.commit()
+                
         if self._notify and len(message) > 0:
             self.post_message(
                 mtype=NotificationType.SiteMessage,
@@ -632,6 +713,20 @@ class ZvideoHelper(_PluginBase):
                                     }
                                 ],
                             },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "douban_score_update_days",
+                                            "label": "豆瓣评分更新周期(天)",
+                                            "placeholder": "0则不更新",
+                                        },
+                                    }
+                                ],
+                            },
                         ],
                     },
                     {
@@ -737,6 +832,27 @@ class ZvideoHelper(_PluginBase):
                             }
                         ],
                     },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "豆瓣评分更新周期是指多少天后重新获取豆瓣评分，防止评分变化。设为0则不更新已有评分",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
                 ],
             }
         ], {
@@ -744,6 +860,7 @@ class ZvideoHelper(_PluginBase):
             "notify": False,
             "onlyonce": False,
             "cron": "0 0 * * *",
+            "douban_score_update_days": 0,
         }
 
     def get_page(self) -> List[dict]:
