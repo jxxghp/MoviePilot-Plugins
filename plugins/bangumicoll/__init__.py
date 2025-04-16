@@ -37,7 +37,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "bangumi_b.png"
     # 插件版本
-    plugin_version = "1.5.5"
+    plugin_version = "1.5.6"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页
@@ -196,9 +196,9 @@ class BangumiColl(_PluginBase):
             {
             "cmd": "/bangumi_coll",
             "event": EventType.PluginAction,
-            "desc": "命令名称",
+            "desc": "Bangumi收藏订阅",
             "category": "",
-            "data": {"action": "dbangumi_coll"}
+            "data": {"action": "bangumi_coll"}
             }
         ]
 
@@ -216,22 +216,36 @@ class BangumiColl(_PluginBase):
         event_data = event.event_data
         if not event_data or event_data.get("action") != "bangumi_coll":
             return
-        self.bangumi_coll()
 
-    def bangumi_coll(self):
+        self.post_message(channel=event_data.get("channel"),
+                              title=f"开始添加用户: {self._uid} 的收藏 ...",
+                              userid=event_data.get("user"))
+        # 运行任务
+        msg = self.bangumi_coll()
+
+        self.post_message(channel=event_data.get("channel"),
+                              title="添加完成" if not msg else msg,
+                              userid=event_data.get("user"))
+
+    def bangumi_coll(self) -> str:
         """订阅Bangumi用户收藏"""
         if not self._uid:
-            logger.error("请设置UID")
-            return
+            logger.error("未设置UID")
+            return "未设置UID"
 
         try:
             res = self.get_bgm_res(addr="UserCollections", id=self._uid)
             items = self.parse_collection_items(res)
 
             # 新增和移除条目
-            self.manage_subscriptions(items)
+            if msg := self.manage_subscriptions(items):
+                msg = "\n".join(list(msg.values()))
+                logger.info(msg)
         except Exception as e:
-            logger.error(f"执行失败: {str(e)}")
+            msg = f"执行失败: {str(e)}"
+            logger.error(msg)
+        finally:
+            return msg
 
     def parse_collection_items(self, response) -> Dict[int, Dict[str, Any]]:
         """解析获取的收藏条目"""
@@ -256,30 +270,38 @@ class BangumiColl(_PluginBase):
 
     def manage_subscriptions(self, items: Dict[int, Dict[str, Any]]):
         """管理订阅的新增和删除"""
+        # 查询订阅
         db_sub = {
             i.bangumiid: i.id
             for i in self.subscribechain.subscribeoper.list()
             if i.bangumiid
         }
-        db_hist = self.get_subscribe_history()
-        new_sub = items.keys() - db_sub.keys() - db_hist
-        del_sub = db_sub.keys() - items.keys()
-
-        logger.debug(f"待新增条目：{new_sub}")
-        logger.debug(f"待移除条目：{del_sub}")
+        # bangumi 条目
+        _bgm = set(items.keys())
+        # 订阅记录
+        _sub = set(db_sub.keys())
+        # 插件数据
+        plugin_data: list = self.get_data(key="exclude") or []
+        # 订阅历史记录
+        db_hist: set = self.get_subscribe_history()
+        # 更新插件数据
+        _tmp = (set(plugin_data) & _bgm) - _sub - db_hist
+        new_sub = _bgm - _sub - db_hist - _tmp
+        del_sub = _sub - _bgm
+        if _tmp:
+            # 更新排除条目
+            self.save_data(key="exclude", value=list(_tmp))
 
         if del_sub and self._notify:
-            del_items = {db_sub[i]: i for i in del_sub}
-            logger.info("开始移除订阅...")
-            self.delete_subscribe(del_items)
+            logger.info(f"开始移除订阅: {del_sub} ...")
+            self.delete_subscribe({db_sub[i]: i for i in del_sub})
             logger.info("移除完成")
 
         if new_sub:
-            logger.info("开始添加订阅...")
+            logger.info(f"开始添加订阅: {new_sub} ...")
             msg = self.add_subscribe({i: items[i] for i in new_sub})
             logger.info("添加完成")
-            if msg:
-                logger.info("\n".ljust(49, ' ').join(list(msg.values())))
+            return msg
 
     # 添加订阅
     def add_subscribe(self, items: Dict[int, Dict[str, Any]]) -> Dict:
@@ -296,15 +318,34 @@ class BangumiColl(_PluginBase):
                 fail_items[subid] = f"{subid} 未识别到有效数据"
                 logger.warn(f"{subid} 未识别到有效数据")
                 continue
+            # 年份信息
             sub_air_date = item.get("date")
             meta.year = sub_air_date[:4] if sub_air_date else None
             # 通过`tags`识别类型
-            mtype = MediaType.MOVIE if "剧场版" in item.get("tags") else MediaType.TV
-            mediainfo = self.chain.recognize_media(meta=meta, mtype=mtype, cache=False)
-            meta.total_episode = item.get("eps", 0)
+            tags = item.get("tags") or []
+            mtype = MediaType.MOVIE if "剧场版" in tags else MediaType.TV
+
+            mediainfo = None
+            for retry in range(2):
+                if retry:
+                    meta.cn_name = meta.org_string
+                    meta.en_name = meta.title
+
+                if (mediainfo := self.chain.recognize_media(
+                    meta=meta, 
+                    mtype=mtype,
+                    cache=False
+                )) or any(
+                    getattr(meta, attr) == meta.org_string
+                    for attr in ('cn_name', 'en_name')
+                ):
+                    break
+
             if not mediainfo:
                 fail_items[subid] = f"{item.get('name_cn')} 媒体信息识别失败"
+                logger.debug(f"识别失败详情 | subid:{subid} meta:{vars(meta)}")
                 continue
+            meta.total_episode = item.get("eps", 0)
             mediainfo.bangumi_id = subid
             # 根据发行日期判断是不是续作
             if mediainfo.type == MediaType.TV \
@@ -350,9 +391,10 @@ class BangumiColl(_PluginBase):
                     if len(season_data) > 1:
                         # 转换为方法入参格式
                         _season = [{"season_number": k, "air_date": v.get('air_date')} for k, v in season_data.items()]
-                        season_num = self.get_best_season_number(sub_air_date, _season)
+                        # BGM条目在分割后的季号
+                        _season_num = self.get_best_season_number(sub_air_date, _season)
                         # 季分割后的播出时间
-                        air_date = season_data[season_num].get('air_date')
+                        air_date = season_data[_season_num].get('air_date')
                         # 季集的可能性
                         season_list = []
                         for info in mediainfo.season_info:
@@ -376,10 +418,19 @@ class BangumiColl(_PluginBase):
                                 break
                         else:
                             mediainfo = self._match_group(air_date, meta, mediainfo)
-
-            exist_flag, _ = self.downloadchain.get_no_exists_info(meta=meta, mediainfo=mediainfo)
+            # 非续作
+            elif mediainfo.type == MediaType.TV: mediainfo.season = 1
+            # 检查本地媒体
+            exist_flag, no_exists = self.downloadchain.get_no_exists_info(meta=meta, mediainfo=mediainfo)
             if exist_flag:
+                # 添加到排除
+                self.update_data(key="exclude", value=subid)
                 logger.info(f'{mediainfo.title_year} 媒体库中已存在')
+                continue
+            elif not no_exists.get(mediainfo.tmdb_id, {}).get(mediainfo.season):
+                # 添加到排除
+                self.update_data(key="exclude", value=subid)
+                logger.info(f'{mediainfo.title_year} 媒体库中已存在 第 {mediainfo.season} 季')
                 continue
             sid = self.subscribeoper.list_by_tmdbid(
                 mediainfo.tmdb_id, mediainfo.season
@@ -575,7 +626,7 @@ class BangumiColl(_PluginBase):
             return meta
 
     # 移除订阅
-    def delete_subscribe(self, del_items: Dict[int, int]):
+    def delete_subscribe(self, del_items: dict[int, int]):
         """删除订阅"""
         for subscribe_id in del_items.keys():
             try:
@@ -588,7 +639,7 @@ class BangumiColl(_PluginBase):
                         mtype=NotificationType.Subscribe,
                         title=f"{subscribe.name}({subscribe.year}) 第{subscribe.season}季 已取消订阅",
                         text=(
-                            f"原因: 未在Bangumi收藏中找到该条目\n"
+                            f"原因: 已选Bangumi收藏类型中不存在\n"
                             f"订阅用户: {subscribe.username}\n"
                             f"创建时间: {subscribe.date}"),
                         image=subscribe.backdrop,
@@ -639,6 +690,13 @@ class BangumiColl(_PluginBase):
         except (ValueError, TypeError) as e:
             logger.error(f"日期格式错误: {str(e)}")
             return False, 0
+
+    def update_data(self, key, value):
+        # 获取插件数据
+        data = self.get_data(key=key) or []
+        if value not in data:
+            data.append(value)
+            self.save_data(key=key, value=data)
 
     @db_query
     def get_subscribe_history(self, db: Session = None) -> set:
