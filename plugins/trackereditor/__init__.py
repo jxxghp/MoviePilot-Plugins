@@ -89,7 +89,7 @@ class TrackerEditor(_PluginBase):
                         if target_domain in tracker.url:
                             original_url = tracker.url
                             new_url = tracker.url.replace(target_domain, tracker_dict[target_domain])
-                            logger.info(f"{original_url[:20]}... 替换为 {new_url[:20]}...")
+                            logger.info(f"{original_url[:30]}... 替换为 {new_url[:30]}...")
                             torrent.edit_tracker(orig_url=original_url, new_url=new_url)
                         torrent_update_cnt += 1
 
@@ -110,7 +110,7 @@ class TrackerEditor(_PluginBase):
                         if target_domain in tracker:
                             new_url = tracker.replace(target_domain, tracker_dict[target_domain])
                             new_tracker_list.append(new_url)
-                            logger.info(f"{tracker[:20]}... 替换为 {new_url[:20]}...")
+                            logger.info(f"{tracker[:30]}... 替换为 {new_url[:30]}...")
                             torrent_update_cnt += 1
                             tracker_replaced = True
                             break
