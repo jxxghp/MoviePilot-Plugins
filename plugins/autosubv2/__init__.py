@@ -38,7 +38,7 @@ class AutoSubv2(_PluginBase):
     # 主题色
     plugin_color = "#2C4F7E"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "TimoYoung"
     # 作者主页
@@ -294,7 +294,7 @@ class AutoSubv2(_PluginBase):
             if self.send_notify:
                 self.post_message(mtype=NotificationType.Plugin, title="【自动字幕生成】", text=message)
             # 打印调用栈
-            logger.debug(traceback.format_exc())
+            logger.error(traceback.format_exc())
             self.fail_count += 1
 
     def __process_folder_subtitle(self, path):
@@ -789,8 +789,11 @@ class AutoSubv2(_PluginBase):
     def __translate_zh_subtitle(self, source_lang: str, source_subtitle: str, dest_subtitle: str):
         self._stats = {'total': 0, 'batch_success': 0, 'batch_fail': 0, 'line_fallback': 0}
         subs = self.__load_srt(source_subtitle)
-        valid_subs = self.__merge_srt(subs)
-        logger.info(f"合并前字幕数: {len(subs)},合并后字幕数: {len(valid_subs)}")
+        if source_lang in ["en", "eng"]:    
+            valid_subs = self.__merge_srt(subs)
+            logger.info(f"英文字幕合并：合并前字幕数: {len(subs)},合并后字幕数: {len(valid_subs)}")
+        else:
+            valid_subs = subs
         self._stats['total'] = len(valid_subs)
         processed = []
         current_batch = []
