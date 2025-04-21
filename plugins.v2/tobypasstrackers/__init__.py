@@ -1,8 +1,9 @@
 from typing import Any, List, Dict, Tuple, Optional
 from datetime import datetime, timedelta
-import pickle
 import ipaddress
 import socket
+import base64
+import json
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import Response
@@ -29,7 +30,7 @@ class ToBypassTrackers(_PluginBase):
     # 插件图标
     plugin_icon = "Clash_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -74,11 +75,12 @@ class ToBypassTrackers(_PluginBase):
         self.stop_service()
         self.siteoper = SiteOper()
         self.trackers = {}
-        self.ipv6_txt = self.get_data('ipv6_txt') if self.get_data('ipv6_txt') else ""
-        self.ipv4_txt = self.get_data('ipv4_txt') if self.get_data('ipv4_txt') else ""
+        self.ipv6_txt = self.get_data("ipv6_txt") if self.get_data("ipv6_txt") else ""
+        self.ipv4_txt = self.get_data("ipv4_txt") if self.get_data("ipv4_txt") else ""
         try:
-            with open(f"{settings.ROOT_PATH}/app/plugins/tobypasstrackers/sites/trackers", "rb") as f:
-                self.trackers = pickle.load(f)
+            with open(f"{settings.ROOT_PATH}/app/plugins/tobypasstrackers/sites/trackers", "r", encoding="utf-8") as f:
+                base64_str = f.read()
+                self.trackers = json.loads(base64.b64decode(base64_str).decode("utf-8"))
         except Exception as e:
             logger.error(f"插件加载错误：{e}")
         # 配置
@@ -103,7 +105,7 @@ class ToBypassTrackers(_PluginBase):
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
             if self._onlyonce:
                 logger.info(f"立即运行一次")
-                self._scheduler.add_job(self.update_ips, 'date',
+                self._scheduler.add_job(self.update_ips, "date",
                                         run_date=datetime.now(
                                             tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3)
                                         )
@@ -573,8 +575,8 @@ class ToBypassTrackers(_PluginBase):
 
             return [str(sub_net) for sub_net in remaining_ranges]
         # replacing = data.get('replace')
-        chnroute6_lists_url = 'https://ispip.clang.cn/all_cn_ipv6.txt'
-        chnroute_lists_url = 'https://ispip.clang.cn/all_cn.txt'
+        chnroute6_lists_url = "https://ispip.clang.cn/all_cn_ipv6.txt"
+        chnroute_lists_url = "https://ispip.clang.cn/all_cn.txt"
         ipv6_list = []
         ip_list = []
         domains = []
@@ -623,7 +625,7 @@ class ToBypassTrackers(_PluginBase):
                         domains.append(custom_tracker)
         for domain in domains:
             if self._bypass_ipv6:
-                ipv6_addresses = DnsHelper.query_domain(domain, self._dns_input, 'AAAA')
+                ipv6_addresses = DnsHelper.query_domain(domain, self._dns_input, "AAAA")
                 if ipv6_addresses is None:
                     logger.warn(f"{domain} AAAA 记录查询失败")
                     failed_msg.append(f"【{domain_name_map.get(domain, domain)}】 {domain}: AAAA记录查询失败")
@@ -685,7 +687,7 @@ class ToBypassTrackers(_PluginBase):
             ip_list.pop(index)
             length = int(ip_larger.split('/')[1])
             if length < 12:
-                remaining_ip = __exclude_ip_range(ip_larger, f'{ip}/{length + 8}')
+                remaining_ip = __exclude_ip_range(ip_larger, f"{ip}/{length + 8}")
                 ip_list.extend(remaining_ip)
         for ip in exempted_ipv6:
             index = __search_ip(ip, ipv6_list)
@@ -695,7 +697,7 @@ class ToBypassTrackers(_PluginBase):
             ipv6_list.pop(index)
             length = int(ip_larger.split('/')[1])
             if length < 32:
-                remaining_ip = __exclude_ip_range(ip_larger, f'{ip}/{min(32, length + 8)}')
+                remaining_ip = __exclude_ip_range(ip_larger, f"{ip}/{min(32, length + 8)}")
                 ipv6_list.extend(remaining_ip)
         self.ipv4_txt = "\n".join(ip_list)
         self.ipv6_txt = "\n".join(ipv6_list)

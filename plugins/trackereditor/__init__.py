@@ -15,11 +15,11 @@ class TrackerEditor(_PluginBase):
     # 插件名称
     plugin_name = "Tracker替换"
     # 插件描述
-    plugin_desc = "批量替换种子tracker，支持周期性巡检（如为TR，仅支持4.0以上版本）"
+    plugin_desc = "批量替换修改种子tracker"
     # 插件图标
     plugin_icon = "trackereditor_A.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "honue"
     # 作者主页
@@ -36,8 +36,7 @@ class TrackerEditor(_PluginBase):
     _password: str = None
     _host: str = None
     _port: int = None
-    _target_domain: str = None
-    _replace_domain: str = None
+    _tracker_config: str = None
 
     _onlyonce: bool = False
     _downloader: Union[Qbittorrent, Transmission] = None
@@ -54,8 +53,7 @@ class TrackerEditor(_PluginBase):
             self._port = config.get("port")
             self._username = config.get("username")
             self._password = config.get("password")
-            self._target_domain = config.get("target_domain")
-            self._replace_domain = config.get("replace_domain")
+            self._tracker_config = config.get("tracker_config")
             self._run_con_enable = config.get("run_con_enable")
             self._run_con = config.get("run_con")
             self._notify = config.get("notify")
@@ -68,7 +66,14 @@ class TrackerEditor(_PluginBase):
             self.__update_config()
 
     def task(self):
-        logger.info(f"{'*' * 30}TrackerEditor: 开始执行Tracker替换{'*' * 30}")
+        tracker_configs: List[str] = self._tracker_config.split("\n")
+        tracker_dict = {}
+        for tracker_config in tracker_configs:
+            if tracker_config.count('|') == 1:
+                tracker_dict[tracker_config.split('|')[0]] = tracker_config.split('|')[1]
+            else:
+                logger.error(f"配置行错误: {tracker_config}")
+        logger.info(f"【TrackerEditor】: 开始执行Tracker替换")
         torrent_total_cnt: int = 0
         torrent_update_cnt: int = 0
         if self._downloader_type == "qbittorrent":
@@ -80,11 +85,12 @@ class TrackerEditor(_PluginBase):
                 return
             for torrent in torrent_info_list:
                 for tracker in torrent.trackers:
-                    if self._target_domain in tracker.url:
-                        original_url = tracker.url
-                        new_url = tracker.url.replace(self._target_domain, self._replace_domain)
-                        logger.info(f"{original_url} 替换为\n {new_url}")
-                        torrent.edit_tracker(orig_url=original_url, new_url=new_url)
+                    for target_domain in tracker_dict.keys():
+                        if target_domain in tracker.url:
+                            original_url = tracker.url
+                            new_url = tracker.url.replace(target_domain, tracker_dict[target_domain])
+                            logger.info(f"{original_url[:30]}... 替换为 {new_url[:30]}...")
+                            torrent.edit_tracker(orig_url=original_url, new_url=new_url)
                         torrent_update_cnt += 1
 
         elif self._downloader_type == "transmission":
@@ -99,12 +105,16 @@ class TrackerEditor(_PluginBase):
             for torrent in torrent_list:
                 new_tracker_list = []
                 for tracker in torrent.tracker_list:
-                    if self._target_domain in tracker:
-                        new_url = tracker.replace(self._target_domain, self._replace_domain)
-                        new_tracker_list.append(new_url)
-                        logger.info(f"{tracker} 替换为\n {new_url}")
-                        torrent_update_cnt += 1
-                    else:
+                    tracker_replaced = False
+                    for target_domain in tracker_dict.keys():
+                        if target_domain in tracker:
+                            new_url = tracker.replace(target_domain, tracker_dict[target_domain])
+                            new_tracker_list.append(new_url)
+                            logger.info(f"{tracker[:30]}... 替换为 {new_url[:30]}...")
+                            torrent_update_cnt += 1
+                            tracker_replaced = True
+                            break
+                    if not tracker_replaced:
                         new_tracker_list.append(tracker)
                 if int(tr_version[0]) >= 4:
                     # 版本大于等于4.x
@@ -119,7 +129,7 @@ class TrackerEditor(_PluginBase):
                         break
             if torrent_update_cnt == 0:
                 logger.info(f"tracker修改条数为0")
-        logger.info(f"{'*' * 30}TrackerEditor: Tracker替换完成{'*' * 30}")
+        logger.info(f"【TrackerEditor】: Tracker替换完成")
         if (self._run_con_enable and self._notify) or (self._onlyonce and self._notify):
             title = '【Tracker替换】'
             msg = f'''扫描下载器{self._downloader_type}\n总的种子数: {torrent_total_cnt}\n已修改种子数: {torrent_update_cnt}'''
@@ -133,8 +143,7 @@ class TrackerEditor(_PluginBase):
             "password": self._password,
             "host": self._host,
             "port": self._port,
-            "target_domain": self._target_domain,
-            "replace_domain": self._replace_domain,
+            "tracker_config": self._tracker_config,
             "run_cron_enable": self._run_con_enable,
             "run_cron": self._run_con,
             "notify": self._notify
@@ -166,7 +175,7 @@ class TrackerEditor(_PluginBase):
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'run_con_enable',
-                                            'label': '启用周期性巡检 (注: 请开启时，务必填写cron表达式)',
+                                            'label': '定时执行',
                                         }
                                     }
                                 ]
@@ -324,45 +333,31 @@ class TrackerEditor(_PluginBase):
                                 ]
                             }
                         ]
-                    }, {
+                    },
+                    {
                         'component': 'VRow',
                         'content': [
                             {
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextField',
+                                        'component': 'VTextarea',
                                         'props': {
-                                            'model': 'target_domain',
-                                            'label': '待替换文本',
-                                            'placeholder': 'target.com'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'replace_domain',
-                                            'label': '替换的文本',
-                                            'placeholder': 'replace.net'
+                                            'model': 'tracker_config',
+                                            'label': 'tracker替换配置',
+                                            'rows': 6,
+                                            'placeholder': '每一行一个配置，中间以|分隔\n'
+                                                           '待替换文本|替换的文本',
                                         }
                                     }
                                 ]
                             }
                         ]
-                    }, {
+                    },
+                    {
                         'component': 'VRow',
                         'content': [
                             {
@@ -398,8 +393,7 @@ class TrackerEditor(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '周期性巡检时指的是允许设置间隔一段进行巡检下载器中的种子Tracker' + '\n'
-                                                    '当匹配到等待替换的tracker时，进行替换，其中cron表达式是5位，例如:* * * * * 指的是每过一分钟轮训一次',
+                                            'text': '支持qb，tr仅支持4.0以上版本' + '\n',
                                             'style': 'white-space: pre-line;'
                                         }
                                     }
@@ -416,8 +410,7 @@ class TrackerEditor(_PluginBase):
             "port": 8989,
             "username": "username",
             "password": "password",
-            "target_domain": "",
-            "replace_domain": "",
+            "tracker_config":"",
             "run_con_enable": False,
             "run_con": "",
             "notify": True
@@ -434,11 +427,11 @@ class TrackerEditor(_PluginBase):
 
     def get_service(self) -> List[Dict[str, Any]]:
         if self._run_con_enable and self._run_con:
-            logger.info(f"{'*' * 30}TrackerEditor: 注册公共调度服务{'*' * 30}")
+            logger.info(f"【TrackerEditor】: 注册定时任务")
             return [
                 {
                     "id": "TrackerChangeRun",
-                    "name": "启用周期性Tracker替换",
+                    "name": "定时Tracker替换",
                     "trigger": CronTrigger.from_crontab(self._run_con),
                     "func": self.task,
                     "kwargs": {}

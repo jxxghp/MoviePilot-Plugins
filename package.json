@@ -313,11 +313,12 @@
         "name": "IYUU自动辅种",
         "description": "基于IYUU官方Api实现自动辅种。",
         "labels": "做种,IYUU",
-        "version": "1.9.10",
+        "version": "1.9.11",
         "icon": "IYUU.png",
         "author": "jxxghp",
         "level": 2,
         "history": {
+            "v1.9.11": "修复馒头不能辅种的问题",
             "v1.9.10": "Revert 辅种结束后，一起开始所有辅种后暂停的种子（排除了出错的种子）",
             "v1.9.9": "修复qb辅种结束后自动开始暂停的种子",
             "v1.9.8": "辅种结束后，一起开始所有辅种后暂停的种子（排除了出错的种子）",
@@ -738,13 +739,17 @@
     },
     "TrackerEditor": {
         "name": "Tracker替换",
-        "description": "批量替换种子tracker，支持周期性巡检（如为TR，仅支持4.0以上版本）。",
+        "description": "批量替换修改种子tracker。",
         "labels": "做种",
-        "version": "1.5",
+        "version": "1.8",
         "icon": "trackereditor_A.png",
         "author": "honue",
         "level": 1,
-        "v2": true
+        "v2": true,
+        "history": {
+            "v1.8": "修复老版本tr修改出错问题，优化log输出",
+            "v1.7": "支持多个tracker替换配置"
+        }
     },
     "ContractCheck": {
         "name": "契约检查",
@@ -833,12 +838,13 @@
         "name": "MoviePilot服务器监控",
         "description": "在仪表板中实时显示MoviePilot公共服务器状态。",
         "labels": "仪表板",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "Duplicati_A.png",
         "author": "jxxghp",
         "level": 1,
         "v2": true,
         "history": {
+            "v1.2": "优化数量示",
             "v1.1": "增加详情界面显示"
         }
     },
@@ -897,12 +903,14 @@
         "name": "极影视助手",
         "description": "极影视功能扩展",
         "labels": "媒体库",
-        "version": "1.4",
+        "version": "1.6",
         "icon": "zvideo.png",
         "author": "DzAvril",
         "level": 1,
         "v2": true,
         "history": {
+            "v1.6": "增加定期更新豆瓣评分",
+            "v1.5": "适配新版极影视",
             "v1.4": "修复请求失败后返回值数量不正确的问题",
             "v1.3": "降低对豆瓣接口的请求频率",
             "v1.2": "修复无法获取豆瓣评分的问题",
@@ -970,12 +978,14 @@
         "name": "Bangumi收藏订阅",
         "description": "Bangumi用户收藏添加到订阅",
         "labels": "订阅",
-        "version": "1.5.4",
+        "version": "1.5.6",
         "icon": "bangumi_b.png",
         "author": "Attente",
         "level": 1,
         "v2": true,
         "history": {
+            "v1.5.6": "修复远程命令名称, 完善远程命令回执",
+            "v1.5.5": "添加剧集组(需V2.3.8+), 新增远程命令",
             "v1.5.4": "fix: wikrin/MoviePilot-Plugins/issues/2",
             "v1.5.3": "增加多语言标题匹配, 去除未实现设置项",
             "v1.5.2": "修复定时任务未正确注册的问题",
