@@ -15,7 +15,7 @@ class MPServerStatus(_PluginBase):
     # 插件图标
     plugin_icon = "Duplicati_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -391,7 +391,7 @@ class MPServerStatus(_PluginBase):
                                                                     'props': {
                                                                         'class': 'text-h6'
                                                                     },
-                                                                    'text': requests
+                                                                    'text': f"{requests:,}"
                                                                 }
                                                             ]
                                                         }
@@ -443,7 +443,7 @@ class MPServerStatus(_PluginBase):
                                                                     'props': {
                                                                         'class': 'text-h6'
                                                                     },
-                                                                    'text': accepts
+                                                                    'text': f"{accepts:,}"
                                                                 }
                                                             ]
                                                         }

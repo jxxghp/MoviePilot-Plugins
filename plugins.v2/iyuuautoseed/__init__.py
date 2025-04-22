@@ -33,7 +33,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.13"
+    plugin_version = "2.14"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -1241,11 +1241,11 @@ class IYUUAutoSeed(_PluginBase):
             将mteam种子下载链接域名替换为使用API
             """
             api_url = re.sub(r'//[^/]+\.m-team', '//api.m-team', site.get('url'))
-
+            ua = site.get("ua") or settings.USER_AGENT
             res = RequestUtils(
                 headers={
-                    'Content-Type': 'application/json',
-                    'User-Agent': f'{site.get("ua")}',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'User-Agent': f'{ua}',
                     'Accept': 'application/json, text/plain, */*',
                     'x-api-key': apikey
                 }
@@ -1339,7 +1339,7 @@ class IYUUAutoSeed(_PluginBase):
             logger.info(f"正在获取种子下载链接：{page_url} ...")
             res = RequestUtils(
                 cookies=site.get("cookie"),
-                ua=site.get("ua"),
+                ua=site.get("ua") or settings.USER_AGENT,
                 proxies=settings.PROXY if site.get("proxy") else None
             ).get_res(url=page_url)
             if res is not None and res.status_code in (200, 500):

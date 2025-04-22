@@ -10,7 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app import schemas
 from app.chain.media import MediaChain
 from app.db.user_oper import UserOper
-from app.schemas.types import MediaType
+from app.schemas.types import MediaType, EventType, SystemConfigKey
 
 from app.chain.download import DownloadChain
 from app.chain.search import SearchChain
@@ -22,7 +22,6 @@ from app.core.metainfo import MetaInfo
 from app.helper.rss import RssHelper
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas.types import EventType
 
 lock = Lock()
 
@@ -35,9 +34,9 @@ class DoubanSync(_PluginBase):
     # 插件图标
     plugin_icon = "douban.png"
     # 插件版本
-    plugin_version = "2.0.1"
+    plugin_version = "2.1.0"
     # 插件作者
-    plugin_author = "jxxghp"
+    plugin_author = "jxxghp,dwhmofly"
     # 作者主页
     author_url = "https://github.com/jxxghp"
     # 插件配置项ID前缀
@@ -67,6 +66,7 @@ class DoubanSync(_PluginBase):
     _users: str = ""
     _clear: bool = False
     _clearflag: bool = False
+    _search_download = False
 
     def init_plugin(self, config: dict = None):
         self.rsshelper = RssHelper()
@@ -88,6 +88,7 @@ class DoubanSync(_PluginBase):
             self._users = config.get("users")
             self._onlyonce = config.get("onlyonce")
             self._clear = config.get("clear")
+            self._search_download = config.get("search_download")
 
         if self._enabled or self._onlyonce:
             if self._onlyonce:
@@ -308,7 +309,7 @@ class DoubanSync(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -316,6 +317,45 @@ class DoubanSync(_PluginBase):
                                         'props': {
                                             'model': 'clear',
                                             'label': '清理历史记录',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4,
+                                    'style': 'display:flex;align-items: center;'
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'search_download',
+                                            'label': '搜索下载',
+                                        }
+                                    }
+                                ]
+                           }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '搜索下载开启后，会优先按订阅优先级规则组搜索过滤下载，搜索站点为设置的订'
+                                                    '阅站点，下载失败/无资源/剧集不完整时仍会添加订阅'
                                         }
                                     }
                                 ]
@@ -331,7 +371,8 @@ class DoubanSync(_PluginBase):
             "cron": "*/30 * * * *",
             "days": 7,
             "users": "",
-            "clear": False
+            "clear": False,
+            "search_download": False
         }
 
     def get_page(self) -> List[dict]:
@@ -360,6 +401,8 @@ class DoubanSync(_PluginBase):
             mtype = history.get("type")
             time_str = history.get("time")
             doubanid = history.get("doubanid")
+            action = "下载" if history.get("action") == "download" else "订阅" if history.get("action") == "subscribe" \
+                else "存在" if history.get("action") == "exist" else history.get("action")
             contents.append(
                 {
                     'component': 'VCard',
@@ -434,6 +477,13 @@ class DoubanSync(_PluginBase):
                                                 'class': 'pa-0 px-2'
                                             },
                                             'text': f'时间：{time_str}'
+                                        },
+                                        {
+                                            'component': 'VCardText',
+                                            'props': {
+                                                'class': 'pa-0 px-2'
+                                            },
+                                            'text': f'操作：{action}'
                                         }
                                     ]
                                 }
@@ -464,7 +514,8 @@ class DoubanSync(_PluginBase):
             "cron": self._cron,
             "days": self._days,
             "users": self._users,
-            "clear": self._clear
+            "clear": self._clear,
+            "search_download": self._search_download
         })
 
     def delete_history(self, doubanid: str, apikey: str):
@@ -590,16 +641,59 @@ class DoubanSync(_PluginBase):
                     else:
                         # 用户转换
                         real_name = self.__get_username_by_douban(user_id)
-                        # 添加订阅
-                        logger.info(f'{mediainfo.title_year} 媒体库中不存在或不完整，添加订阅 ...')
-                        self.subscribechain.add(title=mediainfo.title,
-                                                year=mediainfo.year,
-                                                mtype=mediainfo.type,
-                                                tmdbid=mediainfo.tmdb_id,
-                                                season=meta.begin_season,
-                                                exist_ok=True,
-                                                username=real_name or f"豆瓣{nickname}想看")
-                        action = "subscribe"
+                        if self._search_download:
+                            # 先搜索资源
+                            logger.info(f'媒体库中不存在或不完整，开启搜索下载，开始搜索 {mediainfo.title_year} 的资源...')
+                             # 按订阅优先级规则组搜索过滤，站点为设置的订阅站点
+                            filter_results = self.searchchain.process(
+                                mediainfo=mediainfo,
+                                no_exists=no_exists,
+                                sites=self.systemconfig.get(SystemConfigKey.RssSites),
+                                rule_groups=self.systemconfig.get(SystemConfigKey.SubscribeFilterRuleGroups)
+                            )
+                            if filter_results:
+                                logger.info(f'找到符合条件的资源，开始下载 {mediainfo.title_year} ...')
+                                action = "download"
+                                if mediainfo.type == MediaType.MOVIE:
+                                    # 电影类型调用单次下载
+                                    download_id = self.downloadchain.download_single(
+                                        context=filter_results[0],
+                                        username=real_name or f"豆瓣{nickname}想看"
+                                    )
+                                    if not download_id:
+                                        logger.info(f'下载失败，添加订阅 {mediainfo.title_year} ...')
+                                        self.add_subscribe(mediainfo, meta, nickname, real_name)
+                                        action = "subscribe"
+                                else:
+                                    # 电视剧类型调用批量下载
+                                    downloaded_list, no_exists = self.downloadchain.batch_download(
+                                        contexts=filter_results,
+                                        no_exists=no_exists,
+                                        username=real_name or f"豆瓣{nickname}想看"
+                                    )
+                                    if no_exists:
+                                        logger.info(f'下载失败或未下载完所有剧集，添加订阅 {mediainfo.title_year} ...')
+                                        sub_id, message = self.add_subscribe(mediainfo, meta, nickname, real_name)
+                                        action = "subscribe"
+
+                                        # 更新订阅信息
+                                        logger.info(f'根据缺失剧集更新订阅信息 {mediainfo.title_year} ...')
+                                        subscribe = self.subscribechain.subscribeoper.get(sub_id)
+                                        if subscribe:
+                                            self.subscribechain.finish_subscribe_or_not(subscribe=subscribe,
+                                                                                        meta=meta,
+                                                                                        mediainfo=mediainfo,
+                                                                                        downloads=downloaded_list,
+                                                                                        lefts=no_exists)
+
+                            else:
+                                logger.info(f'未找到符合条件资源，添加订阅 {mediainfo.title_year} ...')
+                                self.add_subscribe(mediainfo, meta, nickname, real_name)
+                                action = "subscribe"
+                        else:
+                            logger.info(f'媒体库中不存在或不完整，未开启搜索下载，添加订阅 {mediainfo.title_year} ...')
+                            self.add_subscribe(mediainfo, meta, nickname, real_name)
+                            action = "subscribe"
                     # 存储历史记录
                     history.append({
                         "action": action,
@@ -619,6 +713,17 @@ class DoubanSync(_PluginBase):
         self.save_data('history', history)
         # 缓存只清理一次
         self._clearflag = False
+
+    def add_subscribe(self, mediainfo, meta, nickname, real_name):
+        return self.subscribechain.add(
+            title=mediainfo.title,
+            year=mediainfo.year,
+            mtype=mediainfo.type,
+            tmdbid=mediainfo.tmdb_id,
+            season=meta.begin_season,
+            exist_ok=True,
+            username=real_name or f"豆瓣{nickname}想看"
+        )
 
     @eventmanager.register(EventType.PluginAction)
     def remote_sync(self, event: Event):
