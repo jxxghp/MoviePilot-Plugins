@@ -749,9 +749,8 @@ class AutoSubv2(_PluginBase):
         context = self.__get_context(all_subs, indices, is_batch=True) if self.context_window > 0 else None
         batch_text = '\n'.join([item.content for item in batch])
 
-        openai = OpenAi(self._openai_key, self._openai_url, self._openai_proxy, self._openai_model)
         try:
-            ret, result = openai.translate_to_zh(batch_text, context)
+            ret, result = self.openai.translate_to_zh(batch_text, context)
             if not ret:
                 raise Exception(result)
 
@@ -770,11 +769,10 @@ class AutoSubv2(_PluginBase):
 
     def __process_single(self, all_subs: List[srt.Subtitle], item: srt.Subtitle) -> srt.Subtitle:
         """单条处理逻辑"""
-        openai = OpenAi(self._openai_key, self._openai_url, self._openai_proxy, self._openai_model)
         for _ in range(self.max_retries):
             idx = all_subs.index(item)
             context = self.__get_context(all_subs, [idx], is_batch=False) if self.context_window > 0 else None
-            success, trans = openai.translate_to_zh(item.content, context)
+            success, trans = self.openai.translate_to_zh(item.content, context)
 
             if success:
                 item.content = f"{trans}\n{item.content}"
