@@ -763,7 +763,7 @@ def usage(self) -> Optional[schemas.StorageUsage]:
     """
     pass
 ```
-- 4. 参考 11 实现`get_module`声明以下模块方法（具体可参考：app/chain/storage.py），其实就是对上一步的方法再做一下封装：
+- 4. 参考 11 实现`get_module`声明以下模块方法（具体可参考：app/modules/filemanager/\__init__.py），其实就是对上一步的方法再做一下封装：
 ```python
 def list_files(self, fileitem: schemas.FileItem, recursion: bool = False) -> Optional[List[schemas.FileItem]]:
     """
