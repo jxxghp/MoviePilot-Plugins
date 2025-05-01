@@ -658,16 +658,14 @@ class StorageOperSelectionEventData(ChainEventData):
     # 输出参数
     storage_oper: Optional[Callable] = Field(default=None, description="存储操作对象")
 ```
-- 3. 在插件的存储操作类中，实现以下对应的文件操作（具体可参考：app/modules/filemanager/storages/__init__.py），不支持的可跳过，内部调用对应的存储操作对象方法实现
+- 3. 在插件的存储操作类中，实现以下对应的文件操作（具体可参考：app/modules/filemanager/storages/__init__.py），不支持的可跳过
 ```python
-@abstractmethod
 def list(self, fileitem: schemas.FileItem) -> List[schemas.FileItem]:
     """
     浏览文件
     """
     pass
 
-@abstractmethod
 def create_folder(self, fileitem: schemas.FileItem, name: str) -> Optional[schemas.FileItem]:
     """
     创建目录
@@ -676,14 +674,12 @@ def create_folder(self, fileitem: schemas.FileItem, name: str) -> Optional[schem
     """
     pass
 
-@abstractmethod
 def get_folder(self, path: Path) -> Optional[schemas.FileItem]:
     """
     获取目录，如目录不存在则创建
     """
     pass
 
-@abstractmethod
 def get_item(self, path: Path) -> Optional[schemas.FileItem]:
     """
     获取文件或目录，不存在返回None
@@ -696,21 +692,18 @@ def get_parent(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
     """
     return self.get_item(Path(fileitem.path).parent)
 
-@abstractmethod
 def delete(self, fileitem: schemas.FileItem) -> bool:
     """
     删除文件
     """
     pass
 
-@abstractmethod
 def rename(self, fileitem: schemas.FileItem, name: str) -> bool:
     """
     重命名文件
     """
     pass
 
-@abstractmethod
 def download(self, fileitem: schemas.FileItem, path: Path = None) -> Path:
     """
     下载文件，保存到本地，返回本地临时文件地址
@@ -719,7 +712,6 @@ def download(self, fileitem: schemas.FileItem, path: Path = None) -> Path:
     """
     pass
 
-@abstractmethod
 def upload(self, fileitem: schemas.FileItem, path: Path, new_name: Optional[str] = None) -> Optional[schemas.FileItem]:
     """
     上传文件
@@ -729,14 +721,12 @@ def upload(self, fileitem: schemas.FileItem, path: Path, new_name: Optional[str]
     """
     pass
 
-@abstractmethod
 def detail(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
     """
     获取文件详情
     """
     pass
 
-@abstractmethod
 def copy(self, fileitem: schemas.FileItem, path: Path, new_name: str) -> bool:
     """
     复制文件
@@ -746,7 +736,6 @@ def copy(self, fileitem: schemas.FileItem, path: Path, new_name: str) -> bool:
     """
     pass
 
-@abstractmethod
 def move(self, fileitem: schemas.FileItem, path: Path, new_name: str) -> bool:
     """
     移动文件
@@ -756,28 +745,25 @@ def move(self, fileitem: schemas.FileItem, path: Path, new_name: str) -> bool:
     """
     pass
 
-@abstractmethod
 def link(self, fileitem: schemas.FileItem, target_file: Path) -> bool:
     """
     硬链接文件
     """
     pass
 
-@abstractmethod
 def softlink(self, fileitem: schemas.FileItem, target_file: Path) -> bool:
     """
     软链接文件
     """
     pass
 
-@abstractmethod
 def usage(self) -> Optional[schemas.StorageUsage]:
     """
     存储使用情况
     """
     pass
 ```
-- 4. 参考 11 实现`get_module`声明以下模块方法（具体可参考：app/chain/storage.py）：
+- 4. 参考 11 实现`get_module`声明以下模块方法（具体可参考：app/chain/storage.py），其实就是对上一步的方法再做一下封装：
 ```python
 def list_files(self, fileitem: schemas.FileItem, recursion: bool = False) -> Optional[List[schemas.FileItem]]:
     """
