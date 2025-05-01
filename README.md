@@ -769,19 +769,52 @@ def list_files(self, fileitem: schemas.FileItem, recursion: bool = False) -> Opt
     """
     查询当前目录下所有目录和文件
     """
-    pass
+
+    def __get_files(_item: FileItem, _r: Optional[bool] = False):
+        """
+        递归处理
+        """
+        _items = self.list(_item)
+        if _items:
+            if _r:
+                for t in _items:
+                    if t.type == "dir":
+                        __get_files(t, _r)
+                    else:
+                        result.append(t)
+            else:
+                result.extend(_items)
+
+    # 返回结果
+    result = []
+    __get_files(fileitem, recursion)
+
+    return result
 
 def any_files(self, fileitem: schemas.FileItem, extensions: list = None) -> Optional[bool]:
     """
     查询当前目录下是否存在指定扩展名任意文件
     """
-    pass
+    def __any_file(_item: FileItem):
+        """
+        递归处理
+        """
+        _items = self.list(_item)
+        if _items:
+            if not extensions:
+                return True
+            for t in _items:
+                if (t.type == "file"
+                        and t.extension
+                        and f".{t.extension.lower()}" in extensions):
+                    return True
+                elif t.type == "dir":
+                    if __any_file(t):
+                        return True
+        return False
 
-def create_folder(self, fileitem: schemas.FileItem, name: str) -> Optional[schemas.FileItem]:
-    """
-    创建目录
-    """
-    pass
+    # 返回结果
+    return __any_file(fileitem)
 
 def download_file(self, fileitem: schemas.FileItem, path: Path = None) -> Optional[Path]:
     """
@@ -789,7 +822,7 @@ def download_file(self, fileitem: schemas.FileItem, path: Path = None) -> Option
     :param fileitem: 文件项
     :param path: 本地保存路径
     """
-    pass
+    return self.download(fileitem, path)
 
 def upload_file(self, fileitem: schemas.FileItem, path: Path,
                 new_name: Optional[str] = None) -> Optional[schemas.FileItem]:
@@ -799,55 +832,70 @@ def upload_file(self, fileitem: schemas.FileItem, path: Path,
     :param path: 本地文件路径
     :param new_name: 新文件名
     """
-    pass
+    return self.upload(fileitem, path, new_name)
 
 def delete_file(self, fileitem: schemas.FileItem) -> Optional[bool]:
     """
     删除文件或目录
     """
-    pass
+    return self.delete(fileitem)
 
 def rename_file(self, fileitem: schemas.FileItem, name: str) -> Optional[bool]:
     """
     重命名文件或目录
     """
-    pass
-
-def get_item(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
-    """
-    查询目录或文件
-    """
-    return self.get_file_item(storage=fileitem.storage, path=Path(fileitem.path))
+    return self.rename(fileitem, name)
 
 def get_file_item(self, storage: str, path: Path) -> Optional[schemas.FileItem]:
     """
     根据路径获取文件项
     """
-    pass
+    return self.get_item(path)
 
 def get_parent_item(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
     """
     获取上级目录项
     """
-    pass
+    return self.get_parent(fileitem)
 
 def snapshot_storage(self, storage: str, path: Path) -> Optional[Dict[str, float]]:
     """
     快照存储
     """
-    pass
+    files_info = {}
+
+    def __snapshot_file(_fileitm: schemas.FileItem):
+        """
+        递归获取文件信息
+        """
+        if _fileitm.type == "dir":
+            for sub_file in self.list(_fileitm):
+                __snapshot_file(sub_file)
+        else:
+            files_info[_fileitm.path] = _fileitm.size
+
+    fileitem = self.get_item(path)
+    if not fileitem:
+        return {}
+
+    __snapshot_file(fileitem)
+
+    return files_info
 
 def storage_usage(self, storage: str) -> Optional[schemas.StorageUsage]:
     """
     存储使用情况
     """
-    pass
+    return self.usage()
 
 def support_transtype(self, storage: str) -> Optional[dict]:
     """
     获取支持的整理方式
     """
-    pass
+    return {
+        "move": "移动",
+        "copy": "复制"
+    }
 ```
 
 ### 98. 如何发布插件版本？
