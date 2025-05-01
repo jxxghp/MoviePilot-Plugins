@@ -765,6 +765,28 @@ def usage(self) -> Optional[schemas.StorageUsage]:
 ```
 - 4. 参考 11 实现`get_module`声明以下模块方法（具体可参考：app/modules/filemanager/\__init__.py），其实就是对上一步的方法再做一下封装：
 ```python
+def get_module(self) -> Dict[str, Any]:
+    """
+    获取插件模块声明，用于胁持系统模块实现（方法名：方法实现）
+    {
+        "id1": self.xxx1,
+        "id2": self.xxx2,
+    }
+    """
+    return {
+        "list_files": self.list_files,
+        "any_files": self.any_files,
+        "download_file": self.download_file,
+        "upload_file": self.upload_file,
+        "delete_file": self.delete_file,
+        "rename_file": self.rename_file,
+        "get_file_item": self.get_file_item,
+        "get_parent_item": self.get_parent_item,
+        "snapshot_storage": self.snapshot_storage,
+        "storage_usage": self.storage_usage,
+        "support_transtype": self.support_transtype
+    }
+
 def list_files(self, fileitem: schemas.FileItem, recursion: bool = False) -> Optional[List[schemas.FileItem]]:
     """
     查询当前目录下所有目录和文件
