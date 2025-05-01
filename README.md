@@ -469,7 +469,8 @@ class ChainEventType(Enum):
 - **请不要添加对黄赌毒站点的支持，否则随时封闭接口。** 
 
 ### 7. 如何在插件中调用API接口？
-- `v1.8.4+` 在插件的数据页面支持`GET/POST`API接口调用，可调用插件自身、主程序或其它插件的API。
+**（仅支持 `v1.8.4+` 版本）**
+- 在插件的数据页面支持`GET/POST`API接口调用，可调用插件自身、主程序或其它插件的API。
 - 在`get_page`中定义好元素的事件，以及相应的API参数，具体可参考插件`豆瓣想看`：
 ```json
 {
@@ -489,7 +490,8 @@ class ChainEventType(Enum):
 - 每次API调用完成后，均会自动刷新一次插件数据页。
 
 ### 8. 如何将插件内容显示到仪表板？
-- `v1.8.7+` 支持将插件的内容显示到仪表盘，并支持定义占据的单元格大小，插件产生的仪表板仅管理员可见。
+**（仅支持 `v1.8.7+` 版本）**
+- 将插件的内容显示到仪表盘，并支持定义占据的单元格大小，插件产生的仪表板仅管理员可见。
 - 1. 根据插件需要展示的Widget内容规划展示内容的样式和规格，也可设计多个规格样式并提供配置项供用户选择。
 - 2. 实现 `get_dashboard_meta` 方法，定义仪表板key及名称，支持一个插件有多个仪表板：
 ```python
@@ -533,7 +535,8 @@ def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Di
 ```
 
 ### 9. 如何扩展探索功能的媒体数据源？
-- （仅V2版本）探索功能仅内置`TheMovieDb`、`豆瓣`和`Bangumi`数据源，`v2.2.7+`版本可通过插件扩展探索功能的数据源范围，按以下方法开发插件（参考`TheTVDB探索`插件）：
+**（仅支持 `v2.2.7+` 版本）**
+- 探索功能仅内置`TheMovieDb`、`豆瓣`和`Bangumi`数据源，可通过插件扩展探索功能的数据源范围，按以下方法开发插件（参考`TheTVDB探索`插件）：
 - 1. 实现`ChainEventType.DiscoverSource`链式事件响应，将额外的媒体数据源塞入事件数据`extra_sources`数组中（注意：如果事件中已经有其它数据源，需要叠加而不是替换，避免影响其它插件塞入的数据）
   
   - `name`：数据源名称
@@ -591,8 +594,8 @@ class MediaRecognizeConvertEventData(ChainEventData):
 - 3. 启用插件后，点击探索功能将自动生成额外的数据源标签及页面，页面中选择不同的过滤条件时会重新触发API请求。
 
 ### 10. 如何扩展推荐功能的媒体数据源？
-- （仅V2版本）推荐功能`v2.2.8+`版本可通过插件扩展数据源范围，按以下方法开发插件：
-- 1. 实现`ChainEventType.RecommendSource`链式事件响应，将额外的媒体数据源塞入事件数据`extra_sources`数组中（注意：如果事件中已经有其它数据源，需要叠加而不是替换，避免影响其它插件塞入的数据）
+**（仅支持 `v2.2.8+` 版本）**
+- 实现`ChainEventType.RecommendSource`链式事件响应，将额外的媒体数据源塞入事件数据`extra_sources`数组中（注意：如果事件中已经有其它数据源，需要叠加而不是替换，避免影响其它插件塞入的数据）
 
   - `name`：数据源名称
   - `api_path`：数据获取API相对路径，需要在插件中实现API接口功能，GET模式接收过滤参数（注意：page参数默认需要有），返回`List[schemas.MediaInfo])`格式数据，参考`app/api/endpoints/recommend.py` 中的 `tmdb_trending`。
@@ -633,7 +636,229 @@ def get_module(self) -> Dict[str, Any]:
 ```
 - 2. 在插件中实现声名的方法逻辑，处理链执行时，会优先处理插件声明的方法。如果插件方法未实现或者返回`None`，将继续执行下一个插件或者系统模块的相同声明方法；如果对应的方法需要返回是的列表对象，则会执行所有插件和系统模块的方法后将结果组合返回。
 
-### 12. 如何发布插件版本？
+### 12. 如何通过插件扩展支持的存储类型？
+**（仅支持 `v2.4.4+` 版本）**
+- 1. 用户在系统设定存储中新增自定义存储，并设定一个名称，该名称与插件绑定使用。
+- 2. 实现 `ChainEventType.StorageOperSelection`链式事件响应，根据传入的存储对象名称判断是否为该插件支持的存储，如是则返回存储操作对象，如不是则返回`None` 
+```python
+class StorageOperSelectionEventData(ChainEventData):
+    """
+    StorageOperSelect 事件的数据模型
+
+    Attributes:
+        # 输入参数
+        storage_name (str): 存储名称
+
+        # 输出参数
+        storage_oper (Callable): 存储操作对象
+    """
+    # 输入参数
+    storage_name: str = Field(..., description="存储名称")
+
+    # 输出参数
+    storage_oper: Optional[Callable] = Field(default=None, description="存储操作对象")
+```
+- 3. 在插件的存储操作类中，实现以下对应的文件操作（具体可参考：app/modules/filemanager/storages/__init__.py），不支持的可跳过，内部调用对应的存储操作对象方法实现
+```python
+@abstractmethod
+def list(self, fileitem: schemas.FileItem) -> List[schemas.FileItem]:
+    """
+    浏览文件
+    """
+    pass
+
+@abstractmethod
+def create_folder(self, fileitem: schemas.FileItem, name: str) -> Optional[schemas.FileItem]:
+    """
+    创建目录
+    :param fileitem: 父目录
+    :param name: 目录名
+    """
+    pass
+
+@abstractmethod
+def get_folder(self, path: Path) -> Optional[schemas.FileItem]:
+    """
+    获取目录，如目录不存在则创建
+    """
+    pass
+
+@abstractmethod
+def get_item(self, path: Path) -> Optional[schemas.FileItem]:
+    """
+    获取文件或目录，不存在返回None
+    """
+    pass
+
+def get_parent(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
+    """
+    获取父目录
+    """
+    return self.get_item(Path(fileitem.path).parent)
+
+@abstractmethod
+def delete(self, fileitem: schemas.FileItem) -> bool:
+    """
+    删除文件
+    """
+    pass
+
+@abstractmethod
+def rename(self, fileitem: schemas.FileItem, name: str) -> bool:
+    """
+    重命名文件
+    """
+    pass
+
+@abstractmethod
+def download(self, fileitem: schemas.FileItem, path: Path = None) -> Path:
+    """
+    下载文件，保存到本地，返回本地临时文件地址
+    :param fileitem: 文件项
+    :param path: 文件保存路径
+    """
+    pass
+
+@abstractmethod
+def upload(self, fileitem: schemas.FileItem, path: Path, new_name: Optional[str] = None) -> Optional[schemas.FileItem]:
+    """
+    上传文件
+    :param fileitem: 上传目录项
+    :param path: 本地文件路径
+    :param new_name: 上传后文件名
+    """
+    pass
+
+@abstractmethod
+def detail(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
+    """
+    获取文件详情
+    """
+    pass
+
+@abstractmethod
+def copy(self, fileitem: schemas.FileItem, path: Path, new_name: str) -> bool:
+    """
+    复制文件
+    :param fileitem: 文件项
+    :param path: 目标目录
+    :param new_name: 新文件名
+    """
+    pass
+
+@abstractmethod
+def move(self, fileitem: schemas.FileItem, path: Path, new_name: str) -> bool:
+    """
+    移动文件
+    :param fileitem: 文件项
+    :param path: 目标目录
+    :param new_name: 新文件名
+    """
+    pass
+
+@abstractmethod
+def link(self, fileitem: schemas.FileItem, target_file: Path) -> bool:
+    """
+    硬链接文件
+    """
+    pass
+
+@abstractmethod
+def softlink(self, fileitem: schemas.FileItem, target_file: Path) -> bool:
+    """
+    软链接文件
+    """
+    pass
+
+@abstractmethod
+def usage(self) -> Optional[schemas.StorageUsage]:
+    """
+    存储使用情况
+    """
+    pass
+```
+- 4. 参考 11 实现`get_module`声明以下模块方法（具体可参考：app/chain/storage.py）：
+```python
+def list_files(self, fileitem: schemas.FileItem, recursion: bool = False) -> Optional[List[schemas.FileItem]]:
+    """
+    查询当前目录下所有目录和文件
+    """
+    pass
+
+def any_files(self, fileitem: schemas.FileItem, extensions: list = None) -> Optional[bool]:
+    """
+    查询当前目录下是否存在指定扩展名任意文件
+    """
+    pass
+
+def create_folder(self, fileitem: schemas.FileItem, name: str) -> Optional[schemas.FileItem]:
+    """
+    创建目录
+    """
+    pass
+
+def download_file(self, fileitem: schemas.FileItem, path: Path = None) -> Optional[Path]:
+    """
+    下载文件
+    :param fileitem: 文件项
+    :param path: 本地保存路径
+    """
+    pass
+
+def upload_file(self, fileitem: schemas.FileItem, path: Path,
+                new_name: Optional[str] = None) -> Optional[schemas.FileItem]:
+    """
+    上传文件
+    :param fileitem: 保存目录项
+    :param path: 本地文件路径
+    :param new_name: 新文件名
+    """
+    pass
+
+def delete_file(self, fileitem: schemas.FileItem) -> Optional[bool]:
+    """
+    删除文件或目录
+    """
+    pass
+
+def rename_file(self, fileitem: schemas.FileItem, name: str) -> Optional[bool]:
+    """
+    重命名文件或目录
+    """
+    pass
+
+def get_file_item(self, storage: str, path: Path) -> Optional[schemas.FileItem]:
+    """
+    根据路径获取文件项
+    """
+    pass
+
+def get_parent_item(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
+    """
+    获取上级目录项
+    """
+    pass
+
+def snapshot_storage(self, storage: str, path: Path) -> Optional[Dict[str, float]]:
+    """
+    快照存储
+    """
+    pass
+
+def storage_usage(self, storage: str) -> Optional[schemas.StorageUsage]:
+    """
+    存储使用情况
+    """
+    pass
+
+def support_transtype(self, storage: str) -> Optional[dict]:
+    """
+    获取支持的整理方式
+    """
+    pass
+```
+
+### 98. 如何发布插件版本？
 - 修改插件代码后，需要修改`package.json`中的`version`版本号，MoviePilot才会提示用户有更新，注意版本号需要与`__init__.py`文件中的`plugin_version`保持一致。
 - `package.json`中的`level`用于定义插件用户可见权限，`1`为所有用户可见，`2`为仅认证用户可见，`3`为需要密钥才可见（一般用于测试）。如果插件功能需要使用到站点则应该为2，否则即使插件对用户可见但因为用户未认证相关功能也无法正常使用。
 - `package.json`中的`history`用于记录插件更新日志，格式如下：
@@ -647,6 +872,6 @@ def get_module(self) -> Dict[str, Any]:
 ```
 - 新增加的插件请配置在`package.json`中的末尾，这样可被识别为最新增加，可用于用户排序。
 
-### 13. 如何开发V2版本的插件以及实现插件多版本兼容？
+### 99. 如何开发V2版本的插件以及实现插件多版本兼容？
 
 - 请参阅 [V2版本插件开发指南](./docs/V2_Plugin_Development.md)
