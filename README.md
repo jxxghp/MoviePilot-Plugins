@@ -658,7 +658,7 @@ class StorageOperSelectionEventData(ChainEventData):
     # 输出参数
     storage_oper: Optional[Callable] = Field(default=None, description="存储操作对象")
 ```
-- 3. 在插件的存储操作类中，实现以下对应的文件操作（具体可参考：app/modules/filemanager/storages/__init__.py），不支持的可跳过
+- 3. 在插件的存储操作类中，实现以下对应的文件操作（具体可参考：app/modules/filemanager/storages/\__init__.py），不支持的可跳过
 ```python
 def list(self, fileitem: schemas.FileItem) -> List[schemas.FileItem]:
     """
@@ -812,6 +812,12 @@ def rename_file(self, fileitem: schemas.FileItem, name: str) -> Optional[bool]:
     重命名文件或目录
     """
     pass
+
+def get_item(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
+    """
+    查询目录或文件
+    """
+    return self.get_file_item(storage=fileitem.storage, path=Path(fileitem.path))
 
 def get_file_item(self, storage: str, path: Path) -> Optional[schemas.FileItem]:
     """
