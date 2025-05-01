@@ -616,7 +616,24 @@ class RecommendSourceEventData(ChainEventData):
     extra_sources: List[RecommendMediaSource] = Field(default_factory=list, description="额外媒体数据源")
 ```
 
-### 11. 如何发布插件版本？
+### 11. 如何通过插件重载实现系统模块功能？
+**（仅支持 `v2.4.4+` 版本）**
+- MoviePilot中通过`chain`层实现业务逻辑，在`modules`中实现各自独立的功能模块。`chain`处理链通过查找`modules`中实现了所需方法（比如: post_message）的所有模块并按一定的规则执行，从而编排各模块能力来实现复杂的业务功能。v2.4.4+版本中赋于插件胁持系统模块的能力，可以通过插件来重新实现系统所有内置模块的功能。
+- 1. 在插件中实现`get_module`方法，申明插件要重载的模块方法。所有可用的模块方法名参考`chain`目录下的处理链文件（run_module方法的第一个参数），公共处理在`chain/__init__.py`中，方法入参和出参需要保持一致。
+```python
+def get_module(self) -> Dict[str, Any]:
+    """
+    获取插件模块声明，用于胁持系统模块实现（方法名：方法实现）
+    {
+        "id1": self.xxx1,
+        "id2": self.xxx2,
+    }
+    """
+    pass
+```
+- 2. 在插件中实现声名的方法逻辑，处理链执行时，会优先处理插件声明的方法。如果插件方法未实现或者返回`None`，将继续执行下一个插件或者系统模块的相同声明方法；如果对应的方法需要返回是的列表对象，则会执行所有插件和系统模块的方法后将结果组合返回。
+
+### 12. 如何发布插件版本？
 - 修改插件代码后，需要修改`package.json`中的`version`版本号，MoviePilot才会提示用户有更新，注意版本号需要与`__init__.py`文件中的`plugin_version`保持一致。
 - `package.json`中的`level`用于定义插件用户可见权限，`1`为所有用户可见，`2`为仅认证用户可见，`3`为需要密钥才可见（一般用于测试）。如果插件功能需要使用到站点则应该为2，否则即使插件对用户可见但因为用户未认证相关功能也无法正常使用。
 - `package.json`中的`history`用于记录插件更新日志，格式如下：
@@ -630,6 +647,6 @@ class RecommendSourceEventData(ChainEventData):
 ```
 - 新增加的插件请配置在`package.json`中的末尾，这样可被识别为最新增加，可用于用户排序。
 
-### 12. 如何开发V2版本的插件以及实现插件多版本兼容？
+### 13. 如何开发V2版本的插件以及实现插件多版本兼容？
 
 - 请参阅 [V2版本插件开发指南](./docs/V2_Plugin_Development.md)
