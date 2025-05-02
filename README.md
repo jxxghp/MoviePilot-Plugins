@@ -146,6 +146,10 @@ class ChainEventType(Enum):
     MediaRecognizeConvert = "media.recognize.convert"
     # 推荐数据源
     RecommendSource = "recommend.source"
+    # 工作流执行
+    WorkflowExecution = "workflow.execution"
+    # 存储操作选择
+    StorageOperSelection = "storage.operation"
 ```
   
 ### 2. 如何在插件中实现远程命令响应？
