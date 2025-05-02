@@ -1,6 +1,30 @@
 # MoviePilot-Plugins
 MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 
+## 目录
+- [第三方插件库开发说明](#第三方插件库开发说明)
+  - [1. 目录结构](#1-目录结构)
+  - [2. 插件图标](#2-插件图标)
+  - [3. 插件命名](#3-插件命名)
+  - [4. 依赖](#4-依赖)
+  - [5. 界面开发](#5-界面开发)
+- [常见问题](#常见问题)
+  - [1. 如何扩展消息推送渠道？](#1-如何扩展消息推送渠道)
+  - [2. 如何在插件中实现远程命令响应？](#2-如何在插件中实现远程命令响应)
+  - [3. 如何在插件中对外暴露API？](#3-如何在插件中对外暴露api)
+  - [4. 如何在插件中注册公共定时服务？](#4-如何在插件中注册公共定时服务)
+  - [5. 如何通过插件增强MoviePilot的识别功能？](#5-如何通过插件增强moviepilot的识别功能)
+  - [6. 如何扩展内建索引器的索引站点？](#6-如何扩展内建索引器的索引站点)
+  - [7. 如何在插件中调用API接口？](#7-如何在插件中调用api接口)
+  - [8. 如何将插件内容显示到仪表板？](#8-如何将插件内容显示到仪表板)
+  - [9. 如何扩展探索功能的媒体数据源？](#9-如何扩展探索功能的媒体数据源)
+  - [10. 如何扩展推荐功能的媒体数据源？](#10-如何扩展推荐功能的媒体数据源)
+  - [11. 如何通过插件重载实现系统模块功能？](#11-如何通过插件重载实现系统模块功能)
+  - [12. 如何通过插件扩展支持的存储类型？](#12-如何通过插件扩展支持的存储类型)
+- [版本发布](#版本发布)
+  - [1. 如何发布插件版本？](#1-如何发布插件版本)
+  - [2. 如何开发V2版本的插件以及实现插件多版本兼容？](#2-如何开发v2版本的插件以及实现插件多版本兼容)
+
 ## 第三方插件库开发说明
 > 请不要开发用于破解MoviePilot用户认证、色情、赌博等违法违规内容的插件，共同维护健康的开发环境！
 
@@ -621,7 +645,7 @@ class RecommendSourceEventData(ChainEventData):
 
 ### 11. 如何通过插件重载实现系统模块功能？
 **（仅支持 `v2.4.4+` 版本）**
-- MoviePilot中通过`chain`层实现业务逻辑，在`modules`中实现各自独立的功能模块。`chain`处理链通过查找`modules`中实现了所需方法（比如: post_message）的所有模块并按一定的规则执行，从而编排各模块能力来实现复杂的业务功能。v2.4.4+版本中赋于插件胁持系统模块的能力，可以通过插件来重新实现系统所有内置模块的功能，比如支持新的下载器、媒体服务器、消息渠道、识别数据源甚至是索引器等。
+- MoviePilot中通过`chain`层实现业务逻辑，在`modules`中实现各自独立的功能模块。`chain`处理链通过查找`modules`中实现了所需方法（比如: post_message）的所有模块并按一定的规则执行，从而编排各模块能力来实现复杂的业务功能。v2.4.4+版本中赋于插件胁持系统模块的能力，可以通过插件来重新实现系统所有内置模块的功能，比如支持新的下载器、媒体服务器等（在用户界面中配合新增自定义下载器和媒体服务器）。
 - 1. 在插件中实现`get_module`方法，申明插件要重载的模块方法。所有可用的模块方法名参考`chain`目录下的处理链文件（run_module方法的第一个参数），公共处理在`chain/__init__.py`中，方法入参和出参需要保持一致。
 ```python
 def get_module(self) -> Dict[str, Any]:
@@ -638,132 +662,129 @@ def get_module(self) -> Dict[str, Any]:
 
 ### 12. 如何通过插件扩展支持的存储类型？
 **（仅支持 `v2.4.4+` 版本）**
-- 1. 用户在系统设定存储中新增自定义存储，并设定一个名称，该名称与插件绑定使用。
-- 2. 实现 `ChainEventType.StorageOperSelection`链式事件响应，根据传入的存储对象名称判断是否为该插件支持的存储，如是则返回存储操作对象，如不是则返回`None` 
+- 1. 用户在系统设定存储中新增自定义存储，并设定一个自定义类型和名称，该类型与插件绑定，用于插件判断使用。
+- 2. 在插件的存储操作类中，实现以下对应的文件操作（具体可参考：app/modules/filemanager/storages/\__init__.py），不支持的可跳过
 ```python
-class StorageOperSelectionEventData(ChainEventData):
-    """
-    StorageOperSelect 事件的数据模型
+class XxxApi:
 
-    Attributes:
-        # 输入参数
-        storage_name (str): 存储名称
+    def list(self, fileitem: schemas.FileItem) -> List[schemas.FileItem]:
+        """
+        浏览文件
+        """
+        pass
 
-        # 输出参数
-        storage_oper (Callable): 存储操作对象
-    """
-    # 输入参数
-    storage_name: str = Field(..., description="存储名称")
+    def create_folder(self, fileitem: schemas.FileItem, name: str) -> Optional[schemas.FileItem]:
+        """
+        创建目录
+        :param fileitem: 父目录
+        :param name: 目录名
+        """
+        pass
 
-    # 输出参数
-    storage_oper: Optional[Callable] = Field(default=None, description="存储操作对象")
+    def get_folder(self, path: Path) -> Optional[schemas.FileItem]:
+        """
+        获取目录，如目录不存在则创建
+        """
+        pass
+
+    def get_item(self, path: Path) -> Optional[schemas.FileItem]:
+        """
+        获取文件或目录，不存在返回None
+        """
+        pass
+
+    def get_parent(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
+        """
+        获取父目录
+        """
+        return self.get_item(Path(fileitem.path).parent)
+
+    def delete(self, fileitem: schemas.FileItem) -> bool:
+        """
+        删除文件
+        """
+        pass
+
+    def rename(self, fileitem: schemas.FileItem, name: str) -> bool:
+        """
+        重命名文件
+        """
+        pass
+
+    def download(self, fileitem: schemas.FileItem, path: Path = None) -> Path:
+        """
+        下载文件，保存到本地，返回本地临时文件地址
+        :param fileitem: 文件项
+        :param path: 文件保存路径
+        """
+        pass
+
+    def upload(self, fileitem: schemas.FileItem, path: Path, new_name: Optional[str] = None) -> Optional[schemas.FileItem]:
+        """
+        上传文件
+        :param fileitem: 上传目录项
+        :param path: 本地文件路径
+        :param new_name: 上传后文件名
+        """
+        pass
+
+    def detail(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
+        """
+        获取文件详情
+        """
+        pass
+
+    def copy(self, fileitem: schemas.FileItem, path: Path, new_name: str) -> bool:
+        """
+        复制文件
+        :param fileitem: 文件项
+        :param path: 目标目录
+        :param new_name: 新文件名
+        """
+        pass
+
+    def move(self, fileitem: schemas.FileItem, path: Path, new_name: str) -> bool:
+        """
+        移动文件
+        :param fileitem: 文件项
+        :param path: 目标目录
+        :param new_name: 新文件名
+        """
+        pass
+
+    def link(self, fileitem: schemas.FileItem, target_file: Path) -> bool:
+        """
+        硬链接文件
+        """
+        pass
+
+    def softlink(self, fileitem: schemas.FileItem, target_file: Path) -> bool:
+        """
+        软链接文件
+        """
+        pass
+
+    def usage(self) -> Optional[schemas.StorageUsage]:
+        """
+        存储使用情况
+        """
+        pass
 ```
-- 3. 在插件的存储操作类中，实现以下对应的文件操作（具体可参考：app/modules/filemanager/storages/\__init__.py），不支持的可跳过
+- 3. 实现 `ChainEventType.StorageOperSelection`链式事件响应，根据传入的存储对象名称判断是否为该插件支持的存储，如是则返回存储操作对象
 ```python
-def list(self, fileitem: schemas.FileItem) -> List[schemas.FileItem]:
+@eventmanager.register(ChainEventType.StorageOperSelection)
+def storage_oper_selection(self, event: Event):
     """
-    浏览文件
+    监听存储选择事件，返回当前类为操作对象
     """
-    pass
-
-def create_folder(self, fileitem: schemas.FileItem, name: str) -> Optional[schemas.FileItem]:
-    """
-    创建目录
-    :param fileitem: 父目录
-    :param name: 目录名
-    """
-    pass
-
-def get_folder(self, path: Path) -> Optional[schemas.FileItem]:
-    """
-    获取目录，如目录不存在则创建
-    """
-    pass
-
-def get_item(self, path: Path) -> Optional[schemas.FileItem]:
-    """
-    获取文件或目录，不存在返回None
-    """
-    pass
-
-def get_parent(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
-    """
-    获取父目录
-    """
-    return self.get_item(Path(fileitem.path).parent)
-
-def delete(self, fileitem: schemas.FileItem) -> bool:
-    """
-    删除文件
-    """
-    pass
-
-def rename(self, fileitem: schemas.FileItem, name: str) -> bool:
-    """
-    重命名文件
-    """
-    pass
-
-def download(self, fileitem: schemas.FileItem, path: Path = None) -> Path:
-    """
-    下载文件，保存到本地，返回本地临时文件地址
-    :param fileitem: 文件项
-    :param path: 文件保存路径
-    """
-    pass
-
-def upload(self, fileitem: schemas.FileItem, path: Path, new_name: Optional[str] = None) -> Optional[schemas.FileItem]:
-    """
-    上传文件
-    :param fileitem: 上传目录项
-    :param path: 本地文件路径
-    :param new_name: 上传后文件名
-    """
-    pass
-
-def detail(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
-    """
-    获取文件详情
-    """
-    pass
-
-def copy(self, fileitem: schemas.FileItem, path: Path, new_name: str) -> bool:
-    """
-    复制文件
-    :param fileitem: 文件项
-    :param path: 目标目录
-    :param new_name: 新文件名
-    """
-    pass
-
-def move(self, fileitem: schemas.FileItem, path: Path, new_name: str) -> bool:
-    """
-    移动文件
-    :param fileitem: 文件项
-    :param path: 目标目录
-    :param new_name: 新文件名
-    """
-    pass
-
-def link(self, fileitem: schemas.FileItem, target_file: Path) -> bool:
-    """
-    硬链接文件
-    """
-    pass
-
-def softlink(self, fileitem: schemas.FileItem, target_file: Path) -> bool:
-    """
-    软链接文件
-    """
-    pass
-
-def usage(self) -> Optional[schemas.StorageUsage]:
-    """
-    存储使用情况
-    """
-    pass
+    if not self._enabled:
+        return
+    event_data: StorageOperSelectionEventData = event.event_data
+    if event_data.storage == "xxx":
+        event_data.storage_oper = self.api # api为插件的存储操作对象
 ```
-- 4. 参考 11 实现`get_module`声明以下模块方法（具体可参考：app/modules/filemanager/\__init__.py），其实就是对上一步的方法再做一下封装：
+
+- 4. 参考 11 实现`get_module`在插件中声明和实现以下模块方法（具体可参考：app/modules/filemanager/\__init__.py），其实就是对上一步的方法再做一下封装：
 ```python
 def get_module(self) -> Dict[str, Any]:
     """
@@ -791,12 +812,15 @@ def list_files(self, fileitem: schemas.FileItem, recursion: bool = False) -> Opt
     """
     查询当前目录下所有目录和文件
     """
+    
+    if fileitem.storage != "xxx":
+        return None
 
     def __get_files(_item: FileItem, _r: Optional[bool] = False):
         """
         递归处理
         """
-        _items = self.list(_item)
+        _items = self.api.list(_item)
         if _items:
             if _r:
                 for t in _items:
@@ -817,11 +841,14 @@ def any_files(self, fileitem: schemas.FileItem, extensions: list = None) -> Opti
     """
     查询当前目录下是否存在指定扩展名任意文件
     """
+    if fileitem.storage != "xxx":
+        return None
+    
     def __any_file(_item: FileItem):
         """
         递归处理
         """
-        _items = self.list(_item)
+        _items = self.api.list(_item)
         if _items:
             if not extensions:
                 return True
@@ -844,7 +871,10 @@ def download_file(self, fileitem: schemas.FileItem, path: Path = None) -> Option
     :param fileitem: 文件项
     :param path: 本地保存路径
     """
-    return self.download(fileitem, path)
+    if fileitem.storage != "xxx":
+        return None
+    
+    return self.api.download(fileitem, path)
 
 def upload_file(self, fileitem: schemas.FileItem, path: Path,
                 new_name: Optional[str] = None) -> Optional[schemas.FileItem]:
@@ -854,36 +884,54 @@ def upload_file(self, fileitem: schemas.FileItem, path: Path,
     :param path: 本地文件路径
     :param new_name: 新文件名
     """
-    return self.upload(fileitem, path, new_name)
+    if fileitem.storage != "xxx":
+        return None
+    
+    return self.api.upload(fileitem, path, new_name)
 
 def delete_file(self, fileitem: schemas.FileItem) -> Optional[bool]:
     """
     删除文件或目录
     """
-    return self.delete(fileitem)
+    if fileitem.storage != "xxx":
+        return None
+    
+    return self.api.delete(fileitem)
 
 def rename_file(self, fileitem: schemas.FileItem, name: str) -> Optional[bool]:
     """
     重命名文件或目录
     """
-    return self.rename(fileitem, name)
+    if fileitem.storage != "xxx":
+        return None
+    
+    return self.api.rename(fileitem, name)
 
 def get_file_item(self, storage: str, path: Path) -> Optional[schemas.FileItem]:
     """
     根据路径获取文件项
     """
-    return self.get_item(path)
+    if storage != "xxx":
+        return None
+    
+    return self.api.get_item(path)
 
 def get_parent_item(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
     """
     获取上级目录项
     """
-    return self.get_parent(fileitem)
+    if fileitem.storage != "xxx":
+        return None
+    
+    return self.api.get_parent(fileitem)
 
 def snapshot_storage(self, storage: str, path: Path) -> Optional[Dict[str, float]]:
     """
     快照存储
     """
+    if storage != "xxx":
+        return None
+    
     files_info = {}
 
     def __snapshot_file(_fileitm: schemas.FileItem):
@@ -891,12 +939,12 @@ def snapshot_storage(self, storage: str, path: Path) -> Optional[Dict[str, float
         递归获取文件信息
         """
         if _fileitm.type == "dir":
-            for sub_file in self.list(_fileitm):
+            for sub_file in self.api.list(_fileitm):
                 __snapshot_file(sub_file)
         else:
             files_info[_fileitm.path] = _fileitm.size
 
-    fileitem = self.get_item(path)
+    fileitem = self.api.get_item(path)
     if not fileitem:
         return {}
 
@@ -908,9 +956,10 @@ def storage_usage(self, storage: str) -> Optional[schemas.StorageUsage]:
     """
     存储使用情况
     """
-    return self.usage()
+    return self.api.usage()
 
-def support_transtype(self, storage: str) -> Optional[dict]:
+@staticmethod
+def support_transtype(storage: str) -> Optional[dict]:
     """
     获取支持的整理方式
     """
@@ -920,7 +969,9 @@ def support_transtype(self, storage: str) -> Optional[dict]:
     }
 ```
 
-### 98. 如何发布插件版本？
+## 版本发布
+
+### 1. 如何发布插件版本？
 - 修改插件代码后，需要修改`package.json`中的`version`版本号，MoviePilot才会提示用户有更新，注意版本号需要与`__init__.py`文件中的`plugin_version`保持一致。
 - `package.json`中的`level`用于定义插件用户可见权限，`1`为所有用户可见，`2`为仅认证用户可见，`3`为需要密钥才可见（一般用于测试）。如果插件功能需要使用到站点则应该为2，否则即使插件对用户可见但因为用户未认证相关功能也无法正常使用。
 - `package.json`中的`history`用于记录插件更新日志，格式如下：
@@ -934,6 +985,6 @@ def support_transtype(self, storage: str) -> Optional[dict]:
 ```
 - 新增加的插件请配置在`package.json`中的末尾，这样可被识别为最新增加，可用于用户排序。
 
-### 99. 如何开发V2版本的插件以及实现插件多版本兼容？
+### 2. 如何开发V2版本的插件以及实现插件多版本兼容？
 
 - 请参阅 [V2版本插件开发指南](./docs/V2_Plugin_Development.md)
