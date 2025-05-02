@@ -666,7 +666,15 @@ def get_module(self) -> Dict[str, Any]:
 
 ### 12. 如何通过插件扩展支持的存储类型？
 **（仅支持 `v2.4.4+` 版本）**
-- 1. 用户在系统设定存储中新增自定义存储，并设定一个自定义类型和名称，该类型与插件绑定，用于插件判断使用。
+- 1. 用户在系统设定存储中新增自定义存储，并设定一个自定义类型和名称，该类型与插件绑定，用于插件判断使用。或者在插件启动时直接注册自定义存储。
+```python
+# 检查是否有xxx网盘选项，如没有则自动添加
+storage_helper = StorageHelper()
+storages = StorageHelper().get_storagies()
+if not any(s.type == "xxx" for s in storages):
+    # 添加存储配置
+    storage_helper.add_storage("xxx", name="xxx网盘", conf={})
+```
 - 2. 在插件的存储操作类中，实现以下对应的文件操作（具体可参考：app/modules/filemanager/storages/\__init__.py），不支持的可跳过
 ```python
 class XxxApi:
