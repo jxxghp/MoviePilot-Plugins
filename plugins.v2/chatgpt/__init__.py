@@ -6,6 +6,7 @@ from app.log import logger
 from app.plugins import _PluginBase
 from app.plugins.chatgpt.openai import OpenAi
 from app.schemas.types import EventType, ChainEventType
+from app.schemas import NotificationType
 
 
 class ChatGPT(_PluginBase):
@@ -16,7 +17,7 @@ class ChatGPT(_PluginBase):
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "2.1.2"
+    plugin_version = "2.1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -106,7 +107,7 @@ class ChatGPT(_PluginBase):
             
         # 使用新密钥重新初始化客户端
         next_key = self._api_keys[self._current_key_index]
-        logger.info(f"切换到下一个API密钥 {next_key[:5]}...")
+        logger.info(f"切换到下一个API密钥 {next_key}")
         success = self.init_openai(next_key)
         return success, ""
 
@@ -359,7 +360,7 @@ class ChatGPT(_PluginBase):
                 
                 # 发送密钥失效通知
                 if self._notify:
-                    message = f"API密钥 {current_key[:5]}... 调用失败: {error_msg}"
+                    message = f"API密钥 {current_key} 调用失败: {error_msg}"
                     self.post_message(channel=channel, title=message, userid=userid)
                     
                     # 如果所有密钥都失效，发送额外通知
@@ -421,7 +422,7 @@ class ChatGPT(_PluginBase):
                 
                 # 发送密钥失效通知 (通过系统通知，因为这里没有用户交互)
                 if self._notify:
-                    message = f"API密钥 {current_key[:5]}... 调用失败: {error_msg}"
+                    message = f"API密钥 {current_key} 调用失败: {error_msg}"
                     self.post_message(mtype=NotificationType.Plugin, title="ChatGpt", text=message)
                     
                     # 如果所有密钥都失效，发送额外通知
