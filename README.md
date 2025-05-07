@@ -44,10 +44,12 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 - 可在插件目录中放置`requirements.txt`文件，用于指定插件依赖的第三方库，MoviePilot会在插件安装时自动安装依赖库。
 
 ### 5. 界面开发
-- 插件支持`插件配置`、`详情展示`、`仪表板Widget`三个展示页面，通过配置化的方式组装，使用 [Vuetify](https://vuetifyjs.com/) 组件库，所有该组件库有的组件都可以通过Json配置使用，详情参考已有插件。
+- 插件支持`插件配置`、`详情展示`、`仪表板Widget`三个展示页面，支持两种方式开发：
+  1. 通过配置化的方式组装，使用 [Vuetify](https://vuetifyjs.com/) 组件库，所有该组件库有的组件都可以通过Json配置使用，详情参考已有插件。
   - `props`中`model`属性等效于v-model，`show`等效于v-show，其它属于会直接绑定到元素上。
   - 插件配置页面props属性支持表达式，使用`{{}}`概起来；支持事件，以`on`开头，比如：onclick。
   - 详情展示页面支持API调用,在`events`属性中定义。
+  2. 通过Vue编写联邦远程组件，参考：[模块联邦开发指南](https://github.com/jxxghp/MoviePilot-Frontend/blob/v2/docs/module-federation-guide.md)
 
 
 ## 常见问题
