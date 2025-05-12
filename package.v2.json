@@ -111,11 +111,12 @@
         "name": "自动转移做种",
         "description": "定期转移下载器中的做种任务到另一个下载器。",
         "labels": "做种",
-        "version": "1.10.1",
+        "version": "1.10.2",
         "icon": "seed.png",
         "author": "jxxghp",
         "level": 2,
         "history": {
+            "v1.10.2": "增加保留原标签和原分类的选项",
             "v1.10.1": "优化“立即运行一次”按钮位置",
             "v1.10": "支持跳过校验（仅支持 qBittorrent）",
             "v1.9": "优化执行周期输入，需要MoviePilot v2.2.1+",
