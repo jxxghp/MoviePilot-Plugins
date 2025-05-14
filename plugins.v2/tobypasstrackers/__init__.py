@@ -4,6 +4,7 @@ import ipaddress
 import socket
 import base64
 import json
+import asyncio
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import Response
@@ -30,7 +31,7 @@ class ToBypassTrackers(_PluginBase):
     # 插件图标
     plugin_icon = "Clash_A.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -46,7 +47,6 @@ class ToBypassTrackers(_PluginBase):
     sites: SitesHelper = None
     site_chain: SiteChain = None
     siteoper: SiteOper = None
-
 
     # 事件管理器
     event: EventManager = None
@@ -161,7 +161,7 @@ class ToBypassTrackers(_PluginBase):
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         site_options = ([{"title": site.name, "value": site.id}
                          for site in self.siteoper.list_order_by_pri()]
-                        )
+        )
         return [
             {
                 'component': 'VForm',
@@ -429,9 +429,8 @@ class ToBypassTrackers(_PluginBase):
                                             'type': 'info',
                                             'variant': 'tonal',
                                             'text': '【订阅URL】'
-                                                    '「IPv4 Api」: /api/v1/plugin/ToBypassTrackers/bypassed_ips?apikey=moviepilot&protocol=4; '
-                                                    '「IPv6 Api」: /api/v1/plugin/ToBypassTrackers/bypassed_ips?apikey=moviepilot&protocol=6; '
-                                                    '其中moviepilot修改为实际配置中的API_TOKEN的值。'
+                                                    f'「IPv4 API」: /api/v1/plugin/ToBypassTrackers/bypassed_ips?apikey={settings.API_TOKEN}&protocol=4; '
+                                                    f'「IPv6 API」: /api/v1/plugin/ToBypassTrackers/bypassed_ips?apikey={settings.API_TOKEN}&protocol=6'
                                         }
                                     }
                                 ]
@@ -574,7 +573,38 @@ class ToBypassTrackers(_PluginBase):
             remaining_ranges = list(net_b.address_exclude(net_a))
 
             return [str(sub_net) for sub_net in remaining_ranges]
-        # replacing = data.get('replace')
+
+        async def resolve_and_check(domain_, results_, failed_msg_, dns_type_, ip_list_):
+            try:
+                addresses = await query_helper.query_dns(domain_, dns_type_)
+                if addresses is None:
+                    failed_msg_.append(f"【{domain_name_map.get(domain_, domain_)}】 {domain_}: {dns_type_} 记录查询失败")
+                    results_[domain_name_map.get(domain_, domain_)] = False
+                    return
+
+                for address in addresses:
+                    has_flag = any(__is_ip_in_subnet(address, subnet) for subnet in ip_list_)
+                    if not has_flag:
+                        if dns_type_ == "AAAA":
+                            ip_list_.append(address)
+                        else:
+                            ip_list_.append(address)
+                    logger.info(f"Resolving【{domain_name_map.get(domain_, domain_)}】{address} ({domain_})")
+            except Exception as e:
+                logger.exception(f"处理 {domain_} 出错: {e}")
+                results_[domain_name_map.get(domain_, domain_)] = False
+
+        async def resolve_all(domains_, ipv6_list_, ip_list_):
+            tasks = [
+                resolve_and_check(domain_, results_v6, failed_msg, "AAAA", ipv6_list_)
+                for domain_ in domains_
+            ]
+            tasks.extend([resolve_and_check(domain_, results, failed_msg, "A", ip_list_)
+                          for domain_ in domains_])
+            await asyncio.gather(*tasks)
+
+        query_helper = DnsHelper(self._dns_input)
+        logger.info(f"开始通过 {query_helper.method_name} 解析DNS")
         chnroute6_lists_url = "https://ispip.clang.cn/all_cn_ipv6.txt"
         chnroute_lists_url = "https://ispip.clang.cn/all_cn.txt"
         ipv6_list = []
@@ -584,6 +614,7 @@ class ToBypassTrackers(_PluginBase):
         failed_msg = []
         results = {}
         unsupported_msg = []
+        results_v6 = {}
         if self._china_ipv6_route:
             # Load Chnroute6 Lists
             res = RequestUtils().get_res(url=chnroute6_lists_url)
@@ -598,7 +629,8 @@ class ToBypassTrackers(_PluginBase):
                 chnroute_lists = res.text[:-1].split('\n')
                 for ipr in chnroute_lists:
                     ip_list.append(ipr)
-        do_sites = {site.domain: site.name for site in self.siteoper.list_order_by_pri() if site.id in self._bypassed_sites}
+        do_sites = {site.domain: site.name for site in self.siteoper.list_order_by_pri() if
+                    site.id in self._bypassed_sites}
         domain_name_map = {}
         for site in do_sites:
             site_domains = self.trackers.get(site)
@@ -623,44 +655,17 @@ class ToBypassTrackers(_PluginBase):
                             ipv6_list.append(ipaddress.ip_network(f"{custom_tracker}/128", strict=False).compressed)
                     except socket.error:
                         domains.append(custom_tracker)
-        for domain in domains:
-            if self._bypass_ipv6:
-                ipv6_addresses = DnsHelper.query_domain(domain, self._dns_input, "AAAA")
-                if ipv6_addresses is None:
-                    logger.warn(f"{domain} AAAA 记录查询失败")
-                    failed_msg.append(f"【{domain_name_map.get(domain, domain)}】 {domain}: AAAA记录查询失败")
-                    results[{domain_name_map.get(domain, domain)}] = False
-                    continue
-                for address in ipv6_addresses:
-                    has_flag = False
-                    for subnet in ipv6_list:
-                        if __is_ip_in_subnet(address, subnet):
-                            has_flag = True
-                            break
-                    if not has_flag:
-                        ipv6_list.append(ipaddress.ip_network(f"{address}/128", strict=False).compressed)
-                    logger.info(f"【{domain_name_map.get(domain, domain)}】{address} ({domain}) 已被添加")
-            if self._bypass_ipv4:
-                ip_addresses = DnsHelper.query_domain(domain, self._dns_input, 'A')
-                if ip_addresses is None:
-                    logger.warn(f"{domain} A 记录查询失败")
-                    failed_msg.append(f"【{domain_name_map.get(domain, '')}】 {domain}: A记录查询失败")
-                    results[{domain_name_map.get(domain, domain)}] = False
-                    continue
-                for address in ip_addresses:
-                    has_flag = False
-                    for subnet in ip_list:
-                        if __is_ip_in_subnet(address, subnet):
-                            has_flag = True
-                            break
-                    if not has_flag:
-                        ip_list.append(f"{address}/32")
-                    logger.info(f"【{domain_name_map.get(domain, domain)}】{address} ({domain}) 已被添加")
+        v6_ips = []
+        v4_ips = []
+        asyncio.run(resolve_all(domains, v6_ips, v4_ips))
+        ipv6_list.extend([ipaddress.ip_network(f"{ad}/128", strict=False).compressed for ad in v6_ips])
+        ip_list.extend([f"{ad}/32" for ad in v4_ips])
         for result in results:
             if results[result]:
                 success_msg.append(f"【{result}】 Trackers已被添加")
         exempted_ip = []
         exempted_ipv6 = []
+        exempted_domains = []
         for exempted_domain in self._exempted_domains.split('\n'):
             if exempted_domain:
                 try:
@@ -673,12 +678,9 @@ class ToBypassTrackers(_PluginBase):
                         if self._bypass_ipv6:
                             exempted_ipv6.append(f"{exempted_domain}")
                     except socket.error:
-                        ipv6_addresses = DnsHelper.query_domain(exempted_domain, self._dns_input, 'AAAA')
-                        if ipv6_addresses:
-                            exempted_ipv6.extend(ipv6_addresses)
-                        ipv4_addresses = DnsHelper.query_domain(exempted_domain, self._dns_input, 'A')
-                        if ipv4_addresses:
-                            exempted_ip.extend(ipv4_addresses)
+                        exempted_domains.append(exempted_domain)
+
+        asyncio.run(resolve_all(exempted_domains, exempted_ip, exempted_ipv6))
         for ip in exempted_ip:
             index = __search_ip(ip, ip_list)
             if index == -1:
