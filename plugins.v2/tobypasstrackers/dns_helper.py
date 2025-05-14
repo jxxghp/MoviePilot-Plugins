@@ -1,105 +1,88 @@
-import socket
 import re
-from typing import Optional
+from typing import Optional, List, Callable
 
+import aioquic
+import dns.asyncresolver
 import dns.resolver
 
 from app.log import logger
-from app.utils.http import RequestUtils
 
 
 class DnsHelper:
+    def __init__(self, dns_server: str):
+        self.method_name = "Local"
+        self.doh_url = "https://dns.alidns.com/dns-query"
+        self.__resolver = dns.asyncresolver.Resolver()
+        self.__dns_query_method = self.__query_method(dns_server)
 
-    @staticmethod
-    def query_dns_udp(domain: str, dns_server: str, port: int =53, dns_type: str ='A') -> list[str]:
-        resolver = dns.resolver.Resolver()
-        resolver.nameservers = [dns_server]
-        resolver.port = port
-
-        try:
-            ip_answer = resolver.resolve(domain, dns_type)
-            ip_addresses = [record.address for record in ip_answer]
-        except dns.resolver.NoAnswer:
-            ip_addresses = []
-        except:
-            return None
-        return ip_addresses
-
-    @staticmethod
-    def query_doh(domain: str, doh_url: str, dns_type: str = 'A') -> Optional[list]:
-        params = {
-            'name': domain,
-            'type': dns_type,
-        }
-        headers = {
-            'Accept': 'application/dns-json',
-        }
-        response = RequestUtils().get_res(url=doh_url, headers=headers, params=params)
-        if not response.status_code == 200:
-            return None
-        data = response.json()
-        return [answer['data'] for answer in data.get('Answer', []) if
-                answer.get('type') == 28 or answer.get('type') == 1]
-
-    @staticmethod
-    def parse_dns_input(dns_input: str):
+    def __query_method(self, dns_input: str) -> Callable:
         if not dns_input:
-            return 'local', dns_input
-        # Check if it's a DoH URL (starts with https://)
+            return self.query_dns_local
         if dns_input.startswith('https://'):
-            return 'doh', dns_input
+            self.doh_url = dns_input
+            self.method_name = dns_input
+            return self.query_dns_doh
+        udp_match = re.match(r"^(?:udp://)?(\[?.+?]?)(?::(\d+))?$", dns_input)
+        if udp_match:
+            try:
+                self.__resolver.nameservers = [udp_match.group(1).strip('[]')]
+                if udp_match.group(2):
+                    self.__resolver.port = int(udp_match.group(2))
+                self.method_name = f"udp://{self.__resolver.nameservers[0]}:{self.__resolver.port}"
+            except Exception as e:
+                logger.warn(f'{e}, using default resolver')
+                return self.query_dns_local
+            return self.query_dns_udp
+        logger.warn(f'Unknown method {dns_input}, using default resolver')
+        return self.query_dns_local
 
-        # Check if it's a UDP DNS with hostname (e.g., udp://unfiltered.adguard-dns.com)
-        if dns_input.startswith('udp://'):
-            hostname = dns_input[len('udp://'):]
-            return 'udp', hostname, 53
+    async def query_dns(self, domain: str, dns_type: str = "A") -> Optional[List[str]]:
+        answers = await self.__dns_query_method(domain, dns_type)
+        return answers
 
-        # Check if it's an IP address with port (e.g., 94.140.14.140:53 or [2a10:50c0::1:ff]:53)
-        port_match = re.match(r'^(\[?.+?\]?):(\d+)$', dns_input)
-        if port_match:
-            dns_server = port_match.group(1).strip('[]')
-            port = int(port_match.group(2))
-            return 'udp', dns_server, port
-
-        # Default to regular DNS over UDP with default port 53
-        return 'udp', dns_input, 53
-
-    @staticmethod
-    def query_dns_local(domain_name: str, dns_type: str = 'A') -> Optional[list]:
+    async def query_dns_local(self, domain: str, dns_type: str = "A") -> Optional[List[str]]:
         try:
-            # Get address info for both IPv4 and IPv6
-            addr_info = socket.getaddrinfo(domain_name, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+            answer = await self.__resolver.resolve(domain, dns_type)
+            return [record.address for record in answer if hasattr(record, "address")]
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+            return []
+        except Exception as e:
+            # logger.error(f"本地DNS查询错误: {e} {domain}")
+            return None
 
-            ipv4_addresses = []
-            ipv6_addresses = []
+    async def query_dns_doh(self, domain: str, dns_type: str = 'A') -> Optional[List[str]]:
+        """
+        使用 DNS-over-HTTPS (DoH) 异步解析域名。
 
-            # Iterate over the address info
-            for info in addr_info:
-                ip_address = info[4][0]
+        :param domain: 要解析的域名
+        :param dns_type: DNS 记录类型，例如 'A', 'AAAA'
+        :return: IP 地址列表，或 None
+        """
 
-                # Check if the IP address is IPv4 or IPv6
-                if '.' in ip_address:
-                    ipv4_addresses.append(ip_address)
-                elif ':' in ip_address:
-                    ipv6_addresses.append(ip_address)
-            if dns_type == 'A':
-                return ipv4_addresses
-            elif dns_type == 'AAAA':
-                return ipv6_addresses
+        try:
+            query = dns.message.make_query(domain, dns_type)
+            response = await dns.asyncquery.https(query, self.doh_url)
+            return [
+                item.address for rrset in response.answer for item in rrset.items
+                if hasattr(item, "address")
+            ]
+        except Exception as e:
+            return None
 
-        except socket.gaierror as e:
-            logger.error(f"本地DNS查询错误: {e} {domain_name}")
+    async def query_dns_udp(self, domain: str, dns_type: str = 'A') -> Optional[List[str]]:
+        """
+        使用 UDP 异步方式解析域名
 
-    @staticmethod
-    def query_domain(domain: str, dns_input: str, dns_type='A') -> Optional[list]:
-        method, *args = DnsHelper.parse_dns_input(dns_input)
-        if method == 'local':
-            return DnsHelper.query_dns_local(domain, dns_type)
-        elif method == 'udp':
-            dns_server, port = args
-            return DnsHelper.query_dns_udp(domain, dns_server, port, dns_type)
-        elif method == 'doh':
-            doh_url = args[0]
-            return DnsHelper.query_doh(domain, doh_url, dns_type)
-        else:
-            logger.error(f'Unknown method {method}')
+        :param domain: 域名
+        :param port: DNS服务器端口（默认53）
+        :param dns_type: 记录类型，如 A、AAAA
+        :return: IP地址列表 或 None
+        """
+
+        try:
+            answer = await self.__resolver.resolve(domain, dns_type)
+            return [record.address for record in answer]
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+            return []
+        except Exception:
+            return None
