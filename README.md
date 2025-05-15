@@ -985,6 +985,7 @@ def support_transtype(storage: str) -> Optional[dict]:
 ```
 
 ### 13. 如何将插件功能集成到工作流？
+**（仅支持 v1.8.4+ 版本）**
 - 插件实现以下接口，声明插件支持的动作实现
 ```python
 def get_actions(self) -> List[Dict[str, Any]]:
