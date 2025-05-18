@@ -17,7 +17,7 @@ class ChatGPT(_PluginBase):
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "2.1.3"
+    plugin_version = "2.1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -57,14 +57,14 @@ class ChatGPT(_PluginBase):
             self._openai_key = config.get("openai_key")
             self._model = config.get("model")
             self._notify = config.get("notify")
-            
+
             # 处理多个API密钥
             if self._openai_key:
                 self._api_keys = [key.strip() for key in self._openai_key.split(',') if key.strip()]
                 # 初始化密钥状态
                 self._key_status = {key: True for key in self._api_keys}
                 logger.info(f"ChatGPT插件加载了 {len(self._api_keys)} 个API密钥")
-            
+
             if self._openai_url and self._api_keys:
                 # 使用第一个密钥初始化
                 self._current_key_index = 0
@@ -76,8 +76,8 @@ class ChatGPT(_PluginBase):
         """
         if self._openai_url and api_key:
             self.openai = OpenAi(api_key=api_key, api_url=self._openai_url,
-                              proxy=settings.PROXY if self._proxy else None,
-                              model=self._model, compatible=bool(self._compatible))
+                                 proxy=settings.PROXY if self._proxy else None,
+                                 model=self._model, compatible=bool(self._compatible))
             logger.info(f"ChatGPT插件初始化API客户端成功")
             return True
         return False
@@ -89,22 +89,22 @@ class ChatGPT(_PluginBase):
         """
         # 标记当前密钥为失效
         self._key_status[failed_key] = False
-        
+
         # 寻找下一个可用的密钥
         original_index = self._current_key_index
         while True:
             self._current_key_index = (self._current_key_index + 1) % len(self._api_keys)
             next_key = self._api_keys[self._current_key_index]
-            
+
             # 如果密钥标记为可用或者已经尝试了所有密钥，则使用该密钥
             if self._key_status.get(next_key, True) or self._current_key_index == original_index:
                 break
-        
+
         # 检查是否所有密钥都失效
         if all(not status for status in self._key_status.values()):
             logger.error("所有API密钥均已失效")
             return False, "所有API密钥均已失效，请检查配置"
-            
+
         # 使用新密钥重新初始化客户端
         next_key = self._api_keys[self._current_key_index]
         logger.info(f"切换到下一个API密钥 {next_key}")
@@ -301,7 +301,7 @@ class ChatGPT(_PluginBase):
             "proxy": False,
             "compatible": False,
             "recognize": False,
-            "notify": False, 
+            "notify": False,
             "openai_url": "https://api.openai.com",
             "openai_key": "",
             "model": "gpt-3.5-turbo"
@@ -316,15 +316,15 @@ class ChatGPT(_PluginBase):
         :param response: API响应
         :return: (is_error, error_message) 元组，表示是否错误及错误信息
         """
-        
+
         # 检查响应是否为字典且包含errorMsg
         if isinstance(response, dict) and response.get("errorMsg"):
             return True, response.get("errorMsg")
-        
+
         # 检查响应是否为字符串且包含错误信息
         if isinstance(response, str) and "请求ChatGPT出现错误" in response:
             return True, response
-        
+
         # 如果没有错误信息，则表示调用成功
         return False, ""
 
@@ -342,47 +342,49 @@ class ChatGPT(_PluginBase):
         channel = event.event_data.get("channel")
         if not text:
             return
-            
+        if text.startswith("http") or text.startswith("magnet") or text.startswith("ftp"):
+            return
+
         # 尝试获取响应，失败时切换API密钥
         retry_count = 0
         max_retries = len(self._api_keys)
-        
+
         while retry_count < max_retries:
             response = self.openai.get_response(text=text, userid=userid)
-            
+
             # 判断响应是否正常
             is_error, error_msg = self.is_api_error(response)
             logger.info(f"ChatGPT返回结果：{response}")
-            
+
             if is_error:
                 current_key = self._api_keys[self._current_key_index]
                 switched, switch_error = self.switch_to_next_key(current_key)
-                
+
                 # 发送密钥失效通知
                 if self._notify:
                     message = f"API密钥 {current_key} 调用失败: {error_msg}"
                     self.post_message(channel=channel, title=message, userid=userid)
-                    
+
                     # 如果所有密钥都失效，发送额外通知
                     if not switched:
                         message = switch_error
                         self.post_message(mtype=NotificationType.Plugin, title="ChatGpt", text=message)
-                
+
                 if not switched:
                     # 所有密钥都失效，发送消息并退出
                     return
-                    
+
                 retry_count += 1
             else:
                 # 成功获取响应
                 self.post_message(channel=channel, title=response, userid=userid)
                 return
-        
+
         # 所有重试都失败
         if self._notify:
-            self.post_message(channel=channel, 
-                            title="无法获取ChatGPT响应，所有API密钥都已失效", 
-                            userid=userid)
+            self.post_message(channel=channel,
+                              title="无法获取ChatGPT响应，所有API密钥都已失效",
+                              userid=userid)
 
     @eventmanager.register(ChainEventType.NameRecognize)
     def recognize(self, event: Event):
@@ -398,42 +400,42 @@ class ChatGPT(_PluginBase):
         title = event.event_data.get("title")
         if not title:
             return
-            
+
         # 尝试获取媒体名称，失败时切换API密钥
         retry_count = 0
         max_retries = len(self._api_keys)
-        
+
         while retry_count < max_retries:
             response = self.openai.get_media_name(filename=title)
             logger.info(f"ChatGPT返回结果：{response}")
-            
+
             # 判断响应是否正常
             is_error, error_msg = self.is_api_error(response)
-            
+
             # 如果不是错误但返回字典中没有name字段，也视为错误
             if not is_error and isinstance(response, dict) and not response.get("name"):
                 is_error = True
                 error_msg = "未返回有效识别结果"
-            
+
             if is_error:
                 # 发生错误，尝试切换密钥
                 current_key = self._api_keys[self._current_key_index]
                 switched, switch_error = self.switch_to_next_key(current_key)
-                
+
                 # 发送密钥失效通知 (通过系统通知，因为这里没有用户交互)
                 if self._notify:
                     message = f"API密钥 {current_key} 调用失败: {error_msg}"
                     self.post_message(mtype=NotificationType.Plugin, title="ChatGpt", text=message)
-                    
+
                     # 如果所有密钥都失效，发送额外通知
                     if not switched:
                         message = switch_error
                         self.post_message(mtype=NotificationType.Plugin, title="ChatGpt", text=message)
-                
+
                 if not switched:
                     # 所有密钥都失效
                     return
-                    
+
                 retry_count += 1
             else:
                 # 成功获取结果
@@ -445,13 +447,13 @@ class ChatGPT(_PluginBase):
                     'episode': response.get("episode")
                 }
                 return
-        
+
         # 所有重试都失败
         if self._notify:
             logger.error(f"无法识别标题 {title}，所有API密钥都已失效")
-            self.post_message(mtype=NotificationType.Plugin, 
-                             title="ChatGpt", 
-                             text=f"无法识别标题 {title}，所有API密钥都已失效")
+            self.post_message(mtype=NotificationType.Plugin,
+                              title="ChatGpt",
+                              text=f"无法识别标题 {title}，所有API密钥都已失效")
 
     def stop_service(self):
         """
