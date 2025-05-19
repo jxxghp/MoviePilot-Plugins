@@ -742,7 +742,7 @@
         "name": "Tracker替换",
         "description": "批量替换修改种子tracker。",
         "labels": "做种",
-        "version": "1.8",
+        "version": "1.9",
         "icon": "trackereditor_A.png",
         "author": "honue",
         "level": 1,
