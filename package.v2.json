@@ -419,5 +419,17 @@
             "v1.3": "新增一些Trackers",
             "v1.4": "异步查询DNS"
         }
+    },
+    "ImdbSource": {
+        "name": "IMDb源",
+        "description": "让探索支持IMDb数据源。",
+        "labels": "探索",
+        "version": "1.0",
+        "icon": "IMDb_IOS-OSX_App.png",
+        "author": "wumode",
+        "level": 1,
+        "history": {
+            "v1.0": "探索支持IMDb数据源"
+        }
     }
 }
