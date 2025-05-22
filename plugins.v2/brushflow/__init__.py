@@ -2536,6 +2536,24 @@ class BrushFlow(_PluginBase):
                 return True, f"H&R种子，分享率 {torrent_info.get('ratio'):.2f}，大于 {brush_config.seed_ratio}"
             return False, "H&R种子，未能满足设置的H&R删除条件"
 
+        while brush_config.del_no_free and torrent_info.get("downloaded") < torrent_info.get("total_size"):
+            if not torrent_task.get("freedate", None):
+                logger.warning(f"配置了‘删除促销过期的未完成下载’，但未获取到该种子的促销截止时间，跳过。")
+                break
+            try:
+                now = datetime.now()
+                freedate_origin = torrent_task.get("freedate")
+                freedate = freedate_origin.replace("T", " ").replace("Z", "")
+                freedate = datetime.strptime(freedate, "%Y-%m-%d %H:%M:%S")
+                delta_minutes = (((freedate - now).total_seconds() + 60) // 60) - brush_config.timezone_offset
+                logger.debug(f"促销截止（站点时间）: {freedate_origin}, 时区偏移: {brush_config.timezone_offset}, 用户当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')}, 时间差: {delta_minutes}分")
+                if delta_minutes <= 0:
+                    return True, "促销过期"
+            except Exception as e:
+                logger.warning(f"处理‘删除促销过期的未完成下载’时报错，继续判断其他删除条件。")
+                logger.debug(f"error: {e}")
+            break
+
         # 处理其他场景，1. 不是H&R种子；2. 是H&R种子但没有特定条件配置
         reason = reason if not hit_and_run else "H&R种子（未设置H&R条件），未能满足设置的删除条件"
         if brush_config.seed_time and torrent_info.get("seeding_time") >= float(brush_config.seed_time) * 3600:
@@ -2558,38 +2576,31 @@ class BrushFlow(_PluginBase):
 
         return True, reason if not hit_and_run else "H&R种子（未设置H&R条件），" + reason
 
-    def __evaluate_proxy_pre_conditions_for_delete(self, site_name: str, torrent_info: dict) -> Tuple[bool, str]:
+    def __evaluate_proxy_pre_conditions_for_delete(self, site_name: str, torrent_info: dict, torrent_task: dict) -> Tuple[bool, str]:
         """
         评估动态删除前置条件并返回是否应删除种子及其原因
         """
         brush_config = self.__get_brush_config(sitename=site_name)
-        torrent = (self.get_data("torrents") or {}).get(torrent_info.get("hash", ""), None)
 
-        should_delete = False
         reason = "未能满足动态删除设置的前置删除条件"
 
-        if not torrent:
-            logger.debug(f"未获取到种子 {torrent_info.get('hash', '?')} 的任务信息。")
-
-        while torrent and brush_config.del_no_free:
-            if not torrent.get("freedate", None):
+        while brush_config.del_no_free:
+            if not torrent_task.get("freedate", None):
                 logger.warning(f"配置了‘删除促销过期的未完成下载’，但未获取到该种子的促销截止时间，跳过。")
                 break
             try:
                 now = datetime.now()
-                freedate_origin = torrent.get("freedate")
+                freedate_origin = torrent_task.get("freedate")
                 freedate = freedate_origin.replace("T", " ").replace("Z", "")
                 freedate = datetime.strptime(freedate, "%Y-%m-%d %H:%M:%S")
-                delta_minutes = (((now - freedate).total_seconds() + 60) // 60) - brush_config.timezone_offset
+                delta_minutes = (((freedate - now).total_seconds() + 60) // 60) - brush_config.timezone_offset
                 logger.debug(f"促销截止（站点时间）: {freedate_origin}, 时区偏移: {brush_config.timezone_offset}, 用户当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')}, 时间差: {delta_minutes}分")
                 if delta_minutes <= 0:
-                    should_delete = True
-                    reason = f"促销已过期。"
+                    return True, f"促销已过期"
             except Exception as e:
                 logger.warning(f"处理‘删除促销过期的未完成下载’时报错，继续判断其他删除条件。")
                 logger.debug(f"error: {e}")
-            finally:
-                break
+            break
 
         if brush_config.download_time and torrent_info.get("downloaded") < torrent_info.get(
                 "total_size") and torrent_info.get("dltime") >= float(brush_config.download_time) * 3600:
@@ -2659,7 +2670,8 @@ class BrushFlow(_PluginBase):
 
             # 删除种子的具体实现可能会根据实际情况略有不同
             should_delete, reason = self.__evaluate_proxy_pre_conditions_for_delete(site_name=site_name,
-                                                                                    torrent_info=torrent_info)
+                                                                                    torrent_info=torrent_info,
+                                                                                    torrent_task=torrent_task)
             if should_delete:
                 delete_hashes.append(torrent_hash)
                 self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc,
@@ -3017,6 +3029,7 @@ class BrushFlow(_PluginBase):
             "exclude": brush_config.exclude,
             "size": brush_config.size,
             "seeder": brush_config.seeder,
+            "timezone_offset": brush_config.timezone_offset,
             "pubtime": brush_config.pubtime,
             "seed_time": brush_config.seed_time,
             "hr_seed_time": brush_config.hr_seed_time,
@@ -3040,6 +3053,7 @@ class BrushFlow(_PluginBase):
             "qb_category": brush_config.qb_category,
             "enable_site_config": brush_config.enable_site_config,
             "site_config": brush_config.site_config,
+            "del_no_free": brush_config.del_no_free,
             "_tabs": self._tabs
         }
 
