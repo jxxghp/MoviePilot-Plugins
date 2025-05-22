@@ -2536,7 +2536,7 @@ class BrushFlow(_PluginBase):
                 return True, f"H&R种子，分享率 {torrent_info.get('ratio'):.2f}，大于 {brush_config.seed_ratio}"
             return False, "H&R种子，未能满足设置的H&R删除条件"
 
-        while brush_config.del_no_free:
+        while brush_config.del_no_free and torrent_info.get("downloaded") < torrent_info.get("total_size"):
             if not torrent_task.get("freedate", None):
                 logger.warning(f"配置了‘删除促销过期的未完成下载’，但未获取到该种子的促销截止时间，跳过。")
                 break
