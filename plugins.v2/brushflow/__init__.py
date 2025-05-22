@@ -54,6 +54,7 @@ class BrushConfig:
         self.exclude = config.get("exclude")
         self.size = config.get("size")
         self.seeder = config.get("seeder")
+        self.timezone_offset = (self.__parse_number(config.get("timezone_offset", "+0")) or 0) * 60 # 转换到分钟
         self.pubtime = config.get("pubtime")
         self.seed_time = self.__parse_number(config.get("seed_time"))
         self.hr_seed_time = self.__parse_number(config.get("hr_seed_time"))
@@ -72,6 +73,7 @@ class BrushConfig:
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
         self.proxy_delete = config.get("proxy_delete", False)
+        self.del_no_free = config.get("del_no_free", False) if self.freeleech in ["free", "2xfree"] else False
         self.active_time_range = config.get("active_time_range")
         self.cron = config.get("cron")
         self.qb_category = config.get("qb_category")
@@ -107,6 +109,7 @@ class BrushConfig:
             "exclude",
             "size",
             "seeder",
+            "timezone_offset",
             "pubtime",
             "seed_time",
             "hr_seed_time",
@@ -119,7 +122,8 @@ class BrushConfig:
             "proxy_delete",
             "qb_category",
             "site_hr_active",
-            "site_skip_tips"
+            "site_skip_tips",
+            "del_no_free"
             # 当新增支持字段时，仅在此处添加字段名
         }
         try:
@@ -173,6 +177,8 @@ class BrushConfig:
     "exclude": "",
     "size": "10-500",
     "seeder": "1",
+    // 用户本地时区与站点时区的时间偏移，单位为小时。例如：主机时区是UTC+8，站点时区是UTC，应配置为+8；主机时区是UTC，站点时区是UTC+8，应配置为-8
+    "timezone_offset": "+0",
     "pubtime": "5-120",
     "seed_time": 120,
     "hr_seed_time": 144,
@@ -183,6 +189,8 @@ class BrushConfig:
     "seed_inactivetime": "",
     "save_path": "/downloads/site1",
     "proxy_delete": false,
+    // 是否删除促销超时的未完成下载，仅当freeleech配置为free或2xfree时有效
+    "del_no_free": false,
     "qb_category": "刷流",
     "site_hr_active": true,
     "site_skip_tips": true
@@ -251,7 +259,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "4.3.1"
+    plugin_version = "4.3.2"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -1621,6 +1629,27 @@ class BrushFlow(_PluginBase):
                                                 ]
                                             }
                                         ]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'del_no_free',
+                                                            'label': '删除促销过期的未完成下载',
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
                                     }
                                 ]
                             }
@@ -1794,6 +1823,7 @@ class BrushFlow(_PluginBase):
             "except_subscribe": True,
             "brush_sequential": False,
             "proxy_delete": False,
+            "del_no_free": False,
             "freeleech": "free",
             "hr": "yes",
             "enable_site_config": False,
@@ -2232,8 +2262,13 @@ class BrushFlow(_PluginBase):
                 if not (seeders_range[0] <= torrent.seeders <= seeders_range[1]):
                     return False, f"做种人数 {torrent.seeders}，不在指定范围内"
 
-        # 发布时间
-        pubdate_minutes = self.__get_pubminutes(torrent.pubdate)
+        # 发布时间：用户时间 - 站点时间 - 时区偏移
+        # e.g.1: 用户UTC+8，站点UTC，timezone_offset应为+8，种子在UTC 0:00/UTC+8 8:00发布；
+        #        9:17 - 0:00 - 8:00 = 1:17；1小时17分为正确的发布时间与当前的时间差
+        # e.g.2: 用户UTC，站点UTC+8，timezone_offset应为-8，种子在UTC 0:00/UTC+8 8:00发布：
+        #        1:17 - 8:00 - (-8:00) = 1:17；1小时17分为正确的发布时间与当前的时间差
+        # timezone_offset为后加功能，默认为0，方便后续更多与时间相关的功能开发，之前在单独站点配置中使用pubtime计算过时区偏移的用户也不受影响
+        pubdate_minutes = self.__get_pubminutes(torrent.pubdate) - brush_config.timezone_offset
         # 已支持独立站点配置，取消单独适配站点时区逻辑，可通过配置项「pubtime」自行适配
         # pubdate_minutes = self.__adjust_site_pubminutes(pubdate_minutes, torrent)
         if brush_config.pubtime:
@@ -2241,11 +2276,11 @@ class BrushFlow(_PluginBase):
             if len(pubtimes) == 1:
                 # 单个值：选择发布时间小于等于该值的种子
                 if pubdate_minutes > pubtimes[0]:
-                    return False, f"发布时间 {torrent.pubdate}，{pubdate_minutes:.0f} 分钟前，不符合条件"
+                    return False, f"发布时间（站点时区）{torrent.pubdate}，当前配置时区偏移 {brush_config.timezone_offset} 小时，{pubdate_minutes:.0f} 分钟前，不符合条件"
             else:
                 # 范围值：选择发布时间在范围内的种子
                 if not (pubtimes[0] <= pubdate_minutes <= pubtimes[1]):
-                    return False, f"发布时间 {torrent.pubdate}，{pubdate_minutes:.0f} 分钟前，不在指定范围内"
+                    return False, f"发布时间（站点时区）{torrent.pubdate}，当前配置时区偏移 {brush_config.timezone_offset} 小时，{pubdate_minutes:.0f} 分钟前，不在指定范围内"
 
         return True, None
 
@@ -2501,6 +2536,24 @@ class BrushFlow(_PluginBase):
                 return True, f"H&R种子，分享率 {torrent_info.get('ratio'):.2f}，大于 {brush_config.seed_ratio}"
             return False, "H&R种子，未能满足设置的H&R删除条件"
 
+        while brush_config.del_no_free and torrent_info.get("downloaded") < torrent_info.get("total_size"):
+            if not torrent_task.get("freedate", None):
+                logger.warning(f"配置了‘删除促销过期的未完成下载’，但未获取到该种子的促销截止时间，跳过。")
+                break
+            try:
+                now = datetime.now()
+                freedate_origin = torrent_task.get("freedate")
+                freedate = freedate_origin.replace("T", " ").replace("Z", "")
+                freedate = datetime.strptime(freedate, "%Y-%m-%d %H:%M:%S")
+                delta_minutes = (((freedate - now).total_seconds() + 60) // 60) - brush_config.timezone_offset
+                logger.debug(f"促销截止（站点时间）: {freedate_origin}, 时区偏移: {brush_config.timezone_offset}, 用户当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')}, 时间差: {delta_minutes}分")
+                if delta_minutes <= 0:
+                    return True, "促销过期"
+            except Exception as e:
+                logger.warning(f"处理‘删除促销过期的未完成下载’时报错，继续判断其他删除条件。")
+                logger.debug(f"error: {e}")
+            break
+
         # 处理其他场景，1. 不是H&R种子；2. 是H&R种子但没有特定条件配置
         reason = reason if not hit_and_run else "H&R种子（未设置H&R条件），未能满足设置的删除条件"
         if brush_config.seed_time and torrent_info.get("seeding_time") >= float(brush_config.seed_time) * 3600:
@@ -2523,7 +2576,7 @@ class BrushFlow(_PluginBase):
 
         return True, reason if not hit_and_run else "H&R种子（未设置H&R条件），" + reason
 
-    def __evaluate_proxy_pre_conditions_for_delete(self, site_name: str, torrent_info: dict) -> Tuple[bool, str]:
+    def __evaluate_proxy_pre_conditions_for_delete(self, site_name: str, torrent_info: dict, torrent_task: dict) -> Tuple[bool, str]:
         """
         评估动态删除前置条件并返回是否应删除种子及其原因
         """
@@ -2531,10 +2584,28 @@ class BrushFlow(_PluginBase):
 
         reason = "未能满足动态删除设置的前置删除条件"
 
+        while brush_config.del_no_free and torrent_info.get("downloaded") < torrent_info.get("total_size"):
+            if not torrent_task.get("freedate", None):
+                logger.warning(f"配置了‘删除促销过期的未完成下载’，但未获取到该种子的促销截止时间，跳过。")
+                break
+            try:
+                now = datetime.now()
+                freedate_origin = torrent_task.get("freedate")
+                freedate = freedate_origin.replace("T", " ").replace("Z", "")
+                freedate = datetime.strptime(freedate, "%Y-%m-%d %H:%M:%S")
+                delta_minutes = (((freedate - now).total_seconds() + 60) // 60) - brush_config.timezone_offset
+                logger.debug(f"促销截止（站点时间）: {freedate_origin}, 时区偏移: {brush_config.timezone_offset}, 用户当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')}, 时间差: {delta_minutes}分")
+                if delta_minutes <= 0:
+                    return True, f"促销已过期"
+            except Exception as e:
+                logger.warning(f"处理‘删除促销过期的未完成下载’时报错，继续判断其他删除条件。")
+                logger.debug(f"error: {e}")
+            break
+
         if brush_config.download_time and torrent_info.get("downloaded") < torrent_info.get(
                 "total_size") and torrent_info.get("dltime") >= float(brush_config.download_time) * 3600:
             reason = f"下载耗时 {torrent_info.get('dltime') / 3600:.1f} 小时，大于 {brush_config.download_time} 小时"
-        else:
+        elif not should_delete:
             return False, reason
 
         return True, reason
@@ -2599,7 +2670,8 @@ class BrushFlow(_PluginBase):
 
             # 删除种子的具体实现可能会根据实际情况略有不同
             should_delete, reason = self.__evaluate_proxy_pre_conditions_for_delete(site_name=site_name,
-                                                                                    torrent_info=torrent_info)
+                                                                                    torrent_info=torrent_info,
+                                                                                    torrent_task=torrent_task)
             if should_delete:
                 delete_hashes.append(torrent_hash)
                 self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc,
@@ -2957,6 +3029,7 @@ class BrushFlow(_PluginBase):
             "exclude": brush_config.exclude,
             "size": brush_config.size,
             "seeder": brush_config.seeder,
+            "timezone_offset": brush_config.timezone_offset,
             "pubtime": brush_config.pubtime,
             "seed_time": brush_config.seed_time,
             "hr_seed_time": brush_config.hr_seed_time,
@@ -2980,6 +3053,7 @@ class BrushFlow(_PluginBase):
             "qb_category": brush_config.qb_category,
             "enable_site_config": brush_config.enable_site_config,
             "site_config": brush_config.site_config,
+            "del_no_free": brush_config.del_no_free,
             "_tabs": self._tabs
         }
 
