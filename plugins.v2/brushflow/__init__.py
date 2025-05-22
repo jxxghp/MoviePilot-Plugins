@@ -2545,7 +2545,7 @@ class BrushFlow(_PluginBase):
                 freedate_origin = torrent_task.get("freedate")
                 freedate = freedate_origin.replace("T", " ").replace("Z", "")
                 freedate = datetime.strptime(freedate, "%Y-%m-%d %H:%M:%S")
-                delta_minutes = (((now - freedate).total_seconds() + 60) // 60) - brush_config.timezone_offset
+                delta_minutes = (((freedate - now).total_seconds() + 60) // 60) - brush_config.timezone_offset
                 logger.debug(f"促销截止（站点时间）: {freedate_origin}, 时区偏移: {brush_config.timezone_offset}, 用户当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')}, 时间差: {delta_minutes}分")
                 if delta_minutes <= 0:
                     return True, "促销过期"
@@ -2582,7 +2582,6 @@ class BrushFlow(_PluginBase):
         """
         brush_config = self.__get_brush_config(sitename=site_name)
 
-        should_delete = False
         reason = "未能满足动态删除设置的前置删除条件"
 
         while brush_config.del_no_free:
@@ -2594,16 +2593,14 @@ class BrushFlow(_PluginBase):
                 freedate_origin = torrent_task.get("freedate")
                 freedate = freedate_origin.replace("T", " ").replace("Z", "")
                 freedate = datetime.strptime(freedate, "%Y-%m-%d %H:%M:%S")
-                delta_minutes = (((now - freedate).total_seconds() + 60) // 60) - brush_config.timezone_offset
+                delta_minutes = (((freedate - now).total_seconds() + 60) // 60) - brush_config.timezone_offset
                 logger.debug(f"促销截止（站点时间）: {freedate_origin}, 时区偏移: {brush_config.timezone_offset}, 用户当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')}, 时间差: {delta_minutes}分")
                 if delta_minutes <= 0:
-                    should_delete = True
-                    reason = f"促销已过期。"
+                    return True, f"促销已过期"
             except Exception as e:
                 logger.warning(f"处理‘删除促销过期的未完成下载’时报错，继续判断其他删除条件。")
                 logger.debug(f"error: {e}")
-            finally:
-                break
+            break
 
         if brush_config.download_time and torrent_info.get("downloaded") < torrent_info.get(
                 "total_size") and torrent_info.get("dltime") >= float(brush_config.download_time) * 3600:
