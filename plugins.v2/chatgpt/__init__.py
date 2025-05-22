@@ -17,7 +17,7 @@ class ChatGPT(_PluginBase):
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "2.1.5"
+    plugin_version = "2.1.6"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -46,6 +46,8 @@ class ChatGPT(_PluginBase):
     _key_status = {}
     # 是否发送通知
     _notify = False
+    # 自定义提示词
+    _customize_prompt = '接下来我会给你一个电影或电视剧的文件名，你需要识别文件名中的名称、版本、分段、年份、分瓣率、季集等信息，并按以下JSON格式返回：{"name":string,"version":string,"part":string,"year":string,"resolution":string,"season":number|null,"episode":number|null}，特别注意返回结果需要严格附合JSON格式，不需要有任何其它的字符。如果中文电影或电视剧的文件名中存在谐音字或字母替代的情况，请还原最有可能的结果。'
 
     def init_plugin(self, config: dict = None):
         if config:
@@ -57,7 +59,7 @@ class ChatGPT(_PluginBase):
             self._openai_key = config.get("openai_key")
             self._model = config.get("model")
             self._notify = config.get("notify")
-
+            self._customize_prompt = config.get("customize_prompt")
             # 处理多个API密钥
             if self._openai_key:
                 self._api_keys = [key.strip() for key in self._openai_key.split(',') if key.strip()]
@@ -77,7 +79,7 @@ class ChatGPT(_PluginBase):
         if self._openai_url and api_key:
             self.openai = OpenAi(api_key=api_key, api_url=self._openai_url,
                                  proxy=settings.PROXY if self._proxy else None,
-                                 model=self._model, compatible=bool(self._compatible))
+                                 model=self._model, compatible=bool(self._compatible), customize_prompt=self._customize_prompt)
             logger.info(f"ChatGPT插件初始化API客户端成功")
             return True
         return False
@@ -275,6 +277,29 @@ class ChatGPT(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
+                                'props': {'cols': 12},
+                                'content': [
+                                    {
+                                        'component': 'VTextarea',
+                                        'props': {
+                                            'rows': 2,
+                                            'auto-grow': True,
+                                            'model': 'customize_prompt',
+                                            'label': '辅助识别提示词',
+                                            'hint': '在辅助识别时的给AI的提示词',
+                                            'clearable': True,
+                                            'persistent-hint': True,
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
                                 'props': {
                                     'cols': 12,
                                 },
@@ -304,7 +329,9 @@ class ChatGPT(_PluginBase):
             "notify": False,
             "openai_url": "https://api.openai.com",
             "openai_key": "",
-            "model": "gpt-3.5-turbo"
+            "model": "gpt-3.5-turbo",
+            "customize_prompt": '接下来我会给你一个电影或电视剧的文件名，你需要识别文件名中的名称、版本、分段、年份、分瓣率、季集等信息，并按以下JSON格式返回：{"name":string, '
+                                '"version":string,"part":string,"year":string,"resolution":string,"season":number|null,"episode":number|null}，特别注意返回结果需要严格附合JSON格式，不需要有任何其它的字符。如果中文电影或电视剧的文件名中存在谐音字或字母替代的情况，请还原最有可能的结果。'
         }
 
     def get_page(self) -> List[dict]:
