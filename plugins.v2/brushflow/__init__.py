@@ -39,6 +39,8 @@ class BrushConfig:
     """
 
     def __init__(self, config: dict, process_site_config=True):
+        logger.debug(f"[xx]根据配置创建BrushConfig：{config}")
+
         self.enabled = config.get("enabled", False)
         self.notify = config.get("notify", True)
         self.onlyonce = config.get("onlyonce", False)
@@ -74,6 +76,7 @@ class BrushConfig:
         self.brush_sequential = config.get("brush_sequential", False)
         self.proxy_delete = config.get("proxy_delete", False)
         self.del_no_free = config.get("del_no_free", False) if self.freeleech in ["free", "2xfree"] else False
+        logger.debug(f'self.freeleech: {self.freeleech}, self.freeleech in ["free", "2xfree"]: {self.freeleech in ["free", "2xfree"]}, del_no_free: {del_no_free}')
         self.active_time_range = config.get("active_time_range")
         self.cron = config.get("cron")
         self.qb_category = config.get("qb_category")
@@ -2570,6 +2573,8 @@ class BrushFlow(_PluginBase):
 
         if not torrent:
             logger.debug(f"未获取到种子 {torrent_info.get('hash', '?')} 的任务信息。")
+
+        logger.debug(f"brush_config.del_no_free: {brush_config.del_no_free}")
 
         while torrent and brush_config.del_no_free:
             if not torrent.get("freedate", None):
