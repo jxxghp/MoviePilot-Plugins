@@ -2569,7 +2569,7 @@ class BrushFlow(_PluginBase):
         reason = "未能满足动态删除设置的前置删除条件"
 
         if not torrent:
-            logger.debug(f"未获取到种子 {torrent_info.get("hash", "?")} 的任务信息。")
+            logger.debug(f"未获取到种子 {torrent_info.get('hash', '?')} 的任务信息。")
 
         while torrent and brush_config.del_no_free:
             if not torrent.get("freedate", None):
