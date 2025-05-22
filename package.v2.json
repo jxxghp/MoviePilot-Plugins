@@ -21,11 +21,12 @@
         "name": "站点刷流",
         "description": "自动托管刷流，将会提高对应站点的访问频率。",
         "labels": "刷流,仪表板",
-        "version": "4.3.1",
+        "version": "4.3.2",
         "icon": "brush.jpg",
         "author": "jxxghp,InfinityPacer",
         "level": 2,
         "history": {
+            "v4.3.2": "增加'删除促销结束的未完成下载'功能",
             "v4.3.1": "修复了一些细节问题",
             "v4.3": "支持带宽采样并计算平均值，以优化刷流效率",
             "v4.2": "优化执行周期输入，需要MoviePilot v2.2.1+",
