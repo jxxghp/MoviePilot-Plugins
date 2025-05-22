@@ -3022,6 +3022,7 @@ class BrushFlow(_PluginBase):
             "exclude": brush_config.exclude,
             "size": brush_config.size,
             "seeder": brush_config.seeder,
+            "timezone_offset": brush_config.timezone_offset,
             "pubtime": brush_config.pubtime,
             "seed_time": brush_config.seed_time,
             "hr_seed_time": brush_config.hr_seed_time,
@@ -3045,6 +3046,7 @@ class BrushFlow(_PluginBase):
             "qb_category": brush_config.qb_category,
             "enable_site_config": brush_config.enable_site_config,
             "site_config": brush_config.site_config,
+            "del_no_free": brush_config.del_no_free,
             "_tabs": self._tabs
         }
 
