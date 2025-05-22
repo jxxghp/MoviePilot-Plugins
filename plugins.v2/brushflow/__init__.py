@@ -2584,7 +2584,7 @@ class BrushFlow(_PluginBase):
 
         reason = "未能满足动态删除设置的前置删除条件"
 
-        while brush_config.del_no_free:
+        while brush_config.del_no_free and torrent_info.get("downloaded") < torrent_info.get("total_size"):
             if not torrent_task.get("freedate", None):
                 logger.warning(f"配置了‘删除促销过期的未完成下载’，但未获取到该种子的促销截止时间，跳过。")
                 break
