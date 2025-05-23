@@ -41,7 +41,8 @@ class ImdbSource(_PluginBase):
     _proxy = False
 
     _imdb_helper = None
-    _cache = {"discover": [], "trending": [], "trending_in_anime": [], "trending_in_sitcom": []}
+    _cache = {"discover": [], "trending": [], "trending_in_anime": [], "trending_in_sitcom": [],
+              "imdb_top_250": []}
 
     def init_plugin(self, config: dict = None):
         if config:
@@ -352,13 +353,13 @@ class ImdbSource(_PluginBase):
             first_page = True
             self._cache["trending_in_sitcom"] = []  # 清空缓存
         results = []
-        if len(self._cache["trending_in_sitcom"]) >= count:
-            results = self._cache["trending_in_sitcom"][:count]
-            self._cache["trending_in_sitcom"] = self._cache["trending_in_sitcom"][count:]
+        if len(self._cache["imdb_top_250"]) >= count:
+            results = self._cache["imdb_top_250"][:count]
+            self._cache["imdb_top_250"] = self._cache["imdb_top_250"][count:]
         else:
-            results.extend(self._cache["trending_in_sitcom"])
+            results.extend(self._cache["imdb_top_250"])
             remaining = count - len(results)
-            self._cache["trending_in_sitcom"] = []  # 清空缓存
+            self._cache["imdb_top_250"] = []  # 清空缓存
             data = self._imdb_helper.advanced_title_search(first_page=first_page,
                                                            title_types=title_types,
                                                            sort_by="POPULARITY",
@@ -371,7 +372,7 @@ class ImdbSource(_PluginBase):
                 new_results = data.get("edges")
             if new_results:
                 results.extend(new_results[:remaining])
-                self._cache["trending_in_sitcom"] = new_results[remaining:]
+                self._cache["imdb_top_250"] = new_results[remaining:]
         res = []
         for item in results:
             title_type_id = item.get('node').get("title").get("titleType", {}).get("id")
