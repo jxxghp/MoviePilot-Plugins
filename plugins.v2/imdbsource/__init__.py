@@ -42,7 +42,7 @@ class ImdbSource(_PluginBase):
 
     _imdb_helper = None
     _cache = {"discover": [], "trending": [], "trending_in_anime": [], "trending_in_sitcom": [],
-              "imdb_top_250": []}
+              "trending_in_documentary": [], "imdb_top_250": []}
 
     def init_plugin(self, config: dict = None):
         if config:
@@ -342,6 +342,47 @@ class ImdbSource(_PluginBase):
             return MediaType.MOVIE
         return MediaType.UNKNOWN
 
+    def trending_in_documentary(self, apikey: str, page: int = 1, count: int = 30) -> List[schemas.MediaInfo]:
+        if apikey != settings.API_TOKEN:
+            return []
+        if not self._imdb_helper:
+            return []
+        title_types = ("tvSeries", "tvMiniSeries", "tvShort", "tvEpisode", 'movie')
+        first_page = False
+        if page == 1:
+            first_page = True
+            self._cache["trending_in_documentary"] = []  # 清空缓存
+        results = []
+        if len(self._cache["trending_in_documentary"]) >= count:
+            results = self._cache["trending_in_documentary"][:count]
+            self._cache["trending_in_documentary"] = self._cache["trending_in_documentary"][count:]
+        else:
+            results.extend(self._cache["trending_in_documentary"])
+            remaining = count - len(results)
+            self._cache["trending_in_documentary"] = []  # 清空缓存
+            data = self._imdb_helper.advanced_title_search(first_page=first_page,
+                                                           title_types=title_types,
+                                                           sort_by="POPULARITY",
+                                                           sort_order="ASC",
+                                                           interests=("Documentary",)
+                                                           )
+            if not data:
+                new_results = []
+            else:
+                new_results = data.get("edges")
+            if new_results:
+                results.extend(new_results[:remaining])
+                self._cache["trending_in_documentary"] = new_results[remaining:]
+        res = []
+        for item in results:
+            title_type_id = item.get('node').get("title").get("titleType", {}).get("id")
+            mtype = self.title_id_to_mtype(title_type_id)
+            if mtype == MediaType.MOVIE:
+                res.append(self.__movie_to_media(item.get('node').get("title")))
+            elif mtype == MediaType.TV:
+                res.append(self.__series_to_media(item.get('node').get("title")))
+        return res
+
     def imdb_top_250(self, apikey: str, page: int = 1, count: int = 30) -> List[schemas.MediaInfo]:
         if apikey != settings.API_TOKEN:
             return []
@@ -351,7 +392,7 @@ class ImdbSource(_PluginBase):
         first_page = False
         if page == 1:
             first_page = True
-            self._cache["trending_in_sitcom"] = []  # 清空缓存
+            self._cache["imdb_top_250"] = []  # 清空缓存
         results = []
         if len(self._cache["imdb_top_250"]) >= count:
             results = self._cache["imdb_top_250"][:count]
@@ -650,6 +691,13 @@ class ImdbSource(_PluginBase):
                 "methods": ["GET"],
                 "summary": "IMDb Top 250 Movies",
                 "description": "获取 IMDb Top 250 Movies 数据",
+            },
+            {
+                "path": "/trending_in_documentary",
+                "endpoint": self.trending_in_documentary,
+                "methods": ["GET"],
+                "summary": "IMDb Trending in Documentary",
+                "description": "获取 IMDb Trending in Documentary 数据",
             }
         ]
 
@@ -1273,7 +1321,12 @@ class ImdbSource(_PluginBase):
             api_path=f"plugin/ImdbSource/imdb_top_250?apikey={settings.API_TOKEN}",
             type='Movies'
         )
-        trending_source = [imdb_trending, trending_in_anime, trending_in_sitcom, imdb_top_250]
+        imdb_documentary: schemas.RecommendMediaSource = schemas.RecommendMediaSource(
+            name="IMDb Trending in Documentary",
+            api_path=f"plugin/ImdbSource/trending_in_documentary?apikey={settings.API_TOKEN}",
+            type='Rankings'
+        )
+        trending_source = [imdb_trending, trending_in_anime, trending_in_sitcom, imdb_top_250, imdb_documentary]
         if not event_data.extra_sources:
             event_data.extra_sources = trending_source
         else:
