@@ -2582,6 +2582,7 @@ class BrushFlow(_PluginBase):
         """
         brush_config = self.__get_brush_config(sitename=site_name)
 
+        should_delete = False
         reason = "未能满足动态删除设置的前置删除条件"
 
         while brush_config.del_no_free and torrent_info.get("downloaded") < torrent_info.get("total_size"):
