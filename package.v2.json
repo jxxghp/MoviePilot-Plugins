@@ -424,11 +424,12 @@
         "name": "IMDb源",
         "description": "让探索支持IMDb数据源。",
         "labels": "探索",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "IMDb_IOS-OSX_App.png",
         "author": "wumode",
         "level": 1,
         "history": {
+            "v1.1": "推荐支持IMDB数据源; 优化海报尺寸，减少卡顿",
             "v1.0": "探索支持IMDb数据源"
         }
     }

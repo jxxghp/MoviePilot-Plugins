@@ -1,6 +1,8 @@
 import re
-from typing import Optional, Dict, List
+from typing import Optional, Any, Dict, List, Tuple
 from io import StringIO
+from collections import OrderedDict
+from dataclasses import dataclass
 
 import graphene
 from requests_html import HTMLSession
@@ -13,6 +15,28 @@ from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 from app.schemas.types import MediaType
 from app.core.cache import cached
+
+
+@dataclass(frozen=True)
+class SearchParams:
+    title_types: Optional[Tuple[str, ...]] = None
+    genres: Optional[Tuple[str, ...]] = None
+    sort_by: str = 'POPULARITY'
+    sort_order: str = 'ASC'
+    rating_min: Optional[float] = None
+    rating_max: Optional[float] = None
+    countries: Optional[Tuple[str, ...]] = None
+    languages: Optional[Tuple[str, ...]] = None
+    release_date_end: Optional[str] = None
+    release_date_start: Optional[str] = None
+    award_constraint: Optional[Tuple[str, ...]] = None
+    ranked: Optional[Tuple[str, ...]] = None
+    interests: Optional[Tuple[str, ...]] = None
+
+
+class SearchState:
+    def __init__(self, last_cursor: str):
+        self.last_cursor = last_cursor
 
 
 class ImdbHelper:
@@ -98,14 +122,26 @@ class ImdbHelper:
     _hash_update_url = ("https://raw.githubusercontent.com/wumode/MoviePilot-Plugins/"
                         "refs/heads/imdbsource_assets/plugins.v2/imdbsource/imdb_hash.json")
     _qid_map = {
-        MediaType.TV: ["tvSeries", "tvMiniSeries"],
+        MediaType.TV: ["tvSeries", "tvMiniSeries", "tvShort", "tvEpisode"],
         MediaType.MOVIE: ["movie"]
     }
+
     _imdb_headers = {
         "Accept": "application/json, text/plain, */*",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome"
                       "/84.0.4147.105 Safari/537.36",
         "Referer": "https://www.imdb.com/",
+    }
+    all_title_types = ["tvSeries", "tvMiniSeries", "movie", "tvMovie", "musicVideo", "tvShort", "short",
+                       "tvEpisode", "tvSpecial", "videoGame"]
+    interest_id = {
+        "Anime": "in0000027",
+        "Superhero": "in0000008",
+        "Sitcom": "in0000044",
+        "Coming-of-Age": "in0000073",
+        "Slasher Horror": "in0000115",
+        "Raunchy Comedy": "in0000041",
+        "Documentary": "in0000060"
     }
 
     def __init__(self, proxies=None):
@@ -114,8 +150,9 @@ class ImdbHelper:
         self._req_utils = RequestUtils(headers=self._imdb_headers, session=self._session, timeout=10, proxies=proxies)
         self._imdb_req = RequestUtils(accept_type="application/json", content_type="application/json",
                                       headers=self._imdb_headers, timeout=10, proxies=proxies)
-        self._last_cursor = ''
         self._imdb_api_hash = {"AdvancedTitleSearch": None, "TitleAkasPaginated": None}
+        self._search_states = OrderedDict()
+        self._max_states = 30
 
     def imdbid(self, imdbid: str) -> Optional[Dict]:
         params = {"operationName": "queryWithVariables", "query": self._query_by_id, "variables": {"id": imdbid}}
@@ -247,69 +284,153 @@ class ImdbHelper:
         else:
             return None
 
+    @staticmethod
+    def __ranked_list_to_constraint(ranked: str) -> Optional[Dict]:
+        """
+            "TOP_RATED_MOVIES-100": "IMDb Top 100",
+            "TOP_RATED_MOVIES-250": "IMDb Top 250",
+            "TOP_RATED_MOVIES-1000": "IMDb Top 1000",
+            "LOWEST_RATED_MOVIES-100": "IMDb Bottom 100",
+            "LOWEST_RATED_MOVIES-250": "IMDb Bottom 250",
+            "LOWEST_RATED_MOVIES-1000": "IMDb Bottom 1000"
+        """
+        pattern = r'^(TOP_RATED_MOVIES|LOWEST_RATED_MOVIES)-(\d+)$'
+        match = re.match(pattern, ranked)
+        if match:
+            ranked_title_list_type = match.group(1)
+            rank_range = int(match.group(2))
+            constraint = {"rankRange": {"max": rank_range}, "rankedTitleListType": ranked_title_list_type}
+            return constraint
+        return None
+
     def advanced_title_search(self,
-                              sha256: str = 'be358d7b41add9fd174461f4c8c673dfee5e2a88744e2d5dc037362a96e2b4e4',
                               first_page: bool = True,
-                              title_type: MediaType = MediaType.TV,
-                              genres: Optional[List] = None,
+                              title_types: Optional[Tuple[str, ...]] = None,
+                              genres: Optional[Tuple[str, ...]] = None,
                               sort_by: str = 'POPULARITY',
                               sort_order: str = 'ASC',
                               rating_min: Optional[float] = None,
                               rating_max: Optional[float] = None,
-                              countries: Optional[List] = None,
-                              languages: Optional[list] = None,
+                              countries: Optional[Tuple[str, ...]] = None,
+                              languages: Optional[Tuple[str, ...]] = None,
                               release_date_end: Optional[str] = None,
                               release_date_start: Optional[str] = None,
-                              award_constraint: Optional[List[str]] = None
-                              ) -> Optional[Dict]:
+                              award_constraint: Optional[Tuple[str, ...]] = None,
+                              ranked: Optional[Tuple[str, ...]] = None,
+                              interests: Optional[Tuple[str, ...]] = None):
+        # 创建参数对象
+        params = SearchParams(
+            title_types=title_types,
+            genres=genres,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            rating_min=rating_min,
+            rating_max=rating_max,
+            countries=countries,
+            languages=languages,
+            release_date_end=release_date_end,
+            release_date_start=release_date_start,
+            award_constraint=award_constraint,
+            ranked=ranked,
+            interests=interests
+        )
+        sha256 = 'be358d7b41add9fd174461f4c8c673dfee5e2a88744e2d5dc037362a96e2b4e4'
         self.__update_hash()
         if self._imdb_api_hash.get("AdvancedTitleSearch"):
             sha256 = self._imdb_api_hash["AdvancedTitleSearch"]
-        if title_type not in [MediaType.TV, MediaType.MOVIE]:
-            return None
+        # 获取或创建搜索状态
+        last_cursor = None
+        if not first_page and params in self._search_states:
+            search_state = self._search_states.pop(params)  # 移除并获取
+            self._search_states[params] = search_state
+            # 不是第一页且已有状态 - 使用上次的结果
+            if search_state.last_cursor:
+                last_cursor = search_state.last_cursor
+                # 这里实现基于上次结果的逻辑
+            else:
+                # 重新搜索
+                first_page = True
+        else:
+            first_page = True
+        result = self.__advanced_title_search(params, sha256, first_page, last_cursor)
+        if result:
+            page_info = result.get("pageInfo", {})
+            end_cursor = page_info.get("endCursor", "")
+            search_state = SearchState(end_cursor)
+            self._search_states[params] = search_state
+        if len(self._search_states) > self._max_states:
+            self._search_states.popitem(last=False)  # 移除最旧的条目
+        return result
+
+    def __advanced_title_search(self,
+                                params: SearchParams,
+                                sha256: str,
+                                first_page: bool = True,
+                                last_cursor: Optional[str] = None,
+                                ) -> Optional[Dict]:
+
         variables = {"first": 50,
                      "locale": "en-US",
-                     "sortBy": sort_by,
-                     "sortOrder": sort_order,
-                     "titleTypeConstraint": {"anyTitleTypeIds": self._qid_map[title_type],
-                                             "excludeTitleTypeIds": []}}
-        if genres:
-            variables["genreConstraint"] = {"allGenreIds": genres, "excludeGenreIds": []}
-        if countries:
-            variables["originCountryConstraint"] = {"allCountries": countries}
-        if languages:
-            variables["languageConstraint"] = {"anyPrimaryLanguages": languages}
-        if rating_min or rating_max:
-            rating_min = rating_min if rating_min else 1
+                     "sortBy": params.sort_by,
+                     "sortOrder": params.sort_order,
+                     }
+        if params.title_types:
+            title_type_ids = []
+            for title_type in params.title_types:
+                if title_type in self.all_title_types:
+                    title_type_ids.append(title_type)
+            if len(title_type_ids):
+                variables["titleTypeConstraint"] = {"anyTitleTypeIds": params.title_types,
+                                                    "excludeTitleTypeIds": []}
+        if params.genres:
+            variables["genreConstraint"] = {"allGenreIds": params.genres, "excludeGenreIds": []}
+        if params.countries:
+            variables["originCountryConstraint"] = {"allCountries": params.countries}
+        if params.languages:
+            variables["languageConstraint"] = {"anyPrimaryLanguages": params.languages}
+        if params.rating_min or params.rating_max:
+            rating_min = params.rating_min if params.rating_min else 1
             rating_min = max(rating_min, 1)
-            rating_max = rating_max if rating_max else 10
+            rating_max = params.rating_max if params.rating_max else 10
             rating_max = min(rating_max, 10)
             variables["userRatingsConstraint"] = {"aggregateRatingRange": {"max": rating_max, "min": rating_min}}
-        if release_date_start or release_date_end:
+        if params.release_date_start or params.release_date_end:
             release_dict = {}
-            if release_date_start:
-                release_dict["start"] = release_date_start
-            if release_date_end:
-                release_dict["end"] = release_date_end
+            if params.release_date_start:
+                release_dict["start"] = params.release_date_start
+            if params.release_date_end:
+                release_dict["end"] = params.release_date_end
             variables["releaseDateConstraint"] = {"releaseDateRange": release_dict}
-        if award_constraint:
+        if params.award_constraint:
             constraints = []
-            for award in award_constraint:
+            for award in params.award_constraint:
                 c = self.__award_to_constraint(award)
                 if c:
                     constraints.append(c)
             variables["awardConstraint"] = {"allEventNominations": constraints}
-        if not first_page and self._last_cursor:
-            variables["after"] = self._last_cursor
+        if params.ranked:
+            constraints = []
+            for r in params.ranked:
+                c = self.__ranked_list_to_constraint(r)
+                if c:
+                    constraints.append(c)
+            variables["rankedTitleListConstraint"] = {"allRankedTitleLists": constraints,
+                                                      "excludeRankedTitleLists": []}
+        if params.interests:
+            constraints = []
+            for interest in params.interests:
+                in_id = self.interest_id.get(interest)
+                if in_id:
+                    constraints.append(in_id)
+            variables["interestConstraint"] = {"allInterestIds": constraints, "excludeInterestIds": []}
+        if not first_page and last_cursor:
+            variables["after"] = last_cursor
 
         params = {"operationName": "AdvancedTitleSearch",
                   "variables": variables}
         data = self.__request(params, sha256)
         if not data:
             return None
-        page_info = data.get("advancedTitleSearch", {}).get("pageInfo", {})
-        end_cursor = page_info.get("endCursor", "")
-        self._last_cursor = end_cursor
         return data.get("advancedTitleSearch")
 
     def __known_as(self, imdbid: str,
@@ -531,10 +652,10 @@ class ImdbHelper:
                  mtype: MediaType,
                  imdbid: str) -> dict:
         """
-                给定IMDB号，查询一条媒体信息
-                :param mtype: 类型：电影、电视剧，为空时都查（此时用不上年份）
-                :param imdbid: IMDB的ID
-                """
+            给定IMDB号，查询一条媒体信息
+            :param mtype: 类型：电影、电视剧，为空时都查（此时用不上年份）
+            :param imdbid: IMDB的ID
+        """
         # 查询TMDB详情
         if mtype == MediaType.MOVIE:
             imdb_info = self.imdbid(imdbid)
