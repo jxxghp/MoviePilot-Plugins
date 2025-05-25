@@ -5,6 +5,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 
 import graphene
+import requests
 from requests_html import HTMLSession
 import ijson
 import json
@@ -13,6 +14,7 @@ import base64
 from app.log import logger
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
+from app.utils.common import retry
 from app.schemas.types import MediaType
 from app.core.cache import cached
 
@@ -35,8 +37,9 @@ class SearchParams:
 
 
 class SearchState:
-    def __init__(self, last_cursor: str):
-        self.last_cursor = last_cursor
+    def __init__(self, pageinfo: dict, total: int):
+        self.pageinfo = pageinfo
+        self.total = total
 
 
 class ImdbHelper:
@@ -148,8 +151,12 @@ class ImdbHelper:
         self._proxies = proxies
         self._session = HTMLSession()
         self._req_utils = RequestUtils(headers=self._imdb_headers, session=self._session, timeout=10, proxies=proxies)
-        self._imdb_req = RequestUtils(accept_type="application/json", content_type="application/json",
-                                      headers=self._imdb_headers, timeout=10, proxies=proxies)
+        self._imdb_req = RequestUtils(accept_type="application/json",
+                                      content_type="application/json",
+                                      headers=self._imdb_headers,
+                                      timeout=10,
+                                      proxies=proxies,
+                                      session=requests.Session())
         self._imdb_api_hash = {"AdvancedTitleSearch": None, "TitleAkasPaginated": None}
         self._search_states = OrderedDict()
         self._max_states = 30
@@ -231,10 +238,11 @@ class ImdbHelper:
                 section["episodes"]["total"] += section_next.get("episodes", {}).get("total", 0)
         return section
 
+    @retry(Exception, logger=logger)
     @cached(maxsize=32, ttl=1800)
     def __request(self, params: Dict, sha256) -> Optional[Dict]:
         params["extensions"] = {"persistedQuery": {"sha256Hash": sha256, "version": 1}}
-        ret = self._imdb_req.post_res(f"{self._official_endpoint}", json=params)
+        ret = self._imdb_req.post_res(f"{self._official_endpoint}", json=params, raise_exception=True)
         if not ret:
             return None
         data = ret.json()
@@ -341,11 +349,16 @@ class ImdbHelper:
         # 获取或创建搜索状态
         last_cursor = None
         if not first_page and params in self._search_states:
-            search_state = self._search_states.pop(params)  # 移除并获取
+            search_state: SearchState = self._search_states.pop(params)  # 移除并获取
             self._search_states[params] = search_state
             # 不是第一页且已有状态 - 使用上次的结果
-            if search_state.last_cursor:
-                last_cursor = search_state.last_cursor
+            if not search_state.pageinfo.get("hasNextPage"):
+                return {'pageInfo': {'endCursor': None, 'hasNextPage': False, 'hasPreviousPage': True,
+                                     'startCursor': None},
+                        'edges': [], 'total': search_state.total, 'genres': [], 'keywords': [],
+                        'titleTypes': [], 'jobCategories': []}
+            if search_state.pageinfo.get('endCursor'):
+                last_cursor = search_state.pageinfo.get('endCursor')
                 # 这里实现基于上次结果的逻辑
             else:
                 # 重新搜索
@@ -355,8 +368,8 @@ class ImdbHelper:
         result = self.__advanced_title_search(params, sha256, first_page, last_cursor)
         if result:
             page_info = result.get("pageInfo", {})
-            end_cursor = page_info.get("endCursor", "")
-            search_state = SearchState(end_cursor)
+            total = result.get("total", 0)
+            search_state = SearchState(page_info, total)
             self._search_states[params] = search_state
         if len(self._search_states) > self._max_states:
             self._search_states.popitem(last=False)  # 移除最旧的条目
