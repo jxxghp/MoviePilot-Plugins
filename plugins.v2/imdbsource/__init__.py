@@ -24,7 +24,7 @@ class ImdbSource(_PluginBase):
     plugin_icon = ("https://raw.githubusercontent.com/jxxghp/"
                    "MoviePilot-Plugins/refs/heads/main/icons/IMDb_IOS-OSX_App.png")
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -347,7 +347,7 @@ class ImdbSource(_PluginBase):
             return []
         if not self._imdb_helper:
             return []
-        title_types = ("tvSeries", "tvMiniSeries", "tvShort", "tvEpisode", 'movie')
+        title_types = ("tvSeries", "tvMiniSeries", "tvShort", 'movie')
         first_page = False
         if page == 1:
             first_page = True
@@ -403,8 +403,8 @@ class ImdbSource(_PluginBase):
             self._cache["imdb_top_250"] = []  # 清空缓存
             data = self._imdb_helper.advanced_title_search(first_page=first_page,
                                                            title_types=title_types,
-                                                           sort_by="POPULARITY",
-                                                           sort_order="ASC",
+                                                           sort_by="USER_RATING",
+                                                           sort_order="DESC",
                                                            ranked=("TOP_RATED_MOVIES-250",)
                                                            )
             if not data:
@@ -427,7 +427,7 @@ class ImdbSource(_PluginBase):
             return []
         if not self._imdb_helper:
             return []
-        title_types = ("tvSeries", "tvMiniSeries", "tvShort", "tvEpisode")
+        title_types = ("tvSeries", "tvMiniSeries", "tvShort")
         first_page = False
         if page == 1:
             first_page = True
@@ -466,7 +466,7 @@ class ImdbSource(_PluginBase):
             return []
         if not self._imdb_helper:
             return []
-        title_types = ("tvSeries", "tvMiniSeries", "tvShort", "tvEpisode", 'movie')
+        title_types = ("tvSeries", "tvMiniSeries", "tvShort", 'movie')
         first_page = False
         if page == 1:
             first_page = True
@@ -507,7 +507,7 @@ class ImdbSource(_PluginBase):
             return []
         if not self._imdb_helper:
             return []
-        title_types = ("tvSeries", "tvMiniSeries", "tvShort", "tvEpisode", 'movie')
+        title_types = ("tvSeries", "tvMiniSeries", "tvShort", 'movie')
         first_page = False
         if page == 1:
             first_page = True
@@ -559,7 +559,7 @@ class ImdbSource(_PluginBase):
             return []
         if not self._imdb_helper:
             return []
-        title_type = ("tvSeries", "tvMiniSeries", "tvShort", "tvEpisode")
+        title_type = ("tvSeries", "tvMiniSeries", "tvShort")
         if mtype == 'movies':
             title_type = ("movie",)
         if user_rating and using_rating:
@@ -640,11 +640,22 @@ class ImdbSource(_PluginBase):
             if new_results:
                 results.extend(new_results[:remaining])
                 self._cache["discover"] = new_results[remaining:]
+        res = []
         if mtype == "movies":
-            results = [self.__movie_to_media(movie.get('node').get("title")) for movie in results]
+            for movie in results:
+                movie_info = movie.get('node').get("title")
+                pub_status = movie_info.get("productionStatus")
+                if pub_status and pub_status.get("currentProductionStage"):
+                    if pub_status.get("currentProductionStage", {}).get("id") == 'released':
+                        res.append(self.__movie_to_media(movie_info))
         else:
-            results = [self.__series_to_media(series.get('node').get("title")) for series in results]
-        return results
+            for tv in results:
+                tv_info = tv.get('node').get('title')
+                pub_status = tv_info.get("productionStatus")
+                if pub_status and pub_status.get("currentProductionStage"):
+                    if pub_status.get("currentProductionStage", {}).get("id") == 'released':
+                        res.append(self.__series_to_media(tv_info))
+        return res
 
     def get_api(self) -> List[Dict[str, Any]]:
         """
