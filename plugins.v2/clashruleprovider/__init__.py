@@ -332,10 +332,11 @@ class ClashRuleProvider(_PluginBase):
         return {"success": True, "message": None, "data": {"outbound": outbound}}
 
     def get_status(self):
+        rule_size = len(self._clash_config.get("rules", [])) if self._clash_config else 0
         return {"success": True, "message": "",
                 "data": {"state": self._enabled,
                          "ruleset_prefix": self._ruleset_prefix,
-                         "clash": {"rule_size": len(self._clash_config.get("rules", []))},
+                         "clash": {"rule_size": rule_size},
                          "subscription_info": self._subscription_info,
                          "sub_url": f"{self._movie_pilot_url}/api/v1/plugin/ClashRuleProvider/config?"
                                     f"apikey={settings.API_TOKEN}"}}
