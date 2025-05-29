@@ -435,5 +435,17 @@
             "v1.1": "推荐支持IMDB数据源; 优化海报尺寸，减少卡顿",
             "v1.0": "探索支持IMDb数据源"
         }
+    },
+	"ClashRuleProvider": {
+        "name": "Clash Rule Provider",
+        "description": "随时为Clash添加一些额外的规则。",
+        "labels": "工具",
+        "version": "0.1.0",
+        "icon": "Mihomo_Meta_A.png",
+        "author": "wumode",
+        "level": 1,
+        "history": {
+            "v0.1.0": "新增ClashRuleProvider"
+        }
     }
 }
