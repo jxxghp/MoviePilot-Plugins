@@ -1,6 +1,7 @@
 import re
 import json
 from typing import Optional, Any, List, Dict, Tuple
+from datetime import datetime
 
 from app.core.config import settings
 from app.core.event import eventmanager, Event
@@ -24,7 +25,7 @@ class ImdbSource(_PluginBase):
     plugin_icon = ("https://raw.githubusercontent.com/jxxghp/"
                    "MoviePilot-Plugins/refs/heads/main/icons/IMDb_IOS-OSX_App.png")
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.3.1"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -607,6 +608,8 @@ class ImdbSource(_PluginBase):
             elif year == "1970s":
                 release_date_start = "1970-01-01"
                 release_date_end = "1979-12-31"
+        if not release_date_end:
+            release_date_end = datetime.now().date().strftime("%Y-%m-%d")
         awards = (award,) if award else None
         ranked_lists = (ranked_list,) if ranked_list else None
         first_page = False
@@ -644,17 +647,13 @@ class ImdbSource(_PluginBase):
         if mtype == "movies":
             for movie in results:
                 movie_info = movie.get('node').get("title")
-                pub_status = movie_info.get("productionStatus")
-                if pub_status and pub_status.get("currentProductionStage"):
-                    if pub_status.get("currentProductionStage", {}).get("id") == 'released':
-                        res.append(self.__movie_to_media(movie_info))
+                res.append(self.__movie_to_media(movie_info))
+
         else:
             for tv in results:
                 tv_info = tv.get('node').get('title')
-                pub_status = tv_info.get("productionStatus")
-                if pub_status and pub_status.get("currentProductionStage"):
-                    if pub_status.get("currentProductionStage", {}).get("id") == 'released':
-                        res.append(self.__series_to_media(tv_info))
+                res.append(self.__series_to_media(tv_info))
+
         return res
 
     def get_api(self) -> List[Dict[str, Any]]:
