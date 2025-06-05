@@ -62,7 +62,7 @@ class NtfyMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Ntfy_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "lethargicScribe"
     # 作者主页
