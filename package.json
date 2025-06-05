@@ -25,7 +25,8 @@
     "AutoSubv2": {
         "name": "AI字幕自动生成(v2)",
         "description": "使用whisper自动生成视频文件字幕,使用大模型翻译字幕成中文。",
-        "version": "1.2",
+        "labels": "字幕",
+        "version": "2.2",
         "icon": "autosubtitles.jpeg",
         "author": "TimoYoung",
         "level": 1,
@@ -33,7 +34,10 @@
         "history": {
           "v1.0": "first stable version",
           "v1.1": "优化字幕翻译逻辑，优化日志输出",
-          "v1.2": "fix openai_proxy打开时,翻译失败的问题,优化日志输出"
+          "v1.2": "fix openai_proxy打开时,翻译失败的问题,优化日志输出",
+          "v2.0": "1.引入任务队列 2.支持监听媒体入库自动生成字幕 3.增加任务状态展示界面",
+          "v2.1": "支持清除历史记录",
+          "v2.2": "fix"
         }
     },
     "CustomSites": {
@@ -796,11 +800,14 @@
         "name": "ntfy消息推送",
         "description": "支持使用ntfy发送消息通知。",
         "labels": "消息通知",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "Ntfy_A.png",
         "author": "lethargicScribe",
         "level": 1,
-        "v2": true
+        "v2": true,
+        "history": {
+            "v1.1": "添加Token认证和用户动作"
+        }
     },
     "GotifyMsg": {
         "name": "gotify消息推送",
