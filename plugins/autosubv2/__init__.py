@@ -66,7 +66,7 @@ class AutoSubv2(_PluginBase):
     # 主题色
     plugin_color = "#2C4F7E"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "TimoYoung"
     # 作者主页
@@ -1515,12 +1515,13 @@ class AutoSubv2(_PluginBase):
                 self._task_queue.get_nowait()
                 self._task_queue.task_done()
             logger.info("任务队列已清空")
-        for task_id in list(self._tasks.keys()):
-            task = self._tasks[task_id]
-            if task.status == TaskStatus.PENDING or task.status == TaskStatus.IN_PROGRESS:
-                task.status = TaskStatus.FAILED
-                task.complete_time = datetime.now()
-        self.save_tasks()  # 持久化更新后的任务列表
+        if self._tasks is not None:
+            for task_id in list(self._tasks.keys()):
+                task = self._tasks[task_id]
+                if task.status == TaskStatus.PENDING or task.status == TaskStatus.IN_PROGRESS:
+                    task.status = TaskStatus.FAILED
+                    task.complete_time = datetime.now()
+            self.save_tasks()  # 持久化更新后的任务列表
         self._running = False
         self._event.clear()
         logger.info(f"自动字幕生成服务已停止")
