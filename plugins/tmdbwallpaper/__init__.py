@@ -5,12 +5,11 @@ from typing import Any, List, Dict, Tuple
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from app.chain.tmdb import TmdbChain
 from app.core.config import settings
+from app.helper.wallpaper import WallpaperHelper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.utils.http import RequestUtils
-from app.utils.web import WebUtils
 
 
 class TmdbWallpaper(_PluginBase):
@@ -21,7 +20,7 @@ class TmdbWallpaper(_PluginBase):
     # 插件图标
     plugin_icon = "Macos_Sierra.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -237,13 +236,7 @@ class TmdbWallpaper(_PluginBase):
 
         if not self._savepath:
             return
-        if settings.WALLPAPER == "tmdb":
-            urls = TmdbChain().get_trending_wallpapers() or []
-            for url in urls:
-                filename = url.split("/")[-1]
-                __save_file(url, filename)
-        else:
-            url = WebUtils.get_bing_wallpaper()
-            if url:
-                filename = f"{datetime.now().strftime('%Y%m%d')}.jpg"
-                __save_file(url, filename)
+        urls = WallpaperHelper().get_wallpapers(10) or []
+        for url in urls:
+            filename = url.split("/")[-1]
+            __save_file(url, filename)
