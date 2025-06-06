@@ -66,7 +66,7 @@ class AutoSubv2(_PluginBase):
     # 主题色
     plugin_color = "#2C4F7E"
     # 插件版本
-    plugin_version = "2.2"
+    plugin_version = "2.3"
     # 插件作者
     plugin_author = "TimoYoung"
     # 作者主页
@@ -128,7 +128,7 @@ class AutoSubv2(_PluginBase):
             self._huggingface_proxy = config.get('proxy', True)
         self._translate_zh = config.get('translate_zh', False)
         if self._translate_zh:
-            use_chatgpt = config.get('use_chatgpt', False)
+            use_chatgpt = config.get('use_chatgpt', True)
             if use_chatgpt:
                 chatgpt = self.get_config("ChatGPT")
                 if not chatgpt:
@@ -1469,7 +1469,7 @@ class AutoSubv2(_PluginBase):
                                             {
                                                 'component': 'a',
                                                 'props': {
-                                                    'href': 'https://github.com/TimoYoung/MoviePilot-Plugins/blob/main/plugins/autosubv2/README.md',
+                                                    'href': 'https://github.com/jxxghp/MoviePilot-Plugins/blob/main/plugins/autosubv2/README.md',
                                                     'target': '_blank'
                                                 },
                                                 'content': [
@@ -1500,7 +1500,7 @@ class AutoSubv2(_PluginBase):
             "enable_asr": True,
             "faster_whisper_model": "base",
             "proxy": True,
-            "use_chatgpt": False,
+            "use_chatgpt": True,
             "use_chatgpt_trigger": 0,
             "openai_proxy": False,
             "compatible": False,
