@@ -128,20 +128,33 @@ class AutoSubv2(_PluginBase):
             self._huggingface_proxy = config.get('proxy', True)
         self._translate_zh = config.get('translate_zh', False)
         if self._translate_zh:
-            chatgpt = self.get_config("ChatGPT")
-            if not chatgpt:
-                logger.error(f"翻译依赖于ChatGPT，请先维护ChatGPT插件")
-                return
-            openai_key = chatgpt and chatgpt.get("openai_key")
-            openai_url = chatgpt and chatgpt.get("openai_url")
-            openai_proxy = chatgpt and chatgpt.get("proxy")
-            openai_model = chatgpt and chatgpt.get("model")
-            if not openai_key:
-                logger.error(f"翻译依赖于ChatGPT，请先维护openai_key")
-                return
+            use_chatgpt = config.get('use_chatgpt', False)
+            if use_chatgpt:
+                chatgpt = self.get_config("ChatGPT")
+                if not chatgpt:
+                    logger.error(f"翻译依赖于ChatGPT，请先维护ChatGPT插件")
+                    return
+                openai_key_str = chatgpt and chatgpt.get("openai_key")
+                openai_url = chatgpt and chatgpt.get("openai_url")
+                openai_proxy = chatgpt and chatgpt.get("proxy")
+                openai_model = chatgpt and chatgpt.get("model")
+                compatible = chatgpt and chatgpt.get("compatible")
+                if not openai_key_str:
+                    logger.error(f"请先在ChatGPT插件中维护openai_key")
+                    return
+                openai_key = [key.strip() for key in openai_key_str.split(',') if key.strip()][0]
+            else:
+                openai_key = config.get('openai_key')
+                if not openai_key:
+                    logger.error(f"翻译依赖于OpenAI，请先维护openai_key")
+                    return
+                openai_url = config.get('openai_url', "https://api.openai.com")
+                openai_proxy = config.get('openai_proxy', False)
+                openai_model = config.get('openai_model', "gpt-3.5-turbo")
+                compatible = config.get('compatible', False)
             self._openai = OpenAi(api_key=openai_key, api_url=openai_url,
                                   proxy=settings.PROXY if openai_proxy else None,
-                                  model=openai_model)
+                                  model=openai_model, compatible=bool(compatible))
             self._enable_batch = config.get('enable_batch', True)
             self._batch_size = int(config.get('batch_size')) if config.get('batch_size') else 10
             self._context_window = int(config.get('context_window')) if config.get('context_window') else 5
@@ -1143,7 +1156,7 @@ class AutoSubv2(_PluginBase):
                                         'props': {
                                             'model': 'translate_zh',
                                             'label': '翻译成中文',
-                                            'hint': '需要配置ChatGPT插件'
+                                            'hint': '使用大模型翻译成中文字幕'
                                         }
                                     }
                                 ]
@@ -1210,7 +1223,143 @@ class AutoSubv2(_PluginBase):
                                 'content': [
                                     {
                                         'component': 'VExpansionPanelTitle',
-                                        'text': '大模型翻译设置'
+                                        'text': '大模型接口设置'
+                                    },
+                                    {
+                                        'component': 'VExpansionPanelText',
+                                        'content': [
+                                            {
+                                                'component': 'VRow',
+                                                'content': [
+                                                    {
+                                                        'component': 'VCol',
+                                                        'props': {'cols': 12, 'md': 4},
+                                                        'content': [
+                                                            {
+                                                                'component': 'VSwitch',
+                                                                'props': {
+                                                                    'model': 'use_chatgpt',
+                                                                    'label': '复用ChatGPT插件配置'
+                                                                }
+                                                            }
+                                                        ]
+                                                    },
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'use_chatgpt_trigger',
+                                                            'class': 'd-none',
+                                                            'text': 'trigger',
+                                                            'change': 'use_chatgpt_trigger = use_chatgpt ? 1 : 0'
+                                                        }
+                                                    },
+                                                    {
+                                                        'component': 'VCol',
+                                                        'props': {
+                                                            'cols': 12,
+                                                            'md': 4,
+                                                        },
+                                                        'content': [
+                                                            {
+                                                                'component': 'VSwitch',
+                                                                'props': {
+                                                                    'model': 'openai_proxy',
+                                                                    'label': '使用代理服务器',
+                                                                    'v-show': '!use_chatgpt',
+                                                                    'v-if': '!use_chatgpt'
+                                                                }
+                                                            }
+                                                        ]
+                                                    },
+                                                    {
+                                                        'component': 'VCol',
+                                                        'props': {
+                                                            'cols': 12,
+                                                            'md': 4,
+                                                        },
+                                                        'content': [
+                                                            {
+                                                                'component': 'VSwitch',
+                                                                'props': {
+                                                                    'model': 'compatible',
+                                                                    'label': '兼容模式',
+                                                                    'v-show': '!use_chatgpt'
+                                                                }
+                                                            }
+                                                        ]
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VRow',
+                                                'content': [
+                                                    {
+                                                        'component': 'VCol',
+                                                        'props': {
+                                                            'cols': 12,
+                                                            'md': 4
+                                                        },
+                                                        'content': [
+                                                            {
+                                                                'component': 'VTextField',
+                                                                'props': {
+                                                                    'model': 'openai_url',
+                                                                    'label': 'OpenAI API Url',
+                                                                    'placeholder': 'https://api.openai.com',
+                                                                    'v-show': '!use_chatgpt'
+                                                                }
+                                                            }
+                                                        ]
+                                                    },
+                                                    {
+                                                        'component': 'VCol',
+                                                        'props': {
+                                                            'cols': 12,
+                                                            'md': 4
+                                                        },
+                                                        'content': [
+                                                            {
+                                                                'component': 'VTextField',
+                                                                'props': {
+                                                                    'model': 'openai_key',
+                                                                    'label': 'API密钥',
+                                                                    'placeholder': 'sk-xxx',
+                                                                    'v-show': '!use_chatgpt'
+                                                                }
+                                                            }
+                                                        ]
+                                                    },
+                                                    {
+                                                        'component': 'VCol',
+                                                        'props': {
+                                                            'cols': 12,
+                                                            'md': 4
+                                                        },
+                                                        'content': [
+                                                            {
+                                                                'component': 'VTextField',
+                                                                'props': {
+                                                                    'model': 'openai_model',
+                                                                    'label': '自定义模型',
+                                                                    'placeholder': 'gpt-3.5-turbo',
+                                                                    'v-show': '!use_chatgpt'
+                                                                }
+                                                            }
+                                                        ]
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VExpansionPanel',
+                                'props': {'v-show': 'translate_zh'},
+                                'content': [
+                                    {
+                                        'component': 'VExpansionPanelTitle',
+                                        'text': '翻译参数设置'
                                     },
                                     {
                                         'component': 'VExpansionPanelText',
@@ -1292,27 +1441,6 @@ class AutoSubv2(_PluginBase):
                                                         ]
                                                     }
                                                 ]
-                                            },
-                                            {
-                                                'component': 'VRow',
-                                                'content': [
-                                                    {
-                                                        'component': 'VCol',
-                                                        'props': {
-                                                            'cols': 12,
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'VAlert',
-                                                                'props': {
-                                                                    'type': 'info',
-                                                                    'variant': 'tonal',
-                                                                    'text': '翻译依赖 ChatGPT 插件配置'
-                                                                }
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
                                             }
                                         ]
                                     }
@@ -1372,6 +1500,13 @@ class AutoSubv2(_PluginBase):
             "enable_asr": True,
             "faster_whisper_model": "base",
             "proxy": True,
+            "use_chatgpt": False,
+            "use_chatgpt_trigger": 0,
+            "openai_proxy": False,
+            "compatible": False,
+            "openai_url": "https://api.openai.com",
+            "openai_key": None,
+            "openai_model": "gpt-3.5-turbo",
             "context_window": 5,
             "max_retries": 3,
             "enable_merge": False,
