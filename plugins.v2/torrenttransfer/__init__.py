@@ -795,7 +795,7 @@ class TorrentTransfer(_PluginBase):
                     # 删除重复的源种子，不能删除文件！
                     if self._deleteduplicate:
                         logger.info(f"删除重复的源下载器任务（不含文件）：{torrent_item.get('hash')} ...")
-                        to_downloader.delete_torrents(delete_file=False, ids=[torrent_item.get('hash')])
+                        from_downloader.delete_torrents(delete_file=False, ids=[torrent_item.get('hash')])
                         del_dup += 1
                     else:
                         logger.info(f"{torrent_item.get('hash')} 已在目的下载器中，跳过 ...")
