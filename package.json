@@ -834,12 +834,13 @@
     "name": "登录壁纸本地化",
     "description": "将MoviePilot的登录壁纸下载到本地。",
     "labels": "工具",
-    "version": "1.3",
+    "version": "1.4",
     "icon": "Macos_Sierra.png",
     "author": "jxxghp",
     "level": 1,
     "v2": true,
     "history": {
+      "v1.4": "修复Bing壁纸命名问题",
       "v1.3": "适配MoviePilot v2.5.3+版本",
       "v1.2": "一次性下载多张壁纸",
       "v1.1": "修复下载Bing每日壁纸时文件名错乱的问题"

@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, List, Dict, Tuple
+from urllib.parse import urlparse
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -20,7 +21,7 @@ class TmdbWallpaper(_PluginBase):
     # 插件图标
     plugin_icon = "Macos_Sierra.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -238,5 +239,17 @@ class TmdbWallpaper(_PluginBase):
             return
         urls = WallpaperHelper().get_wallpapers(10) or []
         for url in urls:
-            filename = url.split("/")[-1]
+            if settings.WALLPAPER == "tmdb":
+                filename = url.split("/")[-1]
+            elif settings.WALLPAPER == "bing":
+                # https://cn.bing.com/th?id=OHR.EchinaceaButterfly_EN-US8404044892_1920x1080.jpg&rf=LaDigue_1920x1080.jpg&pid=hp
+                # 解析url参数，获取id的值
+                url_params = urlparse(url)
+                filename = url_params.query.split("id=")[-1]
+            else:
+                # 其他壁纸类型，直接使用url的文件名
+                filename = url.split("/")[-1]
+                # 没有后缀的文件名，添加.jpg后缀
+                if not filename.endswith(".jpg"):
+                    filename += ".jpg"
             __save_file(url, filename)
