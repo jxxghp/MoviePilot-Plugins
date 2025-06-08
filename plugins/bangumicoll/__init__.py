@@ -37,7 +37,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "bangumi_b.png"
     # 插件版本
-    plugin_version = "1.5.6"
+    plugin_version = "1.5.7"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页
@@ -67,12 +67,7 @@ class BangumiColl(_PluginBase):
     _group_select_order: list = []
 
     def init_plugin(self, config: dict = None):
-        self.downloadchain = DownloadChain()
-        self.siteoper = SiteOper()
-        self.subscribechain = SubscribeChain()
-        self.subscribehelper = SubscribeHelper()
         self.subscribeoper = SubscribeOper()
-        self.tmdbapi = TmdbApi()
 
         # 停止现有任务
         self.stop_service()
@@ -100,7 +95,7 @@ class BangumiColl(_PluginBase):
             ):
                 setattr(self, f"_{key}", config.get(key, getattr(self, f"_{key}")))
             # 获得所有站点
-            site_ids = {site.id for site in self.siteoper.list_order_by_pri()}
+            site_ids = {site.id for site in SiteOper().list_order_by_pri()}
             # 过滤已删除的站点
             self._sites = [site_id for site_id in self._sites if site_id in site_ids]
             # 更新配置
@@ -141,14 +136,338 @@ class BangumiColl(_PluginBase):
         )
 
     def get_form(self):
-        from .page_components import form
 
         # 列出所有站点
         sites_options = [
             {"title": site.name, "value": site.id}
-            for site in self.siteoper.list_order_by_pri()
+            for site in SiteOper().list_order_by_pri()
         ]
-        return form(sites_options, self._is_v2)
+        return [
+            {
+                'component': 'VForm',
+                'content': [
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 3},
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'enabled',
+                                            'label': '启用插件',
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 3},
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'notify',
+                                            'label': '自动取消订阅并通知',
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 3},
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'total_change',
+                                            'label': '固定总集数',
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 3},
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'onlyonce',
+                                            'label': '立即运行一次',
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 8, 'md': 4},
+                                'content': [
+                                    {
+                                        # 'component': 'VTextField', # 组件替换为VCronField
+                                        'component': 'VCronField',
+                                        'props': {
+                                            'model': 'cron',
+                                            'label': '执行周期',
+                                            'placeholder': '5位cron表达式，留空自动',
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 8, 'md': 4},
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'uid',
+                                            'label': 'UID/用户名',
+                                            'placeholder': '设置了用户名填写用户名，否则填写UID',
+                                        },
+                                    },
+                                ],
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 8, 'md': 4},
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'collection_type',
+                                            'label': '收藏类型',
+                                            'chips': True,
+                                            'multiple': True,
+                                            'items': [
+                                                {'title': '在看', 'value': 3},
+                                                {'title': '想看', 'value': 1},
+                                            ],
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'success',
+                                            'variant': 'tonal',
+                                            'text': True
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'div',
+                                                'props': {'innerHTML':
+                                                    '提示：<strong>剧集组优先级</strong>越靠前优先级越高。'
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                        ],
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 8, 'md': 4},
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'match_groups',
+                                            'disabled': not self._is_v2,
+                                            'label': '剧集组填充(实验性)',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 8},
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'group_select_order',
+                                            'label': '剧集组优先级',
+                                            'disabled': not self._is_v2,
+                                            'chips': True,
+                                            'multiple': True,
+                                            'clearable': True,
+                                            'items': [
+                                                {"title": "初始播出日期", "value": 1},
+                                                {"title": "绝对", "value": 2},
+                                                {"title": "DVD", "value": 3},
+                                                {"title": "数字", "value": 4},
+                                                {"title": "故事线", "value": 5},
+                                                {"title": "制片", "value": 6},
+                                                {"title": "电视", "value": 7},
+                                            ],
+                                        },
+                                    }
+                                ]
+                            },
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6},
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'save_path',
+                                            'label': '保存目录',
+                                            'placeholder': '留空自动',
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6},
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'sites',
+                                            'label': '选择站点',
+                                            'chips': True,
+                                            'multiple': True,
+                                            'clearable': True,
+                                            'items': sites_options,
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': True
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'div',
+                                                'props': {'innerHTML':
+                                                   '注意： 该插件仅会将<strong>公开</strong>的收藏添加到<strong>订阅</strong>。'
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                        ],
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': True
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'div',
+                                                'props': {'innerHTML':
+                                                    '注意： 开启<strong>自动取消订阅并通知</strong>后，已添加的订阅在下一次执行时若不在已选择的<strong>收藏类型</strong>中，将会被取消订阅。'
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                        ],
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': True
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'div',
+                                                'props': {'innerHTML':
+                                                    '注意： 开启<strong>固定总集数</strong>后，从<a href="https://bangumi.github.io/api/#/%E7%AB%A0%E8%8A%82/getEpisodes" target="_blank"><u>Bangumi API</u></a>获取到总集数将不会因<strong>订阅元数据更新</strong>改变。'
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                        ],
+                    },
+                ],
+            },
+        ], {
+            "enabled": False,
+            "total_change": False,
+            "notify": False,
+            "onlyonce": False,
+            "cron": "",
+            "uid": "",
+            "collection_type": [3],
+            "save_path": "",
+            "sites": [],
+            "match_groups": False,
+            "group_select_order": [],
+        }
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
@@ -273,7 +592,7 @@ class BangumiColl(_PluginBase):
         # 查询订阅
         db_sub = {
             i.bangumiid: i.id
-            for i in self.subscribechain.subscribeoper.list()
+            for i in self.subscribeoper.list()
             if i.bangumiid
         }
         # bangumi 条目
@@ -332,7 +651,7 @@ class BangumiColl(_PluginBase):
                     meta.en_name = meta.title
 
                 if (mediainfo := self.chain.recognize_media(
-                    meta=meta, 
+                    meta=meta,
                     mtype=mtype,
                     cache=False
                 )) or any(
@@ -421,7 +740,7 @@ class BangumiColl(_PluginBase):
             # 非续作
             elif mediainfo.type == MediaType.TV: mediainfo.season = 1
             # 检查本地媒体
-            exist_flag, no_exists = self.downloadchain.get_no_exists_info(meta=meta, mediainfo=mediainfo)
+            exist_flag, no_exists = DownloadChain().get_no_exists_info(meta=meta, mediainfo=mediainfo)
             if exist_flag:
                 # 添加到排除
                 self.update_data(key="exclude", value=subid)
@@ -444,7 +763,7 @@ class BangumiColl(_PluginBase):
                     logger.info(f"{mediainfo.title_year} Bangumi条目id更新成功")
                 continue
             # 添加订阅
-            sid, msg = self.subscribechain.add(**self.prepare_add_args(meta, mediainfo))
+            sid, msg = SubscribeChain().add(**self.prepare_add_args(meta, mediainfo))
             if not sid:
                 fail_items[subid] = f"{item.get('name_cn') or item.get('name')} {msg}"
 
@@ -529,7 +848,7 @@ class BangumiColl(_PluginBase):
         :param mediainfo: MediaInfo
         :return: 季号
         """
-        if group_seasons := self.tmdbapi.get_tv_group_seasons(group_id):
+        if group_seasons := TmdbApi().get_tv_group_seasons(group_id):
             for group_season in group_seasons:
                 if self.is_date_in_range(air_date, group_season.get("episodes")[0].get("air_date"))[0]:
                     logger.info(f"{mediainfo.title_year} 剧集组: {group_id} 第{group_season.get('order')}季 ")
@@ -597,7 +916,7 @@ class BangumiColl(_PluginBase):
         """更新媒体季信息"""
         best_info = None
         min_days = float('inf')
-        
+
         for info in season_info:
             result, days = self.is_date_in_range(air_date, info.get("air_date"))
             if result:
@@ -632,7 +951,7 @@ class BangumiColl(_PluginBase):
             try:
                 if subscribe := self.subscribeoper.get(subscribe_id):
                     self.subscribeoper.delete(subscribe_id)
-                    self.subscribehelper.sub_done_async(
+                    SubscribeHelper().sub_done_async(
                         {"tmdbid": subscribe.tmdbid, "doubanid": subscribe.doubanid}
                     )
                     self.post_message(
