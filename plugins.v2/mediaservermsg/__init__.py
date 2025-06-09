@@ -31,7 +31,6 @@ class MediaServerMsg(_PluginBase):
     auth_level = 1
 
     # 私有属性
-    mediaserver_helper = None
     _enabled = False
     _add_play_link = False
     _mediaservers = None
@@ -59,7 +58,7 @@ class MediaServerMsg(_PluginBase):
     }
 
     def init_plugin(self, config: dict = None):
-        self.mediaserver_helper = MediaServerHelper()
+
         if config:
             self._enabled = config.get("enabled")
             self._types = config.get("types") or []
@@ -74,7 +73,7 @@ class MediaServerMsg(_PluginBase):
             logger.warning("尚未配置媒体服务器，请检查配置")
             return None
 
-        services = self.mediaserver_helper.get_services(type_filter=type_filter, name_filters=self._mediaservers)
+        services = MediaServerHelper().get_services(type_filter=type_filter, name_filters=self._mediaservers)
         if not services:
             logger.warning("获取媒体服务器实例失败，请检查配置")
             return None
@@ -181,7 +180,7 @@ class MediaServerMsg(_PluginBase):
                                             'model': 'mediaservers',
                                             'label': '媒体服务器',
                                             'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.mediaserver_helper.get_configs().values()]
+                                                      for config in MediaServerHelper().get_configs().values()]
                                         }
                                     }
                                 ]
@@ -342,7 +341,7 @@ class MediaServerMsg(_PluginBase):
                 if service:
                     play_link = service.instance.get_play_url(event_info.item_id)
             elif event_info.channel:
-                services = self.mediaserver_helper.get_services(type_filter=event_info.channel)
+                services = MediaServerHelper().get_services(type_filter=event_info.channel)
                 for service in services.values():
                     play_link = service.instance.get_play_url(event_info.item_id)
                     if play_link:

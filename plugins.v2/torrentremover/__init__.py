@@ -39,7 +39,6 @@ class TorrentRemover(_PluginBase):
     auth_level = 2
 
     # 私有属性
-    downloader_helper = None
     _event = threading.Event()
     _scheduler = None
     _enabled = False
@@ -63,7 +62,7 @@ class TorrentRemover(_PluginBase):
     _torrentcategorys = None
 
     def init_plugin(self, config: dict = None):
-        self.downloader_helper = DownloaderHelper()
+
         if config:
             self._enabled = config.get("enabled")
             self._onlyonce = config.get("onlyonce")
@@ -257,7 +256,7 @@ class TorrentRemover(_PluginBase):
                                             'model': 'downloaders',
                                             'label': '下载器',
                                             'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.downloader_helper.get_configs().values()]
+                                                      for config in DownloaderHelper().get_configs().values()]
                                         }
                                     }
                                 ]
@@ -593,7 +592,7 @@ class TorrentRemover(_PluginBase):
             logger.warning("尚未配置下载器，请检查配置")
             return None
 
-        services = self.downloader_helper.get_services(name_filters=self._downloaders)
+        services = DownloaderHelper().get_services(name_filters=self._downloaders)
         if not services:
             logger.warning("获取下载器实例失败，请检查配置")
             return None

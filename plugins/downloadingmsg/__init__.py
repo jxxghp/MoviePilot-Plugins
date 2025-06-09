@@ -37,10 +37,8 @@ class DownloadingMsg(_PluginBase):
     _seconds = None
     _type = None
     _adminuser = None
-    _downloadhis = None
 
     def init_plugin(self, config: dict = None):
-        self._downloadhis = DownloadHistoryOper()
         # 停止现有任务
         self.stop_service()
 
@@ -71,8 +69,9 @@ class DownloadingMsg(_PluginBase):
         if self._type == "user" or self._type == "both":
             user_torrents = {}
             # 根据正在下载种子hash获取下载历史
+            _downloadhis = DownloadHistoryOper()
             for torrent in torrents:
-                downloadhis = self._downloadhis.get_by_hash(download_hash=torrent.hash)
+                downloadhis = _downloadhis.get_by_hash(download_hash=torrent.hash)
                 if not downloadhis:
                     logger.warn(f"种子 {torrent.hash} 未获取到MoviePilot下载历史，无法推送下载进度")
                     continue
@@ -115,13 +114,14 @@ class DownloadingMsg(_PluginBase):
         messages = []
         index = 1
         channel_value = None
+        _downloadhis = DownloadHistoryOper()
         for torrent in torrents:
             year = None
             name = None
             se = None
             ep = None
             # 先查询下载记录，没有再识别
-            downloadhis = self._downloadhis.get_by_hash(download_hash=torrent.hash)
+            downloadhis = _downloadhis.get_by_hash(download_hash=torrent.hash)
             if downloadhis:
                 name = downloadhis.title
                 year = downloadhis.year

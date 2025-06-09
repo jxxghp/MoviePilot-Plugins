@@ -1,3 +1,4 @@
+import base64
 import json
 import requests
 
@@ -15,10 +16,20 @@ class NtfyClient:
         headers = {
             "Title": title.encode(encoding='utf-8'),
             "Markdown": "true" if format_as_markdown else "false",
+            "Icon": "https://movie-pilot.org/images/logo.png",
         }
 
+        if self._token:
+            headers["Authorization"] = "Bearer " + self._token
+        elif self._user and self._password:
+            authStr = self._user + ":" + self._password
+            headers["Authorization"] = "Basic " + base64.b64encode(authStr.encode('utf-8')).decode('utf-8')
+
+        if self._actions:
+            headers["Actions"] = self._actions.encode('utf-8')
+
         response = json.loads(
-            requests.post(url=self.url, data=message.encode(encoding='utf-8'), headers=headers, auth=self._auth).text
+            requests.post(url=self.url, data=message.encode(encoding='utf-8'), headers=headers).text
         )
         return response
 
@@ -28,11 +39,16 @@ class NtfyClient:
             server: str = "https://ntfy.sh",
             user: str = "",
             password: str = "",
+            token: str = "",
+            actions: str = "",
     ):
         self._server = server
         self._topic = topic
         self.__set_url(server, topic)
-        self._auth = (user, password)
+        self._user = user
+        self._password = password
+        self._token = token
+        self._actions = actions
 
     def __set_url(self, server, topic):
         self.url = server.strip("/") + "/" + topic
@@ -46,7 +62,7 @@ class NtfyMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Ntfy_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "lethargicScribe"
     # 作者主页
@@ -64,6 +80,8 @@ class NtfyMsg(_PluginBase):
     _topic = None
     _user = None
     _password = None
+    _token = None
+    _actions = None
     _msgtypes = []
 
     def init_plugin(self, config: dict = None):
@@ -74,6 +92,8 @@ class NtfyMsg(_PluginBase):
             self._topic = config.get("topic")
             self._user = config.get("user")
             self._password = config.get("password")
+            self._token = config.get("token")
+            self._actions = config.get("actions")
 
     def get_state(self) -> bool:
         return self._enabled and (True if self._server and self._topic else False)
@@ -200,6 +220,45 @@ class NtfyMsg(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'token',
+                                            'label': '访问令牌',
+                                            'placeholder': 'ntfytoken',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'actions',
+                                            'label': '用户动作',
+                                            'placeholder': 'ntfyactions',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
                                     'cols': 12
                                 },
                                 'content': [
@@ -217,6 +276,48 @@ class NtfyMsg(_PluginBase):
                             }
                         ]
                     },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '用户或Token创建参考：https://docs.ntfy.sh/config/#access-control'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '用户动作创建参考：https://docs.ntfy.sh/publish/?h=action#using-a-header'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
                 ]
             }
         ], {
@@ -226,6 +327,8 @@ class NtfyMsg(_PluginBase):
             'topic': 'MoviePilot',
             'user': '',
             'password': '',
+            'token': '',
+            'actions': '',
         }
 
     def get_page(self) -> List[dict]:
@@ -266,7 +369,11 @@ class NtfyMsg(_PluginBase):
         try:
             if not self._server or not self._topic:
                 return False, "参数未配置"
-            ntfy = NtfyClient(server=self._server, topic=self._topic, user=self._user, password=self._password)
+            ntfy = NtfyClient(
+                server=self._server, topic=self._topic,
+                user=self._user, password=self._password,
+                token=self._token, actions=self._actions
+            )
             ntfy.send(title=title, message=text, format_as_markdown=True)
 
         except Exception as msg_e:

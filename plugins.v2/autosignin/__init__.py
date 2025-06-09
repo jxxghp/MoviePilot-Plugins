@@ -12,9 +12,8 @@ from apscheduler.triggers.cron import CronTrigger
 from ruamel.yaml import CommentedMap
 
 from app import schemas
-from app.chain.site import SiteChain
 from app.core.config import settings
-from app.core.event import EventManager, eventmanager, Event
+from app.core.event import eventmanager, Event
 from app.db.site_oper import SiteOper
 from app.helper.browser import PlaywrightHelper
 from app.helper.cloudflare import under_challenge
@@ -49,12 +48,6 @@ class AutoSignIn(_PluginBase):
     # 可使用的用户级别
     auth_level = 2
 
-    # 私有属性
-    sites: SitesHelper = None
-    siteoper: SiteOper = None
-    sitechain: SiteChain = None
-    # 事件管理器
-    event: EventManager = None
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
     # 加载的模块
@@ -75,10 +68,6 @@ class AutoSignIn(_PluginBase):
     _auto_cf: int = 0
 
     def init_plugin(self, config: dict = None):
-        self.sites = SitesHelper()
-        self.siteoper = SiteOper()
-        self.event = EventManager()
-        self.sitechain = SiteChain()
 
         # 停止现有任务
         self.stop_service()
@@ -97,8 +86,8 @@ class AutoSignIn(_PluginBase):
             self._clean = config.get("clean")
 
             # 过滤掉已删除的站点
-            all_sites = [site.id for site in self.siteoper.list_order_by_pri()] + [site.get("id") for site in
-                                                                                   self.__custom_sites()]
+            all_sites = [site.id for site in SiteOper().list_order_by_pri()] + [site.get("id") for site in
+                                                                                self.__custom_sites()]
             self._sign_sites = [site_id for site_id in all_sites if site_id in self._sign_sites]
             self._login_sites = [site_id for site_id in all_sites if site_id in self._login_sites]
             # 保存配置
@@ -272,7 +261,7 @@ class AutoSignIn(_PluginBase):
         customSites = self.__custom_sites()
 
         site_options = ([{"title": site.name, "value": site.id}
-                         for site in self.siteoper.list_order_by_pri()]
+                         for site in SiteOper().list_order_by_pri()]
                         + [{"title": site.get("name"), "value": site.get("id")}
                            for site in customSites])
         return [
@@ -565,7 +554,7 @@ class AutoSignIn(_PluginBase):
         sites_info = {}  # 记录站点信息
 
         # 获取站点信息
-        site_indexers = self.sites.get_indexers()
+        site_indexers = SitesHelper().get_indexers()
         for site in site_indexers:
             if not site.get("public"):
                 sites_info[site.get("id")] = site.get("name")
@@ -734,8 +723,8 @@ class AutoSignIn(_PluginBase):
             # 按日期排序，最新的在前面
             try:
                 records.sort(key=lambda x: x.get("day_obj", datetime.now().date()), reverse=True)
-            except:
-                pass  # 排序失败时跳过
+            except Exception as e:
+                logger.debug(f"排序失败: {str(e)}")
 
             # 获取最新的状态作为站点概要
             latest_status = records[0].get("status", "未知状态")
@@ -770,8 +759,8 @@ class AutoSignIn(_PluginBase):
             # 按日期排序，最新的在前面
             try:
                 records.sort(key=lambda x: x.get("day_obj", datetime.now().date()), reverse=True)
-            except:
-                pass  # 排序失败时跳过
+            except Exception as e:
+                logger.debug(f"排序失败: {str(e)}")
 
             # 获取最新的状态作为站点概要
             latest_status = records[0].get("status", "未知状态")
@@ -1142,7 +1131,8 @@ class AutoSignIn(_PluginBase):
             }
         ]
 
-    def _create_expansion_panel(self, site_name, records, status_color, status_icon, latest_status):
+    @staticmethod
+    def _create_expansion_panel(site_name, records, status_color, status_icon, latest_status):
         """创建站点折叠面板"""
         # 生成站点图标（使用站点名的首字母）
         site_initial = site_name[0].upper() if site_name else "?"
@@ -1322,7 +1312,7 @@ class AutoSignIn(_PluginBase):
         today_history = self.get_data(key=type_str + "-" + today)
 
         # 查询所有站点
-        all_sites = [site for site in self.sites.get_indexers() if not site.get("public")] + self.__custom_sites()
+        all_sites = [site for site in SitesHelper().get_indexers() if not site.get("public")] + self.__custom_sites()
         # 过滤掉没有选中的站点
         if do_sites:
             do_sites = [site for site in all_sites if site.get("id") in do_sites]
@@ -1402,7 +1392,8 @@ class AutoSignIn(_PluginBase):
             # 失败｜错误
             failed_msg = []
 
-            sites = {site.get('name'): site.get("id") for site in self.sites.get_indexers() if not site.get("public")}
+            sites = {site.get('name'): site.get("id") for site in SitesHelper().get_indexers() if
+                     not site.get("public")}
             for s in status:
                 site_name = s[0]
                 site_id = None
@@ -1501,7 +1492,7 @@ class AutoSignIn(_PluginBase):
         if apikey != settings.API_TOKEN:
             return schemas.Response(success=False, message="API密钥错误")
         domain = StringUtils.get_url_domain(url)
-        site_info = self.sites.get_indexer(domain)
+        site_info = SitesHelper().get_indexer(domain)
         if not site_info:
             return schemas.Response(
                 success=True,
@@ -1533,9 +1524,9 @@ class AutoSignIn(_PluginBase):
         seconds = (datetime.now() - start_time).seconds
         domain = StringUtils.get_url_domain(site_info.get('url'))
         if state:
-            self.siteoper.success(domain=domain, seconds=seconds)
+            SiteOper().success(domain=domain, seconds=seconds)
         else:
-            self.siteoper.fail(domain)
+            SiteOper().fail(domain)
         return site_info.get("name"), message
 
     @staticmethod
@@ -1635,9 +1626,9 @@ class AutoSignIn(_PluginBase):
         seconds = (datetime.now() - start_time).seconds
         domain = StringUtils.get_url_domain(site_info.get('url'))
         if state:
-            self.siteoper.success(domain=domain, seconds=seconds)
+            SiteOper().success(domain=domain, seconds=seconds)
         else:
-            self.siteoper.fail(domain)
+            SiteOper().fail(domain)
         return site_info.get("name"), message
 
     @staticmethod

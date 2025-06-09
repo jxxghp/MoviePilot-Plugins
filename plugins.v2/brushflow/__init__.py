@@ -54,6 +54,7 @@ class BrushConfig:
         self.exclude = config.get("exclude")
         self.size = config.get("size")
         self.seeder = config.get("seeder")
+        self.timezone_offset = (self.__parse_number(config.get("timezone_offset", "+0")) or 0) * 60  # 转换到分钟
         self.pubtime = config.get("pubtime")
         self.seed_time = self.__parse_number(config.get("seed_time"))
         self.hr_seed_time = self.__parse_number(config.get("hr_seed_time"))
@@ -72,6 +73,7 @@ class BrushConfig:
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
         self.proxy_delete = config.get("proxy_delete", False)
+        self.del_no_free = config.get("del_no_free", False) if self.freeleech in ["free", "2xfree"] else False
         self.active_time_range = config.get("active_time_range")
         self.cron = config.get("cron")
         self.qb_category = config.get("qb_category")
@@ -107,6 +109,7 @@ class BrushConfig:
             "exclude",
             "size",
             "seeder",
+            "timezone_offset",
             "pubtime",
             "seed_time",
             "hr_seed_time",
@@ -119,7 +122,8 @@ class BrushConfig:
             "proxy_delete",
             "qb_category",
             "site_hr_active",
-            "site_skip_tips"
+            "site_skip_tips",
+            "del_no_free"
             # 当新增支持字段时，仅在此处添加字段名
         }
         try:
@@ -173,6 +177,8 @@ class BrushConfig:
     "exclude": "",
     "size": "10-500",
     "seeder": "1",
+    // 用户本地时区与站点时区的时间偏移，单位为小时。例如：主机时区是UTC+8，站点时区是UTC，应配置为+8；主机时区是UTC，站点时区是UTC+8，应配置为-8
+    "timezone_offset": "+0",
     "pubtime": "5-120",
     "seed_time": 120,
     "hr_seed_time": 144,
@@ -183,6 +189,8 @@ class BrushConfig:
     "seed_inactivetime": "",
     "save_path": "/downloads/site1",
     "proxy_delete": false,
+    // 是否删除促销超时的未完成下载，仅当freeleech配置为free或2xfree时有效
+    "del_no_free": false,
     "qb_category": "刷流",
     "site_hr_active": true,
     "site_skip_tips": true
@@ -251,7 +259,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "4.3.1"
+    plugin_version = "4.3.3"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -263,12 +271,6 @@ class BrushFlow(_PluginBase):
     # 可使用的用户级别
     auth_level = 2
 
-    # 私有属性
-    sites_helper = None
-    site_oper = None
-    torrents_chain = None
-    subscribe_oper = None
-    downloader_helper = None
     # 刷流配置
     _brush_config = None
     # Brush任务是否启动
@@ -288,11 +290,7 @@ class BrushFlow(_PluginBase):
     # endregion
 
     def init_plugin(self, config: dict = None):
-        self.sites_helper = SitesHelper()
-        self.site_oper = SiteOper()
-        self.torrents_chain = TorrentsChain()
-        self.subscribe_oper = SubscribeOper()
-        self.downloader_helper = DownloaderHelper()
+
         self._task_brush_enable = False
 
         if not config:
@@ -314,7 +312,7 @@ class BrushFlow(_PluginBase):
 
         # 这里先过滤掉已删除的站点并保存，特别注意的是，这里保留了界面选择站点时的顺序，以便后续站点随机刷流或顺序刷流
         if brush_config.brushsites:
-            site_id_to_public_status = {site.get("id"): site.get("public") for site in self.sites_helper.get_indexers()}
+            site_id_to_public_status = {site.get("id"): site.get("public") for site in SitesHelper().get_indexers()}
             brush_config.brushsites = [
                 site_id for site_id in brush_config.brushsites
                 if site_id in site_id_to_public_status and not site_id_to_public_status[site_id]
@@ -386,7 +384,7 @@ class BrushFlow(_PluginBase):
         服务信息
         """
         brush_config = self.__get_brush_config()
-        service = self.downloader_helper.get_service(name=brush_config.downloader)
+        service = DownloaderHelper().get_service(name=brush_config.downloader)
         if not service:
             self.__log_and_notify_error("站点刷流任务出错，获取下载器实例失败，请检查配置")
             return None
@@ -811,10 +809,10 @@ class BrushFlow(_PluginBase):
 
         # 站点选项
         site_options = [{"title": site.get("name"), "value": site.get("id")}
-                        for site in self.sites_helper.get_indexers()]
+                        for site in SitesHelper().get_indexers()]
         # 下载器选项
         downloader_options = [{"title": config.name, "value": config.name}
-                              for config in self.downloader_helper.get_configs().values()]
+                              for config in DownloaderHelper().get_configs().values()]
         return [
             {
                 'component': 'VForm',
@@ -1621,6 +1619,27 @@ class BrushFlow(_PluginBase):
                                                 ]
                                             }
                                         ]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'del_no_free',
+                                                            'label': '删除促销过期的未完成下载',
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
                                     }
                                 ]
                             }
@@ -1794,6 +1813,7 @@ class BrushFlow(_PluginBase):
             "except_subscribe": True,
             "brush_sequential": False,
             "proxy_delete": False,
+            "del_no_free": False,
             "freeleech": "free",
             "hr": "yes",
             "enable_site_config": False,
@@ -1941,7 +1961,7 @@ class BrushFlow(_PluginBase):
             # 获取所有站点的信息，并过滤掉不存在的站点
             site_infos = []
             for siteid in brush_config.brushsites:
-                siteinfo = self.site_oper.get(siteid)
+                siteinfo = SiteOper().get(siteid)
                 if siteinfo:
                     site_infos.append(siteinfo)
 
@@ -1976,13 +1996,13 @@ class BrushFlow(_PluginBase):
         """
         针对站点进行刷流
         """
-        siteinfo = self.site_oper.get(siteid)
+        siteinfo = SiteOper().get(siteid)
         if not siteinfo:
             logger.warning(f"站点不存在：{siteid}")
             return True
 
         logger.info(f"开始获取站点 {siteinfo.name} 的新种子 ...")
-        torrents = self.torrents_chain.browse(domain=siteinfo.domain)
+        torrents = TorrentsChain().browse(domain=siteinfo.domain)
         if not torrents:
             logger.info(f"站点 {siteinfo.name} 没有获取到种子")
             return True
@@ -2232,8 +2252,13 @@ class BrushFlow(_PluginBase):
                 if not (seeders_range[0] <= torrent.seeders <= seeders_range[1]):
                     return False, f"做种人数 {torrent.seeders}，不在指定范围内"
 
-        # 发布时间
-        pubdate_minutes = self.__get_pubminutes(torrent.pubdate)
+        # 发布时间：用户时间 - 站点时间 - 时区偏移
+        # e.g.1: 用户UTC+8，站点UTC，timezone_offset应为+8，种子在UTC 0:00/UTC+8 8:00发布；
+        #        9:17 - 0:00 - 8:00 = 1:17；1小时17分为正确的发布时间与当前的时间差
+        # e.g.2: 用户UTC，站点UTC+8，timezone_offset应为-8，种子在UTC 0:00/UTC+8 8:00发布：
+        #        1:17 - 8:00 - (-8:00) = 1:17；1小时17分为正确的发布时间与当前的时间差
+        # timezone_offset为后加功能，默认为0，方便后续更多与时间相关的功能开发，之前在单独站点配置中使用pubtime计算过时区偏移的用户也不受影响
+        pubdate_minutes = self.__get_pubminutes(torrent.pubdate) - brush_config.timezone_offset
         # 已支持独立站点配置，取消单独适配站点时区逻辑，可通过配置项「pubtime」自行适配
         # pubdate_minutes = self.__adjust_site_pubminutes(pubdate_minutes, torrent)
         if brush_config.pubtime:
@@ -2241,11 +2266,11 @@ class BrushFlow(_PluginBase):
             if len(pubtimes) == 1:
                 # 单个值：选择发布时间小于等于该值的种子
                 if pubdate_minutes > pubtimes[0]:
-                    return False, f"发布时间 {torrent.pubdate}，{pubdate_minutes:.0f} 分钟前，不符合条件"
+                    return False, f"发布时间（站点时区）{torrent.pubdate}，当前配置时区偏移 {brush_config.timezone_offset} 小时，{pubdate_minutes:.0f} 分钟前，不符合条件"
             else:
                 # 范围值：选择发布时间在范围内的种子
                 if not (pubtimes[0] <= pubdate_minutes <= pubtimes[1]):
-                    return False, f"发布时间 {torrent.pubdate}，{pubdate_minutes:.0f} 分钟前，不在指定范围内"
+                    return False, f"发布时间（站点时区）{torrent.pubdate}，当前配置时区偏移 {brush_config.timezone_offset} 小时，{pubdate_minutes:.0f} 分钟前，不在指定范围内"
 
         return True, None
 
@@ -2348,7 +2373,7 @@ class BrushFlow(_PluginBase):
 
                 if need_delete_hashes:
                     # 如果是QB，则重新汇报Tracker
-                    if self.downloader_helper.is_downloader("qbittorrent", service=self.service_info):
+                    if DownloaderHelper().is_downloader("qbittorrent", service=self.service_info):
                         self.__qb_torrents_reannounce(torrent_hashes=need_delete_hashes)
                     # 删除种子
                     if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
@@ -2390,7 +2415,7 @@ class BrushFlow(_PluginBase):
                                              seeding_torrents_dict: Dict[str, Any]):
         brush_config = self.__get_brush_config()
 
-        if not self.downloader_helper.is_downloader("qbittorrent", service=self.service_info):
+        if not DownloaderHelper().is_downloader("qbittorrent", service=self.service_info):
             logger.info("同步种子刷流标签记录目前仅支持qbittorrent")
             return
 
@@ -2501,6 +2526,25 @@ class BrushFlow(_PluginBase):
                 return True, f"H&R种子，分享率 {torrent_info.get('ratio'):.2f}，大于 {brush_config.seed_ratio}"
             return False, "H&R种子，未能满足设置的H&R删除条件"
 
+        while brush_config.del_no_free and torrent_info.get("downloaded") < torrent_info.get("total_size"):
+            if not torrent_task.get("freedate", None):
+                logger.warning(f"配置了‘删除促销过期的未完成下载’，但未获取到该种子的促销截止时间，跳过。")
+                break
+            try:
+                now = datetime.now()
+                freedate_origin = torrent_task.get("freedate")
+                freedate = freedate_origin.replace("T", " ").replace("Z", "")
+                freedate = datetime.strptime(freedate, "%Y-%m-%d %H:%M:%S")
+                delta_minutes = (((freedate - now).total_seconds() + 60) // 60) - brush_config.timezone_offset
+                logger.debug(
+                    f"促销截止（站点时间）: {freedate_origin}, 时区偏移: {brush_config.timezone_offset}, 用户当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')}, 时间差: {delta_minutes}分")
+                if delta_minutes <= 0:
+                    return True, "促销过期"
+            except Exception as e:
+                logger.warning(f"处理‘删除促销过期的未完成下载’时报错，继续判断其他删除条件。")
+                logger.debug(f"error: {e}")
+            break
+
         # 处理其他场景，1. 不是H&R种子；2. 是H&R种子但没有特定条件配置
         reason = reason if not hit_and_run else "H&R种子（未设置H&R条件），未能满足设置的删除条件"
         if brush_config.seed_time and torrent_info.get("seeding_time") >= float(brush_config.seed_time) * 3600:
@@ -2523,18 +2567,39 @@ class BrushFlow(_PluginBase):
 
         return True, reason if not hit_and_run else "H&R种子（未设置H&R条件），" + reason
 
-    def __evaluate_proxy_pre_conditions_for_delete(self, site_name: str, torrent_info: dict) -> Tuple[bool, str]:
+    def __evaluate_proxy_pre_conditions_for_delete(self, site_name: str,
+                                                   torrent_info: dict, torrent_task: dict) -> Tuple[bool, str]:
         """
         评估动态删除前置条件并返回是否应删除种子及其原因
         """
         brush_config = self.__get_brush_config(sitename=site_name)
 
+        should_delete = False
         reason = "未能满足动态删除设置的前置删除条件"
+
+        while brush_config.del_no_free and torrent_info.get("downloaded") < torrent_info.get("total_size"):
+            if not torrent_task.get("freedate", None):
+                logger.warning(f"配置了‘删除促销过期的未完成下载’，但未获取到该种子的促销截止时间，跳过。")
+                break
+            try:
+                now = datetime.now()
+                freedate_origin = torrent_task.get("freedate")
+                freedate = freedate_origin.replace("T", " ").replace("Z", "")
+                freedate = datetime.strptime(freedate, "%Y-%m-%d %H:%M:%S")
+                delta_minutes = (((freedate - now).total_seconds() + 60) // 60) - brush_config.timezone_offset
+                logger.debug(
+                    f"促销截止（站点时间）: {freedate_origin}, 时区偏移: {brush_config.timezone_offset}, 用户当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')}, 时间差: {delta_minutes}分")
+                if delta_minutes <= 0:
+                    return True, f"促销已过期"
+            except Exception as e:
+                logger.warning(f"处理‘删除促销过期的未完成下载’时报错，继续判断其他删除条件。")
+                logger.debug(f"error: {e}")
+            break
 
         if brush_config.download_time and torrent_info.get("downloaded") < torrent_info.get(
                 "total_size") and torrent_info.get("dltime") >= float(brush_config.download_time) * 3600:
             reason = f"下载耗时 {torrent_info.get('dltime') / 3600:.1f} 小时，大于 {brush_config.download_time} 小时"
-        else:
+        elif not should_delete:
             return False, reason
 
         return True, reason
@@ -2599,7 +2664,8 @@ class BrushFlow(_PluginBase):
 
             # 删除种子的具体实现可能会根据实际情况略有不同
             should_delete, reason = self.__evaluate_proxy_pre_conditions_for_delete(site_name=site_name,
-                                                                                    torrent_info=torrent_info)
+                                                                                    torrent_info=torrent_info,
+                                                                                    torrent_task=torrent_task)
             if should_delete:
                 delete_hashes.append(torrent_hash)
                 self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc,
@@ -2957,6 +3023,7 @@ class BrushFlow(_PluginBase):
             "exclude": brush_config.exclude,
             "size": brush_config.size,
             "seeder": brush_config.seeder,
+            "timezone_offset": brush_config.timezone_offset,
             "pubtime": brush_config.pubtime,
             "seed_time": brush_config.seed_time,
             "hr_seed_time": brush_config.hr_seed_time,
@@ -2980,6 +3047,7 @@ class BrushFlow(_PluginBase):
             "qb_category": brush_config.qb_category,
             "enable_site_config": brush_config.enable_site_config,
             "site_config": brush_config.site_config,
+            "del_no_free": brush_config.del_no_free,
             "_tabs": self._tabs
         }
 
@@ -3041,7 +3109,8 @@ class BrushFlow(_PluginBase):
                 return data
         return None
 
-    def __reset_download_url(self, torrent_url, site_id) -> str:
+    @staticmethod
+    def __reset_download_url(torrent_url, site_id) -> str:
         """
         处理下载地址
         """
@@ -3050,7 +3119,7 @@ class BrushFlow(_PluginBase):
             if not torrent_url or torrent_url.startswith("magnet"):
                 return torrent_url
 
-            indexers = self.sites_helper.get_indexers()
+            indexers = SitesHelper().get_indexers()
             if not indexers:
                 return torrent_url
 
@@ -3115,7 +3184,8 @@ class BrushFlow(_PluginBase):
         if not downloader:
             return None
 
-        if self.downloader_helper.is_downloader("qbittorrent", service=self.service_info):
+        downloader_helper = DownloaderHelper()
+        if downloader_helper.is_downloader("qbittorrent", service=self.service_info):
             # 限速值转为bytes
             up_speed = up_speed * 1024 if up_speed else None
             down_speed = down_speed * 1024 if down_speed else None
@@ -3149,7 +3219,7 @@ class BrushFlow(_PluginBase):
                     return torrent_hash
             return None
 
-        elif self.downloader_helper.is_downloader("transmission", service=self.service_info):
+        elif downloader_helper.is_downloader("transmission", service=self.service_info):
             # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
             if not torrent_content.startswith("magnet"):
                 response = RequestUtils(cookies=cookies,
@@ -3197,7 +3267,7 @@ class BrushFlow(_PluginBase):
         获取种子hash
         """
         try:
-            return torrent.get("hash") if self.downloader_helper.is_downloader("qbittorrent", service=self.service_info) \
+            return torrent.get("hash") if DownloaderHelper().is_downloader("qbittorrent", service=self.service_info) \
                 else torrent.hashString
         except Exception as e:
             print(str(e))
@@ -3214,8 +3284,8 @@ class BrushFlow(_PluginBase):
             all_hashes = []
             for torrent in torrents:
                 # 根据下载器类型获取Hash值
-                hash_value = torrent.get("hash") if self.downloader_helper.is_downloader("qbittorrent",
-                                                                                         service=self.service_info) \
+                hash_value = torrent.get("hash") if DownloaderHelper().is_downloader("qbittorrent",
+                                                                                     service=self.service_info) \
                     else torrent.hashString
                 if hash_value:
                     all_hashes.append(hash_value)
@@ -3230,8 +3300,8 @@ class BrushFlow(_PluginBase):
         """
         try:
             return [str(tag).strip() for tag in torrent.get("tags").split(',')] \
-                if self.downloader_helper.is_downloader("qbittorrent",
-                                                        service=self.service_info) else torrent.labels or []
+                if DownloaderHelper().is_downloader("qbittorrent",
+                                                    service=self.service_info) else torrent.labels or []
         except Exception as e:
             print(str(e))
             return []
@@ -3242,7 +3312,7 @@ class BrushFlow(_PluginBase):
         """
         date_now = int(time.time())
         # QB
-        if self.downloader_helper.is_downloader("qbittorrent", service=self.service_info):
+        if DownloaderHelper().is_downloader("qbittorrent", service=self.service_info):
             """
             {
               "added_on": 1693359031,
@@ -3649,7 +3719,7 @@ class BrushFlow(_PluginBase):
         if not self._subscribe_infos:
             self._subscribe_infos = {}
 
-        subscribes = self.subscribe_oper.list()
+        subscribes = SubscribeOper().list()
         if subscribes:
             # 遍历订阅
             for subscribe in subscribes:
@@ -3862,7 +3932,8 @@ class BrushFlow(_PluginBase):
             # 情况2: 时间段跨越午夜
             return now >= start_time or now <= end_time
 
-    def __get_site_by_torrent(self, torrent: Any) -> Tuple[int, str]:
+    @staticmethod
+    def __get_site_by_torrent(torrent: Any) -> Tuple[int, str]:
         """
         根据tracker获取站点信息
         """
@@ -3905,7 +3976,7 @@ class BrushFlow(_PluginBase):
                 # 使用StringUtils工具类获取tracker的域名
                 domain = StringUtils.get_url_domain(tracker)
 
-            site_info = self.sites_helper.get_indexer(domain)
+            site_info = SitesHelper().get_indexer(domain)
             if site_info:
                 return site_info.get("id"), site_info.get("name")
 

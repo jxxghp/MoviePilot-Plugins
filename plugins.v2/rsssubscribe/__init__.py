@@ -11,7 +11,6 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app import schemas
 from app.chain.download import DownloadChain
-from app.chain.search import SearchChain
 from app.chain.subscribe import SubscribeChain
 from app.core.config import settings
 from app.core.context import MediaInfo, TorrentInfo, Context
@@ -48,10 +47,6 @@ class RssSubscribe(_PluginBase):
     # 私有变量
     _scheduler: Optional[BackgroundScheduler] = None
     _cache_path: Optional[Path] = None
-    rsshelper = None
-    downloadchain = None
-    searchchain = None
-    subscribechain = None
 
     # 配置属性
     _enabled: bool = False
@@ -70,10 +65,6 @@ class RssSubscribe(_PluginBase):
     _size_range: str = ""
 
     def init_plugin(self, config: dict = None):
-        self.rsshelper = RssHelper()
-        self.downloadchain = DownloadChain()
-        self.searchchain = SearchChain()
-        self.subscribechain = SubscribeChain()
 
         # 停止现有任务
         self.stop_service()
@@ -618,12 +609,14 @@ class RssSubscribe(_PluginBase):
             history = []
         else:
             history: List[dict] = self.get_data('history') or []
+        downloadchain = DownloadChain()
+        subscribechain = SubscribeChain()
         for url in self._address.split("\n"):
             # 处理每一个RSS链接
             if not url:
                 continue
             logger.info(f"开始刷新RSS：{url} ...")
-            results = self.rsshelper.parse(url, proxy=self._proxy)
+            results = RssHelper().parse(url, proxy=self._proxy)
             if not results:
                 logger.error(f"未获取到RSS数据：{url}")
                 return
@@ -704,7 +697,7 @@ class RssSubscribe(_PluginBase):
                     # 下载或订阅
                     if self._action == "download":
                         # 添加下载
-                        result = self.downloadchain.download_single(
+                        result = downloadchain.download_single(
                             context=Context(
                                 meta_info=meta,
                                 media_info=mediainfo,
@@ -718,18 +711,18 @@ class RssSubscribe(_PluginBase):
                             continue
                     else:
                         # 检查是否在订阅中
-                        subflag = self.subscribechain.exists(mediainfo=mediainfo, meta=meta)
+                        subflag = subscribechain.exists(mediainfo=mediainfo, meta=meta)
                         if subflag:
                             logger.info(f'{mediainfo.title_year} {meta.season} 正在订阅中')
                             continue
                         # 添加订阅
-                        self.subscribechain.add(title=mediainfo.title,
-                                                year=mediainfo.year,
-                                                mtype=mediainfo.type,
-                                                tmdbid=mediainfo.tmdb_id,
-                                                season=meta.begin_season,
-                                                exist_ok=True,
-                                                username="RSS订阅")
+                        subscribechain.add(title=mediainfo.title,
+                                           year=mediainfo.year,
+                                           mtype=mediainfo.type,
+                                           tmdbid=mediainfo.tmdb_id,
+                                           season=meta.begin_season,
+                                           exist_ok=True,
+                                           username="RSS订阅")
                     # 存储历史记录
                     history.append({
                         "title": f"{mediainfo.title} {meta.season}",

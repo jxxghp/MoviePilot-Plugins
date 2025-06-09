@@ -29,9 +29,6 @@ class SiteRefresh(_PluginBase):
     # 可使用的用户级别
     auth_level = 2
 
-    # 私有属性
-    siteoper: SiteOper = None
-
     # 配置属性
     _enabled: bool = False
     _notify: bool = False
@@ -42,7 +39,7 @@ class SiteRefresh(_PluginBase):
     _siteconf: list = []
 
     def init_plugin(self, config: dict = None):
-        self.siteoper = SiteOper()
+
         # 配置
         if config:
             self._enabled = config.get("enabled")
@@ -70,7 +67,7 @@ class SiteRefresh(_PluginBase):
             logger.error(f"未获取到site_id")
             return
 
-        site = self.siteoper.get(site_id)
+        site = SiteOper().get(site_id)
         if not site:
             logger.error(f"未获取到site_id {site_id} 对应的站点数据")
             return

@@ -48,10 +48,6 @@ class IYUUAutoSeed(_PluginBase):
     # 私有属性
     _scheduler = None
     iyuu_helper = None
-    downloader_helper = None
-    sites_helper = None
-    site_oper = None
-    torrent_helper = None
     # 开关
     _enabled = False
     _cron = None
@@ -72,6 +68,7 @@ class IYUUAutoSeed(_PluginBase):
     _addhosttotag = False
     _size = None
     _clearcache = False
+    _auto_start = False
     # 退出事件
     _event = Event()
     # 种子链接xpaths
@@ -99,10 +96,7 @@ class IYUUAutoSeed(_PluginBase):
     cached = 0
 
     def init_plugin(self, config: dict = None):
-        self.sites_helper = SitesHelper()
-        self.site_oper = SiteOper()
-        self.torrent_helper = TorrentHelper()
-        self.downloader_helper = DownloaderHelper()
+
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
@@ -128,8 +122,8 @@ class IYUUAutoSeed(_PluginBase):
             self._success_caches = [] if self._clearcache else config.get("success_caches") or []
 
             # 过滤掉已删除的站点
-            all_sites = [site.id for site in self.site_oper.list_order_by_pri()] + [site.get("id") for site in
-                                                                                    self.__custom_sites()]
+            all_sites = [site.id for site in SiteOper().list_order_by_pri()] + [site.get("id") for site in
+                                                                                self.__custom_sites()]
             self._sites = [site_id for site_id in all_sites if site_id in self._sites]
             self.__update_config()
 
@@ -171,7 +165,7 @@ class IYUUAutoSeed(_PluginBase):
             logger.warning("尚未配置下载器，请检查配置")
             return None
 
-        services = self.downloader_helper.get_services(name_filters=self._downloaders)
+        services = DownloaderHelper().get_services(name_filters=self._downloaders)
         if not services:
             logger.warning("获取下载器实例失败，请检查配置")
             return None
@@ -198,7 +192,7 @@ class IYUUAutoSeed(_PluginBase):
             logger.debug("尚未配置主辅分离下载器，辅种不分离")
             return None
 
-        service = self.downloader_helper.get_service(name=self._auto_downloader)
+        service = DownloaderHelper().get_service(name=self._auto_downloader)
         if not service:
             logger.warning("获取主辅分离下载器实例失败，请检查配置")
             return None
@@ -248,7 +242,7 @@ class IYUUAutoSeed(_PluginBase):
 
         # 站点的可选项
         site_options = ([{"title": site.name, "value": site.id}
-                         for site in self.site_oper.list_order_by_pri()]
+                         for site in SiteOper().list_order_by_pri()]
                         + [{"title": site.get("name"), "value": site.get("id")}
                            for site in customSites])
         return [
@@ -381,7 +375,7 @@ class IYUUAutoSeed(_PluginBase):
                                             'model': 'downloaders',
                                             'label': '下载器',
                                             'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.downloader_helper.get_configs().values()]
+                                                      for config in DownloaderHelper().get_configs().values()]
                                         }
                                     }
                                 ]
@@ -401,7 +395,7 @@ class IYUUAutoSeed(_PluginBase):
                                             'model': 'auto_downloader',
                                             'label': '主辅分离',
                                             'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.downloader_helper.get_configs().values()]
+                                                      for config in DownloaderHelper().get_configs().values()]
                                         }
                                     }
                                 ]
@@ -1048,7 +1042,8 @@ class IYUUAutoSeed(_PluginBase):
         # 查询站点
         site_domain = StringUtils.get_url_domain(site_url)
         # 站点信息
-        site_info = self.sites_helper.get_indexer(site_domain)
+        sites_helper = SitesHelper()
+        site_info = sites_helper.get_indexer(site_domain)
         if not site_info or not site_info.get('url'):
             logger.debug(f"没有维护种子对应的站点：{site_url}")
             return False
@@ -1064,7 +1059,7 @@ class IYUUAutoSeed(_PluginBase):
             self.exist += 1
             return False
         # 站点流控
-        check, checkmsg = self.sites_helper.check(site_domain)
+        check, checkmsg = sites_helper.check(site_domain)
         if check:
             logger.warn(checkmsg)
             self.fail += 1
@@ -1086,7 +1081,7 @@ class IYUUAutoSeed(_PluginBase):
             else:
                 torrent_url += "?https=1"
         # 下载种子文件
-        _, content, _, _, error_msg = self.torrent_helper.download_torrent(
+        _, content, _, _, error_msg = TorrentHelper().download_torrent(
             url=torrent_url,
             cookie=site_info.get("cookie"),
             ua=site_info.get("ua") or settings.USER_AGENT,

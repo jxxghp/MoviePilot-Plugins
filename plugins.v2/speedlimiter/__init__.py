@@ -32,8 +32,6 @@ class SpeedLimiter(_PluginBase):
     auth_level = 1
 
     # 私有属性
-    downloader_helper = None
-    mediaserver_helper = None
     _scheduler = None
     _enabled: bool = False
     _notify: bool = False
@@ -54,8 +52,7 @@ class SpeedLimiter(_PluginBase):
     _exclude_path = ""
 
     def init_plugin(self, config: dict = None):
-        self.downloader_helper = DownloaderHelper()
-        self.mediaserver_helper = MediaServerHelper()
+
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
@@ -183,7 +180,7 @@ class SpeedLimiter(_PluginBase):
                                             'model': 'downloader',
                                             'label': '下载器',
                                             'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.downloader_helper.get_configs().values()]
+                                                      for config in DownloaderHelper().get_configs().values()]
                                         }
                                     }
                                 ]
@@ -402,7 +399,7 @@ class SpeedLimiter(_PluginBase):
             logger.warning("尚未配置下载器，请检查配置")
             return None
 
-        services = self.downloader_helper.get_services(name_filters=self._downloader)
+        services = DownloaderHelper().get_services(name_filters=self._downloader)
         if not services:
             logger.warning("获取下载器实例失败，请检查配置")
             return None
@@ -442,7 +439,7 @@ class SpeedLimiter(_PluginBase):
                 return
         # 当前播放的总比特率
         total_bit_rate = 0
-        media_servers = self.mediaserver_helper.get_services()
+        media_servers = MediaServerHelper().get_services()
         if not media_servers:
             return
         # 查询所有媒体服务器状态

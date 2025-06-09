@@ -1,7 +1,6 @@
 import re
 from typing import Optional, List, Callable
 
-import aioquic
 import dns.asyncresolver
 import dns.resolver
 
@@ -74,7 +73,6 @@ class DnsHelper:
         使用 UDP 异步方式解析域名
 
         :param domain: 域名
-        :param port: DNS服务器端口（默认53）
         :param dns_type: 记录类型，如 A、AAAA
         :return: IP地址列表 或 None
         """

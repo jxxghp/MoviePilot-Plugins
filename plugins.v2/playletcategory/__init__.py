@@ -1,8 +1,8 @@
 import random
-import time
 import shutil
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any, List, Dict, Tuple
 
@@ -12,7 +12,6 @@ from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import TransferInfo
-from app.schemas.file import FileItem
 from app.schemas.types import EventType, MediaType, NotificationType
 from app.utils.system import SystemUtils
 
@@ -320,9 +319,7 @@ class PlayletCategory(_PluginBase):
                     try:
                         # 相对路径
                         relative_path = file.relative_to(target_path)
-                        logger.debug(f"relative_path:{to_path}")
                         to_path = new_path / relative_path
-                        logger.debug(f"to_path:{to_path}")
                         shutil.move(file, to_path)
                     except Exception as e:
                         logger.error(f"移动文件失败：{e}")

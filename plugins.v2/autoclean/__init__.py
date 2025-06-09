@@ -49,8 +49,6 @@ class AutoClean(_PluginBase):
     _cleantype = None
     _cleandate = None
     _cleanuser = None
-    _downloadhis = None
-    _transferhis = None
 
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
@@ -70,9 +68,6 @@ class AutoClean(_PluginBase):
 
             # 加载模块
         if self._enabled:
-            self._downloadhis = DownloadHistoryOper()
-            self._transferhis = TransferHistoryOper()
-
             if self._onlyonce:
                 # 定时服务
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -115,9 +110,10 @@ class AutoClean(_PluginBase):
             return
 
         # 查询用户清理日期之前的下载历史，不填默认清理全部用户的下载
+        _downloadhis = DownloadHistoryOper()
         if not self._cleanuser:
             clean_date = self.__get_clean_date()
-            downloadhis_list = self._downloadhis.list_by_user_date(date=clean_date)
+            downloadhis_list = _downloadhis.list_by_user_date(date=clean_date)
             logger.info(f'获取到日期 {clean_date} 之前的下载历史 {len(downloadhis_list)} 条')
             self.__clean_history(date=clean_date, clean_type=self._cleantype, downloadhis_list=downloadhis_list)
 
@@ -130,8 +126,8 @@ class AutoClean(_PluginBase):
             # 1.3.7版本及之前处理多位用户
             if str(self._cleanuser).count(','):
                 for username in str(self._cleanuser).split(","):
-                    downloadhis_list = self._downloadhis.list_by_user_date(date=clean_date,
-                                                                           username=username)
+                    downloadhis_list = _downloadhis.list_by_user_date(date=clean_date,
+                                                                      username=username)
                     logger.info(
                         f'获取到用户 {username} 日期 {clean_date} 之前的下载历史 {len(downloadhis_list)} 条')
                     self.__clean_history(date=clean_date, clean_type=self._cleantype, downloadhis_list=downloadhis_list)
@@ -152,8 +148,8 @@ class AutoClean(_PluginBase):
                 # 转strftime
                 clean_date = self.__get_clean_date(clean_date)
                 logger.info(f'{username} 使用 {clean_type} 清理方式，清理 {clean_date} 之前的下载历史')
-                downloadhis_list = self._downloadhis.list_by_user_date(date=clean_date,
-                                                                       username=username)
+                downloadhis_list = _downloadhis.list_by_user_date(date=clean_date,
+                                                                  username=username)
                 logger.info(
                     f'获取到用户 {username} 日期 {clean_date} 之前的下载历史 {len(downloadhis_list)} 条')
                 self.__clean_history(date=clean_date, clean_type=clean_type,
@@ -168,6 +164,7 @@ class AutoClean(_PluginBase):
             return
 
         # 读取历史记录
+        _transferhis = TransferHistoryOper()
         pulgin_history = self.get_data('history') or []
 
         # 创建一个字典来保存分组结果
@@ -197,7 +194,7 @@ class AutoClean(_PluginBase):
                     logger.debug(f'下载历史 {downloadhis.id} {downloadhis.title} 未获取到download_hash，跳过处理')
                     continue
                 # 根据hash获取转移记录
-                transferhis_list = self._transferhis.list_by_hash(download_hash=downloadhis.download_hash)
+                transferhis_list = _transferhis.list_by_hash(download_hash=downloadhis.download_hash)
                 if not transferhis_list:
                     logger.warn(f"下载历史 {downloadhis.download_hash} 未查询到转移记录，跳过处理")
                     continue
@@ -208,7 +205,7 @@ class AutoClean(_PluginBase):
                         dest_fileitem = schemas.FileItem(**history.dest_fileitem)
                         StorageChain().delete_file(dest_fileitem)
                         # 删除记录
-                        self._transferhis.delete(history.id)
+                        _transferhis.delete(history.id)
                     # 删除源文件
                     if clean_type in ["src", "all"]:
                         src_fileitem = schemas.FileItem(**history.src_fileitem)

@@ -30,7 +30,6 @@ class HistoryToV2(_PluginBase):
     auth_level = 1
 
     # 私有属性
-    historyoper = None
     _enabled = False
     _host = None
     _username = None

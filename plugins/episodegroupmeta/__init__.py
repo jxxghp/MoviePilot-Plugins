@@ -23,6 +23,7 @@ from app.utils.common import retry
 from app.utils.http import RequestUtils
 from app.db.models import PluginData
 
+
 class ExistMediaInfo(BaseModel):
     # 季, 集
     groupep: Optional[Dict[int, list]] = {}
@@ -522,7 +523,7 @@ class EpisodeGroupMeta(_PluginBase):
                     }
                 }
             ]
-        
+
         return [
             {
                 'component': 'VRow',
@@ -628,7 +629,7 @@ class EpisodeGroupMeta(_PluginBase):
             time.sleep(int(self._delay))
         # 开始处理
         if self.start_rt(mediainfo=mediainfo, episode_groups=episode_groups):
-        	# 处理完成时， 属于自动匹配的, 发送通知
+            # 处理完成时， 属于自动匹配的, 发送通知
             if self._notify and mediainfo_dict:
                 self.post_message(
                     mtype=schemas.NotificationType.Manual,
@@ -673,8 +674,10 @@ class EpisodeGroupMeta(_PluginBase):
                     self.log_warn(f"{mediainfo.title_year} 在媒体库 {server} 中没有数据")
                     continue
                 else:
-                    self.log_info(f"{mediainfo.title_year} 在媒体库 {existsinfo.server} 中找到了这些季集：{existsinfo.groupep}")
-                _bool = self.__start_rt_mediaserver(mediainfo=mediainfo, existsinfo=existsinfo, episode_groups=episode_groups, group_id=group_id)
+                    self.log_info(
+                        f"{mediainfo.title_year} 在媒体库 {existsinfo.server} 中找到了这些季集：{existsinfo.groupep}")
+                _bool = self.__start_rt_mediaserver(mediainfo=mediainfo, existsinfo=existsinfo,
+                                                    episode_groups=episode_groups, group_id=group_id)
                 relust_bool = relust_bool or _bool
         else:
             # v2版本 遍历所有媒体服务器的方式
@@ -696,8 +699,11 @@ class EpisodeGroupMeta(_PluginBase):
                     self.log_warn(f"{mediainfo.title_year} 在 ({info.type}){name} 媒体服务器中没有数据")
                     continue
                 else:
-                    self.log_info(f"{mediainfo.title_year} 在媒体库 ({existsinfo.server_type}){existsinfo.server} 中找到了这些季集：{existsinfo.groupep}")
-                _bool = self.__start_rt_mediaserver(mediainfo=mediainfo, existsinfo=existsinfo, episode_groups=episode_groups, group_id=group_id, mediaserver_instance=info.instance)
+                    self.log_info(
+                        f"{mediainfo.title_year} 在媒体库 ({existsinfo.server_type}){existsinfo.server} 中找到了这些季集：{existsinfo.groupep}")
+                _bool = self.__start_rt_mediaserver(mediainfo=mediainfo, existsinfo=existsinfo,
+                                                    episode_groups=episode_groups, group_id=group_id,
+                                                    mediaserver_instance=info.instance)
                 relust_bool = relust_bool or _bool
         return relust_bool
 
@@ -762,7 +768,8 @@ class EpisodeGroupMeta(_PluginBase):
                         ep_num = ep[_index]
                         for _id in _ids:
                             # 获取媒体服务器媒体项
-                            iteminfo = self.get_iteminfo(server_type=existsinfo.server_type, itemid=_id, mediaserver_instance=mediaserver_instance)
+                            iteminfo = self.get_iteminfo(server_type=existsinfo.server_type, itemid=_id,
+                                                         mediaserver_instance=mediaserver_instance)
                             if not iteminfo:
                                 self.log_info(f"未找到媒体项 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集")
                                 continue
@@ -771,7 +778,8 @@ class EpisodeGroupMeta(_PluginBase):
                                 if iteminfo.get("LockData") or (
                                         "Name" in iteminfo.get("LockedFields", [])
                                         and "Overview" in iteminfo.get("LockedFields", [])):
-                                    self.log_warn(f"已锁定媒体项 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集, 如果需要刮削请打开设置中的“锁定的剧集也刮削”选项")
+                                    self.log_warn(
+                                        f"已锁定媒体项 - itemid: {_id},  第 {order} 季,  第 {ep_num} 集, 如果需要刮削请打开设置中的“锁定的剧集也刮削”选项")
                                     continue
                             # 替换项目数据
                             episode = episodes[ep_num - 1]
@@ -789,7 +797,8 @@ class EpisodeGroupMeta(_PluginBase):
                             self.__append_to_list(new_dict["LockedFields"], "Name")
                             self.__append_to_list(new_dict["LockedFields"], "Overview")
                             # 更新数据
-                            self.set_iteminfo(server_type=existsinfo.server_type, itemid=_id, iteminfo=new_dict, mediaserver_instance=mediaserver_instance)
+                            self.set_iteminfo(server_type=existsinfo.server_type, itemid=_id, iteminfo=new_dict,
+                                              mediaserver_instance=mediaserver_instance)
                             # still_path 图片
                             if episode.get("still_path"):
                                 self.set_item_image(server_type=existsinfo.server_type, itemid=_id,
@@ -812,7 +821,8 @@ class EpisodeGroupMeta(_PluginBase):
         if item not in list:
             list.append(item)
 
-    def __media_exists(self, mediainfo: schemas.MediaInfo, server: str, server_type: str, mediaserver_instance: Any = None) -> ExistMediaInfo:
+    def __media_exists(self, mediainfo: schemas.MediaInfo, server: str, server_type: str,
+                       mediaserver_instance: Any = None) -> ExistMediaInfo:
         """
         根据媒体信息，返回是否存在于指定媒体服务器中，剧集列表与剧集ID列表
         :param mediainfo: 媒体信息
@@ -825,14 +835,14 @@ class EpisodeGroupMeta(_PluginBase):
             try:
                 instance = mediaserver_instance or self.emby
                 res = instance.get_data(("[HOST]emby/Items?"
-                                          "IncludeItemTypes=Series"
-                                          "&Fields=ProductionYear"
-                                          "&StartIndex=0"
-                                          "&Recursive=true"
-                                          "&SearchTerm=%s"
-                                          "&Limit=10"
-                                          "&IncludeSearchTypes=false"
-                                          "&api_key=[APIKEY]") % mediainfo.title)
+                                         "IncludeItemTypes=Series"
+                                         "&Fields=ProductionYear"
+                                         "&StartIndex=0"
+                                         "&Recursive=true"
+                                         "&SearchTerm=%s"
+                                         "&Limit=10"
+                                         "&IncludeSearchTypes=false"
+                                         "&api_key=[APIKEY]") % mediainfo.title)
                 res_items = res.json().get("Items")
                 if res_items:
                     for res_item in res_items:
@@ -893,9 +903,9 @@ class EpisodeGroupMeta(_PluginBase):
             try:
                 instance = mediaserver_instance or self.jellyfin
                 res = instance.get_data(url=f"[HOST]Users/[USER]/Items?api_key=[APIKEY]"
-                                                 f"&searchTerm={mediainfo.title}"
-                                                 f"&IncludeItemTypes=Series"
-                                                 f"&Limit=10&Recursive=true")
+                                            f"&searchTerm={mediainfo.title}"
+                                            f"&IncludeItemTypes=Series"
+                                            f"&Limit=10&Recursive=true")
                 res_items = res.json().get("Items")
                 if res_items:
                     for res_item in res_items:
@@ -958,14 +968,14 @@ class EpisodeGroupMeta(_PluginBase):
                     return None
                 # 根据标题和年份模糊搜索，该结果不够准确
                 videos = _plex.library.search(title=mediainfo.title,
-                                                year=mediainfo.year,
-                                                libtype="show")
+                                              year=mediainfo.year,
+                                              libtype="show")
                 if (not videos
                         and mediainfo.original_title
                         and str(mediainfo.original_title) != str(mediainfo.title)):
                     videos = _plex.library.search(title=mediainfo.original_title,
-                                                    year=mediainfo.year,
-                                                    libtype="show")
+                                                  year=mediainfo.year,
+                                                  libtype="show")
                 if not videos:
                     return None
                 if isinstance(videos, list):
@@ -1323,7 +1333,7 @@ class EpisodeGroupMeta(_PluginBase):
                 self.jellyfin = Jellyfin()
             return None
 
-        services = self.mediaserver_helper.get_services(type_filter=type_filter)#, name_filters=self._mediaservers)
+        services = self.mediaserver_helper.get_services(type_filter=type_filter)  #, name_filters=self._mediaservers)
         if not services:
             self.log_warn("获取媒体服务器实例失败，请检查配置")
             return None

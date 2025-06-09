@@ -40,8 +40,6 @@ class LibraryScraper(_PluginBase):
     user_level = 1
 
     # 私有属性
-    transferhis = None
-    mediachain = None
     _scheduler = None
     _scraper = None
     # 限速开关
@@ -55,7 +53,7 @@ class LibraryScraper(_PluginBase):
     _event = Event()
 
     def init_plugin(self, config: dict = None):
-        self.mediachain = MediaChain()
+
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
@@ -70,7 +68,6 @@ class LibraryScraper(_PluginBase):
 
         # 启动定时任务 & 立即运行一次
         if self._enabled or self._onlyonce:
-            self.transferhis = TransferHistoryOper()
 
             if self._onlyonce:
                 logger.info(f"媒体库刮削服务，立即运行一次")
@@ -401,14 +398,14 @@ class LibraryScraper(_PluginBase):
 
         # 如果未开启新增已入库媒体是否跟随TMDB信息变化则根据tmdbid查询之前的title
         if not settings.SCRAP_FOLLOW_TMDB:
-            transfer_history = self.transferhis.get_by_type_tmdbid(tmdbid=mediainfo.tmdb_id,
-                                                                   mtype=mediainfo.type.value)
+            transfer_history = TransferHistoryOper().get_by_type_tmdbid(tmdbid=mediainfo.tmdb_id,
+                                                                        mtype=mediainfo.type.value)
             if transfer_history:
                 mediainfo.title = transfer_history.title
         # 获取图片
         self.chain.obtain_images(mediainfo)
         # 刮削
-        self.mediachain.scrape_metadata(
+        MediaChain().scrape_metadata(
             fileitem=schemas.FileItem(
                 storage="local",
                 type="dir",

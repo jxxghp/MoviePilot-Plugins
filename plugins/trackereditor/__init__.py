@@ -19,7 +19,7 @@ class TrackerEditor(_PluginBase):
     # 插件图标
     plugin_icon = "trackereditor_A.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "honue"
     # 作者主页
@@ -91,7 +91,7 @@ class TrackerEditor(_PluginBase):
                             new_url = tracker.url.replace(target_domain, tracker_dict[target_domain])
                             logger.info(f"{original_url[:30]}... 替换为 {new_url[:30]}...")
                             torrent.edit_tracker(orig_url=original_url, new_url=new_url)
-                        torrent_update_cnt += 1
+                            torrent_update_cnt += 1
 
         elif self._downloader_type == "transmission":
             self._downloader = Transmission(self._host, self._port, self._username, self._password)

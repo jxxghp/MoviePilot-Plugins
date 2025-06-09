@@ -39,7 +39,7 @@ class ContractCheck(_PluginBase):
     # 插件图标
     plugin_icon = "contract.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.4.1"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -53,13 +53,13 @@ class ContractCheck(_PluginBase):
 
     class ContractInfo:
         def __init__(
-            self,
-            site_name: str = "",
-            official: bool = False,
-            size: int = 0,
-            num: int = 0,
-            duration: int = 0,
-            date: datetime = datetime.now(),
+                self,
+                site_name: str = "",
+                official: bool = False,
+                size: int = 0,
+                num: int = 0,
+                duration: int = 0,
+                date: datetime = datetime.now(),
         ):
             self.site_name: str = site_name
             self.official: bool = official
@@ -69,8 +69,6 @@ class ContractCheck(_PluginBase):
             self.date: datetime = date
 
     # 私有属性
-    sites = None
-    siteoper = None
     statistic_sites: list = []
     contract_infos: list[ContractInfo] = []
     _scheduler: Optional[BackgroundScheduler] = None
@@ -87,8 +85,7 @@ class ContractCheck(_PluginBase):
     _dashboard_type: str = "brief"
 
     def init_plugin(self, config: dict = None):
-        self.sites = SitesHelper()
-        self.siteoper = SiteOper()
+
         # 停止现有任务
         self.stop_service()
         # 配置
@@ -123,8 +120,7 @@ class ContractCheck(_PluginBase):
                 self._scheduler.add_job(
                     self.refresh_all_site_data,
                     "date",
-                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
-                    + timedelta(seconds=3),
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                 )
                 # 关闭一次性开关
                 self._onlyonce = False
@@ -162,7 +158,7 @@ class ContractCheck(_PluginBase):
             self.statistic_sites.append(site_id)
 
     def _get_site_id(self, name):
-        all_sites = [site for site in self.siteoper.list_order_by_pri()] + [
+        all_sites = [site for site in SiteOper().list_order_by_pri()] + [
             site for site in self.__custom_sites()
         ]
         for site in all_sites:
@@ -505,9 +501,7 @@ class ContractCheck(_PluginBase):
             }
         ]
 
-    def get_dashboard(
-        self,
-    ) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+    def get_dashboard(self, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
         """
         获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、全局配置（自动刷新等）；3、仪表板页面元素配置json（含数据）
         1、col配置参考：
@@ -783,7 +777,7 @@ class ContractCheck(_PluginBase):
                         i = html_text.find("window.location")
                         if i == -1:
                             return None
-                        tmp_url = url + html_text[i : html_text.find(";")].replace(
+                        tmp_url = url + html_text[i: html_text.find(";")].replace(
                             '"', ""
                         ).replace("+", "").replace(" ", "").replace(
                             "window.location=", ""
@@ -793,8 +787,8 @@ class ContractCheck(_PluginBase):
                         ).get_res(url=tmp_url)
                         if res and res.status_code == 200:
                             if (
-                                "charset=utf-8" in res.text
-                                or "charset=UTF-8" in res.text
+                                    "charset=utf-8" in res.text
+                                    or "charset=UTF-8" in res.text
                             ):
                                 res.encoding = "UTF-8"
                             else:
@@ -819,7 +813,7 @@ class ContractCheck(_PluginBase):
                         ).get_res(url=url + "/index.php")
                         if res and res.status_code == 200:
                             if re.search(
-                                r"charset=\"?utf-8\"?", res.text, re.IGNORECASE
+                                    r"charset=\"?utf-8\"?", res.text, re.IGNORECASE
                             ):
                                 res.encoding = "utf-8"
                             else:
@@ -975,7 +969,7 @@ class ContractCheck(_PluginBase):
         """
         多线程刷新站点下载上传量，默认间隔6小时
         """
-        if not self.sites.get_indexers():
+        if not SitesHelper().get_indexers():
             return
 
         logger.info("开始刷新站点数据 ...")
@@ -983,8 +977,8 @@ class ContractCheck(_PluginBase):
         with lock:
 
             all_sites = [
-                site for site in self.sites.get_indexers() if not site.get("public")
-            ] + self.__custom_sites()
+                            site for site in SitesHelper().get_indexers() if not site.get("public")
+                        ] + self.__custom_sites()
             # 没有指定站点，默认使用全部站点
             if not self.statistic_sites:
                 refresh_sites = all_sites
