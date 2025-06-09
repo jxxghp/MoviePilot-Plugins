@@ -32,7 +32,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.7.1"
     # 插件作者
     plugin_author = "lightolly,jxxghp"
     # 作者主页
@@ -264,35 +264,35 @@ class SiteStatistic(_PluginBase):
         如果上一次某个站点数据缺失，则 fallback 到该站点之前最近有数据的日期
         """
         # 优化：只获取最近的站点数据，而不是所有历史数据
-        raw_data_list: List[SiteUserData] = SiteOper().get_userdata_latest()
-        if not raw_data_list:
+        latest_data: List[SiteUserData] = SiteOper().get_userdata_latest()
+        if not latest_data:
             return "", [], []
 
-        # 获取最近一次统计的日期
-        latest_day = raw_data_list[0].updated_day
+        # 获取最新日期（用于显示）
+        latest_day = max(data.updated_day for data in latest_data)
         
-        # 最近一次统计数据按上传量降序排序
-        latest_data = [data for data in raw_data_list if data.updated_day == latest_day]
+        # 按上传量降序排序
         latest_data.sort(key=lambda x: x.upload or 0, reverse=True)
 
-        # 计算前一天的日期字符串
-        previous_day_str = (datetime.strptime(latest_day, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
-        
-        # 获取前一天的数据
-        previous_data_list = SiteOper().get_userdata_by_date(previous_day_str)
-        previous_by_site = {data.name: data for data in previous_data_list}
-
-        # 为当前站点查找对应的前一天数据
+        # 为每个站点查找对应的前一天数据
         previous_data = []
         for current_site in latest_data:
             site_name = current_site.name
+            current_day = current_site.updated_day
+            
+            # 计算该站点的前一天日期
+            previous_day_str = (datetime.strptime(current_day, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+            
+            # 获取前一天的数据
+            previous_data_list = SiteOper().get_userdata_by_date(previous_day_str)
+            previous_by_site = {data.name: data for data in previous_data_list}
             site_prev = previous_by_site.get(site_name)
             
             # 如果前一天没有该站点数据，尝试查找更早的数据
             if not site_prev or site_prev.err_msg:
                 # 最多回溯7天，避免查询过多历史数据
                 for i in range(2, 8):
-                    fallback_date = (datetime.strptime(latest_day, "%Y-%m-%d") - timedelta(days=i)).strftime("%Y-%m-%d")
+                    fallback_date = (datetime.strptime(current_day, "%Y-%m-%d") - timedelta(days=i)).strftime("%Y-%m-%d")
                     fallback_data_list = SiteOper().get_userdata_by_date(fallback_date)
                     fallback_by_site = {data.name: data for data in fallback_data_list}
                     candidate = fallback_by_site.get(site_name)
@@ -303,8 +303,7 @@ class SiteStatistic(_PluginBase):
             if site_prev:
                 previous_data.append(site_prev)
 
-        # 清理临时变量，帮助垃圾收集
-        del raw_data_list, previous_data_list, previous_by_site
+        # 清理垃圾
         gc.collect()
 
         return latest_day, latest_data, previous_data
