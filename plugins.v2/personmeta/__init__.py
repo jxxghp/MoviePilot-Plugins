@@ -55,9 +55,6 @@ class PersonMeta(_PluginBase):
 
     # 私有属性
     _scheduler = None
-    tmdbchain = None
-    mschain = None
-    mediaserver_helper = None
     _enabled = False
     _onlyonce = False
     _cron = None
@@ -67,9 +64,7 @@ class PersonMeta(_PluginBase):
     _mediaservers = []
 
     def init_plugin(self, config: dict = None):
-        self.tmdbchain = TmdbChain()
-        self.mschain = MediaServerChain()
-        self.mediaserver_helper = MediaServerHelper()
+
         if config:
             self._enabled = config.get("enabled")
             self._onlyonce = config.get("onlyonce")
@@ -266,7 +261,7 @@ class PersonMeta(_PluginBase):
                                             'model': 'mediaservers',
                                             'label': '媒体服务器',
                                             'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.mediaserver_helper.get_configs().values()]
+                                                      for config in MediaServerHelper().get_configs().values()]
                                         }
                                     }
                                 ]
@@ -316,7 +311,7 @@ class PersonMeta(_PluginBase):
             logger.warning("尚未配置媒体服务器，请检查配置")
             return None
 
-        services = self.mediaserver_helper.get_services(type_filter=type_filter, name_filters=self._mediaservers)
+        services = MediaServerHelper().get_services(type_filter=type_filter, name_filters=self._mediaservers)
         if not services:
             logger.warning("获取媒体服务器实例失败，请检查配置")
             return None
@@ -355,7 +350,7 @@ class PersonMeta(_PluginBase):
             logger.warn(f"{mediainfo.title_year} 在媒体库中不存在")
             return
         # 查询条目详情
-        iteminfo = self.mschain.iteminfo(server=existsinfo.server, item_id=existsinfo.itemid)
+        iteminfo = MediaServerChain().iteminfo(server=existsinfo.server, item_id=existsinfo.itemid)
         if not iteminfo:
             logger.warn(f"{mediainfo.title_year} 条目详情获取失败")
             return
@@ -371,12 +366,13 @@ class PersonMeta(_PluginBase):
         service_infos = self.service_infos()
         if not service_infos:
             return
+        mediaserverchain = MediaServerChain()
         for server, service in service_infos.items():
             # 扫描所有媒体库
             logger.info(f"开始刮削服务器 {server} 的演员信息 ...")
-            for library in self.mschain.librarys(server):
+            for library in mediaserverchain.librarys(server):
                 logger.info(f"开始刮削媒体库 {library.name} 的演员信息 ...")
-                for item in self.mschain.items(server, library.id):
+                for item in mediaserverchain.items(server, library.id):
                     if not item:
                         continue
                     if not item.item_id:
@@ -577,7 +573,7 @@ class PersonMeta(_PluginBase):
             # 从TMDB信息中更新人物信息
             person_tmdbid, person_imdbid = __get_peopleid(personinfo)
             if person_tmdbid:
-                person_detail = self.tmdbchain.person_detail(int(person_tmdbid))
+                person_detail = TmdbChain().person_detail(int(person_tmdbid))
                 if person_detail:
                     cn_name = self.__get_chinese_name(person_detail)
                     # 图片优先从TMDB获取

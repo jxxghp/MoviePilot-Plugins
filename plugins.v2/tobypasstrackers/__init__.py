@@ -1,26 +1,24 @@
-from typing import Any, List, Dict, Tuple, Optional
-from datetime import datetime, timedelta
-import ipaddress
-import socket
-import base64
-import json
 import asyncio
+import base64
+import ipaddress
+import json
+import socket
+from datetime import datetime, timedelta
+from typing import Any, List, Dict, Tuple, Optional
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import Response
-from apscheduler.triggers.cron import CronTrigger
 import pytz
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from fastapi import Response
 
-from app.chain.site import SiteChain
 from app.core.config import settings
-from app.core.event import EventManager, eventmanager
+from app.core.event import eventmanager
 from app.db.site_oper import SiteOper
-from app.helper.sites import SitesHelper
 from app.log import logger
 from app.plugins import _PluginBase
-from app.utils.http import RequestUtils
-from app.schemas.types import EventType, NotificationType
 from app.plugins.tobypasstrackers.dns_helper import DnsHelper
+from app.schemas.types import EventType, NotificationType
+from app.utils.http import RequestUtils
 
 
 class ToBypassTrackers(_PluginBase):
@@ -43,13 +41,6 @@ class ToBypassTrackers(_PluginBase):
     # 可使用的用户级别
     auth_level = 2
 
-    # 私有属性
-    sites: SitesHelper = None
-    site_chain: SiteChain = None
-    siteoper: SiteOper = None
-
-    # 事件管理器
-    event: EventManager = None
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
     # 开关
@@ -67,13 +58,12 @@ class ToBypassTrackers(_PluginBase):
     _dns_input: str = ""
     ipv6_txt: str = ""
     ipv4_txt: str = ""
+    trackers: Dict[str, List[str]] = {}
 
     def init_plugin(self, config: dict = None):
-        self.sites = SitesHelper()
-        # self.event = EventManager()
-        self.site_chain = SiteChain()
+
         self.stop_service()
-        self.siteoper = SiteOper()
+
         self.trackers = {}
         self.ipv6_txt = self.get_data("ipv6_txt") if self.get_data("ipv6_txt") else ""
         self.ipv4_txt = self.get_data("ipv4_txt") if self.get_data("ipv4_txt") else ""
@@ -98,7 +88,7 @@ class ToBypassTrackers(_PluginBase):
             self._china_ipv6_route = config.get("china_ipv6_route")
             self._china_ip_route = config.get("china_ip_route")
             # 过滤掉已删除的站点
-            all_sites = [site.id for site in self.siteoper.list_order_by_pri()]
+            all_sites = [site.id for site in SiteOper().list_order_by_pri()]
             self._bypassed_sites = [site_id for site_id in all_sites if site_id in self._bypassed_sites]
             self.__update_config()
         if self._enabled or self._onlyonce:
@@ -160,8 +150,7 @@ class ToBypassTrackers(_PluginBase):
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         site_options = ([{"title": site.name, "value": site.id}
-                         for site in self.siteoper.list_order_by_pri()]
-        )
+                         for site in SiteOper().list_order_by_pri()])
         return [
             {
                 'component': 'VForm',
@@ -629,7 +618,7 @@ class ToBypassTrackers(_PluginBase):
                 chnroute_lists = res.text[:-1].split('\n')
                 for ipr in chnroute_lists:
                     ip_list.append(ipr)
-        do_sites = {site.domain: site.name for site in self.siteoper.list_order_by_pri() if
+        do_sites = {site.domain: site.name for site in SiteOper().list_order_by_pri() if
                     site.id in self._bypassed_sites}
         domain_name_map = {}
         for site in do_sites:

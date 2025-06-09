@@ -45,9 +45,6 @@ class SiteStatistic(_PluginBase):
     auth_level = 2
 
     # 配置属性
-    siteoper = None
-    siteshelper = None
-    sitechain = None
     _enabled: bool = False
     _onlyonce: bool = False
     _dashboard_type: str = "today"
@@ -55,9 +52,6 @@ class SiteStatistic(_PluginBase):
     _scheduler = None
 
     def init_plugin(self, config: dict = None):
-        self.siteoper = SiteOper()
-        self.siteshelper = SitesHelper()
-        self.sitechain = SiteChain()
 
         # 停止现有任务
         self.stop_service()
@@ -72,7 +66,7 @@ class SiteStatistic(_PluginBase):
         if self._onlyonce:
             config["onlyonce"] = False
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            self._scheduler.add_job(self.sitechain.refresh_userdatas, "date",
+            self._scheduler.add_job(SiteChain().refresh_userdatas, "date",
                                     run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                                     name="站点数据统计服务")
             self._scheduler.print_jobs()
@@ -263,13 +257,14 @@ class SiteStatistic(_PluginBase):
             self.post_message(mtype=NotificationType.SiteMessage,
                               title="站点数据统计", text="\n".join(sorted_messages))
 
-    def __get_data(self) -> Tuple[str, List[SiteUserData], List[SiteUserData]]:
+    @staticmethod
+    def __get_data() -> Tuple[str, List[SiteUserData], List[SiteUserData]]:
         """
         获取最近一次统计的日期、最近一次统计的站点数据、上一次的站点数据
         如果上一次某个站点数据缺失，则 fallback 到该站点之前最近有数据的日期
         """
         # 获取所有原始数据
-        raw_data_list: List[SiteUserData] = self.siteoper.get_userdata()
+        raw_data_list: List[SiteUserData] = SiteOper().get_userdata()
         if not raw_data_list:
             return "", [], []
 
@@ -1009,13 +1004,14 @@ class SiteStatistic(_PluginBase):
     def stop_service(self):
         pass
 
-    def refresh_by_domain(self, domain: str, apikey: str) -> schemas.Response:
+    @staticmethod
+    def refresh_by_domain(domain: str, apikey: str) -> schemas.Response:
         """
         刷新一个站点数据，可由API调用
         """
         if apikey != settings.API_TOKEN:
             return schemas.Response(success=False, message="API密钥错误")
-        site_info = self.siteshelper.get_indexer(domain)
+        site_info = SitesHelper().get_indexer(domain)
         if site_info:
             site_data = SiteChain().refresh_userdata(site=site_info)
             if site_data:

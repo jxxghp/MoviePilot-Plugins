@@ -32,13 +32,12 @@ class MediaServerRefresh(_PluginBase):
     auth_level = 1
 
     # 私有属性
-    mediaserver_helper = None
     _enabled = False
     _delay = 0
     _mediaservers = None
 
     def init_plugin(self, config: dict = None):
-        self.mediaserver_helper = MediaServerHelper()
+
         if config:
             self._enabled = config.get("enabled")
             self._delay = config.get("delay") or 0
@@ -53,7 +52,7 @@ class MediaServerRefresh(_PluginBase):
             logger.warning("尚未配置媒体服务器，请检查配置")
             return None
 
-        services = self.mediaserver_helper.get_services(name_filters=self._mediaservers)
+        services = MediaServerHelper().get_services(name_filters=self._mediaservers)
         if not services:
             logger.warning("获取媒体服务器实例失败，请检查配置")
             return None
@@ -128,7 +127,7 @@ class MediaServerRefresh(_PluginBase):
                                             'model': 'mediaservers',
                                             'label': '媒体服务器',
                                             'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.mediaserver_helper.get_configs().values()]
+                                                      for config in MediaServerHelper().get_configs().values()]
                                         }
                                     }
                                 ]

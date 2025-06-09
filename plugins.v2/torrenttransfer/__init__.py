@@ -12,7 +12,6 @@ from qbittorrentapi import TorrentDictionary
 
 from app.core.config import settings
 from app.helper.downloader import DownloaderHelper
-from app.helper.torrent import TorrentHelper
 from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
@@ -43,8 +42,7 @@ class TorrentTransfer(_PluginBase):
 
     # 私有属性
     _scheduler = None
-    torrent_helper = None
-    downloader_helper = None
+
     # 开关
     _enabled = False
     _cron = None
@@ -76,8 +74,7 @@ class TorrentTransfer(_PluginBase):
     _torrent_tags = []
 
     def init_plugin(self, config: dict = None):
-        self.torrent_helper = TorrentHelper()
-        self.downloader_helper = DownloaderHelper()
+
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
@@ -136,7 +133,8 @@ class TorrentTransfer(_PluginBase):
                 self._scheduler.print_jobs()
                 self._scheduler.start()
 
-    def service_info(self, name: str) -> Optional[ServiceInfo]:
+    @staticmethod
+    def service_info(name: str) -> Optional[ServiceInfo]:
         """
         服务信息
         """
@@ -144,7 +142,7 @@ class TorrentTransfer(_PluginBase):
             logger.warning("尚未配置下载器，请检查配置")
             return None
 
-        service = self.downloader_helper.get_service(name)
+        service = DownloaderHelper().get_service(name)
         if not service or not service.instance:
             logger.warning(f"获取下载器 {name} 实例失败，请检查配置")
             return None
@@ -197,7 +195,7 @@ class TorrentTransfer(_PluginBase):
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
         downloader_options = [{"title": config.name, "value": config.name}
-                              for config in self.downloader_helper.get_configs().values()]
+                              for config in DownloaderHelper().get_configs().values()]
         return [
             {
                 'component': 'VForm',
@@ -622,7 +620,8 @@ class TorrentTransfer(_PluginBase):
             return
         downloader = service.instance
         from_service = self.service_info(self._fromdownloader)
-        if self.downloader_helper.is_downloader("qbittorrent", service=service):
+        downloader_helper = DownloaderHelper()
+        if downloader_helper.is_downloader("qbittorrent", service=service):
             # 生成随机Tag
             tag = StringUtils.generate_random_str(10)
             if self._remainoldtag:
@@ -651,7 +650,7 @@ class TorrentTransfer(_PluginBase):
                     logger.error(f"{downloader} 下载任务添加成功，但获取任务信息失败！")
                     return None
             return torrent_hash
-        elif self.downloader_helper.is_downloader("transmission", service=service):
+        elif downloader_helper.is_downloader("transmission", service=service):
             # 添加任务
             if self._remainoldtag:
                 # 获取种子标签
@@ -780,6 +779,7 @@ class TorrentTransfer(_PluginBase):
             # 删除重复数
             del_dup = 0
 
+            downloader_helper = DownloaderHelper()
             for torrent_item in trans_torrents:
                 # 检查种子文件是否存在
                 torrent_file = Path(self._fromtorrentpath) / f"{torrent_item.get('hash')}.torrent"
@@ -814,7 +814,7 @@ class TorrentTransfer(_PluginBase):
                     continue
 
                 # 如果源下载器是QB检查是否有Tracker，没有的话额外获取
-                if self.downloader_helper.is_downloader("qbittorrent", service=from_service):
+                if downloader_helper.is_downloader("qbittorrent", service=from_service):
                     # 读取种子内容、解析种子文件
                     content = torrent_file.read_bytes()
                     if not content:
@@ -878,7 +878,7 @@ class TorrentTransfer(_PluginBase):
                     logger.info(f"成功添加转移做种任务，种子文件：{torrent_file}")
 
                     # TR会自动校验，QB需要手动校验
-                    if self.downloader_helper.is_downloader("qbittorrent", service=to_service):
+                    if downloader_helper.is_downloader("qbittorrent", service=to_service):
                         if self._skipverify:
                             if self._autostart:
                                 logger.info(f"{download_id} 跳过校验，开启自动开始，注意观察种子的完整性")

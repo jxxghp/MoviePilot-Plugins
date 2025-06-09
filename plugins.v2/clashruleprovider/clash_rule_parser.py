@@ -282,7 +282,8 @@ class ClashRuleParser:
 
         return self.rules
 
-    def validate_rule(self, rule: ClashRule) -> bool:
+    @staticmethod
+    def validate_rule(rule: ClashRule) -> bool:
         """Validate a parsed rule"""
         try:
             # Basic validation based on rule type
@@ -305,7 +306,8 @@ class ClashRuleParser:
 
             return True
 
-        except Exception:
+        except Exception as e:
+            print(f"Invalid rule '{rule.raw_rule}': {e}")
             return False
 
     def to_string(self) -> List[str]:

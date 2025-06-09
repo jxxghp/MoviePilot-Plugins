@@ -337,7 +337,8 @@ class ChatGPT(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
-    def is_api_error(self, response):
+    @staticmethod
+    def is_api_error(response):
         """
         判断响应是否表示API错误
         :param response: API响应

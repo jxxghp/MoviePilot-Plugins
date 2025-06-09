@@ -1,25 +1,23 @@
-import requests
-import re
-from typing import Any, Optional, List, Dict, Tuple, Union
-import time
-import yaml
 import hashlib
-from fastapi import Body, Response
+import re
+import time
 from datetime import datetime, timedelta
-import pytz
+from typing import Any, Optional, List, Dict, Tuple, Union
 
+import pytz
+import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
-from cachetools import cached, TTLCache
 from apscheduler.triggers.cron import CronTrigger
+from fastapi import Body, Response
 
 from app.core.config import settings
-from app.core.event import eventmanager, Event
+from app.core.event import eventmanager
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas.types import EventType, NotificationType
-from app.utils.http import RequestUtils
-from app.plugins.clashruleprovider.clash_rule_parser import ClashRuleParser
 from app.plugins.clashruleprovider.clash_rule_parser import Action, RuleType, ClashRule, MatchRule, LogicRule
+from app.plugins.clashruleprovider.clash_rule_parser import ClashRuleParser
+from app.schemas.types import EventType
+from app.utils.http import RequestUtils
 
 
 class ClashRuleProvider(_PluginBase):
@@ -82,7 +80,7 @@ class ClashRuleProvider(_PluginBase):
         self._ruleset_rules = self.get_data("ruleset_rules")
         self._top_rules = self.get_data("top_rules")
         self._subscription_info = self.get_data("subscription_info") or \
-                                   {"download": 0, "upload": 0, "total": 0, "expire": 0, "last_update": 0}
+                                  {"download": 0, "upload": 0, "total": 0, "expire": 0, "last_update": 0}
         self._rule_provider = self.get_data("rule_provider") or {}
         self._ruleset_names = self.get_data("ruleset_names") or {}
         if config:
@@ -301,7 +299,7 @@ class ClashRuleProvider(_PluginBase):
     def test_connectivity(self, params: Dict[str, Any]) -> Dict[str, Any]:
         if not self._enabled:
             return {"success": False, "message": ""}
-        if not params.get('clash_dashboard_url') or not params.get('clash_dashboard_secret')\
+        if not params.get('clash_dashboard_url') or not params.get('clash_dashboard_secret') \
                 or not params.get('sub_link'):
             return {"success": False, "message": "missing params"}
         clash_version_url = f"{params.get('clash_dashboard_url')}/version"
@@ -363,7 +361,8 @@ class ClashRuleProvider(_PluginBase):
         if params.get('type') == 'ruleset':
             res = self.delete_rule_by_priority(params.get('priority'), self._ruleset_rule_parser)
             if res:
-                self.__add_notification_job(f"{self._ruleset_prefix}{res.action.value if isinstance(res.action, Action) else res.action}")
+                self.__add_notification_job(
+                    f"{self._ruleset_prefix}{res.action.value if isinstance(res.action, Action) else res.action}")
         else:
             res = self.delete_rule_by_priority(params.get('priority'), self._clash_rule_parser)
         return {"success": res, "message": None}
@@ -403,7 +402,7 @@ class ClashRuleProvider(_PluginBase):
             res = self.update_rule_by_priority(params.get('rule_data'), self._clash_rule_parser)
         return {"success": bool(res), "message": None}
 
-    def add_rule(self,  params: Dict[str, Any]) -> Dict[str, Any]:
+    def add_rule(self, params: Dict[str, Any]) -> Dict[str, Any]:
         if not self._enabled:
             return {"success": False, "message": ""}
         if params.get('type') == 'ruleset':
