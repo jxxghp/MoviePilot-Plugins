@@ -29,7 +29,7 @@ class ToBypassTrackers(_PluginBase):
     # 插件图标
     plugin_icon = "Clash_A.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.4.1"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -698,6 +698,6 @@ class ToBypassTrackers(_PluginBase):
             res_message = success_msg + failed_msg
             res_message = "\n".join(res_message)
             self.post_message(title=f"【绕过Trackers】",
-                              mtype=NotificationType.SiteMessage,
+                              mtype=NotificationType.Plugin,
                               text=f"{res_message}"
                               )
