@@ -18,7 +18,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -317,15 +317,16 @@ class MediaServerMsg(_PluginBase):
         # 消息图片
         image_url = event_info.image_url
         # 查询剧集图片
-        if (event_info.tmdb_id
-                and event_info.season_id
-                and event_info.episode_id):
+        if event_info.tmdb_id:
+            season_id = event_info.season_id if event_info.season_id else None
+            episode_id = event_info.episode_id if event_info.episode_id else None
+
             specific_image = self.chain.obtain_specific_image(
                 mediaid=event_info.tmdb_id,
                 mtype=MediaType.TV,
                 image_type=MediaImageType.Backdrop,
-                season=event_info.season_id,
-                episode=event_info.episode_id
+                season=season_id,
+                episode=episode_id
             )
             if specific_image:
                 image_url = specific_image
