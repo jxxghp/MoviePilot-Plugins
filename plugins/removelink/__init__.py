@@ -139,14 +139,12 @@ class RemoveLink(_PluginBase):
     _delete_scrap_infos = False
     _delete_torrents = False
     _delete_history = False
-    _transferhistory = None
     _observer = []
     # 监控目录的文件列表
     state_set: Dict[str, int] = {}
 
     def init_plugin(self, config: dict = None):
         logger.info(f"Hello, RemoveLink! config {config}")
-        self._transferhistory = TransferHistoryOper()
         if config:
             self._enabled = config.get("enabled")
             self._notify = config.get("notify")
@@ -491,10 +489,11 @@ class RemoveLink(_PluginBase):
         if not self._delete_history:
             return
         # 查找历史记录
-        transfer_history = self._transferhistory.get_by_src(path)
+        _transferhistory = TransferHistoryOper()
+        transfer_history = _transferhistory.get_by_src(path)
         if transfer_history:
             # 删除历史记录
-            self._transferhistory.delete(transfer_history.id)
+            _transferhistory.delete(transfer_history.id)
             logger.info(f"删除历史记录：{transfer_history.id}")
 
     def delete_empty_folders(self, path):
