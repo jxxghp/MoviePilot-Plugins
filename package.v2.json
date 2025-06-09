@@ -450,5 +450,17 @@
     "history": {
       "v0.1.0": "新增ClashRuleProvider"
     }
+  },
+  "LexiAnnot": {
+    "name": "美剧生词标注",
+    "description": "根据CEFR等级，为英语影视剧标注高级词汇。",
+    "labels": "英语",
+    "version": "1.0",
+    "icon": "LexiAnnot.png",
+    "author": "wumode",
+    "level": 1,
+    "history": {
+      "v1.0": "新增LexiAnnot"
+    }
   }
 }
