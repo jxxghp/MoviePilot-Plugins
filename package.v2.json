@@ -411,7 +411,7 @@
     "name": "绕过Trackers",
     "description": "提供tracker服务器IP地址列表，帮助IPv6连接绕过OpenClash",
     "labels": "工具",
-    "version": "1.4",
+    "version": "1.4.1",
     "icon": "Clash_A.png",
     "author": "wumode",
     "level": 2,
@@ -420,7 +420,8 @@
       "v1.1": "更新列表后发送通知",
       "v1.2": "修复Trackers加载错误",
       "v1.3": "新增一些Trackers",
-      "v1.4": "异步查询DNS"
+      "v1.4": "异步查询DNS",
+      "v1.4.1": "修复通知类型错误"
     }
   },
   "ImdbSource": {
