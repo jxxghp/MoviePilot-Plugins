@@ -27,7 +27,7 @@ class AutoClean(_PluginBase):
     # 插件图标
     plugin_icon = "clean.png"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -119,34 +119,33 @@ class AutoClean(_PluginBase):
 
         # 根据填写的信息判断怎么清理
         else:
-            # username:days#cleantype
-            clean_type = self._cleantype
-            clean_date = self._cleandate
-
             # 1.3.7版本及之前处理多位用户
             if str(self._cleanuser).count(','):
                 for username in str(self._cleanuser).split(","):
-                    downloadhis_list = _downloadhis.list_by_user_date(date=clean_date,
+                    downloadhis_list = _downloadhis.list_by_user_date(date=self._cleandate,
                                                                       username=username)
                     logger.info(
-                        f'获取到用户 {username} 日期 {clean_date} 之前的下载历史 {len(downloadhis_list)} 条')
-                    self.__clean_history(date=clean_date, clean_type=self._cleantype, downloadhis_list=downloadhis_list)
+                        f'获取到用户 {username} 日期 {self._cleandate} 之前的下载历史 {len(downloadhis_list)} 条')
+                    self.__clean_history(date=self._cleandate, clean_type=self._cleantype, downloadhis_list=downloadhis_list)
                 return
 
             for userinfo in str(self._cleanuser).split("\n"):
+                # username:days#cleantype
+                clean_type = self._cleantype
+                days = self._cleandate
                 if userinfo.count('#'):
                     clean_type = userinfo.split('#')[1]
                     username_and_days = userinfo.split('#')[0]
                 else:
                     username_and_days = userinfo
                 if username_and_days.count(':'):
-                    clean_date = username_and_days.split(':')[1]
+                    days = username_and_days.split(':')[1]
                     username = username_and_days.split(':')[0]
                 else:
                     username = userinfo
 
                 # 转strftime
-                clean_date = self.__get_clean_date(clean_date)
+                clean_date = self.__get_clean_date(days)
                 logger.info(f'{username} 使用 {clean_type} 清理方式，清理 {clean_date} 之前的下载历史')
                 downloadhis_list = _downloadhis.list_by_user_date(date=clean_date,
                                                                   username=username)
