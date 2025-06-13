@@ -206,13 +206,14 @@
     "name": "定时清理媒体库",
     "description": "定时清理用户下载的种子、源文件、媒体库文件。",
     "labels": "媒体库",
-    "version": "2.1",
+    "version": "2.2",
     "icon": "clean.png",
     "author": "thsrite",
     "level": 2,
     "history": {
       "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
-      "v2.0": "兼容MoviePilot V2 版本"
+      "v2.0": "兼容MoviePilot V2 版本",
+      "v2.2": "fix"
     }
   },
   "TorrentRemover": {
