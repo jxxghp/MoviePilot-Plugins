@@ -196,7 +196,7 @@ class WorkWechatMsg(_PluginBase):
                     }
                 }
 
-            res = RequestUtils().post_res(url=self._webhookurl, json=payload)
+            res = RequestUtils(content_type="application/json").post_res(url=self._webhookurl, json=payload)
             if res and res.status_code == 200:
                 ret_json = res.json()
                 errno = ret_json.get('errcode')
