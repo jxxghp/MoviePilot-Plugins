@@ -3,11 +3,12 @@
     "name": "站点数据统计",
     "description": "站点统计数据图表。",
     "labels": "站点,仪表板",
-    "version": "1.7.1",
+    "version": "1.7.2",
     "icon": "statistic.png",
     "author": "lightolly,jxxghp",
     "level": 2,
     "history": {
+      "v1.7.2": "修复站点数据增量处理逻辑",
       "v1.7.1": "优化内存占用",
       "v1.6": "优化了站点数据获取失败时的回退逻辑",
       "v1.5": "修复了发送增量通知失败等一些问题",
