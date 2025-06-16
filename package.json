@@ -1018,5 +1018,15 @@
     "history": {
       "v1.3": "消息限流发送，以缓解IYUU服务器压力"
     }
+  },
+  "WxPusherMsg": {
+    "name": "WxPusher消息推送",
+    "description": "支持微信(暂时停止)、APP(无后台)、浏览器插件通知。",
+    "labels": "消息通知",
+    "version": "1.0",
+    "icon": "WxPusherMsg_A.png",
+    "author": "zhjay",
+    "level": 1,
+    "v2": true
   }
 }
