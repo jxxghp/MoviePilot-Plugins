@@ -1,13 +1,18 @@
-from datetime import datetime
+import re
+import json
 from typing import Optional, Any, List, Dict, Tuple
+from datetime import datetime
 
-from app import schemas
 from app.core.config import settings
 from app.core.event import eventmanager, Event
+from app.log import logger
 from app.plugins import _PluginBase
-from app.plugins.imdbsource.imdb_helper import ImdbHelper
 from app.schemas import DiscoverSourceEventData, MediaRecognizeConvertEventData, RecommendSourceEventData
 from app.schemas.types import ChainEventType, MediaType
+from app.core.meta import MetaBase
+from app.core.context import MediaInfo
+from app.plugins.imdbsource.imdb_helper import ImdbHelper
+from app import schemas
 from app.utils.http import RequestUtils
 
 
@@ -17,10 +22,9 @@ class ImdbSource(_PluginBase):
     # 插件描述
     plugin_desc = "让探索和推荐支持IMDb数据源。"
     # 插件图标
-    plugin_icon = ("https://raw.githubusercontent.com/jxxghp/"
-                   "MoviePilot-Plugins/refs/heads/main/icons/IMDb_IOS-OSX_App.png")
+    plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.3.1"
+    plugin_version = "1.3.2"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -123,7 +127,134 @@ class ImdbSource(_PluginBase):
             "id2": self.xxx2,
         }
         """
+        # return {"recognize_media": (self.recognize_media, ModuleExecutionType.Hijack)}
         pass
+
+    @staticmethod
+    # @MediaInfo.source_processor("imdb")
+    def process_imdb_info(mediainfo: MediaInfo, info: dict):
+        """处理 IMDB 信息"""
+        mediainfo.source_info["imdb"] = info
+        if isinstance(info.get('media_type'), MediaType):
+            mediainfo.type = info.get('media_type')
+        elif info.get('media_type'):
+            mediainfo.type = MediaType.MOVIE if info.get("type") == "movie" else MediaType.TV
+        mediainfo.title = info.get("title")
+        mediainfo.release_date = info.get('release_date')
+        if info.get("id"):
+            mediainfo.source_id["imdb"] = info.get("id")
+            mediainfo.imdb_id = info.get('id')
+        if not mediainfo.source_id:
+            return
+        mediainfo.vote_average = round(float(info.get("rating").get("aggregate_rating")), 1) if info.get("rating") else 0
+        mediainfo.overview = info.get('plot')
+        mediainfo.genre_ids = info.get('genre') or []
+        # 风格
+        if not mediainfo.genres:
+            mediainfo.genres = [{"id": genre, "name": genre} for genre in info.get("genres") or []]
+        if info.get('spoken_languages', []):
+            mediainfo.original_language = info.get('spoken_languages', [])[0].get("name")
+        mediainfo.en_title = info.get('primary_title')
+        mediainfo.title = info.get('primary_title')
+        mediainfo.original_title = info.get('original_title')
+        # mediainfo.release_date = info.get('start_year')
+        mediainfo.year = info.get('start_year')
+        if info.get('posters', []):
+            mediainfo.poster_path = info.get("posters", [])[0].get("url")
+        directors = []
+        if info.get('directors', []):
+            for dn in info.get('directors', []):
+                director = dn.get("name")
+                if not director:
+                    continue
+                d_ = {"name": director.get("display_name"), "id": director.get("id"), "avatars": director.get("avatars")}
+                directors.append(d_)
+        if info.get('writers', []):
+            for wn in info.get('writers', []):
+                writer = wn.get("name")
+                d_ = {"name": writer.get("display_name"), "id": writer.get("id"), "avatars": writer.get("avatars")}
+                directors.append(d_)
+        mediainfo.directors = directors
+        actors = []
+        if info.get('casts', []):
+            for cast in info.get('casts', []):
+                cn = cast.get("name", {})
+                character_name = cast.get("characters")[0] if cast.get("characters") else ''
+                d_ = {"name": cn.get("display_name"), "id": cn.get("id"),
+                      "avatars": cn.get("avatars"), "character": character_name}
+                actors.append(d_)
+
+    def recognize_media(self, meta: MetaBase = None,
+                        mtype: MediaType = None,
+                        imdbid: Optional[str] = None,
+                        episode_group: Optional[str] = None,
+                        cache: Optional[bool] = True,
+                        **kwargs) -> Optional[MediaInfo]:
+        logger.warn(f"IMDb Source: {MetaBase.title}")
+        if not self._imdb_helper:
+            return None
+        if not imdbid and not meta:
+            return None
+        if not meta:
+            # 未提供元数据时，直接使用imdbid查询，不使用缓存
+            cache_info = {}
+        elif not meta.name:
+            logger.warn("识别媒体信息时未提供元数据名称")
+            return None
+        cache_info = {}
+        if not cache_info or not cache:
+            info = None
+            if imdbid:
+                info = self._imdb_helper.get_info(mtype=mtype, imdbid=imdbid)
+            if not info and meta:
+                info = {}
+                names = list(dict.fromkeys([k for k in [meta.cn_name, meta.en_name] if k]))
+                for name in names:
+                    if meta.begin_season:
+                        logger.info(f"正在识别 {name} 第{meta.begin_season}季 ...")
+                    else:
+                        logger.info(f"正在识别 {name} ...")
+                    if meta.type == MediaType.UNKNOWN and not meta.year:
+                        info = self._imdb_helper.match_multi(name)
+                    else:
+                        if meta.type == MediaType.TV:
+                            # 确定是电视
+                            info = self._imdb_helper.match(name=name,
+                                                           year=meta.year,
+                                                           mtype=meta.type,season_year=meta.year,
+                                                           season_number=meta.begin_season)
+                            if not info:
+                                # 去掉年份再查一次
+                                info = self._imdb_helper.match(name=name, mtype=meta.type)
+                        else:
+                            # 有年份先按电影查
+                            info = self._imdb_helper.match(name=name, year=meta.year, mtype=MediaType.MOVIE)
+                            # 没有再按电视剧查
+                            if not info:
+                                info = self._imdb_helper.match(name=name,
+                                                               year=meta.year,
+                                                               mtype=MediaType.TV)
+                            if not info:
+                                # 去掉年份和类型再查一次
+                                info = self._imdb_helper.match_multi(name=name)
+                    if info:
+                        break
+        else:
+            info = None
+        if info:
+            # mediainfo = MediaInfo(source_info={"imdb": info})
+            mediainfo = MediaInfo()
+            if meta:
+                logger.info(f"{meta.name} IMDB识别结果：{mediainfo.type.value} "
+                            f"{mediainfo.title_year} "
+                            f"{mediainfo.imdb_id}")
+            else:
+                logger.info(f"{imdbid} IMDB识别结果：{mediainfo.type.value} "
+                            f"{mediainfo.title_year}")
+            return mediainfo
+
+        logger.info(f"{meta.name if meta else imdbid} 未匹配到IMDB媒体信息")
+        return None
 
     @staticmethod
     def __movie_to_media(movie_info: dict) -> schemas.MediaInfo:
@@ -150,7 +281,7 @@ class ImdbSource(_PluginBase):
         return schemas.MediaInfo(
             type="电影",
             title=title,
-            year=release_year,
+            year=f'{release_year}',
             title_year=f"{title} ({release_year})",
             mediaid_prefix="imdb",
             media_id=str(movie_info.get("id")),
@@ -191,7 +322,7 @@ class ImdbSource(_PluginBase):
         return schemas.MediaInfo(
             type="电视剧",
             title=title,
-            year=release_year,
+            year=f'{release_year}',
             title_year=f"{title} ({release_year})",
             mediaid_prefix="imdb",
             media_id=str(series_info.get("id")),

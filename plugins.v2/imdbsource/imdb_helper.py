@@ -1,15 +1,11 @@
 import re
 from typing import Optional, Any, Dict, List, Tuple
-from io import StringIO
 from collections import OrderedDict
 from dataclasses import dataclass
 
-import graphene
 import requests
 from requests_html import HTMLSession
 import ijson
-import json
-import base64
 
 from app.log import logger
 from app.utils.http import RequestUtils
@@ -149,8 +145,7 @@ class ImdbHelper:
 
     def __init__(self, proxies=None):
         self._proxies = proxies
-        self._session = HTMLSession()
-        self._req_utils = RequestUtils(headers=self._imdb_headers, session=self._session, timeout=10, proxies=proxies)
+        self._req_utils = RequestUtils(headers=self._imdb_headers, session=HTMLSession(), timeout=10, proxies=proxies)
         self._imdb_req = RequestUtils(accept_type="application/json",
                                       content_type="application/json",
                                       headers=self._imdb_headers,
@@ -158,6 +153,7 @@ class ImdbHelper:
                                       proxies=proxies,
                                       session=requests.Session())
         self._imdb_api_hash = {"AdvancedTitleSearch": None, "TitleAkasPaginated": None}
+        self.hash_status = {"AdvancedTitleSearch": False, "TitleAkasPaginated": False}
         self._search_states = OrderedDict()
         self._max_states = 30
 
@@ -185,7 +181,7 @@ class ImdbHelper:
                f"/en-US/title/{imdbid}/episodes.json?season={season}&ref_=ttep&tconst={imdbid}")
         response = self._req_utils.get_res(url)
         if not response or response.status_code != 200:
-            return
+            return None
         json_content = response.text
         try:
             section = next(ijson.items(json_content, prefix))
@@ -247,11 +243,14 @@ class ImdbHelper:
             return None
         data = ret.json()
         if "errors" in data:
-            logger.error(f"Imdb query errors")
-            return None
+            error = data.get("errors")[0] if data.get("errors") else {}
+            if error and error.get("message") == 'PersistedQueryNotFound':
+                logger.warn(f"PersistedQuery hash has expired, trying to update...")
+                self.__get_hash.cache_clear()
+            return {'error': error}
         return data.get("data")
 
-    @cached(maxsize=1, ttl=30 * 24 * 3600)
+    @cached(maxsize=1, ttl=6 * 3600)
     def __get_hash(self) -> Optional[dict]:
         """
         根据IMDb hash使用
@@ -264,11 +263,13 @@ class ImdbHelper:
             proxies=self._proxies
         )
         if not res:
-            logger.error("获取IMDb hash")
+            logger.error("Error getting hash")
             return None
         return res.json()
 
-    def __update_hash(self):
+    def __update_hash(self, force: bool = False) -> None:
+        if force:
+            self.__get_hash.cache_clear()
         imdb_hash = self.__get_hash()
         if imdb_hash:
             self._imdb_api_hash["AdvancedTitleSearch"] = imdb_hash.get("AdvancedTitleSearch")
@@ -325,7 +326,8 @@ class ImdbHelper:
                               release_date_start: Optional[str] = None,
                               award_constraint: Optional[Tuple[str, ...]] = None,
                               ranked: Optional[Tuple[str, ...]] = None,
-                              interests: Optional[Tuple[str, ...]] = None):
+                              interests: Optional[Tuple[str, ...]] = None
+                              )->Optional[Dict]:
         # 创建参数对象
         params = SearchParams(
             title_types=title_types,
@@ -342,7 +344,7 @@ class ImdbHelper:
             ranked=ranked,
             interests=interests
         )
-        sha256 = 'be358d7b41add9fd174461f4c8c673dfee5e2a88744e2d5dc037362a96e2b4e4'
+        sha256 = '81b46290a78cc1e8b3d713e6a43c191c55b4dccf3e1945d6b46668945846d832'
         self.__update_hash()
         if self._imdb_api_hash.get("AdvancedTitleSearch"):
             sha256 = self._imdb_api_hash["AdvancedTitleSearch"]
@@ -359,7 +361,7 @@ class ImdbHelper:
                         'titleTypes': [], 'jobCategories': []}
             if search_state.pageinfo.get('endCursor'):
                 last_cursor = search_state.pageinfo.get('endCursor')
-                # 这里实现基于上次结果的逻辑
+                # 实现基于上次结果的逻辑
             else:
                 # 重新搜索
                 first_page = True
@@ -382,11 +384,12 @@ class ImdbHelper:
                                 last_cursor: Optional[str] = None,
                                 ) -> Optional[Dict]:
 
-        variables = {"first": 50,
+        variables: Dict[str, Any] = {"first": 50,
                      "locale": "en-US",
                      "sortBy": params.sort_by,
                      "sortOrder": params.sort_order,
                      }
+        operation_name = 'AdvancedTitleSearch'
         if params.title_types:
             title_type_ids = []
             for title_type in params.title_types:
@@ -439,12 +442,20 @@ class ImdbHelper:
         if not first_page and last_cursor:
             variables["after"] = last_cursor
 
-        params = {"operationName": "AdvancedTitleSearch",
+        params = {"operationName": operation_name,
                   "variables": variables}
         data = self.__request(params, sha256)
         if not data:
             return None
-        return data.get("advancedTitleSearch")
+        if 'error' in data:
+            error = data['error']
+            if error:
+                logger.error(f"Error querying {operation_name}: {error.get('message')}")
+                if error.get('message') == 'PersistedQueryNotFound':
+                    self.hash_status[operation_name] = False
+            return None
+        self.hash_status[operation_name] = True
+        return data.get('advancedTitleSearch')
 
     def __known_as(self, imdbid: str,
                    sha256='48d4f7bfa73230fb550147bd4704d8050080e65fe2ad576da6276cac2330e446') -> Optional[List]:
@@ -453,14 +464,23 @@ class ImdbHelper:
         :param imdbid: IMBd id
         :return: 别名列表
         """
+        operation_name = "TitleAkasPaginated"
         self.__update_hash()
-        if self._imdb_api_hash.get("TitleAkasPaginated"):
-            sha256 = self._imdb_api_hash["TitleAkasPaginated"]
-        params = {"operationName": "TitleAkasPaginated",
+        if self._imdb_api_hash.get(operation_name):
+            sha256 = self._imdb_api_hash[operation_name]
+        params = {"operationName": operation_name,
                   "variables": {"const": imdbid, "first": 50, "locale": "en-US", "originalTitleText": False}}
         data = self.__request(params=params, sha256=sha256)
         if not data:
             return None
+        if 'error' in data:
+            error = data['error']
+            if error:
+                logger.error(f"Error querying {operation_name} API: {error.get('message')}")
+                if error.get('message') == 'PersistedQueryNotFound':
+                    self.hash_status[operation_name] = False
+            return None
+        self.hash_status[operation_name] = True
         if not data.get("data", {}).get("title", {}).get("akas", {}).get("total"):
             return None
         akas = []
@@ -633,6 +653,7 @@ class ImdbHelper:
                     _tv_info["seasons"] = tv_extra_info["seasons"]
                     _tv_info["episodes"] = tv_extra_info["episodes"]
                     return True
+            return False
 
         tvs = self.search_tvs(title=name)
         if (tvs is None) or (len(tvs) == 0):
@@ -660,6 +681,7 @@ class ImdbHelper:
                 continue
             if __season_match(_tv_info=tv_info, _season_year=season_year):
                 return tv_info
+        return None
 
     def get_info(self,
                  mtype: MediaType,

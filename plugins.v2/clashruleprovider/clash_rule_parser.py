@@ -1,8 +1,96 @@
 import re
-from typing import List, Dict, Any, Optional, Union, Callable
+from typing import List, Dict, Any, Optional, Union, Callable, Literal
 from dataclasses import dataclass
 from enum import Enum
 
+from pydantic import BaseModel, Field, validator
+
+
+class ProxyGroupBase(BaseModel):
+    """
+    包含所有代理组类型共有的通用字段。
+    """
+    # Required field
+    name: str = Field(..., description="The name of the proxy group.")
+
+    # Proxy and provider references
+    proxies: Optional[List[str]] = Field(None, description="References to outbound proxies or other proxy groups.")
+    use: Optional[List[str]] = Field(None, description="References to proxy provider sets.")
+
+    # Health check fields
+    url: Optional[str] = Field(None, description="Health check test address.")
+    interval: Optional[int] = Field(None, description="Health check interval in seconds.")
+    lazy: bool = Field(True, description="If not selected, no health checks are performed.")
+    timeout: Optional[int] = Field(5000, description="Health check timeout in milliseconds.")
+    max_failed_times: Optional[int] = Field(5, description="Maximum number of failures before a forced health check.")
+    expected_status: Optional[str] = Field(None, description="Expected HTTP response status code for health checks.")
+
+    # Network and routing fields
+    disable_udp: Optional[bool] = Field(False, description="Disables UDP for this proxy group.")
+    interface_name: Optional[str] = Field(None, description="DEPRECATED. Specifies the outbound interface.")
+    routing_mark: Optional[int] = Field(None, description="DEPRECATED. The routing mark for outbound connections.")
+
+    # Dynamic proxy inclusion
+    include_all: Optional[bool] = Field(False, description="Includes all outbound proxies and proxy sets.")
+    include_all_proxies: Optional[bool] = Field(False, description="Includes all outbound proxies.")
+    include_all_providers: Optional[bool] = Field(False, description="Includes all proxy provider sets.")
+
+    # Filtering
+    filter: Optional[str] = Field(None, description="Regex to filter nodes from providers.")
+    exclude_filter: Optional[str] = Field(None, description="Regex to exclude nodes.")
+    exclude_type: Optional[str] = Field(None, description="Exclude nodes by adapter type, separated by '|'.")
+
+    # UI fields
+    hidden: Optional[bool] = Field(False, description="Hides the proxy group in the API.")
+    icon: Optional[str] = Field(None, description="Icon string for the proxy group, for UI use.")
+
+
+    @validator('expected_status')
+    def validate_expected_status(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == '*':
+            return v
+        pattern = re.compile(r'^\d{3}([-/]\d{3})*$')
+        if not pattern.match(v):
+            raise ValueError("Invalid format for expected-status.")
+        parts = re.split(r'[/]', v)
+        for part in parts:
+            if '-' in part:
+                start, end = part.split('-')
+                if not (start.isdigit() and end.isdigit() and 100 <= int(start) < 600 and 100 <= int(end) < 600 and int(start) <= int(end)):
+                    raise ValueError(f"Invalid status code range: {part}")
+            elif not (part.isdigit() and 100 <= int(part) < 600):
+                raise ValueError(f"Invalid status code: {part}")
+        return v
+
+class SelectGroup(ProxyGroupBase):
+    type: Literal['select']
+
+class RelayGroup(ProxyGroupBase):
+    type: Literal['relay']
+
+class FallbackGroup(ProxyGroupBase):
+    type: Literal['fallback']
+
+class UrlTestGroup(ProxyGroupBase):
+    type: Literal['url-test']
+    tolerance: Optional[int] = Field(None, description="proxies switch tolerance, measured in milliseconds (ms).")
+
+class LoadBalanceGroup(ProxyGroupBase):
+    type: Literal['load-balance']
+    strategy: Optional[Literal['round-robin', 'consistent-hashing', 'sticky-sessions']] = Field(
+        'round-robin',
+        description="Load balancing strategy."
+    )
+
+# --- Discriminated Union ---
+ProxyGroupUnion = Union[SelectGroup, RelayGroup, FallbackGroup, UrlTestGroup, LoadBalanceGroup]
+
+class ProxyGroupValidator(BaseModel):
+    """
+    这是Pydantic V1的验证器。
+    它使用 __root__ 字段来处理可辨识联合。
+    """
+    __root__: ProxyGroupUnion
 
 class RuleType(Enum):
     """Enumeration of all supported Clash rule types"""
@@ -282,8 +370,7 @@ class ClashRuleParser:
 
         return self.rules
 
-    @staticmethod
-    def validate_rule(rule: ClashRule) -> bool:
+    def validate_rule(self, rule: ClashRule) -> bool:
         """Validate a parsed rule"""
         try:
             # Basic validation based on rule type
@@ -306,8 +393,7 @@ class ClashRuleParser:
 
             return True
 
-        except Exception as e:
-            print(f"Invalid rule '{rule.raw_rule}': {e}")
+        except Exception:
             return False
 
     def to_string(self) -> List[str]:
@@ -368,6 +454,15 @@ class ClashRuleParser:
         rule.priority = max_priority + 1
         self.rules.append(rule)
         # Re-sort rules to maintain order
+        self.rules.sort(key=lambda r: r.priority)
+
+    def append_rules(self, rules: List[Union[ClashRule, LogicRule, MatchRule]]) -> None:
+        max_priority = max(rule.priority for rule in self.rules) if len(self.rules) else 0
+        priority = max_priority + 1
+        for rule in rules:
+            rule.priority = priority
+            self.rules.append(rule)
+            priority += 1
         self.rules.sort(key=lambda r: r.priority)
 
     def insert_rule_at_priority(self, rule: Union[ClashRule, LogicRule, MatchRule], priority: int):
