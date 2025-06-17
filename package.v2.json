@@ -430,11 +430,12 @@
     "name": "IMDb源",
     "description": "让探索支持IMDb数据源。",
     "labels": "探索",
-    "version": "1.3.1",
+    "version": "1.3.2",
     "icon": "IMDb_IOS-OSX_App.png",
     "author": "wumode",
     "level": 1,
     "history": {
+      "v1.3.2": "更新 API query hash",
       "v1.3.1": "修复按日期排序错误",
       "v1.3": "优化网络连接",
       "v1.2": "推荐热门纪录片",
@@ -451,8 +452,8 @@
     "author": "wumode",
     "level": 1,
     "history": {
-      "v0.1.0": "新增ClashRuleProvider",
-      "v1.0.0": "支持: 规则分页; 导入规则; 代理组; 附加出站代理; 按区域分组"
+      "v1.0.0": "支持: 规则分页; 导入规则; 代理组; 附加出站代理; 按区域分组",
+      "v0.1.0": "新增ClashRuleProvider"
     }
   },
   "LexiAnnot": {
