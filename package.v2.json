@@ -178,11 +178,12 @@
     "name": "演职人员刮削",
     "description": "刮削演职人员图片以及中文名称。",
     "labels": "媒体库,刮削",
-    "version": "2.1",
+    "version": "2.2",
     "icon": "actor.png",
     "author": "jxxghp",
     "level": 1,
     "history": {
+      "v2.2": "修改使用自定义图片域名时无法下载图片的问题",
       "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
       "v2.0": "兼容MoviePilot V2 版本",
       "v1.4": "人物图片调整为优先从TMDB获取，避免douban图片CDN加载过慢的问题",
