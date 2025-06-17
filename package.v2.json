@@ -446,12 +446,13 @@
     "name": "Clash Rule Provider",
     "description": "随时为Clash添加一些额外的规则。",
     "labels": "工具",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "icon": "Mihomo_Meta_A.png",
     "author": "wumode",
     "level": 1,
     "history": {
-      "v0.1.0": "新增ClashRuleProvider"
+      "v0.1.0": "新增ClashRuleProvider",
+      "v1.0.0": "支持: 规则分页; 导入规则; 代理组; 附加出站代理; 按区域分组"
     }
   },
   "LexiAnnot": {
