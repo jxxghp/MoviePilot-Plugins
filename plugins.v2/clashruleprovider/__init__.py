@@ -32,7 +32,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -62,11 +62,12 @@ class ClashRuleProvider(_PluginBase):
     _retry_times = 3
     _filter_keywords = []
     _auto_update_subscriptions = True
-    _ruleset_prefix = '📂<-'
-    _group_by_region = False
+    _ruleset_prefix: str = '📂<-'
+    _group_by_region: bool = False
+    _refresh_delay: int = 5
 
     # 插件数据
-    _clash_config = None
+    _clash_config: Optional[Dict[str, Any]] = None
     _top_rules: List[str] = []
     _ruleset_rules: List[str] = []
     _rule_provider: Dict[str, Any] = {}
@@ -97,7 +98,7 @@ class ClashRuleProvider(_PluginBase):
             self._enabled = config.get("enabled")
             self._proxy = config.get("proxy")
             self._notify = config.get("notify"),
-            self._sub_links = config.get("sub_links")
+            self._sub_links = config.get("sub_links") or []
             self._clash_dashboard_url = config.get("clash_dashboard_url")
             self._clash_dashboard_secret = config.get("clash_dashboard_secret")
             self._movie_pilot_url = config.get("movie_pilot_url")
@@ -110,6 +111,7 @@ class ClashRuleProvider(_PluginBase):
             self._ruleset_prefix = config.get("ruleset_prefix", "Custom_")
             self._auto_update_subscriptions = config.get("auto_update_subscriptions")
             self._group_by_region = config.get("group_by_region")
+            self._refresh_delay = config.get("refresh_delay") or 5
         self._clash_rule_parser = ClashRuleParser()
         self._ruleset_rule_parser = ClashRuleParser()
         if self._enabled:
@@ -121,6 +123,9 @@ class ClashRuleProvider(_PluginBase):
             self.__parse_config()
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
             self._scheduler.start()
+            # 更新订阅
+            self._scheduler.add_job(self.__refresh_subscription, "date",
+                                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=5))
 
     def get_state(self) -> bool:
         return self._enabled
@@ -213,11 +218,11 @@ class ClashRuleProvider(_PluginBase):
             },
             {
                 "path": "/subscription",
-                "endpoint": self.update_subscription,
+                "endpoint": self.refresh_subscription,
                 "methods": ["PUT"],
                 "auth": "bear",
-                "summary": "update clash rules",
-                "description": "update clash rules"
+                "summary": "refresh clash configuration",
+                "description": "refresh clash configuration"
             },
             {
                 "path": "/rule-providers",
@@ -503,13 +508,13 @@ class ClashRuleProvider(_PluginBase):
             return schemas.Response(success=False, message=f"Invalid subscription links: {self._sub_links}")
         return schemas.Response(success=True, data={"url": self._sub_links[0]})
 
-    def update_subscription(self, params: Dict[str, Any]):
+    def refresh_subscription(self, params: Dict[str, Any]):
         if not self._enabled:
             return schemas.Response(success=False, message="")
         url = params.get('url')
         if not url:
             return schemas.Response(success=False, message="missing params")
-        res = self.__update_subscription()
+        res = self.__refresh_subscription()
         if not res:
             return schemas.Response(success=False, message=f"订阅链接 {self._sub_links[0]} 更新失败")
         return schemas.Response(success=True, message='订阅更新成功败')
@@ -693,13 +698,13 @@ class ClashRuleProvider(_PluginBase):
         return res
 
     @staticmethod
-    def format_bytes(bytes):
-        if bytes == 0:
+    def format_bytes(value_bytes):
+        if value_bytes == 0:
             return '0 B'
         k = 1024
         sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-        i = math.floor(math.log(bytes) / math.log(k))
-        return f"{bytes / math.pow(k, i):.2f} {sizes[i]}"
+        i = math.floor(math.log(value_bytes) / math.log(k))
+        return f"{value_bytes / math.pow(k, i):.2f} {sizes[i]}"
 
     @staticmethod
     def format_expire_time(timestamp):
@@ -708,7 +713,7 @@ class ClashRuleProvider(_PluginBase):
         return f"{days}天后过期" if days > 0 else "已过期"
 
     def update_subscription_service(self):
-        res = self.__update_subscription()
+        res = self.__refresh_subscription()
         if res:
             used = self._subscription_info['download'] + self._subscription_info['upload']
             remaining = self._subscription_info['total'] - used
@@ -725,10 +730,12 @@ class ClashRuleProvider(_PluginBase):
                               text=f"{message}"
                               )
 
-    def __update_subscription(self) -> bool:
+    def __refresh_subscription(self) -> bool:
         if not self._sub_links:
+            logger.error(f"Invalid links: {self._sub_links}")
             return False
         url = self._sub_links[0]
+        logger.info(f"Refreshing: {url}")
         ret = RequestUtils(accept_type="text/html",
                            proxies=settings.PROXY if self._proxy else None
                            ).get_res(url)
@@ -748,6 +755,8 @@ class ClashRuleProvider(_PluginBase):
             self._subscription_info['total'] = variables['total']
             self._subscription_info['expire'] = variables['expire']
         self._subscription_info["last_update"] = int(time.time())
+        self._proxy_groups_by_region = ClashRuleProvider.__group_by_region(self._countries,
+                                                                           self._clash_config.get('proxies'))
         self.save_data('subscription_info', self._subscription_info)
         self.save_data('clash_config', self._clash_config)
         return True
@@ -805,7 +814,8 @@ class ClashRuleProvider(_PluginBase):
     def __add_notification_job(self, ruleset: str):
         if ruleset in self._rule_provider:
             self._scheduler.add_job(self.notify_clash, "date",
-                                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=30),
+                                    run_date=datetime.now(
+                                        tz=pytz.timezone(settings.TZ)) + timedelta(seconds=self._refresh_delay),
                                     args=[ruleset],
                                     id='CRP-notify-clash',
                                     replace_existing=True
