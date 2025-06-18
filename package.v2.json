@@ -412,7 +412,7 @@
   },
   "ToBypassTrackers": {
     "name": "绕过Trackers",
-    "description": "提供tracker服务器IP地址列表，帮助IPv6连接绕过OpenClash",
+    "description": "提供tracker服务器IP地址列表，帮助IPv6连接绕过OpenClash。",
     "labels": "工具",
     "version": "1.4.1",
     "icon": "Clash_A.png",
@@ -448,11 +448,12 @@
     "name": "Clash Rule Provider",
     "description": "随时为Clash添加一些额外的规则。",
     "labels": "工具",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "icon": "Mihomo_Meta_A.png",
     "author": "wumode",
     "level": 1,
     "history": {
+      "v1.0.1": "支持规则搜索, 优化细节",
       "v1.0.0": "支持: 规则分页; 导入规则; 代理组; 附加出站代理; 按区域分组",
       "v0.1.0": "新增ClashRuleProvider"
     }
