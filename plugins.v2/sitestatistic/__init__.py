@@ -32,7 +32,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "lightolly,jxxghp"
     # 作者主页
@@ -283,6 +283,10 @@ class SiteStatistic(_PluginBase):
         latest_data: List[SiteUserData] = SiteOper().get_userdata_latest()
         if not latest_data:
             return "", [], []
+
+        # 过滤未启用或不存在的站点
+        site_domains = [site.domain for site in SiteOper().list_active()]
+        latest_data = [data for data in latest_data if data and data.domain in site_domains]
 
         # 获取最新日期（用于显示）
         latest_day = max(data.updated_day for data in latest_data)
