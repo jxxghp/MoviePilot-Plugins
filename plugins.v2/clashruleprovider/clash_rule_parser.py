@@ -3,8 +3,57 @@ from typing import List, Dict, Any, Optional, Union, Callable, Literal
 from dataclasses import dataclass
 from enum import Enum
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, HttpUrl
 
+
+class RuleProvider(BaseModel):
+    type: Literal["http", "file", "inline"] = Field(..., description="Provider type")
+    url: Optional[HttpUrl] = Field(None, description="Must be configured if the type is http")
+    path: Optional[str] = Field(None, description="Optional, file path, must be unique.")
+    interval: Optional[int] = Field(None, ge=0, description="The update interval for the provider, in seconds.")
+    proxy: Optional[str] = Field(None, description="Download/update through the specified proxy.")
+    behavior: Optional[Literal["domain", "ipcidr", "classical"]] = Field(None,
+                                                                         description="Behavior of the rule provider")
+    format: Literal["yaml", "text", "mrs"] = Field("yaml", description="Format of the rule provider file")
+    size_limit: int = Field(0, ge=0, description="The maximum size of downloadable files in bytes (0 for no limit)")
+    payload: Optional[List[str]] = Field(None, description="Content, only effective when type is inline")
+
+    @validator("url", pre=True, always=True)
+    def check_url_for_http_type(cls, v, values):
+        if values.get("type") == "http" and v is None:
+            raise ValueError("url must be configured if the type is 'http'")
+        return v
+
+    @validator("path", pre=True, always=True)
+    def check_path_for_file_type(cls, v, values):
+        if values.get("type") == "file" and v is None:
+            raise ValueError("path must be configured if the type is 'file'")
+        return v
+
+    @validator("payload", pre=True, always=True)
+    def handle_payload_for_non_inline_type(cls, v, values):
+        # If type is not inline, payload should be ignored (set to None)
+        if values.get("type") != "inline" and v is not None:
+            return None
+        return v
+
+    @validator("payload")
+    def check_payload_type_for_inline(cls, v, values):
+        if values.get("type") == "inline" and v is not None and not isinstance(v, list):
+            raise ValueError("payload must be a list of strings when type is 'inline'")
+        if values.get("type") == "inline" and v is None:
+            raise ValueError("payload must be configured if the type is 'inline'")
+        return v
+
+    @validator("format")
+    def check_format_with_behavior(cls, v, values):
+        behavior = values.get("behavior")
+        if v == "mrs" and behavior not in ["domain", "ipcidr"]:
+            raise ValueError("mrs format only supports 'domain' or 'ipcidr' behavior")
+        return v
+
+class RuleProviders(BaseModel):
+    __root__: dict[str, RuleProvider]
 
 class ProxyGroupBase(BaseModel):
     """
@@ -85,11 +134,7 @@ class LoadBalanceGroup(ProxyGroupBase):
 # --- Discriminated Union ---
 ProxyGroupUnion = Union[SelectGroup, RelayGroup, FallbackGroup, UrlTestGroup, LoadBalanceGroup]
 
-class ProxyGroupValidator(BaseModel):
-    """
-    这是Pydantic V1的验证器。
-    它使用 __root__ 字段来处理可辨识联合。
-    """
+class ProxyGroup(BaseModel):
     __root__: ProxyGroupUnion
 
 class RuleType(Enum):
@@ -212,7 +257,6 @@ class ClashRuleParser:
             return ClashRuleParser._parse_regular_rule(line)
 
         except Exception as e:
-            print(f"Error parsing rule '{line}': {e}")
             return None
 
     @staticmethod
@@ -228,13 +272,16 @@ class ClashRuleParser:
                 conditions_str += f'({condition.get("type")},{condition.get("payload")})'
             conditions_str = f"({conditions_str})"
             raw_rule = f"{clash_rule.get('type')},{conditions_str},{clash_rule.get('action')}"
-            return ClashRuleParser._parse_logic_rule(raw_rule)
+            rule = ClashRuleParser._parse_logic_rule(raw_rule)
         elif clash_rule.get("type") == 'MATCH':
             raw_rule = f"{clash_rule.get('type')},{clash_rule.get('action')}"
-            return ClashRuleParser._parse_match_rule(raw_rule)
+            rule = ClashRuleParser._parse_match_rule(raw_rule)
         else:
             raw_rule = f"{clash_rule.get('type')},{clash_rule.get('payload')},{clash_rule.get('action')}"
-            return ClashRuleParser._parse_regular_rule(raw_rule)
+            rule = ClashRuleParser._parse_regular_rule(raw_rule)
+        if rule and 'priority' in clash_rule:
+            rule.priority = clash_rule['priority']
+        return rule
 
     @staticmethod
     def _parse_match_rule(line: str) -> MatchRule:
@@ -339,7 +386,7 @@ class ClashRuleParser:
                 )
                 conditions.append(condition)
             except ValueError:
-                print(f"Unknown rule type in logic condition: {rule_type_str}")
+                continue
 
         return conditions
 
@@ -396,7 +443,7 @@ class ClashRuleParser:
         except Exception:
             return False
 
-    def to_string(self) -> List[str]:
+    def to_list(self) -> List[str]:
         result = []
         for rule in self.rules:
             result.append(rule.raw_rule)
@@ -478,12 +525,19 @@ class ClashRuleParser:
         self.rules.sort(key=lambda r: r.priority)
 
     def update_rule_at_priority(self, clash_rule: Union[ClashRule, LogicRule], priority: int) -> bool:
-        for index, existing_rule in enumerate(self.rules):
-            if existing_rule.priority == priority:
-                self.rules[index] = clash_rule
-                self.rules[index].priority = priority
-                return True
-        return False
+        if clash_rule.priority == priority:
+            for index, existing_rule in enumerate(self.rules):
+                if existing_rule.priority == priority:
+                    self.rules[index] = clash_rule
+                    self.rules[index].priority = priority
+                    return True
+            return False
+        else:
+            removed = self.remove_rule_at_priority(priority)
+            if not removed:
+                return False
+            self.insert_rule_at_priority(clash_rule, clash_rule.priority)
+            return True
 
     def remove_rule_at_priority(self, priority: int) -> Optional[Union[ClashRule, LogicRule, MatchRule]]:
         """Remove rule at specific priority and adjust remaining priorities"""
