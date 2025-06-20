@@ -852,6 +852,7 @@ class ClashRuleProvider(_PluginBase):
             return False
         try:
             rs = yaml.load(ret.content, Loader=yaml.FullLoader)
+            logger.debug(f"{type(rs)} => {rs}")
             if rs.get('rules') is None:
                 rs['rules'] = []
             if self._discard_rules:
