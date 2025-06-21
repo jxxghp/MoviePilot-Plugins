@@ -30,7 +30,7 @@ class DoubanRank(_PluginBase):
     # 插件图标
     plugin_icon = "movie.jpg"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.0.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -564,6 +564,8 @@ class DoubanRank(_PluginBase):
                     meta.year = year
                     if mtype:
                         meta.type = mtype
+                    if meta.type not in (MediaType.MOVIE, MediaType.TV):
+                        meta.type = None
                     # 识别媒体信息
                     if douban_id:
                         # 识别豆瓣信息
@@ -573,6 +575,7 @@ class DoubanRank(_PluginBase):
                                 logger.warn(
                                     f'未能通过豆瓣ID {douban_id} 获取到TMDB信息，标题：{title}，豆瓣ID：{douban_id}')
                                 continue
+                            meta.type = tmdbinfo.get('media_type')
                             mediainfo = self.chain.recognize_media(meta=meta, tmdbid=tmdbinfo.get("id"))
                             if not mediainfo:
                                 logger.warn(f'TMDBID {tmdbinfo.get("id")} 未识别到媒体信息')
@@ -665,7 +668,7 @@ class DoubanRank(_PluginBase):
                     rss_info['title'] = title
                     rss_info['link'] = link
 
-                    doubanid = re.findall(r"/(\d+)/", link)
+                    doubanid = re.findall(r"/(\d+)(?=/|$)", link)
                     if doubanid:
                         doubanid = doubanid[0]
                     if doubanid and not str(doubanid).isdigit():
