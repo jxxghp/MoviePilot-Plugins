@@ -19,7 +19,7 @@ from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import NotificationType
 from app.utils.http import RequestUtils
-from app.plugins.clashruleprovider.clash_rule_parser import ClashRuleParser
+from app.plugins.clashruleprovider.clash_rule_parser import ClashRuleParser, Converter
 from app.plugins.clashruleprovider.clash_rule_parser import Action, RuleType, ClashRule, MatchRule, LogicRule
 from app.plugins.clashruleprovider.clash_rule_parser import ProxyGroup, RuleProvider
 
@@ -32,7 +32,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.1.0"
+    plugin_version = "1.1.1"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -852,7 +852,12 @@ class ClashRuleProvider(_PluginBase):
             return False
         try:
             rs = yaml.load(ret.content, Loader=yaml.FullLoader)
-            logger.debug(f"{type(rs)} => {rs}")
+            if type(rs) is str:
+                all_proxies = {'name': "All Proxies", 'type': 'select', 'include-all-proxies': True}
+                proxies = Converter.convert_v2ray(ret.content)
+                if not proxies:
+                    raise ValueError(f"Unknown content: {rs}")
+                rs = {'proxies': proxies, 'proxy-groups': [all_proxies, ]}
             if rs.get('rules') is None:
                 rs['rules'] = []
             if self._discard_rules:
@@ -950,7 +955,7 @@ class ClashRuleProvider(_PluginBase):
             logger.warn(f"关键词过滤后无可用节点，跳过过滤")
             removed_proxies = []
         for proxy_group in clash_config.get("proxy-groups", []):
-            proxy_group['proxies'] = [x for x in proxy_group.get('proxies') if x not in removed_proxies]
+            proxy_group['proxies'] = [x for x in proxy_group.get('proxies', []) if x not in removed_proxies]
         return clash_config
 
     def clash_config(self) -> Optional[Dict[str, Any]]:
