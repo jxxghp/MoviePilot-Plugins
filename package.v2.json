@@ -365,11 +365,12 @@
     "name": "豆瓣榜单订阅",
     "description": "监控豆瓣热门榜单，自动添加订阅。",
     "labels": "订阅",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "icon": "movie.jpg",
     "author": "jxxghp",
     "level": 2,
     "history": {
+      "v2.0.1": "优化douban_id匹配和类型匹配",
       "v2.0.0": "优化cron表达式输入"
     }
   },
