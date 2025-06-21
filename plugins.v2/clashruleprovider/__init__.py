@@ -4,7 +4,6 @@ from typing import Any, Optional, List, Dict, Tuple, Union
 import time
 import yaml
 import hashlib
-from fastapi import Body, Response
 from datetime import datetime, timedelta
 import pytz
 import copy
@@ -12,6 +11,12 @@ import math
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+import httpx
+import asyncio
+import json
+from fastapi import HTTPException, Request, status, Body, Response
+import websockets
+from sse_starlette.sse import EventSourceResponse
 
 from app import schemas
 from app.core.config import settings
@@ -32,7 +37,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.1.1"
+    plugin_version = "1.1.3"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -67,6 +72,7 @@ class ClashRuleProvider(_PluginBase):
     _refresh_delay: int = 5
     _discard_rules: bool = False
     _enable_acl4ssr: bool = False
+    _dashboard_components: List[str] = []
 
     # 插件数据
     _clash_config: Optional[Dict[str, Any]] = None
@@ -106,7 +112,12 @@ class ClashRuleProvider(_PluginBase):
             self._proxy = config.get("proxy")
             self._notify = config.get("notify"),
             self._sub_links = config.get("sub_links") or []
-            self._clash_dashboard_url = config.get("clash_dashboard_url")
+            self._clash_dashboard_url = config.get("clash_dashboard_url") or ''
+            if self._clash_dashboard_url and self._clash_dashboard_url[-1] == '/':
+                self._clash_dashboard_url = self._clash_dashboard_url[:-1]
+            if not (self._clash_dashboard_url.startswith('http://') or
+                    self._clash_dashboard_url.startswith('https://')):
+                self._clash_dashboard_url = 'http://' + self._clash_dashboard_url
             self._clash_dashboard_secret = config.get("clash_dashboard_secret")
             self._movie_pilot_url = config.get("movie_pilot_url")
             if self._movie_pilot_url and self._movie_pilot_url[-1] == '/':
@@ -122,6 +133,7 @@ class ClashRuleProvider(_PluginBase):
             self._refresh_delay = config.get("refresh_delay") or 5
             self._discard_rules = config.get("discard_rules") or False
             self._enable_acl4ssr = config.get("enable_acl4ssr") or False
+            self._dashboard_components = config.get("dashboard_components") or []
         self._clash_rule_parser = ClashRuleParser()
         self._ruleset_rule_parser = ClashRuleParser()
         if self._enabled:
@@ -165,182 +177,198 @@ class ClashRuleProvider(_PluginBase):
                 "endpoint": self.get_clash_outbound,
                 "methods": ["GET"],
                 "auth": "bear",
-                "summary": "clash outbound",
-                "description": "clash outbound"
+                "summary": "获取所有出站",
+                "description": "获取所有出站"
             },
             {
                 "path": "/status",
                 "endpoint": self.get_status,
                 "methods": ["GET"],
                 "auth": "bear",
-                "summary": "stated",
-                "description": "state"
+                "summary": "插件状态",
+                "description": "插件状态"
             },
             {
                 "path": "/rules",
                 "endpoint": self.get_rules,
                 "methods": ["GET"],
                 "auth": "bear",
-                "summary": "clash rules",
-                "description": "clash rules"
+                "summary": "获取指定集合中的规则",
+                "description": "获取指定集合中的规则"
             },
             {
                 "path": "/rules",
                 "endpoint": self.update_rules,
                 "methods": ["PUT"],
                 "auth": "bear",
-                "summary": "clash rules",
-                "description": "clash rules"
+                "summary": "更新 Clash 规则",
+                "description": "更新 Clash 规则"
             },
             {
                 "path": "/reorder-rules",
                 "endpoint": self.reorder_rules,
                 "methods": ["PUT"],
                 "auth": "bear",
-                "summary": "clash rules",
-                "description": "clash rules"
+                "summary": "重新排序两条规则",
+                "description": "重新排序两条规则"
             },
             {
                 "path": "/rule",
                 "endpoint": self.update_rule,
                 "methods": ["PUT"],
                 "auth": "bear",
-                "summary": "clash rules",
-                "description": "clash rules"
+                "summary": "更新一条规则",
+                "description": "更新一条规则"
             },
             {
                 "path": "/rule",
                 "endpoint": self.add_rule,
                 "methods": ["POSt"],
                 "auth": "bear",
-                "summary": "clash rules",
-                "description": "clash rules"
+                "summary": "添加一条规则",
+                "description": "添加一条规则"
             },
             {
                 "path": "/rule",
                 "endpoint": self.delete_rule,
                 "methods": ["DELETE"],
                 "auth": "bear",
-                "summary": "clash rules",
-                "description": "clash rules"
+                "summary": "删除一条规则",
+                "description": "删除一条规则"
             },
             {
                 "path": "/subscription",
                 "endpoint": self.get_subscription,
                 "methods": ["GET"],
                 "auth": "bear",
-                "summary": "clash rules",
-                "description": "clash rules"
+                "summary": "获取原订阅链接",
+                "description": "获取原订阅链接"
             },
             {
                 "path": "/subscription",
                 "endpoint": self.refresh_subscription,
                 "methods": ["PUT"],
                 "auth": "bear",
-                "summary": "refresh clash configuration",
-                "description": "refresh clash configuration"
+                "summary": "更新订阅",
+                "description": "更新订阅"
             },
             {
                 "path": "/rule-providers",
                 "endpoint": self.get_rule_providers,
                 "methods": ["GET"],
                 "auth": "bear",
-                "summary": "rule providers",
-                "description": "rule providers"
+                "summary": "获取规则集合",
+                "description": "获取规则集合"
             },
             {
                 "path": "/extra-rule-providers",
                 "endpoint": self.get_extra_rule_providers,
                 "methods": ["GET"],
                 "auth": "bear",
-                "summary": "extra rule providers",
-                "description": "extra rule providers"
+                "summary": "添加规则集合",
+                "description": "添加规则集合"
             },
             {
                 "path": "/extra-rule-provider",
                 "endpoint": self.update_extra_rule_provider,
                 "methods": ["POST"],
                 "auth": "bear",
-                "summary": "update an extra rule provider",
-                "description": "update an rule provider"
+                "summary": "更新一个规则集合",
+                "description": "更新一个规则集合"
             },
             {
                 "path": "/extra-rule-provider",
                 "endpoint": self.delete_extra_rule_provider,
                 "methods": ["DELETE"],
                 "auth": "bear",
-                "summary": "add an extra rule provider",
-                "description": "add an rule provider"
+                "summary": "删除一个规则集合",
+                "description": "删除一个规则集合"
             },
             {
                 "path": "/extra-proxies",
                 "endpoint": self.get_extra_proxies,
                 "methods": ["GET"],
                 "auth": "bear",
-                "summary": "extra proxies",
-                "description": "extra proxies"
+                "summary": "获取附加出站代理",
+                "description": "获取附加出站代理"
             },
             {
                 "path": "/extra-proxies",
                 "endpoint": self.delete_extra_proxy,
                 "methods": ["DELETE"],
                 "auth": "bear",
-                "summary": "delete an extra proxy",
-                "description": "delete an extra proxy"
+                "summary": "删除一条出站代理",
+                "description": "删除一条出站代理"
             },
             {
                 "path": "/extra-proxies",
                 "endpoint": self.add_extra_proxies,
                 "methods": ["POST"],
                 "auth": "bear",
-                "summary": "add extra proxies",
-                "description": "add extra proxies"
+                "summary": "添加一条出站代理",
+                "description": "添加一条出站代理"
             },
             {
                 "path": "/proxy-groups",
                 "endpoint": self.get_proxy_groups,
                 "methods": ["GET"],
                 "auth": "bear",
-                "summary": "proxy groups",
-                "description": "proxy groups"
+                "summary": "获取代理组",
+                "description": "获取代理组"
             },
             {
                 "path": "/proxy-group",
                 "endpoint": self.delete_proxy_group,
                 "methods": ["DELETE"],
                 "auth": "bear",
-                "summary": "delete a proxy group",
-                "description": "delete a proxy group"
+                "summary": "删除一个代理组",
+                "description": "删除一个代理组"
             },
             {
                 "path": "/proxy-group",
                 "endpoint": self.add_proxy_group,
                 "methods": ["POST"],
                 "auth": "bear",
-                "summary": "add a proxy group",
-                "description": "add a proxy group"
+                "summary": "添加一个代理组",
+                "description": "添加一个代理组"
             },
             {
                 "path": "/ruleset",
                 "endpoint": self.get_ruleset,
                 "methods": ["GET"],
-                "summary": "update rule providers",
-                "description": "update rule providers"
+                "summary": "获取规则集规则",
+                "description": "获取规则集规则"
             },
             {
                 "path": "/import",
                 "endpoint": self.import_rules,
                 "methods": ["POST"],
                 "auth": "bear",
-                "summary": "import top rules",
-                "description": "import top rules"
+                "summary": "导入规则",
+                "description": "导入规则"
             },
             {
                 "path": "/config",
                 "endpoint": self.get_clash_config,
                 "methods": ["GET"],
-                "summary": "update rule providers",
-                "description": "update rule providers"
+                "summary": "获取 Clash 配置",
+                "description": "获取 Clash 配置"
+            },
+            {
+                "path": "/clash/proxy/{path:path}",
+                "auth": "bear",
+                "endpoint": self.clash_proxy,
+                "methods": ["GET"],
+                "summary": "转发 Clash API 请求",
+                "description": "转发 Clash API 请求"
+            },
+            {
+                "path": "/clash/ws/{endpoint}",
+                "endpoint": self.clash_websocket,
+                "methods": ["GET"],
+                "summary": "转发 Clash API Websocket 请求",
+                "description": "转发 Clash API Websocket 请求",
+                "allow_anonymous": True
             }
         ]
 
@@ -357,6 +385,51 @@ class ClashRuleProvider(_PluginBase):
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
         return [], {}
+
+    def get_dashboard_meta(self) -> Optional[List[Dict[str, str]]]:
+        components = [
+            {
+                "key": "clash_info",
+                "name": "Clash Info"
+            },
+            {
+                "key": "traffic_stats",
+                "name": "Traffic Stats"
+            }
+        ]
+        return [component for component in components if component.get("name") in self._dashboard_components]
+
+    def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+        """
+        获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、全局配置（自动刷新等）；3、仪表板页面元素配置json（含数据）
+        1、col配置参考：
+        {
+            "cols": 12, "md": 6
+        }
+        2、全局配置参考：
+        {
+            "refresh": 10, // 自动刷新时间，单位秒
+            "border": True, // 是否显示边框，默认True，为False时取消组件边框和边距，由插件自行控制
+            "title": "组件标题", // 组件标题，如有将显示该标题，否则显示插件名称
+            "subtitle": "组件子标题", // 组件子标题，缺省时不展示子标题
+        }
+        3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
+
+        kwargs参数可获取的值：1、user_agent：浏览器UA
+
+        :param key: 仪表盘key，根据指定的key返回相应的仪表盘数据，缺省时返回一个固定的仪表盘数据（兼容旧版）
+        """
+        clash_available = bool(self._clash_dashboard_url and self._clash_dashboard_secret)
+        components = {'clash_info': {'title': 'Clash Info', 'md': 4},
+                      'traffic_stats': {'title': 'Traffic Stats', 'md': 8}}
+        col_config = {'cols': 12, 'md': components.get(key, {}).get('md', 4)}
+        global_config = {
+            'title': components.get(key, {}).get('title', 'Clash Info'),
+            'border': True,
+            'clash_available': clash_available,
+            'secret': self._clash_dashboard_secret,
+        }
+        return col_config, global_config, []
 
     def get_page(self) -> List[dict]:
         return []
@@ -401,6 +474,59 @@ class ClashRuleProvider(_PluginBase):
         self._clash_rule_parser.parse_rules_from_list(self._top_rules)
         self._ruleset_rule_parser.parse_rules_from_list(self._ruleset_rules)
 
+    async def clash_websocket(self, request: Request, endpoint: str, secret: str):
+        if secret != self._clash_dashboard_secret:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Secret 校验不通过"
+            )
+        if endpoint not in ['traffic', 'connections', 'memory']:
+            raise HTTPException(status_code=400, detail="Invalid endpoint")
+        queue = asyncio.Queue()
+        ws_base = self._clash_dashboard_url.replace('http://', 'ws://').replace('https://', 'wss://')
+        url = f"{ws_base}/{endpoint}?token={self._clash_dashboard_secret}"
+        async def clash_ws_listener():
+            try:
+                async with websockets.connect(url, ping_interval=None) as ws:
+                    async for message in ws:
+                        data = json.loads(message)
+                        await queue.put(data)
+            except Exception as e:
+                await queue.put({"error": str(e)})
+
+        listener_task = asyncio.create_task(clash_ws_listener())
+
+        async def event_generator():
+            try:
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    try:
+                        data = await queue.get()
+                        yield {
+                            'event': endpoint,
+                            'data': json.dumps(data)
+                        }
+                    except asyncio.CancelledError:
+                        break
+            finally:
+                listener_task.cancel()  # 停止与 Clash 的连接
+        return EventSourceResponse(event_generator())
+
+    async def fetch_clash_data(self, endpoint: str) -> Dict:
+        clash_headers = {"Authorization": f"Bearer {self._clash_dashboard_secret}"}
+        url = f"{self._clash_dashboard_url}/{endpoint}"
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, headers=clash_headers, timeout=5.0)
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPError as e:
+                raise HTTPException(status_code=502, detail=f"Failed to fetch {endpoint}: {str(e)}")
+
+    async def clash_proxy(self, path: str) -> Dict:
+        return await self.fetch_clash_data(path)
+
     def test_connectivity(self, params: Dict[str, Any]) -> schemas.Response:
         if not self._enabled:
             return schemas.Response(success=False, message="")
@@ -441,6 +567,7 @@ class ClashRuleProvider(_PluginBase):
                          "subscription_info": self._subscription_info,
                          "sub_url": f"{self._movie_pilot_url}/api/v1/plugin/ClashRuleProvider/config?"
                                     f"apikey={settings.API_TOKEN}"}}
+
 
     def get_clash_config(self):
         config = self.clash_config()
@@ -840,7 +967,7 @@ class ClashRuleProvider(_PluginBase):
             logger.error(f"Invalid links: {self._sub_links}")
             return False
         url = self._sub_links[0]
-        logger.info(f"Refreshing: {url}")
+        logger.info(f"正在更新: {url}")
         ret = None
         for i in range(0, self._retry_times):
             ret = RequestUtils(accept_type="text/html",
@@ -858,6 +985,7 @@ class ClashRuleProvider(_PluginBase):
                 if not proxies:
                     raise ValueError(f"Unknown content: {rs}")
                 rs = {'proxies': proxies, 'proxy-groups': [all_proxies, ]}
+            logger.info(f"已更新: {url}. 节点数量: {len(rs['proxies'])}")
             if rs.get('rules') is None:
                 rs['rules'] = []
             if self._discard_rules:

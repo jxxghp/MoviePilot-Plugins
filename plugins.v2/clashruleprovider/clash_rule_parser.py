@@ -713,7 +713,7 @@ class Converter:
                 cipher = vmess_data.get("scy", "auto") or "auto"
                 alter_id = vmess_data.get("aid", 0)
 
-                # 智能调整 network 类型
+                # 调整 network 类型
                 if fake_type == "http":
                     net = "http"
                 elif net == "http":
@@ -734,7 +734,7 @@ class Converter:
                     "network": net
                 }
 
-                # === TLS、Reality 扩展 ===
+                # TLS、Reality 扩展
                 if proxy["tls"]:
                     proxy["client-fingerprint"] = vmess_data.get("fp", "chrome") or "chrome"
                     alpn = vmess_data.get("alpn")
@@ -753,7 +753,7 @@ class Converter:
                 path = vmess_data.get("path", "/")
                 host = vmess_data.get("host")
 
-                # === 不同 network 的扩展字段处理 ===
+                # 不同 network 的扩展字段处理
                 if net == "tcp":
                     if fake_type == "http":
                         proxy["http-opts"] = {
@@ -854,8 +854,7 @@ class Converter:
                     return proxy
 
                 except Exception as e:
-                    print(f"VLESS parse error: {e}")
-                    return None
+                    raise ValueError(f"VLESS parse error: {e}") from e
             elif scheme == "trojan":
                 try:
                     parsed = urlparse(line)
@@ -908,7 +907,7 @@ class Converter:
                     proxies.append(trojan)
 
                 except Exception as e:
-                    print(f"Error parsing trojan:// link: {e}")
+                    raise ValueError(f"Error parsing trojan:// link: {e}") from e
             elif scheme == "hysteria":
                 try:
                     parsed = urlparse(line)
@@ -948,7 +947,7 @@ class Converter:
 
                     proxies.append(hysteria)
                 except Exception as e:
-                    print(f"Hysteria parse error: {e}")
+                    raise ValueError(f"Hysteria parse error: {e}") from e
             elif scheme in ("socks", "socks5", "socks5h"):
                 try:
                     parsed = urlparse(line)
@@ -969,7 +968,7 @@ class Converter:
                     }
                     proxies.append(proxy)
                 except Exception as e:
-                    print(f"SOCKS5 parse error: {e}")
+                    raise ValueError(f"SOCKS5 parse error: {e}") from e
             elif scheme == "ss":
                 try:
                     # 兼容 ss://base64 或 ss://base64#name
@@ -999,7 +998,7 @@ class Converter:
                     }
                     proxies.append(proxy)
                 except Exception as e:
-                    print(f"SS parse error: {e}")
+                    raise ValueError(f"SS parse error: {e}") from e
             elif scheme == "ssr":
                 try:
                     decoded = Converter.decode_base64(body).decode()
@@ -1034,7 +1033,7 @@ class Converter:
 
                     proxies.append(proxy)
                 except Exception as e:
-                    print(f"SSR parse error: {e}")
+                    raise ValueError(f"SSR parse error: {e}") from e
             elif scheme == "tuic":
                 try:
                     parsed = urlparse(line)
@@ -1073,7 +1072,7 @@ class Converter:
 
                     proxies.append(proxy)
                 except Exception as e:
-                    print(f"TUIC parse error: {e}")
+                    raise ValueError(f"TUIC parse error: {e}") from e
             elif scheme == "anytls":
                 try:
                     parsed = urlparse(line)
@@ -1103,7 +1102,7 @@ class Converter:
 
                     proxies.append(proxy)
                 except Exception as e:
-                    print(f"AnyTLS parse error: {e}")
+                    raise ValueError(f"AnyTLS parse error: {e}") from e
             elif scheme in ("hysteria2", "hy2"):
                 try:
                     parsed = urlparse(line)
@@ -1134,7 +1133,7 @@ class Converter:
 
                     proxies.append(proxy)
                 except Exception as e:
-                    print(f"Hysteria2 parse error: {e}")
+                    raise ValueError(f"Hysteria2 parse error: {e}") from e
 
         if not proxies:
             raise ValueError("convert v2ray subscribe error: format invalid")
