@@ -37,7 +37,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "bangumi_b.png"
     # 插件版本
-    plugin_version = "1.5.7"
+    plugin_version = "1.5.8"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页
@@ -51,7 +51,7 @@ class BangumiColl(_PluginBase):
 
     # 私有属性
     _scheduler = None
-    _is_v2 = True if settings.VERSION_FLAG else False
+    _is_v2 = hasattr(settings, "VERSION_FLAG")
 
     # 配置属性
     _enabled: bool = False
