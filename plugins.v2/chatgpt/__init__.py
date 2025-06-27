@@ -13,7 +13,7 @@ class ChatGPT(_PluginBase):
     # 插件名称
     plugin_name = "ChatGPT"
     # 插件描述
-    plugin_desc = "消息交互支持与ChatGPT对话。"
+    plugin_desc = "大模型对话与媒体识别增强。"
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
