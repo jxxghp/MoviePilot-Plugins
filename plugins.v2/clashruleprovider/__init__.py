@@ -1041,8 +1041,6 @@ class ClashRuleProvider(_PluginBase):
             logger.info(f"已更新: {url}. 节点数量: {len(rs['proxies'])}")
             if rs.get('rules') is None:
                 rs['rules'] = []
-            if self._discard_rules:
-                rs['rules'] = []
             rs = self.__remove_nodes_by_keywords(rs)
         except Exception as e:
             logger.error(f"解析配置出错： {e}")
@@ -1151,6 +1149,19 @@ class ClashRuleProvider(_PluginBase):
             all_proxies.extend(config.get("proxies", []))
         return all_proxies
 
+    @staticmethod
+    def extend_with_name_checking(to_list: List[Dict[str, Any]], from_list: List[Dict[str, Any]]
+                                  ) -> List[Dict[str, Any]]:
+        """
+        去除同名元素合并列表
+        """
+        for item in from_list:
+            if any(p.get('name') == item.get('name', '') for p in to_list):
+                logger.warn(f"Item named {item.get('name')} already exists. Skipping...")
+                continue
+            to_list.append(item)
+        return to_list
+
     def clash_config(self) -> Optional[Dict[str, Any]]:
         """
         整理 clash 配置，返回配置字典
@@ -1160,11 +1171,18 @@ class ClashRuleProvider(_PluginBase):
         proxies =[]
         if not self._clash_template:
             clash_config = copy.deepcopy(first_config)
+            clash_config['proxy-groups'] = []
+            clash_config['rule-providers'] = {}
+            clash_config['rules'] = []
         else:
             clash_config = copy.deepcopy(self._clash_template)
             proxies.extend(self._clash_template.get('proxies'))
-        clash_config['proxy-groups'] = (first_config.get('proxy-groups', [])
-                                              + clash_config.get('proxy-groups', []))
+        clash_config['proxy-groups'] = ClashRuleProvider.extend_with_name_checking(clash_config.get('proxy-groups', []),
+                                                                                   first_config.get('proxy-groups', []),
+                                                                                   )
+        clash_config['rules'] = clash_config.get('rules', [])
+        if not self._discard_rules:
+            clash_config['rules'] += first_config.get('rules', [])
         clash_config['rule-providers'] = first_config.get('rule-providers', {}).update(clash_config.get('rule-providers', {}))
 
 
@@ -1181,19 +1199,14 @@ class ClashRuleProvider(_PluginBase):
         # 添加代理组
         proxy_groups = copy.deepcopy(self._proxy_groups)
         if proxy_groups:
-            if clash_config.get("proxy-groups"):
-                clash_config['proxy-groups'].extend(proxy_groups)
-            else:
-                clash_config['proxy-groups'] = proxy_groups
-
+            clash_config['proxy-groups'] = ClashRuleProvider.extend_with_name_checking(clash_config['proxy-groups'],
+                                                                                       proxy_groups)
 
         # 添加按大洲代理组
         if self._group_by_region:
             if self._proxy_groups_by_region:
-                if clash_config.get('proxy-groups'):
-                    clash_config['proxy-groups'].extend(self._proxy_groups_by_region)
-                else:
-                    clash_config['proxy-groups'] = copy.deepcopy(self._proxy_groups_by_region)
+                clash_config['proxy-groups'] = ClashRuleProvider.extend_with_name_checking(clash_config['proxy-groups'],
+                                                                                           self._proxy_groups_by_region)
 
         top_rules = []
         outbound_names = list(x.get("name") for x in self.clash_outbound())
