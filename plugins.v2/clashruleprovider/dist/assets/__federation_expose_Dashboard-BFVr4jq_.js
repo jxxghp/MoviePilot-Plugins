@@ -15118,6 +15118,9 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
               scales: {
                 x: {
                   display: true,
+                  grid: {
+                    display: false
+                  },
                   ticks: {
                     maxRotation: 0,
                     minRotation: 0,
@@ -15135,6 +15138,9 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
                 },
                 y: {
                   beginAtZero: true,
+                  grid: {
+                    color: "rgba(121, 114, 235, 0.1)"
+                  },
                   ticks: {
                     callback: function(value) {
                       return formatBytes(value) + "/s";
@@ -15169,6 +15175,9 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
               scales: {
                 x: {
                   display: true,
+                  grid: {
+                    display: false
+                  },
                   ticks: {
                     maxRotation: 0,
                     minRotation: 0,
@@ -15185,6 +15194,9 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
                   }
                 },
                 y: {
+                  grid: {
+                    color: "rgba(121, 114, 235, 0.1)"
+                  },
                   beginAtZero: true,
                   ticks: {
                     callback: function(value) {
@@ -15245,7 +15257,8 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
       if (refreshTimer) {
         clearInterval(refreshTimer);
       }
-      if (eventSource) eventSource.close();
+      if (connectionsEvtSource) connectionsEvtSource.close();
+      if (evtSource) evtSource.close();
     });
     const props = __props;
     return (_ctx, _cache) => {
@@ -15425,7 +15438,10 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
             })
           ]),
           _: 1
-        })) : (_openBlock(), _createBlock(_component_v_card, { key: 1 }, {
+        })) : (_openBlock(), _createBlock(_component_v_card, {
+          key: 1,
+          class: "h-100"
+        }, {
           default: _withCtx(() => [
             _createVNode(_component_v_card_item, null, {
               default: _withCtx(() => [
@@ -15444,13 +15460,13 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
                   _createElementVNode("div", _hoisted_9, [
                     clashInfo.value.version.meta ? (_openBlock(), _createBlock(_component_v_img, {
                       key: 0,
-                      src: "https://raw.githubusercontent.com/MetaCubeX/mihomo/refs/heads/Meta/Meta.png",
+                      src: "/api/v1/system/img/0?imgurl=https://raw.githubusercontent.com/MetaCubeX/mihomo/refs/heads/Meta/Meta.png",
                       alt: "Logo",
                       "max-height": "48",
                       contain: ""
                     })) : (_openBlock(), _createBlock(_component_v_img, {
                       key: 1,
-                      src: "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/Clash_A.png",
+                      src: "/api/v1/system/img/0?imgurl=https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/Clash_A.png",
                       alt: "Logo",
                       "max-height": "48",
                       contain: ""
@@ -15479,7 +15495,7 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
                     ]),
                     _createElementVNode("div", _hoisted_14, [
                       _cache[11] || (_cache[11] = _createElementVNode("span", null, "规则数量", -1)),
-                      _createElementVNode("span", null, _toDisplayString(clashInfo.value.rules.rules.length), 1)
+                      _createElementVNode("span", null, _toDisplayString(clashInfo.value.rules?.rules.length), 1)
                     ]),
                     _createElementVNode("div", _hoisted_15, [
                       _cache[12] || (_cache[12] = _createElementVNode("span", null, "规则集数量", -1)),
@@ -15498,6 +15514,6 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
   }
 });
 
-const DashboardComponent = /* @__PURE__ */ _export_sfc(_sfc_main, [["__scopeId", "data-v-6c8bed46"]]);
+const DashboardComponent = /* @__PURE__ */ _export_sfc(_sfc_main, [["__scopeId", "data-v-9093476d"]]);
 
 export { DashboardComponent as default };
