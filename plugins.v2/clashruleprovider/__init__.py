@@ -2,6 +2,8 @@ import json
 import re
 from typing import Any, Optional, List, Dict, Tuple, Union
 import time
+from urllib.parse import urlparse
+
 import yaml
 import hashlib
 from datetime import datetime, timedelta
@@ -13,7 +15,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import httpx
 import asyncio
-import json
 from fastapi import HTTPException, Request, status, Body, Response
 import websockets
 from sse_starlette.sse import EventSourceResponse
@@ -37,7 +38,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.1.3"
+    plugin_version = "1.2.0"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -73,9 +74,11 @@ class ClashRuleProvider(_PluginBase):
     _discard_rules: bool = False
     _enable_acl4ssr: bool = False
     _dashboard_components: List[str] = []
+    _clash_template_yaml = ''
 
     # 插件数据
-    _clash_config: Optional[Dict[str, Any]] = None
+    # 综合多个订阅的配置
+    # _clash_config: Optional[Dict[str, Any]] = None
     _top_rules: List[str] = []
     _ruleset_rules: List[str] = []
     _rule_provider: Dict[str, Any] = {}
@@ -86,27 +89,30 @@ class ClashRuleProvider(_PluginBase):
     _extra_proxies = []
     _acl4ssr_providers: Dict[str, Any] = {}
     _acl4ssr_prefix: str = '🗂️=>'
+    # 保存每个订阅文件的原始内容
+    _clash_configs: Dict[str, Any] = {}
 
     # protected variables
     _clash_rule_parser = None
     _ruleset_rule_parser = None
     _custom_rule_sets = None
+    _clash_template: Optional[Dict[str, Any]] = None
     _scheduler: Optional[BackgroundScheduler] = None
     _countries: Optional[List[Dict[str, str]]] = None
     _proxy_groups_by_region: List[Dict[str, Any]] = []
 
     def init_plugin(self, config: dict = None):
-        self._clash_config = self.get_data("clash_config")
+        # self._clash_config = self.get_data("clash_config")
         self._ruleset_rules = self.get_data("ruleset_rules")
         self._top_rules = self.get_data("top_rules")
         self._proxy_groups = self.get_data("proxy_groups") or []
         self._extra_proxies = self.get_data("extra_proxies") or []
-        self._subscription_info = self.get_data("subscription_info") or \
-                                  {"download": 0, "upload": 0, "total": 0, "expire": 0, "last_update": 0}
+        self._subscription_info = self.get_data("subscription_info") or {}
         self._rule_provider = self.get_data("rule_provider") or {}
         self._extra_rule_providers = self.get_data("extra_rule_providers") or {}
         self._ruleset_names = self.get_data("ruleset_names") or {}
         self._acl4ssr_providers = self.get_data("acl4ssr_providers") or {}
+        self._clash_configs = self.get_data("clash_configs") or {}
         if config:
             self._enabled = config.get("enabled")
             self._proxy = config.get("proxy")
@@ -134,19 +140,30 @@ class ClashRuleProvider(_PluginBase):
             self._discard_rules = config.get("discard_rules") or False
             self._enable_acl4ssr = config.get("enable_acl4ssr") or False
             self._dashboard_components = config.get("dashboard_components") or []
+            self._clash_template_yaml = config.get("clash_template") or ''
         self._clash_rule_parser = ClashRuleParser()
         self._ruleset_rule_parser = ClashRuleParser()
         if self._enabled:
+            if self._clash_template_yaml:
+                self._clash_template = {}
+                try:
+                    self._clash_template = yaml.load(self._clash_template_yaml, Loader=yaml.SafeLoader)
+                except yaml.YAMLError as exc:
+                    logger.error(f"Error loading clash template yaml: {exc}")
             if self._group_by_region:
                 self._countries = ClashRuleProvider.__load_countries(
                     f"{settings.ROOT_PATH}/app/plugins/clashruleprovider/countries.json")
                 self._proxy_groups_by_region = ClashRuleProvider.__group_by_region(self._countries,
-                                                                                   self._clash_config.get('proxies'))
+                                                                                   self.all_proxies())
             self.__parse_config()
+            # 清理不存在的 URL
+            self._subscription_info = {url: self._subscription_info.get(url)
+                                       for url in self._sub_links if self._subscription_info.get(url)}
+            self._clash_configs = {url: self._clash_configs[url] for url in self._sub_links if self._clash_configs.get(url)}
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
             self._scheduler.start()
             # 更新订阅
-            self._scheduler.add_job(self.__refresh_subscription, "date",
+            self._scheduler.add_job(self.refresh_subscriptions, "date",
                                     run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=2))
             # 更新acl4ssr
             if self._enable_acl4ssr:
@@ -154,6 +171,7 @@ class ClashRuleProvider(_PluginBase):
                                         run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=5))
             else:
                 self._acl4ssr_providers = {}
+
 
     def get_state(self) -> bool:
         return self._enabled
@@ -235,14 +253,6 @@ class ClashRuleProvider(_PluginBase):
                 "auth": "bear",
                 "summary": "删除一条规则",
                 "description": "删除一条规则"
-            },
-            {
-                "path": "/subscription",
-                "endpoint": self.get_subscription,
-                "methods": ["GET"],
-                "auth": "bear",
-                "summary": "获取原订阅链接",
-                "description": "获取原订阅链接"
             },
             {
                 "path": "/subscription",
@@ -455,7 +465,6 @@ class ClashRuleProvider(_PluginBase):
         self.__insert_ruleset()
         self._top_rules = self._clash_rule_parser.to_list()
         self._ruleset_rules = self._ruleset_rule_parser.to_list()
-        self.save_data('clash_config', self._clash_config)
         self.save_data('ruleset_rules', self._ruleset_rules)
         self.save_data('top_rules', self._top_rules)
         self.save_data('subscription_info', self._subscription_info)
@@ -465,6 +474,7 @@ class ClashRuleProvider(_PluginBase):
         self.save_data('extra_proxies', self._extra_proxies)
         self.save_data('extra_rule_providers', self._extra_rule_providers)
         self.save_data('acl4ssr_providers', self._acl4ssr_providers)
+        self.save_data('clash_configs', self._clash_configs)
 
     def __parse_config(self):
         if self._top_rules is None:
@@ -555,11 +565,12 @@ class ClashRuleProvider(_PluginBase):
         return Response(content=res, media_type="text/yaml")
 
     def get_clash_outbound(self) -> schemas.Response:
-        outbound = self.clash_outbound(self._clash_config)
+        outbound = self.clash_outbound()
         return schemas.Response(success=True, message="", data={"outbound": outbound})
 
     def get_status(self):
-        rule_size = len(self._clash_config.get("rules", [])) if self._clash_config else 0
+        first_config = self._clash_configs.get(self._sub_links[0], {}) if self._sub_links else {}
+        rule_size = len(first_config.get("rules", []))
         return {"success": True, "message": "",
                 "data": {"state": self._enabled,
                          "ruleset_prefix": self._ruleset_prefix,
@@ -574,10 +585,14 @@ class ClashRuleProvider(_PluginBase):
         if not config:
             return {'success': False, "message": ''}
         res = yaml.dump(config, allow_unicode=True)
-        headers = {'Subscription-Userinfo': f'upload={self._subscription_info["upload"]}; '
-                                            f'download={self._subscription_info["download"]}; '
-                                            f'total={self._subscription_info["total"]}; '
-                                            f'expire={self._subscription_info["expire"]}'}
+        first_url = self._sub_links[0] if self._sub_links else None
+        if not first_url:
+            return {'success': False, "message": ''}
+        sub_info = self._subscription_info.get(first_url, {})
+        headers = {'Subscription-Userinfo': f'upload={sub_info.get("upload", 0)}; '
+                                            f'download={sub_info.get("download", 0)}; '
+                                            f'total={sub_info.get("total", 0)}; '
+                                            f'expire={sub_info.get("expire", 0)}'}
         return Response(headers=headers, content=res, media_type="text/yaml")
 
     def get_rules(self, rule_type: str) -> schemas.Response:
@@ -658,20 +673,19 @@ class ClashRuleProvider(_PluginBase):
             res = self.add_rule_by_priority(params.get('rule_data'), self._clash_rule_parser)
         return schemas.Response(success=bool(res), message='')
 
-    def get_subscription(self) -> schemas.Response:
-        if not self._sub_links:
-            return schemas.Response(success=False, message=f"Invalid subscription links: {self._sub_links}")
-        return schemas.Response(success=True, data={"url": self._sub_links[0]})
-
     def refresh_subscription(self, params: Dict[str, Any]):
         if not self._enabled:
             return schemas.Response(success=False, message="")
         url = params.get('url')
         if not url:
             return schemas.Response(success=False, message="missing params")
-        res = self.__refresh_subscription()
-        if not res:
-            return schemas.Response(success=False, message=f"订阅链接 {self._sub_links[0]} 更新失败")
+        config, info = self.__get_subscription(url)
+        if not config:
+            return schemas.Response(success=False, message=f"订阅链接 {url} 更新失败")
+        self._clash_configs[url] = config
+        self._subscription_info[url] = info
+        self.save_data('clash_configs', self._clash_configs)
+        self.save_data('subscription_info', self._subscription_info)
         return schemas.Response(success=True, message='订阅更新成功')
 
     def get_rule_providers(self) -> schemas.Response:
@@ -741,11 +755,19 @@ class ClashRuleProvider(_PluginBase):
             try:
                 imported_proxies = yaml.load(params["payload"], Loader=yaml.SafeLoader)
                 extra_proxies = imported_proxies.get("proxies", [])
-            except yaml.YAMLError as err:
+            except Exception as err:
                 return schemas.Response(success=False, message=f'YAML error: {err}')
+        elif params.get('type') == 'LINK':
+            try:
+                links = params['payload'].strip().splitlines()
+                extra_proxies = Converter.convert_v2ray(v2ray_link=links)
+            except Exception as err:
+                return schemas.Response(success=False, message=f'LINK error: {err}')
+        if not extra_proxies:
+            return schemas.Response(success=False, message='无可用节点')
         for proxy in extra_proxies:
             name = proxy.get('name')
-            if not name or any(x.get('name') == name for x in self.clash_outbound(self._clash_config)):
+            if not name or any(x.get('name') == name for x in self.clash_outbound()):
                 logger.warning(f"The proxy name {proxy['name']} already exists. Skipping...")
                 continue
             required_fields = {'name', 'type', 'server', 'port'}
@@ -798,22 +820,20 @@ class ClashRuleProvider(_PluginBase):
         self.save_data('proxy_groups', self._proxy_groups)
         return schemas.Response(success=True, message='')
 
-    def clash_outbound(self, clash_config: Dict[str, Any]) -> Optional[List]:
-        if not clash_config:
-            return []
-        outbound = [{'name': proxy_group.get("name")} for proxy_group in clash_config.get("proxy-groups")]
-        outbound.extend([{'name': proxy.get("name")} for proxy in clash_config.get("proxies")])
+    def clash_outbound(self) -> Optional[List]:
+        first_config = self._clash_configs.get(self._sub_links[0], {}) if self._sub_links else {}
+        outbound = [{'name': proxy_group.get("name")} for proxy_group in first_config.get("proxy-groups", [])]
+        outbound.extend([{'name': proxy.get("name")} for proxy in first_config.get("proxies", [])])
         if self._group_by_region:
             outbound.extend([{'name': proxy_group.get("name")} for proxy_group in self._proxy_groups_by_region])
         outbound.extend([{'name': proxy.get("name")} for proxy in self._extra_proxies])
         outbound.extend([{'name': proxy_group.get("name")} for proxy_group in self._proxy_groups])
         return outbound
 
-    def rule_providers(self) -> Optional[Dict[str, Any]]:
-        if not self._clash_config:
-            return None
+    def rule_providers(self) -> Dict[str, Any]:
+        first_config = self._clash_configs.get(self._sub_links[0], {}) if self._sub_links else {}
         rule_providers = {}
-        for key, value in self._clash_config.get('rule-providers', {}).items():
+        for key, value in first_config.get('rule-providers', {}).items():
             rule_providers[key] = value
         for key, value in self._extra_rule_providers.items():
             rule_providers[key] = value
@@ -921,21 +941,34 @@ class ClashRuleProvider(_PluginBase):
         return f"{days}天后过期" if days > 0 else "已过期"
 
     def refresh_subscription_service(self):
-        res = self.__refresh_subscription()
-        if res:
-            used = self._subscription_info['download'] + self._subscription_info['upload']
-            remaining = self._subscription_info['total'] - used
-            message = (f"订阅更新成功\n"
-                       f"已用流量: {ClashRuleProvider.format_bytes(used)}\n"
-                       f"剩余流量: {ClashRuleProvider.format_bytes(remaining)}\n"
-                       f"总量: {ClashRuleProvider.format_bytes(self._subscription_info['total'])}\n"
-                       f"过期时间: {ClashRuleProvider.format_expire_time(self._subscription_info['expire'])}")
-        else:
-            message = "订阅更新失败"
+        res = self.refresh_subscriptions()
+        messages = []
+        for url, result in res.items():
+            try:
+                host_name = urlparse(url).hostname
+            except ValueError:
+                host_name = url
+            message = f"1. 「 {host_name} 」\n"
+            if result:
+                sub_info = self._subscription_info.get(url, {})
+                if sub_info.get('total') is not None:
+                    used = sub_info.get('download', 0) + sub_info.get('upload', 0)
+                    remaining = sub_info.get('total', 0) - used
+                    info = (f"节点数量: {sub_info.get('proxy_num', 0)}\n"
+                            f"已用流量: {ClashRuleProvider.format_bytes(used)}\n"
+                            f"剩余流量: {ClashRuleProvider.format_bytes(remaining)}\n"
+                            f"总量: {ClashRuleProvider.format_bytes(sub_info.get('total', 0))}\n"
+                            f"过期时间: {ClashRuleProvider.format_expire_time(sub_info.get('expire', 0))}")
+                else:
+                    info = ""
+                message += f"订阅更新成功\n{info}"
+            else:
+                message += '订阅更新失败'
+            messages.append(message)
         if self._notify:
             self.post_message(title=f"【{self.plugin_name}】",
                               mtype=NotificationType.Plugin,
-                              text=f"{message}"
+                              text='\n'.join(messages)
                               )
 
     def __refresh_acl4ssr(self):
@@ -962,11 +995,31 @@ class ClashRuleProvider(_PluginBase):
                     self._acl4ssr_providers[name] = provider
         self.save_data('acl4ssr_providers', self._acl4ssr_providers)
 
-    def __refresh_subscription(self) -> bool:
-        if not self._sub_links:
-            logger.error(f"Invalid links: {self._sub_links}")
-            return False
-        url = self._sub_links[0]
+    def refresh_subscriptions(self) -> Dict[str, bool]:
+        """
+        更新全部订阅链接
+        """
+        all_proxies = []
+        res = {}
+        for index, url in enumerate(self._sub_links):
+            config, sub_info = self.__get_subscription(url)
+            if not config:
+                res[url] = False
+                continue
+            res[url] = True
+            self._clash_configs[url] = config
+            all_proxies.extend(config.get("proxies", []))
+            self._subscription_info[url] = sub_info
+        self.save_data('subscription_info', self._subscription_info)
+        self.save_data('clash_configs', self._clash_configs)
+        self._proxy_groups_by_region = ClashRuleProvider.__group_by_region(self._countries,
+                                                                           all_proxies)
+        return res
+
+    def __get_subscription(self, url: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        if not url:
+            logger.error(f"Invalid links: {url}")
+            return None, None
         logger.info(f"正在更新: {url}")
         ret = None
         for i in range(0, self._retry_times):
@@ -976,9 +1029,9 @@ class ClashRuleProvider(_PluginBase):
             if ret:
                 break
         if not ret:
-            return False
+            return None, None
         try:
-            rs = yaml.load(ret.content, Loader=yaml.FullLoader)
+            rs: Dict[str, Any] = yaml.load(ret.content, Loader=yaml.FullLoader)
             if type(rs) is str:
                 all_proxies = {'name': "All Proxies", 'type': 'select', 'include-all-proxies': True}
                 proxies = Converter.convert_v2ray(ret.content)
@@ -988,27 +1041,27 @@ class ClashRuleProvider(_PluginBase):
             logger.info(f"已更新: {url}. 节点数量: {len(rs['proxies'])}")
             if rs.get('rules') is None:
                 rs['rules'] = []
-            if self._discard_rules:
-                rs['rules'] = []
-            self._clash_config = self.__remove_nodes_by_keywords(rs)
+            rs = self.__remove_nodes_by_keywords(rs)
         except Exception as e:
             logger.error(f"解析配置出错： {e}")
-            return False
+            return None, None
+
+        sub_info = {'last_update': int(time.time()), 'proxy_num': len(rs.get('proxies', []))}
         if 'Subscription-Userinfo' in ret.headers:
             matches = re.findall(r'(\w+)=(\d+)', ret.headers['Subscription-Userinfo'])
             variables = {key: int(value) for key, value in matches}
-            self._subscription_info['download'] = variables['download']
-            self._subscription_info['upload'] = variables['upload']
-            self._subscription_info['total'] = variables['total']
-            self._subscription_info['expire'] = variables['expire']
-        self._subscription_info["last_update"] = int(time.time())
-        self._proxy_groups_by_region = ClashRuleProvider.__group_by_region(self._countries,
-                                                                           self._clash_config.get('proxies'))
-        self.save_data('subscription_info', self._subscription_info)
-        self.save_data('clash_config', self._clash_config)
-        return True
+            sub_info.update({
+                'download': variables['download'],
+                'upload': variables['upload'],
+                'total': variables['total'],
+                'expire': variables['expire']
+            })
+        return rs, sub_info
 
     def notify_clash(self, ruleset: str):
+        """
+        通知 Clash 刷新规则集
+        """
         url = f'{self._clash_dashboard_url}/providers/rules/{ruleset}'
         RequestUtils(content_type="application/json",
                      headers={"authorization": f"Bearer {self._clash_dashboard_secret}"}
@@ -1086,40 +1139,77 @@ class ClashRuleProvider(_PluginBase):
             proxy_group['proxies'] = [x for x in proxy_group.get('proxies', []) if x not in removed_proxies]
         return clash_config
 
+    def all_proxies(self) -> List[Dict[str, Any]]:
+        """
+        所有出站代理
+        """
+        all_proxies = []
+        for index, url in enumerate(self._sub_links):
+            config = self._clash_configs.get(url, {})
+            all_proxies.extend(config.get("proxies", []))
+        return all_proxies
+
+    @staticmethod
+    def extend_with_name_checking(to_list: List[Dict[str, Any]], from_list: List[Dict[str, Any]]
+                                  ) -> List[Dict[str, Any]]:
+        """
+        去除同名元素合并列表
+        """
+        for item in from_list:
+            if any(p.get('name') == item.get('name', '') for p in to_list):
+                logger.warn(f"Item named {item.get('name')} already exists. Skipping...")
+                continue
+            to_list.append(item)
+        return to_list
+
     def clash_config(self) -> Optional[Dict[str, Any]]:
         """
-        整理clash配置，返回配置字典
+        整理 clash 配置，返回配置字典
         """
-        if not self._clash_config:
-            return None
+        # 使用模板或第一个订阅
+        first_config = self._clash_configs.get(self._sub_links[0], {}) if self._sub_links else {}
+        proxies =[]
+        if not self._clash_template:
+            clash_config = copy.deepcopy(first_config)
+            clash_config['proxy-groups'] = []
+            clash_config['rule-providers'] = {}
+            clash_config['rules'] = []
+        else:
+            clash_config = copy.deepcopy(self._clash_template)
+            proxies.extend(self._clash_template.get('proxies'))
+        clash_config['proxy-groups'] = ClashRuleProvider.extend_with_name_checking(clash_config.get('proxy-groups', []),
+                                                                                   first_config.get('proxy-groups', []),
+                                                                                   )
+        clash_config['rules'] = clash_config.get('rules', [])
+        if not self._discard_rules:
+            clash_config['rules'] += first_config.get('rules', [])
+        clash_config['rule-providers'] = first_config.get('rule-providers', {}).update(clash_config.get('rule-providers', {}))
+
+
+        for proxy in (self._extra_proxies + self.all_proxies()) :
+            if any(p.get('name') == proxy.get('name', '') for p in proxies):
+                logger.warn(f"Proxy named {proxy.get('name')} already exists. Skipping...")
+                continue
+            proxies.append(proxy)
+        if proxies:
+            clash_config['proxies'] = proxies
         self.__insert_ruleset()
         self._top_rules = self._clash_rule_parser.to_list()
-        clash_config = copy.deepcopy(self._clash_config)
         clash_config['rule-providers'] = clash_config.get('rule-providers') or {}
         # 添加代理组
         proxy_groups = copy.deepcopy(self._proxy_groups)
         if proxy_groups:
-            if clash_config.get("proxy-groups"):
-                clash_config['proxy-groups'].extend(proxy_groups)
-            else:
-                clash_config['proxy-groups'] = proxy_groups
-
-        # 添加额外节点
-        if clash_config.get('proxies'):
-            clash_config['proxies'].extend(self._extra_proxies)
-        else:
-            clash_config['proxies'] = copy.deepcopy(self._extra_proxies)
+            clash_config['proxy-groups'] = ClashRuleProvider.extend_with_name_checking(clash_config['proxy-groups'],
+                                                                                       proxy_groups)
 
         # 添加按大洲代理组
         if self._group_by_region:
             if self._proxy_groups_by_region:
-                if clash_config.get('proxy-groups'):
-                    clash_config['proxy-groups'].extend(self._proxy_groups_by_region)
-                else:
-                    clash_config['proxy-groups'] = copy.deepcopy(self._proxy_groups_by_region)
+                clash_config['proxy-groups'] = ClashRuleProvider.extend_with_name_checking(clash_config['proxy-groups'],
+                                                                                           self._proxy_groups_by_region)
 
         top_rules = []
-        outbound_names = list(x.get("name") for x in self.clash_outbound(clash_config))
+        outbound_names = list(x.get("name") for x in self.clash_outbound())
 
         # 添加 extra rule providers
         if self._extra_rule_providers:

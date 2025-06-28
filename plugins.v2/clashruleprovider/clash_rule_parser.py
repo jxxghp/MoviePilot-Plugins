@@ -2,7 +2,7 @@ import re
 from typing import List, Dict, Any, Optional, Union, Callable, Literal
 from dataclasses import dataclass
 from enum import Enum
-from urllib.parse import urlparse, parse_qs, unquote, parse_qsl
+from urllib.parse import urlparse, parse_qs, unquote, parse_qsl, urlencode, urlunparse
 import json
 import base64
 import binascii
@@ -684,12 +684,14 @@ class Converter:
             raise ValueError(f"invalid truth value {val!r}")
 
     @staticmethod
-    def convert_v2ray(buf: bytes):
-        decoded = Converter.decode_base64(buf).decode("utf-8")
-        lines = decoded.strip().splitlines()
+    def convert_v2ray(v2ray_link: Union[list, bytes]) -> List[Dict[str, Any]]:
+        if isinstance(v2ray_link, bytes):
+            decoded = Converter.decode_base64(v2ray_link).decode("utf-8")
+            lines = decoded.strip().splitlines()
+        else:
+            lines = v2ray_link
         proxies = []
         names = {}
-
         for line in lines:
             line = line.strip()
             if not line:
@@ -800,7 +802,6 @@ class Converter:
                 try:
                     parsed = urlparse(line)
                     query = parse_qs(parsed.query)
-
                     uuid = parsed.username or ""
                     server = parsed.hostname or ""
                     port = parsed.port or 443
@@ -811,7 +812,6 @@ class Converter:
                     network = query.get("type", [""])[0]
                     path = query.get("path", [""])[0]
                     host = query.get("host", [""])[0]
-
                     name = Converter.unique_name(names, unquote(parsed.fragment or f"{server}:{port}"))
 
                     proxy = {
@@ -831,11 +831,30 @@ class Converter:
 
                     if network:
                         proxy["network"] = network
-                        if network == "ws":
-                            proxy["ws-opts"] = {
-                                "path": path,
-                                "headers": {"Host": host}
-                            }
+                        if network in ["ws", "httpupgrade"]:
+                            headers = {}
+                            if host:
+                                headers["Host"] = host
+                            ws_opts:Dict[str, Any] = { "path": path, "headers": headers }
+                            try:
+                                parsed_path = urlparse(path)
+                                q = parse_qs(parsed_path.query)
+                                if "ed" in q:
+                                    med = int(q["ed"][0])
+                                    ws_opts["max-early-data"] = med
+                                    ws_opts["early-data-header-name"] = q.get("eh", ["Sec-WebSocket-Protocol"])[0]
+                                    q.pop("ed", None)
+                                    new_query = urlencode(q, doseq=True)
+                                    parsed = parsed._replace(query=new_query)
+                                    path = urlunparse(parsed)
+                                elif "eh" in q:
+                                    ws_opts["early-data-header-name"] = q["eh"][0]
+                                ws_opts["path"] = path
+                            except Exception:
+                                pass
+                            if network == "httpupgrade":
+                                ws_opts["v2ray-http-upgrade-fast-open"] = True
+                            proxy["ws-opts"] = ws_opts
                         elif network == "grpc":
                             proxy["grpc-opts"] = {
                                 "grpc-service-name": path
@@ -850,11 +869,11 @@ class Converter:
                         alpn = query.get("alpn", [""])[0]
                         if alpn:
                             proxy["alpn"] = alpn.split(",")
-
-                    return proxy
+                    proxies.append(proxy)
 
                 except Exception as e:
                     raise ValueError(f"VLESS parse error: {e}") from e
+
             elif scheme == "trojan":
                 try:
                     parsed = urlparse(line)
@@ -971,31 +990,56 @@ class Converter:
                     raise ValueError(f"SOCKS5 parse error: {e}") from e
             elif scheme == "ss":
                 try:
+                    parsed = urlparse(line)
                     # 兼容 ss://base64 或 ss://base64#name
-                    if "#" in body:
-                        body, fragment = body.split("#", 1)
-                        name = Converter.unique_name(names, unquote(fragment))
+                    if parsed.fragment:
+                        name = Converter.unique_name(names, unquote(parsed.fragment))
                     else:
                         name = Converter.unique_name(names, "ss")
-
-                    if "@" in body:
-                        userinfo, server = body.split("@", 1)
-                    else:
-                        decoded = Converter.decode_base64(body).decode()
-                        userinfo, server = decoded.rsplit("@", 1)
-
-                    cipher, password = userinfo.split(":")
-                    server_host, server_port = server.split(":")
-
+                    if parsed.port is None:
+                        base64_body = body.split("#")[0]
+                        parsed = urlparse(f"ss://{Converter.decode_base64(base64_body).decode('utf-8')}")
+                    cipher_raw = parsed.username
+                    cipher = cipher_raw
+                    password = parsed.password
+                    if not password:
+                        dc_buf = Converter.decode_base64(cipher_raw).decode('utf-8')
+                        if dc_buf.startswith("ss://"):
+                            dc_buf = dc_buf[len("ss://"):]
+                        dc_buf = Converter.decode_base64(dc_buf).decode('utf-8')
+                        cipher, password = dc_buf.split(":", 1)
+                    server = parsed.hostname
+                    port = parsed.port
+                    query = dict(parse_qsl(parsed.query))
                     proxy = {
                         "name": name,
                         "type": "ss",
-                        "server": server_host,
-                        "port": server_port,
+                        "server": server,
+                        "port": port,
                         "cipher": cipher,
                         "password": password,
                         "udp": True
                     }
+                    plugin = query.get("plugin")
+                    if plugin and ";" in plugin:
+                        query_string = "pluginName=" + plugin.replace(";", "&")
+                        plugin_info = parse_qs(query_string)
+                        plugin_name = plugin_info.get("pluginName", [""])[0]
+
+                        if "obfs" in plugin_name:
+                            proxy["plugin"] = "obfs"
+                            proxy["plugin-opts"] = {
+                                "mode": plugin_info.get("obfs", [""])[0],
+                                "host": plugin_info.get("obfs-host", [""])[0],
+                            }
+                        elif "v2ray-plugin" in plugin_name:
+                            proxy["plugin"] = "v2ray-plugin"
+                            proxy["plugin-opts"] = {
+                                "mode": plugin_info.get("mode", [""])[0],
+                                "host": plugin_info.get("host", [""])[0],
+                                "path": plugin_info.get("path", [""])[0],
+                                "tls": "tls" in plugin,
+                            }
                     proxies.append(proxy)
                 except Exception as e:
                     raise ValueError(f"SS parse error: {e}") from e
