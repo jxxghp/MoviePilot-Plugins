@@ -450,11 +450,12 @@
     "name": "Clash Rule Provider",
     "description": "随时为Clash添加一些额外的规则。",
     "labels": "工具",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "icon": "Mihomo_Meta_A.png",
     "author": "wumode",
     "level": 1,
     "history": {
+      "v1.2.1": "修复配置模板错误",
       "v1.2.0": "支持管理多个订阅; 支持导入配置模板和 V2Ray 链接; 优化界面",
       "v1.1.3": "添加仪表盘组件",
       "v1.1.1": "支持解析 V2ray 订阅",

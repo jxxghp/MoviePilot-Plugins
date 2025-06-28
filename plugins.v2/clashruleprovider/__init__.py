@@ -38,7 +38,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.2.0"
+    plugin_version = "1.2.1"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -78,7 +78,6 @@ class ClashRuleProvider(_PluginBase):
 
     # 插件数据
     # 综合多个订阅的配置
-    # _clash_config: Optional[Dict[str, Any]] = None
     _top_rules: List[str] = []
     _ruleset_rules: List[str] = []
     _rule_provider: Dict[str, Any] = {}
@@ -102,7 +101,6 @@ class ClashRuleProvider(_PluginBase):
     _proxy_groups_by_region: List[Dict[str, Any]] = []
 
     def init_plugin(self, config: dict = None):
-        # self._clash_config = self.get_data("clash_config")
         self._ruleset_rules = self.get_data("ruleset_rules")
         self._top_rules = self.get_data("top_rules")
         self._proxy_groups = self.get_data("proxy_groups") or []
@@ -1176,7 +1174,7 @@ class ClashRuleProvider(_PluginBase):
             clash_config['rules'] = []
         else:
             clash_config = copy.deepcopy(self._clash_template)
-            proxies.extend(self._clash_template.get('proxies'))
+            proxies.extend(self._clash_template.get('proxies', []))
         clash_config['proxy-groups'] = ClashRuleProvider.extend_with_name_checking(clash_config.get('proxy-groups', []),
                                                                                    first_config.get('proxy-groups', []),
                                                                                    )
