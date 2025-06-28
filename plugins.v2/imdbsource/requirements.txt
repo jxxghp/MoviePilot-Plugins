@@ -1,3 +1,0 @@
-graphene~=3.4.3
-ijson~=3.4.0
-requests-html~=0.10.0
