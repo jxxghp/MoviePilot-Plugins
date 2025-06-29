@@ -451,11 +451,12 @@
     "name": "Clash Rule Provider",
     "description": "随时为Clash添加一些额外的规则。",
     "labels": "工具",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "icon": "Mihomo_Meta_A.png",
     "author": "wumode",
     "level": 1,
     "history": {
+      "v1.2.2": "展示更多信息; 修复交互问题",
       "v1.2.1": "修复配置模板错误",
       "v1.2.0": "支持管理多个订阅; 支持导入配置模板和 V2Ray 链接; 优化界面",
       "v1.1.3": "添加仪表盘组件",

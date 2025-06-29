@@ -1,5 +1,6 @@
 import json
 import re
+import urllib
 from typing import Any, Optional, List, Dict, Tuple, Union
 import time
 from urllib.parse import urlparse
@@ -38,7 +39,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.2.1"
+    plugin_version = "1.2.2"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -94,11 +95,9 @@ class ClashRuleProvider(_PluginBase):
     # protected variables
     _clash_rule_parser = None
     _ruleset_rule_parser = None
-    _custom_rule_sets = None
     _clash_template: Optional[Dict[str, Any]] = None
     _scheduler: Optional[BackgroundScheduler] = None
     _countries: Optional[List[Dict[str, str]]] = None
-    _proxy_groups_by_region: List[Dict[str, Any]] = []
 
     def init_plugin(self, config: dict = None):
         self._ruleset_rules = self.get_data("ruleset_rules")
@@ -141,18 +140,19 @@ class ClashRuleProvider(_PluginBase):
             self._clash_template_yaml = config.get("clash_template") or ''
         self._clash_rule_parser = ClashRuleParser()
         self._ruleset_rule_parser = ClashRuleParser()
+        self._clash_template = {}
+        self._countries = []
         if self._enabled:
-            if self._clash_template_yaml:
-                self._clash_template = {}
-                try:
-                    self._clash_template = yaml.load(self._clash_template_yaml, Loader=yaml.SafeLoader)
-                except yaml.YAMLError as exc:
-                    logger.error(f"Error loading clash template yaml: {exc}")
+            try:
+                self._clash_template = yaml.load(self._clash_template_yaml, Loader=yaml.SafeLoader) or {}
+                if not isinstance(self._clash_template, dict):
+                    self._clash_template = {}
+                    logger.error(f"Invalid clash template yaml")
+            except yaml.YAMLError as exc:
+                logger.error(f"Error loading clash template yaml: {exc}")
             if self._group_by_region:
                 self._countries = ClashRuleProvider.__load_countries(
                     f"{settings.ROOT_PATH}/app/plugins/clashruleprovider/countries.json")
-                self._proxy_groups_by_region = ClashRuleProvider.__group_by_region(self._countries,
-                                                                                   self.all_proxies())
             self.__parse_config()
             # 清理不存在的 URL
             self._subscription_info = {url: self._subscription_info.get(url)
@@ -162,7 +162,7 @@ class ClashRuleProvider(_PluginBase):
             self._scheduler.start()
             # 更新订阅
             self._scheduler.add_job(self.refresh_subscriptions, "date",
-                                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=2))
+                                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=2))
             # 更新acl4ssr
             if self._enable_acl4ssr:
                 self._scheduler.add_job(self.__refresh_acl4ssr, "date",
@@ -269,14 +269,6 @@ class ClashRuleProvider(_PluginBase):
                 "description": "获取规则集合"
             },
             {
-                "path": "/extra-rule-providers",
-                "endpoint": self.get_extra_rule_providers,
-                "methods": ["GET"],
-                "auth": "bear",
-                "summary": "添加规则集合",
-                "description": "添加规则集合"
-            },
-            {
                 "path": "/extra-rule-provider",
                 "endpoint": self.update_extra_rule_provider,
                 "methods": ["POST"],
@@ -313,8 +305,8 @@ class ClashRuleProvider(_PluginBase):
                 "endpoint": self.add_extra_proxies,
                 "methods": ["POST"],
                 "auth": "bear",
-                "summary": "添加一条出站代理",
-                "description": "添加一条出站代理"
+                "summary": "添加出站代理",
+                "description": "添加出站代理"
             },
             {
                 "path": "/proxy-groups",
@@ -449,7 +441,7 @@ class ClashRuleProvider(_PluginBase):
         pass
 
     def get_service(self) -> List[Dict[str, Any]]:
-        if self.get_state() and self._auto_update_subscriptions:
+        if self.get_state() and self._auto_update_subscriptions and self._sub_links:
             return [{
                 "id": "ClashRuleProvider",
                 "name": "定时更新订阅",
@@ -578,15 +570,17 @@ class ClashRuleProvider(_PluginBase):
                                     f"apikey={settings.API_TOKEN}"}}
 
 
-    def get_clash_config(self):
+    def get_clash_config(self, request: Request):
+        logger.info(f"{request.client.host} 正在获取配置")
         config = self.clash_config()
         if not config:
-            return {'success': False, "message": ''}
+            return {'success': False, "message": '配置不可用'}
         res = yaml.dump(config, allow_unicode=True)
         first_url = self._sub_links[0] if self._sub_links else None
         if not first_url:
-            return {'success': False, "message": ''}
-        sub_info = self._subscription_info.get(first_url, {})
+            sub_info = {'upload': 0, 'download': 0, 'total': 0, 'expire': 0}
+        else:
+            sub_info = self._subscription_info.get(first_url, {})
         headers = {'Subscription-Userinfo': f'upload={sub_info.get("upload", 0)}; '
                                             f'download={sub_info.get("download", 0)}; '
                                             f'total={sub_info.get("total", 0)}; '
@@ -617,6 +611,8 @@ class ClashRuleProvider(_PluginBase):
         if params.get('type') == 'YAML':
             try:
                 imported_rules = yaml.load(params["payload"], Loader=yaml.SafeLoader)
+                if not isinstance(imported_rules, dict):
+                    return schemas.Response(success=False, message='Invalid input')
                 rules = imported_rules.get("rules", [])
             except yaml.YAMLError as err:
                 return schemas.Response(success=False, message=f'YAML error: {err}')
@@ -687,15 +683,9 @@ class ClashRuleProvider(_PluginBase):
         return schemas.Response(success=True, message='订阅更新成功')
 
     def get_rule_providers(self) -> schemas.Response:
+        if not self._enabled:
+            return schemas.Response(success=True, data=[])
         return schemas.Response(success=True, data=self.rule_providers())
-
-    def get_extra_rule_providers(self) -> schemas.Response:
-        extra_rule_providers = []
-        for name, value in self._extra_rule_providers.items():
-            item = {'name': name}
-            item.update(value)
-            extra_rule_providers.append(item)
-        return schemas.Response(success=True, data={'rule_providers': extra_rule_providers})
 
     def update_extra_rule_provider(self, params: Dict[str, Any]) -> schemas.Response:
         if not self._enabled:
@@ -720,7 +710,7 @@ class ClashRuleProvider(_PluginBase):
                     if not clash_rule:
                         raise ValueError(f"Invalid clash_rule: {rule}")
         except Exception as e:
-            error_message = f"Failed to parse rule provider: Invalid data={item}, error={repr(e)}"
+            error_message = f"Failed to save rule provider: {repr(e)}"
             logger.error(error_message)
             return schemas.Response(success=False, message=str(error_message))
         if name != new_name:
@@ -740,10 +730,39 @@ class ClashRuleProvider(_PluginBase):
         return schemas.Response(success=True)
 
     def get_proxy_groups(self) -> schemas.Response:
-        return schemas.Response(success=True, data={'proxy_groups': self._proxy_groups})
+        if not self._enabled:
+            return schemas.Response(success=True, data={'proxy_groups': []})
+        first_config = self._clash_configs.get(self._sub_links[0], {}) if self._sub_links else {}
+        proxy_groups = []
+        sources = ('Manual', 'Template', urlparse(self._sub_links[0]).hostname if self._sub_links else '' ,'Region')
+        groups = (self._proxy_groups, self._clash_template.get('proxy-groups', []),
+                  first_config.get('proxy-groups', []), self.proxy_groups_by_region())
+        for i, group in enumerate(groups):
+            for proxy_group in group:
+                proxy_group_copy = copy.deepcopy(proxy_group)
+                proxy_group_copy['source'] = sources[i]
+                proxy_groups.append(proxy_group_copy)
+        return schemas.Response(success=True, data={'proxy_groups': proxy_groups})
 
     def get_extra_proxies(self) -> schemas.Response:
-        return schemas.Response(success=True, data={'extra_proxies': self._extra_proxies})
+        if not self._enabled:
+            return schemas.Response(success=True, data={'extra_proxies': []})
+        proxies = []
+        for proxy in self._extra_proxies:
+            proxy_copy = copy.deepcopy(proxy)
+            proxy_copy['source'] = 'Manual'
+            proxies.append(proxy_copy)
+        for url, config in self._clash_configs.items():
+            hostname = urlparse(url).hostname
+            for proxy in config['proxies']:
+                proxy_copy = copy.deepcopy(proxy)
+                proxy_copy['source'] = hostname
+                proxies.append(proxy_copy)
+        for proxy in self._clash_template.get('proxies', []):
+            proxy_copy = copy.deepcopy(proxy)
+            proxy_copy['source'] = 'Template'
+            proxies.append(proxy_copy)
+        return schemas.Response(success=True, data={'extra_proxies': proxies})
 
     def add_extra_proxies(self, params: Dict[str, Any]):
         if not self._enabled:
@@ -752,6 +771,10 @@ class ClashRuleProvider(_PluginBase):
         if params.get('type') == 'YAML':
             try:
                 imported_proxies = yaml.load(params["payload"], Loader=yaml.SafeLoader)
+                if not imported_proxies or not isinstance(imported_proxies, dict):
+                    return schemas.Response(success=False, message=f"Invalid input")
+                if 'proxies' not in imported_proxies:
+                    return schemas.Response(success=False, message=f"No field 'proxies' found")
                 extra_proxies = imported_proxies.get("proxies", [])
             except Exception as err:
                 return schemas.Response(success=False, message=f'YAML error: {err}')
@@ -763,19 +786,25 @@ class ClashRuleProvider(_PluginBase):
                 return schemas.Response(success=False, message=f'LINK error: {err}')
         if not extra_proxies:
             return schemas.Response(success=False, message='无可用节点')
+        result = True
+        message = ''
         for proxy in extra_proxies:
             name = proxy.get('name')
             if not name or any(x.get('name') == name for x in self.clash_outbound()):
                 logger.warning(f"The proxy name {proxy['name']} already exists. Skipping...")
+                message = f"The proxy name {proxy['name']} already exists. Skipping..."
+                result = False
                 continue
             required_fields = {'name', 'type', 'server', 'port'}
             if not required_fields.issubset(proxy.keys()):
                 missing = required_fields - proxy.keys()
                 logger.error(f"Required field is missing: {missing}")
+                message = f"Required field is missing: {missing}"
+                result = False
                 continue
             self._extra_proxies.append(proxy)
         self.save_data('extra_proxies', self._extra_proxies)
-        return schemas.Response(success=True)
+        return schemas.Response(success=result, message=message)
 
     def delete_extra_proxy(self, params: dict = Body(...)) -> schemas.Response:
         if not self._enabled:
@@ -822,21 +851,32 @@ class ClashRuleProvider(_PluginBase):
         first_config = self._clash_configs.get(self._sub_links[0], {}) if self._sub_links else {}
         outbound = [{'name': proxy_group.get("name")} for proxy_group in first_config.get("proxy-groups", [])]
         outbound.extend([{'name': proxy.get("name")} for proxy in first_config.get("proxies", [])])
+        if self._clash_template:
+            if 'proxy-groups' in self._clash_template:
+                outbound.extend(self._clash_template.get('proxy-groups') or [])
+            if 'proxies' in self._clash_template:
+                outbound.extend(self._clash_template.get('proxies') or [])
         if self._group_by_region:
-            outbound.extend([{'name': proxy_group.get("name")} for proxy_group in self._proxy_groups_by_region])
+            outbound.extend([{'name': proxy_group.get("name")} for proxy_group in self.proxy_groups_by_region()])
         outbound.extend([{'name': proxy.get("name")} for proxy in self._extra_proxies])
         outbound.extend([{'name': proxy_group.get("name")} for proxy_group in self._proxy_groups])
         return outbound
 
-    def rule_providers(self) -> Dict[str, Any]:
+    def rule_providers(self) -> List[Dict[str, Any]]:
         first_config = self._clash_configs.get(self._sub_links[0], {}) if self._sub_links else {}
-        rule_providers = {}
-        for key, value in first_config.get('rule-providers', {}).items():
-            rule_providers[key] = value
-        for key, value in self._extra_rule_providers.items():
-            rule_providers[key] = value
-        for key, value in self._acl4ssr_providers.items():
-            rule_providers[key] = value
+        hostname = urllib.parse.urlparse(self._sub_links[0]).hostname if self._sub_links else ''
+        rule_providers = []
+        provider_sources = (self._extra_rule_providers,
+                            first_config.get('rule-providers', {}),
+                            self._clash_template.get('rule-providers', {}),
+                            self._acl4ssr_providers)
+        source_names = ('Manual', hostname, 'Template', 'Auto', 'Acl4ssr')
+        for i, provider in enumerate(provider_sources):
+            for name, value in provider.items():
+                rule_provider = copy.deepcopy(value)
+                rule_provider['name'] = name
+                rule_provider['source'] = source_names[i]
+                rule_providers.append(rule_provider)
         return rule_providers
 
     def __update_rules(self, rules: List[Dict[str, Any]], rule_parser: ClashRuleParser):
@@ -1001,17 +1041,15 @@ class ClashRuleProvider(_PluginBase):
         res = {}
         for index, url in enumerate(self._sub_links):
             config, sub_info = self.__get_subscription(url)
+            self._subscription_info[url] = sub_info or {}
             if not config:
                 res[url] = False
                 continue
             res[url] = True
             self._clash_configs[url] = config
             all_proxies.extend(config.get("proxies", []))
-            self._subscription_info[url] = sub_info
         self.save_data('subscription_info', self._subscription_info)
         self.save_data('clash_configs', self._clash_configs)
-        self._proxy_groups_by_region = ClashRuleProvider.__group_by_region(self._countries,
-                                                                           all_proxies)
         return res
 
     def __get_subscription(self, url: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
@@ -1027,6 +1065,7 @@ class ClashRuleProvider(_PluginBase):
             if ret:
                 break
         if not ret:
+            logger.warn(f"更新失败: {url}.")
             return None, None
         try:
             rs: Dict[str, Any] = yaml.load(ret.content, Loader=yaml.FullLoader)
@@ -1065,6 +1104,9 @@ class ClashRuleProvider(_PluginBase):
                      headers={"authorization": f"Bearer {self._clash_dashboard_secret}"}
                      ).put(url)
 
+    def proxy_groups_by_region(self) -> List[Dict[str, Any]]:
+        return ClashRuleProvider.__group_by_region(self._countries, self.all_proxies())
+
     @staticmethod
     def __load_countries(file_path: str) -> List:
         try:
@@ -1092,8 +1134,9 @@ class ClashRuleProvider(_PluginBase):
             if any(x in continent_node for x in ('中国', '香港', 'CN')):
                 continue
             continents_nodes['AsiaExceptChina'].append(continent_node)
-        proxy_group = {'name': 'AsiaExceptChina', 'type': 'select', 'proxies': continents_nodes['AsiaExceptChina']}
-        proxy_groups.append(proxy_group)
+        if continents_nodes['AsiaExceptChina']:
+            proxy_group = {'name': 'AsiaExceptChina', 'type': 'select', 'proxies': continents_nodes['AsiaExceptChina']}
+            proxy_groups.append(proxy_group)
         return proxy_groups
 
     @staticmethod
@@ -1145,6 +1188,8 @@ class ClashRuleProvider(_PluginBase):
         for index, url in enumerate(self._sub_links):
             config = self._clash_configs.get(url, {})
             all_proxies.extend(config.get("proxies", []))
+        all_proxies.extend(self._clash_template.get("proxies", []))
+        all_proxies.extend(self._extra_proxies)
         return all_proxies
 
     @staticmethod
@@ -1174,17 +1219,17 @@ class ClashRuleProvider(_PluginBase):
             clash_config['rules'] = []
         else:
             clash_config = copy.deepcopy(self._clash_template)
-            proxies.extend(self._clash_template.get('proxies', []))
         clash_config['proxy-groups'] = ClashRuleProvider.extend_with_name_checking(clash_config.get('proxy-groups', []),
                                                                                    first_config.get('proxy-groups', []),
                                                                                    )
         clash_config['rules'] = clash_config.get('rules', [])
         if not self._discard_rules:
             clash_config['rules'] += first_config.get('rules', [])
-        clash_config['rule-providers'] = first_config.get('rule-providers', {}).update(clash_config.get('rule-providers', {}))
 
+        clash_config['rule-providers'] = clash_config.get('rule-providers') or {}
+        clash_config['rule-providers'].update(first_config.get('rule-providers', {}))
 
-        for proxy in (self._extra_proxies + self.all_proxies()) :
+        for proxy in self.all_proxies() :
             if any(p.get('name') == proxy.get('name', '') for p in proxies):
                 logger.warn(f"Proxy named {proxy.get('name')} already exists. Skipping...")
                 continue
@@ -1193,18 +1238,17 @@ class ClashRuleProvider(_PluginBase):
             clash_config['proxies'] = proxies
         self.__insert_ruleset()
         self._top_rules = self._clash_rule_parser.to_list()
-        clash_config['rule-providers'] = clash_config.get('rule-providers') or {}
         # 添加代理组
         proxy_groups = copy.deepcopy(self._proxy_groups)
         if proxy_groups:
             clash_config['proxy-groups'] = ClashRuleProvider.extend_with_name_checking(clash_config['proxy-groups'],
                                                                                        proxy_groups)
-
         # 添加按大洲代理组
         if self._group_by_region:
-            if self._proxy_groups_by_region:
+            groups_by_region = self.proxy_groups_by_region()
+            if groups_by_region:
                 clash_config['proxy-groups'] = ClashRuleProvider.extend_with_name_checking(clash_config['proxy-groups'],
-                                                                                           self._proxy_groups_by_region)
+                                                                                           groups_by_region)
 
         top_rules = []
         outbound_names = list(x.get("name") for x in self.clash_outbound())
