@@ -1,13 +1,13 @@
 
-.plugin-page[data-v-fd7b621d] {
+.plugin-page[data-v-f8573e0b] {
   margin: 0 auto;
 }
 
 /* 使卡片等宽并适应移动端 */
-.d-flex.flex-wrap[data-v-fd7b621d] {
+.d-flex.flex-wrap[data-v-f8573e0b] {
   gap: 16px;
 }
-.url-display[data-v-fd7b621d] {
+.url-display[data-v-f8573e0b] {
   word-break: break-all;
   padding: 8px;
   background: rgba(0, 0, 0, 0.05);
@@ -16,19 +16,19 @@
 
 /* 移动端堆叠布局 */
 @media (max-width: 768px) {
-.d-flex.flex-wrap[data-v-fd7b621d] {
+.d-flex.flex-wrap[data-v-f8573e0b] {
     flex-direction: column;
 }
 }
 
 /* Add visual distinction between sections */
-.ruleset-section[data-v-fd7b621d] {
+.ruleset-section[data-v-f8573e0b] {
   border: 1px solid #e0e0e0;
   border-radius: 4px;
   padding: 16px;
   background-color: #f5f5f5;
 }
-.top-section[data-v-fd7b621d] {
+.top-section[data-v-f8573e0b] {
   border: 1px solid #e0e0e0;
   border-radius: 4px;
   padding: 16px;
@@ -36,15 +36,15 @@
 }
 
 /* Optional: Add different border colors to further distinguish */
-.ruleset-section[data-v-fd7b621d] {
+.ruleset-section[data-v-f8573e0b] {
   border-left: 4px solid #2196F3; /* Blue accent */
 }
-.top-section[data-v-fd7b621d] {
+.top-section[data-v-f8573e0b] {
   border-left: 4px solid #4CAF50; /* Green accent */
 }
-.drag-handle[data-v-fd7b621d] {
+.drag-handle[data-v-f8573e0b] {
   cursor: move;
 }
-.gap-2[data-v-fd7b621d] {
+.gap-2[data-v-f8573e0b] {
   gap: 8px;
 }

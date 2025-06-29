@@ -22,26 +22,26 @@ class RuleProvider(BaseModel):
     size_limit: int = Field(0, ge=0, description="The maximum size of downloadable files in bytes (0 for no limit)")
     payload: Optional[List[str]] = Field(None, description="Content, only effective when type is inline")
 
-    @validator("url", pre=True, always=True)
+    @validator("url", pre=True, always=True, allow_reuse=True)
     def check_url_for_http_type(cls, v, values):
         if values.get("type") == "http" and v is None:
             raise ValueError("url must be configured if the type is 'http'")
         return v
 
-    @validator("path", pre=True, always=True)
+    @validator("path", pre=True, always=True, allow_reuse=True)
     def check_path_for_file_type(cls, v, values):
         if values.get("type") == "file" and v is None:
             raise ValueError("path must be configured if the type is 'file'")
         return v
 
-    @validator("payload", pre=True, always=True)
+    @validator("payload", pre=True, always=True, allow_reuse=True)
     def handle_payload_for_non_inline_type(cls, v, values):
         # If type is not inline, payload should be ignored (set to None)
         if values.get("type") != "inline" and v is not None:
             return None
         return v
 
-    @validator("payload")
+    @validator("payload", allow_reuse=True)
     def check_payload_type_for_inline(cls, v, values):
         if values.get("type") == "inline" and v is not None and not isinstance(v, list):
             raise ValueError("payload must be a list of strings when type is 'inline'")
@@ -49,7 +49,7 @@ class RuleProvider(BaseModel):
             raise ValueError("payload must be configured if the type is 'inline'")
         return v
 
-    @validator("format")
+    @validator("format", allow_reuse=True)
     def check_format_with_behavior(cls, v, values):
         behavior = values.get("behavior")
         if v == "mrs" and behavior not in ["domain", "ipcidr"]:
@@ -98,7 +98,7 @@ class ProxyGroupBase(BaseModel):
     icon: Optional[str] = Field(None, description="Icon string for the proxy group, for UI use.")
 
 
-    @validator('expected_status')
+    @validator('expected_status', allow_reuse=True)
     def validate_expected_status(cls, v: Optional[str]) -> Optional[str]:
         if v is None or v == '*':
             return v
@@ -862,9 +862,10 @@ class Converter:
 
                     if tls_mode == "reality":
                         proxy["reality-opts"] = {
-                            "public-key": query.get("pbk", [""])[0],
-                            "short-id": query.get("sid", [""])[0]
+                            "public-key": query.get("pbk", [""])[0]
                         }
+                        if query.get("sid"):
+                            proxy["reality-opts"]["short-id"] = query.get("sid", [""])[0]
                         proxy["client-fingerprint"] = query.get("fp", ["chrome"])[0]
                         alpn = query.get("alpn", [""])[0]
                         if alpn:

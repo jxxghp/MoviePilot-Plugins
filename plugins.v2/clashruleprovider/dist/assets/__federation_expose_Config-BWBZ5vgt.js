@@ -106,10 +106,6 @@ const isValidUrl = (urlString) => {
 };
 
 function validateSubLinks(links) {
-  if (!links || links.length === 0) {
-    return '至少需要一个订阅链接'
-  }
-
   for (const link of links) {
     if (!isValidUrl(link)) {
       return `无效的订阅链接: ${link}`
@@ -210,10 +206,6 @@ function openClashTemplateDialog() {
 }
 
 function saveClashTemplate() {
-  if (!clashTemplateContent.value.trim()) {
-    alert('请粘贴 YAML 配置内容');
-    return;
-  }
   config.clash_template = clashTemplateContent.value;
   clashTemplateDialog.value = false;
 }
@@ -982,7 +974,6 @@ return (_ctx, _cache) => {
                   "auto-grow": "",
                   placeholder: "mixed-port: 7890",
                   class: "mb-4",
-                  required: "",
                   hint: "规则和出站代理会被添加在配置模板上",
                   style: {"max-height":"600px","padding-top":"12px","line-height":"1.5"}
                 }, null, 8, ["modelValue"])
@@ -1024,6 +1015,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigComponent = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-107d3846"]]);
+const ConfigComponent = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-106fe9f8"]]);
 
 export { ConfigComponent as default };
