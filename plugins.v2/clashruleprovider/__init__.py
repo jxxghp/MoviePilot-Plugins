@@ -39,7 +39,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.2.2"
+    plugin_version = "1.2.3"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -148,6 +148,11 @@ class ClashRuleProvider(_PluginBase):
                 if not isinstance(self._clash_template, dict):
                     self._clash_template = {}
                     logger.error(f"Invalid clash template yaml")
+                # 规范配置模板
+                self._clash_template['proxies'] = self._clash_template.get('proxies') or []
+                self._clash_template['proxy-groups'] = self._clash_template.get('proxy-groups') or []
+                self._clash_template['rule-providers'] = self._clash_template.get('rule-providers') or {}
+                self._clash_template['rules'] = self._clash_template.get('rule-providers') or []
             except yaml.YAMLError as exc:
                 logger.error(f"Error loading clash template yaml: {exc}")
             if self._group_by_region:
@@ -1264,7 +1269,7 @@ class ClashRuleProvider(_PluginBase):
             rule_provider_name = f'{self._ruleset_prefix}{action_str}'
             if rule_provider_name not in self._rule_provider:
                 path_name = hashlib.sha256(action_str.encode('utf-8')).hexdigest()[:10]
-                self._ruleset_names[path_name] = rule.payload
+                self._ruleset_names[path_name] = rule_provider_name
                 sub_url = (f"{self._movie_pilot_url}/api/v1/plugin/ClashRuleProvider/ruleset?"
                            f"name={path_name}&apikey={settings.API_TOKEN}")
                 self._rule_provider[rule_provider_name] = {"behavior": "classical",
