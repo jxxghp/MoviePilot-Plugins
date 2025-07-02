@@ -1,12 +1,13 @@
 from typing import Optional, Any, List, Dict, Tuple
 from datetime import datetime
+import re
 
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.plugins import _PluginBase
 from app.schemas import DiscoverSourceEventData, MediaRecognizeConvertEventData, RecommendSourceEventData
 from app.schemas.types import ChainEventType, MediaType
-from app.plugins.imdbsource.imdb_helper import ImdbHelper
+from app.plugins.imdbsource.imdbhelper import ImdbHelper
 from app import schemas
 from app.utils.http import RequestUtils
 
@@ -19,7 +20,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.3.3"
+    plugin_version = "1.4.0"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -31,10 +32,13 @@ class ImdbSource(_PluginBase):
     # 可使用的用户级别
     auth_level = 1
 
-    # 私有属性
-    _enabled = False
-    _proxy = False
+    # 插件配置
+    _enabled: bool = False
+    _proxy: bool = False
+    _staff_picks: bool = False
+    _component_size: str = 'medium'
 
+    # 私有属性
     _imdb_helper = None
     _cache = {"discover": [], "trending": [], "trending_in_anime": [], "trending_in_sitcom": [],
               "trending_in_documentary": [], "imdb_top_250": []}
@@ -43,6 +47,9 @@ class ImdbSource(_PluginBase):
         if config:
             self._enabled = config.get("enabled")
             self._proxy = config.get("proxy")
+            self._staff_picks = config.get("staff_picks")
+            self._component_size = config.get("component_size", "medium")
+            self._imdb_helper = ImdbHelper()
             self._imdb_helper = ImdbHelper(proxies=settings.PROXY if self._proxy else None)
         if "media-amazon.com" not in settings.SECURITY_IMAGE_DOMAINS:
             settings.SECURITY_IMAGE_DOMAINS.append("media-amazon.com")
@@ -51,6 +58,358 @@ class ImdbSource(_PluginBase):
 
     def get_state(self) -> bool:
         return self._enabled
+
+    def get_dashboard_meta(self) -> Optional[List[Dict[str, str]]]:
+        if not self._staff_picks:
+            return []
+        return [
+            {
+                "key": "Staff Picks",
+                "name": "IMDb 编辑精选"
+            },
+        ]
+
+    def get_dashboard(self, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+        """
+        获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、全局配置（自动刷新等）；3、仪表板页面元素配置json（含数据）
+        1、col配置参考：
+        {
+            "cols": 12, "md": 6
+        }
+        2、全局配置参考：
+        {
+            "refresh": 10 // 自动刷新时间，单位秒
+        }
+        3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
+        """
+        if not self._staff_picks:
+            return None
+        def year_and_type(entry: Dict) -> Tuple[MediaType, str]:
+            title = next((t for t in titles if t.get("id") == entry.get('ttconst')), None)
+            if not title:
+                return MediaType.MOVIE, datetime.now().date().strftime("%Y")
+            media_id = title.get('titleType', {}).get('id')
+            release_year = title.get('releaseYear', {}).get('year') or datetime.now().date().strftime("%Y")
+            media_type = ImdbSource.title_id_to_mtype(media_id)
+            return media_type, release_year
+
+        # 列配置
+        size_config = {
+            "small": {"cols": {"cols": 12, "md": 4}, "height": 335},
+            "medium": {"cols": {"cols": 12, "md": 8}, "height": 335},
+        }
+        config = size_config.get(self._component_size, 'medium')
+
+        cols = config["cols"]
+        height = config["height"]
+        is_mobile = ImdbSource.is_mobile(kwargs.get('user_agent'))
+        cast_num = 8
+        if self._component_size == "small":
+            cast_num = 4
+        if is_mobile:
+            height *= 2
+            cast_num = 3
+        # 全局配置
+        attrs = {
+            "border": False
+        }
+        # 获取流行越势数据
+        entries = self._imdb_helper.staff_picks()
+        items = None
+        if entries:
+            items = self._imdb_helper.vertical_list_page_items(
+                titles=[entry.get('ttconst', '') for entry in entries],
+                names=[item for entry in entries for item in entry.get("relatedconst", [])],
+                images=[entry.get('rmconst', '') for entry in entries],
+            )
+
+        if not entries or not items:
+            elements = [
+                {
+                    'component': 'VCard',
+                    'content': [
+                        {
+                            'component': 'VCardText',
+                            'props': {
+                                'class': 'text-center',
+                            },
+                            'content': [
+                                {
+                                    'component': 'span',
+                                    'props': {
+                                        'class': 'text-h6'
+                                    },
+                                    'text': '无数据'
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+            return cols, attrs, elements
+        images = items.get('images') or []
+        names = items.get('names') or []
+        titles = items.get('titles') or []
+        contents = []
+        for entry in entries:
+            cast = [name for related in entry.get('relatedconst', []) for name in names if name.get('id') == related]
+            mtype, year = year_and_type(entry)
+            mp_url = f"/media?mediaid=imdb:{entry.get('ttconst')}&title='{entry.get('name')}'&year={year}&type={mtype.value}"
+            item1 = {
+                'component': 'VCarouselItem',
+                'props': {
+                    'src': next((f"{image.get('url')}" for image in images
+                                 if image.get("id") == entry.get('rmconst')), None),
+                    'cover': True,
+                    'position': 'center',
+                },
+                'content': [
+                    {
+                        'component': 'VCardText',
+                        'props': {
+                            'class': 'w-full flex flex-col flex-wrap justify-end align-left text-white absolute bottom-0 pa-4',
+                        },
+                        'content': [
+                            {
+                                'component': 'RouterLink',
+                                'props': {
+                                    'to': mp_url,
+                                    'class': 'no-underline'
+                                },
+                                'content': [{
+                                    'component': 'h1',
+                                    'props': {
+                                        'class': 'mb-1 text-white text-shadow font-extrabold text-2xl line-clamp-2 overflow-hidden text-ellipsis ...'
+                                    },
+                                    'html': f"{entry.get('name', '')} <span class='text-base font-normal'>{year_and_type(entry)[1]}</span>",
+                                },
+                                    {
+                                        'component': 'span',
+                                        'props': {
+                                            'class': 'text-shadow line-clamp-2 overflow-hidden text-ellipsis ...'
+                                        },
+                                        'html': entry.get('description', ''),
+                                    }
+                                ]
+                            },
+                        ]
+                    }
+                ]
+            }
+            cast_ui = {
+                'component': 'div',
+                'props': {
+                    'class': 'd-flex flex-row align-center flex-wrap mt-4 gap-4',
+                },
+                'content':
+                    [
+                        {
+                            'component': 'div',
+                            'props': {'class': 'd-flex flex-column align-center'},
+                            'content': [
+                                {
+                                    'component': 'a',
+                                    'props': {
+                                        'href': f"https://www.imdb.com/name/{cs.get('id', '')}",
+                                        'target': '_blank',
+                                        'rel': 'noopener noreferrer',
+                                        'class': 'text-h4 font-weight-bold mb-2 d-flex align-center',
+                                    },
+                                    'content': [
+                                        {
+                                            'component': 'VAvatar',
+                                            'props': {
+                                                'size': f'{48 if (is_mobile or self._component_size == "small") else 64}',
+                                                'class': 'mb-1'
+                                            },
+                                            'content': [
+                                                {
+                                                    'component': 'VImg',
+                                                    'props': {
+                                                        'src': cs.get('primaryImage', {}).get('url',
+                                                                                              ''),
+                                                        'alt': cs.get('nameText', {}).get('text', 'Avatar'),
+                                                        'cover': True
+                                                    }
+                                                }
+                                            ]
+                                        },
+                                    ]
+                                },
+
+                                {
+                                    'component': 'span',
+                                    'props': {
+                                        'class': 'text-caption text-center d-inline-block text-truncate',
+                                        'style': 'max-width: 72px;'
+                                    },
+                                    'html': cs.get('nameText', {}).get('text', ''),
+                                }
+                            ]
+                        } for cs in cast[:cast_num]
+                    ]
+
+            }
+            poster_com = {
+                'component': 'VImg',
+                'props': {
+                    'src': next(
+                        (f"{title.get('primaryImage', {}).get('url')}" for title in titles if
+                         title.get("id") == entry.get('ttconst')), None),
+                    'class': 'ma-4 rounded-lg',
+                    'width': '160',
+                    'height': '250',
+                    'cover': True,
+                }
+            }
+            poster_ui = {
+                'component': 'div',
+                'props': {
+                    'class': 'd-flex flex-column align-center',
+                },
+                'content': [
+
+                    {
+                        'component': 'a',
+                        'props': {
+                            'href': f"#{mp_url}",
+                            'class': 'no-underline d-flex',
+                            # 'style': 'width: 160px;'
+                        },
+                        'content': [
+                            poster_com
+                        ]
+                    }
+                ]
+            }
+            title_ui = {
+                'component': 'div',
+                'props': {
+                    'class': 'd-flex flex-column justify-end',
+                },
+                'content': [
+                    {
+                        'component': 'a',
+                        'props': {
+                            'href': f"https://www.imdb.com/title/{entry.get('ttconst', '')}",
+                            'target': '_blank',
+                            'rel': 'noopener noreferrer',
+                            'class': 'text-h4 font-weight-bold mb-2 d-flex align-center',
+                        },
+                        'content': [
+                            {
+                                'component': 'span',
+                                'html': f"{entry.get('name', '')}"
+                            },
+                            {
+                                'component': 'v-icon',
+                                'props': {
+                                    'class': 'ml-2',
+                                    'size': 'small'
+                                },
+                                'text': 'mdi-chevron-right'
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'div',
+                        'props': {
+                            'class': 'text-yellow font-weight-bold mb-2',
+                        },
+                        'html': entry.get('detail', ''),
+                    },
+                    {
+                        'component': 'span',
+                        'props': {
+                            'class': 'text-shadow text-body-2 line-clamp-4 overflow-hidden',
+                            'style': 'text-align: justify; hyphens: auto;'
+                        },
+                        'html': entry.get('description', ''),
+                    },
+                    cast_ui
+                ]
+            }
+            item2 = {
+                'component': 'VCarouselItem',
+                'props': {
+                    'src': next((f"{image.get('url')}" for image in images
+                                 if image.get("id") == entry.get('rmconst')), None),
+                    'cover': True,
+                    'position': 'center',
+                },
+                'content': [
+                    {
+                        'component': 'div',
+                        'props': {
+                            'class': 'absolute top-0 left-0 right-0 bottom-0 bg-black opacity-70',
+                            'style': 'z-index: 1;'
+                        }
+                    },
+                    {
+                        'component': 'VCardText',
+                        'props': {
+                            'class': 'd-flex flex-row absolute pa-4 text-white',
+                            'style': 'z-index: 2; bottom: 0;',
+                        },
+                        'content': [
+                            {
+                                'component': 'VRow',
+                                'content': [
+                                    # 左图：海报
+                                    {
+                                        'component': 'VCol',
+                                        'props': {
+                                            'cols': 12,
+                                            'md': 4
+                                        },
+                                        'content': [
+                                            poster_ui
+                                        ]
+                                    },
+                                    # 右侧内容区域
+                                    {
+                                        'component': 'VCol',
+                                        'props': {
+                                            'cols': 12,
+                                            'md': 8,
+                                            'class': 'd-flex'
+                                        },
+                                        'content': [
+                                            title_ui
+                                        ]
+                                    }
+                                ]
+                            },
+                        ]
+                    }
+                ]
+            }
+
+            contents.append(item1)
+            contents.append(item2)
+        elements = [
+            {
+                'component': 'VCard',
+                'props': {
+                    'class': 'p-0'
+                },
+                'content': [
+                    {
+                        'component': 'VCarousel',
+                        'props': {
+                            'continuous': True,
+                            'show-arrows': 'hover',
+                            'hide-delimiters': True,
+                            'cycle': True,
+                            'interval': 10000,
+                            'height': height
+                        },
+                        'content': contents
+                    }
+                ]
+            }]
+
+        return cols, attrs, elements
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -95,14 +454,57 @@ class ImdbSource(_PluginBase):
                                         }
                                     }
                                 ]
-                            }
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'staff_picks',
+                                            'label': 'IMDb 编辑精选组件',
+                                        }
+                                    }
+                                ]
+                            },
                         ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'component_size',
+                                            'label': '组件规格',
+                                            'items': [
+                                                {"title": "小型", "value": "small"},
+                                                {"title": "中型", "value": "medium"},
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
                     }
                 ],
             }
         ], {
             "enabled": False,
-            "proxy": False
+            "proxy": False,
+            "staff_picks": False,
+            "component_size": "medium"
         }
 
     def get_page(self) -> List[dict]:
@@ -122,7 +524,6 @@ class ImdbSource(_PluginBase):
             "id2": self.xxx2,
         }
         """
-        # return {"recognize_media": (self.recognize_media, ModuleExecutionType.Hijack)}
         pass
 
     @staticmethod
@@ -210,6 +611,16 @@ class ImdbSource(_PluginBase):
         elif title_id in ["movie", "tvMovie"]:
             return MediaType.MOVIE
         return MediaType.UNKNOWN
+
+    @staticmethod
+    def is_mobile(user_agent):
+        mobile_keywords = [
+            'Mobile', 'iPhone', 'Android', 'Kindle', 'Opera Mini', 'Opera Mobi'
+        ]
+        for keyword in mobile_keywords:
+            if re.search(keyword, user_agent, re.IGNORECASE):
+                return True
+        return False
 
     def trending_in_documentary(self, apikey: str, page: int = 1, count: int = 30) -> List[schemas.MediaInfo]:
         if apikey != settings.API_TOKEN:

@@ -1,14 +1,14 @@
 import re
-from typing import Optional, Any, Dict, Tuple
+from typing import Optional, Any, Dict, Tuple, List
 from collections import OrderedDict
 from dataclasses import dataclass
+import json
 
 import requests
 
 from app.log import logger
 from app.utils.http import RequestUtils
 from app.utils.common import retry
-from app.schemas.types import MediaType
 from app.core.cache import cached
 
 
@@ -36,94 +36,12 @@ class SearchState:
 
 
 class ImdbHelper:
-    _query_by_id = """query queryWithVariables($id: ID!) {
-  title(id: $id) {
-    id
-    type
-    is_adult
-    primary_title
-    original_title
-    start_year
-    end_year
-    runtime_minutes
-    plot
-    rating {
-      aggregate_rating
-      votes_count
-    }
-    genres
-    posters {
-      url
-      width
-      height
-    }
-    certificates {
-      country {
-        code
-        name
-      }
-      rating
-    }
-    spoken_languages {
-      code
-      name
-    }
-    origin_countries {
-      code
-      name
-    }
-    critic_review {
-      score
-      review_count
-    }
-    directors: credits(first: 5, categories: ["director"]) {
-      name {
-        id
-        display_name
-        avatars {
-          url
-          width
-          height
-        }
-      }
-    }
-    writers: credits(first: 5, categories: ["writer"]) {
-      name {
-        id
-        display_name
-        avatars {
-          url
-          width
-          height
-        }
-      }
-    }
-    casts: credits(first: 5, categories: ["actor", "actress"]) {
-      name {
-        id
-        display_name
-        avatars {
-          url
-          width
-          height
-        }
-      }
-      characters
-    }
-  }
-}"""
-    _endpoint = "https://graph.imdbapi.dev/v1"
-    _search_endpoint = "https://v3.sg.media-imdb.com/suggestion/x/%s.json?includeVideos=0"
     _official_endpoint = "https://caching.graphql.imdb.com/"
     _hash_update_url = ("https://raw.githubusercontent.com/wumode/MoviePilot-Plugins/"
                         "refs/heads/imdbsource_assets/plugins.v2/imdbsource/imdb_hash.json")
-    _qid_map = {
-        MediaType.TV: ["tvSeries", "tvMiniSeries", "tvShort", "tvEpisode"],
-        MediaType.MOVIE: ["movie"]
-    }
 
     _imdb_headers = {
-        "Accept": "application/json, text/plain, */*",
+        "Accept": "text/html,application/json,text/plain,*/*",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome"
                       "/84.0.4147.105 Safari/537.36",
         "Referer": "https://www.imdb.com/",
@@ -153,20 +71,18 @@ class ImdbHelper:
         self._search_states = OrderedDict()
         self._max_states = 30
 
-    def imdbid(self, imdbid: str) -> Optional[Dict]:
-        params = {"operationName": "queryWithVariables", "query": self._query_by_id, "variables": {"id": imdbid}}
-        ret = RequestUtils(
-            accept_type="application/json", content_type="application/json"
-        ).post_res(f"{self._endpoint}", json=params)
+    @retry(Exception, logger=logger)
+    @cached(maxsize=32, ttl=1800)
+    def __query_graphql (self, query: str, variables: Dict[str, Any]) -> Optional[Dict]:
+        params = {'query': query, 'variables': variables}
+        ret = self._imdb_req.post_res(f"{self._official_endpoint}", json=params, raise_exception=True)
         if not ret:
             return None
         data = ret.json()
         if "errors" in data:
-            logger.error(f"Imdb query ({imdbid}) errors {data.get('errors')}")
-            logger.error(f"{params}")
-            return None
-        info = data.get("data").get("title", None)
-        return info
+            error = data.get("errors")[0] if data.get("errors") else {}
+            return {'error': error}
+        return data.get("data")
 
     @retry(Exception, logger=logger)
     @cached(maxsize=32, ttl=1800)
@@ -390,3 +306,109 @@ class ImdbHelper:
             return None
         self.hash_status[operation_name] = True
         return data.get('advancedTitleSearch')
+
+    def staff_picks(self) -> Optional[List[Dict[str, Any]]]:
+        """
+        {
+            'name': 'Jurassic World Rebirth',
+            'editor': 'SWG',
+            'complete': 'TRUE',
+            'ttconst': 'tt31036941',
+            'rmconst': 'rm1150392066',
+            'imagealign': 'center top',
+            'detail': 'In theaters Wednesday, July 2',
+            'description': '',
+            'viconst': 'vi3122317593',
+            'relatedconst': ['nm0424060', 'nm0991810']
+        }
+        """
+        url = 'https://www.imdb.com/imdbpicks/staff-picks/'
+        html = self._imdb_req.get(url)
+        if not html:
+            return None
+        pattern = r'"jsonData":"{.*?}"'
+        json_strings = re.findall(pattern, html)
+        if not json_strings:
+            return None
+        try:
+            json_data = json.loads(f"{{{json_strings[0]}}}")
+            if json_data and 'jsonData' in json_data:
+                data = json.loads(json_data['jsonData'])
+                if 'entries' in data:
+                    entries = data['entries']
+                    for entry in entries:
+                        entry['description'] = re.sub(r'\[(/?)[iI]]', r'<\1i>', entry.get('description', ''))
+                    return entries
+        except Exception as e:
+            logger.error(f"Error parsing json: {e}")
+        return None
+
+    def vertical_list_page_items(self,
+                                 titles: Optional[List[str]] = None,
+                                 names: Optional[List[str]] = None,
+                                 images: Optional[List[str]] = None,
+                                 videos: Optional[List[str]] = None,
+                                 is_registered: bool = False
+                                 ) -> Optional[Dict[str, Any]]:
+        """
+        {
+            'titles': [
+                {
+                    'id': 'tt31036941',
+                    'titleText': {
+                        'text': 'Jurassic World: Rebirth'
+                    },
+                    'titleType': {'id': 'movie'},
+                    'releaseYear': {'year': 2025},
+                    'primaryImage': {
+                        'id': 'rm3920935426',
+                        'url': '',
+                        'width': 1257,
+                        'height': 1800
+                    },
+                    'meterRanking': {
+                        'currentRank': 8,
+                        'meterType': 'MOVIE_METER',
+                        'rankChange': {
+                            'changeDirection': 'UP',
+                            'difference': 15
+                        }
+                    },
+                    'ratingsSummary': {'aggregateRating': 6.5}},
+            ],
+            'images': [
+                {
+                    'id': 'rm1150392066',
+                    'height': 5504,
+                    'width': 8256,
+                    'url': ''
+                },
+            ]
+            'names': [
+                {
+                    'id': 'nm0424060',
+                    'nameText': {'text': 'Scarlett Johansson'},
+                    'primaryImage': {
+                        'id': 'rm1916122112',
+                        'url': '',
+                        'width': 1689,
+                        'height': 2048
+                    }
+                },
+            ]
+        }
+        """
+        query = "query VerticalListPageItems( $titles: [ID!]! $names: [ID!]! $images: [ID!]! $videos: [ID!]! ) {\n        titles(ids: $titles) { ...TitleParts meterRanking { currentRank meterType rankChange {changeDirection difference} } ratingsSummary { aggregateRating } }\n        names(ids: $names) { ...NameParts }\n        videos(ids: $videos) { ...VideoParts }\n        images(ids: $images) { ...ImageParts }\n      }\n      fragment TitleParts on Title {\n    id\n    titleText { text }\n    titleType { id }\n    releaseYear { year }\n    primaryImage { id url width height }\n}\n      fragment NameParts on Name {\n    id\n    nameText { text }\n    primaryImage { id url width height }\n}\n      fragment ImageParts on Image {\n    id\n    height\n    width\n    url \n}\n      fragment VideoParts on Video {\n    id\n    name { value }\n    contentType { displayName { value } id }\n    previewURLs { displayName { value } url videoDefinition videoMimeType }\n    playbackURLs { displayName { value } url videoDefinition videoMimeType }\n    thumbnail { height url width }\n}\n    "
+        variables = {'images': images or [],
+                     'titles': titles or [],
+                     'names': names or [],
+                     'videos': videos or [],
+                     'isRegistered': is_registered,
+                     }
+        data = self.__query_graphql(query, variables)
+        if 'error' in data:
+            error = data['error']
+            if error:
+                logger.error(f"Error querying VerticalListPageItems: {error}")
+            return None
+        return data
