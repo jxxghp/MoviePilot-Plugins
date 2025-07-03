@@ -20,7 +20,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.4.0"
+    plugin_version = "1.4.1"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -84,14 +84,15 @@ class ImdbSource(_PluginBase):
         """
         if not self._staff_picks:
             return None
-        def year_and_type(entry: Dict) -> Tuple[MediaType, str]:
+        def year_and_type(entry: Dict) -> Tuple[MediaType, str, str]:
             title = next((t for t in titles if t.get("id") == entry.get('ttconst')), None)
             if not title:
-                return MediaType.MOVIE, datetime.now().date().strftime("%Y")
+                return MediaType.MOVIE, datetime.now().date().strftime("%Y"), ''
             media_id = title.get('titleType', {}).get('id')
             release_year = title.get('releaseYear', {}).get('year') or datetime.now().date().strftime("%Y")
             media_type = ImdbSource.title_id_to_mtype(media_id)
-            return media_type, release_year
+            plot = title.get("plot", {}).get("plotText", {}).get("plainText", '')
+            return media_type, release_year, plot
 
         # 列配置
         size_config = {
@@ -153,7 +154,7 @@ class ImdbSource(_PluginBase):
         contents = []
         for entry in entries:
             cast = [name for related in entry.get('relatedconst', []) for name in names if name.get('id') == related]
-            mtype, year = year_and_type(entry)
+            mtype, year, plot = year_and_type(entry)
             mp_url = f"/media?mediaid=imdb:{entry.get('ttconst')}&title='{entry.get('name')}'&year={year}&type={mtype.value}"
             item1 = {
                 'component': 'VCarouselItem',
@@ -188,7 +189,7 @@ class ImdbSource(_PluginBase):
                                         'props': {
                                             'class': 'text-shadow line-clamp-2 overflow-hidden text-ellipsis ...'
                                         },
-                                        'html': entry.get('description', ''),
+                                        'html': plot,
                                     }
                                 ]
                             },
@@ -219,7 +220,7 @@ class ImdbSource(_PluginBase):
                                         {
                                             'component': 'VAvatar',
                                             'props': {
-                                                'size': f'{48 if (is_mobile or self._component_size == "small") else 64}',
+                                                'size': f'{48 if is_mobile else 64}',
                                                 'class': 'mb-1'
                                             },
                                             'content': [
@@ -274,7 +275,6 @@ class ImdbSource(_PluginBase):
                         'props': {
                             'href': f"#{mp_url}",
                             'class': 'no-underline d-flex',
-                            # 'style': 'width: 160px;'
                         },
                         'content': [
                             poster_com
@@ -294,7 +294,7 @@ class ImdbSource(_PluginBase):
                             'href': f"https://www.imdb.com/title/{entry.get('ttconst', '')}",
                             'target': '_blank',
                             'rel': 'noopener noreferrer',
-                            'class': 'text-h4 font-weight-bold mb-2 d-flex align-center',
+                            'class': 'text-h4 font-weight-bold mb-2 d-flex text-white align-center',
                         },
                         'content': [
                             {
@@ -322,7 +322,7 @@ class ImdbSource(_PluginBase):
                         'component': 'span',
                         'props': {
                             'class': 'text-shadow text-body-2 line-clamp-4 overflow-hidden',
-                            'style': 'text-align: justify; hyphens: auto;'
+                            'style': 'text-align: justify; hyphens: auto; color: rgba(231, 227, 252, 0.7);'
                         },
                         'html': entry.get('description', ''),
                     },
