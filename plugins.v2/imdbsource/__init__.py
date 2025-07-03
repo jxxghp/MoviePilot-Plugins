@@ -20,7 +20,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.4.1"
+    plugin_version = "1.4.2"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -84,6 +84,7 @@ class ImdbSource(_PluginBase):
         """
         if not self._staff_picks:
             return None
+
         def year_and_type(entry: Dict) -> Tuple[MediaType, str, str]:
             title = next((t for t in titles if t.get("id") == entry.get('ttconst')), None)
             if not title:
@@ -104,12 +105,8 @@ class ImdbSource(_PluginBase):
         cols = config["cols"]
         height = config["height"]
         is_mobile = ImdbSource.is_mobile(kwargs.get('user_agent'))
-        cast_num = 8
-        if self._component_size == "small":
-            cast_num = 4
         if is_mobile:
             height *= 2
-            cast_num = 3
         # 全局配置
         attrs = {
             "border": False
@@ -200,7 +197,8 @@ class ImdbSource(_PluginBase):
             cast_ui = {
                 'component': 'div',
                 'props': {
-                    'class': 'd-flex flex-row align-center flex-wrap mt-4 gap-4',
+                    'class': 'd-flex flex-row align-center mt-4 gap-4',
+                    'style': 'overflow: hidden; white-space: nowrap; max-width: 100%;',
                 },
                 'content':
                     [
@@ -247,34 +245,33 @@ class ImdbSource(_PluginBase):
                                     'html': cs.get('nameText', {}).get('text', ''),
                                 }
                             ]
-                        } for cs in cast[:cast_num]
+                        } for cs in cast
                     ]
 
             }
+            poster_url = next((f"{title.get('primaryImage', {}).get('url')}" for title in titles if
+                               title.get("id") == entry.get('ttconst')), None)
             poster_com = {
                 'component': 'VImg',
                 'props': {
-                    'src': next(
-                        (f"{title.get('primaryImage', {}).get('url')}" for title in titles if
-                         title.get("id") == entry.get('ttconst')), None),
-                    'class': 'ma-4 rounded-lg',
-                    'width': '160',
-                    'height': '250',
+                    'src': poster_url,
+                    'alt': '海报',
+                    'max-width': str(180),
                     'cover': True,
+                    'class': 'rounded mx-auto aspect-[2/3]'
                 }
             }
             poster_ui = {
                 'component': 'div',
                 'props': {
-                    'class': 'd-flex flex-column align-center',
+                    'class': 'align-center mt-2',
                 },
                 'content': [
-
                     {
                         'component': 'a',
                         'props': {
                             'href': f"#{mp_url}",
-                            'class': 'no-underline d-flex',
+                            'class': 'no-underline w-100 h-100',
                         },
                         'content': [
                             poster_com
@@ -282,10 +279,12 @@ class ImdbSource(_PluginBase):
                     }
                 ]
             }
+
             title_ui = {
                 'component': 'div',
                 'props': {
                     'class': 'd-flex flex-column justify-end',
+                    'style': 'max-width: 100%; overflow: hidden;'
                 },
                 'content': [
                     {
@@ -316,26 +315,27 @@ class ImdbSource(_PluginBase):
                         'props': {
                             'class': 'text-yellow font-weight-bold mb-2',
                         },
-                        'html': entry.get('detail', ''),
+                        'html': entry.get('detail', '')
                     },
                     {
                         'component': 'span',
                         'props': {
-                            'class': 'text-shadow text-body-2 line-clamp-4 overflow-hidden',
+                            'class': 'text-body-2 line-clamp-4 overflow-hidden',
                             'style': 'text-align: justify; hyphens: auto; color: rgba(231, 227, 252, 0.7);'
                         },
-                        'html': entry.get('description', ''),
+                        'html': entry.get('description', '')
                     },
-                    cast_ui
                 ]
             }
+            if cast:
+                title_ui['content'].append(cast_ui)
             item2 = {
                 'component': 'VCarouselItem',
                 'props': {
                     'src': next((f"{image.get('url')}" for image in images
                                  if image.get("id") == entry.get('rmconst')), None),
                     'cover': True,
-                    'position': 'center',
+                    'position': 'center'
                 },
                 'content': [
                     {
@@ -349,18 +349,21 @@ class ImdbSource(_PluginBase):
                         'component': 'VCardText',
                         'props': {
                             'class': 'd-flex flex-row absolute pa-4 text-white',
-                            'style': 'z-index: 2; bottom: 0;',
+                            'style': 'z-index: 2; bottom: 0; max-width: 100%;',
                         },
                         'content': [
                             {
                                 'component': 'VRow',
+                                'props': {
+                                    'class': 'w-100'
+                                },
                                 'content': [
                                     # 左图：海报
                                     {
                                         'component': 'VCol',
                                         'props': {
                                             'cols': 12,
-                                            'md': 4
+                                            'md': 3,
                                         },
                                         'content': [
                                             poster_ui
@@ -371,8 +374,8 @@ class ImdbSource(_PluginBase):
                                         'component': 'VCol',
                                         'props': {
                                             'cols': 12,
-                                            'md': 8,
-                                            'class': 'd-flex'
+                                            'md': 9,
+                                            'class': 'd-flex',
                                         },
                                         'content': [
                                             title_ui
