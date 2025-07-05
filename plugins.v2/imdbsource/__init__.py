@@ -37,7 +37,6 @@ class ImdbSource(_PluginBase):
     # 插件配置
     _enabled: bool = False
     _proxy: bool = False
-    _image_proxy: bool = False
     _staff_picks: bool = False
     _component_size: str = 'medium'
 
@@ -52,7 +51,6 @@ class ImdbSource(_PluginBase):
         if config:
             self._enabled = config.get("enabled")
             self._proxy = config.get("proxy")
-            self._image_proxy = config.get("image_proxy", False)
             self._staff_picks = config.get("staff_picks")
             self._component_size = config.get("component_size", "medium")
             self._imdb_helper = ImdbHelper()
@@ -61,7 +59,6 @@ class ImdbSource(_PluginBase):
             settings.SECURITY_IMAGE_DOMAINS.append("media-amazon.com")
         if "media-imdb.com" not in settings.SECURITY_IMAGE_DOMAINS:
             settings.SECURITY_IMAGE_DOMAINS.append("media-imdb.com")
-        self._img_proxy_prefix = f'api/v1/system/img/{int(bool(self._proxy))}?imgurl=' if self._image_proxy else ''
         if self._enabled:
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
             self._scheduler.start()
@@ -443,7 +440,7 @@ class ImdbSource(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -458,7 +455,7 @@ class ImdbSource(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 3
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -474,23 +471,7 @@ class ImdbSource(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 3
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'image_proxy',
-                                            'label': '使用后端图片代理',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 3
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -534,7 +515,6 @@ class ImdbSource(_PluginBase):
         ], {
             "enabled": False,
             "proxy": False,
-            "image_proxy": False,
             "staff_picks": False,
             "component_size": "medium"
         }

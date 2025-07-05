@@ -26,9 +26,9 @@ from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import NotificationType
 from app.utils.http import RequestUtils
-from app.plugins.clashruleprovider.clash_rule_parser import ClashRuleParser, Converter
-from app.plugins.clashruleprovider.clash_rule_parser import Action, RuleType, ClashRule, MatchRule, LogicRule
-from app.plugins.clashruleprovider.clash_rule_parser import ProxyGroup, RuleProvider
+from app.plugins.clashruleprovider.clashruleparser import ClashRuleParser, Converter
+from app.plugins.clashruleprovider.clashruleparser import Action, RuleType, ClashRule, MatchRule, LogicRule
+from app.plugins.clashruleprovider.clashruleparser import ProxyGroup, RuleProvider
 
 
 class ClashRuleProvider(_PluginBase):
@@ -39,7 +39,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.2.3"
+    plugin_version = "1.2.4"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -75,10 +75,10 @@ class ClashRuleProvider(_PluginBase):
     _discard_rules: bool = False
     _enable_acl4ssr: bool = False
     _dashboard_components: List[str] = []
-    _clash_template_yaml = ''
+    _clash_template_yaml: str = ''
+    _hint_geo_dat: bool = False
 
     # 插件数据
-    # 综合多个订阅的配置
     _top_rules: List[str] = []
     _ruleset_rules: List[str] = []
     _rule_provider: Dict[str, Any] = {}
@@ -98,6 +98,7 @@ class ClashRuleProvider(_PluginBase):
     _clash_template: Optional[Dict[str, Any]] = None
     _scheduler: Optional[BackgroundScheduler] = None
     _countries: Optional[List[Dict[str, str]]] = None
+    _geo_rules: Dict[str, List[str]] = {'geoip': [], 'geosite': []}
 
     def init_plugin(self, config: dict = None):
         self._ruleset_rules = self.get_data("ruleset_rules")
@@ -138,6 +139,7 @@ class ClashRuleProvider(_PluginBase):
             self._enable_acl4ssr = config.get("enable_acl4ssr") or False
             self._dashboard_components = config.get("dashboard_components") or []
             self._clash_template_yaml = config.get("clash_template") or ''
+            self._hint_geo_dat = config.get("hint_geo_dat", False)
         self._clash_rule_parser = ClashRuleParser()
         self._ruleset_rule_parser = ClashRuleParser()
         self._clash_template = {}
@@ -168,10 +170,15 @@ class ClashRuleProvider(_PluginBase):
             # 更新订阅
             self._scheduler.add_job(self.refresh_subscriptions, "date",
                                         run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=2))
+            if self._hint_geo_dat:
+                self._scheduler.add_job(self.__refresh_geo_dat, "date",
+                                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3))
+            else:
+                self._geo_rules = {'geoip': [], 'geosite': []}
             # 更新acl4ssr
             if self._enable_acl4ssr:
                 self._scheduler.add_job(self.__refresh_acl4ssr, "date",
-                                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=5))
+                                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=4))
             else:
                 self._acl4ssr_providers = {}
 
@@ -336,6 +343,14 @@ class ClashRuleProvider(_PluginBase):
                 "auth": "bear",
                 "summary": "添加一个代理组",
                 "description": "添加一个代理组"
+            },
+            {
+                "path": "/proxy-group",
+                "endpoint": self.update_proxy_group,
+                "methods": ["PUT"],
+                "auth": "bear",
+                "summary": "更新一个代理组",
+                "description": "更新一个代理组"
             },
             {
                 "path": "/ruleset",
@@ -570,6 +585,7 @@ class ClashRuleProvider(_PluginBase):
                 "data": {"state": self._enabled,
                          "ruleset_prefix": self._ruleset_prefix,
                          "clash": {"rule_size": rule_size},
+                         "geoRules": self._geo_rules,
                          "subscription_info": self._subscription_info,
                          "sub_url": f"{self._movie_pilot_url}/api/v1/plugin/ClashRuleProvider/config?"
                                     f"apikey={settings.API_TOKEN}"}}
@@ -604,7 +620,7 @@ class ClashRuleProvider(_PluginBase):
             res = self.delete_rule_by_priority(params.get('priority'), self._ruleset_rule_parser)
             if res:
                 self.__add_notification_job(
-                    f"{self._ruleset_prefix}{res.action.value if isinstance(res.action, Action) else res.action}")
+                    [f"{self._ruleset_prefix}{res.action.value if isinstance(res.action, Action) else res.action}",])
         else:
             self.delete_rule_by_priority(params.get('priority'), self._clash_rule_parser)
         return schemas.Response(success=True, message='')
@@ -632,7 +648,7 @@ class ClashRuleProvider(_PluginBase):
         try:
             if params.get('type') == 'ruleset':
                 self.__reorder_rules(self._ruleset_rule_parser, moved_priority, target_priority)
-                self.__add_notification_job(f"{self._ruleset_prefix}{params.get('rule_data').get('action')}")
+                self.__add_notification_job([f"{self._ruleset_prefix}{params.get('rule_data').get('action')}"])
             else:
                 self.__reorder_rules(self._clash_rule_parser, moved_priority, target_priority)
         except Exception as e:
@@ -652,11 +668,15 @@ class ClashRuleProvider(_PluginBase):
         if not self._enabled:
             return {"success": False, "message": ""}
         if params.get('type') == 'ruleset':
+            original_rule = self._ruleset_rule_parser.get_rule_at_priority(params.get('priority'))
             res = self.update_rule_by_priority(params.get('rule_data'),
                                                params.get('priority'),
                                                self._ruleset_rule_parser)
             if res:
-                self.__add_notification_job(f"{self._ruleset_prefix}{params.get('rule_data').get('action')}")
+                ruleset_to_notify = [f"{self._ruleset_prefix}{params.get('rule_data').get('action')}"]
+                if params.get('rule_data').get('action') != original_rule.action:
+                    ruleset_to_notify.append(f"{self._ruleset_prefix}{original_rule.action}")
+                self.__add_notification_job(ruleset_to_notify)
         else:
             res = self.update_rule_by_priority(params.get('rule_data'), params.get('priority'), self._clash_rule_parser)
         return {"success": bool(res), "message": None}
@@ -667,7 +687,7 @@ class ClashRuleProvider(_PluginBase):
         if params.get('type') == 'ruleset':
             res = self.add_rule_by_priority(params.get('rule_data'), self._ruleset_rule_parser)
             if res:
-                self.__add_notification_job(f"{self._ruleset_prefix}{params.get('rule_data').get('action')}")
+                self.__add_notification_job([f"{self._ruleset_prefix}{params.get('rule_data').get('action')}",])
         else:
             res = self.add_rule_by_priority(params.get('rule_data'), self._clash_rule_parser)
         return schemas.Response(success=bool(res), message='')
@@ -844,6 +864,37 @@ class ClashRuleProvider(_PluginBase):
         self.save_data('proxy_groups', self._proxy_groups)
         return schemas.Response(success=True)
 
+    def update_proxy_group(self, params: Dict[str, Any]) -> schemas.Response:
+        if not self._enabled:
+            return schemas.Response(success=False, message='')
+        proxy_group = params.get('proxy_group', {})
+        name = params.get('name')
+        if not name or not proxy_group:
+            return schemas.Response(success=False, message='Invalid params')
+        try:
+            ProxyGroup.parse_obj(proxy_group)
+        except Exception as e:
+            error_message = f"Failed to parse proxy group: Invalid data={proxy_group}, error={repr(e)}"
+            logger.error(error_message)
+            return schemas.Response(success=False, message=str(error_message))
+        index = next((i for i, x in enumerate(self._proxy_groups) if x.get('name') == name), None)
+        # whether new name exists
+        new_name_index = next((i for i, x in enumerate(self._proxy_groups) if x.get('name') == proxy_group.get('name')),
+                              None
+                              )
+        if new_name_index and new_name_index != index:
+            return schemas.Response(success=False,
+                                    message=f"The proxy group name {proxy_group.get('name')} already exists")
+        new_item = {}
+        for k, v in proxy_group.items():
+            if v == '':
+                continue
+            if v is None:
+                continue
+            new_item[k] = v
+        self._proxy_groups[index] = new_item
+        return schemas.Response(success=True)
+
     def delete_proxy_group(self, params: dict = Body(...)) -> schemas.Response:
         if not self._enabled:
             return schemas.Response(success=False, message='')
@@ -1015,7 +1066,7 @@ class ClashRuleProvider(_PluginBase):
                               )
 
     def __refresh_acl4ssr(self):
-        logger.info(f"Refreshing ACL4SSR")
+        logger.info(f"Refreshing ACL4SSR ...")
         # 配置参数
         owner = 'ACL4SSR'
         repo = 'ACL4SSR'
@@ -1037,6 +1088,26 @@ class ClashRuleProvider(_PluginBase):
                 if name not in self._acl4ssr_providers:
                     self._acl4ssr_providers[name] = provider
         self.save_data('acl4ssr_providers', self._acl4ssr_providers)
+
+    def __refresh_geo_dat(self):
+        logger.info(f"Refreshing Geo Rules ...")
+        owner = 'MetaCubeX'
+        repo = 'meta-rules-dat'
+        branch = 'meta'
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/geo"
+        resp = RequestUtils().get_res(api_url, headers=settings.GITHUB_HEADERS, params={'ref': branch})
+        for path in resp.json():
+            if path["type"] == "dir" and path["name"] in self._geo_rules:
+                tree_sha = path["sha"]
+                url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{tree_sha}"
+                res = RequestUtils().get_res(url, headers=settings.GITHUB_HEADERS, params={'ref': branch})
+                if not res:
+                    continue
+                tree = res.json()
+                yaml_files = [item["path"][:item["path"].rfind('.')] for item in tree["tree"] if
+                         item["type"] == "blob" and item['path'].endswith((".yaml", ".yml"))]
+                self._geo_rules[path["name"]] = yaml_files
+        print(len(self._geo_rules['geosite']))
 
     def refresh_subscriptions(self) -> Dict[str, bool]:
         """
@@ -1157,15 +1228,16 @@ class ClashRuleProvider(_PluginBase):
                 return continents_names[country['continent']]
         return None
 
-    def __add_notification_job(self, ruleset: str):
-        if ruleset in self._rule_provider:
-            self._scheduler.add_job(self.notify_clash, "date",
-                                    run_date=datetime.now(
-                                        tz=pytz.timezone(settings.TZ)) + timedelta(seconds=self._refresh_delay),
-                                    args=[ruleset],
-                                    id='CRP-notify-clash',
-                                    replace_existing=True
-                                    )
+    def __add_notification_job(self, ruleset_names: List[str]):
+        for ruleset in ruleset_names:
+            if ruleset in self._rule_provider:
+                self._scheduler.add_job(self.notify_clash, "date",
+                                        run_date=datetime.now(
+                                            tz=pytz.timezone(settings.TZ)) + timedelta(seconds=self._refresh_delay),
+                                        args=[ruleset],
+                                        id=f'CRP-notify-clash{ruleset}',
+                                        replace_existing=True
+                                        )
 
     def __remove_nodes_by_keywords(self, clash_config: Dict[str, Any]) -> Dict[str, Any]:
         removed_proxies = []
