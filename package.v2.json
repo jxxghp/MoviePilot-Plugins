@@ -434,11 +434,12 @@
     "name": "IMDb源",
     "description": "让探索和推荐支持IMDb数据源。",
     "labels": "探索",
-    "version": "1.4.2",
+    "version": "1.4.3",
     "icon": "IMDb_IOS-OSX_App.png",
     "author": "wumode",
     "level": 1,
     "history": {
+      "v1.4.3": "添加后端图片代理选项; 为仪表盘组件添加缓存",
       "v1.4.2": "优化小屏幕组件显示",
       "v1.4.1": "优化亮色主题显示",
       "v1.4.0":"添加仪表盘组件: IMDb 编辑精选",

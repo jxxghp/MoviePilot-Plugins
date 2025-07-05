@@ -2,6 +2,8 @@ from typing import Optional, Any, List, Dict, Tuple
 from datetime import datetime
 import re
 
+from apscheduler.schedulers.background import BackgroundScheduler
+
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.plugins import _PluginBase
@@ -20,7 +22,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.4.2"
+    plugin_version = "1.4.3"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -35,18 +37,22 @@ class ImdbSource(_PluginBase):
     # 插件配置
     _enabled: bool = False
     _proxy: bool = False
+    _image_proxy: bool = False
     _staff_picks: bool = False
     _component_size: str = 'medium'
 
     # 私有属性
     _imdb_helper = None
     _cache = {"discover": [], "trending": [], "trending_in_anime": [], "trending_in_sitcom": [],
-              "trending_in_documentary": [], "imdb_top_250": []}
+              "trending_in_documentary": [], "imdb_top_250": [], "staff_picks": {}}
+    _img_proxy_prefix = ''
+    _scheduler: Optional[BackgroundScheduler] = None
 
     def init_plugin(self, config: dict = None):
         if config:
             self._enabled = config.get("enabled")
             self._proxy = config.get("proxy")
+            self._image_proxy = config.get("image_proxy", False)
             self._staff_picks = config.get("staff_picks")
             self._component_size = config.get("component_size", "medium")
             self._imdb_helper = ImdbHelper()
@@ -55,6 +61,11 @@ class ImdbSource(_PluginBase):
             settings.SECURITY_IMAGE_DOMAINS.append("media-amazon.com")
         if "media-imdb.com" not in settings.SECURITY_IMAGE_DOMAINS:
             settings.SECURITY_IMAGE_DOMAINS.append("media-imdb.com")
+        self._img_proxy_prefix = f'api/v1/system/img/{int(bool(self._proxy))}?imgurl=' if self._image_proxy else ''
+        if self._enabled:
+            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+            self._scheduler.start()
+            self._scheduler.add_job(self.__cache_staff_picks, trigger='date', run_date=None)
 
     def get_state(self) -> bool:
         return self._enabled
@@ -85,15 +96,15 @@ class ImdbSource(_PluginBase):
         if not self._staff_picks:
             return None
 
-        def year_and_type(entry: Dict) -> Tuple[MediaType, str, str]:
-            title = next((t for t in titles if t.get("id") == entry.get('ttconst')), None)
+        def year_and_type(imdb_entry: Dict) -> Tuple[MediaType, str, str]:
+            title = next((t for t in titles if t.get("id") == imdb_entry.get('ttconst')), None)
             if not title:
                 return MediaType.MOVIE, datetime.now().date().strftime("%Y"), ''
             media_id = title.get('titleType', {}).get('id')
             release_year = title.get('releaseYear', {}).get('year') or datetime.now().date().strftime("%Y")
             media_type = ImdbSource.title_id_to_mtype(media_id)
-            plot = title.get("plot", {}).get("plotText", {}).get("plainText", '')
-            return media_type, release_year, plot
+            media_plot = title.get("plot", {}).get("plotText", {}).get("plainText", '')
+            return media_type, release_year, media_plot
 
         # 列配置
         size_config = {
@@ -112,16 +123,15 @@ class ImdbSource(_PluginBase):
             "border": False
         }
         # 获取流行越势数据
-        entries = self._imdb_helper.staff_picks()
-        items = None
-        if entries:
-            items = self._imdb_helper.vertical_list_page_items(
-                titles=[entry.get('ttconst', '') for entry in entries],
-                names=[item for entry in entries for item in entry.get("relatedconst", [])],
-                images=[entry.get('rmconst', '') for entry in entries],
-            )
-
-        if not entries or not items:
+        entries = self._cache['staff_picks'].get('entries')
+        imdb_items = self._cache['staff_picks'].get('imdb_items')
+        if not entries or not imdb_items:
+            self.__cache_staff_picks()
+            entries = self._cache['staff_picks'].get('entries')
+            imdb_items = self._cache['staff_picks'].get('imdb_items')
+        else:
+            self._scheduler.add_job(self.__cache_staff_picks, trigger='date', run_date=None)
+        if not entries or not imdb_items:
             elements = [
                 {
                     'component': 'VCard',
@@ -145,19 +155,21 @@ class ImdbSource(_PluginBase):
                 }
             ]
             return cols, attrs, elements
-        images = items.get('images') or []
-        names = items.get('names') or []
-        titles = items.get('titles') or []
+        images = imdb_items.get('images') or []
+        names = imdb_items.get('names') or []
+        titles = imdb_items.get('titles') or []
         contents = []
         for entry in entries:
             cast = [name for related in entry.get('relatedconst', []) for name in names if name.get('id') == related]
             mtype, year, plot = year_and_type(entry)
             mp_url = f"/media?mediaid=imdb:{entry.get('ttconst')}&title='{entry.get('name')}'&year={year}&type={mtype.value}"
+            primary_img_url = next((f"{image.get('url')}" for image in images
+                                 if image.get("id") == entry.get('rmconst')), '')
+            primary_img_url = f'{self._img_proxy_prefix}{primary_img_url}'
             item1 = {
                 'component': 'VCarouselItem',
                 'props': {
-                    'src': next((f"{image.get('url')}" for image in images
-                                 if image.get("id") == entry.get('rmconst')), None),
+                    'src': primary_img_url,
                     'cover': True,
                     'position': 'center',
                 },
@@ -225,8 +237,8 @@ class ImdbSource(_PluginBase):
                                                 {
                                                     'component': 'VImg',
                                                     'props': {
-                                                        'src': cs.get('primaryImage', {}).get('url',
-                                                                                              ''),
+                                                        'src': f"{self._img_proxy_prefix}"
+                                                               f"{cs.get('primaryImage', {}).get('url', '')}",
                                                         'alt': cs.get('nameText', {}).get('text', 'Avatar'),
                                                         'cover': True
                                                     }
@@ -251,6 +263,7 @@ class ImdbSource(_PluginBase):
             }
             poster_url = next((f"{title.get('primaryImage', {}).get('url')}" for title in titles if
                                title.get("id") == entry.get('ttconst')), None)
+            poster_url = f"{self._img_proxy_prefix}{poster_url}"
             poster_com = {
                 'component': 'VImg',
                 'props': {
@@ -332,8 +345,7 @@ class ImdbSource(_PluginBase):
             item2 = {
                 'component': 'VCarouselItem',
                 'props': {
-                    'src': next((f"{image.get('url')}" for image in images
-                                 if image.get("id") == entry.get('rmconst')), None),
+                    'src': primary_img_url,
                     'cover': True,
                     'position': 'center'
                 },
@@ -431,7 +443,7 @@ class ImdbSource(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12, "md": 3},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -446,7 +458,7 @@ class ImdbSource(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -462,7 +474,23 @@ class ImdbSource(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'image_proxy',
+                                            'label': '使用后端图片代理',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -506,6 +534,7 @@ class ImdbSource(_PluginBase):
         ], {
             "enabled": False,
             "proxy": False,
+            "image_proxy": False,
             "staff_picks": False,
             "component_size": "medium"
         }
@@ -529,8 +558,20 @@ class ImdbSource(_PluginBase):
         """
         pass
 
-    @staticmethod
-    def __movie_to_media(movie_info: dict) -> schemas.MediaInfo:
+    def __cache_staff_picks(self):
+        entries = self._imdb_helper.staff_picks()
+        imdb_items = None
+        if entries:
+            imdb_items = self._imdb_helper.vertical_list_page_items(
+                titles=[entry.get('ttconst', '') for entry in entries],
+                names=[item for entry in entries for item in entry.get("relatedconst", [])],
+                images=[entry.get('rmconst', '') for entry in entries],
+            )
+        if not entries or not imdb_items:
+            return
+        self._cache['staff_picks'] = {'entries': entries, 'imdb_items': imdb_items}
+
+    def __movie_to_media(self, movie_info: dict) -> schemas.MediaInfo:
         title = ""
         if movie_info.get("titleText"):
             title = movie_info.get("titleText", {}).get("text", "")
@@ -542,6 +583,7 @@ class ImdbSource(_PluginBase):
             primary_image = movie_info.get("primaryImage").get("url")
             if primary_image:
                 poster_path = primary_image.replace('@._V1', '@._V1_QL75_UY414_CR6,0,280,414_')
+                poster_path = f"{self._img_proxy_prefix}{poster_path}"
         vote_average = 0
         if movie_info.get("ratingsSummary"):
             vote_average = movie_info.get("ratingsSummary").get("aggregateRating")
@@ -565,8 +607,7 @@ class ImdbSource(_PluginBase):
             imdb_id=movie_info.get("id")
         )
 
-    @staticmethod
-    def __series_to_media(series_info: dict) -> schemas.MediaInfo:
+    def __series_to_media(self, series_info: dict) -> schemas.MediaInfo:
         title = ""
         if series_info.get("titleText"):
             title = series_info.get("titleText", {}).get("text", "")
@@ -578,6 +619,7 @@ class ImdbSource(_PluginBase):
             primary_image = series_info.get("primaryImage").get("url")
             if primary_image:
                 poster_path = primary_image.replace('@._V1', '@._V1_QL75_UY414_CR6,0,280,414_')
+                poster_path = f"{self._img_proxy_prefix}{poster_path}"
         vote_average = 0
         if series_info.get("ratingsSummary"):
             vote_average = series_info.get("ratingsSummary").get("aggregateRating")
