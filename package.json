@@ -1029,5 +1029,15 @@
     "author": "zhjay",
     "level": 1,
     "v2": true
+  },
+  "CleanInvalidPlugin": {
+    "name": "清理无效插件",
+    "description": "删除数据库中无法安装的插件记录，避免反复重装。",
+    "labels": "插件管理",
+    "version": "1.0",
+    "icon": "delete.jpg",
+    "author": "cddjr",
+    "level": 1,
+    "v2": true
   }
 }
