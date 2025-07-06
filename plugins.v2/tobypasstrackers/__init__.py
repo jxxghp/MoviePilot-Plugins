@@ -25,7 +25,7 @@ class ToBypassTrackers(_PluginBase):
     # 插件名称
     plugin_name = "绕过Trackers"
     # 插件描述
-    plugin_desc = "提供tracker服务器IP地址列表，帮助IPv6连接绕过OpenClash"
+    plugin_desc = "提供tracker服务器IP地址列表，帮助IPv6连接绕过OpenClash。"
     # 插件图标
     plugin_icon = "Clash_A.png"
     # 插件版本

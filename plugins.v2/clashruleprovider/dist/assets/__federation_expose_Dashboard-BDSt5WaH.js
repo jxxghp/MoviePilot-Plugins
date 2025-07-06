@@ -15460,13 +15460,13 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
                   _createElementVNode("div", _hoisted_9, [
                     clashInfo.value.version.meta ? (_openBlock(), _createBlock(_component_v_img, {
                       key: 0,
-                      src: "/api/v1/system/img/0?imgurl=https://raw.githubusercontent.com/MetaCubeX/mihomo/refs/heads/Meta/Meta.png",
+                      src: "/api/v1/system/img/1?cache=1&imgurl=https://raw.githubusercontent.com/MetaCubeX/mihomo/refs/heads/Meta/Meta.png",
                       alt: "Logo",
                       "max-height": "48",
                       contain: ""
                     })) : (_openBlock(), _createBlock(_component_v_img, {
                       key: 1,
-                      src: "/api/v1/system/img/0?imgurl=https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/Clash_A.png",
+                      src: "/api/v1/system/img/1?cache=1&imgurl=https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/Clash_A.png",
                       alt: "Logo",
                       "max-height": "48",
                       contain: ""
@@ -15514,6 +15514,6 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
   }
 });
 
-const DashboardComponent = /* @__PURE__ */ _export_sfc(_sfc_main, [["__scopeId", "data-v-9093476d"]]);
+const DashboardComponent = /* @__PURE__ */ _export_sfc(_sfc_main, [["__scopeId", "data-v-de7a088e"]]);
 
 export { DashboardComponent as default };

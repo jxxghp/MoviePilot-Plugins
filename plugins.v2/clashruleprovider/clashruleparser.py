@@ -141,6 +141,11 @@ ProxyGroupUnion = Union[SelectGroup, RelayGroup, FallbackGroup, UrlTestGroup, Lo
 class ProxyGroup(BaseModel):
     __root__: ProxyGroupUnion
 
+class AdditionalParam(Enum):
+    NO_RESOLVE = 'no-resolve'
+    SRC = 'src'
+
+
 class RuleType(Enum):
     """Enumeration of all supported Clash rule types"""
     DOMAIN = "DOMAIN"
@@ -201,13 +206,9 @@ class ClashRule:
     rule_type: RuleType
     payload: str
     action: Union[Action, str]  # Can be Action enum or custom proxy group name
-    additional_params: Optional[List[str]] = None
+    additional_params: Optional[AdditionalParam] = None
     raw_rule: str = ""
     priority: int = 0
-
-    def __post_init__(self):
-        if self.additional_params is None:
-            self.additional_params = []
 
     def condition_string(self) -> str:
         return f"{self.rule_type.value},{self.payload}"
@@ -282,6 +283,8 @@ class ClashRuleParser:
             rule = ClashRuleParser._parse_match_rule(raw_rule)
         else:
             raw_rule = f"{clash_rule.get('type')},{clash_rule.get('payload')},{clash_rule.get('action')}"
+            if clash_rule.get('additional_params'):
+                raw_rule += f",{clash_rule.get('additional_params')}"
             rule = ClashRuleParser._parse_regular_rule(raw_rule)
         if rule and 'priority' in clash_rule:
             rule.priority = clash_rule['priority']
@@ -310,7 +313,7 @@ class ClashRuleParser:
         """Parse a regular (non-logic) rule"""
         parts = line.split(',')
 
-        if len(parts) < 3:
+        if len(parts) < 3 or len(parts) > 4:
             raise ValueError(f"Invalid rule format: {line}")
 
         rule_type_str = parts[0].upper()
@@ -320,7 +323,7 @@ class ClashRuleParser:
         if not payload or not rule_type_str:
             raise ValueError(f"Invalid rule format: {line}")
 
-        additional_params = parts[3:] if len(parts) > 3 else []
+        additional_params = parts[3] if len(parts) > 3 else None
 
         # Validate rule type
         try:
@@ -542,6 +545,12 @@ class ClashRuleParser:
                 return False
             self.insert_rule_at_priority(clash_rule, clash_rule.priority)
             return True
+
+    def get_rule_at_priority(self, priority: int) -> Optional[Union[ClashRule, LogicRule, MatchRule]]:
+        for rule in self.rules:
+            if rule.priority == priority:
+                return rule
+        return None
 
     def remove_rule_at_priority(self, priority: int) -> Optional[Union[ClashRule, LogicRule, MatchRule]]:
         """Remove rule at specific priority and adjust remaining priorities"""
