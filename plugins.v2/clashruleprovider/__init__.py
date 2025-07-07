@@ -154,7 +154,7 @@ class ClashRuleProvider(_PluginBase):
                 self._clash_template['proxies'] = self._clash_template.get('proxies') or []
                 self._clash_template['proxy-groups'] = self._clash_template.get('proxy-groups') or []
                 self._clash_template['rule-providers'] = self._clash_template.get('rule-providers') or {}
-                self._clash_template['rules'] = self._clash_template.get('rule-providers') or []
+                self._clash_template['rules'] = self._clash_template.get('rules') or []
             except yaml.YAMLError as exc:
                 logger.error(f"Error loading clash template yaml: {exc}")
             if self._group_by_region:
@@ -1097,6 +1097,8 @@ class ClashRuleProvider(_PluginBase):
         branch = 'meta'
         api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/geo"
         resp = RequestUtils().get_res(api_url, headers=settings.GITHUB_HEADERS, params={'ref': branch})
+        if not resp:
+            return
         for path in resp.json():
             if path["type"] == "dir" and path["name"] in self._geo_rules:
                 tree_sha = path["sha"]
@@ -1301,7 +1303,7 @@ class ClashRuleProvider(_PluginBase):
                                                                                    )
         clash_config['rules'] = clash_config.get('rules', [])
         if not self._discard_rules:
-            clash_config['rules'] += first_config.get('rules', [])
+            clash_config['rules'] = first_config.get('rules', []) + clash_config['rules']
 
         clash_config['rule-providers'] = clash_config.get('rule-providers') or {}
         clash_config['rule-providers'].update(first_config.get('rule-providers', {}))
@@ -1364,7 +1366,16 @@ class ClashRuleProvider(_PluginBase):
                     logger.warn(f"规则集合 {rule.payload} 不存在, 跳过 {rule.raw_rule}")
                     continue
             top_rules.append(rule.raw_rule)
-        clash_config["rules"] = self._top_rules + clash_config.get("rules", [])
+        for raw_rule in clash_config.get("rules", []):
+            rule = ClashRuleParser.parse_rule_line(raw_rule)
+            if not rule:
+                logger.warn(f"无效的规则 {raw_rule}, 跳过")
+                continue
+            if not isinstance(rule.action, Action) and rule.action not in outbound_names:
+                logger.warn(f"出站 {rule.action} 不存在, 跳过 {rule.raw_rule}")
+                continue
+            top_rules.append(rule.raw_rule)
+        clash_config["rules"] = top_rules
         if self._rule_provider:
             clash_config['rule-providers'] = clash_config.get('rule-providers') or {}
             clash_config['rule-providers'].update(self._rule_provider)

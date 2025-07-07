@@ -1016,7 +1016,7 @@ class Converter:
                         dc_buf = Converter.decode_base64(cipher_raw).decode('utf-8')
                         if dc_buf.startswith("ss://"):
                             dc_buf = dc_buf[len("ss://"):]
-                        dc_buf = Converter.decode_base64(dc_buf).decode('utf-8')
+                            dc_buf = Converter.decode_base64(dc_buf).decode('utf-8')
                         cipher, password = dc_buf.split(":", 1)
                     server = parsed.hostname
                     port = parsed.port
