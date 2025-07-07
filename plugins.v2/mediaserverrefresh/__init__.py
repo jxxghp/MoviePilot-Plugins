@@ -1,3 +1,4 @@
+import threading
 import time
 from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional
@@ -19,7 +20,7 @@ class MediaServerRefresh(_PluginBase):
     # 插件图标
     plugin_icon = "refresh2.png"
     # 插件版本
-    plugin_version = "1.3.2"
+    plugin_version = "1.3.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -35,6 +36,12 @@ class MediaServerRefresh(_PluginBase):
     _enabled = False
     _delay = 0
     _mediaservers = None
+
+    # 延迟相关的属性
+    _in_delay = False
+    _pending_items = []
+    _end_time = 0.0
+    _lock = threading.Lock()
 
     def init_plugin(self, config: dict = None):
 
@@ -181,25 +188,54 @@ class MediaServerRefresh(_PluginBase):
         if not self.service_infos:
             return
 
-        if self._delay:
-            logger.info(f"延迟 {self._delay} 秒后刷新媒体库... ")
-            time.sleep(float(self._delay))
-
         # 入库数据
         transferinfo: TransferInfo = event_info.get("transferinfo")
         if not transferinfo or not transferinfo.target_diritem or not transferinfo.target_diritem.path:
             return
 
+        def debounce_delay(duration: int):
+            """
+            延迟防抖优化
+
+            :return: 延迟是否已结束
+            """
+            with self._lock:
+                self._end_time = time.time() + float(duration)
+                if self._in_delay:
+                    return False
+                self._in_delay = True
+
+            def end_time():
+                with self._lock:
+                    return self._end_time
+
+            while time.time() < end_time():
+                time.sleep(1)
+            with self._lock:
+                self._in_delay = False
+            return True
+
         mediainfo: MediaInfo = event_info.get("mediainfo")
-        items = [
-            RefreshMediaItem(
-                title=mediainfo.title,
-                year=mediainfo.year,
-                type=mediainfo.type,
-                category=mediainfo.category,
-                target_path=Path(transferinfo.target_diritem.path)
-            )
-        ]
+        item = RefreshMediaItem(
+            title=mediainfo.title,
+            year=mediainfo.year,
+            type=mediainfo.type,
+            category=mediainfo.category,
+            target_path=Path(transferinfo.target_diritem.path),
+        )
+
+        if self._delay:
+            logger.info(f"延迟 {self._delay} 秒后刷新媒体库... ")
+            with self._lock:
+                self._pending_items.append(item)
+            if not debounce_delay(self._delay):
+                # 还在延迟中 忽略本次请求
+                return
+            with self._lock:
+                items = self._pending_items
+                self._pending_items = []
+        else:
+            items = [item]
 
         for name, service in self.service_infos.items():
             if hasattr(service.instance, 'refresh_library_by_items'):
@@ -214,4 +250,7 @@ class MediaServerRefresh(_PluginBase):
         """
         退出插件
         """
-        pass
+        with self._lock:
+            # 放弃等待，立即刷新
+            self._end_time = 0.0
+            # self._pending_items.clear()
