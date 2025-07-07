@@ -71,11 +71,12 @@
     "name": "媒体库服务器刷新",
     "description": "入库后自动刷新Emby/Jellyfin/Plex服务器海报墙。",
     "labels": "媒体库",
-    "version": "1.3.2",
+    "version": "1.3.3",
     "icon": "refresh2.png",
     "author": "jxxghp",
     "level": 1,
     "history": {
+      "v1.3.3": "优化延迟刷新",
       "v1.3.2": "适配飞牛媒体库",
       "v1.3.1": "修复兼容性问题",
       "v1.3": "MoviePilot V2 版本媒体库服务器刷新插件"
