@@ -4295,33 +4295,32 @@ const _hoisted_39 = { style: {"position":"absolute","right":"0","bottom":"0"} };
 const _hoisted_40 = { class: "d-flex flex-column justify-space-between gap-1" };
 const _hoisted_41 = { class: "d-flex justify-space-between text-body-2 border-b pb-1" };
 const _hoisted_42 = { class: "d-flex justify-space-between text-body-2 border-b pb-1" };
-const _hoisted_43 = { class: "text-white" };
+const _hoisted_43 = { class: "d-flex justify-space-between text-body-2 border-b pb-1" };
 const _hoisted_44 = { class: "d-flex justify-space-between text-body-2 border-b pb-1" };
 const _hoisted_45 = { class: "d-flex justify-space-between text-body-2 border-b pb-1" };
-const _hoisted_46 = { class: "d-flex justify-space-between text-body-2 border-b pb-1" };
-const _hoisted_47 = { class: "d-flex justify-space-between text-body-2" };
-const _hoisted_48 = {
+const _hoisted_46 = { class: "d-flex justify-space-between text-body-2" };
+const _hoisted_47 = {
   key: 0,
   class: "d-flex flex-column align-start ga-2"
 };
-const _hoisted_49 = { class: "d-flex align-center" };
-const _hoisted_50 = { class: "pl-6 d-flex flex-wrap gap-2 mt-2" };
-const _hoisted_51 = {
+const _hoisted_48 = { class: "d-flex align-center" };
+const _hoisted_49 = { class: "pl-6 d-flex flex-wrap gap-2 mt-2" };
+const _hoisted_50 = {
   key: 1,
   class: "text-caption text-disabled"
 };
-const _hoisted_52 = { class: "my-2 d-flex align-center" };
-const _hoisted_53 = { class: "d-flex align-center" };
-const _hoisted_54 = { class: "pl-6 text-wrap text-body-2" };
-const _hoisted_55 = ["href"];
-const _hoisted_56 = {
+const _hoisted_51 = { class: "my-2 d-flex align-center" };
+const _hoisted_52 = { class: "d-flex align-center" };
+const _hoisted_53 = { class: "pl-6 text-wrap text-body-2" };
+const _hoisted_54 = ["href"];
+const _hoisted_55 = {
   key: 1,
   class: "text-grey"
 };
-const _hoisted_57 = { class: "mb-2" };
+const _hoisted_56 = { class: "mb-2" };
+const _hoisted_57 = { class: "d-flex justify-space-between mb-2" };
 const _hoisted_58 = { class: "d-flex justify-space-between mb-2" };
-const _hoisted_59 = { class: "d-flex justify-space-between mb-2" };
-const _hoisted_60 = { class: "d-flex justify-space-between text-caption text-grey" };
+const _hoisted_59 = { class: "d-flex justify-space-between text-caption text-grey" };
 
 const {ref,onMounted,computed} = await importShared('vue');
 // v-data-table 的 headers 定义
@@ -6227,6 +6226,7 @@ return (_ctx, _cache) => {
                   }, 8, ["modelValue"]),
                   _createVNode(_component_v_row, {
                     class: "mt-4",
+                    align: "stretch",
                     dense: ""
                   }, {
                     default: _withCtx(() => [
@@ -6235,7 +6235,7 @@ return (_ctx, _cache) => {
                         md: "6"
                       }, {
                         default: _withCtx(() => [
-                          _createVNode(_component_v_card, null, {
+                          _createVNode(_component_v_card, { class: "h-100" }, {
                             default: _withCtx(() => [
                               _createVNode(_component_v_card_title, { class: "text-h6 font-weight-medium" }, {
                                 default: _withCtx(() => _cache[127] || (_cache[127] = [
@@ -6260,21 +6260,21 @@ return (_ctx, _cache) => {
                                     ]),
                                     _createElementVNode("div", _hoisted_42, [
                                       _cache[129] || (_cache[129] = _createElementVNode("span", null, "订阅配置规则数", -1)),
-                                      _createElementVNode("span", _hoisted_43, _toDisplayString(subscriptionInfo.value.rule_size), 1)
+                                      _createElementVNode("span", null, _toDisplayString(subscriptionInfo.value.rule_size), 1)
                                     ]),
-                                    _createElementVNode("div", _hoisted_44, [
+                                    _createElementVNode("div", _hoisted_43, [
                                       _cache[130] || (_cache[130] = _createElementVNode("span", null, "置顶规则数", -1)),
                                       _createElementVNode("span", null, _toDisplayString(sortedRules.value.length), 1)
                                     ]),
-                                    _createElementVNode("div", _hoisted_45, [
+                                    _createElementVNode("div", _hoisted_44, [
                                       _cache[131] || (_cache[131] = _createElementVNode("span", null, "规则集规则数", -1)),
                                       _createElementVNode("span", null, _toDisplayString(sortedRulesetRules.value.length), 1)
                                     ]),
-                                    _createElementVNode("div", _hoisted_46, [
+                                    _createElementVNode("div", _hoisted_45, [
                                       _cache[132] || (_cache[132] = _createElementVNode("span", null, "代理组数", -1)),
                                       _createElementVNode("span", null, _toDisplayString(proxyGroups.value.length), 1)
                                     ]),
-                                    _createElementVNode("div", _hoisted_47, [
+                                    _createElementVNode("div", _hoisted_46, [
                                       _cache[133] || (_cache[133] = _createElementVNode("span", null, "最后更新", -1)),
                                       _createElementVNode("span", null, _toDisplayString(lastUpdated.value), 1)
                                     ])
@@ -6293,7 +6293,7 @@ return (_ctx, _cache) => {
                         md: "6"
                       }, {
                         default: _withCtx(() => [
-                          _createVNode(_component_v_card, null, {
+                          _createVNode(_component_v_card, { class: "h-100" }, {
                             default: _withCtx(() => [
                               _createVNode(_component_v_card_title, { class: "d-flex justify-space-between align-center" }, {
                                 default: _withCtx(() => [
@@ -6331,8 +6331,8 @@ return (_ctx, _cache) => {
                               _createVNode(_component_v_card_text, null, {
                                 default: _withCtx(() => [
                                   (subUrl.value)
-                                    ? (_openBlock(), _createElementBlock("div", _hoisted_48, [
-                                        _createElementVNode("div", _hoisted_49, [
+                                    ? (_openBlock(), _createElementBlock("div", _hoisted_47, [
+                                        _createElementVNode("div", _hoisted_48, [
                                           _createVNode(_component_v_icon, {
                                             color: "grey",
                                             class: "mr-2"
@@ -6344,7 +6344,7 @@ return (_ctx, _cache) => {
                                           }),
                                           _cache[137] || (_cache[137] = _createElementVNode("span", { class: "text-grey-darken-1" }, "原始链接：", -1))
                                         ]),
-                                        _createElementVNode("div", _hoisted_50, [
+                                        _createElementVNode("div", _hoisted_49, [
                                           (Object.keys(subscriptionsInfo.value).length > 0)
                                             ? (_openBlock(true), _createElementBlock(_Fragment, { key: 0 }, _renderList(subscriptionsInfo.value, (info, url) => {
                                                 return (_openBlock(), _createElementBlock("div", { key: url }, [
@@ -6359,9 +6359,9 @@ return (_ctx, _cache) => {
                                                   }, 1040, ["onClick"])
                                                 ]))
                                               }), 128))
-                                            : (_openBlock(), _createElementBlock("div", _hoisted_51, " 暂无可用订阅 "))
+                                            : (_openBlock(), _createElementBlock("div", _hoisted_50, " 暂无可用订阅 "))
                                         ]),
-                                        _createElementVNode("div", _hoisted_52, [
+                                        _createElementVNode("div", _hoisted_51, [
                                           _createVNode(_component_v_icon, { color: "blue" }, {
                                             default: _withCtx(() => _cache[138] || (_cache[138] = [
                                               _createTextVNode("mdi-arrow-down-bold")
@@ -6369,7 +6369,7 @@ return (_ctx, _cache) => {
                                             _: 1
                                           })
                                         ]),
-                                        _createElementVNode("div", _hoisted_53, [
+                                        _createElementVNode("div", _hoisted_52, [
                                           _createVNode(_component_v_icon, {
                                             color: "primary",
                                             class: "mr-2"
@@ -6381,15 +6381,15 @@ return (_ctx, _cache) => {
                                           }),
                                           _cache[140] || (_cache[140] = _createElementVNode("span", { class: "text-grey-darken-1" }, "生成链接：", -1))
                                         ]),
-                                        _createElementVNode("div", _hoisted_54, [
+                                        _createElementVNode("div", _hoisted_53, [
                                           _createElementVNode("a", {
                                             href: subUrl.value,
                                             target: "_blank",
                                             class: "text-primary"
-                                          }, _toDisplayString(subUrl.value), 9, _hoisted_55)
+                                          }, _toDisplayString(subUrl.value), 9, _hoisted_54)
                                         ])
                                       ]))
-                                    : (_openBlock(), _createElementBlock("div", _hoisted_56, "未配置订阅 URL"))
+                                    : (_openBlock(), _createElementBlock("div", _hoisted_55, "未配置订阅 URL"))
                                 ]),
                                 _: 1
                               })
@@ -6404,7 +6404,8 @@ return (_ctx, _cache) => {
                   }),
                   _createVNode(_component_v_expansion_panels, {
                     modelValue: expansionPanels.value,
-                    "onUpdate:modelValue": _cache[25] || (_cache[25] = $event => ((expansionPanels).value = $event))
+                    "onUpdate:modelValue": _cache[25] || (_cache[25] = $event => ((expansionPanels).value = $event)),
+                    class: "mt-4"
                   }, {
                     default: _withCtx(() => [
                       _createVNode(_component_v_expansion_panel, null, {
@@ -6475,7 +6476,7 @@ return (_ctx, _cache) => {
                                                 default: _withCtx(() => [
                                                   _createVNode(_component_v_card_text, null, {
                                                     default: _withCtx(() => [
-                                                      _createElementVNode("div", _hoisted_57, [
+                                                      _createElementVNode("div", _hoisted_56, [
                                                         (info.proxy_num != null)
                                                           ? (_openBlock(), _createBlock(_component_v_chip, {
                                                               key: 0,
@@ -6515,11 +6516,11 @@ return (_ctx, _cache) => {
                                                             }, 1032, ["color"]))
                                                           : _createCommentVNode("", true)
                                                       ]),
-                                                      _createElementVNode("div", _hoisted_58, [
+                                                      _createElementVNode("div", _hoisted_57, [
                                                         _cache[144] || (_cache[144] = _createElementVNode("span", null, "已用流量：", -1)),
                                                         _createElementVNode("strong", null, _toDisplayString(formatBytes(info.download + info.upload)), 1)
                                                       ]),
-                                                      _createElementVNode("div", _hoisted_59, [
+                                                      _createElementVNode("div", _hoisted_58, [
                                                         _cache[145] || (_cache[145] = _createElementVNode("span", null, "剩余流量：", -1)),
                                                         _createElementVNode("strong", null, _toDisplayString(formatBytes(info.total - info.download)), 1)
                                                       ]),
@@ -6531,7 +6532,7 @@ return (_ctx, _cache) => {
                                                         rounded: "",
                                                         striped: ""
                                                       }, null, 8, ["model-value", "color"]),
-                                                      _createElementVNode("div", _hoisted_60, [
+                                                      _createElementVNode("div", _hoisted_59, [
                                                         _createElementVNode("span", null, "下载：" + _toDisplayString(formatBytes(info.download)), 1),
                                                         _createElementVNode("span", null, "上传：" + _toDisplayString(formatBytes(info.upload)), 1),
                                                         _createElementVNode("span", null, "总量：" + _toDisplayString(formatBytes(info.total)), 1)
@@ -7613,6 +7614,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const PageComponent = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-40c8d8f5"]]);
+const PageComponent = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-77adff9b"]]);
 
 export { PageComponent as default };

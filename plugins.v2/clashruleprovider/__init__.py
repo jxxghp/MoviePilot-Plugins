@@ -39,7 +39,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.2.4"
+    plugin_version = "1.2.5"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -893,6 +893,7 @@ class ClashRuleProvider(_PluginBase):
                 continue
             new_item[k] = v
         self._proxy_groups[index] = new_item
+        self.save_data('proxy_groups', self._proxy_groups)
         return schemas.Response(success=True)
 
     def delete_proxy_group(self, params: dict = Body(...)) -> schemas.Response:
@@ -1107,7 +1108,6 @@ class ClashRuleProvider(_PluginBase):
                 yaml_files = [item["path"][:item["path"].rfind('.')] for item in tree["tree"] if
                          item["type"] == "blob" and item['path'].endswith((".yaml", ".yml"))]
                 self._geo_rules[path["name"]] = yaml_files
-        print(len(self._geo_rules['geosite']))
 
     def refresh_subscriptions(self) -> Dict[str, bool]:
         """
