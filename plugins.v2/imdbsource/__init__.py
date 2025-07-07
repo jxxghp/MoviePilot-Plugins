@@ -159,7 +159,7 @@ class ImdbSource(_PluginBase):
         for entry in entries:
             cast = [name for related in entry.get('relatedconst', []) for name in names if name.get('id') == related]
             mtype, year, plot = year_and_type(entry)
-            mp_url = f"/media?mediaid=imdb:{entry.get('ttconst')}&title='{entry.get('name')}'&year={year}&type={mtype.value}"
+            mp_url = f"/media?mediaid=imdb:{entry.get('ttconst')}&title={entry.get('name')}&year={year}&type={mtype.value}"
             primary_img_url = next((f"{image.get('url')}" for image in images
                                  if image.get("id") == entry.get('rmconst')), '')
             primary_img_url = f'{self._img_proxy_prefix}{primary_img_url}'
