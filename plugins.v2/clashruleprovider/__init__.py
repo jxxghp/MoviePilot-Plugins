@@ -984,7 +984,8 @@ class ClashRuleProvider(_PluginBase):
                 continue
             clash_rules.append(clash_rule)
         self._clash_rule_parser.append_rules(clash_rules)
-        self.__save_data()
+        self._top_rules = self._clash_rule_parser.to_list()
+        self.save_data('top_rules', self._top_rules)
         return
 
     def update_rule_by_priority(self, rule: Dict[str, Any], priority: int, rule_parser: ClashRuleParser) -> bool:
@@ -992,7 +993,7 @@ class ClashRuleProvider(_PluginBase):
             return False
         clash_rule = ClashRuleParser.parse_rule_dict(rule)
         if not clash_rule:
-            logger.error(f"Failed to update rule at priority {priority}. Invalid clash rule: {rule}")
+            logger.error(f"Failed to update rule at priority {priority}. Invalid clash rule: {rule!r}")
             return False
         res = rule_parser.update_rule_at_priority(clash_rule, priority)
         self.__save_data()
@@ -1279,7 +1280,7 @@ class ClashRuleProvider(_PluginBase):
         """
         for item in from_list:
             if any(p.get('name') == item.get('name', '') for p in to_list):
-                logger.warn(f"Item named {item.get('name')} already exists. Skipping...")
+                logger.warn(f"Item named {item.get('name')!r} already exists. Skipping...")
                 continue
             to_list.append(item)
         return to_list
@@ -1310,7 +1311,7 @@ class ClashRuleProvider(_PluginBase):
 
         for proxy in self.all_proxies() :
             if any(p.get('name') == proxy.get('name', '') for p in proxies):
-                logger.warn(f"Proxy named {proxy.get('name')} already exists. Skipping...")
+                logger.warn(f"Proxy named {proxy.get('name')!r} already exists. Skipping...")
                 continue
             proxies.append(proxy)
         if proxies:
@@ -1363,16 +1364,16 @@ class ClashRuleProvider(_PluginBase):
                 if rule.payload in self._acl4ssr_providers:
                     clash_config['rule-providers'][rule.payload] = self._acl4ssr_providers[rule.payload]
                 if rule.payload not in clash_config.get('rule-providers', {}):
-                    logger.warn(f"规则集合 {rule.payload} 不存在, 跳过 {rule.raw_rule}")
+                    logger.warn(f"规则集合 {rule.payload!r} 不存在, 跳过 {rule.raw_rule!r}")
                     continue
             top_rules.append(rule.raw_rule)
         for raw_rule in clash_config.get("rules", []):
             rule = ClashRuleParser.parse_rule_line(raw_rule)
             if not rule:
-                logger.warn(f"无效的规则 {raw_rule}, 跳过")
+                logger.warn(f"无效的规则 {raw_rule!r}, 跳过")
                 continue
             if not isinstance(rule.action, Action) and rule.action not in outbound_names:
-                logger.warn(f"出站 {rule.action} 不存在, 跳过 {rule.raw_rule}")
+                logger.warn(f"出站 {rule.action!r} 不存在, 跳过 {rule.raw_rule!r}")
                 continue
             top_rules.append(rule.raw_rule)
         clash_config["rules"] = top_rules

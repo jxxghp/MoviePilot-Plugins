@@ -5858,31 +5858,13 @@ return (_ctx, _cache) => {
                                     _createVNode(_component_v_btn, {
                                       icon: "",
                                       size: "small",
-                                      color: "primary",
-                                      variant: "text",
-                                      onClick: $event => (editProxyGroup(item.name)),
-                                      disabled: !isManual(item.source)
-                                    }, {
-                                      default: _withCtx(() => [
-                                        _createVNode(_component_v_icon, null, {
-                                          default: _withCtx(() => _cache[107] || (_cache[107] = [
-                                            _createTextVNode("mdi-pencil")
-                                          ])),
-                                          _: 1
-                                        })
-                                      ]),
-                                      _: 2
-                                    }, 1032, ["onClick", "disabled"]),
-                                    _createVNode(_component_v_btn, {
-                                      icon: "",
-                                      size: "small",
                                       color: "info",
                                       variant: "text",
                                       onClick: $event => (showProxyGroupYaml(item))
                                     }, {
                                       default: _withCtx(() => [
                                         _createVNode(_component_v_icon, null, {
-                                          default: _withCtx(() => _cache[108] || (_cache[108] = [
+                                          default: _withCtx(() => _cache[107] || (_cache[107] = [
                                             _createTextVNode("mdi-code-json")
                                           ])),
                                           _: 1
@@ -5890,6 +5872,24 @@ return (_ctx, _cache) => {
                                       ]),
                                       _: 2
                                     }, 1032, ["onClick"]),
+                                    _createVNode(_component_v_btn, {
+                                      icon: "",
+                                      size: "small",
+                                      color: "primary",
+                                      variant: "text",
+                                      onClick: $event => (editProxyGroup(item.name)),
+                                      disabled: !isManual(item.source)
+                                    }, {
+                                      default: _withCtx(() => [
+                                        _createVNode(_component_v_icon, null, {
+                                          default: _withCtx(() => _cache[108] || (_cache[108] = [
+                                            _createTextVNode("mdi-pencil")
+                                          ])),
+                                          _: 1
+                                        })
+                                      ]),
+                                      _: 2
+                                    }, 1032, ["onClick", "disabled"]),
                                     _createVNode(_component_v_btn, {
                                       icon: "",
                                       size: "small",
@@ -7618,6 +7618,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const PageComponent = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4a22a0ac"]]);
+const PageComponent = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0e274fe6"]]);
 
 export { PageComponent as default };
