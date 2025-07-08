@@ -397,6 +397,10 @@ class ClashRuleParser:
 
         return conditions
 
+    @staticmethod
+    def action_string(action: Union[Action, str]) -> str:
+        return action.value if isinstance(action, Action) else action
+
     def parse_rules(self, rules_text: str) -> List[Union[ClashRule, LogicRule, MatchRule]]:
         """Parse multiple rules from text, preserving order and priority"""
         self.rules = []
@@ -603,6 +607,10 @@ class ClashRuleParser:
 
         return True
 
+    def filter_rules_by_lambda(self, condition: Callable[[Union[ClashRule, LogicRule, MatchRule]], bool]):
+        """Filter rules by lambda"""
+        return [rule for rule in self.rules if condition(rule)]
+
     def filter_rules_by_type(self, rule_type: RuleType) -> List[ClashRule]:
         """Filter rules by type"""
         return [rule for rule in self.rules
@@ -614,9 +622,13 @@ class ClashRuleParser:
 
     def has_rule(self, clash_rule: Union[ClashRule, LogicRule, MatchRule]) -> bool:
         for rule in self.rules:
-            if rule.rule_type == clash_rule.rule_type and rule.action == clash_rule.action \
-                    and rule.payload == clash_rule.payload:
-                return True
+            if rule.rule_type != RuleType.MATCH:
+                if rule.rule_type == clash_rule.rule_type and rule.action == clash_rule.action \
+                        and rule.payload == clash_rule.payload:
+                    return True
+            else:
+                if rule.rule_type == clash_rule.rule_type and rule.action == clash_rule.action:
+                    return True
         return False
 
     def reorder_rules(

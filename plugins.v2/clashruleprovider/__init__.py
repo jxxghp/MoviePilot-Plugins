@@ -39,7 +39,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.2.6"
+    plugin_version = "1.2.7"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -965,13 +965,22 @@ class ClashRuleProvider(_PluginBase):
 
     def __insert_ruleset(self):
         outbounds = []
+        new_outbounds = []
+        rules_existed = self._clash_rule_parser.filter_rules_by_lambda(
+            lambda r: r.rule_type == RuleType.RULE_SET and r.payload.startswith(self._ruleset_prefix)
+        )
+        actions_existed = [ClashRuleParser.action_string(r.action) for r in rules_existed]
         for rule in self._ruleset_rule_parser.rules:
-            action_str = f"{rule.action.value}" if isinstance(rule.action, Action) else rule.action
+            action_str = ClashRuleParser.action_string(rule.action)
             if action_str not in outbounds:
                 outbounds.append(action_str)
+            if action_str not in new_outbounds and action_str not in actions_existed:
+                new_outbounds.append(action_str)
         self._clash_rule_parser.remove_rules(lambda r: r.rule_type == RuleType.RULE_SET and
-                                                       r.payload.startswith(self._ruleset_prefix))
-        for outbound in outbounds:
+                                                       r.payload.startswith(self._ruleset_prefix) and
+                                                       ClashRuleParser.action_string(r.action) not in outbounds
+                                             )
+        for outbound in new_outbounds:
             clash_rule = ClashRuleParser.parse_rule_line(f"RULE-SET,{self._ruleset_prefix}{outbound},{outbound}")
             if not self._clash_rule_parser.has_rule(clash_rule):
                 self._clash_rule_parser.insert_rule_at_priority(clash_rule, 0)
@@ -1340,7 +1349,7 @@ class ClashRuleProvider(_PluginBase):
         # 通过 ruleset rules 添加 rule-providers
         self._rule_provider = {}
         for rule in self._ruleset_rule_parser.rules:
-            action_str = f"{rule.action.value}" if isinstance(rule.action, Action) else rule.action
+            action_str = ClashRuleParser.action_string(rule.action)
             rule_provider_name = f'{self._ruleset_prefix}{action_str}'
             if rule_provider_name not in self._rule_provider:
                 path_name = hashlib.sha256(action_str.encode('utf-8')).hexdigest()[:10]

@@ -7401,7 +7401,7 @@ return (_ctx, _cache) => {
                       variant: "tonal"
                     }, {
                       default: _withCtx(() => _cache[166] || (_cache[166] = [
-                        _createTextVNode(" 请输入 V2Ray 格式的节点链接，例如："),
+                        _createTextVNode(" 请输入 V2RayN 格式的分享链接，例如："),
                         _createElementVNode("br", null, null, -1),
                         _createElementVNode("code", null, "vmess://xxxx", -1),
                         _createElementVNode("br", null, null, -1),
