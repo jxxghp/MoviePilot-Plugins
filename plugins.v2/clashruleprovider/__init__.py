@@ -39,7 +39,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.2.6"
+    plugin_version = "1.2.7"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -965,13 +965,22 @@ class ClashRuleProvider(_PluginBase):
 
     def __insert_ruleset(self):
         outbounds = []
+        new_outbounds = []
+        rules_existed = self._clash_rule_parser.filter_rules_by_lambda(
+            lambda r: r.rule_type == RuleType.RULE_SET and r.payload.startswith(self._ruleset_prefix)
+        )
+        actions_existed = [ClashRuleParser.action_string(r.action) for r in rules_existed]
         for rule in self._ruleset_rule_parser.rules:
-            action_str = f"{rule.action.value}" if isinstance(rule.action, Action) else rule.action
+            action_str = ClashRuleParser.action_string(rule.action)
             if action_str not in outbounds:
                 outbounds.append(action_str)
+            if action_str not in new_outbounds and action_str not in actions_existed:
+                new_outbounds.append(action_str)
         self._clash_rule_parser.remove_rules(lambda r: r.rule_type == RuleType.RULE_SET and
-                                                       r.payload.startswith(self._ruleset_prefix))
-        for outbound in outbounds:
+                                                       r.payload.startswith(self._ruleset_prefix) and
+                                                       ClashRuleParser.action_string(r.action) not in outbounds
+                                             )
+        for outbound in new_outbounds:
             clash_rule = ClashRuleParser.parse_rule_line(f"RULE-SET,{self._ruleset_prefix}{outbound},{outbound}")
             if not self._clash_rule_parser.has_rule(clash_rule):
                 self._clash_rule_parser.insert_rule_at_priority(clash_rule, 0)
@@ -984,7 +993,8 @@ class ClashRuleProvider(_PluginBase):
                 continue
             clash_rules.append(clash_rule)
         self._clash_rule_parser.append_rules(clash_rules)
-        self.__save_data()
+        self._top_rules = self._clash_rule_parser.to_list()
+        self.save_data('top_rules', self._top_rules)
         return
 
     def update_rule_by_priority(self, rule: Dict[str, Any], priority: int, rule_parser: ClashRuleParser) -> bool:
@@ -992,7 +1002,7 @@ class ClashRuleProvider(_PluginBase):
             return False
         clash_rule = ClashRuleParser.parse_rule_dict(rule)
         if not clash_rule:
-            logger.error(f"Failed to update rule at priority {priority}. Invalid clash rule: {rule}")
+            logger.error(f"Failed to update rule at priority {priority}. Invalid clash rule: {rule!r}")
             return False
         res = rule_parser.update_rule_at_priority(clash_rule, priority)
         self.__save_data()
@@ -1279,7 +1289,7 @@ class ClashRuleProvider(_PluginBase):
         """
         for item in from_list:
             if any(p.get('name') == item.get('name', '') for p in to_list):
-                logger.warn(f"Item named {item.get('name')} already exists. Skipping...")
+                logger.warn(f"Item named {item.get('name')!r} already exists. Skipping...")
                 continue
             to_list.append(item)
         return to_list
@@ -1310,7 +1320,7 @@ class ClashRuleProvider(_PluginBase):
 
         for proxy in self.all_proxies() :
             if any(p.get('name') == proxy.get('name', '') for p in proxies):
-                logger.warn(f"Proxy named {proxy.get('name')} already exists. Skipping...")
+                logger.warn(f"Proxy named {proxy.get('name')!r} already exists. Skipping...")
                 continue
             proxies.append(proxy)
         if proxies:
@@ -1339,7 +1349,7 @@ class ClashRuleProvider(_PluginBase):
         # 通过 ruleset rules 添加 rule-providers
         self._rule_provider = {}
         for rule in self._ruleset_rule_parser.rules:
-            action_str = f"{rule.action.value}" if isinstance(rule.action, Action) else rule.action
+            action_str = ClashRuleParser.action_string(rule.action)
             rule_provider_name = f'{self._ruleset_prefix}{action_str}'
             if rule_provider_name not in self._rule_provider:
                 path_name = hashlib.sha256(action_str.encode('utf-8')).hexdigest()[:10]
@@ -1363,16 +1373,16 @@ class ClashRuleProvider(_PluginBase):
                 if rule.payload in self._acl4ssr_providers:
                     clash_config['rule-providers'][rule.payload] = self._acl4ssr_providers[rule.payload]
                 if rule.payload not in clash_config.get('rule-providers', {}):
-                    logger.warn(f"规则集合 {rule.payload} 不存在, 跳过 {rule.raw_rule}")
+                    logger.warn(f"规则集合 {rule.payload!r} 不存在, 跳过 {rule.raw_rule!r}")
                     continue
             top_rules.append(rule.raw_rule)
         for raw_rule in clash_config.get("rules", []):
             rule = ClashRuleParser.parse_rule_line(raw_rule)
             if not rule:
-                logger.warn(f"无效的规则 {raw_rule}, 跳过")
+                logger.warn(f"无效的规则 {raw_rule!r}, 跳过")
                 continue
             if not isinstance(rule.action, Action) and rule.action not in outbound_names:
-                logger.warn(f"出站 {rule.action} 不存在, 跳过 {rule.raw_rule}")
+                logger.warn(f"出站 {rule.action!r} 不存在, 跳过 {rule.raw_rule!r}")
                 continue
             top_rules.append(rule.raw_rule)
         clash_config["rules"] = top_rules

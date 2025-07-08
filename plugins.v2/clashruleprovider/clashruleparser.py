@@ -397,6 +397,10 @@ class ClashRuleParser:
 
         return conditions
 
+    @staticmethod
+    def action_string(action: Union[Action, str]) -> str:
+        return action.value if isinstance(action, Action) else action
+
     def parse_rules(self, rules_text: str) -> List[Union[ClashRule, LogicRule, MatchRule]]:
         """Parse multiple rules from text, preserving order and priority"""
         self.rules = []
@@ -603,6 +607,10 @@ class ClashRuleParser:
 
         return True
 
+    def filter_rules_by_lambda(self, condition: Callable[[Union[ClashRule, LogicRule, MatchRule]], bool]):
+        """Filter rules by lambda"""
+        return [rule for rule in self.rules if condition(rule)]
+
     def filter_rules_by_type(self, rule_type: RuleType) -> List[ClashRule]:
         """Filter rules by type"""
         return [rule for rule in self.rules
@@ -614,9 +622,13 @@ class ClashRuleParser:
 
     def has_rule(self, clash_rule: Union[ClashRule, LogicRule, MatchRule]) -> bool:
         for rule in self.rules:
-            if rule.rule_type == clash_rule.rule_type and rule.action == clash_rule.action \
-                    and rule.payload == clash_rule.payload:
-                return True
+            if rule.rule_type != RuleType.MATCH:
+                if rule.rule_type == clash_rule.rule_type and rule.action == clash_rule.action \
+                        and rule.payload == clash_rule.payload:
+                    return True
+            else:
+                if rule.rule_type == clash_rule.rule_type and rule.action == clash_rule.action:
+                    return True
         return False
 
     def reorder_rules(
@@ -658,6 +670,8 @@ class Converter:
     https://github.com/MetaCubeX/mihomo/blob/Alpha/common/convert/converter.go
     https://github.com/SubConv/SubConv/blob/main/modules/convert/converter.py
     """
+    user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome'
+
     @staticmethod
     def decode_base64(data):
         # 添加适配不同 padding 的容错机制
@@ -693,7 +707,7 @@ class Converter:
             raise ValueError(f"invalid truth value {val!r}")
 
     @staticmethod
-    def convert_v2ray(v2ray_link: Union[list, bytes]) -> List[Dict[str, Any]]:
+    def convert_v2ray(v2ray_link: Union[list, bytes], skip_exception: bool = True) -> List[Dict[str, Any]]:
         if isinstance(v2ray_link, bytes):
             decoded = Converter.decode_base64(v2ray_link).decode("utf-8")
             lines = decoded.strip().splitlines()
@@ -713,176 +727,182 @@ class Converter:
             scheme = scheme.lower()
 
             if scheme == "vmess":
-                vmess_data = Converter.try_decode_base64_json(body)
-                if not vmess_data:
-                    continue
+                try:
+                    vmess_data = Converter.try_decode_base64_json(body)
+                    name = Converter.unique_name(names, vmess_data.get("ps", "vmess"))
+                    net = str(vmess_data.get("net", "")).lower()
+                    fake_type = str(vmess_data.get("type", "")).lower()
+                    tls_mode = str(vmess_data.get("tls", "")).lower()
+                    cipher = vmess_data.get("scy", "auto") or "auto"
+                    alter_id = vmess_data.get("aid", 0)
 
-                name = Converter.unique_name(names, vmess_data.get("ps", "vmess"))
-                net = str(vmess_data.get("net", "")).lower()
-                fake_type = str(vmess_data.get("type", "")).lower()
-                tls_mode = str(vmess_data.get("tls", "")).lower()
-                cipher = vmess_data.get("scy", "auto") or "auto"
-                alter_id = vmess_data.get("aid", 0)
-
-                # 调整 network 类型
-                if fake_type == "http":
-                    net = "http"
-                elif net == "http":
-                    net = "h2"
-
-                proxy = {
-                    "name": name,
-                    "type": "vmess",
-                    "server": vmess_data.get("add"),
-                    "port": vmess_data.get("port"),
-                    "uuid": vmess_data.get("id"),
-                    "alterId": alter_id,
-                    "cipher": cipher,
-                    "tls": tls_mode.endswith("tls") or tls_mode == "reality",
-                    "udp": True,
-                    "xudp": True,
-                    "skip-cert-verify": False,
-                    "network": net
-                }
-
-                # TLS、Reality 扩展
-                if proxy["tls"]:
-                    proxy["client-fingerprint"] = vmess_data.get("fp", "chrome") or "chrome"
-                    alpn = vmess_data.get("alpn")
-                    if alpn:
-                        proxy["alpn"] = alpn.split(",") if isinstance(alpn, str) else alpn
-                    sni = vmess_data.get("sni")
-                    if sni:
-                        proxy["servername"] = sni
-
-                    if tls_mode == "reality":
-                        proxy["reality-opts"] = {
-                            "public-key": vmess_data.get("pbk", ""),
-                            "short-id": vmess_data.get("sid", "")
-                        }
-
-                path = vmess_data.get("path", "/")
-                host = vmess_data.get("host")
-
-                # 不同 network 的扩展字段处理
-                if net == "tcp":
+                    # 调整 network 类型
                     if fake_type == "http":
+                        net = "http"
+                    elif net == "http":
+                        net = "h2"
+
+                    proxy = {
+                        "name": name,
+                        "type": "vmess",
+                        "server": vmess_data.get("add"),
+                        "port": vmess_data.get("port"),
+                        "uuid": vmess_data.get("id"),
+                        "alterId": alter_id,
+                        "cipher": cipher,
+                        "tls": tls_mode.endswith("tls") or tls_mode == "reality",
+                        "udp": True,
+                        "xudp": True,
+                        "skip-cert-verify": False,
+                        "network": net
+                    }
+
+                    # TLS Reality 扩展
+                    if proxy["tls"]:
+                        proxy["client-fingerprint"] = vmess_data.get("fp", "chrome") or "chrome"
+                        alpn = vmess_data.get("alpn")
+                        if alpn:
+                            proxy["alpn"] = alpn.split(",") if isinstance(alpn, str) else alpn
+                        sni = vmess_data.get("sni")
+                        if sni:
+                            proxy["servername"] = sni
+
+                        if tls_mode == "reality":
+                            proxy["reality-opts"] = {
+                                "public-key": vmess_data.get("pbk", ""),
+                                "short-id": vmess_data.get("sid", "")
+                            }
+
+                    path = vmess_data.get("path", "/")
+                    host = vmess_data.get("host")
+
+                    # 不同 network 的扩展字段处理
+                    if net == "tcp":
+                        if fake_type == "http":
+                            proxy["http-opts"] = {
+                                "path": path,
+                                "headers": {"Host": host} if host else {}
+                            }
+                    elif net == "http":
+                        proxy["network"] = "http"
                         proxy["http-opts"] = {
                             "path": path,
                             "headers": {"Host": host} if host else {}
                         }
-                elif net == "http":
-                    proxy["network"] = "http"
-                    proxy["http-opts"] = {
-                        "path": path,
-                        "headers": {"Host": host} if host else {}
-                    }
-                elif net == "h2":
-                    proxy["h2-opts"] = {
-                        "path": path,
-                        "host": [host] if host else []
-                    }
+                    elif net == "h2":
+                        proxy["h2-opts"] = {
+                            "path": path,
+                            "host": [host] if host else []
+                        }
 
-                elif net == "ws":
-                    ws_headers = {"Host": host} if host else {}
-                    ws_headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"  # 可选伪装
-                    ws_opts = {
-                        "path": path,
-                        "headers": ws_headers
-                    }
-                    # 补充 early-data 配置
-                    early_data = vmess_data.get("ed")
-                    if early_data:
-                        try:
-                            ws_opts["max-early-data"] = int(early_data)
-                        except ValueError:
-                            pass
-                    early_data_header = vmess_data.get("edh")
-                    if early_data_header:
-                        ws_opts["early-data-header-name"] = early_data_header
-                    proxy["ws-opts"] = ws_opts
+                    elif net == "ws":
+                        ws_headers = {"Host": host} if host else {}
+                        ws_headers["User-Agent"] = Converter.user_agent
+                        ws_opts = {
+                            "path": path,
+                            "headers": ws_headers
+                        }
+                        # 补充 early-data 配置
+                        early_data = vmess_data.get("ed")
+                        if early_data:
+                            try:
+                                ws_opts["max-early-data"] = int(early_data)
+                            except ValueError:
+                                pass
+                        early_data_header = vmess_data.get("edh")
+                        if early_data_header:
+                            ws_opts["early-data-header-name"] = early_data_header
+                        proxy["ws-opts"] = ws_opts
 
-                elif net == "grpc":
-                    proxy["grpc-opts"] = {
-                        "grpc-service-name": path
-                    }
-                proxies.append(proxy)
+                    elif net == "grpc":
+                        proxy["grpc-opts"] = {
+                            "grpc-service-name": path
+                        }
+                    proxies.append(proxy)
+                except Exception as e:
+                    if not skip_exception:
+                        raise ValueError(f"VMESS parse error: {e}") from e
+
             elif scheme == "vless":
                 try:
                     parsed = urlparse(line)
-                    query = parse_qs(parsed.query)
+                    query = dict(parse_qsl(parsed.query))
                     uuid = parsed.username or ""
                     server = parsed.hostname or ""
                     port = parsed.port or 443
-                    tls_mode = query.get("security", [""])[0].lower()
+                    tls_mode = query.get("security", "").lower()
                     tls = tls_mode == "tls" or tls_mode == "reality"
-                    sni = query.get("sni", [""])[0]
-                    flow = query.get("flow", [""])[0]
-                    network = query.get("type", [""])[0]
-                    path = query.get("path", [""])[0]
-                    host = query.get("host", [""])[0]
+                    sni = query.get("sni", "")
+                    flow = query.get("flow", "")
+                    network = query.get("type", "tcp")
+                    path = query.get("path", "")
+                    host = query.get("host", "")
                     name = Converter.unique_name(names, unquote(parsed.fragment or f"{server}:{port}"))
-
-                    proxy = {
+                    proxy: Dict[str, Any] = {
                         "name": name,
                         "type": "vless",
                         "server": server,
-                        "port": str(port),
+                        "port": port,
                         "uuid": uuid,
                         "tls": tls,
                         "udp": True
                     }
 
                     if sni:
-                        proxy["sni"] = sni
+                        proxy["servername"] = sni
                     if flow:
                         proxy["flow"] = flow
-
+                    if tls:
+                        proxy["skip-cert-verify"] = Converter.strtobool(query.get("allowInsecure", "0"))
                     if network:
                         proxy["network"] = network
                         if network in ["ws", "httpupgrade"]:
-                            headers = {}
+                            headers = {"User-Agent": Converter.user_agent}
                             if host:
                                 headers["Host"] = host
                             ws_opts:Dict[str, Any] = { "path": path, "headers": headers }
                             try:
                                 parsed_path = urlparse(path)
-                                q = parse_qs(parsed_path.query)
+                                q = dict(parse_qsl(parsed_path.query))
                                 if "ed" in q:
-                                    med = int(q["ed"][0])
-                                    ws_opts["max-early-data"] = med
-                                    ws_opts["early-data-header-name"] = q.get("eh", ["Sec-WebSocket-Protocol"])[0]
-                                    q.pop("ed", None)
-                                    new_query = urlencode(q, doseq=True)
-                                    parsed = parsed._replace(query=new_query)
-                                    path = urlunparse(parsed)
-                                elif "eh" in q:
-                                    ws_opts["early-data-header-name"] = q["eh"][0]
-                                ws_opts["path"] = path
+                                    med = int(q["ed"])
+                                    if network == "ws":
+                                        ws_opts["max-early-data"] = med
+                                        ws_opts["early-data-header-name"] = q.get("eh", "Sec-WebSocket-Protocol")
+                                elif network == "httpupgrade":
+                                    ws_opts["v2ray-http-upgrade-fast-open"] = True
+                                if "eh" in q and q["eh"]:
+                                    ws_opts["early-data-header-name"] = q["eh"]
                             except Exception:
                                 pass
-                            if network == "httpupgrade":
-                                ws_opts["v2ray-http-upgrade-fast-open"] = True
                             proxy["ws-opts"] = ws_opts
+
                         elif network == "grpc":
                             proxy["grpc-opts"] = {
-                                "grpc-service-name": path
+                                "grpc-service-name": query.get("serviceName", "")
+
                             }
 
                     if tls_mode == "reality":
                         proxy["reality-opts"] = {
-                            "public-key": query.get("pbk", [""])[0]
+                            "public-key": query.get("pbk", "")
                         }
                         if query.get("sid"):
-                            proxy["reality-opts"]["short-id"] = query.get("sid", [""])[0]
-                        proxy["client-fingerprint"] = query.get("fp", ["chrome"])[0]
-                        alpn = query.get("alpn", [""])[0]
+                            proxy["reality-opts"]["short-id"] = query.get("sid", "")
+                        proxy["client-fingerprint"] = query.get("fp", "chrome")
+                        alpn = query.get("alpn", "")
+                        if alpn:
+                            proxy["alpn"] = alpn.split(",")
+                    if tls_mode.endswith("tls"):
+                        proxy["client-fingerprint"] = query.get("fp", "chrome")
+                        alpn = query.get("alpn", "")
                         if alpn:
                             proxy["alpn"] = alpn.split(",")
                     proxies.append(proxy)
 
                 except Exception as e:
-                    raise ValueError(f"VLESS parse error: {e}") from e
+                    if not skip_exception:
+                        raise ValueError(f"VLESS parse error: {e}") from e
 
             elif scheme == "trojan":
                 try:
@@ -919,7 +939,7 @@ class Converter:
                         trojan["network"] = network
 
                     if network == "ws":
-                        headers = {"User-Agent": "clash"}  # 或 RandUserAgent()
+                        headers = {"User-Agent": Converter.user_agent}
                         trojan["ws-opts"] = {
                             "path": query.get("path", "/"),
                             "headers": headers
@@ -936,7 +956,9 @@ class Converter:
                     proxies.append(trojan)
 
                 except Exception as e:
-                    raise ValueError(f"Error parsing trojan:// link: {e}") from e
+                    if not skip_exception:
+                        raise ValueError(f"Trojan parse error: {e}") from e
+
             elif scheme == "hysteria":
                 try:
                     parsed = urlparse(line)
@@ -976,7 +998,9 @@ class Converter:
 
                     proxies.append(hysteria)
                 except Exception as e:
-                    raise ValueError(f"Hysteria parse error: {e}") from e
+                    if not skip_exception:
+                        raise ValueError(f"Hysteria parse error: {e}") from e
+
             elif scheme in ("socks", "socks5", "socks5h"):
                 try:
                     parsed = urlparse(line)
@@ -990,14 +1014,16 @@ class Converter:
                         "name": name,
                         "type": "socks5",
                         "server": server,
-                        "port": str(port),
+                        "port": port,
                         "username": username,
                         "password": password,
                         "udp": True
                     }
                     proxies.append(proxy)
                 except Exception as e:
-                    raise ValueError(f"SOCKS5 parse error: {e}") from e
+                    if not skip_exception:
+                        raise ValueError(f"SOCKS5 parse error: {e}") from e
+
             elif scheme == "ss":
                 try:
                     parsed = urlparse(line)
@@ -1052,7 +1078,9 @@ class Converter:
                             }
                     proxies.append(proxy)
                 except Exception as e:
-                    raise ValueError(f"SS parse error: {e}") from e
+                    if not skip_exception:
+                        raise ValueError(f"SS parse error: {e}") from e
+
             elif scheme == "ssr":
                 try:
                     decoded = Converter.decode_base64(body).decode()
@@ -1087,7 +1115,9 @@ class Converter:
 
                     proxies.append(proxy)
                 except Exception as e:
-                    raise ValueError(f"SSR parse error: {e}") from e
+                    if not skip_exception:
+                        raise ValueError(f"SSR parse error: {e}") from e
+
             elif scheme == "tuic":
                 try:
                     parsed = urlparse(line)
@@ -1103,7 +1133,7 @@ class Converter:
                         "name": name,
                         "type": "tuic",
                         "server": server,
-                        "port": str(port),
+                        "port": port,
                         "udp": True
                     }
 
@@ -1126,7 +1156,9 @@ class Converter:
 
                     proxies.append(proxy)
                 except Exception as e:
-                    raise ValueError(f"TUIC parse error: {e}") from e
+                    if not skip_exception:
+                        raise ValueError(f"TUIC parse error: {e}") from e
+
             elif scheme == "anytls":
                 try:
                     parsed = urlparse(line)
@@ -1145,7 +1177,7 @@ class Converter:
                         "name": name,
                         "type": "anytls",
                         "server": server,
-                        "port": str(port),
+                        "port": port,
                         "username": username,
                         "password": password,
                         "sni": sni,
@@ -1156,40 +1188,42 @@ class Converter:
 
                     proxies.append(proxy)
                 except Exception as e:
-                    raise ValueError(f"AnyTLS parse error: {e}") from e
+                    if not skip_exception:
+                        raise ValueError(f"AnyTLS parse error: {e}") from e
+
             elif scheme in ("hysteria2", "hy2"):
                 try:
                     parsed = urlparse(line)
-                    query = parse_qs(parsed.query)
-
+                    query = dict(parse_qsl(parsed.query))
                     password = parsed.username or ""
                     server = parsed.hostname
                     port = parsed.port or 443
-
                     name = Converter.unique_name(names, unquote(parsed.fragment or f"{server}:{port}"))
                     proxy = {
                         "name": name,
                         "type": "hysteria2",
                         "server": server,
-                        "port": str(port),
+                        "port": port,
                         "password": password,
-                        "obfs": query.get("obfs", [""])[0],
-                        "obfs-password": query.get("obfs-password", [""])[0],
-                        "sni": query.get("sni", [""])[0],
-                        "skip-cert-verify": query.get("insecure", ["false"])[0] == "true",
-                        "down": query.get("down", [""])[0],
-                        "up": query.get("up", [""])[0],
-                        "fingerprint": query.get("pinSHA256", [""])[0]
+                        "obfs": query.get("obfs", ""),
+                        "obfs-password": query.get("obfs-password", ""),
+                        "sni": query.get("sni", ""),
+                        "skip-cert-verify": Converter.strtobool(query.get("insecure", "false")),
+                        "down": query.get("down", ""),
+                        "up": query.get("up", ""),
                     }
-
+                    if "pinSHA256" in query:
+                        proxy["fingerprint"] = query.get("pinSHA256", "")
                     if "alpn" in query:
-                        proxy["alpn"] = query["alpn"][0].split(",")
+                        proxy["alpn"] = query["alpn"].split(",")
 
                     proxies.append(proxy)
                 except Exception as e:
-                    raise ValueError(f"Hysteria2 parse error: {e}") from e
+                    if not skip_exception:
+                        raise ValueError(f"Hysteria2 parse error: {e}") from e
 
         if not proxies:
-            raise ValueError("convert v2ray subscribe error: format invalid")
+            if not skip_exception:
+                raise ValueError("convert v2ray subscribe error: format invalid")
 
         return proxies
