@@ -32,9 +32,9 @@ class OpenAi:
     @staticmethod
     def __save_session(session_id: str, message: str):
         """
-        保存会话
-        :param session_id: 会话ID
-        :param message: 消息
+        세션 저장
+        :param session_id: 세션 ID
+        :param message: 메시지
         :return:
         """
         seasion = OpenAISessionCache.get(session_id)
@@ -48,9 +48,9 @@ class OpenAi:
     @staticmethod
     def __get_session(session_id: str, message: str) -> List[dict]:
         """
-        获取会话
-        :param session_id: 会话ID
-        :return: 会话上下文
+        세션 가져오기
+        :param session_id: 세션 ID
+        :return: 대화 컨텍스트
         """
         seasion = OpenAISessionCache.get(session_id)
         if seasion:
@@ -76,7 +76,7 @@ class OpenAi:
                     user: str = "MoviePilot",
                     **kwargs):
         """
-        获取模型
+        모델 호출
         """
         if not isinstance(message, list):
             if prompt:
@@ -107,8 +107,8 @@ class OpenAi:
     @staticmethod
     def __clear_session(session_id: str):
         """
-        清除会话
-        :param session_id: 会话ID
+        세션 삭제
+        :param session_id: 세션 ID
         :return:
         """
         if OpenAISessionCache.get(session_id):
@@ -116,9 +116,9 @@ class OpenAi:
 
     def get_media_name(self, filename: str):
         """
-        从文件名中提取媒体名称等要素
-        :param filename: 文件名
-        :return: Json
+        파일명에서 미디어 제목 등의 요소 추출
+        :param filename: 파일명
+        :return: JSON
         """
         if not self.get_state():
             return None
@@ -136,9 +136,9 @@ class OpenAi:
 
     def get_response(self, text: str, userid: str):
         """
-        聊天对话，获取答案
-        :param text: 输入文本
-        :param userid: 用户ID
+        채팅 대화, 응답 얻기
+        :param text: 입력 텍스트
+        :param userid: 사용자 ID
         :return:
         """
         if not self.get_state():
@@ -151,7 +151,7 @@ class OpenAi:
             if text == "#清除":
                 self.__clear_session(userid)
                 return "会话已清除"
-            # 获取历史上下文
+            # 이전 대화 컨텍스트 가져오기
             messages = self.__get_session(userid, text)
             completion = self.__get_model(message=messages, user=userid)
             result = completion.choices[0].message.content
@@ -159,18 +159,18 @@ class OpenAi:
                 self.__save_session(userid, text)
             return result
         except openai.error.RateLimitError as e:
-            return f"请求被ChatGPT拒绝了，{str(e)}"
+            return f"요청이 ChatGPT에 의해 거부되었습니다：{str(e)}"
         except openai.error.APIConnectionError as e:
-            return f"ChatGPT网络连接失败：{str(e)}"
+            return f"ChatGPT 네트워크 연결 실패：{str(e)}"
         except openai.error.Timeout as e:
-            return f"没有接收到ChatGPT的返回消息：{str(e)}"
+            return f"ChatGPT로부터 응답이 없습니다：{str(e)}"
         except Exception as e:
-            return f"请求ChatGPT出现错误：{str(e)}"
+            return f"ChatGPT 요청 중 오류 발생：{str(e)}"
 
     def translate_to_zh(self, text: str):
         """
-        翻译为中文
-        :param text: 输入文本
+        중국어로 번역
+        :param text: 입력 텍스트
         """
         if not self.get_state():
             return False, None
@@ -192,8 +192,8 @@ class OpenAi:
 
     def get_question_answer(self, question: str):
         """
-        从给定问题和选项中获取正确答案
-        :param question: 问题及选项
+        주어진 문제와 선택지에서 정답 찾기
+        :param question: 문제 및 선택지
         :return: Json
         """
         if not self.get_state():
