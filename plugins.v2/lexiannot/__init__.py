@@ -15,8 +15,6 @@ from collections import Counter
 from apscheduler.schedulers.background import BackgroundScheduler
 import pysubs2
 from pysubs2 import SSAFile, SSAEvent
-import spacy
-from spacy.tokens import Token
 import pymediainfo
 from langdetect import detect
 
@@ -44,7 +42,7 @@ class LexiAnnot(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wumode/LexiAnnot/refs/heads/master/LexiAnnot.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.0.1"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -139,9 +137,40 @@ class LexiAnnot(_PluginBase):
             latest = self.__load_lexicon_version()
             if not self._lexicon_version or StringUtils.compare_version(self._lexicon_version, '<', latest):
                 self.__load_lexicon()
+            # try to import spaCy
             try:
+                import spacy
+            except ModuleNotFoundError:
+                logger.info('正在安装spaCy ...')
+                result, output = SystemUtils.execute_with_subprocess(
+                    [sys.executable, "-m", "pip", "install", 'thinc==8.3.4']
+                )
+                if not result:
+                    logger.error(f"无法安装spaCy, {output}")
+                    return
+                result, output = SystemUtils.execute_with_subprocess(
+                    [sys.executable, "-m", "pip", "install", 'spacy==3.8.7']
+                )
+                if not result:
+                    logger.error(f"无法安装spaCy, {output}")
+                    return
+            try:
+                import spacy
+                from spacy.util import compile_infix_regex
+                from spacy.tokenizer import Tokenizer
                 if self._nlp is None:
                     self._nlp = spacy.load(self._spacy_model_name)
+                    infixes = list(self._nlp.Defaults.infixes)
+                    infixes = [i for i in infixes if '-' not in i]
+                    # 使用修改后的正则表达式重新创建 tokenizer
+                    infix_re = compile_infix_regex(infixes)
+                    self._nlp.tokenizer = Tokenizer(
+                        self._nlp.vocab,
+                        prefix_search=self._nlp.tokenizer.prefix_search,
+                        suffix_search=self._nlp.tokenizer.suffix_search,
+                        infix_finditer=infix_re.finditer,
+                        token_match=self._nlp.tokenizer.token_match
+                    )
             except OSError:
                 self._nlp = LexiAnnot.__load_spacy_model(self._spacy_model_name)
             if not (self._nlp and self._cefr_lexicon and self._coca2k_lexicon and self._swear_words):
@@ -863,6 +892,7 @@ class LexiAnnot(_PluginBase):
     @staticmethod
     def __load_spacy_model(model_name: str):
         try:
+            import spacy
             result = subprocess.run(
                 [sys.executable, "-m", "spacy", "download", model_name],
                 capture_output=True,
@@ -963,13 +993,13 @@ class LexiAnnot(_PluginBase):
         return spacy_pos
 
     @staticmethod
-    def get_cefr_by_spacy(token: Token, cefr_lexicon: Dict[str, Any]) -> Optional[str]:
-        result = LexiAnnot.query_cefr(token.lemma_, cefr_lexicon)
+    def get_cefr_by_spacy(lemma_: str, pos_: str, cefr_lexicon: Dict[str, Any]) -> Optional[str]:
+        result = LexiAnnot.query_cefr(lemma_, cefr_lexicon)
         if result:
             all_cefr = []
             if len(result) > 0:
                 for entry in result:
-                    if token.pos_ == LexiAnnot.convert_pos_to_spacy(entry['pos']):
+                    if pos_ == LexiAnnot.convert_pos_to_spacy(entry['pos']):
                         return entry['cefr']
                     all_cefr.append(entry['cefr'])
             return min(all_cefr)
@@ -1354,7 +1384,7 @@ class LexiAnnot(_PluginBase):
                     continue
                 if any(p.match(token.lemma_) for p in compiled_patterns):
                     continue
-                cefr = LexiAnnot.get_cefr_by_spacy(token, cefr_lexicon)
+                cefr = LexiAnnot.get_cefr_by_spacy(token.lemma_, token.pos_, cefr_lexicon)
                 if cefr and cefr in simple_vocabulary:
                     continue
                 res_of_coco = LexiAnnot.query_coca20k(token.lemma_, coca20k_lexicon)
