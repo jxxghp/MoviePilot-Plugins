@@ -1,11 +1,14 @@
 import re
+from json import JSONDecodeError
 from typing import Optional, Any, Dict, Tuple, List
 from collections import OrderedDict
 from dataclasses import dataclass
 import json
+import base64
 
 import requests
 
+from app.core.config import settings
 from app.log import logger
 from app.utils.http import RequestUtils
 from app.utils.common import retry
@@ -37,9 +40,6 @@ class SearchState:
 
 class ImdbHelper:
     _official_endpoint = "https://caching.graphql.imdb.com/"
-    _hash_update_url = ("https://raw.githubusercontent.com/wumode/MoviePilot-Plugins/"
-                        "refs/heads/imdbsource_assets/plugins.v2/imdbsource/imdb_hash.json")
-
     _imdb_headers = {
         "Accept": "text/html,application/json,text/plain,*/*",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome"
@@ -100,22 +100,72 @@ class ImdbHelper:
             return {'error': error}
         return data.get("data")
 
+    def get_github_file(self, repo: str, owner: str, file_path: str, branch: str = None) -> Optional[str]:
+        """
+        从GitHub仓库获取指定文本文件内容
+        :param repo: 仓库名称
+        :param owner: 仓库所有者
+        :param file_path: 文件路径(相对于仓库根目录)
+        :param branch: 分支名称，默认为 None(使用默认分支)
+        :return: 文件内容字符串，若获取失败则返回 None
+        """
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{file_path}"
+        if branch:
+            api_url = f"{api_url}?ref={branch}"
+        response = RequestUtils(headers=settings.GITHUB_HEADERS).get_res(
+            api_url,
+            proxies=self._proxies
+        )
+        if not response or response.status_code != 200:
+            return None
+        try:
+            data = response.json()
+            content_base64 = data['content']
+            json_bytes = base64.b64decode(content_base64)
+            json_text = json_bytes.decode('utf-8')
+        except (TypeError, ValueError, KeyError, UnicodeDecodeError):
+            return None
+        return json_text
+
     @cached(maxsize=1, ttl=6 * 3600)
     def __get_hash(self) -> Optional[dict]:
         """
-        根据IMDb hash使用
+        获取 IMDb hash
         """
-        headers = {
-            "Accept": "text/html",
-        }
-        res = RequestUtils(headers=headers).get_res(
-            self._hash_update_url,
-            proxies=self._proxies
+        res = self.get_github_file(
+            'MoviePilot-Plugins',
+            'wumode',
+            '/plugins.v2/imdbsource/imdb_hash.json',
+            'imdbsource_assets'
         )
         if not res:
             logger.error("Error getting hash")
             return None
-        return res.json()
+        try:
+            hash_data = json.loads(res)
+        except JSONDecodeError:
+            return None
+        return hash_data
+
+    @cached(maxsize=1, ttl=6 * 3600)
+    def __get_staff_picks(self) -> Optional[dict]:
+        """
+        获取 IMDb Staff Picks
+        """
+        res = self.get_github_file(
+            'MoviePilot-Plugins',
+            'wumode',
+            '/plugins.v2/imdbsource/staff_picks.json',
+            'imdbsource_assets'
+        )
+        if not res:
+            logger.error("Error getting staff picks")
+            return None
+        try:
+            json_data = json.loads(res)
+        except JSONDecodeError:
+            return None
+        return json_data
 
     def __update_hash(self, force: bool = False) -> None:
         if force:
@@ -322,26 +372,7 @@ class ImdbHelper:
             'relatedconst': ['nm0424060', 'nm0991810']
         }
         """
-        url = 'https://www.imdb.com/imdbpicks/staff-picks/'
-        html = self._imdb_req.get(url)
-        if not html:
-            return None
-        pattern = r'"jsonData":"{.*?}"'
-        json_strings = re.findall(pattern, html)
-        if not json_strings:
-            return None
-        try:
-            json_data = json.loads(f"{{{json_strings[0]}}}")
-            if json_data and 'jsonData' in json_data:
-                data = json.loads(json_data['jsonData'])
-                if 'entries' in data:
-                    entries = data['entries']
-                    for entry in entries:
-                        entry['description'] = re.sub(r'\[(/?)[iI]]', r'<\1i>', entry.get('description', ''))
-                    return entries
-        except Exception as e:
-            logger.error(f"Error parsing json: {e}")
-        return None
+        return self.__get_staff_picks().get('entries')
 
     def vertical_list_page_items(self,
                                  titles: Optional[List[str]] = None,
@@ -412,3 +443,4 @@ class ImdbHelper:
                 logger.error(f"Error querying VerticalListPageItems: {error}")
             return None
         return data
+
