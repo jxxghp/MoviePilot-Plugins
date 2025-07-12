@@ -135,7 +135,7 @@ class ImdbHelper:
         res = self.get_github_file(
             'MoviePilot-Plugins',
             'wumode',
-            '/plugins.v2/imdbsource/imdb_hash.json',
+            'plugins.v2/imdbsource/imdb_hash.json',
             'imdbsource_assets'
         )
         if not res:
@@ -155,7 +155,7 @@ class ImdbHelper:
         res = self.get_github_file(
             'MoviePilot-Plugins',
             'wumode',
-            '/plugins.v2/imdbsource/staff_picks.json',
+            'plugins.v2/imdbsource/staff_picks.json',
             'imdbsource_assets'
         )
         if not res:
@@ -372,7 +372,7 @@ class ImdbHelper:
             'relatedconst': ['nm0424060', 'nm0991810']
         }
         """
-        return self.__get_staff_picks().get('entries')
+        return (self.__get_staff_picks() or {}).get('entries')
 
     def vertical_list_page_items(self,
                                  titles: Optional[List[str]] = None,
