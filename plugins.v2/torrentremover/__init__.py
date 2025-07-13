@@ -4,7 +4,7 @@ import threading
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, Optional, cast, List, Dict, Tuple
 
 import pytz
 from app.core.config import settings
@@ -34,19 +34,19 @@ class TorrentInfo(BaseModel):
 
 class TorrentRemover(_PluginBase):
     # 插件名称
-    plugin_name = '自动删种'
+    plugin_name = "自动删种"
     # 插件描述
-    plugin_desc = '自动删除下载器中的下载任务。'
+    plugin_desc = "自动删除下载器中的下载任务。"
     # 插件图标
-    plugin_icon = 'delete.jpg'
+    plugin_icon = "delete.jpg"
     # 插件版本
-    plugin_version = '2.3'
+    plugin_version = "2.3"
     # 插件作者
-    plugin_author = 'jxxghp,yubanmeiqin9048'
+    plugin_author = "jxxghp,yubanmeiqin9048"
     # 作者主页
-    author_url = 'https://github.com/jxxghp'
+    author_url = "https://github.com/jxxghp"
     # 插件配置项ID前缀
-    plugin_config_prefix = 'torrentremover_'
+    plugin_config_prefix = "torrentremover_"
     # 加载顺序
     plugin_order = 8
     # 可使用的用户级别
@@ -54,83 +54,96 @@ class TorrentRemover(_PluginBase):
 
     # 私有属性
     _event = threading.Event()
+    _scheduler = None
     _enabled = False
     _onlyonce = False
-    _cron = ''
+    _notify = False
+    # pause/delete
     _downloaders = []
+    _action = "pause"
+    _cron = None
+    _samedata = False
+    _mponly = False
+    _size = None
+    _ratio = None
+    _time = None
+    _upspeed = None
+    _labels = None
+    _pathkeywords = None
+    _trackerkeywords = None
+    _errorkeywords = None
+    _torrentstates = None
+    _torrentcategorys = None
 
     def init_plugin(self, config: Optional[dict] = None):
         if config:
-            self._enabled = config.get('enabled')
-            self._onlyonce = config.get('onlyonce')
-            self._notify = config.get('notify')
-            self._downloaders: list[str] = config.get('downloaders', [])
-            self._action = config.get('action')
-            self._cron = config.get('cron')
-            self._samedata = config.get('samedata')
-            self._mponly = config.get('mponly')
-            self._size: str = config.get('size', '')
-            self._ratio = config.get('ratio')
-            self._time = config.get('time')
-            self._upspeed = config.get('upspeed')
-            self._labels: str = config.get('labels', '')
-            self._pathkeywords = config.get('pathkeywords', '')
-            self._trackerkeywords = config.get('trackerkeywords', '')
-            self._errorkeywords = config.get('errorkeywords', '')
-            self._torrentstates: str = config.get('torrentstates', '')
-            self._torrentcategorys = config.get('torrentcategorys', '')
-            self._freespace_detect_path = config.get('freespace_detect_path', '')
-            self._connection: Literal['and', 'or'] = config.get('connection', 'and')
-            self._remove_mode: Literal['strategy', 'condition'] = config.get('remove_mode', 'condition')
-            self._strategy: Literal['freespace', 'maximum_count_seeds', 'maximum_size_seeds'] = config.get(
-                'strategy', 'freespace'
+            self._enabled = config.get("enabled")
+            self._onlyonce = config.get("onlyonce")
+            self._notify = config.get("notify")
+            self._downloaders = config.get("downloaders") or []
+            self._action = config.get("action")
+            self._cron = config.get("cron")
+            self._samedata = config.get("samedata")
+            self._mponly = config.get("mponly")
+            self._size = config.get("size") or ""
+            self._ratio = config.get("ratio")
+            self._time = config.get("time")
+            self._upspeed = config.get("upspeed")
+            self._labels = config.get("labels") or ""
+            self._pathkeywords = config.get("pathkeywords") or ""
+            self._trackerkeywords = config.get("trackerkeywords") or ""
+            self._errorkeywords = config.get("errorkeywords") or ""
+            self._torrentstates = config.get("torrentstates") or ""
+            self._torrentcategorys = config.get("torrentcategorys") or ""
+            self._freespace_detect_path = config.get("freespace_detect_path", "")
+            self._connection: Literal["and", "or"] = config.get("connection", "and")
+            self._remove_mode: Literal["strategy", "condition"] = config.get("remove_mode", "condition")
+            self._strategy: Literal["freespace", "maximum_count_seeds", "maximum_size_seeds"] = config.get(
+                "strategy", "freespace"
             )
-            self._strategy_value = float(config.get('strategy_value', 0))
-            self._strategy_action: Literal['old_seeds', 'small_seeds', 'inactive_seeds'] = config.get(
-                'strategy_action', 'old_seeds'
+            self._strategy_value = float(config.get("strategy_value", 0))
+            self._strategy_action: Literal["old_seeds", "small_seeds", "inactive_seeds"] = config.get(
+                "strategy_action", "old_seeds"
             )
         self.stop_service()
 
         if self.get_state() or self._onlyonce:
             if self._onlyonce:
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-                logger.info('自动删种服务启动，立即运行一次')
-                self._scheduler.add_job(
-                    func=self.delete_torrents,
-                    trigger='date',
-                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                )
+                logger.info(f"自动删种服务启动，立即运行一次")
+                self._scheduler.add_job(func=self.delete_torrents, trigger='date',
+                                        run_date=datetime.now(
+                                            tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3)
+                                        )
                 # 关闭一次性开关
                 self._onlyonce = False
                 # 保存设置
-                self.update_config(
-                    {
-                        'enabled': self._enabled,
-                        'notify': self._notify,
-                        'onlyonce': self._onlyonce,
-                        'action': self._action,
-                        'cron': self._cron,
-                        'downloaders': self._downloaders,
-                        'samedata': self._samedata,
-                        'mponly': self._mponly,
-                        'size': self._size,
-                        'ratio': self._ratio,
-                        'time': self._time,
-                        'upspeed': self._upspeed,
-                        'labels': self._labels,
-                        'pathkeywords': self._pathkeywords,
-                        'trackerkeywords': self._trackerkeywords,
-                        'errorkeywords': self._errorkeywords,
-                        'torrentstates': self._torrentstates,
-                        'torrentcategorys': self._torrentcategorys,
-                        'freespace_detect_path': self._freespace_detect_path,
-                        'connection': self._connection,
-                        'strategy': self._strategy,
-                        'strategy_value': self._strategy_value,
-                        'strategy_action': self._strategy_action,
-                        'remove_mode': self._remove_mode,
-                    }
-                )
+                self.update_config({
+                    "enabled": self._enabled,
+                    "notify": self._notify,
+                    "onlyonce": self._onlyonce,
+                    "action": self._action,
+                    "cron": self._cron,
+                    "downloaders": self._downloaders,
+                    "samedata": self._samedata,
+                    "mponly": self._mponly,
+                    "size": self._size,
+                    "ratio": self._ratio,
+                    "time": self._time,
+                    "upspeed": self._upspeed,
+                    "labels": self._labels,
+                    "pathkeywords": self._pathkeywords,
+                    "trackerkeywords": self._trackerkeywords,
+                    "errorkeywords": self._errorkeywords,
+                    "torrentstates": self._torrentstates,
+                    "torrentcategorys": self._torrentcategorys,
+                    "freespace_detect_path": self._freespace_detect_path,
+                    "connection": self._connection,
+                    "strategy": self._strategy,
+                    "strategy_value": self._strategy_value,
+                    "strategy_action": self._strategy_action,
+                    "remove_mode": self._remove_mode,
+                })
                 if self._scheduler and self._scheduler.get_jobs():
                     # 启动服务
                     self._scheduler.print_jobs()
@@ -140,13 +153,13 @@ class TorrentRemover(_PluginBase):
         return True if self._enabled and self._cron and self._downloaders else False
 
     @staticmethod
-    def get_command() -> list[dict[str, Any]]:  # type: ignore
+    def get_command() -> List[Dict[str, Any]]:
         pass
 
-    def get_api(self) -> list[dict[str, Any]]:  # type: ignore
+    def get_api(self) -> List[Dict[str, Any]]:
         pass
 
-    def get_service(self) -> list[dict[str, Any]]:
+    def get_service(self) -> List[Dict[str, Any]]:
         """
         注册插件公共服务
         [{
@@ -158,18 +171,16 @@ class TorrentRemover(_PluginBase):
         }]
         """
         if self.get_state():
-            return [
-                {
-                    'id': 'TorrentRemover',
-                    'name': '自动删种服务',
-                    'trigger': CronTrigger.from_crontab(self._cron),
-                    'func': self.delete_torrents,
-                    'kwargs': {},
-                }
-            ]
+            return [{
+                "id": "TorrentRemover",
+                "name": "自动删种服务",
+                "trigger": CronTrigger.from_crontab(self._cron),
+                "func": self.delete_torrents,
+                "kwargs": {}
+            }]
         return []
 
-    def get_form(self) -> tuple[list[dict], dict[str, Any]]:
+    def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
             {
                 'component': 'VForm',
@@ -179,92 +190,117 @@ class TorrentRemover(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 4},
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
                                 'content': [
                                     {
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'enabled',
                                             'label': '启用插件',
-                                        },
+                                        }
                                     }
-                                ],
+                                ]
                             },
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 4},
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
                                 'content': [
                                     {
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'notify',
                                             'label': '发送通知',
-                                        },
+                                        }
                                     }
-                                ],
+                                ]
                             },
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 4},
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
                                 'content': [
                                     {
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'onlyonce',
                                             'label': '立即运行一次',
-                                        },
+                                        }
                                     }
-                                ],
-                            },
-                        ],
+                                ]
+                            }
+                        ]
                     },
                     {
                         'component': 'VRow',
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 4},
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
                                 'content': [
                                     {
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'samedata',
                                             'label': '处理辅种',
-                                        },
+                                        }
                                     }
-                                ],
+                                ]
                             },
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 4},
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
                                 'content': [
                                     {
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'mponly',
                                             'label': '仅MoviePilot任务',
-                                        },
+                                        }
                                     }
-                                ],
-                            },
-                        ],
+                                ]
+                            }
+                        ]
                     },
                     {
                         'component': 'VRow',
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
                                 'content': [
                                     {
                                         'component': 'VCronField',
-                                        'props': {'model': 'cron', 'label': '执行周期', 'placeholder': '0 */12 * * *'},
+                                        'props': {
+                                            'model': 'cron',
+                                            'label': '执行周期',
+                                            'placeholder': '0 */12 * * *'
+                                        }
                                     }
-                                ],
+                                ]
                             },
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
                                 'content': [
                                     {
                                         'component': 'VTextField',
@@ -282,7 +318,10 @@ class TorrentRemover(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
                                 'content': [
                                     {
                                         'component': 'VSelect',
@@ -296,7 +335,10 @@ class TorrentRemover(_PluginBase):
                             },
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
                                 'content': [
                                     {
                                         'component': 'VSelect',
@@ -306,22 +348,23 @@ class TorrentRemover(_PluginBase):
                                             'clearable': True,
                                             'model': 'downloaders',
                                             'label': '下载器',
-                                            'items': [
-                                                {'title': config.name, 'value': config.name}
-                                                for config in DownloaderHelper().get_configs().values()
-                                            ],
-                                        },
-                                    },
-                                ],
-                            },
-                        ],
+                                            'items': [{"title": config.name, "value": config.name}
+                                                      for config in DownloaderHelper().get_configs().values()]
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
                     },
                     {
                         'component': 'VRow',
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
                                 'content': [
                                     {
                                         'component': 'VSelect',
@@ -338,7 +381,10 @@ class TorrentRemover(_PluginBase):
                             },
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
                                 'content': [
                                     {
                                         'component': 'VSelect',
@@ -383,7 +429,10 @@ class TorrentRemover(_PluginBase):
                                         'content': [
                                             {
                                                 'component': 'VCol',
-                                                'props': {'cols': 12, 'md': 4},
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
                                                 'content': [
                                                     {
                                                         'component': 'VSelect',
@@ -409,7 +458,10 @@ class TorrentRemover(_PluginBase):
                                             },
                                             {
                                                 'component': 'VCol',
-                                                'props': {'cols': 12, 'md': 4},
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
                                                 'content': [
                                                     {
                                                         'component': 'VSelect',
@@ -435,7 +487,10 @@ class TorrentRemover(_PluginBase):
                                             },
                                             {
                                                 'component': 'VCol',
-                                                'props': {'cols': 12, 'md': 4},
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
                                                 'content': [
                                                     {
                                                         'component': 'VTextField',
@@ -464,7 +519,9 @@ class TorrentRemover(_PluginBase):
                                         'content': [
                                             {
                                                 'component': 'VCol',
-                                                'props': {'cols': 6},
+                                                'props': {
+                                                    'cols': 6
+                                                },
                                                 'content': [
                                                     {
                                                         'component': 'VTextField',
@@ -478,7 +535,9 @@ class TorrentRemover(_PluginBase):
                                             },
                                             {
                                                 'component': 'VCol',
-                                                'props': {'cols': 6},
+                                                'props': {
+                                                    'cols': 6
+                                                },
                                                 'content': [
                                                     {
                                                         'component': 'VTextField',
@@ -492,7 +551,9 @@ class TorrentRemover(_PluginBase):
                                             },
                                             {
                                                 'component': 'VCol',
-                                                'props': {'cols': 6},
+                                                'props': {
+                                                    'cols': 6
+                                                },
                                                 'content': [
                                                     {
                                                         'component': 'VTextField',
@@ -506,7 +567,9 @@ class TorrentRemover(_PluginBase):
                                             },
                                             {
                                                 'component': 'VCol',
-                                                'props': {'cols': 6},
+                                                'props': {
+                                                    'cols': 6
+                                                },
                                                 'content': [
                                                     {
                                                         'component': 'VTextField',
@@ -520,7 +583,9 @@ class TorrentRemover(_PluginBase):
                                             },
                                             {
                                                 'component': 'VCol',
-                                                'props': {'cols': 6},
+                                                'props': {
+                                                    'cols': 6
+                                                },
                                                 'content': [
                                                     {
                                                         'component': 'VTextField',
@@ -534,7 +599,9 @@ class TorrentRemover(_PluginBase):
                                             },
                                             {
                                                 'component': 'VCol',
-                                                'props': {'cols': 6},
+                                                'props': {
+                                                    'cols': 6
+                                                },
                                                 'content': [
                                                     {
                                                         'component': 'VTextField',
@@ -548,7 +615,9 @@ class TorrentRemover(_PluginBase):
                                             },
                                             {
                                                 'component': 'VCol',
-                                                'props': {'cols': 6},
+                                                'props': {
+                                                    'cols': 6
+                                                },
                                                 'content': [
                                                     {
                                                         'component': 'VTextField',
@@ -562,7 +631,9 @@ class TorrentRemover(_PluginBase):
                                             },
                                             {
                                                 'component': 'VCol',
-                                                'props': {'cols': 6},
+                                                'props': {
+                                                    'cols': 6
+                                                },
                                                 'content': [
                                                     {
                                                         'component': 'VTextField',
@@ -576,7 +647,9 @@ class TorrentRemover(_PluginBase):
                                             },
                                             {
                                                 'component': 'VCol',
-                                                'props': {'cols': 6},
+                                                'props': {
+                                                    'cols': 6
+                                                },
                                                 'content': [
                                                     {
                                                         'component': 'VTextField',
@@ -590,7 +663,9 @@ class TorrentRemover(_PluginBase):
                                             },
                                             {
                                                 'component': 'VCol',
-                                                'props': {'cols': 6},
+                                                'props': {
+                                                    'cols': 6
+                                                },
                                                 'content': [
                                                     {
                                                         'component': 'VTextField',
@@ -613,8 +688,8 @@ class TorrentRemover(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {
-                                    'style': {'margin-top': '16px'},
+                                "props": {
+                                    "style": {"margin-top": "16px"},
                                 },
                                 'content': [
                                     {
@@ -622,12 +697,12 @@ class TorrentRemover(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '自动删种存在风险，如设置不当可能导致数据丢失！建议动作先选择暂停，确定条件正确后再改成删除。',
-                                        },
+                                            'text': '自动删种存在风险，如设置不当可能导致数据丢失！建议动作先选择暂停，确定条件正确后再改成删除。'
+                                        }
                                     }
-                                ],
+                                ]
                             }
-                        ],
+                        ]
                     },
                     {
                         'component': 'VRow',
@@ -644,61 +719,61 @@ class TorrentRemover(_PluginBase):
                                             'type': 'info',
                                             'variant': 'tonal',
                                             'text': '任务状态（QB）字典：'
-                                            'downloading：正在下载-传输数据，'
-                                            'stalledDL：正在下载_未建立连接，'
-                                            'uploading：正在上传-传输数据，'
-                                            'stalledUP：正在上传-未建立连接，'
-                                            'error：暂停-发生错误，'
-                                            'pausedDL：暂停-下载未完成，'
-                                            'pausedUP：暂停-下载完成，'
-                                            'missingFiles：暂停-文件丢失，'
-                                            'checkingDL：检查中-下载未完成，'
-                                            'checkingUP：检查中-下载完成，'
-                                            'checkingResumeData：检查中-启动时恢复数据，'
-                                            'forcedDL：强制下载-忽略队列，'
-                                            'queuedDL：等待下载-排队，'
-                                            'forcedUP：强制上传-忽略队列，'
-                                            'queuedUP：等待上传-排队，'
-                                            'allocating：分配磁盘空间，'
-                                            'metaDL：获取元数据，'
-                                            'moving：移动文件，'
-                                            'unknown：未知状态',
-                                        },
+                                                    'downloading：正在下载-传输数据，'
+                                                    'stalledDL：正在下载_未建立连接，'
+                                                    'uploading：正在上传-传输数据，'
+                                                    'stalledUP：正在上传-未建立连接，'
+                                                    'error：暂停-发生错误，'
+                                                    'pausedDL：暂停-下载未完成，'
+                                                    'pausedUP：暂停-下载完成，'
+                                                    'missingFiles：暂停-文件丢失，'
+                                                    'checkingDL：检查中-下载未完成，'
+                                                    'checkingUP：检查中-下载完成，'
+                                                    'checkingResumeData：检查中-启动时恢复数据，'
+                                                    'forcedDL：强制下载-忽略队列，'
+                                                    'queuedDL：等待下载-排队，'
+                                                    'forcedUP：强制上传-忽略队列，'
+                                                    'queuedUP：等待上传-排队，'
+                                                    'allocating：分配磁盘空间，'
+                                                    'metaDL：获取元数据，'
+                                                    'moving：移动文件，'
+                                                    'unknown：未知状态'
+                                        }
                                     }
-                                ],
+                                ]
                             }
-                        ],
-                    },
-                ],
+                        ]
+                    }
+                ]
             }
         ], {
-            'enabled': False,
-            'notify': False,
-            'onlyonce': False,
-            'action': 'pause',
-            'downloaders': [],
-            'cron': '0 */12 * * *',
-            'samedata': False,
-            'mponly': False,
-            'size': '',
-            'ratio': '',
-            'time': '',
-            'upspeed': '',
-            'labels': '',
-            'pathkeywords': '',
-            'trackerkeywords': '',
-            'errorkeywords': '',
-            'torrentstates': '',
-            'torrentcategorys': '',
-            'connection': 'and',
-            'strategy': 'freespace',
-            'strategy_action': 'old_seeds',
-            'strategy_value': 0,
-            'remove_mode': 'condition',
-            'freespace_detect_path': '',
+            "enabled": False,
+            "notify": False,
+            "onlyonce": False,
+            "action": "pause",
+            "downloaders": [],
+            "cron": "0 */12 * * *",
+            "samedata": False,
+            "mponly": False,
+            "size": "",
+            "ratio": "",
+            "time": "",
+            "upspeed": "",
+            "labels": "",
+            "pathkeywords": "",
+            "trackerkeywords": "",
+            "errorkeywords": "",
+            "torrentstates": "",
+            "torrentcategorys": "",
+            "connection": "and",
+            "strategy": "freespace",
+            "strategy_action": "old_seeds",
+            "strategy_value": 0,
+            "remove_mode": "condition",
+            "freespace_detect_path": "",
         }
 
-    def get_page(self) -> list[dict]:  # type: ignore
+    def get_page(self) -> List[dict]:
         pass
 
     def stop_service(self):
@@ -722,12 +797,12 @@ class TorrentRemover(_PluginBase):
         服务信息
         """
         if not self._downloaders:
-            logger.warning('尚未配置下载器，请检查配置')
+            logger.warning("尚未配置下载器，请检查配置")
             return None
 
         services = DownloaderHelper().get_services(name_filters=self._downloaders)
         if not services:
-            logger.warning('获取下载器实例失败，请检查配置')
+            logger.warning("获取下载器实例失败，请检查配置")
             return None
 
         active_services = {}
@@ -735,10 +810,10 @@ class TorrentRemover(_PluginBase):
             if service_info.instance and not service_info.instance.is_inactive():
                 active_services[service_name] = service_info
             else:
-                logger.warning(f'下载器 {service_name} 未连接，请检查配置')
+                logger.warning(f"下载器 {service_name} 未连接，请检查配置")
 
         if not active_services:
-            logger.warning('没有已连接的下载器，请检查配置')
+            logger.warning("没有已连接的下载器，请检查配置")
             return None
 
         return active_services
@@ -748,13 +823,13 @@ class TorrentRemover(_PluginBase):
         根据类型返回下载器实例
         """
         if not self.service_infos:
-            raise NotImplementedError('未初始化下载器')
+            raise NotImplementedError("未初始化下载器")
         try:
             if downloader := self.service_infos[name].instance:
                 return downloader
-            raise NotImplementedError(f'未找到下载器：{name}')
+            raise NotImplementedError(f"未找到下载器：{name}")
         except KeyError as e:
-            logger.error(f'未找到下载器：{name}')
+            logger.error(f"未找到下载器：{name}")
             raise e
 
     def delete_torrents(self):
@@ -766,62 +841,62 @@ class TorrentRemover(_PluginBase):
                 with lock:
                     # 获取需删除种子列表
                     torrents = self.get_remove_torrents(downloader)
-                    logger.info(f'自动删种任务 获取符合处理条件种子数 {len(torrents)}')
+                    logger.info(f"自动删种任务 获取符合处理条件种子数 {len(torrents)}")
                     # 下载器
                     downlader_obj = self.__get_downloader(downloader)
-                    if self._action == 'pause':
-                        message_text = f'{downloader.title()} 共暂停{len(torrents)}个种子'
+                    if self._action == "pause":
+                        message_text = f"{downloader.title()} 共暂停{len(torrents)}个种子"
                         for torrent in torrents:
                             if self._event.is_set():
-                                logger.info('自动删种服务停止')
+                                logger.info("自动删种服务停止")
                                 return
                             text_item = (
-                                f'{torrent.name} '
-                                f'来自站点：{torrent.site} '
-                                f'大小：{StringUtils.str_filesize(torrent.size)}'
+                                f"{torrent.name} "
+                                f"来自站点：{torrent.site} "
+                                f"大小：{StringUtils.str_filesize(torrent.size)}"
                             )
                             # 暂停种子
                             downlader_obj.stop_torrents(ids=[torrent.id])
-                            logger.info(f'自动删种任务 暂停种子：{text_item}')
-                            message_text = f'{message_text}\n{text_item}'
-                    elif self._action == 'delete':
-                        message_text = f'{downloader.title()} 共删除{len(torrents)}个种子'
+                            logger.info(f"自动删种任务 暂停种子：{text_item}")
+                            message_text = f"{message_text}\n{text_item}"
+                    elif self._action == "delete":
+                        message_text = f"{downloader.title()} 共删除{len(torrents)}个种子"
                         for torrent in torrents:
                             if self._event.is_set():
-                                logger.info('自动删种服务停止')
+                                logger.info("自动删种服务停止")
                                 return
                             text_item = (
-                                f'{torrent.name} '
-                                f'来自站点：{torrent.site} '
-                                f'大小：{StringUtils.str_filesize(torrent.size)}'
+                                f"{torrent.name} "
+                                f"来自站点：{torrent.site} "
+                                f"大小：{StringUtils.str_filesize(torrent.size)}"
                             )
                             # 删除种子
                             downlader_obj.delete_torrents(delete_file=False, ids=[torrent.id])
-                            logger.info(f'自动删种任务 删除种子：{text_item}')
-                            message_text = f'{message_text}\n{text_item}'
-                    elif self._action == 'deletefile':
-                        message_text = f'{downloader.title()} 共删除{len(torrents)}个种子及文件'
+                            logger.info(f"自动删种任务 删除种子：{text_item}")
+                            message_text = f"{message_text}\n{text_item}"
+                    elif self._action == "deletefile":
+                        message_text = f"{downloader.title()} 共删除{len(torrents)}个种子及文件"
                         for torrent in torrents:
                             if self._event.is_set():
-                                logger.info('自动删种服务停止')
+                                logger.info("自动删种服务停止")
                                 return
                             text_item = (
-                                f'{torrent.name} '
-                                f'来自站点：{torrent.site} '
-                                f'大小：{StringUtils.str_filesize(torrent.size)}'
+                                f"{torrent.name} "
+                                f"来自站点：{torrent.site} "
+                                f"大小：{StringUtils.str_filesize(torrent.size)}"
                             )
                             # 删除种子
                             downlader_obj.delete_torrents(delete_file=True, ids=[torrent.id])
-                            logger.info(f'自动删种任务 删除种子及文件：{text_item}')
-                            message_text = f'{message_text}\n{text_item}'
+                            logger.info(f"自动删种任务 删除种子及文件：{text_item}")
+                            message_text = f"{message_text}\n{text_item}"
                     else:
                         continue
                     if torrents and message_text and self._notify:
                         self.post_message(
-                            mtype=NotificationType.SiteMessage, title='【自动删种任务完成】', text=message_text
+                            mtype=NotificationType.SiteMessage, title="【自动删种任务完成】", text=message_text
                         )
             except Exception as e:
-                logger.error(f'自动删种任务异常：{str(e)}')
+                logger.error(f"自动删种任务异常：{str(e)}")
 
     def old_seeds(self, torrents: list[Torrent] | list[TorrentDictionary]) -> list[Torrent | TorrentDictionary]:
         """
@@ -883,7 +958,7 @@ class TorrentRemover(_PluginBase):
         """
         检查下载任务是否符合条件
         """
-        connect_type = any if self._connection == 'or' else all
+        connect_type = any if self._connection == "or" else all
         is_qb = False
         if isinstance(torrent, TorrentDictionary):
             # QB字段
@@ -900,8 +975,8 @@ class TorrentRemover(_PluginBase):
             state = torrent.state
             category = torrent.category
             site = StringUtils.get_url_sld(tracker)
-            error_string = ''
-            trackers = ''
+            error_string = ""
+            trackers = ""
             hash_id = torrent.hash
             name = torrent.name
         else:
@@ -914,13 +989,13 @@ class TorrentRemover(_PluginBase):
             uploaded = ratio * size
             upspeed = uploaded / torrent_seeding_time if torrent_seeding_time else 0
             path = cast(str, torrent.download_dir)
-            tracker = ''
+            tracker = ""
             trackers = torrent.trackers
-            site = trackers[0].get('sitename') if trackers else ''
+            site = trackers[0].get("sitename") if trackers else ""
             error_string = torrent.error_string
             hash_id = torrent.hashString
             name = torrent.name
-        sizes = self._size.split('-') if self._size else []
+        sizes = self._size.split("-") if self._size else []
         minsize = float(sizes[0]) * 1024 * 1024 * 1024 if sizes else 0
         maxsize = float(sizes[-1]) * 1024 * 1024 * 1024 if sizes else 0
         conditions = [
@@ -936,12 +1011,12 @@ class TorrentRemover(_PluginBase):
                     or (
                         not is_qb
                         and trackers
-                        and any(not re.findall(self._trackerkeywords, t.get('announce', ''), re.I) for t in trackers)
+                        and any(not re.findall(self._trackerkeywords, t.get("announce", ""), re.I) for t in trackers)
                     )
                 )
             ),  # Tracker匹配条件
             # QB专有
-            (is_qb and self._torrentstates and state not in self._torrentstates.split(',')),  # 状态条件
+            (is_qb and self._torrentstates and state not in self._torrentstates.split(",")),  # 状态条件
             (is_qb and self._torrentcategorys and (not category or category not in self._torrentcategorys)),  # 分类条件
             # TR专有
             (
@@ -954,7 +1029,7 @@ class TorrentRemover(_PluginBase):
             name=name,
             size=size,
             site=site,
-            need_delete=True if self._remove_mode == 'condition' and connect_type(conditions) else False,
+            need_delete=True if self._remove_mode == "condition" and connect_type(conditions) else False,
         )
 
     def get_remove_torrents(self, downloader: str) -> set[TorrentInfo]:
@@ -965,7 +1040,7 @@ class TorrentRemover(_PluginBase):
         downloader_obj = self.__get_downloader(downloader)
         # 标题
         if self._labels:
-            tags = self._labels.split(',')
+            tags = self._labels.split(",")
         else:
             tags = []
         if self._mponly:
@@ -977,7 +1052,7 @@ class TorrentRemover(_PluginBase):
         group_map: defaultdict[tuple[str, int], set[TorrentInfo]] = defaultdict(set)
         remove_torrents: set[TorrentInfo] = set()
         remove_keys: set[tuple[str, int]] = set()
-        if self._remove_mode == 'condition':
+        if self._remove_mode == "condition":
             # 处理种子
             for torrent in torrents:
                 item = self.__fromat_torrent_info(torrent)
@@ -989,15 +1064,15 @@ class TorrentRemover(_PluginBase):
                     if self._samedata:
                         remove_keys.add(key)
         else:
-            if self._strategy_action == 'inactive_seeds':
+            if self._strategy_action == "inactive_seeds":
                 sorted_torrents = self.inactive_seeds(torrents)
-            elif self._strategy_action == 'old_seeds':
+            elif self._strategy_action == "old_seeds":
                 sorted_torrents = self.old_seeds(torrents)
-            elif self._strategy_action == 'small_seeds':
+            elif self._strategy_action == "small_seeds":
                 sorted_torrents = self.small_seeds(torrents)
             else:
-                raise ValueError(f'未知策略动作{self._strategy_action}')
-            if self._strategy == 'freespace':
+                raise ValueError(f"未知策略动作{self._strategy_action}")
+            if self._strategy == "freespace":
                 # 限制最小磁盘容量策略
                 free = shutil.disk_usage(self._freespace_detect_path).free / (1024**3)  # 单位GB
                 if free > self._strategy_value:
@@ -1020,10 +1095,10 @@ class TorrentRemover(_PluginBase):
                         # 不处理辅种时提前返回
                         if need_space <= 0 and not self._samedata:
                             break
-            elif self._strategy == 'maximum_count_seeds':
+            elif self._strategy == "maximum_count_seeds":
                 # 限制最大种子数量策略
                 current_count = len(sorted_torrents)
-                if current_count <= self._strategy_value:
+                if current_count <= int(self._strategy_value):
                     return set()
                 # 计算需要删除的种子数量
                 remove_count = current_count - int(self._strategy_value)
@@ -1041,7 +1116,7 @@ class TorrentRemover(_PluginBase):
                     # 不处理辅种时提前返回
                     if i >= remove_count and not self._samedata:
                         break
-            elif self._strategy == 'maximum_size_seeds':
+            elif self._strategy == "maximum_size_seeds":
                 # 限制最大种子总大小策略
                 total_size = sum(
                     torrent.size if isinstance(torrent, TorrentDictionary) else torrent.total_size
@@ -1067,7 +1142,7 @@ class TorrentRemover(_PluginBase):
                     if need_remove_size <= 0 and not self._samedata:
                         break
             else:
-                raise ValueError(f'未知策略{self._strategy}')
+                raise ValueError(f"未知策略{self._strategy}")
         # 处理辅种
         if self._samedata:
             for key in remove_keys:
