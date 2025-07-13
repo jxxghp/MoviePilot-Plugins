@@ -56,7 +56,7 @@ class TorrentRemover(_PluginBase):
     _event = threading.Event()
     _enabled = False
     _onlyonce = False
-    _corn = ''
+    _cron = ''
     _downloaders = []
 
     def init_plugin(self, config: Optional[dict] = None):
@@ -94,7 +94,7 @@ class TorrentRemover(_PluginBase):
         if self.get_state() or self._onlyonce:
             if self._onlyonce:
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-                # logger.info('自动删种服务启动，立即运行一次')
+                logger.info('自动删种服务启动，立即运行一次')
                 self._scheduler.add_job(
                     func=self.delete_torrents,
                     trigger='date',
@@ -924,8 +924,8 @@ class TorrentRemover(_PluginBase):
         minsize = float(sizes[0]) * 1024 * 1024 * 1024 if sizes else 0
         maxsize = float(sizes[-1]) * 1024 * 1024 * 1024 if sizes else 0
         conditions = [
-            (self._ratio and ratio <= float(self._ratio)),  # 分享率条件
-            (self._time and torrent_seeding_time <= float(self._time) * 3600),  # 做种时间条件
+            (self._ratio and ratio > float(self._ratio)),  # 分享率条件
+            (self._time and torrent_seeding_time > float(self._time) * 3600),  # 做种时间条件
             (self._size and (size >= int(maxsize) or size <= int(minsize))),  # 文件大小条件
             (self._upspeed and upspeed >= float(self._upspeed) * 1024),  # 上传速度条件
             (self._pathkeywords and not re.findall(self._pathkeywords, path, re.I)),  # 路径匹配条件
@@ -941,7 +941,7 @@ class TorrentRemover(_PluginBase):
                 )
             ),  # Tracker匹配条件
             # QB专有
-            (is_qb and self._torrentstates and state not in self._torrentstates),  # 状态条件
+            (is_qb and self._torrentstates and state not in self._torrentstates.split(',')),  # 状态条件
             (is_qb and self._torrentcategorys and (not category or category not in self._torrentcategorys)),  # 分类条件
             # TR专有
             (
@@ -1009,7 +1009,7 @@ class TorrentRemover(_PluginBase):
                     for torrent in sorted_torrents:
                         item = self.__fromat_torrent_info(torrent)
                         item.need_delete = need_space > 0
-                        need_space -= item.size
+                        need_space -= item.size / (1024**3)
                         if self._samedata:
                             key = (item.name, item.size)
                             group_map[key].add(item)
