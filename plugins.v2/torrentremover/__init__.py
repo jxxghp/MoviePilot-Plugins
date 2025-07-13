@@ -4,9 +4,15 @@ import threading
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Literal, Optional, cast, List, Dict, Tuple
+from typing import List, Tuple, Dict, Any, Optional, Literal, cast
 
 import pytz
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from pydantic import BaseModel
+from qbittorrentapi import TorrentDictionary
+from transmission_rpc import Torrent
+
 from app.core.config import settings
 from app.helper.downloader import DownloaderHelper
 from app.log import logger
@@ -15,11 +21,6 @@ from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
 from app.schemas import NotificationType, ServiceInfo
 from app.utils.string import StringUtils
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from pydantic import BaseModel
-from qbittorrentapi import TorrentDictionary
-from transmission_rpc import Torrent
 
 lock = threading.Lock()
 
@@ -110,7 +111,7 @@ class TorrentRemover(_PluginBase):
         if self.get_state() or self._onlyonce:
             if self._onlyonce:
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-                logger.info(f"自动删种服务启动，立即运行一次")
+                logger.info("自动删种服务启动，立即运行一次")
                 self._scheduler.add_job(func=self.delete_torrents, trigger='date',
                                         run_date=datetime.now(
                                             tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3)
@@ -792,7 +793,7 @@ class TorrentRemover(_PluginBase):
             print(str(e))
 
     @property
-    def service_infos(self) -> Optional[dict[str, ServiceInfo]]:
+    def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
         """
         服务信息
         """
