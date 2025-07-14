@@ -225,9 +225,9 @@
     "name": "自动删种",
     "description": "自动删除下载器中的下载任务。",
     "labels": "做种",
-    "version": "2.2",
+    "version": "2.3",
     "icon": "delete.jpg",
-    "author": "jxxghp",
+    "author": "jxxghp,yubanmeiqin9048",
     "level": 2,
     "history": {
       "v2.3": "增加删除策略删种模式和条件连接器",
