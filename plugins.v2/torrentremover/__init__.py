@@ -419,8 +419,8 @@ class TorrentRemover(_PluginBase):
                             'fixed-tabs': True,
                         },
                         'content': [
-                            {'component': 'VTab', 'props': {'value': 'condition_tab'}, 'text': '条件模式'},
                             {'component': 'VTab', 'props': {'value': 'strategy_tab'}, 'text': '策略模式'},
+                            {'component': 'VTab', 'props': {'value': 'condition_tab'}, 'text': '条件模式'},
                         ],
                     },
                     {
