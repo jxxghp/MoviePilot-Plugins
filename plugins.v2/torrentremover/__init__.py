@@ -31,7 +31,14 @@ class TorrentInfo(BaseModel):
     site: str
     size: int
     need_delete: bool
+    
+    def __hash__(self):
+        return hash((self.id, self.name, self.site, self.size))
 
+    def __eq__(self, other):
+        if not isinstance(other, TorrentInfo):
+            return False
+        return self.id == other.id and self.name == other.name and self.site == other.site and self.size == other.size
 
 class TorrentRemover(_PluginBase):
     # 插件名称
