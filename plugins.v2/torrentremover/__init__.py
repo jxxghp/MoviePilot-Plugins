@@ -979,12 +979,12 @@ class TorrentRemover(_PluginBase):
             ratio = torrent.ratio
             upspeed = uploaded / torrent_seeding_time if torrent_seeding_time else 0
             path = torrent.save_path
-            tracker = torrent.tracker
+            trackers = [
+                t["url"] for t in torrent.trackers if t["url"] not in ["** [LSD] **", "** [PeX] **", "** [DHT] **"]
+            ]
             state = torrent.state
             category = torrent.category
-            site = StringUtils.get_url_sld(tracker)
-            error_string = ""
-            trackers = ""
+            site = StringUtils.get_url_sld(str(trackers[0]))
             hash_id = torrent.hash
             name = torrent.name
         else:
@@ -997,41 +997,41 @@ class TorrentRemover(_PluginBase):
             uploaded = ratio * size
             upspeed = uploaded / torrent_seeding_time if torrent_seeding_time else 0
             path = cast(str, torrent.download_dir)
-            tracker = ""
             trackers = torrent.trackers
             site = trackers[0].get("sitename") if trackers else ""
             error_string = torrent.error_string
             hash_id = torrent.hashString
             name = torrent.name
         sizes = self._size.split("-") if self._size else []
-        minsize = float(sizes[0]) * 1024 * 1024 * 1024 if sizes else 0
-        maxsize = float(sizes[-1]) * 1024 * 1024 * 1024 if sizes else 0
-        conditions = [
-            (self._ratio and ratio > float(self._ratio)),  # 分享率条件
-            (self._time and torrent_seeding_time > float(self._time) * 3600),  # 做种时间条件
-            (self._size and (size >= int(maxsize) or size <= int(minsize))),  # 文件大小条件
-            (self._upspeed and upspeed >= float(self._upspeed) * 1024),  # 上传速度条件
-            (self._pathkeywords and not re.findall(self._pathkeywords, path, re.I)),  # 路径匹配条件
-            (
-                self._trackerkeywords
-                and (
-                    (is_qb and not re.findall(self._trackerkeywords, tracker, re.I))
-                    or (
-                        not is_qb
-                        and trackers
-                        and any(not re.findall(self._trackerkeywords, t.get("announce", ""), re.I) for t in trackers)
-                    )
+        minsize = float(sizes[0]) * 1024**3 if sizes else 0
+        maxsize = float(sizes[-1]) * 1024**3 if sizes else 0
+        conditions: list[bool] = []
+        if self._ratio:  # 分享率条件
+            conditions.append(ratio >= float(self._ratio))
+        if self._time:  # 做种时间条件
+            conditions.append(torrent_seeding_time > float(self._time) * 3600)
+        if self._size:  # 文件大小条件
+            if not maxsize == minsize:
+                conditions.append(int(minsize) <= size <= int(maxsize))
+            else:
+                conditions.append(size >= int(minsize))
+        if self._upspeed:  # 上传速度条件
+            conditions.append(upspeed >= float(self._upspeed) * 1024)
+        if self._pathkeywords:  # 路径匹配条件
+            conditions.append(len(re.findall(self._pathkeywords, path, re.I)) > 0)
+        if self._trackerkeywords:  # Tracker匹配条件
+            if is_qb:
+                conditions.append(any(len(re.findall(self._trackerkeywords, str(t), re.I)) > 0 for t in trackers))
+            elif trackers:
+                conditions.append(
+                    any(len(re.findall(self._trackerkeywords, t.get("announce", ""), re.I)) > 0 for t in trackers)
                 )
-            ),  # Tracker匹配条件
-            # QB专有
-            (is_qb and self._torrentstates and state not in self._torrentstates.split(",")),  # 状态条件
-            (is_qb and self._torrentcategorys and (not category or category not in self._torrentcategorys)),  # 分类条件
-            # TR专有
-            (
-                not is_qb and self._errorkeywords and not re.findall(self._errorkeywords, error_string, re.I)
-            ),  # 错误信息条件
-        ]
-
+        if self._torrentstates and is_qb:  # 状态条件
+            conditions.append(state in self._torrentstates.split(","))
+        if self._torrentcategorys and is_qb:  # 分类条件
+            conditions.append(category in self._torrentcategorys.split(","))
+        if self._errorkeywords and not is_qb:  # 错误条件
+            conditions.append(len(re.findall(self._errorkeywords, error_string, re.I)) > 0)
         return TorrentInfo(
             id=hash_id,
             name=name,
