@@ -3,26 +3,32 @@ from datetime import datetime
 import re
 
 from apscheduler.schedulers.background import BackgroundScheduler
+import zhconv
 
 from app.core.config import settings
 from app.core.event import eventmanager, Event
+from app.chain import ChainBase
 from app.plugins import _PluginBase
 from app.schemas import DiscoverSourceEventData, MediaRecognizeConvertEventData, RecommendSourceEventData
-from app.schemas.types import ChainEventType, MediaType
+from app.schemas.types import ChainEventType
 from app.plugins.imdbsource.imdbhelper import ImdbHelper
 from app import schemas
 from app.utils.http import RequestUtils
+from app.schemas.types import MediaType
+from app.core.meta import MetaBase
+from app.core.context import MediaInfo
+from app.log import logger
 
 
 class ImdbSource(_PluginBase):
     # 插件名称
     plugin_name = "IMDb源"
     # 插件描述
-    plugin_desc = "让探索和推荐支持IMDb数据源。"
+    plugin_desc = "让探索，推荐和媒体识别支持IMDb数据源。"
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.4.4"
+    plugin_version = "1.5.0"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -38,7 +44,9 @@ class ImdbSource(_PluginBase):
     _enabled: bool = False
     _proxy: bool = False
     _staff_picks: bool = False
+    _recognize_media: bool = False
     _component_size: str = 'medium'
+    _recognition_mode = 'auxiliary'
 
     # 私有属性
     _imdb_helper = None
@@ -46,14 +54,35 @@ class ImdbSource(_PluginBase):
               "trending_in_documentary": [], "imdb_top_250": [], "staff_picks": {}}
     _img_proxy_prefix = ''
     _scheduler: Optional[BackgroundScheduler] = None
+    _original_method = None
 
     def init_plugin(self, config: dict = None):
+        # monkey patching
+        if ChainBase.recognize_media.__name__ != 'patched_recognize_media':
+            self._original_method = ChainBase.recognize_media
+        plugin_instance = self
+        # 通过闭包捕获 plugin_instance
+        def patched_recognize_media(chain_self, meta: MetaBase = None,
+                                    mtype: Optional[MediaType] = None,
+                                    tmdbid: Optional[int] = None,
+                                    doubanid: Optional[str] = None,
+                                    bangumiid: Optional[int] = None,
+                                    episode_group: Optional[str] = None,
+                                    cache: bool = True):
+            result = plugin_instance._original_method(chain_self, meta, mtype, tmdbid, doubanid, bangumiid,
+                                                      episode_group, cache)
+            if result is None and plugin_instance._enabled and plugin_instance._recognize_media:
+                logger.info(f"通过插件 {self.plugin_name} 执行：recognize_media ...")
+                return plugin_instance.recognize_media(meta, mtype)
+            return result
+
         if config:
             self._enabled = config.get("enabled")
             self._proxy = config.get("proxy")
             self._staff_picks = config.get("staff_picks")
-            self._component_size = config.get("component_size", "medium")
-            self._imdb_helper = ImdbHelper()
+            self._recognize_media = config.get("recognize_media")
+            self._component_size = config.get("component_size") or "medium"
+            self._recognition_mode = config.get("recognition_mode") or "auxiliary"
             self._imdb_helper = ImdbHelper(proxies=settings.PROXY if self._proxy else None)
         if "media-amazon.com" not in settings.SECURITY_IMAGE_DOMAINS:
             settings.SECURITY_IMAGE_DOMAINS.append("media-amazon.com")
@@ -63,6 +92,16 @@ class ImdbSource(_PluginBase):
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
             self._scheduler.start()
             self._scheduler.add_job(self.__cache_staff_picks, trigger='date', run_date=None)
+            if self._recognize_media and self._recognition_mode == 'auxiliary':
+                # 替换 ChainBase.recognize_media
+                ChainBase.recognize_media = patched_recognize_media
+            else:
+                # 恢复 ChainBase.recognize_media
+                if self._original_method and ChainBase.recognize_media.__name__ == 'patched_recognize_media':
+                    ChainBase.recognize_media = self._original_method
+        else:
+            self.stop_service()
+
 
     def get_state(self) -> bool:
         return self._enabled
@@ -99,7 +138,7 @@ class ImdbSource(_PluginBase):
                 return MediaType.MOVIE, datetime.now().date().strftime("%Y"), ''
             media_id = title.get('titleType', {}).get('id')
             release_year = title.get('releaseYear', {}).get('year') or datetime.now().date().strftime("%Y")
-            media_type = ImdbSource.title_id_to_mtype(media_id)
+            media_type = ImdbHelper.type_to_mtype(media_id)
             media_plot = title.get("plot", {}).get("plotText", {}).get("plainText", '')
             return media_type, release_year, media_plot
 
@@ -440,7 +479,7 @@ class ImdbSource(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12, "md": 3},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -455,7 +494,7 @@ class ImdbSource(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -471,7 +510,7 @@ class ImdbSource(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -483,6 +522,22 @@ class ImdbSource(_PluginBase):
                                     }
                                 ]
                             },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'recognize_media',
+                                            'label': '媒体识别',
+                                        }
+                                    }
+                                ]
+                            }
                         ],
                     },
                     {
@@ -507,6 +562,26 @@ class ImdbSource(_PluginBase):
                                         }
                                     }
                                 ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'recognition_mode',
+                                            'label': '媒体识别工作模式',
+                                            'items': [
+                                                {"title": "仅当系统无法识别", "value": "auxiliary"},
+                                                {"title": "正常", "value": "hijacking"}
+                                            ]
+                                        }
+                                    }
+                                ]
                             }
                         ]
                     }
@@ -516,7 +591,9 @@ class ImdbSource(_PluginBase):
             "enabled": False,
             "proxy": False,
             "staff_picks": False,
-            "component_size": "medium"
+            "recognize_media": False,
+            "component_size": "medium",
+            "recognition_mode": "auxiliary"
         }
 
     def get_page(self) -> List[dict]:
@@ -526,7 +603,8 @@ class ImdbSource(_PluginBase):
         """
         退出插件
         """
-        pass
+        if ChainBase.recognize_media.__name__ == 'patched_recognize_media' and self._original_method:
+            ChainBase.recognize_media = self._original_method
 
     def get_module(self) -> Dict[str, Any]:
         """
@@ -536,7 +614,10 @@ class ImdbSource(_PluginBase):
             "id2": self.xxx2,
         }
         """
-        pass
+        modules = {}
+        if self._recognize_media and self._recognition_mode == 'hijacking':
+            modules['recognize_media'] = self.recognize_media
+        return modules
 
     def __cache_staff_picks(self):
         entries = self._imdb_helper.staff_picks()
@@ -613,7 +694,7 @@ class ImdbSource(_PluginBase):
         release_date_str = '0000-00-00'
         if series_info.get("releaseDate"):
             release_date = series_info.get('releaseDate')
-            release_date_str = f"{release_date.get('year')}-{release_date.get('month')}-{release_date.get('day')}"
+            release_date_str = ImdbHelper.release_date_string(release_date)
         return schemas.MediaInfo(
             type="电视剧",
             title=title,
@@ -628,14 +709,6 @@ class ImdbSource(_PluginBase):
             overview=overview,
             imdb_id=series_info.get("id")
         )
-
-    @staticmethod
-    def title_id_to_mtype(title_id: str) -> MediaType:
-        if title_id in ["tvSeries", "tvMiniSeries", "tvShort", "tvEpisode"]:
-            return MediaType.TV
-        elif title_id in ["movie", "tvMovie"]:
-            return MediaType.MOVIE
-        return MediaType.UNKNOWN
 
     @staticmethod
     def is_mobile(user_agent):
@@ -681,7 +754,7 @@ class ImdbSource(_PluginBase):
         res = []
         for item in results:
             title_type_id = item.get('node').get("title").get("titleType", {}).get("id")
-            mtype = self.title_id_to_mtype(title_type_id)
+            mtype = ImdbHelper.type_to_mtype(title_type_id)
             if mtype == MediaType.MOVIE:
                 res.append(self.__movie_to_media(item.get('node').get("title")))
             elif mtype == MediaType.TV:
@@ -722,7 +795,7 @@ class ImdbSource(_PluginBase):
         res = []
         for item in results:
             title_type_id = item.get('node').get("title").get("titleType", {}).get("id")
-            mtype = self.title_id_to_mtype(title_type_id)
+            mtype = ImdbHelper.type_to_mtype(title_type_id)
             if mtype == MediaType.MOVIE:
                 res.append(self.__movie_to_media(item.get('node').get("title")))
         return res
@@ -761,7 +834,7 @@ class ImdbSource(_PluginBase):
         res = []
         for item in results:
             title_type_id = item.get('node').get("title").get("titleType", {}).get("id")
-            mtype = self.title_id_to_mtype(title_type_id)
+            mtype = ImdbHelper.type_to_mtype(title_type_id)
             if mtype == MediaType.TV:
                 res.append(self.__series_to_media(item.get('node').get("title")))
         return res
@@ -800,7 +873,7 @@ class ImdbSource(_PluginBase):
         res = []
         for item in results:
             title_type_id = item.get('node').get("title").get("titleType", {}).get("id")
-            mtype = self.title_id_to_mtype(title_type_id)
+            mtype = ImdbHelper.type_to_mtype(title_type_id)
             if mtype == MediaType.MOVIE:
                 res.append(self.__movie_to_media(item.get('node').get("title")))
             elif mtype == MediaType.TV:
@@ -840,7 +913,7 @@ class ImdbSource(_PluginBase):
         res = []
         for item in results:
             title_type_id = item.get('node').get("title").get("titleType", {}).get("id")
-            mtype = self.title_id_to_mtype(title_type_id)
+            mtype = ImdbHelper.type_to_mtype(title_type_id)
             if mtype == MediaType.MOVIE:
                 res.append(self.__movie_to_media(item.get('node').get("title")))
             elif mtype == MediaType.TV:
@@ -1645,3 +1718,99 @@ class ImdbSource(_PluginBase):
             event_data.extra_sources = trending_source
         else:
             event_data.extra_sources.extend(trending_source)
+
+    def recognize_media(self, meta: MetaBase = None,
+                        mtype: MediaType = None,
+                        **kwargs) -> Optional[MediaInfo]:
+        """
+        识别媒体信息
+        :param meta: 识别的元数据
+        :param mtype: 识别的媒体类型
+        :return: 识别的媒体信息，包括剧集信息
+        """
+        if not self._enabled:
+            return None
+        if not meta:
+            return None
+        elif not meta.name:
+            logger.warn("识别媒体信息时未提供元数据名称")
+            return None
+        else:
+            if mtype:
+                meta.type = mtype
+        info = {}
+        # 简体名称
+        zh_name = zhconv.convert(meta.cn_name, 'zh-hans') if meta.cn_name else None
+        names = list(dict.fromkeys([k for k in [meta.cn_name, zh_name, meta.en_name] if k]))
+        for name in names:
+            if meta.begin_season:
+                logger.info(f"正在识别 {name} 第{meta.begin_season}季 ...")
+            else:
+                logger.info(f"正在识别 {name} ...")
+            if meta.type == MediaType.UNKNOWN and not meta.year:
+                info = self._imdb_helper.match_by(name)
+            else:
+                if meta.type == MediaType.TV:
+                    info = self._imdb_helper.match(name=name, year=meta.year, mtype=meta.type, season_year=meta.year,
+                                                   season_number=meta.begin_season)
+                    if not info:
+                        # 去掉年份再查一次
+                        info = self._imdb_helper.match(name=name, mtype=meta.type)
+                else:
+                    # 有年份先按电影查
+                    info = self._imdb_helper.match(name=name, year=meta.year, mtype=MediaType.MOVIE)
+                    # 没有再按电视剧查
+                    if not info:
+                        info = self._imdb_helper.match(name=name, year=meta.year, mtype=MediaType.TV)
+                    if not info:
+                        # 去掉年份和类型再查一次
+                        info = self._imdb_helper.match_by(name=name)
+            if info:
+                break
+        if info:
+            info = self._imdb_helper.update_info(info.get('id'), info=info) or {}
+            mediainfo = ImdbSource._convert_mediainfo(info)
+            logger.info(f"{meta.name} IMDb 识别结果：{mediainfo.type.value} "
+                        f"{mediainfo.title_year} "
+                        f"{mediainfo.imdb_id}")
+            return mediainfo
+        return None
+
+    @staticmethod
+    def _convert_mediainfo(info: Dict[str, Any]) -> MediaInfo:
+        mediainfo = MediaInfo()
+        mediainfo.source = 'imdb'
+        mediainfo.type = info.get('media_type')
+        mediainfo.title = info.get('primaryTitle', '')
+        mediainfo.year = f"{info.get('startYear', 0)}"
+        mediainfo.imdb_id = info.get('id')
+        mediainfo.overview = info.get('plot') or ''
+        spoken_languages = info.get('spokenLanguages') or []
+        mediainfo.original_language = spoken_languages[0].get('code') if spoken_languages else None
+        mediainfo.original_title = info.get('originalTitle')
+        mediainfo.names = [aka.get('text', '') for aka in (info.get('akas') or [])]
+        origin_countries = info.get('originCountries') or []
+        mediainfo.origin_country = [origin_country.get('code', '') for origin_country in origin_countries]
+        mediainfo.poster_path = (info.get('primaryImage') or {}).get('url')
+        mediainfo.genres = info.get('genres') or []
+        directors = []
+        actors = []
+        for credit in (info.get('credits') or []):
+            name = credit.get('name') or {}
+            if credit.get('category') == 'DIRECTOR':
+                directors.append({'name': name.get('displayName')})
+            elif credit.get('category') in ['CAST', 'ACTOR', 'ACTRESS']:
+                actors.append({'name': name.get('displayName')})
+        mediainfo.director = directors
+        mediainfo.actor = actors
+        mediainfo.vote_average = round(float((info.get('rating') or {}).get('aggregateRating') or 0), 1)
+        if mediainfo.type == MediaType.TV:
+            for season, season_info in info.get('seasons', {}).items():
+                episode_count = season_info.get("episode_count")
+                mediainfo.seasons[season] = list(range(1, episode_count + 1))
+                air_date = season_info.get("air_date")
+                if air_date:
+                    mediainfo.season_years[season] = air_date[:4]
+                if not mediainfo.release_date:
+                    mediainfo.release_date = air_date
+        return mediainfo

@@ -1,6 +1,6 @@
 import re
 from json import JSONDecodeError
-from typing import Optional, Any, Dict, Tuple, List
+from typing import Optional, Any, Dict, Tuple, List, Union
 from collections import OrderedDict
 from dataclasses import dataclass
 import json
@@ -11,8 +11,10 @@ import requests
 from app.core.config import settings
 from app.log import logger
 from app.utils.http import RequestUtils
+from app.utils.string import StringUtils
 from app.utils.common import retry
 from app.core.cache import cached
+from app.schemas.types import MediaType
 
 
 @dataclass(frozen=True)
@@ -39,15 +41,9 @@ class SearchState:
 
 
 class ImdbHelper:
-    _official_endpoint = "https://caching.graphql.imdb.com/"
-    _imdb_headers = {
-        "Accept": "text/html,application/json,text/plain,*/*",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome"
-                      "/84.0.4147.105 Safari/537.36",
-        "Referer": "https://www.imdb.com/",
-    }
+
     all_title_types = ["tvSeries", "tvMiniSeries", "movie", "tvMovie", "musicVideo", "tvShort", "short",
-                       "tvEpisode", "tvSpecial", "videoGame"]
+                       "tvEpisode", "tvSpecial"]
     interest_id = {
         "Anime": "in0000027",
         "Superhero": "in0000008",
@@ -57,6 +53,14 @@ class ImdbHelper:
         "Raunchy Comedy": "in0000041",
         "Documentary": "in0000060"
     }
+    _official_endpoint = "https://caching.graphql.imdb.com/"
+    _imdb_headers = {
+        "Accept": "text/html,application/json,text/plain,*/*",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome"
+                      "/84.0.4147.105 Safari/537.36",
+        "Referer": "https://www.imdb.com/",
+    }
+    _free_api = "https://api.imdbapi.dev"
 
     def __init__(self, proxies=None):
         self._proxies = proxies
@@ -66,6 +70,7 @@ class ImdbHelper:
                                       timeout=10,
                                       proxies=proxies,
                                       session=requests.Session())
+        self._free_imdb_req = RequestUtils(accept_type="application/json", proxies=proxies, session=requests.Session())
         self._imdb_api_hash = {"AdvancedTitleSearch": None, "TitleAkasPaginated": None}
         self.hash_status = {"AdvancedTitleSearch": False, "TitleAkasPaginated": False}
         self._search_states = OrderedDict()
@@ -211,6 +216,37 @@ class ImdbHelper:
             constraint = {"rankRange": {"max": rank_range}, "rankedTitleListType": ranked_title_list_type}
             return constraint
         return None
+
+    @staticmethod
+    def __compare_names(file_name: str, names: Union[list|str]) -> bool:
+        """
+        比较文件名是否匹配，忽略大小写和特殊字符
+        :param file_name: 识别的文件名或者种子名
+        :param names: TMDB返回的译名
+        :return: True or False
+        """
+        if not file_name or not names:
+            return False
+        if not isinstance(names, list):
+            names = [names]
+        file_name = StringUtils.clear(file_name).upper()
+        for name in names:
+            name = StringUtils.clear(name).strip().upper()
+            if file_name == name:
+                return True
+        return False
+
+    @staticmethod
+    def type_to_mtype(title_id: str) -> MediaType:
+        if title_id in ["tvSeries", "tvMiniSeries", "tvShort", "tvEpisode"]:
+            return MediaType.TV
+        elif title_id in ["movie", "tvMovie"]:
+            return MediaType.MOVIE
+        return MediaType.UNKNOWN
+
+    @staticmethod
+    def release_date_string(release_date: Dict) -> Optional[str]:
+        return f"{release_date.get('year', 0):04d}-{release_date.get('month', 0):02d}-{release_date.get('day', 0):02d}"
 
     def advanced_title_search(self,
                               first_page: bool = True,
@@ -374,6 +410,7 @@ class ImdbHelper:
         """
         return (self.__get_staff_picks() or {}).get('entries')
 
+    @cached(maxsize=128, ttl=3600)
     def vertical_list_page_items(self,
                                  titles: Optional[List[str]] = None,
                                  names: Optional[List[str]] = None,
@@ -391,6 +428,7 @@ class ImdbHelper:
                     },
                     'titleType': {'id': 'movie'},
                     'releaseYear': {'year': 2025},
+                    'akas': {'edges': [{'node': {'text': 'Kite Festival of Love', 'country': None, 'language': None}}]}
                     'primaryImage': {
                         'id': 'rm3920935426',
                         'url': '',
@@ -429,7 +467,7 @@ class ImdbHelper:
             ]
         }
         """
-        query = "query VerticalListPageItems( $titles: [ID!]! $names: [ID!]! $images: [ID!]! $videos: [ID!]! ) {\n        titles(ids: $titles) { ...TitleParts meterRanking { currentRank meterType rankChange {changeDirection difference} } ratingsSummary { aggregateRating } }\n        names(ids: $names) { ...NameParts }\n        videos(ids: $videos) { ...VideoParts }\n        images(ids: $images) { ...ImageParts }\n      }\n      fragment TitleParts on Title {\n    id\n    titleText { text }\n    titleType { id }\n    releaseYear { year }\n    plot { plotText {plainText}}\n    primaryImage { id url width height }\n}\n      fragment NameParts on Name {\n    id\n    nameText { text }\n    primaryImage { id url width height }\n}\n      fragment ImageParts on Image {\n    id\n    height\n    width\n    url \n}\n      fragment VideoParts on Video {\n    id\n    name { value }\n    contentType { displayName { value } id }\n    previewURLs { displayName { value } url videoDefinition videoMimeType }\n    playbackURLs { displayName { value } url videoDefinition videoMimeType }\n    thumbnail { height url width }\n}\n    "
+        query = "query VerticalListPageItems( $titles: [ID!]! $names: [ID!]! $images: [ID!]! $videos: [ID!]!) {\n  titles(ids: $titles) { ...TitleParts meterRanking { currentRank meterType rankChange {changeDirection difference} } ratingsSummary { aggregateRating } }\n  names(ids: $names) { ...NameParts }\n  videos(ids: $videos) { ...VideoParts }\n  images(ids: $images) { ...ImageParts }\n}\nfragment TitleParts on Title {\n  id\n  titleText { text }\n  titleType { id }\n  releaseYear { year }\n  akas(first: 50) { edges { node { text country { id text } language { text text } } } }\n  plot { plotText {plainText}}\n  primaryImage { id url width height }\n}\nfragment NameParts on Name {\n  id\n  nameText { text }\n  primaryImage { id url width height }\n}\nfragment ImageParts on Image {\n  id\n  height\n  width\n  url\n}\nfragment VideoParts on Video {\n  id\n  name { value }\n  contentType { displayName { value } id }\n  previewURLs { displayName { value } url videoDefinition videoMimeType }\n  playbackURLs { displayName { value } url videoDefinition videoMimeType }\n  thumbnail { height url width }\n}"
         variables = {'images': images or [],
                      'titles': titles or [],
                      'names': names or [],
@@ -444,3 +482,326 @@ class ImdbHelper:
             return None
         return data
 
+    @retry(Exception, logger=logger)
+    @cached(ttl=6 * 3600)
+    def __free_imdb_api(self, path: str, params: Optional[dict] = None) -> Optional[dict]:
+        r = self._free_imdb_req.get_res(url=f"{self._free_api}{path}", params=params, raise_exception=True)
+        if r is None:
+            return None
+        if r.status_code != 200:
+            logger.warn(f"{r.json().get('message')}")
+            return None
+        return r.json()
+
+    def search(self, query: str, media_types: Optional[List[str]] = None, start_year: Optional[int] = None,
+               end_year: Optional[int] = None, country_code: Optional[str] = None) -> Optional[list]:
+        """
+        Search for titles using a query string.
+        :param query: The search query for titles.
+        :param media_types: The type of titles to filter by.
+            MOVIE: Represents a movie title.
+            TV_SERIES: Represents a TV series title.
+            TV_MINI_SERIES: Represents a TV mini-series title.
+            TV_SPECIAL: Represents a TV special title.
+            TV_MOVIE: Represents a TV movie title.
+            SHORT: Represents a short title.
+            VIDEO: Represents a video title.
+            VIDEO_GAME: Represents a video game title.
+        :param start_year: The start year for filtering titles.
+        :param end_year: The end year for filtering titles.
+        :param country_code: The country code for filtering titles.
+        :return: Search results.
+        See `curl -X 'GET' 'https://api.imdbapi.dev/search/titles?query=Kite' -H 'accept: application/json'`
+        """
+        endpoint = '/search/titles'
+        params: Dict[str, Any] = {'query': query}
+        if media_types:
+            params['types'] = media_types
+        if start_year:
+            params['startYear'] = start_year
+        if end_year:
+            params['endYear'] = end_year
+        if country_code:
+            params['countryCode'] = country_code
+        r = self.__free_imdb_api(path=endpoint, params=params)
+        if r is None:
+            return None
+        return r.get('titles')
+
+    def details(self, title_id: str) -> Optional[dict]:
+        """
+        Retrieve a title's details using its IMDb ID.
+        :param title_id: IMDb title ID in the format "tt1234567".
+        :return: Details.
+        See `curl -X 'GET' 'https://api.imdbapi.dev/titles/tt0944947' -H 'accept: application/json'`
+        """
+        endpoint = '/titles/%s'
+        r = self.__free_imdb_api(path=endpoint % title_id)
+        return r
+
+    def episodes(self, title_id: str, season: Optional[str]=None,
+                 page_size: Optional[int] = None, page_token: Optional[str] = None) -> Optional[dict]:
+        """
+        Retrieve the episodes associated with a specific title.
+        :param title_id: IMDb title ID in the format "tt1234567".
+        :param season: The season number to filter episodes by.
+        :param page_size: The maximum number of episodes to return per page.
+            The value must be between 1 and 50. Default is 20.
+        :param page_token: Token for pagination, if applicable.
+        :return: Episodes.
+        See `curl -X 'GET' 'https://api.imdbapi.dev/titles/tt0944947/episodes?season=1&pageSize=5' \
+            -H 'accept: application/json'`
+        """
+        endpoint = '/titles/%s/episodes'
+        param: Dict[str, Any] = {}
+        if season is not None:
+            param['season'] = season
+        if page_size is not None:
+            param['pageSize'] = page_size
+        if page_token is not None:
+            param['pageToken'] = page_token
+        r = self.__free_imdb_api(path=endpoint % title_id, params=param)
+        return r
+
+    def seasons(self, title_id: str) -> Optional[List[dict]]:
+        """
+        Retrieve the seasons associated with a specific title.
+        :param title_id: IMDb title ID in the format "tt1234567".
+        :return: Seasons.
+        """
+        """
+        {[{"season": "1",  "episodeCount": 11}]}
+        """
+        endpoint = '/titles/%s/seasons'
+        r = self.__free_imdb_api(path=endpoint % title_id)
+        if r is None:
+            return None
+        return r.get('seasons')
+
+    def credits(self, title_id: str, categories: Optional[List[str]] = None,
+                page_size: Optional[int] = None, page_token: Optional[str] = None) -> Optional[dict]:
+        """
+        Retrieve the credits associated with a specific title.
+        :param title_id: IMDb title ID in the format "tt1234567".
+        :param categories: The categories to filter credits by.
+            DIRECTOR: The director category.
+            WRITER: The writer category.
+            CAST: The cast category, which includes all actors and actresses.
+            ACTOR: The actor category.
+            ACTRESS: The actress category.
+        :param page_size: The maximum number of episodes to return per page.
+            The value must be between 1 and 50. Default is 20.
+        :param page_token: Token for pagination, if applicable.
+        :return: Credits.
+        See `curl -X 'GET' 'https://api.imdbapi.dev/titles/tt0944947/credits?categories=CAST' \
+            -H 'accept: application/json'`
+        """
+        endpoint = '/titles/%s/credits'
+        param: Dict[str, Any] = {}
+        if categories:
+            param['categories'] = categories
+        if page_size is not None:
+            param['pageSize'] = page_size
+        if page_token is not None:
+            param['pageToken'] = page_token
+        r = self.__free_imdb_api(path=endpoint % title_id, params=param) or {}
+        return r.get('credits')
+
+    def akas(self, title_id: str) -> Optional[list]:
+        """
+        Retrieve the alternative titles (AKAs) associated with a specific title.
+        :param title_id: IMDb title ID in the format "tt1234567".
+        :return: AKAs.
+        [{
+            "text": "Kite Festival of Love",
+            "country": {
+                "code": "CA",
+                "name": "Canada"
+            },
+            "language": {
+                "code": "fra",
+                "name": "French"
+            }
+        },]
+        """
+        endpoint = '/titles/%s/akas'
+        r = self.__free_imdb_api(path=endpoint % title_id)
+        if r is None:
+            return None
+        return r.get('akas')
+
+    def __get_tv_seasons(self, title_id: str) -> Optional[dict]:
+        seasons = self.seasons(title_id)
+        if not seasons:
+            return None
+        seasons_dict = {season.get('season'): {**season, 'episode_count': 0, 'air_date': '0000-00-00'}
+                        for season in seasons}
+        page_token = None
+        while True:
+            episodes = self.episodes(title_id, page_size=50, page_token=page_token) or {}
+            for episode in episodes.get('episodes', []):
+                s = episode.get('season')
+                seasons_dict[s]['episode_count'] += 1
+                if not seasons_dict[s].get('release_date'):
+                    seasons_dict[s]['air_date'] = ImdbHelper.release_date_string(episode.get('releaseDate', {}))
+                    seasons_dict[s]['release_date'] = episode.get('releaseDate')
+            page_token = episodes.get('nextPageToken')
+            if not page_token:
+                break
+        return seasons_dict
+
+    def match_by(self, name: str, mtype: Optional[MediaType] = None, year: Optional[str] = None) -> Optional[dict]:
+        """
+        根据名称同时查询电影和电视剧，没有类型也没有年份时使用
+        :param name: 识别的文件名或种子名
+        :param mtype: 类型：电影、电视剧
+        :param year: 年份，如要是季集需要是首播年份
+        :return: 匹配的媒体信息
+        """
+
+        mtypes = [MediaType.MOVIE, MediaType.TV] if not mtype else [mtype]
+        search_types = []
+        if MediaType.TV in mtypes:
+            search_types.extend(['TV_SERIES', 'TV_MINI_SERIES', 'TV_SPECIAL'])
+        if MediaType.MOVIE in mtypes:
+            search_types.extend(['MOVIE', 'TV_MOVIE'])
+        if year:
+            multi_res = self.search(query=name, start_year=int(year), end_year=int(year), media_types=search_types)
+        else:
+            multi_res = self.search(query=name, media_types=search_types)
+        ret_info = {}
+        if multi_res is None or len(multi_res) == 0:
+            logger.debug(f"{name} 未找到相关媒体息!")
+            return None
+        multi_res = [r for r in multi_res if r.get('id') and ImdbHelper.type_to_mtype(r.get('type')) in mtypes]
+        multi_res = sorted(
+            multi_res,
+            key=lambda x: ('1' if x.get('type') in ['movie', 'tvMovie'] else '0') + (f"{x.get('startYear')}" or '0000'),
+            reverse=True
+        )
+        items = self.vertical_list_page_items([ x.get('id') for x in multi_res])
+        titles = items.get('titles') if items else []
+        titles_dict = {}
+        for title in titles:
+            titles_dict[title.get('id')] = title
+        for result in multi_res:
+            title = titles_dict.get(result.get('id'), {})
+            start_year = result.get('startYear')
+            if year and str(start_year) != year:
+                continue
+            if ImdbHelper.__compare_names(name, [result.get('primaryTitle', ''), result.get('originalTitle', '')]):
+                ret_info = result
+                break
+            names = [edge.get('node', {}).get('text', '') for edge in title.get('akas', {}).get('edges', [])]
+            if ImdbHelper.__compare_names(name, names):
+                ret_info = result
+                break
+        if ret_info:
+            title = titles_dict.get(ret_info.get('id'), {})
+            ret_info['akas'] = [e.get('node', {}) for e in title.get('akas', {}).get('edges', [])]
+            ret_info['rating'] = title.get('ratingsSummary') or {}
+            ret_info['media_type'] = ImdbHelper.type_to_mtype(ret_info.get('type'))
+        return ret_info
+
+    def match_by_season(self, name: str, season_year: str, season_number: int) -> Optional[dict]:
+        """
+        根据电视剧的名称和季的年份及序号匹配 IMDb
+        :param name: 识别的文件名或者种子名
+        :param season_year: 季的年份
+        :param season_number: 季序号
+        :return: 匹配的媒体信息
+        """
+
+        def __season_match(_tv_info: dict, _season_year: str) -> bool:
+            if not _tv_info:
+                return False
+            seasons = self.__get_tv_seasons(_tv_info.get('id')) or {}
+            for season, season_info in seasons.items():
+                if season_info.get("air_date"):
+                    if season_info.get("air_date")[0:4] == str(_season_year) \
+                            and season == str(season_number):
+                        _tv_info['seasons'] = seasons
+                        return True
+            return False
+
+        search_types = ['TV_SERIES', 'TV_MINI_SERIES', 'TV_SPECIAL']
+        res = self.search(query=name, media_types=search_types)
+        if not res:
+            logger.debug("%s 未找到季%s相关信息!" % (name, season_number))
+            return None
+        tvs =  [r for r in res if r.get('id') and ImdbHelper.type_to_mtype(r.get('type')) == MediaType.TV]
+        tvs = sorted(tvs, key=lambda x: x.get('startYear') or 0, reverse=True)
+        items = self.vertical_list_page_items([x.get('id') for x in tvs])
+        titles = items.get('titles') if items else []
+        titles_dict = {}
+        for title in titles:
+            titles_dict[title.get('id')] = title
+        for tv in tvs:
+            # 年份
+            title = titles_dict.get(tv.get('id'), {})
+            akas = [e.get('node', {}) for e in title.get('akas', {}).get('edges', [])]
+            tv_year = tv.get('startYear')
+            if self.__compare_names(name, [tv.get('primaryTitle', ''), tv.get('originalTitle', '')]) and \
+                    str(tv_year) == season_year:
+                tv['akas'] = akas
+                tv['rating'] = title.get('ratingsSummary') or {}
+                return tv
+            names = [aka.get('text', '') for aka in akas]
+            if not tv or not self.__compare_names(name, names):
+                continue
+            if __season_match(_tv_info=tv, _season_year=season_year):
+                tv['akas'] = akas
+                tv['rating'] = title.get('ratingsSummary') or {}
+                return tv
+        return None
+
+    def match(self, name: str,
+              mtype: MediaType,
+              year: Optional[str] = None,
+              season_year: Optional[str] = None,
+              season_number: Optional[int] = None,
+              ) -> Optional[dict]:
+        """
+        搜索 IMDb 中的媒体信息，匹配返回一条尽可能正确的信息
+        :param name: 检索的名称
+        :param mtype: 类型：电影、电视剧
+        :param year: 年份，如要是季集需要是首播年份
+        :param season_year: 当前季集年份
+        :param season_number: 季集，整数
+        :return: 匹配的媒体信息
+        """
+        if not name:
+            return None
+        info = {}
+        if mtype == MediaType.TV:
+            # 有当前季和当前季集年份，使用精确匹配
+            if season_year and season_number:
+                logger.debug(f"正在识别{mtype.value}：{name}, 季集={season_number}, 季集年份={season_year} ...")
+                info = self.match_by_season(name, season_year, season_number)
+                if info:
+                    info['media_type'] = MediaType.TV
+                    return info
+        year_range = [year, str(int(year) + 1), str(int(year) - 1)] if year else [None]
+        for year in year_range:
+            logger.debug(f"正在识别{mtype.value}：{name}, 年份={year} ...")
+            info = self.match_by(name, mtype, year)
+            if info:
+                break
+        return info
+
+    def update_info(self, title_id: str, info: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """
+        Given a Title ID, update its media information.
+        :param title_id: IMDb ID.
+        :param info: Media information to be updated.
+        :return: IMDb info.
+        """
+        details = self.details(title_id) or {}
+        info = info or {}
+        info.update(details)
+        if info.get("akas") is None:
+            info['akas'] = self.akas(title_id) or []
+        info['credits'] = self.credits(title_id, page_size=30)
+        if info.get('media_type') == MediaType.TV and info.get('seasons') is None:
+            info['seasons'] = self.__get_tv_seasons(info.get('id')) or {}
+        return info
