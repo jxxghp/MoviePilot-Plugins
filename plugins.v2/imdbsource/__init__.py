@@ -1693,12 +1693,12 @@ class ImdbSource(_PluginBase):
             type='Rankings'
         )
         trending_in_anime: schemas.RecommendMediaSource = schemas.RecommendMediaSource(
-            name="IMDb Trending in Anime",
+            name="Trending Anime on IMDb",
             api_path=f"plugin/ImdbSource/trending_in_anime?apikey={settings.API_TOKEN}",
             type='Anime'
         )
         trending_in_sitcom: schemas.RecommendMediaSource = schemas.RecommendMediaSource(
-            name="IMDb Trending in Sitcom",
+            name="Trending Sitcom on IMDb",
             api_path=f"plugin/ImdbSource/trending_in_sitcom?apikey={settings.API_TOKEN}",
             type='TV Shows'
         )
@@ -1709,7 +1709,7 @@ class ImdbSource(_PluginBase):
             type='Movies'
         )
         imdb_documentary: schemas.RecommendMediaSource = schemas.RecommendMediaSource(
-            name="IMDb Trending in Documentary",
+            name="Trending Documentary on IMDb",
             api_path=f"plugin/ImdbSource/trending_in_documentary?apikey={settings.API_TOKEN}",
             type='Rankings'
         )

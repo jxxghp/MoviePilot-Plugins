@@ -493,10 +493,10 @@ class ImdbHelper:
             return None
         return r.json()
 
-    def search(self, query: str, media_types: Optional[List[str]] = None, start_year: Optional[int] = None,
+    def advanced_search(self, query: str, media_types: Optional[List[str]] = None, start_year: Optional[int] = None,
                end_year: Optional[int] = None, country_code: Optional[str] = None) -> Optional[list]:
         """
-        Search for titles using a query string.
+        Perform an advanced search for titles using a query string with additional filters.
         :param query: The search query for titles.
         :param media_types: The type of titles to filter by.
             MOVIE: Represents a movie title.
@@ -513,7 +513,7 @@ class ImdbHelper:
         :return: Search results.
         See `curl -X 'GET' 'https://api.imdbapi.dev/search/titles?query=Kite' -H 'accept: application/json'`
         """
-        endpoint = '/search/titles'
+        endpoint = '/advancedSearch/titles'
         params: Dict[str, Any] = {'query': query}
         if media_types:
             params['types'] = media_types
@@ -666,9 +666,9 @@ class ImdbHelper:
         if MediaType.MOVIE in mtypes:
             search_types.extend(['MOVIE', 'TV_MOVIE'])
         if year:
-            multi_res = self.search(query=name, start_year=int(year), end_year=int(year), media_types=search_types)
+            multi_res = self.advanced_search(query=name, start_year=int(year), end_year=int(year), media_types=search_types)
         else:
-            multi_res = self.search(query=name, media_types=search_types)
+            multi_res = self.advanced_search(query=name, media_types=search_types)
         ret_info = {}
         if multi_res is None or len(multi_res) == 0:
             logger.debug(f"{name} 未找到相关媒体息!")
@@ -725,7 +725,7 @@ class ImdbHelper:
             return False
 
         search_types = ['TV_SERIES', 'TV_MINI_SERIES', 'TV_SPECIAL']
-        res = self.search(query=name, media_types=search_types)
+        res = self.advanced_search(query=name, media_types=search_types)
         if not res:
             logger.debug("%s 未找到季%s相关信息!" % (name, season_number))
             return None
