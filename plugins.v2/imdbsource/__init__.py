@@ -57,11 +57,8 @@ class ImdbSource(_PluginBase):
     _original_method = None
 
     def init_plugin(self, config: dict = None):
-        # monkey patching
-        if ChainBase.recognize_media.__name__ != 'patched_recognize_media':
-            self._original_method = ChainBase.recognize_media
+
         plugin_instance = self
-        # 通过闭包捕获 plugin_instance
         def patched_recognize_media(chain_self, meta: MetaBase = None,
                                     mtype: Optional[MediaType] = None,
                                     tmdbid: Optional[int] = None,
@@ -69,12 +66,21 @@ class ImdbSource(_PluginBase):
                                     bangumiid: Optional[int] = None,
                                     episode_group: Optional[str] = None,
                                     cache: bool = True):
+            # 调用原始方法
+            if not plugin_instance._original_method:
+                return None
             result = plugin_instance._original_method(chain_self, meta, mtype, tmdbid, doubanid, bangumiid,
                                                       episode_group, cache)
             if result is None and plugin_instance._enabled and plugin_instance._recognize_media:
-                logger.info(f"通过插件 {self.plugin_name} 执行：recognize_media ...")
+                logger.info(f"通过插件 {plugin_instance.plugin_name} 执行：recognize_media ...")
                 return plugin_instance.recognize_media(meta, mtype)
             return result
+        # 给 patch 函数加唯一标记
+        patched_recognize_media._patched_by = id(self)
+        # 保存原始方法
+        if not (hasattr(ChainBase.recognize_media, "_patched_by") and
+                ChainBase.recognize_media._patched_by == id(self)):
+            self._original_method = getattr(ChainBase, "recognize_media", None)
 
         if config:
             self._enabled = config.get("enabled")
@@ -94,10 +100,14 @@ class ImdbSource(_PluginBase):
             self._scheduler.add_job(self.__cache_staff_picks, trigger='date', run_date=None)
             if self._recognize_media and self._recognition_mode == 'auxiliary':
                 # 替换 ChainBase.recognize_media
-                ChainBase.recognize_media = patched_recognize_media
+                if not (hasattr(ChainBase.recognize_media, "_patched_by") and
+                        ChainBase.recognize_media._patched_by == id(self)):
+                    ChainBase.recognize_media = patched_recognize_media
             else:
                 # 恢复 ChainBase.recognize_media
-                if self._original_method and ChainBase.recognize_media.__name__ == 'patched_recognize_media':
+                if (hasattr(ChainBase.recognize_media, "_patched_by") and
+                        ChainBase.recognize_media._patched_by == id(self) and
+                        self._original_method):
                     ChainBase.recognize_media = self._original_method
         else:
             self.stop_service()
@@ -603,7 +613,9 @@ class ImdbSource(_PluginBase):
         """
         退出插件
         """
-        if ChainBase.recognize_media.__name__ == 'patched_recognize_media' and self._original_method:
+        if (hasattr(ChainBase.recognize_media, "_patched_by") and
+                ChainBase.recognize_media._patched_by == id(self) and
+                self._original_method):
             ChainBase.recognize_media = self._original_method
 
     def get_module(self) -> Dict[str, Any]:

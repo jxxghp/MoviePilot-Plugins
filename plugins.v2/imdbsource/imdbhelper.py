@@ -218,7 +218,7 @@ class ImdbHelper:
         return None
 
     @staticmethod
-    def __compare_names(file_name: str, names: Union[list|str]) -> bool:
+    def __compare_names(file_name: str, names: Union[list,str]) -> bool:
         """
         比较文件名是否匹配，忽略大小写和特殊字符
         :param file_name: 识别的文件名或者种子名
@@ -506,7 +506,6 @@ class ImdbHelper:
             TV_MOVIE: Represents a TV movie title.
             SHORT: Represents a short title.
             VIDEO: Represents a video title.
-            VIDEO_GAME: Represents a video game title.
         :param start_year: The start year for filtering titles.
         :param end_year: The end year for filtering titles.
         :param country_code: The country code for filtering titles.
@@ -727,7 +726,7 @@ class ImdbHelper:
         search_types = ['TV_SERIES', 'TV_MINI_SERIES', 'TV_SPECIAL']
         res = self.advanced_search(query=name, media_types=search_types)
         if not res:
-            logger.debug("%s 未找到季%s相关信息!" % (name, season_number))
+            logger.debug(f"{name} 未找到季{season_number}相关信息!")
             return None
         tvs =  [r for r in res if r.get('id') and ImdbHelper.type_to_mtype(r.get('type')) == MediaType.TV]
         tvs = sorted(tvs, key=lambda x: x.get('startYear') or 0, reverse=True)
