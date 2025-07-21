@@ -218,7 +218,7 @@ class ImdbHelper:
         return None
 
     @staticmethod
-    def __compare_names(file_name: str, names: Union[list,str]) -> bool:
+    def compare_names(file_name: str, names: Union[list,str]) -> bool:
         """
         比较文件名是否匹配，忽略大小写和特殊字符
         :param file_name: 识别的文件名或者种子名
@@ -688,11 +688,11 @@ class ImdbHelper:
             start_year = result.get('startYear')
             if year and str(start_year) != year:
                 continue
-            if ImdbHelper.__compare_names(name, [result.get('primaryTitle', ''), result.get('originalTitle', '')]):
+            if ImdbHelper.compare_names(name, [result.get('primaryTitle', ''), result.get('originalTitle', '')]):
                 ret_info = result
                 break
             names = [edge.get('node', {}).get('text', '') for edge in title.get('akas', {}).get('edges', [])]
-            if ImdbHelper.__compare_names(name, names):
+            if ImdbHelper.compare_names(name, names):
                 ret_info = result
                 break
         if ret_info:
@@ -740,13 +740,13 @@ class ImdbHelper:
             title = titles_dict.get(tv.get('id'), {})
             akas = [e.get('node', {}) for e in title.get('akas', {}).get('edges', [])]
             tv_year = tv.get('startYear')
-            if self.__compare_names(name, [tv.get('primaryTitle', ''), tv.get('originalTitle', '')]) and \
+            if self.compare_names(name, [tv.get('primaryTitle', ''), tv.get('originalTitle', '')]) and \
                     str(tv_year) == season_year:
                 tv['akas'] = akas
                 tv['rating'] = title.get('ratingsSummary') or {}
                 return tv
             names = [aka.get('text', '') for aka in akas]
-            if not tv or not self.__compare_names(name, names):
+            if not tv or not self.compare_names(name, names):
                 continue
             if __season_match(_tv_info=tv, _season_year=season_year):
                 tv['akas'] = akas

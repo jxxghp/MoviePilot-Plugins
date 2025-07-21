@@ -28,7 +28,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.5.0"
+    plugin_version = "1.5.1"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -1672,25 +1672,14 @@ class ImdbSource(_PluginBase):
         event_data: MediaRecognizeConvertEventData = event.event_data
         if not event_data:
             return
-        api_key = settings.TMDB_API_KEY
-        if event_data.convert_type != "themoviedb" or not api_key:
+        if event_data.convert_type != "themoviedb":
             return
         if not event_data.mediaid.startswith("imdb"):
             return
         imdb_id = event_data.mediaid[5:]
-        api_url = f"https://{settings.TMDB_API_DOMAIN}/3/find/{imdb_id}?api_key={api_key}&external_source=imdb_id"
-        ret = RequestUtils(accept_type="application/json").get_res(api_url)
-        if ret:
-            data = ret.json()
-            all_results = []
-            for result_type in ["movie_results", "tv_results"]:
-                if data.get(result_type):
-                    all_results.extend(data[result_type])
-            if not all_results:
-                return  # 无匹配结果
-            # 按 popularity 降序排序，取最高人气的条目
-            most_popular_item = max(all_results, key=lambda x: x.get("popularity", -1))
-            event_data.media_dict["id"] = most_popular_item.get("id")
+        tmdb_id = ImdbSource.imdb_to_tmdb(imdb_id)
+        if tmdb_id is not None:
+            event_data.media_dict["id"] = tmdb_id
 
     @eventmanager.register(ChainEventType.RecommendSource)
     def recommend_source(self, event: Event):
@@ -1782,6 +1771,7 @@ class ImdbSource(_PluginBase):
         if info:
             info = self._imdb_helper.update_info(info.get('id'), info=info) or {}
             mediainfo = ImdbSource._convert_mediainfo(info)
+            mediainfo.tmdb_id = ImdbSource.imdb_to_tmdb(info.get('id'), mediainfo)
             logger.info(f"{meta.name} IMDb 识别结果：{mediainfo.type.value} "
                         f"{mediainfo.title_year} "
                         f"{mediainfo.imdb_id}")
@@ -1826,3 +1816,70 @@ class ImdbSource(_PluginBase):
                 if not mediainfo.release_date:
                     mediainfo.release_date = air_date
         return mediainfo
+
+    @staticmethod
+    def imdb_to_tmdb(imdb_id: str, media_info: Optional[MediaInfo] = None) -> Optional[int]:
+        api_key = settings.TMDB_API_KEY
+        api_url = (
+            f"https://{settings.TMDB_API_DOMAIN}/3/find/{imdb_id}"
+            f"?api_key={api_key}&external_source=imdb_id"
+        )
+        ret = RequestUtils(accept_type="application/json").get_res(api_url)
+        if not ret:
+            return None
+        data = ret.json()
+        # 合并两种结果
+        all_results = []
+        for key in ["movie_results", "tv_results"]:
+            all_results.extend(data.get(key, []))
+        if not all_results:
+            return None  # 无匹配结果
+
+        def pick_most_popular(results):
+            return max(results, key=lambda x: x.get("popularity", -1), default=None)
+
+        # 未提供 media_info：直接返回人气最高的
+        if not media_info:
+            most_popular = pick_most_popular(all_results)
+            return most_popular.get("id") if most_popular else None
+        # 按类型过滤
+        type_map = {
+            MediaType.TV: ['tv'],
+            MediaType.MOVIE: ['movie'],
+            None: ['tv', 'movie']
+        }
+        allowed_types = type_map.get(media_info.type, ['tv', 'movie'])
+        filtered = [res for res in all_results if res.get('type') in allowed_types]
+
+        # 定义一个过滤链：每次过滤后如果只剩一个结果就返回
+        def filter_and_return(results, predicate):
+            filtered_res = [res for res in results if predicate(res)]
+            if not filtered_res:
+                return None, []
+            if len(filtered_res) == 1:
+                return filtered_res[0].get("id"), []
+            return None, filtered_res
+
+        # 通过年份过滤
+        if media_info.year:
+            def match_year(res):
+                date = res.get('first_air_date') or res.get('release_date') or ''
+                return date[:4] == media_info.year
+            result_id, filtered = filter_and_return(filtered, match_year)
+            if result_id:
+                return result_id
+            if not filtered:
+                return None
+        # 通过名称过滤
+        if media_info.names:
+            def match_name(res):
+                name = res.get('name') or ''
+                return ImdbHelper.compare_names(name, media_info.names)
+            result_id, filtered = filter_and_return(filtered, match_name)
+            if result_id:
+                return result_id
+            if not filtered:
+                return None
+        # 最终按人气返回
+        most_popular = pick_most_popular(filtered)
+        return most_popular.get("id") if most_popular else None
