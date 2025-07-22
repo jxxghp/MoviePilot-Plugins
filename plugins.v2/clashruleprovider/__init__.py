@@ -39,7 +39,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.2.7"
+    plugin_version = "1.2.8"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -813,22 +813,25 @@ class ClashRuleProvider(_PluginBase):
             return schemas.Response(success=False, message='无可用节点')
         result = True
         message = ''
-        for proxy in extra_proxies:
-            name = proxy.get('name')
-            if not name or any(x.get('name') == name for x in self.clash_outbound()):
-                logger.warning(f"The proxy name {proxy['name']} already exists. Skipping...")
-                message = f"The proxy name {proxy['name']} already exists. Skipping..."
-                result = False
-                continue
-            required_fields = {'name', 'type', 'server', 'port'}
-            if not required_fields.issubset(proxy.keys()):
-                missing = required_fields - proxy.keys()
-                logger.error(f"Required field is missing: {missing}")
-                message = f"Required field is missing: {missing}"
-                result = False
-                continue
-            self._extra_proxies.append(proxy)
-        self.save_data('extra_proxies', self._extra_proxies)
+        try:
+            for proxy in extra_proxies:
+                name = proxy.get('name')
+                if not name or any(x.get('name') == name for x in self.clash_outbound()):
+                    logger.warning(f"The proxy name {proxy['name']} already exists. Skipping...")
+                    message = f"The proxy name {proxy['name']} already exists. Skipping..."
+                    result = False
+                    continue
+                required_fields = {'name', 'type', 'server', 'port'}
+                if not required_fields.issubset(proxy.keys()):
+                    missing = required_fields - proxy.keys()
+                    logger.error(f"Required field is missing: {missing}")
+                    message = f"Required field is missing: {missing}"
+                    result = False
+                    continue
+                self._extra_proxies.append(proxy)
+            self.save_data('extra_proxies', self._extra_proxies)
+        except Exception as err:
+            return schemas.Response(success=False, message=f'{err}')
         return schemas.Response(success=result, message=message)
 
     def delete_extra_proxy(self, params: dict = Body(...)) -> schemas.Response:
