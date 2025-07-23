@@ -1885,7 +1885,7 @@ class ImdbSource(_PluginBase):
         # 通过名称过滤
         if media_info.names:
             def match_name(res):
-                name = res.get('name') or ''
+                name = res.get('name') or res.get('title') or ''
                 return ImdbHelper.compare_names(name, media_info.names)
 
             result_id, filtered = filter_and_return(filtered, match_name)

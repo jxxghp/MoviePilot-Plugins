@@ -817,8 +817,8 @@ class ClashRuleProvider(_PluginBase):
             for proxy in extra_proxies:
                 name = proxy.get('name')
                 if not name or any(x.get('name') == name for x in self.clash_outbound()):
-                    logger.warning(f"The proxy name {proxy['name']} already exists. Skipping...")
-                    message = f"The proxy name {proxy['name']} already exists. Skipping..."
+                    logger.warning(f"The proxy name {name} already exists. Skipping ...")
+                    message = f"The proxy name {name} already exists. Skipping ..."
                     result = False
                     continue
                 required_fields = {'name', 'type', 'server', 'port'}
