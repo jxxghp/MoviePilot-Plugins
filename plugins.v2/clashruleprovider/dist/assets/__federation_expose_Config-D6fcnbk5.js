@@ -1,7 +1,8 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
+import { V as VAceEditor } from './theme-monokai-Bn79mBHh.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
-const {createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode,mergeProps:_mergeProps,withModifiers:_withModifiers,Fragment:_Fragment,createElementBlock:_createElementBlock} = await importShared('vue');
+const {createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode,mergeProps:_mergeProps,withModifiers:_withModifiers,unref:_unref,Fragment:_Fragment,createElementBlock:_createElementBlock} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "plugin-config" };
@@ -11,8 +12,6 @@ const _hoisted_4 = { class: "text-body-2" };
 
 const {ref,reactive,onMounted,computed} = await importShared('vue');
 
-
-// Props
 
 const _sfc_main = {
   __name: 'Config',
@@ -30,6 +29,20 @@ const _sfc_main = {
   emits: ['save', 'close'],
   setup(__props, { emit: __emit }) {
 
+const editorOptions = {
+  enableBasicAutocompletion: true,
+  enableSnippets: true,
+  enableLiveAutocompletion: true,
+  showLineNumbers: true,
+  tabSize: 2
+};
+const configPlaceholder = ref(
+    `profile:
+  store-selected: true
+mode: rule
+log-level: silent`
+);
+// Props
 const props = __props;
 
 // 状态变量
@@ -255,7 +268,6 @@ return (_ctx, _cache) => {
   const _component_v_spacer = _resolveComponent("v-spacer");
   const _component_v_card_actions = _resolveComponent("v-card-actions");
   const _component_v_card = _resolveComponent("v-card");
-  const _component_v_textarea = _resolveComponent("v-textarea");
   const _component_v_dialog = _resolveComponent("v-dialog");
 
   return (_openBlock(), _createElementBlock(_Fragment, null, [
@@ -826,12 +838,16 @@ return (_ctx, _cache) => {
                                     ]),
                                     _: 1
                                   }),
-                                  _createVNode(_component_v_col, { cols: "3" }, {
+                                  _createVNode(_component_v_col, {
+                                    cols: "12",
+                                    md: "3",
+                                    class: "d-flex align-end"
+                                  }, {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_btn, {
                                         color: "primary",
                                         onClick: openClashTemplateDialog,
-                                        class: "mr-2"
+                                        block: ""
                                       }, {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_icon, { left: "" }, {
@@ -975,7 +991,7 @@ return (_ctx, _cache) => {
               ])),
               _: 1
             }),
-            _createVNode(_component_v_card_text, { style: {"max-height":"600px","overflow-y":"auto"} }, {
+            _createVNode(_component_v_card_text, { style: {"max-height":"900px","overflow-y":"auto"} }, {
               default: _withCtx(() => [
                 _createVNode(_component_v_select, {
                   modelValue: clashTemplateType.value,
@@ -984,16 +1000,28 @@ return (_ctx, _cache) => {
                   label: "配置类型",
                   class: "mb-4"
                 }, null, 8, ["modelValue"]),
-                _createVNode(_component_v_textarea, {
-                  modelValue: clashTemplateContent.value,
-                  "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((clashTemplateContent).value = $event)),
-                  label: "配置内容",
-                  "auto-grow": "",
-                  placeholder: "mixed-port: 7890",
+                _createVNode(_unref(VAceEditor), {
+                  value: clashTemplateContent.value,
+                  "onUpdate:value": _cache[24] || (_cache[24] = $event => ((clashTemplateContent).value = $event)),
+                  lang: "yaml",
+                  theme: "monokai",
+                  hint: "",
+                  options: editorOptions,
+                  placeholder: configPlaceholder.value,
+                  style: {"height":"30rem","width":"100%","margin-bottom":"16px"}
+                }, null, 8, ["value", "placeholder"]),
+                _createVNode(_component_v_alert, {
+                  type: "info",
+                  dense: "",
+                  text: "",
                   class: "mb-4",
-                  hint: "规则和出站代理会被添加在配置模板上",
-                  style: {"max-height":"600px","padding-top":"12px","line-height":"1.5"}
-                }, null, 8, ["modelValue"])
+                  variant: "tonal"
+                }, {
+                  default: _withCtx(() => _cache[54] || (_cache[54] = [
+                    _createTextVNode("规则和出站代理会被添加在配置模板上 ")
+                  ])),
+                  _: 1
+                })
               ]),
               _: 1
             }),
@@ -1004,7 +1032,7 @@ return (_ctx, _cache) => {
                   text: "",
                   onClick: _cache[25] || (_cache[25] = $event => (clashTemplateDialog.value = false))
                 }, {
-                  default: _withCtx(() => _cache[54] || (_cache[54] = [
+                  default: _withCtx(() => _cache[55] || (_cache[55] = [
                     _createTextVNode("取消")
                   ])),
                   _: 1
@@ -1013,7 +1041,7 @@ return (_ctx, _cache) => {
                   color: "primary",
                   onClick: saveClashTemplate
                 }, {
-                  default: _withCtx(() => _cache[55] || (_cache[55] = [
+                  default: _withCtx(() => _cache[56] || (_cache[56] = [
                     _createTextVNode("确定")
                   ])),
                   _: 1
@@ -1032,6 +1060,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigComponent = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-03cdd879"]]);
+const ConfigComponent = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c67dff26"]]);
 
 export { ConfigComponent as default };
