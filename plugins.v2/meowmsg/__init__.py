@@ -1,4 +1,4 @@
-from typing import Any, List, Dict, Tuple, Optional
+from typing import Any, List, Dict, Tuple
 from urllib.parse import parse_qs
 
 from app.core.event import eventmanager, Event
@@ -48,7 +48,7 @@ class MeoWMsg(_PluginBase):
             self._send("MeoW消息测试通知", "MeoW消息通知插件已启用")
 
     def get_state(self) -> bool:
-        return self._enabled and (True if self._server and self._nickname else False)
+        return self._enabled and (self._server is not None and self._nickname is not None)
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -183,7 +183,7 @@ class MeoWMsg(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
-    def _send(self, title: str, text: str) -> Optional[Tuple[bool, str]]:
+    def _send(self, title: str, text: str):
         """
         发送消息
         :param title: 标题
@@ -193,11 +193,11 @@ class MeoWMsg(_PluginBase):
             if not self._server or not self._nickname:
                 return False, "参数未配置"
             req_body = {"title": title, "msg": text}
-            res = RequestUtils().post_res(f"{self._server}/{self._nickname}", data=req_body)
+            res = RequestUtils().post_res(f"{self._server.rstrip('/')}/{self._nickname}", data=req_body)
             if res and res.status_code == 200:
-                ret_json = res.json()
-                code = ret_json["code"]
-                message = ret_json["message"]
+                res_json = res.json()
+                code = res_json.get("status")
+                message = res_json.get("msg")
                 if code == 200:
                     logger.info(f"{self._nickname} MeoW消息发送成功")
                 else:
