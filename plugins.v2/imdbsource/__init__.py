@@ -45,13 +45,13 @@ class ImdbSource(_PluginBase):
     _proxy: bool = False
     _staff_picks: bool = False
     _recognize_media: bool = False
+    _interests: List[str] = []
     _component_size: str = 'medium'
     _recognition_mode = 'auxiliary'
 
     # 私有属性
     _imdb_helper = None
-    _cache = {"discover": [], "trending": [], "trending_in_anime": [], "trending_in_sitcom": [],
-              "trending_in_documentary": [], "imdb_top_250": [], "staff_picks": {}}
+    _cache = {"discover": [], "trending": [], "imdb_top_250": [], "staff_picks": {}}
     _img_proxy_prefix = ''
     _scheduler: Optional[BackgroundScheduler] = None
     _original_method = None
@@ -59,6 +59,7 @@ class ImdbSource(_PluginBase):
     def init_plugin(self, config: dict = None):
 
         plugin_instance = self
+
         def patched_recognize_media(chain_self, meta: MetaBase = None,
                                     mtype: Optional[MediaType] = None,
                                     tmdbid: Optional[int] = None,
@@ -75,6 +76,7 @@ class ImdbSource(_PluginBase):
                 logger.info(f"通过插件 {plugin_instance.plugin_name} 执行：recognize_media ...")
                 return plugin_instance.recognize_media(meta, mtype)
             return result
+
         # 给 patch 函数加唯一标记
         patched_recognize_media._patched_by = id(self)
         # 保存原始方法
@@ -87,9 +89,16 @@ class ImdbSource(_PluginBase):
             self._proxy = config.get("proxy")
             self._staff_picks = config.get("staff_picks")
             self._recognize_media = config.get("recognize_media")
+            if 'interests' not in config:
+                self._interests = ['Anime', 'Documentary', 'Sitcom']
+            else:
+                self._interests = config.get("interests")
+                if isinstance(self._interests, str):
+                    self._interests = [self._interests]
             self._component_size = config.get("component_size") or "medium"
             self._recognition_mode = config.get("recognition_mode") or "auxiliary"
             self._imdb_helper = ImdbHelper(proxies=settings.PROXY if self._proxy else None)
+            self.__update_config()
         if "media-amazon.com" not in settings.SECURITY_IMAGE_DOMAINS:
             settings.SECURITY_IMAGE_DOMAINS.append("media-amazon.com")
         if "media-imdb.com" not in settings.SECURITY_IMAGE_DOMAINS:
@@ -111,7 +120,6 @@ class ImdbSource(_PluginBase):
                     ChainBase.recognize_media = self._original_method
         else:
             self.stop_service()
-
 
     def get_state(self) -> bool:
         return self._enabled
@@ -210,7 +218,7 @@ class ImdbSource(_PluginBase):
             mtype, year, plot = year_and_type(entry)
             mp_url = f"/media?mediaid=imdb:{entry.get('ttconst')}&title={entry.get('name')}&year={year}&type={mtype.value}"
             primary_img_url = next((f"{image.get('url')}" for image in images
-                                 if image.get("id") == entry.get('rmconst')), '')
+                                    if image.get("id") == entry.get('rmconst')), '')
             primary_img_url = f'{self._img_proxy_prefix}{primary_img_url}'
             item1 = {
                 'component': 'VCarouselItem',
@@ -480,6 +488,76 @@ class ImdbSource(_PluginBase):
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
+        option_groups = []
+        for i, v in self._imdb_helper.interests.items():
+            options = []
+            for name, in_id in v.items():
+                option = {
+                    'component': 'VCol',
+                    'props': {'cols': 12, 'md': 3},
+                    'content': [
+                        {
+                            'component': 'VCheckbox',
+                            'props': {'label': name, 'value': name, 'model': 'interests'},
+                        }
+                    ]
+                }
+                options.append(option)
+            group = {
+                'component': 'VExpansionPanel',
+                'content': [
+                    {
+                        'component': 'VExpansionPanelTitle',
+                        'text': i
+                    },
+                    {
+                        'component': 'VExpansionPanelText',
+                        'content': [
+                            {
+                                'component': 'VRow',
+                                'content': options
+                            }
+                        ]
+                    }
+                ]
+            }
+            option_groups.append(group)
+        interests_ui = {
+            'component': 'VExpansionPanels',
+            'props': {
+                'multiple': False,
+                'popout': True
+            },
+            'content': [
+                {
+                    'component': 'VExpansionPanel',
+                    'content': [
+                        {
+                            'component': 'VExpansionPanelTitle',
+                            'text': '推荐'
+                        },
+                        {
+                            'component': 'VExpansionPanelText',
+                            'content': [
+                                {
+                                    'component': 'VRow',
+                                    'content': [
+                                        {
+                                            'component': 'VExpansionPanels',
+                                            'props': {
+                                                'multiple': True,
+                                                'popout': True
+                                            },
+                                            'content': option_groups
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
         return [
             {
                 "component": "VForm",
@@ -495,7 +573,7 @@ class ImdbSource(_PluginBase):
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "enabled",
-                                            "label": "启用插件",
+                                            "label": "启用插件"
                                         },
                                     }
                                 ],
@@ -511,7 +589,7 @@ class ImdbSource(_PluginBase):
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'proxy',
-                                            'label': '使用代理服务器',
+                                            'label': '使用代理服务器'
                                         }
                                     }
                                 ]
@@ -527,7 +605,7 @@ class ImdbSource(_PluginBase):
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'staff_picks',
-                                            'label': 'IMDb 编辑精选组件',
+                                            'label': 'IMDb 编辑精选组件'
                                         }
                                     }
                                 ]
@@ -543,7 +621,7 @@ class ImdbSource(_PluginBase):
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'recognize_media',
-                                            'label': '媒体识别',
+                                            'label': '媒体识别'
                                         }
                                     }
                                 ]
@@ -567,7 +645,7 @@ class ImdbSource(_PluginBase):
                                             'label': '组件规格',
                                             'items': [
                                                 {"title": "小型", "value": "small"},
-                                                {"title": "中型", "value": "medium"},
+                                                {"title": "中型", "value": "medium"}
                                             ]
                                         }
                                     }
@@ -594,14 +672,30 @@ class ImdbSource(_PluginBase):
                                 ]
                             }
                         ]
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 12
+                                },
+                                'content': [
+                                    interests_ui
+                                ]
+                            }
+                        ]
                     }
-                ],
+                ]
             }
         ], {
             "enabled": False,
             "proxy": False,
             "staff_picks": False,
             "recognize_media": False,
+            "interests": ['Anime', 'Documentary', 'Sitcom'],
             "component_size": "medium",
             "recognition_mode": "auxiliary"
         }
@@ -630,6 +724,19 @@ class ImdbSource(_PluginBase):
         if self._recognize_media and self._recognition_mode == 'hijacking':
             modules['recognize_media'] = self.recognize_media
         return modules
+
+    def __update_config(self):
+        self.update_config(
+            {
+                "enabled": self._enabled,
+                "proxy": self._proxy,
+                "staff_picks": self._staff_picks,
+                "recognize_media": self._recognize_media,
+                "interests": self._interests,
+                "component_size": self._component_size,
+                "recognition_mode": self._recognition_mode,
+            }
+        )
 
     def __cache_staff_picks(self):
         entries = self._imdb_helper.staff_picks()
@@ -732,29 +839,30 @@ class ImdbSource(_PluginBase):
                 return True
         return False
 
-    def trending_in_documentary(self, apikey: str, page: int = 1, count: int = 30) -> List[schemas.MediaInfo]:
-        if apikey != settings.API_TOKEN:
-            return []
+    def trending(self, interest: str, page: int = 1) -> List[schemas.MediaInfo]:
         if not self._imdb_helper:
             return []
-        title_types = ("tvSeries", "tvMiniSeries", "tvShort", 'movie')
+        if interest not in self._imdb_helper.interest_id:
+            return []
+        count = 30
+        title_types = ("tvSeries", "tvMiniSeries", "tvShort", 'tvMovie', 'movie')
         first_page = False
         if page == 1:
             first_page = True
-            self._cache["trending_in_documentary"] = []  # 清空缓存
+            self._cache[interest] = []  # 清空缓存
         results = []
-        if len(self._cache["trending_in_documentary"]) >= count:
-            results = self._cache["trending_in_documentary"][:count]
-            self._cache["trending_in_documentary"] = self._cache["trending_in_documentary"][count:]
+        if len(self._cache[interest]) >= count:
+            results = self._cache[interest][:count]
+            self._cache[interest] = self._cache[interest][count:]
         else:
-            results.extend(self._cache["trending_in_documentary"])
+            results.extend(self._cache[interest])
             remaining = count - len(results)
-            self._cache["trending_in_documentary"] = []  # 清空缓存
+            self._cache[interest] = []  # 清空缓存
             data = self._imdb_helper.advanced_title_search(first_page=first_page,
                                                            title_types=title_types,
                                                            sort_by="POPULARITY",
                                                            sort_order="ASC",
-                                                           interests=("Documentary",)
+                                                           interests=(interest,)
                                                            )
             if not data:
                 new_results = []
@@ -762,7 +870,7 @@ class ImdbSource(_PluginBase):
                 new_results = data.get("edges")
             if new_results:
                 results.extend(new_results[:remaining])
-                self._cache["trending_in_documentary"] = new_results[remaining:]
+                self._cache[interest] = new_results[remaining:]
         res = []
         for item in results:
             title_type_id = item.get('node').get("title").get("titleType", {}).get("id")
@@ -773,9 +881,7 @@ class ImdbSource(_PluginBase):
                 res.append(self.__series_to_media(item.get('node').get("title")))
         return res
 
-    def imdb_top_250(self, apikey: str, page: int = 1, count: int = 30) -> List[schemas.MediaInfo]:
-        if apikey != settings.API_TOKEN:
-            return []
+    def imdb_top_250(self, page: int = 1, count: int = 30) -> List[schemas.MediaInfo]:
         if not self._imdb_helper:
             return []
         title_types = ("movie",)
@@ -812,89 +918,7 @@ class ImdbSource(_PluginBase):
                 res.append(self.__movie_to_media(item.get('node').get("title")))
         return res
 
-    def trending_in_sitcom(self, apikey: str, page: int = 1, count: int = 30) -> List[schemas.MediaInfo]:
-        if apikey != settings.API_TOKEN:
-            return []
-        if not self._imdb_helper:
-            return []
-        title_types = ("tvSeries", "tvMiniSeries", "tvShort")
-        first_page = False
-        if page == 1:
-            first_page = True
-            self._cache["trending_in_sitcom"] = []  # 清空缓存
-        results = []
-        if len(self._cache["trending_in_sitcom"]) >= count:
-            results = self._cache["trending_in_sitcom"][:count]
-            self._cache["trending_in_sitcom"] = self._cache["trending_in_sitcom"][count:]
-        else:
-            results.extend(self._cache["trending_in_sitcom"])
-            remaining = count - len(results)
-            self._cache["trending_in_sitcom"] = []  # 清空缓存
-            data = self._imdb_helper.advanced_title_search(first_page=first_page,
-                                                           title_types=title_types,
-                                                           sort_by="POPULARITY",
-                                                           sort_order="ASC",
-                                                           interests=("Sitcom",)
-                                                           )
-            if not data:
-                new_results = []
-            else:
-                new_results = data.get("edges")
-            if new_results:
-                results.extend(new_results[:remaining])
-                self._cache["trending_in_sitcom"] = new_results[remaining:]
-        res = []
-        for item in results:
-            title_type_id = item.get('node').get("title").get("titleType", {}).get("id")
-            mtype = ImdbHelper.type_to_mtype(title_type_id)
-            if mtype == MediaType.TV:
-                res.append(self.__series_to_media(item.get('node').get("title")))
-        return res
-
-    def trending_in_anime(self, apikey: str, page: int = 1, count: int = 30) -> List[schemas.MediaInfo]:
-        if apikey != settings.API_TOKEN:
-            return []
-        if not self._imdb_helper:
-            return []
-        title_types = ("tvSeries", "tvMiniSeries", "tvShort", 'movie')
-        first_page = False
-        if page == 1:
-            first_page = True
-            self._cache["trending_in_anime"] = []  # 清空缓存
-        results = []
-        if len(self._cache["trending_in_anime"]) >= count:
-            results = self._cache["trending_in_anime"][:count]
-            self._cache["trending_in_anime"] = self._cache["trending_in_anime"][count:]
-        else:
-            results.extend(self._cache["trending_in_anime"])
-            remaining = count - len(results)
-            self._cache["trending_in_anime"] = []  # 清空缓存
-            data = self._imdb_helper.advanced_title_search(first_page=first_page,
-                                                           title_types=title_types,
-                                                           sort_by="POPULARITY",
-                                                           sort_order="ASC",
-                                                           interests=("Anime",)
-                                                           )
-            if not data:
-                new_results = []
-            else:
-                new_results = data.get("edges")
-            if new_results:
-                results.extend(new_results[:remaining])
-                self._cache["trending_in_anime"] = new_results[remaining:]
-        res = []
-        for item in results:
-            title_type_id = item.get('node').get("title").get("titleType", {}).get("id")
-            mtype = ImdbHelper.type_to_mtype(title_type_id)
-            if mtype == MediaType.MOVIE:
-                res.append(self.__movie_to_media(item.get('node').get("title")))
-            elif mtype == MediaType.TV:
-                res.append(self.__series_to_media(item.get('node').get("title")))
-        return res
-
-    def imdb_trending(self, apikey: str, page: int = 1, count: int = 30) -> List[schemas.MediaInfo]:
-        if apikey != settings.API_TOKEN:
-            return []
+    def imdb_trending(self, page: int = 1, count: int = 30) -> List[schemas.MediaInfo]:
         if not self._imdb_helper:
             return []
         title_types = ("tvSeries", "tvMiniSeries", "tvShort", 'movie')
@@ -932,7 +956,7 @@ class ImdbSource(_PluginBase):
                 res.append(self.__series_to_media(item.get('node').get("title")))
         return res
 
-    def imdb_discover(self, apikey: str, mtype: str = "series",
+    def imdb_discover(self, mtype: str = "series",
                       country: str = None,
                       lang: str = None,
                       genre: str = None,
@@ -945,8 +969,6 @@ class ImdbSource(_PluginBase):
                       ranked_list: str = None,
                       page: int = 1, count: int = 30) -> List[schemas.MediaInfo]:
 
-        if apikey != settings.API_TOKEN:
-            return []
         if not self._imdb_helper:
             return []
         title_type = ("tvSeries", "tvMiniSeries", "tvShort")
@@ -1055,50 +1077,41 @@ class ImdbSource(_PluginBase):
             "summary": "API说明"
         }]
         """
-        return [
+        apis = [
             {
-                "path": "/imdb_discover",
+                "path": "/imdb-discover",
                 "endpoint": self.imdb_discover,
                 "methods": ["GET"],
+                "auth": 'bear',
                 "summary": "IMDb探索数据源",
                 "description": "获取 IMDb探索 数据",
             },
             {
-                "path": "/imdb_trending",
+                "path": "/imdb-trending",
                 "endpoint": self.imdb_trending,
                 "methods": ["GET"],
+                "auth": 'bear',
                 "summary": "IMDb Trending",
                 "description": "获取 IMDb Trending 数据",
             },
             {
-                "path": "/trending_in_anime",
-                "endpoint": self.trending_in_anime,
-                "methods": ["GET"],
-                "summary": "IMDb Trending in Anime",
-                "description": "获取 IMDb Trending in Anime 数据",
-            },
-            {
-                "path": "/trending_in_sitcom",
-                "endpoint": self.trending_in_sitcom,
-                "methods": ["GET"],
-                "summary": "IMDb Trending in Sitcom",
-                "description": "获取 IMDb Trending in Sitcom 数据",
-            },
-            {
-                "path": "/imdb_top_250",
+                "path": "/imdb-top-250",
                 "endpoint": self.imdb_top_250,
                 "methods": ["GET"],
+                "auth": 'bear',
                 "summary": "IMDb Top 250 Movies",
                 "description": "获取 IMDb Top 250 Movies 数据",
             },
             {
-                "path": "/trending_in_documentary",
-                "endpoint": self.trending_in_documentary,
+                "path": "/trending",
+                "endpoint": self.trending,
                 "methods": ["GET"],
-                "summary": "IMDb Trending in Documentary",
-                "description": "获取 IMDb Trending in Documentary 数据",
+                "auth": 'bear',
+                "summary": f"Trending on IMDb",
+                "description": f"获取 Trending on IMDb 数据",
             }
         ]
+        return apis
 
     @staticmethod
     def imdb_filter_ui() -> List[dict]:
@@ -1638,7 +1651,7 @@ class ImdbSource(_PluginBase):
         imdb_source = schemas.DiscoverMediaSource(
             name="IMDb",
             mediaid_prefix="imdb",
-            api_path=f"plugin/ImdbSource/imdb_discover?apikey={settings.API_TOKEN}",
+            api_path=f"plugin/ImdbSource/imdb-discover",
             filter_params={
                 "mtype": "series",
                 "company": None,
@@ -1690,31 +1703,27 @@ class ImdbSource(_PluginBase):
             return
         imdb_trending: schemas.RecommendMediaSource = schemas.RecommendMediaSource(
             name="IMDb Trending",
-            api_path=f"plugin/ImdbSource/imdb_trending?apikey={settings.API_TOKEN}",
+            api_path=f"plugin/ImdbSource/imdb-trending",
             type='Rankings'
         )
-        trending_in_anime: schemas.RecommendMediaSource = schemas.RecommendMediaSource(
-            name="Trending Anime on IMDb",
-            api_path=f"plugin/ImdbSource/trending_in_anime?apikey={settings.API_TOKEN}",
-            type='Anime'
-        )
-        trending_in_sitcom: schemas.RecommendMediaSource = schemas.RecommendMediaSource(
-            name="Trending Sitcom on IMDb",
-            api_path=f"plugin/ImdbSource/trending_in_sitcom?apikey={settings.API_TOKEN}",
-            type='TV Shows'
-        )
-
         imdb_top_250: schemas.RecommendMediaSource = schemas.RecommendMediaSource(
             name="IMDb Top 250 Movies",
-            api_path=f"plugin/ImdbSource/imdb_top_250?apikey={settings.API_TOKEN}",
+            api_path=f"plugin/ImdbSource/imdb-top-250",
             type='Movies'
         )
-        imdb_documentary: schemas.RecommendMediaSource = schemas.RecommendMediaSource(
-            name="Trending Documentary on IMDb",
-            api_path=f"plugin/ImdbSource/trending_in_documentary?apikey={settings.API_TOKEN}",
-            type='Rankings'
-        )
-        trending_source = [imdb_trending, trending_in_anime, trending_in_sitcom, imdb_top_250, imdb_documentary]
+        trending_source = [imdb_trending, imdb_top_250]
+        for interest in self._interests:
+            source_type = 'Rankings'
+            if interest in self._imdb_helper.interests['Anime']:
+                source_type = 'Anime'
+            elif interest in ['Sitcom']:
+                source_type = 'TV Shows'
+            source = schemas.RecommendMediaSource(
+                name=f"Trending {interest} on IMDb",
+                api_path=f"plugin/ImdbSource/trending?interest={interest}",
+                type=source_type
+            )
+            trending_source.append(source)
         if not event_data.extra_sources:
             event_data.extra_sources = trending_source
         else:
@@ -1769,9 +1778,11 @@ class ImdbSource(_PluginBase):
             if info:
                 break
         if info:
-            info = self._imdb_helper.update_info(info.get('id'), info=info) or {}
+            info = self._imdb_helper.update_info(info.get('id'), info=info) or info
             mediainfo = ImdbSource._convert_mediainfo(info)
             mediainfo.tmdb_id = ImdbSource.imdb_to_tmdb(info.get('id'), mediainfo)
+            cat = ImdbHelper.get_category(info.get('media_type'), info)
+            mediainfo.set_category(cat)
             logger.info(f"{meta.name} IMDb 识别结果：{mediainfo.type.value} "
                         f"{mediainfo.title_year} "
                         f"{mediainfo.imdb_id}")
@@ -1865,6 +1876,7 @@ class ImdbSource(_PluginBase):
             def match_year(res):
                 date = res.get('first_air_date') or res.get('release_date') or ''
                 return date[:4] == media_info.year
+
             result_id, filtered = filter_and_return(filtered, match_year)
             if result_id:
                 return result_id
@@ -1875,6 +1887,7 @@ class ImdbSource(_PluginBase):
             def match_name(res):
                 name = res.get('name') or ''
                 return ImdbHelper.compare_names(name, media_info.names)
+
             result_id, filtered = filter_and_return(filtered, match_name)
             if result_id:
                 return result_id

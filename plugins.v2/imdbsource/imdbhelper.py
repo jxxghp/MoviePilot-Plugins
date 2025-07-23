@@ -44,20 +44,11 @@ class ImdbHelper:
 
     all_title_types = ["tvSeries", "tvMiniSeries", "movie", "tvMovie", "musicVideo", "tvShort", "short",
                        "tvEpisode", "tvSpecial"]
-    interest_id = {
-        "Anime": "in0000027",
-        "Superhero": "in0000008",
-        "Sitcom": "in0000044",
-        "Coming-of-Age": "in0000073",
-        "Slasher Horror": "in0000115",
-        "Raunchy Comedy": "in0000041",
-        "Documentary": "in0000060"
-    }
+    interests = {'Action': {'Action': 'in0000001', 'Action Epic': 'in0000002', 'B-Action': 'in0000003', 'Car Action': 'in0000004', 'Disaster': 'in0000005', 'Gun Fu': 'in0000197', 'Kung Fu': 'in0000198', 'Martial Arts': 'in0000006', 'One-Person Army Action': 'in0000007', 'Samurai': 'in0000199', 'Superhero': 'in0000008', 'Sword & Sandal': 'in0000009', 'War': 'in0000010', 'War Epic': 'in0000011', 'Wuxia': 'in0000200'}, 'Adventure': {'Adventure': 'in0000012', 'Adventure Epic': 'in0000015', 'Desert Adventure': 'in0000013', 'Dinosaur Adventure': 'in0000014', 'Globetrotting Adventure': 'in0000016', 'Jungle Adventure': 'in0000017', 'Mountain Adventure': 'in0000018', 'Quest': 'in0000019', 'Road Trip': 'in0000020', 'Sea Adventure': 'in0000021', 'Swashbuckler': 'in0000022', 'Teen Adventure': 'in0000023', 'Urban Adventure': 'in0000024'}, 'Animation': {'Adult Animation': 'in0000025', 'Animation': 'in0000026', 'Computer Animation': 'in0000028', 'Hand-Drawn Animation': 'in0000029', 'Stop Motion Animation': 'in0000030'}, 'Anime': {'Anime': 'in0000027', 'Isekai': 'in0000201', 'Iyashikei': 'in0000202', 'Josei': 'in0000203', 'Mecha': 'in0000204', 'Seinen': 'in0000205', 'Shōjo': 'in0000207', 'Shōnen': 'in0000206', 'Slice of Life': 'in0000208'}, 'Comedy': {'Body Swap Comedy': 'in0000031', 'Buddy Comedy': 'in0000032', 'Buddy Cop': 'in0000033', 'Comedy': 'in0000034', 'Dark Comedy': 'in0000035', 'Farce': 'in0000036', 'High-Concept Comedy': 'in0000037', 'Mockumentary': 'in0000038', 'Parody': 'in0000039', 'Quirky Comedy': 'in0000040', 'Raunchy Comedy': 'in0000041', 'Satire': 'in0000042', 'Screwball Comedy': 'in0000043', 'Sitcom': 'in0000044', 'Sketch Comedy': 'in0000045', 'Slapstick': 'in0000046', 'Stand-Up': 'in0000047', 'Stoner Comedy': 'in0000048', 'Teen Comedy': 'in0000049'}, 'Crime': {'Caper': 'in0000050', 'Cop Drama': 'in0000051', 'Crime': 'in0000052', 'Drug Crime': 'in0000053', 'Film Noir': 'in0000054', 'Gangster': 'in0000055', 'Heist': 'in0000056', 'Police Procedural': 'in0000057', 'True Crime': 'in0000058'}, 'Documentary': {'Crime Documentary': 'in0000059', 'Documentary': 'in0000060', 'Docuseries': 'in0000061', 'Faith & Spirituality Documentary': 'in0000062', 'Food Documentary': 'in0000063', 'History Documentary': 'in0000064', 'Military Documentary': 'in0000065', 'Music Documentary': 'in0000066', 'Nature Documentary': 'in0000067', 'Political Documentary': 'in0000068', 'Science & Technology Documentary': 'in0000069', 'Sports Documentary': 'in0000070', 'Travel Documentary': 'in0000071'}, 'Drama': {'Biography': 'in0000072', 'Coming-of-Age': 'in0000073', 'Costume Drama': 'in0000074', 'Docudrama': 'in0000075', 'Drama': 'in0000076', 'Epic': 'in0000077', 'Financial Drama': 'in0000078', 'Historical Epic': 'in0000079', 'History': 'in0000080', 'Korean Drama': 'in0000209', 'Legal Drama': 'in0000081', 'Medical Drama': 'in0000082', 'Period Drama': 'in0000083', 'Political Drama': 'in0000084', 'Prison Drama': 'in0000085', 'Psychological Drama': 'in0000086', 'Showbiz Drama': 'in0000087', 'Soap Opera': 'in0000088', 'Teen Drama': 'in0000089', 'Telenovela': 'in0000210', 'Tragedy': 'in0000090', 'Workplace Drama': 'in0000091'}, 'Family': {'Animal Adventure': 'in0000092', 'Family': 'in0000093'}, 'Fantasy': {'Dark Fantasy': 'in0000095', 'Fairy Tale': 'in0000097', 'Fantasy': 'in0000098', 'Fantasy Epic': 'in0000096', 'Supernatural Fantasy': 'in0000099', 'Sword & Sorcery': 'in0000100', 'Teen Fantasy': 'in0000101'}, 'Game Show': {'Beauty Competition': 'in0000102', 'Cooking Competition': 'in0000103', 'Game Show': 'in0000105', 'Quiz Show': 'in0000104', 'Survival Competition': 'in0000106', 'Talent Competition': 'in0000107'}, 'Horror': {'B-Horror': 'in0000108', 'Body Horror': 'in0000109', 'Folk Horror': 'in0000110', 'Found Footage Horror': 'in0000111', 'Horror': 'in0000112', 'Monster Horror': 'in0000113', 'Psychological Horror': 'in0000114', 'Slasher Horror': 'in0000115', 'Splatter Horror': 'in0000116', 'Supernatural Horror': 'in0000117', 'Teen Horror': 'in0000118', 'Vampire Horror': 'in0000119', 'Werewolf Horror': 'in0000120', 'Witch Horror': 'in0000121', 'Zombie Horror': 'in0000122'}, 'Lifestyle': {'Beauty Makeover': 'in0000123', 'Cooking & Food': 'in0000124', 'Home Improvement': 'in0000125', 'Lifestyle': 'in0000126', 'News': 'in0000211', 'Talk Show': 'in0000127', 'Travel': 'in0000128'}, 'Music': {'Concert': 'in0000129', 'Music': 'in0000130'}, 'Musical': {'Classic Musical': 'in0000131', 'Jukebox Musical': 'in0000132', 'Musical': 'in0000133', 'Pop Musical': 'in0000134', 'Rock Musical': 'in0000135'}, 'Mystery': {'Bumbling Detective': 'in0000136', 'Cozy Mystery': 'in0000137', 'Hard-boiled Detective': 'in0000138', 'Mystery': 'in0000139', 'Suspense Mystery': 'in0000140', 'Whodunnit': 'in0000141'}, 'Reality TV': {'Business Reality TV': 'in0000142', 'Crime Reality TV': 'in0000143', 'Dating Reality TV': 'in0000144', 'Docusoap Reality TV': 'in0000145', 'Hidden Camera': 'in0000146', 'Paranormal Reality TV': 'in0000147', 'Reality TV': 'in0000148'}, 'Romance': {'Dark Romance': 'in0000149', 'Feel-Good Romance': 'in0000151', 'Romance': 'in0000152', 'Romantic Comedy': 'in0000153', 'Romantic Epic': 'in0000150', 'Steamy Romance': 'in0000154', 'Teen Romance': 'in0000155', 'Tragic Romance': 'in0000156'}, 'Sci-Fi': {'Alien Invasion': 'in0000157', 'Artificial Intelligence': 'in0000158', 'Cyberpunk': 'in0000159', 'Dystopian Sci-Fi': 'in0000160', 'Kaiju': 'in0000161', 'Sci-Fi': 'in0000162', 'Sci-Fi Epic': 'in0000163', 'Space Sci-Fi': 'in0000164', 'Steampunk': 'in0000165', 'Time Travel': 'in0000166'}, 'Seasonal': {'Holiday': 'in0000192', 'Holiday Animation': 'in0000193', 'Holiday Comedy': 'in0000194', 'Holiday Family': 'in0000195', 'Holiday Romance': 'in0000196'}, 'Short': {'Short': 'in0000212'}, 'Sport': {'Baseball': 'in0000167', 'Basketball': 'in0000168', 'Boxing': 'in0000169', 'Extreme Sport': 'in0000170', 'Football': 'in0000171', 'Motorsport': 'in0000172', 'Soccer': 'in0000173', 'Sport': 'in0000174', 'Water Sport': 'in0000175'}, 'Thriller': {'Conspiracy Thriller': 'in0000176', 'Cyber Thriller': 'in0000177', 'Erotic Thriller': 'in0000178', 'Giallo': 'in0000179', 'Legal Thriller': 'in0000180', 'Political Thriller': 'in0000181', 'Psychological Thriller': 'in0000182', 'Serial Killer': 'in0000183', 'Spy': 'in0000184', 'Survival': 'in0000185', 'Thriller': 'in0000186'}, 'Western': {'Classical Western': 'in0000187', 'Contemporary Western': 'in0000188', 'Spaghetti Western': 'in0000190', 'Western': 'in0000191', 'Western Epic': 'in0000189'}}
     _official_endpoint = "https://caching.graphql.imdb.com/"
     _imdb_headers = {
         "Accept": "text/html,application/json,text/plain,*/*",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome"
-                      "/84.0.4147.105 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
         "Referer": "https://www.imdb.com/",
     }
     _free_api = "https://api.imdbapi.dev"
@@ -75,6 +66,10 @@ class ImdbHelper:
         self.hash_status = {"AdvancedTitleSearch": False, "TitleAkasPaginated": False}
         self._search_states = OrderedDict()
         self._max_states = 30
+        self.interest_id = {}
+        for category, value in self.interests.items():
+            for name, in_id in value.items():
+                self.interest_id[name] = in_id
 
     @retry(Exception, logger=logger)
     @cached(maxsize=32, ttl=1800)
@@ -246,7 +241,59 @@ class ImdbHelper:
 
     @staticmethod
     def release_date_string(release_date: Dict) -> Optional[str]:
-        return f"{release_date.get('year', 0):04d}-{release_date.get('month', 0):02d}-{release_date.get('day', 0):02d}"
+        year = release_date.get('year') or 0
+        month = release_date.get('month') or 0
+        day = release_date.get('day') or 0
+        return f"{year:04d}-{month:02d}-{day:02d}"
+
+    @staticmethod
+    def get_category(mtype: MediaType, imdb_info: dict) -> str:
+        tv_category = {
+            '国漫': {'genres': 'Animation', 'originCountries': 'CN,TW,HK'},
+            '日番': {'genres': 'Animation', 'originCountries': 'JP'},
+            '纪录片': {'genres': 'Documentary'},
+            '综艺': {'genres': 'Reality-TV,Game-Show'},
+            '国产剧': {'originCountries': 'CN,TW,HK'},
+            '欧美剧': {'originCountries': 'US,FR,GB,DE,ES,IT,NL,PT,RU,UK'},
+            '日韩剧': {'originCountries': 'JP,KP,KR,TH,IN,SG'},
+            '未分类': None
+        }
+        movie_category = {
+            '动画电影': {'genres': 'Animation'},
+            '华语电影': {'spokenLanguages': 'zho,cmn,yue,nan'},
+            '外语电影': None}
+        categories = {MediaType.TV: tv_category, MediaType.MOVIE: movie_category}
+        category = categories.get(mtype)
+        if not imdb_info or not category:
+            return ""
+        for key, item in category.items():
+            if not item:
+                return key
+            match_flag = True
+            for attr, value in item.items():
+                if not value:
+                    continue
+                if attr == 'originCountries':
+                    origin_countries = imdb_info.get('originCountries')
+                    info_value = origin_countries[0].get('code') or [] if origin_countries else []
+                elif attr == 'spokenLanguages':
+                    spoken_languages = imdb_info.get('spokenLanguages')
+                    info_value = spoken_languages[0].get('code') or [] if spoken_languages else []
+                else:
+                    info_value = imdb_info.get(attr)
+                if isinstance(info_value, list):
+                    info_values = info_value
+                else:
+                    info_values = [info_value]
+                if value.find(',') != -1:
+                    values = [str(val) for val in value.split(',') if val]
+                else:
+                    values = [str(value)]
+                if not set(values).intersection(set(info_values)):
+                    match_flag = False
+            if match_flag:
+                return key
+        return ""
 
     def advanced_title_search(self,
                               first_page: bool = True,
@@ -489,7 +536,10 @@ class ImdbHelper:
         if r is None:
             return None
         if r.status_code != 200:
-            logger.warn(f"{r.json().get('message')}")
+            try:
+                logger.warn(f"{r.json().get('message')}")
+            except requests.exceptions.JSONDecodeError:
+                return None
             return None
         return r.json()
 
