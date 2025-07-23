@@ -493,5 +493,17 @@
       "v1.0.1": "合并连字符词; 避免ARM平台依赖问题",
       "v1.0": "新增LexiAnnot"
     }
+  },
+  "MeoWMsg": {
+    "name": "MeoW消息通知",
+    "description": "支持使用MeoW发送消息通知。",
+    "labels": "消息通知",
+    "version": "1.0.0",
+    "icon": "MeoW_A.png",
+    "author": "Licardo",
+    "level": 2,
+    "history": {
+      "v1.0.0": "首个版本，新增MeoW消息通知"
+    }
   }
 }
