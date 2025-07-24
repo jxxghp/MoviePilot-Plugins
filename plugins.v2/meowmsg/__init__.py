@@ -1,4 +1,4 @@
-from typing import Any, List, Dict, Tuple
+from typing import Any, List, Dict, Tuple, Optional
 from urllib.parse import parse_qs
 
 from app.core.event import eventmanager, Event
@@ -38,7 +38,7 @@ class MeoWMsg(_PluginBase):
         if config:
             self._enabled = config.get("enabled")
             self._onlyonce = config.get("onlyonce")
-            self._msgtypes = config.get("msgtypes")
+            self._msgtypes = config.get("msgtypes") or []
             self._server = config.get("server")
             self._nickname = config.get("nickname")
 
@@ -190,7 +190,7 @@ class MeoWMsg(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
-    def _send(self, title: str, text: str):
+    def _send(self, title: str, text: str) -> Optional[Tuple[bool, str]]:
         """
         发送消息
         :param title: 标题
