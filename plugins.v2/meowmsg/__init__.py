@@ -7,7 +7,6 @@ from app.plugins import _PluginBase
 from app.schemas.types import EventType, NotificationType
 from app.utils.http import RequestUtils
 
-
 class MeoWMsg(_PluginBase):
     # 插件名称
     plugin_name = "MeoW消息通知"
@@ -16,7 +15,7 @@ class MeoWMsg(_PluginBase):
     # 插件图标
     plugin_icon = "MeoW_A.png"
     # 插件版本
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     # 插件作者
     plugin_author = "Licardo"
     # 作者主页
@@ -39,12 +38,20 @@ class MeoWMsg(_PluginBase):
         if config:
             self._enabled = config.get("enabled")
             self._onlyonce = config.get("onlyonce")
-            self._msgtypes = config.get("msgtypes") or []
+            self._msgtypes = config.get("msgtypes")
             self._server = config.get("server")
             self._nickname = config.get("nickname")
 
         if self._onlyonce:
+            logger.info(f"测试插件，立即运行一次")
             self._onlyonce = False
+            self.update_config({
+                "enabled": self._enabled,
+                "onlyonce": self._onlyonce,
+                "msgtypes": self._msgtypes,
+                "server": self._server,
+                "nickname": self._nickname
+            })
             self._send("MeoW消息测试通知", "MeoW消息通知插件已启用")
 
     def get_state(self) -> bool:
@@ -199,7 +206,7 @@ class MeoWMsg(_PluginBase):
                 code = res_json.get("status")
                 message = res_json.get("msg")
                 if code == 200:
-                    logger.info(f"{self._nickname} MeoW消息发送成功")
+                    logger.info(f"{self._nickname} MeoW消息发送成功，消息内容：{title} - {text}")
                 else:
                     logger.warn(f"{self._nickname} MeoW消息发送失败：{message}")
             elif res is not None:
@@ -208,8 +215,8 @@ class MeoWMsg(_PluginBase):
                 )
             else:
                 logger.warn(f"{self._nickname} MeoW消息发送失败：未获取到返回信息")
-        except Exception as msg_e:
-            logger.error(f"MeoW消息发送失败：{str(msg_e)}")
+        except Exception as e:
+            logger.error(f"MeoW消息发送失败：{str(e)}")
 
     @eventmanager.register(EventType.NoticeMessage)
     def send(self, event: Event):

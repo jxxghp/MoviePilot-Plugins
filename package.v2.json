@@ -498,12 +498,13 @@
     "name": "MeoW消息通知",
     "description": "支持使用MeoW发送消息通知。",
     "labels": "消息通知",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "icon": "MeoW_A.png",
     "author": "Licardo",
     "level": 2,
     "history": {
-      "v1.0.0": "首个版本，新增MeoW消息通知"
+      "v1.0.0": "首个版本，新增MeoW消息通知",
+      "v1.0.1": "优化代码，修复运行一次按钮没办法自动关闭的问题"
     }
   }
 }
