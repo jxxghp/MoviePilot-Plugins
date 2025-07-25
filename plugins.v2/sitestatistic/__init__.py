@@ -323,9 +323,6 @@ class SiteStatistic(_PluginBase):
             if site_prev:
                 previous_data.append(site_prev)
 
-        # 清理垃圾
-        gc.collect()
-
         return latest_day, latest_data, previous_data
 
     @staticmethod
@@ -946,9 +943,6 @@ class SiteStatistic(_PluginBase):
                 ]
             }
         ]
-
-        # 清理垃圾
-        gc.collect()
 
         return page
 
