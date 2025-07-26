@@ -5109,6 +5109,7 @@ async function saveRule() {
   const {valid} = await ruleForm.value.validate();
   if (!valid) return;
   try {
+    newRule.value.payload = newRule.value.payload.trim();
     const requestData = {
       type: editingType.value, // "top" 或 "ruleset"
       priority: editingPriority.value,

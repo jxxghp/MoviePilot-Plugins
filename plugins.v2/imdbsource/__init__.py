@@ -1,6 +1,7 @@
 from typing import Optional, Any, List, Dict, Tuple
 from datetime import datetime
 import re
+import urllib.parse
 
 from apscheduler.schedulers.background import BackgroundScheduler
 import zhconv
@@ -28,7 +29,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.5.1"
+    plugin_version = "1.5.2"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -961,7 +962,7 @@ class ImdbSource(_PluginBase):
                       lang: str = None,
                       genre: str = None,
                       sort_by: str = 'POPULARITY',
-                      sort_order: str = 'ASC',
+                      sort_order: str = 'DESC',
                       using_rating: bool = False,
                       user_rating: str = None,
                       year: str = None,
@@ -1021,6 +1022,8 @@ class ImdbSource(_PluginBase):
                 release_date_end = "1979-12-31"
         if not release_date_end:
             release_date_end = datetime.now().date().strftime("%Y-%m-%d")
+        if sort_by == 'POPULARITY':
+            sort_order = 'ASC' if sort_order == 'DESC' else 'DESC'
         awards = (award,) if award else None
         ranked_lists = (ranked_list,) if ranked_list else None
         first_page = False
@@ -1239,8 +1242,8 @@ class ImdbSource(_PluginBase):
         ]
 
         sort_order_dict = {
-            "ASC": "升序",
             "DESC": "降序",
+            "ASC": "升序"
         }
 
         sort_order_ui = [
@@ -1660,7 +1663,7 @@ class ImdbSource(_PluginBase):
                 "genre": None,
                 "lang": None,
                 "sort_by": "POPULARITY",
-                "sort_order": "ASC",
+                "sort_order": "DESC",
                 "status": None,
                 "year": None,
                 "user_rating": 1,
@@ -1720,7 +1723,7 @@ class ImdbSource(_PluginBase):
                 source_type = 'TV Shows'
             source = schemas.RecommendMediaSource(
                 name=f"Trending {interest} on IMDb",
-                api_path=f"plugin/ImdbSource/trending?interest={interest}",
+                api_path=f"plugin/ImdbSource/trending?interest={urllib.parse.quote(interest)}",
                 type=source_type
             )
             trending_source.append(source)
@@ -1805,7 +1808,7 @@ class ImdbSource(_PluginBase):
         origin_countries = info.get('originCountries') or []
         mediainfo.origin_country = [origin_country.get('code', '') for origin_country in origin_countries]
         mediainfo.poster_path = (info.get('primaryImage') or {}).get('url')
-        mediainfo.genres = info.get('genres') or []
+        mediainfo.genres = [{"id": genre, "name": genre} for genre in info.get("genres") or []]
         directors = []
         actors = []
         for credit in (info.get('credits') or []):
