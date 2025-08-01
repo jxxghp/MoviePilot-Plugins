@@ -4,7 +4,6 @@ import urllib
 from typing import Any, Optional, List, Dict, Tuple, Union
 import time
 from urllib.parse import urlparse
-
 import yaml
 import hashlib
 from datetime import datetime, timedelta
@@ -14,7 +13,6 @@ import math
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-import httpx
 import asyncio
 from fastapi import HTTPException, Request, status, Body, Response
 import websockets
@@ -23,9 +21,10 @@ from sse_starlette.sse import EventSourceResponse
 from app import schemas
 from app.core.config import settings
 from app.log import logger
-from app.plugins import _PluginBase
 from app.schemas.types import NotificationType
-from app.utils.http import RequestUtils
+from app.utils.ip import IpUtils
+from app.utils.http import RequestUtils, AsyncRequestUtils
+from app.plugins import _PluginBase
 from app.plugins.clashruleprovider.clashruleparser import ClashRuleParser, Converter
 from app.plugins.clashruleprovider.clashruleparser import Action, RuleType, ClashRule, MatchRule, LogicRule
 from app.plugins.clashruleprovider.clashruleparser import ProxyGroup, RuleProvider
@@ -39,7 +38,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.2.8"
+    plugin_version = "1.3.1"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -77,6 +76,8 @@ class ClashRuleProvider(_PluginBase):
     _dashboard_components: List[str] = []
     _clash_template_yaml: str = ''
     _hint_geo_dat: bool = False
+    # Cloudflare 优选 IPs 可通过外部设置
+    _best_cf_ip: List[str] = []
 
     # 插件数据
     _top_rules: List[str] = []
@@ -91,6 +92,7 @@ class ClashRuleProvider(_PluginBase):
     _acl4ssr_prefix: str = '🗂️=>'
     # 保存每个订阅文件的原始内容
     _clash_configs: Dict[str, Any] = {}
+    _hosts: List[Dict[str, Any]] = []
 
     # protected variables
     _clash_rule_parser = None
@@ -111,6 +113,7 @@ class ClashRuleProvider(_PluginBase):
         self._ruleset_names = self.get_data("ruleset_names") or {}
         self._acl4ssr_providers = self.get_data("acl4ssr_providers") or {}
         self._clash_configs = self.get_data("clash_configs") or {}
+        self._hosts = self.get_data("hosts") or []
         if config:
             self._enabled = config.get("enabled")
             self._proxy = config.get("proxy")
@@ -126,7 +129,7 @@ class ClashRuleProvider(_PluginBase):
             self._movie_pilot_url = config.get("movie_pilot_url")
             if self._movie_pilot_url and self._movie_pilot_url[-1] == '/':
                 self._movie_pilot_url = self._movie_pilot_url[:-1]
-            self._cron = config.get("cron_string")
+            self._cron = config.get("cron_string") or '30 12 * * *'
             self._timeout = config.get("timeout")
             self._retry_times = config.get("retry_times") or 3
             self._filter_keywords = config.get("filter_keywords")
@@ -140,6 +143,7 @@ class ClashRuleProvider(_PluginBase):
             self._dashboard_components = config.get("dashboard_components") or []
             self._clash_template_yaml = config.get("clash_template") or ''
             self._hint_geo_dat = config.get("hint_geo_dat", False)
+            self._best_cf_ip = config.get("best_cf_ip") or []
         self._clash_rule_parser = ClashRuleParser()
         self._ruleset_rule_parser = ClashRuleParser()
         self._clash_template = {}
@@ -368,6 +372,30 @@ class ClashRuleProvider(_PluginBase):
                 "description": "导入规则"
             },
             {
+                "path": "/hosts",
+                "endpoint": self.get_hosts,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "获取 Hosts",
+                "description": "获取 Hosts"
+            },
+            {
+                "path": "/host",
+                "endpoint": self.update_hosts,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "更新 Host",
+                "description": "更新 Host"
+            },
+            {
+                "path": "/host",
+                "endpoint": self.delete_host,
+                "methods": ["DELETE"],
+                "auth": "bear",
+                "summary": "删除一条 Host",
+                "description": "删除一条 Host"
+            },
+            {
                 "path": "/config",
                 "endpoint": self.get_clash_config,
                 "methods": ["GET"],
@@ -471,6 +499,16 @@ class ClashRuleProvider(_PluginBase):
             }]
         return []
 
+    def update_best_cf_ip(self, ips: List[str]):
+        """
+        通过深拷贝更新 Cloudflare 优选 IPs
+        :param ips: Best Cloudflare IPs
+        """
+        self._best_cf_ip = [*ips]
+        config = self.get_config()
+        config['best_cf_ip'] = self._best_cf_ip
+        self.update_config(config)
+
     def __save_data(self):
         self.__insert_ruleset()
         self._top_rules = self._clash_rule_parser.to_list()
@@ -485,6 +523,7 @@ class ClashRuleProvider(_PluginBase):
         self.save_data('extra_rule_providers', self._extra_rule_providers)
         self.save_data('acl4ssr_providers', self._acl4ssr_providers)
         self.save_data('clash_configs', self._clash_configs)
+        self.save_data('hosts', self._hosts)
 
     def __parse_config(self):
         if self._top_rules is None:
@@ -505,6 +544,7 @@ class ClashRuleProvider(_PluginBase):
         queue = asyncio.Queue()
         ws_base = self._clash_dashboard_url.replace('http://', 'ws://').replace('https://', 'wss://')
         url = f"{ws_base}/{endpoint}?token={self._clash_dashboard_secret}"
+
         async def clash_ws_listener():
             try:
                 async with websockets.connect(url, ping_interval=None) as ws:
@@ -536,34 +576,32 @@ class ClashRuleProvider(_PluginBase):
     async def fetch_clash_data(self, endpoint: str) -> Dict:
         clash_headers = {"Authorization": f"Bearer {self._clash_dashboard_secret}"}
         url = f"{self._clash_dashboard_url}/{endpoint}"
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(url, headers=clash_headers, timeout=5.0)
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPError as e:
-                raise HTTPException(status_code=502, detail=f"Failed to fetch {endpoint}: {str(e)}")
+        response = await AsyncRequestUtils().get_res(url, headers=clash_headers, timeout=10)
+        if response is None:
+            raise HTTPException(status_code=502, detail=f"Failed to fetch {endpoint}")
+        return response.json()
 
     async def clash_proxy(self, path: str) -> Dict:
         return await self.fetch_clash_data(path)
 
-    def test_connectivity(self, params: Dict[str, Any]) -> schemas.Response:
+    async def test_connectivity(self, params: Dict[str, Any]) -> schemas.Response:
         if not self._enabled:
             return schemas.Response(success=False, message="")
         if not params.get('clash_dashboard_url') or not params.get('clash_dashboard_secret') \
-                or not params.get('sub_link'):
+                or not params.get('sub_links'):
             return schemas.Response(success=True, message="missing params")
         clash_version_url = f"{params.get('clash_dashboard_url')}/version"
-        ret = RequestUtils(accept_type="application/json",
+        ret = await AsyncRequestUtils(accept_type="application/json",
                            headers={"authorization": f"Bearer {params.get('clash_dashboard_secret')}"}
                            ).get(clash_version_url)
-        if not ret:
+        if ret is None:
             return schemas.Response(success=False, message="无法连接到Clash")
-        ret = RequestUtils(accept_type="text/html",
-                           proxies=settings.PROXY if self._proxy else None
-                           ).get(params.get('sub_link'))
-        if not ret:
-            return schemas.Response(success=False, message=f"Unable to get {params.get('sub_link')}")
+        for sub_link in (params.get('sub_links') or []):
+            ret = await AsyncRequestUtils(accept_type="text/html",
+                               proxies=settings.PROXY if self._proxy else None
+                               ).get(sub_link)
+            if ret is None:
+                return schemas.Response(success=False, message=f"Unable to fetch {sub_link}")
         return schemas.Response(success=True, message="测试连接成功")
 
     def get_ruleset(self, name):
@@ -585,6 +623,7 @@ class ClashRuleProvider(_PluginBase):
                 "data": {"state": self._enabled,
                          "ruleset_prefix": self._ruleset_prefix,
                          "clash": {"rule_size": rule_size},
+                         "best_cf_ip": self._best_cf_ip,
                          "geoRules": self._geo_rules,
                          "subscription_info": self._subscription_info,
                          "sub_url": f"{self._movie_pilot_url}/api/v1/plugin/ClashRuleProvider/config?"
@@ -607,6 +646,47 @@ class ClashRuleProvider(_PluginBase):
                                             f'total={sub_info.get("total", 0)}; '
                                             f'expire={sub_info.get("expire", 0)}'}
         return Response(headers=headers, content=res, media_type="text/yaml")
+
+    def get_hosts(self) -> schemas.Response:
+        if not self._enabled:
+            schemas.Response(success=True, message='', data={'hosts': []})
+        return schemas.Response(success=True, message='', data={'hosts': self._hosts})
+
+    def update_hosts(self, params: dict = Body(...)) -> schemas.Response:
+        if not self._enabled:
+            return schemas.Response(success=False, message='')
+        domain = params.get('domain')
+        if not domain:
+            return schemas.Response(success=False, message=f"Invalid param: domain={domain}")
+        # Search for the host with the same domain
+        for i, host in enumerate(self._hosts):
+            if host['domain'] == domain:
+                # Update the existing host
+                self._hosts[i] = {**host, **params.get('value', {})}
+                self.save_data('hosts', self._hosts)
+                return schemas.Response(success=True, message=f'Host for domain {domain} updated successfully.')
+
+        self._hosts.append(params.get('value', {}))
+        self.save_data('hosts', self._hosts)
+
+        return schemas.Response(success=True, message=f"New host for domain {domain} added successfully.")
+
+    def delete_host(self, params: dict = Body(...)) -> schemas.Response:
+        if not self._enabled:
+            return schemas.Response(success=False, message='Host deletion is disabled.')
+
+        domain = params.get('domain')
+        if not domain:
+            return schemas.Response(success=False, message=f"Invalid param: domain={domain}")
+
+        original_hosts_length = len(self._hosts)
+        self._hosts = [host for host in self._hosts if host.get('domain') != domain]
+        self.save_data('hosts', self._hosts)
+
+        if len(self._hosts) < original_hosts_length:
+            return schemas.Response(success=True, message=f'Host for domain {domain} deleted successfully.')
+        else:
+            return schemas.Response(success=False, message=f'Host for domain {domain} not found.')
 
     def get_rules(self, rule_type: str) -> schemas.Response:
         if rule_type == 'ruleset':
@@ -664,9 +744,9 @@ class ClashRuleProvider(_PluginBase):
             self.__update_rules(params.get('rules'), self._clash_rule_parser)
         return schemas.Response(success=True)
 
-    def update_rule(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def update_rule(self, params: Dict[str, Any]) -> schemas.Response:
         if not self._enabled:
-            return {"success": False, "message": ""}
+            return schemas.Response(success=False, message='')
         if params.get('type') == 'ruleset':
             original_rule = self._ruleset_rule_parser.get_rule_at_priority(params.get('priority'))
             res = self.update_rule_by_priority(params.get('rule_data'),
@@ -679,7 +759,7 @@ class ClashRuleProvider(_PluginBase):
                 self.__add_notification_job(ruleset_to_notify)
         else:
             res = self.update_rule_by_priority(params.get('rule_data'), params.get('priority'), self._clash_rule_parser)
-        return {"success": bool(res), "message": None}
+        return schemas.Response(success=bool(res), message='')
 
     def add_rule(self, params: Dict[str, Any]) -> schemas.Response:
         if not self._enabled:
@@ -697,7 +777,7 @@ class ClashRuleProvider(_PluginBase):
             return schemas.Response(success=False, message="")
         url = params.get('url')
         if not url:
-            return schemas.Response(success=False, message="missing params")
+            return schemas.Response(success=False, message="Missing params")
         config, info = self.__get_subscription(url)
         if not config:
             return schemas.Response(success=False, message=f"订阅链接 {url} 更新失败")
@@ -1051,12 +1131,14 @@ class ClashRuleProvider(_PluginBase):
     def refresh_subscription_service(self):
         res = self.refresh_subscriptions()
         messages = []
+        index = 1
         for url, result in res.items():
             try:
                 host_name = urlparse(url).hostname
             except ValueError:
                 host_name = url
-            message = f"1. 「 {host_name} 」\n"
+            message = f"{index}. 「 {host_name} 」\n"
+            index += 1
             if result:
                 sub_info = self._subscription_info.get(url, {})
                 if sub_info.get('total') is not None:
@@ -1389,6 +1471,16 @@ class ClashRuleProvider(_PluginBase):
                 continue
             top_rules.append(rule.raw_rule)
         clash_config["rules"] = top_rules
+
+        # 添加 Hosts
+        if self._hosts:
+            clash_config.setdefault('hosts', {})
+            new_hosts = {
+                item['domain']: item.get('value', []) if not item.get('using_cloudflare') else self._best_cf_ip
+                for item in self._hosts if item.get('domain')
+            }
+            clash_config["hosts"] = {**clash_config["hosts"], **new_hosts}
+
         if self._rule_provider:
             clash_config['rule-providers'] = clash_config.get('rule-providers') or {}
             clash_config['rule-providers'].update(self._rule_provider)
@@ -1404,3 +1496,13 @@ class ClashRuleProvider(_PluginBase):
         self.save_data('ruleset_names', self._ruleset_names)
         self.save_data('rule_provider', self._rule_provider)
         return clash_config
+
+    @property
+    def best_cf_ipv4(self) -> List[str]:
+        v4 = [ip for ip in self._best_cf_ip if IpUtils.is_ipv4(ip)]
+        return v4
+
+    @property
+    def best_cf_ipv6(self) -> List[str]:
+        v6 = [ip for ip in self._best_cf_ip if IpUtils.is_ipv6(ip)]
+        return v6
