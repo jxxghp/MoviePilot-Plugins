@@ -1,3 +1,2 @@
 websockets
-httpx~=0.28.1
 sse_starlette~=2.3.6
