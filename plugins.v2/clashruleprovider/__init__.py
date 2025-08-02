@@ -649,7 +649,7 @@ class ClashRuleProvider(_PluginBase):
 
     def get_hosts(self) -> schemas.Response:
         if not self._enabled:
-            schemas.Response(success=True, message='', data={'hosts': []})
+            return schemas.Response(success=True, message='', data={'hosts': []})
         return schemas.Response(success=True, message='', data={'hosts': self._hosts})
 
     def update_hosts(self, params: dict = Body(...)) -> schemas.Response:
@@ -660,13 +660,16 @@ class ClashRuleProvider(_PluginBase):
             return schemas.Response(success=False, message=f"Invalid param: domain={domain}")
         # Search for the host with the same domain
         for i, host in enumerate(self._hosts):
-            if host['domain'] == domain:
+            if host.get('domain') == domain:
                 # Update the existing host
                 self._hosts[i] = {**host, **params.get('value', {})}
                 self.save_data('hosts', self._hosts)
                 return schemas.Response(success=True, message=f'Host for domain {domain} updated successfully.')
 
-        self._hosts.append(params.get('value', {}))
+        new_host = params.get('value', {})
+        if not new_host.get('domain'):
+            return schemas.Response(success=False, message=f"Invalid param: value={new_host}")
+        self._hosts.append(new_host)
         self.save_data('hosts', self._hosts)
 
         return schemas.Response(success=True, message=f"New host for domain {domain} added successfully.")
