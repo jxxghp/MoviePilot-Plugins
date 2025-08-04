@@ -106,7 +106,7 @@ class ImdbSource(_PluginBase):
         # 保存原始方法
         if not (hasattr(ChainBase.async_recognize_media, "_patched_by") and
                 ChainBase.async_recognize_media._patched_by == id(self)):
-            self._original_method = getattr(ChainBase, "async_recognize_media", None)
+            self._original_async_method = getattr(ChainBase, "async_recognize_media", None)
 
         if config:
             self._enabled = config.get("enabled")
@@ -149,8 +149,8 @@ class ImdbSource(_PluginBase):
                 # 恢复 ChainBase.async_recognize_media
                 if (hasattr(ChainBase.async_recognize_media, "_patched_by") and
                         ChainBase.async_recognize_media._patched_by == id(self) and
-                        self._original_method):
-                    ChainBase.async_recognize_media = self._original_method
+                        self._original_async_method):
+                    ChainBase.async_recognize_media = self._original_async_method
         else:
             self.stop_service()
 
@@ -746,8 +746,8 @@ class ImdbSource(_PluginBase):
             ChainBase.recognize_media = self._original_method
         if (hasattr(ChainBase.async_recognize_media, "_patched_by") and
                 ChainBase.async_recognize_media._patched_by == id(self) and
-                self._original_method):
-            ChainBase.async_recognize_media = self._original_method
+                self._original_async_method):
+            ChainBase.async_recognize_media = self._original_async_method
 
     def get_module(self) -> Dict[str, Any]:
         """

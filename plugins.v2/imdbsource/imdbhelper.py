@@ -97,8 +97,7 @@ class ImdbHelper:
     @cached(maxsize=128, ttl=1800)
     def _query_graphql(self, query: str, variables: Dict[str, Any]) -> Optional[Dict]:
         params = {'query': query, 'variables': variables}
-        data = RequestUtils(proxies=self._proxies, headers=self._imdb_headers, timeout=10).post_json(
-            f"{self._official_endpoint}", json=params, raise_exception=True)
+        data = self._imdb_req.post_json(f"{self._official_endpoint}", json=params, raise_exception=True)
         if not data:
             return None
         if "errors" in data:

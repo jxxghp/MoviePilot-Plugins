@@ -1531,5 +1531,5 @@ class ClashRuleProvider(_PluginBase):
         if isinstance(ips, str):
             ips = [ips]
         if isinstance(ips, list):
-            logger.info(f"更新 Clooudflare 优选 IP ...")
+            logger.info(f"更新 Cloudflare 优选 IP ...")
             self.update_best_cf_ip(ips)
