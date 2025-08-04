@@ -462,11 +462,12 @@
     "name": "Clash Rule Provider",
     "description": "随时为Clash添加一些额外的规则。",
     "labels": "工具",
-    "version": "1.3.1",
+    "version": "1.3.2",
     "icon": "Mihomo_Meta_A.png",
     "author": "wumode",
     "level": 1,
     "history": {
+      "v1.3.2": "注册插件动作",
       "v1.3.1": "支持配置 Hosts",
       "v1.2.8": "改进导入界面",
       "v1.2.7": "修复分享链接解析错误",

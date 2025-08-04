@@ -5,6 +5,7 @@
 - 即时通知 Clash 刷新规则集合
 - 基于 Meta 内核丰富的代理组配置，提供灵活的路由功能
 - 支持按大洲分组节点
+- GEO 规则输入提示
 - 支持 [ACL4SSR](https://github.com/ACL4SSR/ACL4SSR) 规则集合
 
 ## 配置说明
@@ -36,3 +37,7 @@
 在**高级选项**中启用按大洲分组节点。选择Asia以外的代理组，设置`url`: `https://chatgpt.com/` , `expected-status`: `200` 。
 
 ![](https://images2.imgbox.com/e2/37/EoITSfRi_o.jpg)
+
+### Hosts
+
+如果需要自动更新此处使用的 Cloudflare IP, 可以通过其它[插件](https://github.com/wumode/MoviePilot-Addons)实现。
