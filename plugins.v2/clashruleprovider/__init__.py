@@ -20,6 +20,8 @@ from sse_starlette.sse import EventSourceResponse
 
 from app import schemas
 from app.core.config import settings
+from app.core.event import eventmanager, Event
+from app.schemas.types import EventType
 from app.log import logger
 from app.schemas.types import NotificationType
 from app.utils.ip import IpUtils
@@ -38,7 +40,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.3.1"
+    plugin_version = "1.3.2"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -103,6 +105,7 @@ class ClashRuleProvider(_PluginBase):
     _geo_rules: Dict[str, List[str]] = {'geoip': [], 'geosite': []}
 
     def init_plugin(self, config: dict = None):
+        self.stop_service()
         self._ruleset_rules = self.get_data("ruleset_rules")
         self._top_rules = self.get_data("top_rules")
         self._proxy_groups = self.get_data("proxy_groups") or []
@@ -486,7 +489,14 @@ class ClashRuleProvider(_PluginBase):
         """
         退出插件
         """
-        pass
+        if self._scheduler:
+            try:
+                self._scheduler.remove_all_jobs()
+                if self._scheduler.running:
+                    self._scheduler.shutdown()
+                self._scheduler = None
+            except Exception as e:
+                logger.error(f"退出插件失败：{e}")
 
     def get_service(self) -> List[Dict[str, Any]]:
         if self.get_state() and self._auto_update_subscriptions and self._sub_links:
@@ -576,10 +586,10 @@ class ClashRuleProvider(_PluginBase):
     async def fetch_clash_data(self, endpoint: str) -> Dict:
         clash_headers = {"Authorization": f"Bearer {self._clash_dashboard_secret}"}
         url = f"{self._clash_dashboard_url}/{endpoint}"
-        response = await AsyncRequestUtils().get_res(url, headers=clash_headers, timeout=10)
+        response = await AsyncRequestUtils().get_json(url, headers=clash_headers, timeout=10)
         if response is None:
             raise HTTPException(status_code=502, detail=f"Failed to fetch {endpoint}")
-        return response.json()
+        return response
 
     async def clash_proxy(self, path: str) -> Dict:
         return await self.fetch_clash_data(path)
@@ -1329,6 +1339,8 @@ class ClashRuleProvider(_PluginBase):
         return None
 
     def __add_notification_job(self, ruleset_names: List[str]):
+        if not self._enabled or not self._scheduler:
+            return
         for ruleset in ruleset_names:
             if ruleset in self._rule_provider:
                 self._scheduler.add_job(self.notify_clash, "date",
@@ -1509,3 +1521,15 @@ class ClashRuleProvider(_PluginBase):
     def best_cf_ipv6(self) -> List[str]:
         v6 = [ip for ip in self._best_cf_ip if IpUtils.is_ipv6(ip)]
         return v6
+
+    @eventmanager.register(EventType.PluginAction)
+    def update_cloudflare_ips_handler(self, event:Event = None):
+        event_data = event.event_data
+        if not event_data or event_data.get("action") != "update_cloudflare_ips":
+            return
+        ips = event_data.get("ips")
+        if isinstance(ips, str):
+            ips = [ips]
+        if isinstance(ips, list):
+            logger.info(f"更新 Cloudflare 优选 IP ...")
+            self.update_best_cf_ip(ips)
