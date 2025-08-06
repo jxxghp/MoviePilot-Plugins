@@ -689,9 +689,9 @@ class TorrentTransfer(_PluginBase):
 
         torrents = from_downloader.get_completed_torrents()
         if torrents:
-            logger.info(f"下载器 {from_service.name} 已完成种子数：{len(torrents)}")
+            logger.info(f"下载器 {from_service.name} 已做种的种子数：{len(torrents)}")
         else:
-            logger.info(f"下载器 {from_service.name} 没有已完成种子")
+            logger.info(f"下载器 {from_service.name} 没有已做种的种子")
             return
 
         # 过滤种子，记录保存目录
