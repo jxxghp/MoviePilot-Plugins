@@ -29,7 +29,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.5.3"
+    plugin_version = "1.5.4"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -1788,6 +1788,8 @@ class ImdbSource(_PluginBase):
         """
         if not self._enabled:
             return None
+        if kwargs.get('tmdbid') or kwargs.get('doubanid') or kwargs.get('bangumiid'):
+            return None
         if not meta:
             return None
         elif not meta.name:
@@ -1847,6 +1849,9 @@ class ImdbSource(_PluginBase):
         :return: 识别的媒体信息，包括剧集信息
         """
         if not self._enabled:
+            return None
+        # when external id exists
+        if kwargs.get('tmdbid') or kwargs.get('doubanid') or kwargs.get('bangumiid'):
             return None
         if not meta:
             return None
@@ -1960,7 +1965,7 @@ class ImdbSource(_PluginBase):
             None: ['tv', 'movie']
         }
         allowed_types = type_map.get(media_info.type, ['tv', 'movie'])
-        filtered = [res for res in all_results if res.get('type') in allowed_types]
+        filtered = [res for res in all_results if res.get('media_type') in allowed_types]
 
         # 定义一个过滤链：每次过滤后如果只剩一个结果就返回
         def filter_and_return(results, predicate):
