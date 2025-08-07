@@ -29,7 +29,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.5.4"
+    plugin_version = "1.5.5"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -121,8 +121,8 @@ class ImdbSource(_PluginBase):
                     self._interests = [self._interests]
             self._component_size = config.get("component_size") or "medium"
             self._recognition_mode = config.get("recognition_mode") or "auxiliary"
-            self._imdb_helper = ImdbHelper(proxies=settings.PROXY if self._proxy else None)
             self.__update_config()
+        self._imdb_helper = ImdbHelper(proxies=settings.PROXY if self._proxy else None)
         if "media-amazon.com" not in settings.SECURITY_IMAGE_DOMAINS:
             settings.SECURITY_IMAGE_DOMAINS.append("media-amazon.com")
         if "media-imdb.com" not in settings.SECURITY_IMAGE_DOMAINS:
