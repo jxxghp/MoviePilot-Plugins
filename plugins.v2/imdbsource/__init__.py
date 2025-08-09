@@ -55,7 +55,8 @@ class ImdbSource(_PluginBase):
     _cache: Dict[str, Any] = {"discover": [], "trending": [], "imdb_top_250": [], "staff_picks": {}}
     _img_proxy_prefix: str = ''
     _scheduler: Optional[BackgroundScheduler] = None
-    _original_method: Optional[Callable[..., Coroutine[Any, Any, Optional[MediaInfo]]]] = None
+    _original_method: Optional[Callable] = None
+    _original_async_method: Optional[Callable[..., Coroutine[Any, Any, Optional[MediaInfo]]]] = None
 
     def init_plugin(self, config: dict = None):
 
@@ -86,9 +87,9 @@ class ImdbSource(_PluginBase):
                                                 episode_group: Optional[str] = None,
                                                 cache: bool = True):
             # 调用原始方法
-            if not plugin_instance._original_method:
+            if not plugin_instance._original_async_method:
                 return None
-            result = await plugin_instance._original_method(chain_self, meta, mtype, tmdbid, doubanid, bangumiid,
+            result = await plugin_instance._original_async_method(chain_self, meta, mtype, tmdbid, doubanid, bangumiid,
                                                             episode_group, cache)
             if result is None and plugin_instance._enabled and plugin_instance._recognize_media:
                 logger.info(f"通过插件 {plugin_instance.plugin_name} 执行：async_recognize_media ...")
