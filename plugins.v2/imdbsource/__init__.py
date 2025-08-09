@@ -29,7 +29,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.5.5"
+    plugin_version = "1.5.6"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -89,7 +89,7 @@ class ImdbSource(_PluginBase):
             if not plugin_instance._original_method:
                 return None
             result = await plugin_instance._original_method(chain_self, meta, mtype, tmdbid, doubanid, bangumiid,
-                                                      episode_group, cache)
+                                                            episode_group, cache)
             if result is None and plugin_instance._enabled and plugin_instance._recognize_media:
                 logger.info(f"通过插件 {plugin_instance.plugin_name} 执行：async_recognize_media ...")
                 return await plugin_instance.async_recognize_media(meta, mtype)
@@ -196,6 +196,7 @@ class ImdbSource(_PluginBase):
         # 列配置
         size_config = {
             "small": {"cols": {"cols": 12, "md": 4}, "height": 335},
+            "medium-small": {"cols": {"cols": 12, "md": 6}, "height": 335},
             "medium": {"cols": {"cols": 12, "md": 8}, "height": 335},
         }
         config = size_config.get(self._component_size, 'medium')
@@ -258,7 +259,7 @@ class ImdbSource(_PluginBase):
                 'props': {
                     'src': primary_img_url,
                     'cover': True,
-                    'position': 'center',
+                    'position': 'top',
                 },
                 'content': [
                     {
@@ -356,22 +357,26 @@ class ImdbSource(_PluginBase):
                 'props': {
                     'src': poster_url,
                     'alt': '海报',
-                    'max-width': str(180),
                     'cover': True,
-                    'class': 'rounded mx-auto aspect-[2/3]'
+                    'class': 'rounded',
+                    'max-width': '160',
+                    'max-height': '240',
+                    'style': 'height: auto; aspect-ratio: 2/3;',
                 }
             }
+
             poster_ui = {
                 'component': 'div',
                 'props': {
-                    'class': 'align-center mt-2',
+                    'class': 'd-flex justify-center mt-2'
                 },
                 'content': [
                     {
                         'component': 'a',
                         'props': {
-                            'href': f"#{mp_url}",
-                            'class': 'no-underline w-100 h-100',
+                            'href': f'#{mp_url}',
+                            'class': 'no-underline w-100',
+                            'style': 'display: flex; justify-content: center;'
                         },
                         'content': [
                             poster_com
@@ -434,7 +439,7 @@ class ImdbSource(_PluginBase):
                 'props': {
                     'src': primary_img_url,
                     'cover': True,
-                    'position': 'center'
+                    'position': 'top'
                 },
                 'content': [
                     {
@@ -462,7 +467,7 @@ class ImdbSource(_PluginBase):
                                         'component': 'VCol',
                                         'props': {
                                             'cols': 12,
-                                            'md': 3,
+                                            'md': 3
                                         },
                                         'content': [
                                             poster_ui
@@ -678,6 +683,7 @@ class ImdbSource(_PluginBase):
                                             'label': '组件规格',
                                             'items': [
                                                 {"title": "小型", "value": "small"},
+                                                {"title": "中小型", "value": "medium-small"},
                                                 {"title": "中型", "value": "medium"}
                                             ]
                                         }
@@ -720,7 +726,74 @@ class ImdbSource(_PluginBase):
                                 ]
                             }
                         ]
-                    }
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'title': '代理设置',
+                                            'text': '可能需要通过代理访问的域名：「media-amazon.com」「media-imdb.com」「imdbapi.dev」「imdb.com」'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'border': 'start',
+                                            'border-color': 'info',
+                                            'variant': 'tonal',
+                                            'title': 'About IMDbAPI'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'text': 'This plugin makes partial use of the Free IMDb API (imdbapi.dev), courtesy of '
+                                            },
+                                            {
+                                                'component': 'a',
+                                                'props': {
+                                                    'href': 'https://t.me/imdbapi',
+                                                    'target': '_blank'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'u',
+                                                        'text': '@reflect pprof'
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'span',
+                                                'text': '. Huge thanks for this fantastic API!'
+                                            },
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
                 ]
             }
         ], {
@@ -902,11 +975,11 @@ class ImdbSource(_PluginBase):
             remaining = count - len(results)
             self._cache[interest] = []  # 清空缓存
             data = await self._imdb_helper.async_advanced_title_search(first_page=first_page,
-                                                           title_types=title_types,
-                                                           sort_by="POPULARITY",
-                                                           sort_order="ASC",
-                                                           interests=(interest,)
-                                                           )
+                                                                       title_types=title_types,
+                                                                       sort_by="POPULARITY",
+                                                                       sort_order="ASC",
+                                                                       interests=(interest,)
+                                                                       )
             if not data:
                 new_results = []
             else:

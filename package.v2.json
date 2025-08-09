@@ -436,11 +436,12 @@
     "name": "IMDb源",
     "description": "让探索，推荐和媒体识别支持IMDb数据源。",
     "labels": "探索",
-    "version": "1.5.5",
+    "version": "1.5.6",
     "icon": "IMDb_IOS-OSX_App.png",
     "author": "wumode",
     "level": 1,
     "history": {
+      "v1.5.6": "固定仪表盘组件海报比例",
       "v1.5.5": "修复初始化错误",
       "v1.5.4": "改进媒体识别",
       "v1.5.3": "异步执行; 修复 bugs (主程序版本需要高于 2.6.8)",
