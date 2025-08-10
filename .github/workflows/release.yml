@@ -90,15 +90,18 @@ jobs:
               rm -f "$asset"
               (cd "$(dirname "$plugin_dir")" && zip -r "$GITHUB_WORKSPACE/$asset" "$(basename "$plugin_dir")" -x "*/__pycache__/*" -x "*.pyc") >/dev/null
 
-              # If same tag exists, delete release and remote tag first
+              # If same tag exists, delete release and both remote/local tag first
               if gh release view "$tag" >/dev/null 2>&1; then
                 echo "Release $tag exists, deleting..."
                 gh release delete "$tag" -y
                 git push origin :refs/tags/"$tag" || true
               fi
 
+              # Ensure no stale local tag remains
+              git tag -d "$tag" >/dev/null 2>&1 || true
+
               echo "Creating release $tag"
-              gh release create "$tag" "$asset" --title "$tag" --notes "Automated release of $plugin_id $plugin_version" --latest
+              gh release create "$tag" "$asset" --title "$tag" --notes "Automated release of $plugin_id $plugin_version" --latest --target "$GITHUB_SHA"
 
               echo "$tag" >> processed_tags.txt
             done
