@@ -1183,7 +1183,7 @@ def get_actions(self) -> List[Dict[str, Any]]:
 }
 ```
 - 新增加的插件请配置在`package.json`中的末尾，这样可被识别为最新增加，可用于用户排序。
-- 默认通过遍历下载项目文件的方式安装插件，如果插件文件较多，可以使用release的方式发布插件，package对应的插件描述中增加`release`字段并设置为`true`，此时插件安装时会直接下载tag为`插件ID_插件版本号`的release包，release打包脚本参照插件仓库中的`release.yml`脚本。
+- 默认通过遍历下载项目文件的方式安装插件，如果插件文件较多，可以使用release的方式发布插件，package对应的插件描述中增加`release`字段并设置为`true`，此时插件安装时会直接下载tag为`插件ID_v插件版本号`的release包，release打包脚本参照插件仓库中的`release.yml`脚本。
 ```json
 {
   "release": true
