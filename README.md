@@ -1183,6 +1183,12 @@ def get_actions(self) -> List[Dict[str, Any]]:
 }
 ```
 - 新增加的插件请配置在`package.json`中的末尾，这样可被识别为最新增加，可用于用户排序。
+- 如果插件文件较多，可以使用release包的方式发布插件，package对应的插件描述中增加`release`字段，指向release的tag名称：
+```json
+{
+  "release": "XxxPlugin v1.0.0"
+}
+```
 
 ### 2. 如何开发V2版本的插件以及实现插件多版本兼容？
 
