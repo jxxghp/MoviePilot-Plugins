@@ -1,11 +1,11 @@
-import re
-from typing import List, Dict, Any, Optional, Union, Callable, Literal
-from dataclasses import dataclass
-from enum import Enum
-from urllib.parse import urlparse, parse_qs, unquote, parse_qsl, urlencode, urlunparse
-import json
 import base64
 import binascii
+import json
+import re
+from dataclasses import dataclass
+from enum import Enum
+from typing import List, Dict, Any, Optional, Union, Callable, Literal
+from urllib.parse import urlparse, parse_qs, unquote, parse_qsl
 
 from pydantic import BaseModel, Field, validator, HttpUrl
 
@@ -56,8 +56,10 @@ class RuleProvider(BaseModel):
             raise ValueError("mrs format only supports 'domain' or 'ipcidr' behavior")
         return v
 
+
 class RuleProviders(BaseModel):
     __root__: dict[str, RuleProvider]
+
 
 class ProxyGroupBase(BaseModel):
     """
@@ -97,7 +99,6 @@ class ProxyGroupBase(BaseModel):
     hidden: Optional[bool] = Field(False, description="Hides the proxy group in the API.")
     icon: Optional[str] = Field(None, description="Icon string for the proxy group, for UI use.")
 
-
     @validator('expected_status', allow_reuse=True)
     def validate_expected_status(cls, v: Optional[str]) -> Optional[str]:
         if v is None or v == '*':
@@ -109,24 +110,30 @@ class ProxyGroupBase(BaseModel):
         for part in parts:
             if '-' in part:
                 start, end = part.split('-')
-                if not (start.isdigit() and end.isdigit() and 100 <= int(start) < 600 and 100 <= int(end) < 600 and int(start) <= int(end)):
+                if not (start.isdigit() and end.isdigit() and 100 <= int(start) < 600 and 100 <= int(end) < 600 and int(
+                        start) <= int(end)):
                     raise ValueError(f"Invalid status code range: {part}")
             elif not (part.isdigit() and 100 <= int(part) < 600):
                 raise ValueError(f"Invalid status code: {part}")
         return v
 
+
 class SelectGroup(ProxyGroupBase):
     type: Literal['select']
+
 
 class RelayGroup(ProxyGroupBase):
     type: Literal['relay']
 
+
 class FallbackGroup(ProxyGroupBase):
     type: Literal['fallback']
+
 
 class UrlTestGroup(ProxyGroupBase):
     type: Literal['url-test']
     tolerance: Optional[int] = Field(None, description="proxies switch tolerance, measured in milliseconds (ms).")
+
 
 class LoadBalanceGroup(ProxyGroupBase):
     type: Literal['load-balance']
@@ -135,11 +142,14 @@ class LoadBalanceGroup(ProxyGroupBase):
         description="Load balancing strategy."
     )
 
+
 # --- Discriminated Union ---
 ProxyGroupUnion = Union[SelectGroup, RelayGroup, FallbackGroup, UrlTestGroup, LoadBalanceGroup]
 
+
 class ProxyGroup(BaseModel):
     __root__: ProxyGroupUnion
+
 
 class AdditionalParam(Enum):
     NO_RESOLVE = 'no-resolve'
@@ -860,7 +870,7 @@ class Converter:
                             headers = {"User-Agent": Converter.user_agent}
                             if host:
                                 headers["Host"] = host
-                            ws_opts:Dict[str, Any] = { "path": path, "headers": headers }
+                            ws_opts: Dict[str, Any] = {"path": path, "headers": headers}
                             try:
                                 parsed_path = urlparse(path)
                                 q = dict(parse_qsl(parsed_path.query))
