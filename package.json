@@ -943,11 +943,14 @@
     "name": "钉钉机器人",
     "description": "支持使用钉钉机器人发送消息通知。",
     "labels": "消息通知,钉钉机器人",
-    "version": "1.12",
+    "version": "1.13",
     "icon": "Dingding_A.png",
     "author": "nnlegenda",
     "level": 1,
-    "v2": true
+    "v2": true,
+    "history": {
+      "v1.13": "优化钉钉消息换行"
+    }
   },
   "DynamicWeChat": {
     "name": "动态企微可信IP",
