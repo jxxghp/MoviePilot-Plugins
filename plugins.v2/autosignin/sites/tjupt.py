@@ -57,6 +57,7 @@ class Tjupt(_ISiteSigninHandler):
         ua = site_info.get("ua")
         proxy = site_info.get("proxy")
         render = site_info.get("render")
+        timeout = site_info.get("timeout")
 
         # 创建正确答案存储目录
         if not os.path.exists(os.path.dirname(self._answer_file)):
@@ -67,7 +68,8 @@ class Tjupt(_ISiteSigninHandler):
                                          cookie=site_cookie,
                                          ua=ua,
                                          proxy=proxy,
-                                         render=render)
+                                         render=render,
+                                         timeout=timeout)
 
         # 获取签到后返回html，判断是否签到成功
         if not html_text:

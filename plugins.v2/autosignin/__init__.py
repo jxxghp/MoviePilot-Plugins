@@ -7,10 +7,6 @@ from typing import Any, List, Dict, Tuple, Optional
 from urllib.parse import urljoin
 
 import pytz
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from ruamel.yaml import CommentedMap
-
 from app import schemas
 from app.core.config import settings
 from app.core.event import eventmanager, Event
@@ -26,6 +22,9 @@ from app.utils.http import RequestUtils
 from app.utils.site import SiteUtils
 from app.utils.string import StringUtils
 from app.utils.timer import TimerUtils
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from ruamel.yaml import CommentedMap
 
 
 class AutoSignIn(_PluginBase):
@@ -36,7 +35,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "2.6"
+    plugin_version = "2.7"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -1545,6 +1544,7 @@ class AutoSignIn(_PluginBase):
         render = site_info.get("render")
         proxies = settings.PROXY if site_info.get("proxy") else None
         proxy_server = settings.PROXY_SERVER if site_info.get("proxy") else None
+        timeout = site_info.get("timeout") or 60
         if not site_url or not site_cookie:
             logger.warn(f"未配置 {site} 的站点地址或Cookie，无法签到")
             return False, ""
@@ -1560,7 +1560,8 @@ class AutoSignIn(_PluginBase):
                 page_source = PlaywrightHelper().get_page_source(url=checkin_url,
                                                                  cookies=site_cookie,
                                                                  ua=ua,
-                                                                 proxies=proxy_server)
+                                                                 proxies=proxy_server,
+                                                                 timeout=timeout)
                 if not SiteUtils.is_logged_in(page_source):
                     if under_challenge(page_source):
                         return False, f"无法通过Cloudflare！"
@@ -1574,13 +1575,15 @@ class AutoSignIn(_PluginBase):
             else:
                 res = RequestUtils(cookies=site_cookie,
                                    ua=ua,
-                                   proxies=proxies
+                                   proxies=proxies,
+                                   timeout=timeout
                                    ).get_res(url=checkin_url)
                 if not res and site_url != checkin_url:
                     logger.info(f"开始站点模拟登录：{site}，地址：{site_url}...")
                     res = RequestUtils(cookies=site_cookie,
                                        ua=ua,
-                                       proxies=proxies
+                                       proxies=proxies,
+                                       timeout=timeout
                                        ).get_res(url=site_url)
                 # 判断登录状态
                 if res and res.status_code in [200, 500, 403]:
@@ -1647,6 +1650,7 @@ class AutoSignIn(_PluginBase):
         render = site_info.get("render")
         proxies = settings.PROXY if site_info.get("proxy") else None
         proxy_server = settings.PROXY_SERVER if site_info.get("proxy") else None
+        timeout = site_info.get("timeout") or 60
         if not site_url or not site_cookie:
             logger.warn(f"未配置 {site} 的站点地址或Cookie，无法签到")
             return False, ""
@@ -1659,7 +1663,8 @@ class AutoSignIn(_PluginBase):
                 page_source = PlaywrightHelper().get_page_source(url=site_url,
                                                                  cookies=site_cookie,
                                                                  ua=ua,
-                                                                 proxies=proxy_server)
+                                                                 proxies=proxy_server,
+                                                                 timeout=timeout)
                 if not SiteUtils.is_logged_in(page_source):
                     if under_challenge(page_source):
                         return False, f"无法通过Cloudflare！"
@@ -1669,7 +1674,8 @@ class AutoSignIn(_PluginBase):
             else:
                 res = RequestUtils(cookies=site_cookie,
                                    ua=ua,
-                                   proxies=proxies
+                                   proxies=proxies,
+                                   timeout=timeout
                                    ).get_res(url=site_url)
                 # 判断登录状态
                 if res and res.status_code in [200, 500, 403]:

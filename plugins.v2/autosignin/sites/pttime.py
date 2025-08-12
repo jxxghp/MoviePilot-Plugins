@@ -37,6 +37,7 @@ class PTTime(_ISiteSigninHandler):
         ua = site_info.get("ua")
         proxy = site_info.get("proxy")
         render = site_info.get("render")
+        timeout = site_info.get("timeout")
 
         # 签到
         # 签到返回：<html><head></head><body>签到成功</body></html>
@@ -44,7 +45,8 @@ class PTTime(_ISiteSigninHandler):
                                          cookie=site_cookie,
                                          ua=ua,
                                          proxy=proxy,
-                                         render=render)
+                                         render=render,
+                                         timeout=timeout)
 
         if not html_text:
             logger.error(f"{site} 签到失败，请检查站点连通性")

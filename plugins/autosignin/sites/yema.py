@@ -1,8 +1,6 @@
 from typing import Tuple
 from urllib.parse import urljoin
 
-from ruamel.yaml import CommentedMap
-
 from app.core.config import settings
 from app.plugins.autosignin.sites import _ISiteSigninHandler
 from app.utils.http import RequestUtils
@@ -24,7 +22,7 @@ class YemaPT(_ISiteSigninHandler):
         """
         return True if cls.site_url in url else False
 
-    def signin(self, site_info: CommentedMap) -> Tuple[bool, str]:
+    def signin(self, site_info: dict) -> Tuple[bool, str]:
         """
         执行签到操作
         :param site_info: 站点信息，含有站点Url、站点Cookie、UA等信息
@@ -50,7 +48,7 @@ class YemaPT(_ISiteSigninHandler):
         else:
             return False, "签到失败，无法打开网站"
 
-    def login(self, site_info: CommentedMap) -> Tuple[bool, str]:
+    def login(self, site_info: dict) -> Tuple[bool, str]:
         """
         执行登录操作
         :param site_info: 站点信息，含有站点Url、站点Cookie、UA等信息

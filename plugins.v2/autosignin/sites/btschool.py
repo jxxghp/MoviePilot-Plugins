@@ -37,6 +37,7 @@ class BTSchool(_ISiteSigninHandler):
         ua = site_info.get("ua")
         render = site_info.get("render")
         proxy = site_info.get("proxy")
+        timeout = site_info.get("timeout")
 
         logger.info(f"{site} 开始签到")
         # 判断今日是否已签到
@@ -44,7 +45,8 @@ class BTSchool(_ISiteSigninHandler):
                                          cookie=site_cookie,
                                          ua=ua,
                                          proxy=proxy,
-                                         render=render)
+                                         render=render,
+                                         timeout=timeout)
 
         if not html_text:
             logger.error(f"{site} 签到失败，请检查站点连通性")
@@ -63,7 +65,8 @@ class BTSchool(_ISiteSigninHandler):
                                          cookie=site_cookie,
                                          ua=ua,
                                          proxy=proxy,
-                                         render=render)
+                                         render=render,
+                                         timeout=timeout)
 
         if not html_text:
             logger.error(f"{site} 签到失败，签到接口请求失败")
