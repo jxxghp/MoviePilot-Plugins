@@ -209,6 +209,8 @@ class DingdingMsg(_PluginBase):
             if text:
                 # 对text进行Markdown特殊字符转义
                 text = re.sub(r"([_`])", r"\\\1", text)
+                # 钉钉中需要在换行前有两个空格，才能够正常换行
+                text = re.sub(r"\n", r"  \n", text)
             else:
                 text = ""
 
