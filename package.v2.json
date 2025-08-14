@@ -351,6 +351,18 @@
       "v2.0": "适配新的目录结构变化，短剧分类名称调整为配置目录路径，升级后需要重新调整设置后才能使用。"
     }
   },
+  "MultiClass": {
+    "name": "视频多级分类",
+    "description": "支持视频多级分类",
+    "labels": "文件整理",
+    "version": "0.1",
+    "icon": "Calibreweb_B.png",
+    "author": "liuhangbin",
+    "level": 1,
+    "history": {
+      "v0.1": "视频多级分类插件, 目前仅支持电影按评分，年代，系列分类。"
+    }
+  },
   "MoviePilotUpdateNotify": {
     "name": "MoviePilot更新推送",
     "description": "MoviePilot推送release更新通知、自动重启。",
