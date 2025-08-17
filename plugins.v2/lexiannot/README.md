@@ -7,6 +7,7 @@
 ![](https://images2.imgbox.com/d6/b6/kZu6EH2a_o.png)
 ![](https://images2.imgbox.com/c8/3a/rEJBWu5v_o.png)
 ![](https://images2.imgbox.com/97/b7/d6RXFtwD_o.png)
+![](https://images2.imgbox.com/8a/d4/AtgOe265_o.jpg)
 
 # Gemini
 
@@ -38,7 +39,7 @@ CEFR全称是Common European Framework of Reference for Languages。
 # 计划
 
 - 双语字幕支持
-- 考试词汇标注
+- ~~考试词汇标注~~
 
 # FAQ
 

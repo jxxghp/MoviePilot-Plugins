@@ -1,3 +1,4 @@
+from collections import Counter
 import os
 import re
 import sys
@@ -7,16 +8,17 @@ import time
 import threading
 import queue
 import shutil
-from typing import Any, List, Dict, Tuple, Optional, Union,  Type, TypeVar
+from typing import Any, List, Dict, Tuple, Optional, Union, Type, TypeVar
 import venv
 from pathlib import Path
-from collections import Counter
 
-from apscheduler.schedulers.background import BackgroundScheduler
 import pysubs2
 from pysubs2 import SSAFile, SSAEvent
 import pymediainfo
 from langdetect import detect
+import spacy
+from spacy.util import compile_infix_regex
+from spacy.tokenizer import Tokenizer
 
 from app.core.config import settings
 from app.log import logger
@@ -34,15 +36,16 @@ from app.plugins.lexiannot.query_gemini import DialogueTranslationTask, Vocabula
 
 T = TypeVar('T', VocabularyTranslationTask, DialogueTranslationTask)
 
+
 class LexiAnnot(_PluginBase):
     # 插件名称
     plugin_name = "美剧生词标注"
     # 插件描述
     plugin_desc = "根据CEFR等级，为英语影视剧标注高级词汇。"
     # 插件图标
-    plugin_icon = "https://raw.githubusercontent.com/wumode/LexiAnnot/refs/heads/master/LexiAnnot.png"
+    plugin_icon = "LexiAnnot.png"
     # 插件版本
-    plugin_version = "1.0.1"
+    plugin_version = "1.1.0"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -63,11 +66,11 @@ class LexiAnnot(_PluginBase):
     _sentence_translation = False
     _in_place = False
     _enable_gemini = False
-    _gemini_model = False
+    _gemini_model = ''
     _gemini_apikey = ''
-    _context_window = 0
-    _max_retries = 0
-    _request_interval = 0
+    _context_window: int = 0
+    _max_retries: int = 0
+    _request_interval: int = 0
     _ffmpeg_path = ''
     _english_only = False
     _when_file_trans = False
@@ -76,18 +79,12 @@ class LexiAnnot(_PluginBase):
     _accent_color = ''
     _font_scaling = ''
     _opacity = ''
-
-    # 插件数据
-    _lexicon_version = ''
-    _swear_words = None
-    _cefr_lexicon = None
-    _coca2k_lexicon = None
+    _exam_tags: List[str] = []
+    _spacy_model: str = ''
+    _delete_data: bool = False
 
     # protected variables
     _lexicon_repo = 'https://raw.githubusercontent.com/wumode/LexiAnnot/'
-    _spacy_model_name = "en_core_web_sm"
-    _scheduler: Optional[BackgroundScheduler] = None
-    _nlp = None
     _worker_thread = None
     _task_queue = None
     _shutdown_event = None
@@ -98,109 +95,65 @@ class LexiAnnot(_PluginBase):
     _gemini_available = False
     _accent_color_rgb = None
     _color_alpha = 0
+    _loaded = False
+    _config_updating_lock: Optional[threading.Lock] = None
 
     def init_plugin(self, config=None):
         self._task_queue = queue.Queue()
+        self._config_updating_lock = threading.Lock()
         self.stop_service()
         if config:
             self._enabled = config.get("enabled")
-            self._annot_level = config.get("annot_level")
+            self._annot_level = config.get("annot_level") or 'C1'
             self._send_notify = config.get("send_notify")
             self._onlyonce = config.get("onlyonce")
             self._show_vocabulary_detail = config.get("show_vocabulary_detail")
             self._sentence_translation = config.get("sentence_translation")
             self._in_place = config.get("in_place")
             self._enable_gemini = config.get("enable_gemini")
-            self._gemini_model = config.get("gemini_model")
-            self._gemini_apikey = config.get("gemini_apikey")
-            self._context_window = config.get("context_window")
-            self._max_retries = config.get("max_retries")
-            self._request_interval = config.get("request_interval")
+            self._gemini_model = config.get("gemini_model") or 'gemini-2.0-flash'
+            self._gemini_apikey = config.get("gemini_apikey") or ''
+            self._context_window = int(config.get("context_window") or 10)
+            self._max_retries = int(config.get("max_retries") or 3)
+            self._request_interval = int(config.get("request_interval") or 3)
             self._ffmpeg_path = config.get("ffmpeg_path")
             self._english_only = config.get("english_only")
             self._when_file_trans = config.get("when_file_trans")
-            self._model_temperature = config.get("model_temperature")
+            self._model_temperature = config.get("model_temperature") or '0.3'
             self._show_phonetics = config.get("show_phonetics")
             self._custom_files = config.get("custom_files")
             self._accent_color = config.get("accent_color")
-            self._font_scaling = config.get("font_scaling")
-            self._opacity = config.get("opacity")
+            self._font_scaling = config.get("font_scaling") or '1'
+            self._opacity = config.get("opacity") or '0'
+            self._spacy_model = config.get("spacy_model") or 'en_core_web_sm'
+            self._exam_tags = config.get("exam_tags") or []
+            self._delete_data = config.get("delete_data") or False
 
             self._accent_color_rgb = LexiAnnot.hex_to_rgb(self._accent_color) or (255, 255, 0)
             self._color_alpha = int(self._opacity) if self._opacity and len(self._opacity) else 0
+        if self._delete_data:
+            # 删除不再保存在数据库的数据
+            self.del_data('cefr_lexicon')
+            self.del_data('coca2k_lexicon')
+            self.del_data('swear_words')
+            self.del_data('lexicon_version')
+            self.delete_data()
+            self._delete_data = False
+            self._loaded = False
         if self._enabled:
-            self._query_gemini_script = f"{settings.ROOT_PATH}/app/plugins/lexiannot/query_gemini.py"
-            self._cefr_lexicon = self.get_data("cefr_lexicon")
-            self._coca2k_lexicon = self.get_data("coca2k_lexicon")
-            self._swear_words = self.get_data("swear_words")
-            self._lexicon_version = self.get_data("lexicon_version")
-            latest = self.__load_lexicon_version()
-            if not self._lexicon_version or StringUtils.compare_version(self._lexicon_version, '<', latest):
-                self.__load_lexicon()
-            # try to import spaCy
-            try:
-                import spacy
-            except ModuleNotFoundError:
-                logger.info('正在安装spaCy ...')
-                result, output = SystemUtils.execute_with_subprocess(
-                    [sys.executable, "-m", "pip", "install", 'thinc==8.3.4']
-                )
-                if not result:
-                    logger.error(f"无法安装spaCy, {output}")
-                    return
-                result, output = SystemUtils.execute_with_subprocess(
-                    [sys.executable, "-m", "pip", "install", 'spacy==3.8.7']
-                )
-                if not result:
-                    logger.error(f"无法安装spaCy, {output}")
-                    return
-            try:
-                import spacy
-                from spacy.util import compile_infix_regex
-                from spacy.tokenizer import Tokenizer
-                if self._nlp is None:
-                    self._nlp = spacy.load(self._spacy_model_name)
-                    infixes = list(self._nlp.Defaults.infixes)
-                    infixes = [i for i in infixes if '-' not in i]
-                    # 使用修改后的正则表达式重新创建 tokenizer
-                    infix_re = compile_infix_regex(infixes)
-                    self._nlp.tokenizer = Tokenizer(
-                        self._nlp.vocab,
-                        prefix_search=self._nlp.tokenizer.prefix_search,
-                        suffix_search=self._nlp.tokenizer.suffix_search,
-                        infix_finditer=infix_re.finditer,
-                        token_match=self._nlp.tokenizer.token_match
-                    )
-            except OSError:
-                self._nlp = LexiAnnot.__load_spacy_model(self._spacy_model_name)
-            if not (self._nlp and self._cefr_lexicon and self._coca2k_lexicon and self._swear_words):
-                _loaded = False
-            else:
-                _loaded = True
-            if not _loaded:
-                logger.warn(f"插件数据未加载,初始化失败")
-                self._enabled = False
-                self.__update_config()
-                return
-            if self._enable_gemini:
-                self._gemini_available = True
-                res = self.init_venv()
-                if not res:
-                    self._gemini_available = False
-                if not self._gemini_apikey:
-                    logger.warn(f"未提供GEMINI APIKEY")
-                    self._gemini_available = False
+            self._query_gemini_script = str(settings.ROOT_PATH / "app" / "plugins" / "lexiannot" / "query_gemini.py")
+
             self._shutdown_event = threading.Event()
             self._worker_thread = threading.Thread(target=self.__process_tasks, daemon=True)
             self._worker_thread.start()
+
             if self._onlyonce:
                 for file_path in self._custom_files.split("\n"):
                     if not file_path:
                         continue
                     self.add_media_file(file_path)
                 self._onlyonce = False
-                self.__update_config()
-
+        self.__update_config()
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -229,27 +182,12 @@ class LexiAnnot(_PluginBase):
                                     }
                                 ]
                             },
+
                             {
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
                                     'md': 3
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'when_file_trans',
-                                            'label': '监控入库',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                        'md': 3
                                 },
                                 'content': [
                                     {
@@ -272,7 +210,23 @@ class LexiAnnot(_PluginBase):
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'onlyonce',
-                                            'label': '立即运行一次',
+                                            'label': '手动运行一次',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'delete_data',
+                                            'label': '插件数据清理',
                                         }
                                     }
                                 ]
@@ -280,199 +234,510 @@ class LexiAnnot(_PluginBase):
                         ]
                     },
                     {
-                        'component': 'VRow',
+                        'component': 'VTabs',
+                        'props': {
+                            'model': '_tabs',
+                            'style': {
+                                'margin-top': '8px',
+                                'margin-bottom': '16px'
+                            },
+                            'stacked': True,
+                            'fixed-tabs': True
+                        },
                         'content': [
                             {
-                                'component': 'VCol',
+                                'component': 'VTab',
                                 'props': {
-                                    'cols': 12,
-                                    'md': 3
+                                    'value': 'base_tab'
                                 },
-                                'content': [
-                                    {
-                                        'component': 'VSelect',
-                                        'props': {
-                                            'model': 'annot_level',
-                                            'label': '标注词汇的最低CEFR等级',
-                                            'items': [
-                                                {'title': 'B1', 'value': 'B1'},
-                                                {'title': 'B2', 'value': 'B2'},
-                                                {'title': 'C1', 'value': 'C1'},
-                                                {'title': 'C2', 'value': 'C2'},
-                                                {'title': 'C2+', 'value': 'C2+'}
-                                            ]
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
+                                'text': '基本设置'
+                            }, {
+                                'component': 'VTab',
                                 'props': {
-                                    'cols': 12,
-                                    'md': 3
+                                    'value': 'subtitle_tab'
                                 },
-                                'content': [
-                                    {
-                                        'component': 'VSelect',
-                                        'props': {
-                                            'model': 'font_scaling',
-                                            'label': '字体缩放',
-                                            'items': [
-                                                {'title': '50%', 'value': '0.5'},
-                                                {'title': '75%', 'value': '0.75'},
-                                                {'title': '100%', 'value': '1'},
-                                                {'title': '125%', 'value': '1.25'},
-                                                {'title': '150%', 'value': '1.5'},
-                                                {'title': '200%', 'value': '2'}
-                                            ]
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
+                                'text': '字幕设置'
+                            }, {
+                                'component': 'VTab',
                                 'props': {
-                                    'cols': 12,
-                                    'md': 3,
+                                    'value': 'gemini_tab'
                                 },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'accent_color',
-                                            'label': '强调色',
-                                            'placeholder': '#FFFF00'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 3
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSelect',
-                                        'props': {
-                                            'model': 'opacity',
-                                            'label': '不透明度',
-                                            'items': [
-                                                {'title': '0', 'value': '0'},
-                                                {'title': '25%', 'value': '63'},
-                                                {'title': '50%', 'value': '127'},
-                                                {'title': '75%', 'value': '191'},
-                                                {'title': '100%', 'value': '255'},
-                                            ]
-                                        }
-                                    }
-                                ]
+                                'text': 'Gemini设置'
                             }
                         ]
                     },
                     {
-                        'component': 'VRow',
+                        'component': 'VWindow',
+                        'props': {
+                            'model': '_tabs'
+                        },
                         'content': [
                             {
-                                'component': 'VCol',
+                                'component': 'VWindowItem',
                                 'props': {
-                                    'cols': 12,
-                                    'md': 3
+                                    'value': 'base_tab'
                                 },
                                 'content': [
                                     {
-                                        'component': 'VSwitch',
+                                        'component': 'VRow',
                                         'props': {
-                                            'model': 'show_phonetics',
-                                            'label': '标注音标',
-                                        }
+                                            'style': {
+                                                'margin-top': '0px'
+                                            }
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'when_file_trans',
+                                                            'label': '监控入库',
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSelect',
+                                                        'props': {
+                                                            'model': 'spacy_model',
+                                                            'label': 'spaCy模型',
+                                                            'hint': 'spaCy 模型用于分词和词性标注，推荐使用 Small',
+                                                            'items': [
+                                                                {'title': 'Small (~12 MB)', 'value': 'en_core_web_sm'},
+                                                                {'title': 'Medium (~30 MB)', 'value': 'en_core_web_md'},
+                                                                {'title': 'Large (700+ MB)', 'value': 'en_core_web_lg'},
+                                                                {'title': 'Transformer (400+ MB)',
+                                                                 'value': 'en_core_web_trf'},
+                                                            ]
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSelect',
+                                                        'props': {
+                                                            'model': 'annot_level',
+                                                            'label': '标注词汇的最低CEFR等级',
+                                                            'items': [
+                                                                {'title': 'B1', 'value': 'B1'},
+                                                                {'title': 'B2', 'value': 'B2'},
+                                                                {'title': 'C1', 'value': 'C1'},
+                                                                {'title': 'C2', 'value': 'C2'},
+                                                                {'title': 'C2+', 'value': 'C2+'}
+                                                            ]
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'english_only',
+                                                            'label': '仅英语影视剧',
+                                                            'hint': '检查入库影视剧原语言'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 8
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSelect',
+                                                        'props': {
+                                                            'model': 'exam_tags',
+                                                            'label': '考试词汇标签',
+                                                            'chips': True,
+                                                            'multiple': True,
+                                                            'items': [
+                                                                {'title': '四级', 'value': 'CET-4'},
+                                                                {'title': '六级', 'value': 'CET-6'},
+                                                                {'title': '考研', 'value': 'NPEE'},
+                                                                {'title': '雅思', 'value': 'IELTS'},
+                                                                {'title': '托福', 'value': 'TOEFL'},
+                                                                {'title': '专四', 'value': 'TEM-4'},
+                                                                {'title': '专八', 'value': 'TEM-8'},
+                                                                {'title': 'GRE', 'value': 'GRE'},
+                                                                {'title': 'PET', 'value': 'PET'},
+                                                            ]
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'ffmpeg_path',
+                                                            'label': 'FFmpeg 路径',
+                                                            'placeholder': 'ffmpeg'
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
                                     }
                                 ]
                             },
                             {
-                                'component': 'VCol',
+                                'component': 'VWindowItem',
                                 'props': {
-                                    'cols': 12,
-                                    'md': 3
+                                    'value': 'subtitle_tab'
                                 },
                                 'content': [
                                     {
-                                        'component': 'VSwitch',
+                                        'component': 'VRow',
                                         'props': {
-                                            'model': 'in_place',
-                                            'label': '在原字幕插入注释',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 3
-                                },
-                                'content': [
+                                            'style': {
+                                                'margin-top': '0px'
+                                            }
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSelect',
+                                                        'props': {
+                                                            'model': 'font_scaling',
+                                                            'label': '字体缩放',
+                                                            'items': [
+                                                                {'title': '50%', 'value': '0.5'},
+                                                                {'title': '75%', 'value': '0.75'},
+                                                                {'title': '100%', 'value': '1'},
+                                                                {'title': '125%', 'value': '1.25'},
+                                                                {'title': '150%', 'value': '1.5'},
+                                                                {'title': '200%', 'value': '2'}
+                                                            ]
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'accent_color',
+                                                            'label': '强调色',
+                                                            'placeholder': '#FFFF00'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSelect',
+                                                        'props': {
+                                                            'model': 'opacity',
+                                                            'label': '不透明度',
+                                                            'items': [
+                                                                {'title': '0', 'value': '0'},
+                                                                {'title': '25%', 'value': '63'},
+                                                                {'title': '50%', 'value': '127'},
+                                                                {'title': '75%', 'value': '191'},
+                                                                {'title': '100%', 'value': '255'},
+                                                            ]
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    },
                                     {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'english_only',
-                                            'label': '仅英语影视剧',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 3
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'show_vocabulary_detail',
-                                            'label': '显示完整释义',
-                                        }
-                                    }
-                                ]
-                            },
+                                        'component': 'VRow',
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'show_phonetics',
+                                                            'label': '标注音标',
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'in_place',
+                                                            'label': '在原字幕插入注释',
+                                                        }
+                                                    }
+                                                ]
+                                            },
 
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'enable_gemini',
-                                            'label': '启用Gemini翻译',
-                                        }
-                                    }
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'show_vocabulary_detail',
+                                                            'label': '显示完整释义',
+                                                        }
+                                                    }
+                                                ]
+                                            },
+
+                                        ]
+                                    },
                                 ]
                             },
                             {
-                                'component': 'VCol',
+                                'component': 'VWindowItem',
                                 'props': {
-                                    'cols': 12,
-                                    'md': 6
+                                    'value': 'gemini_tab'
                                 },
                                 'content': [
                                     {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'sentence_translation',
-                                            'label': '整句翻译',
-                                        }
+                                        'component': 'VRow',
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 6,
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'enable_gemini',
+                                                            'label': '启用Gemini翻译',
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 6
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'sentence_translation',
+                                                            'label': '整句翻译',
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 6,
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSelect',
+                                                        'props': {
+                                                            'model': 'gemini_model',
+                                                            'label': '模型',
+                                                            'items': [
+                                                                {'title': 'gemini-2.5-flash',
+                                                                 'value': 'gemini-2.5-flash'},
+                                                                {'title': 'gemini-2.5-flash-lite',
+                                                                 'value': 'gemini-2.5-flash-lite'},
+                                                                {'title': 'gemini-2.5-pro',
+                                                                 'value': 'gemini-2.5-pro'},
+                                                                {'title': 'gemini-2.0-flash',
+                                                                 'value': 'gemini-2.0-flash'},
+                                                                {'title': 'gemini-2.0-flash-lite',
+                                                                 'value': 'gemini-2.0-flash-lite'},
+                                                            ]
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 6,
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'gemini_apikey',
+                                                            'label': 'Gemini APIKEY',
+                                                            'placeholder': ''
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                        ]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 3,
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'context_window',
+                                                            'label': '上下文窗口大小',
+                                                            'placeholder': '10',
+                                                            'type': 'number',
+                                                            'max': 20,
+                                                            'min': 1,
+                                                            'hint': '向Gemini发送的上下文长度'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 3
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSelect',
+                                                        'props': {
+                                                            'model': 'model_temperature',
+                                                            'label': '模型温度',
+                                                            'items': [
+                                                                {'title': '0', 'value': '0'},
+                                                                {'title': '0.1', 'value': '0.1'},
+                                                                {'title': '0.2', 'value': '0.2'},
+                                                                {'title': '0.3', 'value': '0.3'},
+                                                            ]
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 3,
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'max_retries',
+                                                            'label': '请求重试次数',
+                                                            'placeholder': '3',
+                                                            'type': 'number',
+                                                            'min': 1,
+                                                            'hint': '请求失败重试次数'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 3,
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'request_interval',
+                                                            'label': '请求间隔',
+                                                            'type': 'number',
+                                                            'placeholder': 5,
+                                                            'min': 1,
+                                                            'suffix': '秒',
+                                                            'hint': '请求间隔时间，建议不少于3秒'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                        ]
                                     }
                                 ]
                             }
@@ -480,164 +745,11 @@ class LexiAnnot(_PluginBase):
                     },
                     {
                         'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSelect',
-                                        'props': {
-                                            'model': 'gemini_model',
-                                            'label': '模型',
-                                            'items': [
-                                                {'title': 'gemini-2.5-flash-preview-05-20',
-                                                 'value': 'gemini-2.5-flash-preview-05-20'},
-                                                {'title': 'gemini-2.5-pro-preview-05-06',
-                                                 'value': 'gemini-2.5-pro-preview-05-06'},
-                                                {'title': 'gemini-2.0-flash', 'value': 'gemini-2.0-flash'},
-                                                {'title': 'gemini-2.0-flash-lite', 'value': 'gemini-2.0-flash-lite'},
-                                                {'title': 'gemini-1.5-flash', 'value': 'gemini-1.5-flash'},
-                                                {'title': 'gemini-1.5-pro', 'value': 'gemini-1.5-pro'}
-                                            ]
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'gemini_apikey',
-                                            'label': 'Gemini APIKEY',
-                                            'placeholder': ''
-                                        }
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 3,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'context_window',
-                                            'label': '上下文窗口大小',
-                                            'placeholder': '10',
-                                            'type': 'number',
-                                            'max': 20,
-                                            'min': 1,
-                                            'hint': '向Gemini发送的上下文长度'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 3
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSelect',
-                                        'props': {
-                                            'model': 'model_temperature',
-                                            'label': '模型温度',
-                                            'items': [
-                                                {'title': '0', 'value': '0'},
-                                                {'title': '0.1', 'value': '0.1'},
-                                                {'title': '0.2', 'value': '0.2'},
-                                                {'title': '0.3', 'value': '0.3'},
-                                            ]
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 3,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'max_retries',
-                                            'label': '请求重试次数',
-                                            'placeholder': '3',
-                                            'type': 'number',
-                                            'min': 1,
-                                            'hint': '请求失败重试次数'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 3,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'request_interval',
-                                            'label': '请求间隔',
-                                            'type': 'number',
-                                            'placeholder': 5    ,
-                                            'min': 1,
-                                            'suffix': '秒',
-                                            'hint': '请求间隔时间，建议不少于3秒'
-                                        }
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'ffmpeg_path',
-                                            'label': 'FFmpeg 路径',
-                                            'placeholder': 'ffmpeg'
-                                        }
-                                    }
-                                ]
+                        'props': {
+                            'style': {
+                                'margin-top': '0px'
                             }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
+                        },
                         'content': [
                             {
                                 'component': 'VCol',
@@ -649,7 +761,7 @@ class LexiAnnot(_PluginBase):
                                         'component': 'VTextarea',
                                         'props': {
                                             'model': 'custom_files',
-                                            'label': '视频路径',
+                                            'label': '手动处理视频路径',
                                             'rows': 3,
                                             'placeholder': '每行一个文件'
                                         }
@@ -690,9 +802,9 @@ class LexiAnnot(_PluginBase):
                                                         'text': 'README'
                                                     }
                                                 ]
-                                            }]
+                                            }
+                                        ]
                                     }
-
                                 ]
                             }
                         ]
@@ -722,6 +834,9 @@ class LexiAnnot(_PluginBase):
             "accent_color": '',
             "font_scaling": '1',
             "opacity": '0',
+            "spacy_model": 'en_core_web_sm',
+            "exam_tags": [],
+            "delete_data": False
         }
 
     def get_api(self) -> List[Dict[str, Any]]:
@@ -744,7 +859,10 @@ class LexiAnnot(_PluginBase):
         """
         退出插件
         """
-        self.shutdown()
+        try:
+            self.shutdown()
+        except Exception as e:
+            logger.error(f"退出插件失败：{e}")
 
     def shutdown(self):
         """
@@ -755,8 +873,28 @@ class LexiAnnot(_PluginBase):
             self._shutdown_event.set()
             self._worker_thread.join()
             logger.debug("✅ Existing worker thread stopped.")
+            self._worker_thread = None
         else:
             logger.debug("ℹ️ No running worker thread to stop.")
+
+    def delete_data(self):
+        data_path = self.get_data_path()
+        lexicon_path = data_path / 'lexicon.json'
+        try:
+            os.remove(lexicon_path)
+            logger.info(f"词典 {lexicon_path} 已删除")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            logger.error(f"词典 {lexicon_path} 删除失败: {e}")
+
+        venv_dir = data_path / "venv_genai"
+        if os.path.exists(venv_dir):
+            try:
+                shutil.rmtree(venv_dir)
+                logger.info(f"虚拟环境 {venv_dir} 已删除")
+            except Exception as e:
+                logger.error(f"虚拟环境 {venv_dir} 删除失败: {e}")
 
     def add_media_file(self, path: str):
         """
@@ -768,35 +906,54 @@ class LexiAnnot(_PluginBase):
             raise RuntimeError("Plugin is shutting down. Cannot add new tasks.")
 
     def __update_config(self):
-        self.update_config({'enabled': self._enabled,
-                            'annot_level': self._annot_level,
-                            'send_notify': self._send_notify,
-                            'onlyonce': self._onlyonce,
-                            'show_vocabulary_detail': self._show_vocabulary_detail,
-                            'sentence_translation': self._sentence_translation,
-                            'in_place': self._in_place,
-                            'enable_gemini': self._enable_gemini,
-                            'gemini_model': self._gemini_model,
-                            'gemini_apikey': self._gemini_apikey,
-                            'context_window': self._context_window,
-                            'max_retries': self._max_retries,
-                            'request_interval': self._request_interval,
-                            'ffmpeg_path': self._ffmpeg_path,
-                            'english_only': self._english_only,
-                            'when_file_trans': self._when_file_trans,
-                            'model_temperature': self._model_temperature,
-                            'show_phonetics': self._show_phonetics,
-                            'custom_files': self._custom_files,
-                            'accent_color': self._accent_color,
-                            'font_scaling': self._font_scaling,
-                            'opacity': self._opacity
-                            })
+        with self._config_updating_lock:
+            self.update_config({'enabled': self._enabled,
+                                'annot_level': self._annot_level,
+                                'send_notify': self._send_notify,
+                                'onlyonce': self._onlyonce,
+                                'show_vocabulary_detail': self._show_vocabulary_detail,
+                                'sentence_translation': self._sentence_translation,
+                                'in_place': self._in_place,
+                                'enable_gemini': self._enable_gemini,
+                                'gemini_model': self._gemini_model,
+                                'gemini_apikey': self._gemini_apikey,
+                                'context_window': self._context_window,
+                                'max_retries': self._max_retries,
+                                'request_interval': self._request_interval,
+                                'ffmpeg_path': self._ffmpeg_path,
+                                'english_only': self._english_only,
+                                'when_file_trans': self._when_file_trans,
+                                'model_temperature': self._model_temperature,
+                                'show_phonetics': self._show_phonetics,
+                                'custom_files': self._custom_files,
+                                'accent_color': self._accent_color,
+                                'font_scaling': self._font_scaling,
+                                'opacity': self._opacity,
+                                'spacy_model': self._spacy_model,
+                                'exam_tags': self._exam_tags,
+                                })
 
     def __process_tasks(self):
         """
         后台线程：处理任务队列
         """
         logger.debug("👷 Worker thread started.")
+
+        self.__load_data()
+        if not self._loaded:
+            logger.warn('插件数据未加载')
+            self._enabled = False
+            self.__update_config()
+            logger.debug("🛑 Worker exiting...")
+            return
+        if self._enable_gemini:
+            self._gemini_available = True
+            res = self.init_venv()
+            if not res:
+                self._gemini_available = False
+            if not self._gemini_apikey:
+                logger.warn(f"未提供GEMINI APIKEY")
+                self._gemini_available = False
         while not self._shutdown_event.is_set():
             try:
                 task = self._task_queue.get(timeout=1)  # 最多等待1秒
@@ -811,13 +968,35 @@ class LexiAnnot(_PluginBase):
         """
         处理视频文件
         """
+        if not self._loaded:
+            return
+        lexicon = self.__load_lexicon_from_local()
+        if not lexicon:
+            logger.error(f"字典加载失败")
+            return
+        try:
+            nlp = spacy.load(self._spacy_model)
+            infixes = list(nlp.Defaults.infixes)
+            infixes = [i for i in infixes if '-' not in i]
+            # 使用修改后的正则表达式重新创建 tokenizer
+            infix_re = compile_infix_regex(infixes)
+            nlp.tokenizer = Tokenizer(
+                nlp.vocab,
+                prefix_search=nlp.tokenizer.prefix_search,
+                suffix_search=nlp.tokenizer.suffix_search,
+                infix_finditer=infix_re.finditer,
+                token_match=nlp.tokenizer.token_match
+            )
+        except Exception as e:
+            logger.error(f"spaCy 模型 {self._spacy_model} 加载失败: {e}")
+            return
         video = Path(path)
         if video.suffix.lower() not in settings.RMT_MEDIAEXT:
             return
         if not video.exists() or not video.is_file():
             logger.warn(f"文件 {str(video)} 不存在, 跳过")
             return
-        subtitle = video.with_suffix(".ass")
+        subtitle = video.with_suffix(".en.ass")
         if subtitle.exists():
             logger.warn(f"字幕文件 ({subtitle}) 已存在, 跳过")
             return
@@ -829,6 +1008,7 @@ class LexiAnnot(_PluginBase):
                               text=f"{message}")
         ffmpeg_path = self._ffmpeg_path if self._ffmpeg_path else 'ffmpeg'
         embedded_subtitles = LexiAnnot.__extract_subtitles_by_lang(path, 'en', ffmpeg_path)
+        embedded_subtitles = sorted(embedded_subtitles, key=lambda track: 'SDH' in track['title'])
         ret_message = ''
         if embedded_subtitles:
             logger.info(f'提取到 {len(embedded_subtitles)} 条英语文本字幕')
@@ -839,14 +1019,17 @@ class LexiAnnot(_PluginBase):
                 if embedded_subtitle.get('codec_id') == 'S_TEXT/UTF8':
                     ass_subtitle = LexiAnnot.set_srt_style(ass_subtitle)
                 ass_subtitle = self.__set_style(ass_subtitle)
-                ass_subtitle = self.process_subtitles(ass_subtitle)
+                ass_subtitle = self.process_subtitles(ass_subtitle, lexicon.get('cefr'), lexicon.get('coca20k'),
+                                                      lexicon.get('examinations'),lexicon.get('swear_words'), nlp)
                 if self._shutdown_event.is_set():
                     return
                 if ass_subtitle:
                     try:
                         ass_subtitle.save(str(subtitle))
                         ret_message = f"字幕已保存：{str(subtitle)}"
+                        logger.info(f"字幕已保存：{str(subtitle)}")
                     except Exception as e:
+                        ret_message = f"字幕文件 {subtitle} 保存失败, {e}"
                         logger.error(f"字幕文件 {subtitle} 保存失败, {e}")
                     break
                 else:
@@ -854,7 +1037,7 @@ class LexiAnnot(_PluginBase):
         else:
             logger.warn(f"未能在{path}中找到可提取的英文字幕")
         if not ret_message:
-            ret_message= f"未能在{path}中找到可提取的英文字幕"
+            ret_message = f"未能在{path}中找到可提取的英文字幕"
         logger.info(f"✅ Finished: {path}")
         if self._send_notify:
             self.post_message(title=f"【{self.plugin_name}】",
@@ -863,37 +1046,73 @@ class LexiAnnot(_PluginBase):
 
     @cached(maxsize=1000, ttl=1800)
     def __load_lexicon_version(self) -> Optional[str]:
-        logger.info(f"正在检查远程词库版本...")
+        logger.info(f"正在检查远程词典文件版本...")
         url = f'{self._lexicon_repo}master/version'
         version = RequestUtils().get(url, headers=settings.REPO_GITHUB_HEADERS())
         if version is None:
             return None
-        return version
+        return version.strip()
 
-    def __load_lexicon(self):
-        url = f'{self._lexicon_repo}master/cefr.json'
-        res = RequestUtils().get_res(url, headers=settings.REPO_GITHUB_HEADERS())
-        if res:
-            self._cefr_lexicon = res.json()
-        url = f'{self._lexicon_repo}master/coca20k.json'
-        res = RequestUtils().get_res(url, headers=settings.REPO_GITHUB_HEADERS())
-        if res:
-            self._coca2k_lexicon = res.json()
-        url = f'{self._lexicon_repo}master/swear_words.json'
-        res = RequestUtils().get_res(url, headers=settings.REPO_GITHUB_HEADERS())
-        if res:
-            self._swear_words = res.json()
-        self._lexicon_version = self.__load_lexicon_version()
-        self.save_data("cefr_lexicon", self._cefr_lexicon)
-        self.save_data("coca2k_lexicon", self._coca2k_lexicon)
-        self.save_data("swear_words", self._swear_words)
-        self.save_data("lexicon_version", self._lexicon_version)
+    def __load_lexicon_from_local(self) -> Optional[Dict[str, Any]]:
+        data_path = self.get_data_path()
+        lexicon = {}
+        try:
+            lexicon_path = data_path / 'lexicon.json'
+            with open(lexicon_path, 'r', encoding='utf-8') as f:
+                lexicon = json.load(f)
+        except Exception as e:
+            logger.debug(f"词典文件读取失败: {e}")
+        lexicon_files = ('cefr', 'coca20k', 'swear_words', 'examinations')
+        if any(file not in lexicon for file in lexicon_files):
+            return None
+        return lexicon
+
+    def __retrieve_lexicon_online(self, version: str) -> Optional[Dict[str, Any]]:
+        logger.info('开始下载词典文件...')
+        lexicon_files = ['cefr', 'coca20k', 'swear_words', 'examinations']
+        lexicon = {}
+        for file in lexicon_files:
+            url = f'{self._lexicon_repo}master/{file}.json'
+            res = RequestUtils().get_res(url, headers=settings.REPO_GITHUB_HEADERS())
+            if res.status_code == 200:
+                lexicon[file] = res.json()
+        if any(file not in lexicon for file in lexicon_files):
+            return None
+        logger.info(f"词典文件 (v{version}) 下载完成")
+        data_path = self.get_data_path()
+        lexicon['version'] = version
+        try:
+            lexicon_path = data_path / 'lexicon.json'
+            with open(lexicon_path, 'w', encoding='utf-8') as f:
+                json.dump(lexicon, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warn(f"词典文件保存失败: {e}")
+        return lexicon
+
+    def __load_data(self):
+        """
+        测试插件数据加载
+        """
+        try:
+            nlp = spacy.load(self._spacy_model)
+        except OSError:
+            nlp = LexiAnnot.__load_spacy_model(self._spacy_model)
+        lexicon = self.__load_lexicon_from_local()
+        latest = self.__load_lexicon_version() or '0.0.0'
+        if not lexicon or StringUtils.compare_version(lexicon.get('version'), '<', latest):
+            lexicon = self.__retrieve_lexicon_online(latest)
+
+        if not (nlp and lexicon):
+            self._loaded = False
+            logger.warn(f"插件数据加载失败")
+        else:
+            self._loaded = True
+            logger.info(f"当前词典文件版本: {lexicon.get('version')}")
 
     @staticmethod
     def __load_spacy_model(model_name: str):
         try:
-            import spacy
-            result = subprocess.run(
+            subprocess.run(
                 [sys.executable, "-m", "spacy", "download", model_name],
                 capture_output=True,
                 text=True,
@@ -911,7 +1130,6 @@ class LexiAnnot(_PluginBase):
         except Exception as e:
             logger.error(f"下载或加载 spaCy 模型时发生意外错误：{e}")
             return None
-
 
     @eventmanager.register(EventType.TransferComplete)
     def check_media(self, event: Event):
@@ -947,16 +1165,19 @@ class LexiAnnot(_PluginBase):
         return lexicon.get(word)
 
     @staticmethod
+    def query_examinations(word: str, lexicon: Dict[str, Any]) -> Dict[str, Any]:
+        res = {}
+        for examination, exam_lexicon in lexicon.items():
+            if word in exam_lexicon:
+                res[examination] = exam_lexicon[word]
+        return res
+
+    @staticmethod
     def convert_pos_to_spacy(pos: str):
         """
-        将给定的词性列表转换为spaCy库中使用的词性标签。
-
-        Args:
-          pos: 一个字符串形式词性。
-
-        Returns:
-          一个包含对应spaCy词性标签的列表。对于无法直接映射的词性，
-          将返回None。
+        将给定的词性列表转换为 spaCy 库中使用的词性标签
+        :param pos: 字符串形式词性
+        :returns: 一个包含对应spaCy词性标签的列表。对于无法直接映射的词性，将返回None
         """
         spacy_pos_map = {
             'noun': 'NOUN',
@@ -1016,9 +1237,9 @@ class LexiAnnot(_PluginBase):
     @staticmethod
     def replace_by_plaintext_positions(line: SSAEvent, replacements: List[dict]):
         """
-        替换 line.text 中的内容，使用 replacements 中的 plaintext 位置信息。
-        replacement
-        {'start': int, 'end': int, 'old_text': str, 'new_text': str}
+        使用 replacements 中的 plaintext 位置信息, 替换 line.text 中的内容。
+        :param line: SSAEvent line
+        :param replacements: [{'start': int, 'end': int, 'old_text': str, 'new_text': str}, ...]
         """
         text = line.text
         tag_pattern = re.compile(r"{.*?}")  # 匹配 {xxx} 格式控制符
@@ -1052,7 +1273,7 @@ class LexiAnnot(_PluginBase):
             end = mapping.get(r["end"] - 1)
             if start is None or end is None:
                 continue
-            end += 1  # 因为 Python 切片不包含结束索引
+            end += 1
             new_text = new_text[:start] + r["new_text"] + new_text[end:]
 
         line.text = new_text
@@ -1104,15 +1325,11 @@ class LexiAnnot(_PluginBase):
     def select_main_style_weighted(language_analysis: Dict[str, Any], known_language: str,
                                    weights=None):
         """
-        根据语言分析结果和已知的字幕语言，使用加权评分选择主要样式。
-
-        Args:
-            language_analysis (dict): `analyze_ass_language` 函数的输出结果。
-            known_language (str): 已知的字幕语言代码.
-            weights (dict): 各个维度的权重，权重之和应为 1.
-
-        Returns:
-            str or None: 主要字幕的样式名称，如果没有匹配的样式则返回 None。
+        根据语言分析结果和已知的字幕语言，使用加权评分选择主要样式
+        :params language_analysis: `analyze_ass_language` 函数的输出结果
+        :params known_language: 已知的字幕语言代码
+        :params weights: 各个维度的权重，权重之和应为 1
+        :returns: 主要字幕的样式名称，如果没有匹配的样式则返回 None
         """
         if weights is None:
             weights = {'times': 0.5, 'text_size': 0.4, 'duration': 0.1}
@@ -1156,7 +1373,7 @@ class LexiAnnot(_PluginBase):
         play_res_y = int(ass.info.get('PlayResY'))
         play_res_x = int(ass.info.get('PlayResX'))
         # 创建一个新样式
-        fs = play_res_y // 16*font_scaling
+        fs = play_res_y // 16 * font_scaling
         new_style = pysubs2.SSAStyle()
         new_style.name = 'Annotation EN'
         new_style.fontname = 'Times New Roman'
@@ -1212,12 +1429,13 @@ class LexiAnnot(_PluginBase):
         cefr_style.bold = True
         cefr_style.italic = False
         cefr_style.primarycolor = pysubs2.Color(self._accent_color_rgb[0],
-                                               self._accent_color_rgb[1],
-                                               self._accent_color_rgb[2],
-                                               self._color_alpha)
+                                                self._accent_color_rgb[1],
+                                                self._accent_color_rgb[2],
+                                                self._color_alpha)
         cefr_style.outline = 1
         cefr_style.shadow = 0
         ass.styles['Annotation CEFR'] = cefr_style
+        ass.styles['Annotation EXAM'] = cefr_style
         return ass
 
     @staticmethod
@@ -1233,7 +1451,7 @@ class LexiAnnot(_PluginBase):
     @staticmethod
     def __extract_subtitle(video_path: str,
                            subtitle_stream_index: str,
-                           ffmpeg_path: str='ffmpeg',
+                           ffmpeg_path: str = 'ffmpeg',
                            sub_format='ass') -> Optional[str]:
         if sub_format not in ['srt', 'ass']:
             raise ValueError('Invalid subtitle format')
@@ -1258,15 +1476,15 @@ class LexiAnnot(_PluginBase):
 
     @staticmethod
     def __extract_subtitles_by_lang(video_path: str, lang: str = 'en', ffmpeg: str = 'ffmpeg') -> Optional[List[Dict]]:
-        """提取视频文件中的内嵌英文字幕，使用 MediaInfo 查找字幕流。"""
+        """
+        提取视频文件中的内嵌英文字幕，使用 MediaInfo 查找字幕流。
+        """
         supported_codec = ['S_TEXT/UTF8', 'S_TEXT/ASS']
         subtitles = []
         try:
             media_info: pymediainfo.MediaInfo = pymediainfo.MediaInfo.parse(video_path)
             for track in media_info.tracks:
                 if track.track_type == 'Text' and track.language == lang and track.codec_id in supported_codec:
-                    if track.title and 'SDH' in track.title:
-                        continue
                     subtitle_stream_index = track.stream_identifier  # MediaInfo 的 stream_id 从 1 开始，ffmpeg 从 0 开始
                     subtitle = LexiAnnot.__extract_subtitle(video_path, subtitle_stream_index, ffmpeg)
                     if subtitle:
@@ -1283,7 +1501,7 @@ class LexiAnnot(_PluginBase):
             return None
         except subprocess.CalledProcessError as e:
             logger.error(f"错误：提取字幕失败。\n错误信息：{e}")
-            logger.error(f"FFmpeg 输出 (stderr):\n{e.stderr.decode('utf-8', errors='ignore')}")
+            logger.error(f"FFmpeg 输出 (stderr):\n{e.stderr}")
             return None
         except Exception as e:
             logger.error(f"使用 MediaInfo 提取字幕时发生错误：{e}")
@@ -1300,8 +1518,8 @@ class LexiAnnot(_PluginBase):
                 venv.create(venv_dir, with_pip=True, symlinks=True, clear=True)
                 logger.info(f"虚拟环境创建成功: {venv_dir}")
             SystemUtils.execute_with_subprocess([python_path, "-m", "pip", "install", 'google-genai'])
-        except subprocess.CalledProcessError:
-            logger.warn(f"虚拟环境创建失败")
+        except subprocess.CalledProcessError as e:
+            logger.warn(f"虚拟环境创建失败: {e}")
             shutil.rmtree(venv_dir)
             return False
         self._venv_python = python_path
@@ -1357,12 +1575,26 @@ class LexiAnnot(_PluginBase):
             logger.warning(f"Failed to reconstruct tasks: {str(e)}")
             return tasks
 
-    def __process_by_ai(self, lines_to_process: List[Dict[str, Any]], cefr_lexicon, swear_words, coca20k_lexicon):
-        simple_vocabulary = list(filter(lambda x:x<self._annot_level, ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']))
-        patterns = [r'\d+th|\d?1st|\d?2nd']
+    def __process_by_ai(self, lines_to_process: List[Dict[str, Any]],
+                        cefr_lexicon: Dict[str, Any],
+                        coca20k_lexicon: Dict[str, Any],
+                        exams_lexicon: Dict[str, Any],
+                        swear_words: List[str],
+                        nlp: spacy.Language):
+
+        def __replace_with_spaces(_text):
+            """
+            使用等长的空格替换文本中的 [xxx] 模式。
+            例如："[Hi]" 会被替换成 "    " (4个空格)
+            """
+            pattern = r'(\[.*?\])'
+            return re.sub(pattern, lambda match: ' ' * len(match.group(1)), text)
+
+        simple_vocabulary = list(filter(lambda x: x < self._annot_level, ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']))
+        patterns = [r'\d+th|\d?1st|\d?2nd|\d?3rd', r"\w+'s$", r"\w+'t$", "[Ii]'m$", r"\w+'re$", r"\w+'ve$", r"\w+'ll$"]
         compiled_patterns = [re.compile(p) for p in patterns]
         model_temperature = float(self._model_temperature) if self._model_temperature else 0.3
-        logger.info(f"通过spaCy分词...")
+        logger.info(f"通过 spaCy 分词...")
         vocabulary_trans_instruction = '''You are an expert translator. You will be given a list of English words along with their context, formatted as JSON. For each entry, provide the most appropriate translation in Simplified Chinese based on the context.
     Only complete the `Chinese` field. Do not include pinyin, explanations, or any additional information.'''
         # 使用nlp分词
@@ -1371,8 +1603,9 @@ class LexiAnnot(_PluginBase):
                 return lines_to_process
             text_raw = line_data.get('raw_subtitle')
             text = text_raw.replace('\n', ' ')
+            text = __replace_with_spaces(text)
             new_vocab = []
-            doc = self._nlp(text)
+            doc = nlp(text)
             last_end_pos = 0
             lemma_to_query = []
             for token in doc:
@@ -1382,32 +1615,48 @@ class LexiAnnot(_PluginBase):
                     continue
                 if token.pos_ not in ('NOUN', 'AUX', 'VERB', 'ADJ', 'ADV', 'ADP', 'CCONJ', 'SCONJ'):
                     continue
-                if any(p.match(token.lemma_) for p in compiled_patterns):
+                striped = token.lemma_.strip('-[')
+                if any(p.match(striped) for p in compiled_patterns):
                     continue
-                cefr = LexiAnnot.get_cefr_by_spacy(token.lemma_, token.pos_, cefr_lexicon)
+                cefr = LexiAnnot.get_cefr_by_spacy(striped, token.pos_, cefr_lexicon)
                 if cefr and cefr in simple_vocabulary:
                     continue
-                res_of_coco = LexiAnnot.query_coca20k(token.lemma_, coca20k_lexicon)
+                res_of_coco = LexiAnnot.query_coca20k(striped, coca20k_lexicon)
                 if res_of_coco and not cefr:
-                    cefr = 'COCA20K'
-                if token.lemma_ in lemma_to_query:
+                    cefr = ''
+                res_of_exams = self.query_examinations(striped, exams_lexicon)
+                exam_tags = []
+                if res_of_exams:
+                    exam_tags = [exam_id for exam_id in res_of_exams if exam_id in self._exam_tags]
+                if striped in lemma_to_query:
                     continue
                 else:
-                    lemma_to_query.append(token.lemma_)
-                start_pos = text.find(token.text, last_end_pos)
-                end_pos = start_pos + len(token.text)
+                    lemma_to_query.append(striped)
+                striped_text = token.text.strip('-*[')
+                start_pos = text.find(striped_text, last_end_pos)
+                end_pos = start_pos + len(striped_text)
                 phonetics = ''
                 pos_defs = []
-                if res_of_coco:
+                if res_of_exams:
+                    for exam, value in res_of_exams.items():
+                        phonetics = value.get('ipa_uk') or ''
+                        defs = {}
+                        for pos_def in value.get('defs', []):
+                            pos = pos_def.get('pos', '')
+                            definition_cn = pos_def.get('definition_cn', '')
+                            defs.setdefault(pos, []).append(definition_cn)
+                        pos_defs = [{'pos': pos, 'meanings': meanings} for pos, meanings in defs.items() if pos]
+                        break
+                elif res_of_coco:
                     phonetics = res_of_coco.get('phonetics_1') or ''
                     pos_defs = res_of_coco.get('pos_defs') or []
                 last_end_pos = end_pos
-                new_vocab.append({'start': start_pos, 'end': end_pos, 'text': token.text, 'lemma': token.lemma_,
+                new_vocab.append({'start': start_pos, 'end': end_pos, 'text': striped_text, 'lemma': striped,
                                   'pos': token.pos_, 'cefr': cefr, 'Chinese': '', 'phonetics': phonetics,
-                                  'pos_defs': pos_defs})
+                                  'pos_defs': pos_defs, 'exam_tags': exam_tags})
             line_data['new_vocab'] = new_vocab
         # 查询词汇翻译
-        task_bulk: List[Union[VocabularyTranslationTask|DialogueTranslationTask]] = []
+        task_bulk: List[Union[VocabularyTranslationTask | DialogueTranslationTask]] = []
         i = 0
         if self._gemini_available:
             logger.info(f"查询词汇翻译...")
@@ -1421,14 +1670,14 @@ class LexiAnnot(_PluginBase):
                 continue
             new_vocab = [Vocabulary(lemma=new_vocab['lemma'], Chinese='') for new_vocab in line_data['new_vocab']]
             task_bulk.append(VocabularyTranslationTask(index=line_data['index'],
-                                                   vocabulary=new_vocab,
-                                                   context=Context(
-                                                       original_text=line_data['raw_subtitle'].replace('\n', ' ')
-                                                   )))
+                                                       vocabulary=new_vocab,
+                                                       context=Context(
+                                                           original_text=line_data['raw_subtitle'].replace('\n', ' ')
+                                                       )))
             if len(task_bulk) >= self._context_window or (len(task_bulk) and i == len(lines_to_process)):
                 logger.info(f"processing dialogues: "
-                      f"{LexiAnnot.format_duration(lines_to_process[task_bulk[0].index]['time_code'][0])} -> "
-                      f"{LexiAnnot.format_duration(lines_to_process[i - 1]['time_code'][1])}")
+                            f"{LexiAnnot.format_duration(lines_to_process[task_bulk[0].index]['time_code'][0])} -> "
+                            f"{LexiAnnot.format_duration(lines_to_process[i - 1]['time_code'][1])}")
                 answer: Optional[List[VocabularyTranslationTask]] = self.__query_gemini(task_bulk,
                                                                                         VocabularyTranslationTask,
                                                                                         self._gemini_apikey,
@@ -1476,8 +1725,8 @@ class LexiAnnot(_PluginBase):
             end_index = min(len(translation_tasks), i + self._context_window + 1)
             task_bulk: List[DialogueTranslationTask] = translation_tasks[start_index:end_index]
             logger.info(f"processing dialogues: "
-            f"{LexiAnnot.format_duration(lines_to_process[i]['time_code'][0])} -> "
-            f"{LexiAnnot.format_duration(lines_to_process[min(len(translation_tasks), i + self._context_window)-1]['time_code'][1])}")
+                        f"{LexiAnnot.format_duration(lines_to_process[i]['time_code'][0])} -> "
+                        f"{LexiAnnot.format_duration(lines_to_process[min(len(translation_tasks), i + self._context_window) - 1]['time_code'][1])}")
             answer: List[DialogueTranslationTask] = self.__query_gemini(task_bulk,
                                                                         DialogueTranslationTask,
                                                                         self._gemini_apikey,
@@ -1486,7 +1735,7 @@ class LexiAnnot(_PluginBase):
                                                                         model_temperature)
             time.sleep(self._request_interval)
             for answer_line in answer:
-                if  answer_line.index not in range(i, i+self._context_window):
+                if answer_line.index not in range(i, i + self._context_window):
                     continue
                 filtered_raw = [x for x in lines_to_process if x.get('index') == answer_line.index]
                 if not len(filtered_raw):
@@ -1502,16 +1751,18 @@ class LexiAnnot(_PluginBase):
             i += self._context_window
         return lines_to_process
 
-    def process_subtitles(self, ass_file: SSAFile) -> Optional[SSAFile]:
+    def process_subtitles(self, ass_file: SSAFile,
+                          cefr_lexicon: Dict[str, Any],
+                          coca20k_lexicon: Dict[str, Any],
+                          exams_lexicon: Dict[str, Any],
+                          swear_words: List[str],
+                          nlp: spacy.Language) -> Optional[SSAFile]:
         """
         处理字幕内容，标记词汇并添加翻译。
         """
         lang = 'en'
-        cefr_lexicon = self._cefr_lexicon
-        swear_words = self._swear_words
-        coca20k_lexicon = self._coca2k_lexicon
         abgr_str = (f'&H{self._color_alpha:02x}{self._accent_color_rgb[2]:02x}'
-                                 f'{self._accent_color_rgb[1]:02x}{self._accent_color_rgb[0]:02x}&') #&H00FFFFFF&
+                    f'{self._accent_color_rgb[1]:02x}{self._accent_color_rgb[0]:02x}&')  # &H00FFFFFF&
         pos_map = {
             'NOUN': 'n.',
             'AUX': 'aux.',
@@ -1540,7 +1791,8 @@ class LexiAnnot(_PluginBase):
             lines_to_process.append(line_data)
             main_dialogue[index] = dialogue
             index += 1
-        lines_to_process = self.__process_by_ai(lines_to_process, cefr_lexicon, swear_words, coca20k_lexicon)
+        lines_to_process = self.__process_by_ai(lines_to_process, cefr_lexicon, coca20k_lexicon, exams_lexicon,
+                                                swear_words, nlp)
 
         # 在原字幕添加标注
         main_style_fs = ass_file.styles[main_style].fontsize
@@ -1560,12 +1812,13 @@ class LexiAnnot(_PluginBase):
                         dialogue.start = main_dialogue[line_data['index']].start
                         dialogue.end = main_dialogue[line_data['index']].end
                         dialogue.style = 'Annotation EN'
-                        cefr_text = f" {{\\rAnnotation CEFR}}{replacement['cefr']}{{\\r}}" if replacement[
-                            'cefr'] else ""
+                        cefr_text = f" {{\\rAnnotation CEFR}}{replacement['cefr']}{{\\r}}" \
+                            if replacement['cefr'] else ""
+                        exam_text = f" {{\\rAnnotation EXAM}}{' '.join(replacement['exam_tags'])}{{\\r}}" \
+                            if replacement['exam_tags'] else ""
                         __N = r'\N'
-                        phone_text = f"{__N}{{\\rAnnotation PHONE}}/{replacement['phonetics']}/{{\\r}}" if replacement[
-                                                                                                               'phonetics'] and self._show_phonetics else ""
-                        annot_text = f"{replacement['lemma']} {{\\rAnnotation POS}}{pos_map[replacement['pos']]}{{\\r}} {{\\rAnnotation ZH}}{replacement['Chinese']}{{\\r}}{cefr_text}{phone_text}"
+                        phone_text = f"{__N}{{\\rAnnotation PHONE}}/{replacement['phonetics']}/{{\\r}}" if replacement['phonetics'] and self._show_phonetics else ""
+                        annot_text = f"{replacement['lemma']} {{\\rAnnotation POS}}{pos_map[replacement['pos']]}{{\\r}} {{\\rAnnotation ZH}}{replacement['Chinese']}{{\\r}}{cefr_text}{exam_text}{phone_text}"
                         dialogue.text = annot_text
                         ass_file.append(dialogue)
                         if self._show_vocabulary_detail and replacement['pos_defs']:
@@ -1588,4 +1841,3 @@ class LexiAnnot(_PluginBase):
                     chinese = chinese[:-1]
                 main_dialogue[line_data['index']].text = main_dialogue[line_data['index']].text + f"\\N{chinese}"
         return ass_file
-

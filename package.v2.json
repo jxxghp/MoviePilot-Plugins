@@ -508,11 +508,12 @@
     "name": "美剧生词标注",
     "description": "根据CEFR等级，为英语影视剧标注高级词汇。",
     "labels": "英语",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "icon": "LexiAnnot.png",
     "author": "wumode",
     "level": 1,
     "history": {
+      "v1.1.0": "支持考试词汇标注; 优化分词处理; 修复错误",
       "v1.0.1": "合并连字符词; 避免ARM平台依赖问题",
       "v1.0": "新增LexiAnnot"
     }
