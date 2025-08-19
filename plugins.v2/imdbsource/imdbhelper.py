@@ -484,7 +484,11 @@ class ImdbHelper:
 
         params = {"operationName": operation_name,
                   "variables": variables}
-        data = await self._async_request(params, sha256)
+        try:
+            data = await self._async_request(params, sha256)
+        except Exception as e:
+            logger.debug(f"An error occurred while querying {operation_name}: {e}")
+            return None
         if not data:
             return None
         if 'error' in data:
@@ -530,7 +534,11 @@ class ImdbHelper:
                      'videos': videos or [],
                      'isRegistered': is_registered,
                      }
-        data = self._query_graphql(query, variables)
+        try:
+            data = self._query_graphql(query, variables)
+        except Exception as e:
+            logger.debug(f"An error occurred while querying VerticalListPageItems: {e}")
+            return None
         if 'error' in data:
             error = data['error']
             if error:
@@ -602,7 +610,11 @@ class ImdbHelper:
                      'videos': videos or [],
                      'isRegistered': is_registered,
                      }
-        data = await self._async_query_graphql(query, variables)
+        try:
+            data = await self._async_query_graphql(query, variables)
+        except Exception as e:
+            logger.debug(f"An error occurred while querying VerticalListPageItems: {e}")
+            return None
         if 'error' in data:
             error = data['error']
             if error:
@@ -650,7 +662,11 @@ class ImdbHelper:
         params: Dict[str, Any] = {'query': query}
         if limit:
             params['limit'] = limit
-        r = self.__free_imdb_api(path=endpoint, params=params)
+        try:
+            r = self.__free_imdb_api(path=endpoint, params=params)
+        except Exception as e:
+            logger.debug(f"An error occurred while searching for titles: {e}")
+            return None
         if r is None:
             return None
         return r.get('titles')
@@ -685,7 +701,11 @@ class ImdbHelper:
         See `curl -X 'GET' 'https://api.imdbapi.dev/titles/tt0944947' -H 'accept: application/json'`
         """
         endpoint = '/titles/%s'
-        r = self.__free_imdb_api(path=endpoint % title_id)
+        try:
+            r = self.__free_imdb_api(path=endpoint % title_id)
+        except Exception as e:
+            logger.debug(f"An error occurred while retrieving details: {e}")
+            return None
         return r
 
     def episodes(self, title_id: str, season: Optional[str] = None,
@@ -709,7 +729,11 @@ class ImdbHelper:
             param['pageSize'] = page_size
         if page_token is not None:
             param['pageToken'] = page_token
-        r = self.__free_imdb_api(path=endpoint % title_id, params=param)
+        try:
+            r = self.__free_imdb_api(path=endpoint % title_id, params=param)
+        except Exception as e:
+            logger.debug(f"An error occurred while retrieving episodes: {e}")
+            return None
         return r
 
     def seasons(self, title_id: str) -> Optional[List[dict]]:
@@ -722,7 +746,11 @@ class ImdbHelper:
         {[{"season": "1",  "episodeCount": 11}]}
         """
         endpoint = '/titles/%s/seasons'
-        r = self.__free_imdb_api(path=endpoint % title_id)
+        try:
+            r = self.__free_imdb_api(path=endpoint % title_id)
+        except Exception as e:
+            logger.debug(f"An error occurred while retrieving seasons: {e}")
+            return None
         if r is None:
             return None
         return r.get('seasons')
@@ -753,7 +781,11 @@ class ImdbHelper:
             param['pageSize'] = page_size
         if page_token is not None:
             param['pageToken'] = page_token
-        r = self.__free_imdb_api(path=endpoint % title_id, params=param) or {}
+        try:
+            r = self.__free_imdb_api(path=endpoint % title_id, params=param) or {}
+        except Exception as e:
+            logger.debug(f"An error occurred while retrieving credits: {e}")
+            return None
         return r.get('credits')
 
     def akas(self, title_id: str) -> Optional[list]:
@@ -774,7 +806,11 @@ class ImdbHelper:
         },]
         """
         endpoint = '/titles/%s/akas'
-        r = self.__free_imdb_api(path=endpoint % title_id)
+        try:
+            r = self.__free_imdb_api(path=endpoint % title_id)
+        except Exception as e:
+            logger.debug(f"An error occurred while retrieving alternative titles: {e}")
+            return None
         if r is None:
             return None
         return r.get('akas')
@@ -968,7 +1004,11 @@ class ImdbHelper:
         params: Dict[str, Any] = {'query': query}
         if limit:
             params['limit'] = limit
-        r = await self._async_free_imdb_api(path=endpoint, params=params)
+        try:
+            r = await self._async_free_imdb_api(path=endpoint, params=params)
+        except Exception as e:
+            logger.debug(f"An error occurred while searching for titles: {e}")
+            return None
         if r is None:
             return None
         return r.get('titles')
@@ -981,7 +1021,11 @@ class ImdbHelper:
         See `curl -X 'GET' 'https://api.imdbapi.dev/titles/tt0944947' -H 'accept: application/json'`
         """
         endpoint = '/titles/%s'
-        r = await self._async_free_imdb_api(path=endpoint % title_id)
+        try:
+            r = await self._async_free_imdb_api(path=endpoint % title_id)
+        except Exception as e:
+            logger.debug(f"An error occurred while retrieving details: {e}")
+            return None
         return r
 
     async def async_episodes(self, title_id: str, season: Optional[str] = None,
@@ -1005,7 +1049,11 @@ class ImdbHelper:
             param['pageSize'] = page_size
         if page_token is not None:
             param['pageToken'] = page_token
-        r = await self._async_free_imdb_api(path=endpoint % title_id, params=param)
+        try:
+            r = await self._async_free_imdb_api(path=endpoint % title_id, params=param)
+        except Exception as e:
+            logger.debug(f"An error occurred while retrieving episodes: {e}")
+            return None
         return r
 
     async def async_seasons(self, title_id: str) -> Optional[List[dict]]:
@@ -1018,7 +1066,11 @@ class ImdbHelper:
         {[{"season": "1",  "episodeCount": 11}]}
         """
         endpoint = '/titles/%s/seasons'
-        r = await self._async_free_imdb_api(path=endpoint % title_id)
+        try:
+            r = await self._async_free_imdb_api(path=endpoint % title_id)
+        except Exception as e:
+            logger.debug(f"An error occurred while retrieving seasons: {e}")
+            return None
         if r is None:
             return None
         return r.get('seasons')
@@ -1049,7 +1101,11 @@ class ImdbHelper:
             param['pageSize'] = page_size
         if page_token is not None:
             param['pageToken'] = page_token
-        r = await self._async_free_imdb_api(path=endpoint % title_id, params=param) or {}
+        try:
+            r = await self._async_free_imdb_api(path=endpoint % title_id, params=param) or {}
+        except Exception as e:
+            logger.debug(f"An error occurred while retrieving credits: {e}")
+            return None
         return r.get('credits')
 
     async def async_akas(self, title_id: str) -> Optional[list]:
@@ -1070,7 +1126,11 @@ class ImdbHelper:
         },]
         """
         endpoint = '/titles/%s/akas'
-        r = await self._async_free_imdb_api(path=endpoint % title_id)
+        try:
+            r = await self._async_free_imdb_api(path=endpoint % title_id)
+        except Exception as e:
+            logger.debug(f"An error occurred while retrieving alternative titles: {e}")
+            return None
         if r is None:
             return None
         return r.get('akas')

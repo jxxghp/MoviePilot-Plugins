@@ -17,7 +17,6 @@ from pysubs2 import SSAFile, SSAEvent
 import pymediainfo
 from langdetect import detect
 import spacy
-from spacy.util import compile_infix_regex
 from spacy.tokenizer import Tokenizer
 
 from app.core.config import settings
@@ -975,11 +974,12 @@ class LexiAnnot(_PluginBase):
             logger.error(f"字典加载失败")
             return
         try:
+            # 为减少内存占用，只在处理时加载 spaCy 模型
             nlp = spacy.load(self._spacy_model)
             infixes = list(nlp.Defaults.infixes)
             infixes = [i for i in infixes if '-' not in i]
             # 使用修改后的正则表达式重新创建 tokenizer
-            infix_re = compile_infix_regex(infixes)
+            infix_re = spacy.util.compile_infix_regex(infixes)
             nlp.tokenizer = Tokenizer(
                 nlp.vocab,
                 prefix_search=nlp.tokenizer.prefix_search,
@@ -1062,7 +1062,7 @@ class LexiAnnot(_PluginBase):
                 lexicon = json.load(f)
         except Exception as e:
             logger.debug(f"词典文件读取失败: {e}")
-        lexicon_files = ('cefr', 'coca20k', 'swear_words', 'examinations')
+        lexicon_files = ('cefr', 'coca20k', 'swear_words', 'examinations', 'version')
         if any(file not in lexicon for file in lexicon_files):
             return None
         return lexicon
@@ -1588,7 +1588,7 @@ class LexiAnnot(_PluginBase):
             例如："[Hi]" 会被替换成 "    " (4个空格)
             """
             pattern = r'(\[.*?\])'
-            return re.sub(pattern, lambda match: ' ' * len(match.group(1)), text)
+            return re.sub(pattern, lambda match: ' ' * len(match.group(1)), _text)
 
         simple_vocabulary = list(filter(lambda x: x < self._annot_level, ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']))
         patterns = [r'\d+th|\d?1st|\d?2nd|\d?3rd', r"\w+'s$", r"\w+'t$", "[Ii]'m$", r"\w+'re$", r"\w+'ve$", r"\w+'ll$"]
