@@ -29,7 +29,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.5.6"
+    plugin_version = "1.5.7"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -60,7 +60,7 @@ class ImdbSource(_PluginBase):
 
     def init_plugin(self, config: dict = None):
 
-        plugin_instance = self
+        plugin_instance: ImdbSource = self
 
         def patched_recognize_media(chain_self, meta: MetaBase = None,
                                     mtype: Optional[MediaType] = None,
@@ -822,6 +822,14 @@ class ImdbSource(_PluginBase):
                 ChainBase.async_recognize_media._patched_by == id(self) and
                 self._original_async_method):
             ChainBase.async_recognize_media = self._original_async_method
+        if self._scheduler:
+            try:
+                self._scheduler.remove_all_jobs()
+                if self._scheduler.running:
+                    self._scheduler.shutdown()
+                self._scheduler = None
+            except Exception as e:
+                logger.error(f"退出插件失败：{e}")
 
     def get_module(self) -> Dict[str, Any]:
         """

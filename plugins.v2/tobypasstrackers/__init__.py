@@ -29,7 +29,7 @@ class ToBypassTrackers(_PluginBase):
     # 插件图标
     plugin_icon = "Clash_A.png"
     # 插件版本
-    plugin_version = "1.4.2"
+    plugin_version = "1.4.3"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -68,7 +68,8 @@ class ToBypassTrackers(_PluginBase):
         self.ipv6_txt = self.get_data("ipv6_txt") if self.get_data("ipv6_txt") else ""
         self.ipv4_txt = self.get_data("ipv4_txt") if self.get_data("ipv4_txt") else ""
         try:
-            with open(f"{settings.ROOT_PATH}/app/plugins/tobypasstrackers/sites/trackers", "r", encoding="utf-8") as f:
+            site_file = settings.ROOT_PATH/'app'/'plugins'/'tobypasstrackers'/'sites'/'trackers'
+            with open(site_file, "r", encoding="utf-8") as f:
                 base64_str = f.read()
                 self.trackers = json.loads(base64.b64decode(base64_str).decode("utf-8"))
         except Exception as e:
@@ -101,7 +102,6 @@ class ToBypassTrackers(_PluginBase):
                                         )
                 self._onlyonce = False
             self.__update_config()
-            # self._scheduler.print_jobs()
             self._scheduler.start()
 
     def get_state(self) -> bool:
@@ -619,16 +619,14 @@ class ToBypassTrackers(_PluginBase):
             # Load Chnroute6 Lists
             res = RequestUtils().get_res(url=chnroute6_lists_url)
             if res is not None and res.status_code == 200:
-                chnroute6_lists = res.text[:-1].split('\n')
-                for ipr in chnroute6_lists:
-                    ipv6_list.append(ipr)
+                chnroute6_lists = res.text.strip().split('\n')
+                ipv6_list = [*chnroute6_lists]
         if self._china_ip_route:
             # Load Chnroute Lists
             res = RequestUtils().get_res(url=chnroute_lists_url)
             if res is not None and res.status_code == 200:
-                chnroute_lists = res.text[:-1].split('\n')
-                for ipr in chnroute_lists:
-                    ip_list.append(ipr)
+                chnroute_lists = res.text.strip().split('\n')
+                ip_list = [*chnroute_lists]
         do_sites = {site.domain: site.name for site in SiteOper().list_order_by_pri() if
                     site.id in self._bypassed_sites}
         domain_name_map = {}
