@@ -69,7 +69,8 @@ class ImdbHelper:
                                       timeout=10,
                                       proxies=proxies,
                                       session=requests.Session())
-        self._free_imdb_req = RequestUtils(accept_type="application/json", proxies=proxies, session=requests.Session())
+        self._free_imdb_req = RequestUtils(ua=settings.NORMAL_USER_AGENT, accept_type="application/json",
+                                           proxies=proxies, session=requests.Session())
 
         self._imdb_client = httpx.AsyncClient(timeout=10, proxy=proxy_url, headers=self._imdb_headers)
         self._async_imdb_req = AsyncRequestUtils(
@@ -80,6 +81,7 @@ class ImdbHelper:
 
         self._free_api_client = httpx.AsyncClient(timeout=10, proxy=proxy_url)
         self._async_free_api_req = AsyncRequestUtils(
+            ua=settings.NORMAL_USER_AGENT,
             accept_type="application/json",
             client=self._free_api_client
         )
