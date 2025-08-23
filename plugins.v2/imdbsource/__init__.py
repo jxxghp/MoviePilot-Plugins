@@ -29,7 +29,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.5.7"
+    plugin_version = "1.5.8"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页

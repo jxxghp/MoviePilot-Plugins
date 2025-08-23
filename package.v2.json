@@ -451,11 +451,12 @@
     "name": "IMDb源",
     "description": "让探索，推荐和媒体识别支持IMDb数据源。",
     "labels": "探索",
-    "version": "1.5.7",
+    "version": "1.5.8",
     "icon": "IMDb_IOS-OSX_App.png",
     "author": "wumode",
     "level": 1,
     "history": {
+      "v1.5.8": "修改UA",
       "v1.5.7": "改进异常处理",
       "v1.5.6": "固定仪表盘组件海报比例; 修复 bug",
       "v1.5.5": "修复初始化错误",
@@ -510,11 +511,12 @@
     "name": "美剧生词标注",
     "description": "根据CEFR等级，为英语影视剧标注高级词汇。",
     "labels": "英语",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "icon": "LexiAnnot.png",
     "author": "wumode",
     "level": 1,
     "history": {
+      "v1.1.1": "添加任务页面; 改进 spaCy 模型加载逻辑",
       "v1.1.0": "支持考试词汇标注; 优化分词处理; 修复错误",
       "v1.0.1": "合并连字符词; 避免ARM平台依赖问题",
       "v1.0": "新增LexiAnnot"
