@@ -4733,7 +4733,7 @@ const importRuleTypes = ['YAML'];
 const importProxiesTypes = ['YAML', 'LINK'];
 const ruleProviderTypes = ['http', 'file', 'inline'];
 const ruleProviderBehaviorTypes = ['domain', 'ipcidr', 'classical'];
-const ruleProviderFormatTypes = ['yaml', 'text'];
+const ruleProviderFormatTypes = ['yaml', 'text', 'mrs'];
 // 修改actions为计算属性，合并内置动作和自定义出站
 const actions = computed(() => [
   'DIRECT', 'REJECT', 'REJECT-DROP', 'PASS', 'COMPATIBLE',
@@ -5601,39 +5601,75 @@ return (_ctx, _cache) => {
                   }, {
                     default: _withCtx(() => [
                       _createVNode(_component_v_tab, null, {
-                        default: _withCtx(() => _cache[92] || (_cache[92] = [
-                          _createTextVNode("规则集规则")
-                        ])),
+                        default: _withCtx(() => [
+                          _createVNode(_component_v_icon, { start: "" }, {
+                            default: _withCtx(() => _cache[92] || (_cache[92] = [
+                              _createTextVNode("mdi-format-list-bulleted")
+                            ])),
+                            _: 1
+                          }),
+                          _cache[93] || (_cache[93] = _createTextVNode(" 规则集规则 "))
+                        ]),
                         _: 1
                       }),
                       _createVNode(_component_v_tab, null, {
-                        default: _withCtx(() => _cache[93] || (_cache[93] = [
-                          _createTextVNode("置顶规则")
-                        ])),
+                        default: _withCtx(() => [
+                          _createVNode(_component_v_icon, { start: "" }, {
+                            default: _withCtx(() => _cache[94] || (_cache[94] = [
+                              _createTextVNode("mdi-pin")
+                            ])),
+                            _: 1
+                          }),
+                          _cache[95] || (_cache[95] = _createTextVNode(" 置顶规则 "))
+                        ]),
                         _: 1
                       }),
                       _createVNode(_component_v_tab, null, {
-                        default: _withCtx(() => _cache[94] || (_cache[94] = [
-                          _createTextVNode("代理组")
-                        ])),
+                        default: _withCtx(() => [
+                          _createVNode(_component_v_icon, { start: "" }, {
+                            default: _withCtx(() => _cache[96] || (_cache[96] = [
+                              _createTextVNode("mdi-source-branch")
+                            ])),
+                            _: 1
+                          }),
+                          _cache[97] || (_cache[97] = _createTextVNode(" 代理组 "))
+                        ]),
                         _: 1
                       }),
                       _createVNode(_component_v_tab, null, {
-                        default: _withCtx(() => _cache[95] || (_cache[95] = [
-                          _createTextVNode("出站代理")
-                        ])),
+                        default: _withCtx(() => [
+                          _createVNode(_component_v_icon, { start: "" }, {
+                            default: _withCtx(() => _cache[98] || (_cache[98] = [
+                              _createTextVNode("mdi-rocket-launch")
+                            ])),
+                            _: 1
+                          }),
+                          _cache[99] || (_cache[99] = _createTextVNode(" 出站代理 "))
+                        ]),
                         _: 1
                       }),
                       _createVNode(_component_v_tab, null, {
-                        default: _withCtx(() => _cache[96] || (_cache[96] = [
-                          _createTextVNode("规则集合")
-                        ])),
+                        default: _withCtx(() => [
+                          _createVNode(_component_v_icon, { start: "" }, {
+                            default: _withCtx(() => _cache[100] || (_cache[100] = [
+                              _createTextVNode("mdi-folder-multiple")
+                            ])),
+                            _: 1
+                          }),
+                          _cache[101] || (_cache[101] = _createTextVNode(" 规则集合 "))
+                        ]),
                         _: 1
                       }),
                       _createVNode(_component_v_tab, null, {
-                        default: _withCtx(() => _cache[97] || (_cache[97] = [
-                          _createTextVNode("Hosts")
-                        ])),
+                        default: _withCtx(() => [
+                          _createVNode(_component_v_icon, { start: "" }, {
+                            default: _withCtx(() => _cache[102] || (_cache[102] = [
+                              _createTextVNode("mdi-lan")
+                            ])),
+                            _: 1
+                          }),
+                          _cache[103] || (_cache[103] = _createTextVNode(" Hosts "))
+                        ]),
                         _: 1
                       })
                     ]),
@@ -5649,7 +5685,7 @@ return (_ctx, _cache) => {
                           _createElementVNode("div", _hoisted_3, [
                             _createElementVNode("div", _hoisted_4, [
                               _createElementVNode("div", _hoisted_5, [
-                                _cache[100] || (_cache[100] = _createElementVNode("div", { class: "text-h6" }, "规则集规则", -1)),
+                                _cache[106] || (_cache[106] = _createElementVNode("div", { class: "text-h6" }, "规则集规则", -1)),
                                 _createElementVNode("div", _hoisted_6, [
                                   _createVNode(_component_v_text_field, {
                                     modelValue: searchRulesetRule.value,
@@ -5668,12 +5704,12 @@ return (_ctx, _cache) => {
                                   }, {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_icon, { left: "" }, {
-                                        default: _withCtx(() => _cache[98] || (_cache[98] = [
+                                        default: _withCtx(() => _cache[104] || (_cache[104] = [
                                           _createTextVNode("mdi-plus")
                                         ])),
                                         _: 1
                                       }),
-                                      _cache[99] || (_cache[99] = _createTextVNode(" 添加规则 "))
+                                      _cache[105] || (_cache[105] = _createTextVNode(" 添加规则 "))
                                     ]),
                                     _: 1
                                   })
@@ -5702,7 +5738,7 @@ return (_ctx, _cache) => {
                                 }, [
                                   _createElementVNode("td", null, [
                                     _createVNode(_component_v_icon, { class: "drag-handle" }, {
-                                      default: _withCtx(() => _cache[101] || (_cache[101] = [
+                                      default: _withCtx(() => _cache[107] || (_cache[107] = [
                                         _createTextVNode("mdi-drag")
                                       ])),
                                       _: 1
@@ -5733,7 +5769,7 @@ return (_ctx, _cache) => {
                                     }, {
                                       default: _withCtx(() => [
                                         _createVNode(_component_v_icon, null, {
-                                          default: _withCtx(() => _cache[102] || (_cache[102] = [
+                                          default: _withCtx(() => _cache[108] || (_cache[108] = [
                                             _createTextVNode("mdi-pencil")
                                           ])),
                                           _: 1
@@ -5750,7 +5786,7 @@ return (_ctx, _cache) => {
                                     }, {
                                       default: _withCtx(() => [
                                         _createVNode(_component_v_icon, null, {
-                                          default: _withCtx(() => _cache[103] || (_cache[103] = [
+                                          default: _withCtx(() => _cache[109] || (_cache[109] = [
                                             _createTextVNode("mdi-delete")
                                           ])),
                                           _: 1
@@ -5790,7 +5826,7 @@ return (_ctx, _cache) => {
                               ]),
                               _: 1
                             }, 8, ["headers", "items", "search", "page", "items-per-page", "items-per-page-options"]),
-                            _cache[104] || (_cache[104] = _createElementVNode("div", { class: "text-caption text-grey mt-2" }, " *对规则集中规则的修改可以在Clash中立即生效。 ", -1))
+                            _cache[110] || (_cache[110] = _createElementVNode("div", { class: "text-caption text-grey mt-2" }, " *对规则集中规则的修改可以在Clash中立即生效。 ", -1))
                           ])
                         ]),
                         _: 1
@@ -5800,7 +5836,7 @@ return (_ctx, _cache) => {
                           _createElementVNode("div", _hoisted_11, [
                             _createElementVNode("div", _hoisted_12, [
                               _createElementVNode("div", _hoisted_13, [
-                                _cache[109] || (_cache[109] = _createElementVNode("div", { class: "text-h6" }, "置顶规则", -1)),
+                                _cache[115] || (_cache[115] = _createElementVNode("div", { class: "text-h6" }, "置顶规则", -1)),
                                 _createElementVNode("div", _hoisted_14, [
                                   _createVNode(_component_v_text_field, {
                                     modelValue: searchTopRule.value,
@@ -5820,12 +5856,12 @@ return (_ctx, _cache) => {
                                   }, {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_icon, { left: "" }, {
-                                        default: _withCtx(() => _cache[105] || (_cache[105] = [
+                                        default: _withCtx(() => _cache[111] || (_cache[111] = [
                                           _createTextVNode("mdi-import")
                                         ])),
                                         _: 1
                                       }),
-                                      _cache[106] || (_cache[106] = _createTextVNode(" 导入规则 "))
+                                      _cache[112] || (_cache[112] = _createTextVNode(" 导入规则 "))
                                     ]),
                                     _: 1
                                   }),
@@ -5835,12 +5871,12 @@ return (_ctx, _cache) => {
                                   }, {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_icon, { left: "" }, {
-                                        default: _withCtx(() => _cache[107] || (_cache[107] = [
+                                        default: _withCtx(() => _cache[113] || (_cache[113] = [
                                           _createTextVNode("mdi-plus")
                                         ])),
                                         _: 1
                                       }),
-                                      _cache[108] || (_cache[108] = _createTextVNode(" 添加规则 "))
+                                      _cache[114] || (_cache[114] = _createTextVNode(" 添加规则 "))
                                     ]),
                                     _: 1
                                   })
@@ -5869,7 +5905,7 @@ return (_ctx, _cache) => {
                                 }, [
                                   _createElementVNode("td", null, [
                                     _createVNode(_component_v_icon, { class: "drag-handle" }, {
-                                      default: _withCtx(() => _cache[110] || (_cache[110] = [
+                                      default: _withCtx(() => _cache[116] || (_cache[116] = [
                                         _createTextVNode("mdi-drag")
                                       ])),
                                       _: 1
@@ -5900,7 +5936,7 @@ return (_ctx, _cache) => {
                                     }, {
                                       default: _withCtx(() => [
                                         _createVNode(_component_v_icon, null, {
-                                          default: _withCtx(() => _cache[111] || (_cache[111] = [
+                                          default: _withCtx(() => _cache[117] || (_cache[117] = [
                                             _createTextVNode("mdi-pencil")
                                           ])),
                                           _: 1
@@ -5918,7 +5954,7 @@ return (_ctx, _cache) => {
                                     }, {
                                       default: _withCtx(() => [
                                         _createVNode(_component_v_icon, null, {
-                                          default: _withCtx(() => _cache[112] || (_cache[112] = [
+                                          default: _withCtx(() => _cache[118] || (_cache[118] = [
                                             _createTextVNode("mdi-delete")
                                           ])),
                                           _: 1
@@ -5932,7 +5968,7 @@ return (_ctx, _cache) => {
                                           activator: "parent",
                                           location: "top"
                                         }, {
-                                          default: _withCtx(() => _cache[113] || (_cache[113] = [
+                                          default: _withCtx(() => _cache[119] || (_cache[119] = [
                                             _createTextVNode(" 根据规则集自动添加 ")
                                           ])),
                                           _: 1
@@ -5970,8 +6006,8 @@ return (_ctx, _cache) => {
                               ]),
                               _: 1
                             }, 8, ["headers", "search", "items", "page", "items-per-page"]),
-                            _cache[114] || (_cache[114] = _createElementVNode("div", { class: "text-caption text-grey mt-2" }, " *置顶规则用于管理来自规则集的匹配规则，这些规则会动态更新。 ", -1)),
-                            _cache[115] || (_cache[115] = _createElementVNode("div", { class: "text-caption text-grey mt-2" }, " *对置顶规则的修改只有Clash更新配置后才会生效。 ", -1))
+                            _cache[120] || (_cache[120] = _createElementVNode("div", { class: "text-caption text-grey mt-2" }, " *置顶规则用于管理来自规则集的匹配规则，这些规则会动态更新。 ", -1)),
+                            _cache[121] || (_cache[121] = _createElementVNode("div", { class: "text-caption text-grey mt-2" }, " *对置顶规则的修改只有Clash更新配置后才会生效。 ", -1))
                           ])
                         ]),
                         _: 1
@@ -5981,7 +6017,7 @@ return (_ctx, _cache) => {
                           _createElementVNode("div", _hoisted_19, [
                             _createElementVNode("div", _hoisted_20, [
                               _createElementVNode("div", _hoisted_21, [
-                                _cache[118] || (_cache[118] = _createElementVNode("div", { class: "text-h6" }, "代理组", -1)),
+                                _cache[124] || (_cache[124] = _createElementVNode("div", { class: "text-h6" }, "代理组", -1)),
                                 _createElementVNode("div", _hoisted_22, [
                                   _createVNode(_component_v_btn, {
                                     color: "primary",
@@ -5989,12 +6025,12 @@ return (_ctx, _cache) => {
                                   }, {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_icon, { left: "" }, {
-                                        default: _withCtx(() => _cache[116] || (_cache[116] = [
+                                        default: _withCtx(() => _cache[122] || (_cache[122] = [
                                           _createTextVNode("mdi-plus")
                                         ])),
                                         _: 1
                                       }),
-                                      _cache[117] || (_cache[117] = _createTextVNode(" 添加代理组 "))
+                                      _cache[123] || (_cache[123] = _createTextVNode(" 添加代理组 "))
                                     ]),
                                     _: 1
                                   })
@@ -6026,7 +6062,7 @@ return (_ctx, _cache) => {
                                     }, {
                                       default: _withCtx(() => [
                                         _createVNode(_component_v_icon, null, {
-                                          default: _withCtx(() => _cache[119] || (_cache[119] = [
+                                          default: _withCtx(() => _cache[125] || (_cache[125] = [
                                             _createTextVNode("mdi-code-json")
                                           ])),
                                           _: 1
@@ -6044,7 +6080,7 @@ return (_ctx, _cache) => {
                                     }, {
                                       default: _withCtx(() => [
                                         _createVNode(_component_v_icon, null, {
-                                          default: _withCtx(() => _cache[120] || (_cache[120] = [
+                                          default: _withCtx(() => _cache[126] || (_cache[126] = [
                                             _createTextVNode("mdi-pencil")
                                           ])),
                                           _: 1
@@ -6062,7 +6098,7 @@ return (_ctx, _cache) => {
                                     }, {
                                       default: _withCtx(() => [
                                         _createVNode(_component_v_icon, null, {
-                                          default: _withCtx(() => _cache[121] || (_cache[121] = [
+                                          default: _withCtx(() => _cache[127] || (_cache[127] = [
                                             _createTextVNode("mdi-delete")
                                           ])),
                                           _: 1
@@ -6076,7 +6112,7 @@ return (_ctx, _cache) => {
                                           activator: "parent",
                                           location: "top"
                                         }, {
-                                          default: _withCtx(() => _cache[122] || (_cache[122] = [
+                                          default: _withCtx(() => _cache[128] || (_cache[128] = [
                                             _createTextVNode(" 非手动添加 ")
                                           ])),
                                           _: 1
@@ -6114,7 +6150,7 @@ return (_ctx, _cache) => {
                               ]),
                               _: 1
                             }, 8, ["headers", "items", "page", "items-per-page"]),
-                            _cache[123] || (_cache[123] = _createElementVNode("div", { class: "text-caption text-grey mt-2" }, null, -1))
+                            _cache[129] || (_cache[129] = _createElementVNode("div", { class: "text-caption text-grey mt-2" }, null, -1))
                           ])
                         ]),
                         _: 1
@@ -6124,7 +6160,7 @@ return (_ctx, _cache) => {
                           _createElementVNode("div", _hoisted_26, [
                             _createElementVNode("div", _hoisted_27, [
                               _createElementVNode("div", _hoisted_28, [
-                                _cache[126] || (_cache[126] = _createElementVNode("div", { class: "text-h6" }, "出站代理", -1)),
+                                _cache[132] || (_cache[132] = _createElementVNode("div", { class: "text-h6" }, "出站代理", -1)),
                                 _createElementVNode("div", _hoisted_29, [
                                   _createVNode(_component_v_btn, {
                                     color: "primary",
@@ -6132,12 +6168,12 @@ return (_ctx, _cache) => {
                                   }, {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_icon, { left: "" }, {
-                                        default: _withCtx(() => _cache[124] || (_cache[124] = [
+                                        default: _withCtx(() => _cache[130] || (_cache[130] = [
                                           _createTextVNode("mdi-plus")
                                         ])),
                                         _: 1
                                       }),
-                                      _cache[125] || (_cache[125] = _createTextVNode(" 导入节点 "))
+                                      _cache[131] || (_cache[131] = _createTextVNode(" 导入节点 "))
                                     ]),
                                     _: 1
                                   })
@@ -6171,7 +6207,7 @@ return (_ctx, _cache) => {
                                     }, {
                                       default: _withCtx(() => [
                                         _createVNode(_component_v_icon, null, {
-                                          default: _withCtx(() => _cache[127] || (_cache[127] = [
+                                          default: _withCtx(() => _cache[133] || (_cache[133] = [
                                             _createTextVNode("mdi-code-json")
                                           ])),
                                           _: 1
@@ -6189,7 +6225,7 @@ return (_ctx, _cache) => {
                                     }, {
                                       default: _withCtx(() => [
                                         _createVNode(_component_v_icon, null, {
-                                          default: _withCtx(() => _cache[128] || (_cache[128] = [
+                                          default: _withCtx(() => _cache[134] || (_cache[134] = [
                                             _createTextVNode("mdi-delete")
                                           ])),
                                           _: 1
@@ -6203,7 +6239,7 @@ return (_ctx, _cache) => {
                                           activator: "parent",
                                           location: "top"
                                         }, {
-                                          default: _withCtx(() => _cache[129] || (_cache[129] = [
+                                          default: _withCtx(() => _cache[135] || (_cache[135] = [
                                             _createTextVNode(" 非手动添加 ")
                                           ])),
                                           _: 1
@@ -6241,7 +6277,7 @@ return (_ctx, _cache) => {
                               ]),
                               _: 1
                             }, 8, ["headers", "items", "page", "items-per-page"]),
-                            _cache[130] || (_cache[130] = _createElementVNode("div", { class: "text-caption text-grey mt-2" }, null, -1))
+                            _cache[136] || (_cache[136] = _createElementVNode("div", { class: "text-caption text-grey mt-2" }, null, -1))
                           ])
                         ]),
                         _: 1
@@ -6251,7 +6287,7 @@ return (_ctx, _cache) => {
                           _createElementVNode("div", _hoisted_33, [
                             _createElementVNode("div", _hoisted_34, [
                               _createElementVNode("div", _hoisted_35, [
-                                _cache[133] || (_cache[133] = _createElementVNode("div", { class: "text-h6" }, "规则集合", -1)),
+                                _cache[139] || (_cache[139] = _createElementVNode("div", { class: "text-h6" }, "规则集合", -1)),
                                 _createElementVNode("div", _hoisted_36, [
                                   _createVNode(_component_v_text_field, {
                                     modelValue: searchRuleProviders.value,
@@ -6270,12 +6306,12 @@ return (_ctx, _cache) => {
                                   }, {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_icon, { left: "" }, {
-                                        default: _withCtx(() => _cache[131] || (_cache[131] = [
+                                        default: _withCtx(() => _cache[137] || (_cache[137] = [
                                           _createTextVNode("mdi-plus")
                                         ])),
                                         _: 1
                                       }),
-                                      _cache[132] || (_cache[132] = _createTextVNode(" 添加规则集合 "))
+                                      _cache[138] || (_cache[138] = _createTextVNode(" 添加规则集合 "))
                                     ]),
                                     _: 1
                                   })
@@ -6311,7 +6347,7 @@ return (_ctx, _cache) => {
                                     }, {
                                       default: _withCtx(() => [
                                         _createVNode(_component_v_icon, null, {
-                                          default: _withCtx(() => _cache[134] || (_cache[134] = [
+                                          default: _withCtx(() => _cache[140] || (_cache[140] = [
                                             _createTextVNode("mdi-pencil")
                                           ])),
                                           _: 1
@@ -6329,7 +6365,7 @@ return (_ctx, _cache) => {
                                     }, {
                                       default: _withCtx(() => [
                                         _createVNode(_component_v_icon, null, {
-                                          default: _withCtx(() => _cache[135] || (_cache[135] = [
+                                          default: _withCtx(() => _cache[141] || (_cache[141] = [
                                             _createTextVNode("mdi-delete")
                                           ])),
                                           _: 1
@@ -6343,7 +6379,7 @@ return (_ctx, _cache) => {
                                           activator: "parent",
                                           location: "top"
                                         }, {
-                                          default: _withCtx(() => _cache[136] || (_cache[136] = [
+                                          default: _withCtx(() => _cache[142] || (_cache[142] = [
                                             _createTextVNode(" 非手动添加 ")
                                           ])),
                                           _: 1
@@ -6390,7 +6426,7 @@ return (_ctx, _cache) => {
                           _createElementVNode("div", _hoisted_40, [
                             _createElementVNode("div", _hoisted_41, [
                               _createElementVNode("div", _hoisted_42, [
-                                _cache[139] || (_cache[139] = _createElementVNode("div", { class: "text-h6" }, "Hosts", -1)),
+                                _cache[145] || (_cache[145] = _createElementVNode("div", { class: "text-h6" }, "Hosts", -1)),
                                 _createElementVNode("div", _hoisted_43, [
                                   _createVNode(_component_v_text_field, {
                                     modelValue: searchHosts.value,
@@ -6409,12 +6445,12 @@ return (_ctx, _cache) => {
                                   }, {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_icon, { left: "" }, {
-                                        default: _withCtx(() => _cache[137] || (_cache[137] = [
+                                        default: _withCtx(() => _cache[143] || (_cache[143] = [
                                           _createTextVNode("mdi-plus")
                                         ])),
                                         _: 1
                                       }),
-                                      _cache[138] || (_cache[138] = _createTextVNode(" 添加Hosts "))
+                                      _cache[144] || (_cache[144] = _createTextVNode(" 添加Hosts "))
                                     ]),
                                     _: 1
                                   })
@@ -6470,7 +6506,7 @@ return (_ctx, _cache) => {
                                     }, {
                                       default: _withCtx(() => [
                                         _createVNode(_component_v_icon, null, {
-                                          default: _withCtx(() => _cache[140] || (_cache[140] = [
+                                          default: _withCtx(() => _cache[146] || (_cache[146] = [
                                             _createTextVNode("mdi-pencil")
                                           ])),
                                           _: 1
@@ -6487,7 +6523,7 @@ return (_ctx, _cache) => {
                                     }, {
                                       default: _withCtx(() => [
                                         _createVNode(_component_v_icon, null, {
-                                          default: _withCtx(() => _cache[141] || (_cache[141] = [
+                                          default: _withCtx(() => _cache[147] || (_cache[147] = [
                                             _createTextVNode("mdi-delete")
                                           ])),
                                           _: 1
@@ -6548,7 +6584,7 @@ return (_ctx, _cache) => {
                           _createVNode(_component_v_card, { class: "h-100" }, {
                             default: _withCtx(() => [
                               _createVNode(_component_v_card_title, { class: "text-h6 font-weight-medium" }, {
-                                default: _withCtx(() => _cache[142] || (_cache[142] = [
+                                default: _withCtx(() => _cache[148] || (_cache[148] = [
                                   _createTextVNode("状态信息")
                                 ])),
                                 _: 1
@@ -6557,7 +6593,7 @@ return (_ctx, _cache) => {
                                 default: _withCtx(() => [
                                   _createElementVNode("div", _hoisted_47, [
                                     _createElementVNode("div", _hoisted_48, [
-                                      _cache[143] || (_cache[143] = _createElementVNode("span", null, "状态", -1)),
+                                      _cache[149] || (_cache[149] = _createElementVNode("span", null, "状态", -1)),
                                       _createVNode(_component_v_chip, {
                                         size: "small",
                                         color: status.value === 'running' ? 'success' : 'warning'
@@ -6569,23 +6605,23 @@ return (_ctx, _cache) => {
                                       }, 8, ["color"])
                                     ]),
                                     _createElementVNode("div", _hoisted_49, [
-                                      _cache[144] || (_cache[144] = _createElementVNode("span", null, "订阅配置规则数", -1)),
+                                      _cache[150] || (_cache[150] = _createElementVNode("span", null, "订阅配置规则数", -1)),
                                       _createElementVNode("span", null, _toDisplayString(subscriptionInfo.value.rule_size), 1)
                                     ]),
                                     _createElementVNode("div", _hoisted_50, [
-                                      _cache[145] || (_cache[145] = _createElementVNode("span", null, "置顶规则数", -1)),
+                                      _cache[151] || (_cache[151] = _createElementVNode("span", null, "置顶规则数", -1)),
                                       _createElementVNode("span", null, _toDisplayString(sortedRules.value.length), 1)
                                     ]),
                                     _createElementVNode("div", _hoisted_51, [
-                                      _cache[146] || (_cache[146] = _createElementVNode("span", null, "规则集规则数", -1)),
+                                      _cache[152] || (_cache[152] = _createElementVNode("span", null, "规则集规则数", -1)),
                                       _createElementVNode("span", null, _toDisplayString(sortedRulesetRules.value.length), 1)
                                     ]),
                                     _createElementVNode("div", _hoisted_52, [
-                                      _cache[147] || (_cache[147] = _createElementVNode("span", null, "代理组数", -1)),
+                                      _cache[153] || (_cache[153] = _createElementVNode("span", null, "代理组数", -1)),
                                       _createElementVNode("span", null, _toDisplayString(proxyGroups.value.length), 1)
                                     ]),
                                     _createElementVNode("div", _hoisted_53, [
-                                      _cache[148] || (_cache[148] = _createElementVNode("span", null, "最后更新", -1)),
+                                      _cache[154] || (_cache[154] = _createElementVNode("span", null, "最后更新", -1)),
                                       _createElementVNode("span", null, _toDisplayString(lastUpdated.value), 1)
                                     ])
                                   ])
@@ -6607,7 +6643,7 @@ return (_ctx, _cache) => {
                             default: _withCtx(() => [
                               _createVNode(_component_v_card_title, { class: "d-flex justify-space-between align-center" }, {
                                 default: _withCtx(() => [
-                                  _cache[150] || (_cache[150] = _createElementVNode("span", { class: "text-h6 font-weight-medium" }, "订阅链接", -1)),
+                                  _cache[156] || (_cache[156] = _createElementVNode("span", { class: "text-h6 font-weight-medium" }, "订阅链接", -1)),
                                   _createVNode(_component_v_tooltip, {
                                     location: "top",
                                     text: "复制链接"
@@ -6623,7 +6659,7 @@ return (_ctx, _cache) => {
                                           }), {
                                             default: _withCtx(() => [
                                               _createVNode(_component_v_icon, null, {
-                                                default: _withCtx(() => _cache[149] || (_cache[149] = [
+                                                default: _withCtx(() => _cache[155] || (_cache[155] = [
                                                   _createTextVNode("mdi-content-copy")
                                                 ])),
                                                 _: 1
@@ -6647,12 +6683,12 @@ return (_ctx, _cache) => {
                                             color: "grey",
                                             class: "mr-2"
                                           }, {
-                                            default: _withCtx(() => _cache[151] || (_cache[151] = [
+                                            default: _withCtx(() => _cache[157] || (_cache[157] = [
                                               _createTextVNode("mdi-link")
                                             ])),
                                             _: 1
                                           }),
-                                          _cache[152] || (_cache[152] = _createElementVNode("span", { class: "text-grey-darken-1" }, "原始链接：", -1))
+                                          _cache[158] || (_cache[158] = _createElementVNode("span", { class: "text-grey-darken-1" }, "原始链接：", -1))
                                         ]),
                                         _createElementVNode("div", _hoisted_56, [
                                           (Object.keys(subscriptionsInfo.value).length > 0)
@@ -6673,7 +6709,7 @@ return (_ctx, _cache) => {
                                         ]),
                                         _createElementVNode("div", _hoisted_58, [
                                           _createVNode(_component_v_icon, { color: "blue" }, {
-                                            default: _withCtx(() => _cache[153] || (_cache[153] = [
+                                            default: _withCtx(() => _cache[159] || (_cache[159] = [
                                               _createTextVNode("mdi-arrow-down-bold")
                                             ])),
                                             _: 1
@@ -6684,12 +6720,12 @@ return (_ctx, _cache) => {
                                             color: "primary",
                                             class: "mr-2"
                                           }, {
-                                            default: _withCtx(() => _cache[154] || (_cache[154] = [
+                                            default: _withCtx(() => _cache[160] || (_cache[160] = [
                                               _createTextVNode("mdi-link-variant")
                                             ])),
                                             _: 1
                                           }),
-                                          _cache[155] || (_cache[155] = _createElementVNode("span", { class: "text-grey-darken-1" }, "生成链接：", -1))
+                                          _cache[161] || (_cache[161] = _createElementVNode("span", { class: "text-grey-darken-1" }, "生成链接：", -1))
                                         ]),
                                         _createElementVNode("div", _hoisted_60, [
                                           _createElementVNode("a", {
@@ -6723,12 +6759,12 @@ return (_ctx, _cache) => {
                           _createVNode(_component_v_expansion_panel_title, null, {
                             default: _withCtx(() => [
                               _createVNode(_component_v_icon, { left: "" }, {
-                                default: _withCtx(() => _cache[156] || (_cache[156] = [
+                                default: _withCtx(() => _cache[162] || (_cache[162] = [
                                   _createTextVNode("mdi-cloud-download")
                                 ])),
                                 _: 1
                               }),
-                              _cache[157] || (_cache[157] = _createElementVNode("span", { class: "text-subtitle-1 font-weight-medium" }, "订阅管理", -1))
+                              _cache[163] || (_cache[163] = _createElementVNode("span", { class: "text-subtitle-1 font-weight-medium" }, "订阅管理", -1))
                             ]),
                             _: 1
                           }),
@@ -6741,7 +6777,7 @@ return (_ctx, _cache) => {
                                     variant: "tonal",
                                     class: "mb-4"
                                   }, {
-                                    default: _withCtx(() => _cache[158] || (_cache[158] = [
+                                    default: _withCtx(() => _cache[164] || (_cache[164] = [
                                       _createTextVNode(" 暂无订阅信息，请先添加订阅链接 ")
                                     ])),
                                     _: 1
@@ -6827,11 +6863,11 @@ return (_ctx, _cache) => {
                                                           : _createCommentVNode("", true)
                                                       ]),
                                                       _createElementVNode("div", _hoisted_64, [
-                                                        _cache[159] || (_cache[159] = _createElementVNode("span", null, "已用流量：", -1)),
+                                                        _cache[165] || (_cache[165] = _createElementVNode("span", null, "已用流量：", -1)),
                                                         _createElementVNode("strong", null, _toDisplayString(formatBytes(info.download + info.upload)), 1)
                                                       ]),
                                                       _createElementVNode("div", _hoisted_65, [
-                                                        _cache[160] || (_cache[160] = _createElementVNode("span", null, "剩余流量：", -1)),
+                                                        _cache[166] || (_cache[166] = _createElementVNode("span", null, "剩余流量：", -1)),
                                                         _createElementVNode("strong", null, _toDisplayString(formatBytes(info.total - info.download)), 1)
                                                       ]),
                                                       _createVNode(_component_v_progress_linear, {
@@ -6860,12 +6896,12 @@ return (_ctx, _cache) => {
                                               }, {
                                                 default: _withCtx(() => [
                                                   _createVNode(_component_v_icon, { left: "" }, {
-                                                    default: _withCtx(() => _cache[161] || (_cache[161] = [
+                                                    default: _withCtx(() => _cache[167] || (_cache[167] = [
                                                       _createTextVNode("mdi-cloud-sync")
                                                     ])),
                                                     _: 1
                                                   }),
-                                                  _cache[162] || (_cache[162] = _createTextVNode(" 更新订阅 "))
+                                                  _cache[168] || (_cache[168] = _createTextVNode(" 更新订阅 "))
                                                 ]),
                                                 _: 2
                                               }, 1032, ["onClick", "loading"])
@@ -6899,12 +6935,12 @@ return (_ctx, _cache) => {
             }, {
               default: _withCtx(() => [
                 _createVNode(_component_v_icon, { left: "" }, {
-                  default: _withCtx(() => _cache[163] || (_cache[163] = [
+                  default: _withCtx(() => _cache[169] || (_cache[169] = [
                     _createTextVNode("mdi-refresh")
                   ])),
                   _: 1
                 }),
-                _cache[164] || (_cache[164] = _createTextVNode(" 刷新数据 "))
+                _cache[170] || (_cache[170] = _createTextVNode(" 刷新数据 "))
               ]),
               _: 1
             }, 8, ["loading"]),
@@ -6915,12 +6951,12 @@ return (_ctx, _cache) => {
             }, {
               default: _withCtx(() => [
                 _createVNode(_component_v_icon, { left: "" }, {
-                  default: _withCtx(() => _cache[165] || (_cache[165] = [
+                  default: _withCtx(() => _cache[171] || (_cache[171] = [
                     _createTextVNode("mdi-cog")
                   ])),
                   _: 1
                 }),
-                _cache[166] || (_cache[166] = _createTextVNode(" 配置 "))
+                _cache[172] || (_cache[172] = _createTextVNode(" 配置 "))
               ]),
               _: 1
             })
@@ -7075,7 +7111,7 @@ return (_ctx, _cache) => {
                       color: "secondary",
                       onClick: closeRuleDialog
                     }, {
-                      default: _withCtx(() => _cache[167] || (_cache[167] = [
+                      default: _withCtx(() => _cache[173] || (_cache[173] = [
                         _createTextVNode("取消")
                       ])),
                       _: 1
@@ -7084,7 +7120,7 @@ return (_ctx, _cache) => {
                       color: "primary",
                       type: "submit"
                     }, {
-                      default: _withCtx(() => _cache[168] || (_cache[168] = [
+                      default: _withCtx(() => _cache[174] || (_cache[174] = [
                         _createTextVNode("保存")
                       ])),
                       _: 1
@@ -7300,7 +7336,7 @@ return (_ctx, _cache) => {
                             }, {
                               "prepend-inner": _withCtx(() => [
                                 _createVNode(_component_v_icon, { color: "warning" }, {
-                                  default: _withCtx(() => _cache[169] || (_cache[169] = [
+                                  default: _withCtx(() => _cache[175] || (_cache[175] = [
                                     _createTextVNode("mdi-timer")
                                   ])),
                                   _: 1
@@ -7330,7 +7366,7 @@ return (_ctx, _cache) => {
                             }, {
                               "prepend-inner": _withCtx(() => [
                                 _createVNode(_component_v_icon, { color: "warning" }, {
-                                  default: _withCtx(() => _cache[170] || (_cache[170] = [
+                                  default: _withCtx(() => _cache[176] || (_cache[176] = [
                                     _createTextVNode("mdi-timer")
                                   ])),
                                   _: 1
@@ -7461,7 +7497,7 @@ return (_ctx, _cache) => {
                   text: "",
                   variant: "tonal"
                 }, {
-                  default: _withCtx(() => _cache[171] || (_cache[171] = [
+                  default: _withCtx(() => _cache[177] || (_cache[177] = [
                     _createTextVNode(" 参考"),
                     _createElementVNode("a", {
                       href: "https://wiki.metacubex.one/config/proxy-groups/",
@@ -7477,7 +7513,7 @@ return (_ctx, _cache) => {
                       color: "secondary",
                       onClick: _cache[59] || (_cache[59] = $event => (proxyGroupDialog.value = false))
                     }, {
-                      default: _withCtx(() => _cache[172] || (_cache[172] = [
+                      default: _withCtx(() => _cache[178] || (_cache[178] = [
                         _createTextVNode("取消")
                       ])),
                       _: 1
@@ -7486,7 +7522,7 @@ return (_ctx, _cache) => {
                       color: "primary",
                       type: "submit"
                     }, {
-                      default: _withCtx(() => _cache[173] || (_cache[173] = [
+                      default: _withCtx(() => _cache[179] || (_cache[179] = [
                         _createTextVNode("保存")
                       ])),
                       _: 1
@@ -7512,7 +7548,7 @@ return (_ctx, _cache) => {
         _createVNode(_component_v_card, null, {
           default: _withCtx(() => [
             _createVNode(_component_v_card_title, { class: "headline" }, {
-              default: _withCtx(() => _cache[174] || (_cache[174] = [
+              default: _withCtx(() => _cache[180] || (_cache[180] = [
                 _createTextVNode("YAML 配置")
               ])),
               _: 1
@@ -7538,7 +7574,7 @@ return (_ctx, _cache) => {
                   color: "primary",
                   onClick: _cache[62] || (_cache[62] = $event => (copyToClipboard(displayedYaml.value)))
                 }, {
-                  default: _withCtx(() => _cache[175] || (_cache[175] = [
+                  default: _withCtx(() => _cache[181] || (_cache[181] = [
                     _createTextVNode("复制")
                   ])),
                   _: 1
@@ -7547,7 +7583,7 @@ return (_ctx, _cache) => {
                   color: "primary",
                   onClick: _cache[63] || (_cache[63] = $event => (yamlDialog.value = false))
                 }, {
-                  default: _withCtx(() => _cache[176] || (_cache[176] = [
+                  default: _withCtx(() => _cache[182] || (_cache[182] = [
                     _createTextVNode("关闭")
                   ])),
                   _: 1
@@ -7570,7 +7606,7 @@ return (_ctx, _cache) => {
         _createVNode(_component_v_card, null, {
           default: _withCtx(() => [
             _createVNode(_component_v_card_title, null, {
-              default: _withCtx(() => _cache[177] || (_cache[177] = [
+              default: _withCtx(() => _cache[183] || (_cache[183] = [
                 _createTextVNode("导入规则")
               ])),
               _: 1
@@ -7601,7 +7637,7 @@ return (_ctx, _cache) => {
                   class: "mb-4",
                   variant: "tonal"
                 }, {
-                  default: _withCtx(() => _cache[178] || (_cache[178] = [
+                  default: _withCtx(() => _cache[184] || (_cache[184] = [
                     _createTextVNode(" 请输入 Clash 规则中的 "),
                     _createElementVNode("strong", null, "rules", -1),
                     _createTextVNode(" 字段，例如："),
@@ -7624,7 +7660,7 @@ return (_ctx, _cache) => {
                   color: "secondary",
                   onClick: _cache[67] || (_cache[67] = $event => (importRuleDialog.value = false, error.value=null))
                 }, {
-                  default: _withCtx(() => _cache[179] || (_cache[179] = [
+                  default: _withCtx(() => _cache[185] || (_cache[185] = [
                     _createTextVNode("取消")
                   ])),
                   _: 1
@@ -7633,7 +7669,7 @@ return (_ctx, _cache) => {
                   color: "primary",
                   onClick: importRule
                 }, {
-                  default: _withCtx(() => _cache[180] || (_cache[180] = [
+                  default: _withCtx(() => _cache[186] || (_cache[186] = [
                     _createTextVNode("导入")
                   ])),
                   _: 1
@@ -7656,7 +7692,7 @@ return (_ctx, _cache) => {
         _createVNode(_component_v_card, null, {
           default: _withCtx(() => [
             _createVNode(_component_v_card_title, null, {
-              default: _withCtx(() => _cache[181] || (_cache[181] = [
+              default: _withCtx(() => _cache[187] || (_cache[187] = [
                 _createTextVNode("导入节点")
               ])),
               _: 1
@@ -7702,7 +7738,7 @@ return (_ctx, _cache) => {
                       class: "mb-4",
                       variant: "tonal"
                     }, {
-                      default: _withCtx(() => _cache[182] || (_cache[182] = [
+                      default: _withCtx(() => _cache[188] || (_cache[188] = [
                         _createTextVNode(" 请输入 Clash 规则中的 "),
                         _createElementVNode("strong", null, "proxies", -1),
                         _createTextVNode(" 字段，例如："),
@@ -7724,7 +7760,7 @@ return (_ctx, _cache) => {
                       class: "mb-4",
                       variant: "tonal"
                     }, {
-                      default: _withCtx(() => _cache[183] || (_cache[183] = [
+                      default: _withCtx(() => _cache[189] || (_cache[189] = [
                         _createTextVNode(" 请输入 V2RayN 格式的分享链接，例如："),
                         _createElementVNode("br", null, null, -1),
                         _createElementVNode("code", null, "vmess://xxxx", -1),
@@ -7744,7 +7780,7 @@ return (_ctx, _cache) => {
                   color: "secondary",
                   onClick: _cache[72] || (_cache[72] = $event => (importExtraProxiesDialog.value=false, error.value=null))
                 }, {
-                  default: _withCtx(() => _cache[184] || (_cache[184] = [
+                  default: _withCtx(() => _cache[190] || (_cache[190] = [
                     _createTextVNode("取消")
                   ])),
                   _: 1
@@ -7754,7 +7790,7 @@ return (_ctx, _cache) => {
                   onClick: importExtraProxiesFun,
                   loading: importProxiesLoading.value
                 }, {
-                  default: _withCtx(() => _cache[185] || (_cache[185] = [
+                  default: _withCtx(() => _cache[191] || (_cache[191] = [
                     _createTextVNode(" 导入 ")
                   ])),
                   _: 1
@@ -7828,7 +7864,7 @@ return (_ctx, _cache) => {
                           required: "",
                           rules: [v => !!v || '当类型为文件时，路径不能为空'],
                           class: "mb-4",
-                          hint: "文件路径，必须是唯一的"
+                          hint: "文件路径，不填写时会使用 url 的 MD5 作为文件名"
                         }, null, 8, ["modelValue", "rules"]))
                       : _createCommentVNode("", true),
                     _createVNode(_component_v_text_field, {
@@ -7911,7 +7947,7 @@ return (_ctx, _cache) => {
                       color: "secondary",
                       onClick: _cache[83] || (_cache[83] = $event => (ruleProviderDialog.value = false, error.value=null))
                     }, {
-                      default: _withCtx(() => _cache[186] || (_cache[186] = [
+                      default: _withCtx(() => _cache[192] || (_cache[192] = [
                         _createTextVNode("取消")
                       ])),
                       _: 1
@@ -7920,7 +7956,7 @@ return (_ctx, _cache) => {
                       color: "primary",
                       type: "submit"
                     }, {
-                      default: _withCtx(() => _cache[187] || (_cache[187] = [
+                      default: _withCtx(() => _cache[193] || (_cache[193] = [
                         _createTextVNode("保存")
                       ])),
                       _: 1
@@ -8028,7 +8064,7 @@ return (_ctx, _cache) => {
                       variant: "outlined",
                       class: "mb-2"
                     }, {
-                      default: _withCtx(() => _cache[188] || (_cache[188] = [
+                      default: _withCtx(() => _cache[194] || (_cache[194] = [
                         _createTextVNode(" 请在「高级选项」配置 Cloudflare CDN 优选 IPs ")
                       ])),
                       _: 1
@@ -8039,7 +8075,7 @@ return (_ctx, _cache) => {
                   text: "",
                   variant: "tonal"
                 }, {
-                  default: _withCtx(() => _cache[189] || (_cache[189] = [
+                  default: _withCtx(() => _cache[195] || (_cache[195] = [
                     _createTextVNode(" 支持"),
                     _createElementVNode("a", {
                       href: "https://wiki.metacubex.one/handbook/syntax/#_8",
@@ -8055,7 +8091,7 @@ return (_ctx, _cache) => {
                       color: "secondary",
                       onClick: _cache[88] || (_cache[88] = $event => (hostDialog.value = false, error.value=null))
                     }, {
-                      default: _withCtx(() => _cache[190] || (_cache[190] = [
+                      default: _withCtx(() => _cache[196] || (_cache[196] = [
                         _createTextVNode("取消")
                       ])),
                       _: 1
@@ -8064,7 +8100,7 @@ return (_ctx, _cache) => {
                       color: "primary",
                       type: "submit"
                     }, {
-                      default: _withCtx(() => _cache[191] || (_cache[191] = [
+                      default: _withCtx(() => _cache[197] || (_cache[197] = [
                         _createTextVNode("保存")
                       ])),
                       _: 1
@@ -8086,6 +8122,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const PageComponent = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d6db167c"]]);
+const PageComponent = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6aba879d"]]);
 
 export { PageComponent as default };

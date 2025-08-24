@@ -1,6 +1,3 @@
-from collections import Counter
-from datetime import datetime
-from enum import Enum
 import os
 import json
 import queue
@@ -10,17 +7,20 @@ import subprocess
 import sys
 import time
 import threading
-from typing import Any, Dict, List, Tuple, Optional, Union, Type, TypeVar
 import uuid
 import venv
+from collections import Counter
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
+from typing import Any, Dict, List, Tuple, Optional, Union, Type, TypeVar
 
 import pysubs2
 from pysubs2 import SSAFile, SSAEvent
 import pymediainfo
 from langdetect import detect
-import spacy
 from spacy.tokenizer import Tokenizer
+import spacy
 
 from app.core.config import settings
 from app.helper.directory import DirectoryHelper
@@ -141,6 +141,7 @@ class LexiAnnot(_PluginBase):
     _config_updating_lock: threading.Lock = threading.Lock()
     _tasks_lock: threading.RLock = threading.RLock()
     _tasks: Dict[str, Task] = {}
+    import spacy
 
     def init_plugin(self, config=None):
         self.stop_service()
@@ -1065,13 +1066,13 @@ class LexiAnnot(_PluginBase):
         for task_id, task_dict in raw_tasks.items():
             try:
                 task = Task(
-                    video_path=task_dict['video_path'],
-                    task_id=task_dict['task_id'],
-                    status=TaskStatus(task_dict['status']),
-                    add_time=datetime.fromisoformat(task_dict['add_time']) if task_dict['add_time'] else None,
-                    complete_time=datetime.fromisoformat(task_dict['complete_time'])
-                    if task_dict['complete_time'] else None,
-                    tokens_used=task_dict['tokens_used'],
+                    video_path=task_dict.get('video_path'),
+                    task_id=task_dict.get('task_id'),
+                    status=TaskStatus(task_dict.get('status')),
+                    add_time=datetime.fromisoformat(task_dict.get('add_time')) if task_dict.get('add_time') else None,
+                    complete_time=datetime.fromisoformat(task_dict.get('complete_time')) if task_dict.get(
+                        'complete_time') else None,
+                    tokens_used=task_dict.get('tokens_used', 0)
                 )
                 tasks[task_id] = task
             except Exception as e:
@@ -1153,7 +1154,7 @@ class LexiAnnot(_PluginBase):
                 self._gemini_available = False
         with self._tasks_lock:
             for task_id, task in self._tasks.items():
-                if task.status == 'pending':
+                if task.status == TaskStatus.PENDING:
                     self._task_queue.put(task)
         while not self._shutdown_event.is_set():
             try:
@@ -1371,7 +1372,8 @@ class LexiAnnot(_PluginBase):
         in_libraries = False
         libraries = {library.name: library.library_path for library in DirectoryHelper().get_library_dirs()}
         for library_name in self._libraries:
-            if Path(transfer_info.target_diritem.path).is_relative_to(Path(libraries[library_name])):
+            if library_name in libraries and Path(transfer_info.target_diritem.path).is_relative_to(
+                    Path(libraries[library_name])):
                 in_libraries = True
                 break
         if not in_libraries:

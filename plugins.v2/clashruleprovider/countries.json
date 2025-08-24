@@ -1,5 +1,5 @@
 [
-{
+  {
     "abbr": "AF",
     "chinese": "阿富汗",
     "code": "93",
@@ -11,9 +11,10 @@
     "spanish": "Afganistán",
     "japanese": "アフガニスタン",
     "russian": "Афганистан",
-    "germen": "Afghanistan"
-},
-{
+    "germen": "Afghanistan",
+    "emoji": "🇦🇫"
+  },
+  {
     "abbr": "AL",
     "chinese": "阿尔巴尼亚",
     "code": "355",
@@ -25,9 +26,10 @@
     "spanish": "Albania",
     "japanese": "アルバニア",
     "russian": "Албания",
-    "germen": "Albanien"
-},
-{
+    "germen": "Albanien",
+    "emoji": "🇦🇱"
+  },
+  {
     "abbr": "DZ",
     "chinese": "阿尔及利亚",
     "code": "213",
@@ -39,9 +41,10 @@
     "spanish": "Argelia",
     "japanese": "アルジェリア",
     "russian": "Алжир",
-    "germen": "Algerien"
-},
-{
+    "germen": "Algerien",
+    "emoji": "🇩🇿"
+  },
+  {
     "abbr": "AO",
     "chinese": "安哥拉",
     "code": "244",
@@ -53,9 +56,10 @@
     "spanish": "Angola",
     "japanese": "アンゴラ",
     "russian": "Ангола",
-    "germen": "Angola"
-},
-{
+    "germen": "Angola",
+    "emoji": "🇦🇴"
+  },
+  {
     "abbr": "AR",
     "chinese": "阿根廷",
     "code": "54",
@@ -67,9 +71,10 @@
     "spanish": "Argentina",
     "japanese": "アルゼンチン",
     "russian": "Аргентина",
-    "germen": "Argentinien"
-},
-{
+    "germen": "Argentinien",
+    "emoji": "🇦🇷"
+  },
+  {
     "abbr": "AM",
     "chinese": "亚美尼亚",
     "code": "374",
@@ -80,9 +85,10 @@
     "spanish": "Armenia",
     "japanese": "アルメニア",
     "russian": "Армения",
-    "germen": "Armenien"
-},
-{
+    "germen": "Armenien",
+    "emoji": "🇦🇲"
+  },
+  {
     "abbr": "AU",
     "chinese": "澳大利亚",
     "code": "61",
@@ -94,9 +100,10 @@
     "spanish": "Islas Cocos o Islas Keeling",
     "japanese": "ココス（キーリング）諸島",
     "russian": "Австралия",
-    "germen": "Kokosinseln"
-},
-{
+    "germen": "Kokosinseln",
+    "emoji": "🇦🇺"
+  },
+  {
     "abbr": "AT",
     "chinese": "奥地利",
     "code": "43",
@@ -108,9 +115,10 @@
     "spanish": "Austria",
     "japanese": "オーストリア",
     "russian": "Австрия",
-    "germen": "Österreich"
-},
-{
+    "germen": "Österreich",
+    "emoji": "🇦🇹"
+  },
+  {
     "abbr": "AZ",
     "chinese": "阿塞拜疆",
     "code": "994",
@@ -122,9 +130,10 @@
     "spanish": "Azerbaiyán",
     "japanese": "アゼルバイジャン",
     "russian": "Азербайджан",
-    "germen": "Aserbaidschan"
-},
-{
+    "germen": "Aserbaidschan",
+    "emoji": "🇦🇿"
+  },
+  {
     "abbr": "BH",
     "chinese": "巴林",
     "code": "973",
@@ -136,9 +145,10 @@
     "spanish": "Bahrein",
     "japanese": "バーレーン",
     "russian": "Бахрейн",
-    "germen": "Bahrain"
-},
-{
+    "germen": "Bahrain",
+    "emoji": "🇧🇭"
+  },
+  {
     "abbr": "BD",
     "chinese": "孟加拉国",
     "code": "880",
@@ -150,9 +160,10 @@
     "spanish": "Bangladesh",
     "japanese": "バングラデシュ",
     "russian": "Бангладеш",
-    "germen": "Bangladesch"
-},
-{
+    "germen": "Bangladesch",
+    "emoji": "🇧🇩"
+  },
+  {
     "abbr": "BY",
     "chinese": "白俄罗斯",
     "code": "375",
@@ -163,9 +174,10 @@
     "spanish": "Bielorrusia",
     "japanese": "ベラルーシ",
     "russian": "Белоруссия",
-    "germen": "Weißrussland"
-},
-{
+    "germen": "Weißrussland",
+    "emoji": "🇧🇾"
+  },
+  {
     "abbr": "BE",
     "chinese": "比利时",
     "code": "32",
@@ -177,9 +189,10 @@
     "spanish": "Bélgica",
     "japanese": "ベルギー",
     "russian": "Бельгия",
-    "germen": "Belgien"
-},
-{
+    "germen": "Belgien",
+    "emoji": "🇧🇪"
+  },
+  {
     "abbr": "BZ",
     "chinese": "伯利兹",
     "code": "501",
@@ -190,9 +203,10 @@
     "spanish": "Belice",
     "japanese": "ベリーズ",
     "russian": "Белиз",
-    "germen": "Belize"
-},
-{
+    "germen": "Belize",
+    "emoji": "🇧🇿"
+  },
+  {
     "abbr": "BJ",
     "chinese": "贝宁",
     "code": "229",
@@ -204,9 +218,10 @@
     "spanish": "Benín",
     "japanese": "ベナン",
     "russian": "Бенин",
-    "germen": "Benin"
-},
-{
+    "germen": "Benin",
+    "emoji": "🇧🇯"
+  },
+  {
     "abbr": "BT",
     "chinese": "不丹",
     "code": "975",
@@ -218,9 +233,10 @@
     "spanish": "Bután",
     "japanese": "ブータン",
     "russian": "Бутан",
-    "germen": "Bhutan"
-},
-{
+    "germen": "Bhutan",
+    "emoji": "🇧🇹"
+  },
+  {
     "abbr": "BO",
     "chinese": "玻利维亚",
     "code": "591",
@@ -232,9 +248,10 @@
     "spanish": "Bolivia",
     "japanese": "ボリビア多民族国",
     "russian": "Боливия",
-    "germen": "Bolivien"
-},
-{
+    "germen": "Bolivien",
+    "emoji": "🇧🇴"
+  },
+  {
     "abbr": "BA",
     "chinese": "波斯尼亚和黑塞哥维那",
     "code": "387",
@@ -245,9 +262,10 @@
     "spanish": "Bosnia y Herzegovina",
     "japanese": "ボスニア・ヘルツェゴビナ",
     "russian": "Босния и Герцеговина",
-    "germen": "Bosnien und Herzegowina"
-},
-{
+    "germen": "Bosnien und Herzegowina",
+    "emoji": "🇧🇦"
+  },
+  {
     "abbr": "BW",
     "chinese": "博茨瓦纳",
     "code": "267",
@@ -259,9 +277,10 @@
     "spanish": "Botswana",
     "japanese": "ボツワナ",
     "russian": "Ботсвана",
-    "germen": "Botswana"
-},
-{
+    "germen": "Botswana",
+    "emoji": "🇧🇼"
+  },
+  {
     "abbr": "BR",
     "chinese": "巴西",
     "code": "55",
@@ -273,9 +292,10 @@
     "spanish": "Brasil",
     "japanese": "ブラジル",
     "russian": "Бразилия",
-    "germen": "Brasilien"
-},
-{
+    "germen": "Brasilien",
+    "emoji": "🇧🇷"
+  },
+  {
     "abbr": "VG",
     "chinese": "英属维京群岛",
     "code": "1284",
@@ -286,9 +306,10 @@
     "spanish": "Islas Vírgenes del Reino Unido",
     "japanese": "イギリス領ヴァージン諸島",
     "russian": "Британские Виргинские острова",
-    "germen": "Britische Jungferninseln"
-},
-{
+    "germen": "Britische Jungferninseln",
+    "emoji": "🇻🇬"
+  },
+  {
     "abbr": "BN",
     "chinese": "文莱",
     "code": "673",
@@ -300,9 +321,10 @@
     "spanish": "Brunei",
     "japanese": "ブルネイ・ダルサラーム",
     "russian": "Bulgaria",
-    "germen": "Brunei"
-},
-{
+    "germen": "Brunei",
+    "emoji": "🇧🇳"
+  },
+  {
     "abbr": "BG",
     "chinese": "保加利亚",
     "code": "359",
@@ -314,9 +336,10 @@
     "spanish": "Bulgaria",
     "japanese": "ブルガリア",
     "russian": "Болгария",
-    "germen": "Bulgarien"
-},
-{
+    "germen": "Bulgarien",
+    "emoji": "🇧🇬"
+  },
+  {
     "abbr": "BF",
     "chinese": "布基纳法索",
     "code": "226",
@@ -327,9 +350,10 @@
     "spanish": "Burkina Faso",
     "japanese": "ブルキナファソ",
     "russian": "Буркина-Фасо",
-    "germen": "Burkina Faso"
-},
-{
+    "germen": "Burkina Faso",
+    "emoji": "🇧🇫"
+  },
+  {
     "abbr": "BI",
     "chinese": "布隆迪",
     "code": "257",
@@ -341,9 +365,10 @@
     "spanish": "Burundi",
     "japanese": "ブルンジ",
     "russian": "Бурунди",
-    "germen": "Burundi"
-},
-{
+    "germen": "Burundi",
+    "emoji": "🇧🇮"
+  },
+  {
     "abbr": "KH",
     "chinese": "柬埔寨",
     "code": "855",
@@ -355,9 +380,10 @@
     "spanish": "Camboya",
     "japanese": "カンボジア",
     "russian": "Камбоджа",
-    "germen": "Kambodscha"
-},
-{
+    "germen": "Kambodscha",
+    "emoji": "🇰🇭"
+  },
+  {
     "abbr": "CM",
     "chinese": "喀麦隆",
     "code": "237",
@@ -369,9 +395,10 @@
     "spanish": "Camerún",
     "japanese": "カメルーン",
     "russian": "Камерун",
-    "germen": "Kamerun"
-},
-{
+    "germen": "Kamerun",
+    "emoji": "🇨🇲"
+  },
+  {
     "abbr": "CA",
     "chinese": "加拿大",
     "code": "1",
@@ -379,13 +406,14 @@
     "spell": "jianada",
     "continent": "北美洲",
     "french": "États-Unis",
-    "italian": "Stati Uniti D\u0027America",
+    "italian": "Stati Uniti D'America",
     "spanish": "Estados Unidos",
     "japanese": "アメリカ合衆国",
     "russian": "Канада",
-    "germen": "Vereinigte Staaten von Amerika"
-},
-{
+    "germen": "Vereinigte Staaten von Amerika",
+    "emoji": "🇨🇦"
+  },
+  {
     "abbr": "CV",
     "chinese": "佛得角",
     "code": "238",
@@ -397,9 +425,10 @@
     "spanish": "Cabo Verde",
     "japanese": "カーボベルデ",
     "russian": "Кабо-Верде",
-    "germen": "Kap Verde"
-},
-{
+    "germen": "Kap Verde",
+    "emoji": "🇨🇻"
+  },
+  {
     "abbr": "KY",
     "chinese": "开曼群岛",
     "code": "1345",
@@ -410,9 +439,10 @@
     "spanish": "Islas Caimán",
     "japanese": "ケイマン諸島",
     "russian": "Каймановы Острова",
-    "germen": "Kaimaninseln"
-},
-{
+    "germen": "Kaimaninseln",
+    "emoji": "🇰🇾"
+  },
+  {
     "abbr": "CF",
     "chinese": "中非共和国",
     "code": "236",
@@ -424,9 +454,10 @@
     "spanish": "República Centroafricana",
     "japanese": "中央アフリカ共和国",
     "russian": "Центрально-Африканская Республика",
-    "germen": "Zentralafrikanische Republik"
-},
-{
+    "germen": "Zentralafrikanische Republik",
+    "emoji": "🇨🇫"
+  },
+  {
     "abbr": "TD",
     "chinese": "乍得",
     "code": "235",
@@ -437,9 +468,10 @@
     "spanish": "Chad",
     "japanese": "チャド",
     "russian": "Чад",
-    "germen": "Tschad"
-},
-{
+    "germen": "Tschad",
+    "emoji": "🇹🇩"
+  },
+  {
     "abbr": "CL",
     "chinese": "智利",
     "code": "56",
@@ -451,477 +483,10 @@
     "spanish": "Chile",
     "japanese": "チリ",
     "russian": "Чили",
-    "germen": "Chile"
-},
-{
-    "abbr": "CN",
-    "chinese": "中国",
-    "code": "86",
-    "english": "China",
-    "spell": "zhongguo",
-    "continent": "亚洲",
-    "french": "Chine",
-    "italian": "Cina",
-    "spanish": "China",
-    "japanese": "中国",
-    "russian": "Китай",
-    "germen": "China"
-},
-{
-    "abbr": "CO",
-    "chinese": "哥伦比亚",
-    "code": "57",
-    "english": "Colombia",
-    "spell": "gelunbiya",
-    "continent": "南美洲",
-    "french": "Colombie",
-    "italian": "Colombia",
-    "spanish": "Colombia",
-    "japanese": "コロンビア",
-    "russian": "Колумбия",
-    "germen": "Kolumbien"
-},
-{
-    "abbr": "KM",
-    "chinese": "科摩罗",
-    "code": "269",
-    "english": "Comoros",
-    "spell": "kemoluo",
-    "french": "Comores",
-    "italian": "Comore",
-    "spanish": "Comoras",
-    "japanese": "コモロ",
-    "russian": "Коморские острова",
-    "germen": "Union der Komoren"
-},
-{
-    "abbr": "CG",
-    "chinese": "刚果(布)",
-    "code": "242",
-    "english": "Congo - Brazzaville",
-    "spell": "gangguo(bu)",
-    "continent": "非洲",
-    "french": "Congo",
-    "italian": "Congo",
-    "spanish": "Congo",
-    "japanese": "コンゴ共和国",
-    "russian": "Конго - Браззавиль",
-    "germen": "Kongo"
-},
-{
-    "abbr": "CD",
-    "chinese": "刚果(金)",
-    "code": "243",
-    "english": "Congo - Kinshasa",
-    "spell": "gangguo(jin)",
-    "french": "Congo (Rép. dém.)",
-    "italian": "Congo (Rep. Dem.)",
-    "spanish": "Congo (Rep. Dem.)",
-    "japanese": "コンゴ民主共和国",
-    "russian": "Конго - Киншаса",
-    "germen": "Kongo (Dem. Rep.)"
-},
-{
-    "abbr": "CR",
-    "chinese": "哥斯达黎加",
-    "code": "506",
-    "english": "Costa Rica",
-    "spell": "gesidalijia",
-    "continent": "北美洲",
-    "french": "Costa Rica",
-    "italian": "Costa Rica",
-    "spanish": "Costa Rica",
-    "japanese": "コスタリカ",
-    "russian": "Коста-Рика",
-    "germen": "Costa Rica"
-},
-{
-    "abbr": "HR",
-    "chinese": "克罗地亚",
-    "code": "385",
-    "english": "Croatia",
-    "spell": "keluodiya",
-    "continent": "欧洲",
-    "french": "Croatie",
-    "italian": "Croazia",
-    "spanish": "Croacia",
-    "japanese": "クロアチア",
-    "russian": "Хорватия",
-    "germen": "Kroatien"
-},
-{
-    "abbr": "CY",
-    "chinese": "塞浦路斯",
-    "code": "357",
-    "english": "Cyprus",
-    "spell": "saipulusi",
-    "continent": "亚洲",
-    "french": "Chypre",
-    "italian": "Cipro",
-    "spanish": "Chipre",
-    "japanese": "キプロス",
-    "russian": "Кипр",
-    "germen": "Zypern"
-},
-{
-    "abbr": "CZ",
-    "chinese": "捷克共和国",
-    "code": "420",
-    "english": "Czech Republic",
-    "spell": "jiekegongheguo",
-    "continent": "欧洲",
-    "french": "République tchèque",
-    "italian": "Repubblica Ceca",
-    "spanish": "República Checa",
-    "japanese": "チェコ",
-    "russian": "Чехия",
-    "germen": "Tschechische Republik"
-},
-{
-    "abbr": "DK",
-    "chinese": "丹麦",
-    "code": "45",
-    "english": "Denmark",
-    "spell": "danmai",
-    "continent": "欧洲",
-    "french": "Danemark",
-    "italian": "Danimarca",
-    "spanish": "Dinamarca",
-    "japanese": "デンマーク",
-    "russian": "Дания",
-    "germen": "Dänemark"
-},
-{
-    "abbr": "DJ",
-    "chinese": "吉布提",
-    "code": "253",
-    "english": "Djibouti",
-    "spell": "jibuti",
-    "french": "Djibouti",
-    "italian": "Gibuti",
-    "spanish": "Yibuti",
-    "japanese": "ジブチ",
-    "russian": "Джибути",
-    "germen": "Dschibuti"
-},
-{
-    "abbr": "DO",
-    "chinese": "多米尼加共和国",
-    "code": "1809",
-    "english": "Dominican Republic",
-    "spell": "duominijiagongheguo",
-    "french": "République dominicaine",
-    "italian": "Repubblica Dominicana",
-    "spanish": "República Dominicana",
-    "japanese": "ドミニカ共和国",
-    "russian": "Доминиканская Республика",
-    "germen": "Dominikanische Republik"
-},
-{
-    "abbr": "EC",
-    "chinese": "厄瓜多尔",
-    "code": "593",
-    "english": "Ecuador",
-    "spell": "eguaduoer",
-    "continent": "南美洲",
-    "french": "Équateur",
-    "italian": "Ecuador",
-    "spanish": "Ecuador",
-    "japanese": "エクアドル",
-    "russian": "Эквадор",
-    "germen": "Ecuador"
-},
-{
-    "abbr": "EG",
-    "chinese": "埃及",
-    "code": "20",
-    "english": "Egypt",
-    "spell": "aiji",
-    "continent": "非洲",
-    "french": "Égypte",
-    "italian": "Egitto",
-    "spanish": "Egipto",
-    "japanese": "エジプト",
-    "russian": "Египет",
-    "germen": "Ägypten"
-},
-{
-    "abbr": "SV",
-    "chinese": "萨尔瓦多",
-    "code": "503",
-    "english": "EI Salvador",
-    "spell": "saerwaduo",
-    "french": "Salvador",
-    "italian": "El Salvador",
-    "spanish": "El Salvador",
-    "japanese": "エルサルバドル",
-    "russian": "EI Сальвадор",
-    "germen": "El Salvador"
-},
-{
-    "abbr": "GQ",
-    "chinese": "赤道几内亚",
-    "code": "240",
-    "english": "Equatorial Guinea",
-    "spell": "chidaojineiya",
-    "continent": "非洲",
-    "french": "Guinée-Équatoriale",
-    "italian": "Guinea Equatoriale",
-    "spanish": "Guinea Ecuatorial",
-    "japanese": "赤道ギニア",
-    "russian": "Экваториальная Гвинея",
-    "germen": "Äquatorial-Guinea"
-},
-{
-    "abbr": "ER",
-    "chinese": "厄立特里亚",
-    "code": "291",
-    "english": "Eritrea",
-    "spell": "eliteliya",
-    "french": "Érythrée",
-    "italian": "Eritrea",
-    "spanish": "Eritrea",
-    "japanese": "エリトリア",
-    "russian": "Эритрея",
-    "germen": "Eritrea"
-},
-{
-    "abbr": "EE",
-    "chinese": "爱沙尼亚",
-    "code": "372",
-    "english": "Estonia",
-    "spell": "aishaniya",
-    "continent": "欧洲",
-    "french": "Estonie",
-    "italian": "Estonia",
-    "spanish": "Estonia",
-    "japanese": "エストニア",
-    "russian": "Эстония",
-    "germen": "Estland"
-},
-{
-    "abbr": "ET",
-    "chinese": "埃塞俄比亚",
-    "code": "251",
-    "english": "Ethiopia",
-    "spell": "aisaiebiya",
-    "continent": "非洲",
-    "french": "Éthiopie",
-    "italian": "Etiopia",
-    "spanish": "Etiopía",
-    "japanese": "エチオピア",
-    "russian": "Эфиопия",
-    "germen": "Äthiopien"
-},
-{
-    "abbr": "FJ",
-    "chinese": "斐济",
-    "code": "679",
-    "english": "Fiji",
-    "spell": "feiji",
-    "continent": "大洋洲",
-    "french": "Fidji",
-    "italian": "Figi",
-    "spanish": "Fiyi",
-    "japanese": "フィジー",
-    "russian": "Фиджи",
-    "germen": "Fidschi"
-},
-{
-    "abbr": "FI",
-    "chinese": "芬兰",
-    "code": "358",
-    "english": "Finland",
-    "spell": "fenlan",
-    "continent": "欧洲",
-    "french": "Finlande",
-    "italian": "Finlandia",
-    "spanish": "Finlandia",
-    "japanese": "フィンランド",
-    "russian": "Финляндия",
-    "germen": "Finnland"
-},
-{
-    "abbr": "FR",
-    "chinese": "法国",
-    "code": "33",
-    "english": "France",
-    "spell": "faguo",
-    "continent": "欧洲",
-    "french": "France",
-    "italian": "Francia",
-    "spanish": "Francia",
-    "japanese": "フランス",
-    "russian": "Франция",
-    "germen": "Frankreich"
-},
-{
-    "abbr": "GA",
-    "chinese": "加蓬",
-    "code": "241",
-    "english": "Gabon",
-    "spell": "jiapeng",
-    "continent": "非洲",
-    "french": "Gabon",
-    "italian": "Gabon",
-    "spanish": "Gabón",
-    "japanese": "ガボン",
-    "russian": "Габон",
-    "germen": "Gabun"
-},
-{
-    "abbr": "GM",
-    "chinese": "冈比亚",
-    "code": "220",
-    "english": "Gambia",
-    "spell": "gangbiya",
-    "continent": "非洲",
-    "french": "Gambie",
-    "italian": "Gambia",
-    "spanish": "Gambia",
-    "japanese": "ガンビア",
-    "russian": "Гамбия",
-    "germen": "Gambia"
-},
-{
-    "abbr": "GE",
-    "chinese": "格鲁吉亚",
-    "code": "995",
-    "english": "Georgia",
-    "spell": "gelujiya",
-    "french": "Géorgie",
-    "italian": "Georgia",
-    "spanish": "Georgia",
-    "japanese": "グルジア",
-    "russian": "Грузия",
-    "germen": "Georgien"
-},
-{
-    "abbr": "DE",
-    "chinese": "德国",
-    "code": "49",
-    "english": "Germany",
-    "spell": "deguo",
-    "continent": "欧洲",
-    "french": "Allemagne",
-    "italian": "Germania",
-    "spanish": "Alemania",
-    "japanese": "ドイツ",
-    "russian": "Германия",
-    "germen": "Deutschland"
-},
-{
-    "abbr": "GH",
-    "chinese": "加纳",
-    "code": "233",
-    "english": "Ghana",
-    "spell": "jiana",
-    "continent": "非洲",
-    "french": "Ghana",
-    "italian": "Ghana",
-    "spanish": "Ghana",
-    "japanese": "ガーナ",
-    "russian": "Гана",
-    "germen": "Ghana"
-},
-{
-    "abbr": "GR",
-    "chinese": "希腊",
-    "code": "30",
-    "english": "Greece",
-    "spell": "xila",
-    "continent": "欧洲",
-    "french": "Grèce",
-    "italian": "Grecia",
-    "spanish": "Grecia",
-    "japanese": "ギリシャ",
-    "russian": "Греция",
-    "germen": "Griechenland"
-},
-{
-    "abbr": "GL",
-    "chinese": "格陵兰",
-    "code": "299",
-    "english": "Greenland",
-    "spell": "gelinglan",
-    "french": "Groenland",
-    "italian": "Groenlandia",
-    "spanish": "Groenlandia",
-    "japanese": "グリーンランド",
-    "russian": "Гренландия",
-    "germen": "Grönland"
-},
-{
-    "abbr": "GT",
-    "chinese": "危地马拉",
-    "code": "502",
-    "english": "Guatemala",
-    "spell": "weidimala",
-    "continent": "北美洲",
-    "french": "Guatemala",
-    "italian": "Guatemala",
-    "spanish": "Guatemala",
-    "japanese": "グアテマラ",
-    "russian": "Гватемала",
-    "germen": "Guatemala"
-},
-{
-    "abbr": "GN",
-    "chinese": "几内亚",
-    "code": "224",
-    "english": "Guinea",
-    "spell": "jineiya",
-    "continent": "非洲",
-    "french": "Guinée",
-    "italian": "Guinea",
-    "spanish": "Guinea",
-    "japanese": "ギニア",
-    "russian": "Гвинея",
-    "germen": "Guinea"
-},
-{
-    "abbr": "GY",
-    "chinese": "圭亚那",
-    "code": "592",
-    "english": "Guyana",
-    "spell": "guiyanei",
-    "continent": "南美洲",
-    "french": "Guyane",
-    "italian": "Guyana",
-    "spanish": "Guyana",
-    "japanese": "ガイアナ",
-    "russian": "Гайана",
-    "germen": "Guyana"
-},
-{
-    "abbr": "HT",
-    "chinese": "海地",
-    "code": "509",
-    "english": "Haiti",
-    "spell": "haidi",
-    "continent": "北美洲",
-    "french": "Haïti",
-    "italian": "Haiti",
-    "spanish": "Haiti",
-    "japanese": "ハイチ",
-    "russian": "Гаити",
-    "germen": "Haiti"
-},
-{
-    "abbr": "HN",
-    "chinese": "洪都拉斯",
-    "code": "504",
-    "english": "Honduras",
-    "spell": "hongdoulasi",
-    "continent": "北美洲",
-    "french": "Honduras",
-    "italian": "Honduras",
-    "spanish": "Honduras",
-    "japanese": "ホンジュラス",
-    "russian": "Гондурас",
-    "germen": "Honduras"
-},
-{
+    "germen": "Chile",
+    "emoji": "🇨🇱"
+  },
+  {
     "abbr": "HK",
     "chinese": "中国香港特别行政区",
     "code": "852",
@@ -933,9 +498,512 @@
     "spanish": "Hong Kong",
     "japanese": "香港",
     "russian": "Гонконг SAR Китай",
-    "germen": "Hong Kong"
-},
-{
+    "germen": "Hong Kong",
+    "emoji": "🇭🇰"
+  },
+  {
+    "abbr": "CN",
+    "chinese": "中国",
+    "code": "86",
+    "english": "China",
+    "spell": "zhongguo",
+    "continent": "亚洲",
+    "french": "Chine",
+    "italian": "Cina",
+    "spanish": "China",
+    "japanese": "中国",
+    "russian": "Китай",
+    "germen": "China",
+    "emoji": "🇨🇳"
+  },
+  {
+    "abbr": "CO",
+    "chinese": "哥伦比亚",
+    "code": "57",
+    "english": "Colombia",
+    "spell": "gelunbiya",
+    "continent": "南美洲",
+    "french": "Colombie",
+    "italian": "Colombia",
+    "spanish": "Colombia",
+    "japanese": "コロンビア",
+    "russian": "Колумбия",
+    "germen": "Kolumbien",
+    "emoji": "🇨🇴"
+  },
+  {
+    "abbr": "KM",
+    "chinese": "科摩罗",
+    "code": "269",
+    "english": "Comoros",
+    "spell": "kemoluo",
+    "french": "Comores",
+    "italian": "Comore",
+    "spanish": "Comoras",
+    "japanese": "コモロ",
+    "russian": "Коморские острова",
+    "germen": "Union der Komoren",
+    "emoji": "🇰🇲"
+  },
+  {
+    "abbr": "CG",
+    "chinese": "刚果(布)",
+    "code": "242",
+    "english": "Congo - Brazzaville",
+    "spell": "gangguo(bu)",
+    "continent": "非洲",
+    "french": "Congo",
+    "italian": "Congo",
+    "spanish": "Congo",
+    "japanese": "コンゴ共和国",
+    "russian": "Конго - Браззавиль",
+    "germen": "Kongo",
+    "emoji": "🇨🇬"
+  },
+  {
+    "abbr": "CD",
+    "chinese": "刚果(金)",
+    "code": "243",
+    "english": "Congo - Kinshasa",
+    "spell": "gangguo(jin)",
+    "french": "Congo (Rép. dém.)",
+    "italian": "Congo (Rep. Dem.)",
+    "spanish": "Congo (Rep. Dem.)",
+    "japanese": "コンゴ民主共和国",
+    "russian": "Конго - Киншаса",
+    "germen": "Kongo (Dem. Rep.)",
+    "emoji": "🇨🇩"
+  },
+  {
+    "abbr": "CR",
+    "chinese": "哥斯达黎加",
+    "code": "506",
+    "english": "Costa Rica",
+    "spell": "gesidalijia",
+    "continent": "北美洲",
+    "french": "Costa Rica",
+    "italian": "Costa Rica",
+    "spanish": "Costa Rica",
+    "japanese": "コスタリカ",
+    "russian": "Коста-Рика",
+    "germen": "Costa Rica",
+    "emoji": "🇨🇷"
+  },
+  {
+    "abbr": "HR",
+    "chinese": "克罗地亚",
+    "code": "385",
+    "english": "Croatia",
+    "spell": "keluodiya",
+    "continent": "欧洲",
+    "french": "Croatie",
+    "italian": "Croazia",
+    "spanish": "Croacia",
+    "japanese": "クロアチア",
+    "russian": "Хорватия",
+    "germen": "Kroatien",
+    "emoji": "🇭🇷"
+  },
+  {
+    "abbr": "CY",
+    "chinese": "塞浦路斯",
+    "code": "357",
+    "english": "Cyprus",
+    "spell": "saipulusi",
+    "continent": "亚洲",
+    "french": "Chypre",
+    "italian": "Cipro",
+    "spanish": "Chipre",
+    "japanese": "キプロス",
+    "russian": "Кипр",
+    "germen": "Zypern",
+    "emoji": "🇨🇾"
+  },
+  {
+    "abbr": "CZ",
+    "chinese": "捷克共和国",
+    "code": "420",
+    "english": "Czech Republic",
+    "spell": "jiekegongheguo",
+    "continent": "欧洲",
+    "french": "République tchèque",
+    "italian": "Repubblica Ceca",
+    "spanish": "República Checa",
+    "japanese": "チェコ",
+    "russian": "Чехия",
+    "germen": "Tschechische Republik",
+    "emoji": "🇨🇿"
+  },
+  {
+    "abbr": "DK",
+    "chinese": "丹麦",
+    "code": "45",
+    "english": "Denmark",
+    "spell": "danmai",
+    "continent": "欧洲",
+    "french": "Danemark",
+    "italian": "Danimarca",
+    "spanish": "Dinamarca",
+    "japanese": "デンマーク",
+    "russian": "Дания",
+    "germen": "Dänemark",
+    "emoji": "🇩🇰"
+  },
+  {
+    "abbr": "DJ",
+    "chinese": "吉布提",
+    "code": "253",
+    "english": "Djibouti",
+    "spell": "jibuti",
+    "french": "Djibouti",
+    "italian": "Gibuti",
+    "spanish": "Yibuti",
+    "japanese": "ジブチ",
+    "russian": "Джибути",
+    "germen": "Dschibuti",
+    "emoji": "🇩🇯"
+  },
+  {
+    "abbr": "DO",
+    "chinese": "多米尼加共和国",
+    "code": "1809",
+    "english": "Dominican Republic",
+    "spell": "duominijiagongheguo",
+    "french": "République dominicaine",
+    "italian": "Repubblica Dominicana",
+    "spanish": "República Dominicana",
+    "japanese": "ドミニカ共和国",
+    "russian": "Доминиканская Республика",
+    "germen": "Dominikanische Republik",
+    "emoji": "🇩🇴"
+  },
+  {
+    "abbr": "EC",
+    "chinese": "厄瓜多尔",
+    "code": "593",
+    "english": "Ecuador",
+    "spell": "eguaduoer",
+    "continent": "南美洲",
+    "french": "Équateur",
+    "italian": "Ecuador",
+    "spanish": "Ecuador",
+    "japanese": "エクアドル",
+    "russian": "Эквадор",
+    "germen": "Ecuador",
+    "emoji": "🇪🇨"
+  },
+  {
+    "abbr": "EG",
+    "chinese": "埃及",
+    "code": "20",
+    "english": "Egypt",
+    "spell": "aiji",
+    "continent": "非洲",
+    "french": "Égypte",
+    "italian": "Egitto",
+    "spanish": "Egipto",
+    "japanese": "エジプト",
+    "russian": "Египет",
+    "germen": "Ägypten",
+    "emoji": "🇪🇬"
+  },
+  {
+    "abbr": "SV",
+    "chinese": "萨尔瓦多",
+    "code": "503",
+    "english": "EI Salvador",
+    "spell": "saerwaduo",
+    "french": "Salvador",
+    "italian": "El Salvador",
+    "spanish": "El Salvador",
+    "japanese": "エルサルバドル",
+    "russian": "EI Сальвадор",
+    "germen": "El Salvador",
+    "emoji": "🇸🇻"
+  },
+  {
+    "abbr": "GQ",
+    "chinese": "赤道几内亚",
+    "code": "240",
+    "english": "Equatorial Guinea",
+    "spell": "chidaojineiya",
+    "continent": "非洲",
+    "french": "Guinée-Équatoriale",
+    "italian": "Guinea Equatoriale",
+    "spanish": "Guinea Ecuatorial",
+    "japanese": "赤道ギニア",
+    "russian": "Экваториальная Гвинея",
+    "germen": "Äquatorial-Guinea",
+    "emoji": "🇬🇶"
+  },
+  {
+    "abbr": "ER",
+    "chinese": "厄立特里亚",
+    "code": "291",
+    "english": "Eritrea",
+    "spell": "eliteliya",
+    "french": "Érythrée",
+    "italian": "Eritrea",
+    "spanish": "Eritrea",
+    "japanese": "エリトリア",
+    "russian": "Эритрея",
+    "germen": "Eritrea",
+    "emoji": "🇪🇷"
+  },
+  {
+    "abbr": "EE",
+    "chinese": "爱沙尼亚",
+    "code": "372",
+    "english": "Estonia",
+    "spell": "aishaniya",
+    "continent": "欧洲",
+    "french": "Estonie",
+    "italian": "Estonia",
+    "spanish": "Estonia",
+    "japanese": "エストニア",
+    "russian": "Эстония",
+    "germen": "Estland",
+    "emoji": "🇪🇪"
+  },
+  {
+    "abbr": "ET",
+    "chinese": "埃塞俄比亚",
+    "code": "251",
+    "english": "Ethiopia",
+    "spell": "aisaiebiya",
+    "continent": "非洲",
+    "french": "Éthiopie",
+    "italian": "Etiopia",
+    "spanish": "Etiopía",
+    "japanese": "エチオピア",
+    "russian": "Эфиопия",
+    "germen": "Äthiopien",
+    "emoji": "🇪🇹"
+  },
+  {
+    "abbr": "FJ",
+    "chinese": "斐济",
+    "code": "679",
+    "english": "Fiji",
+    "spell": "feiji",
+    "continent": "大洋洲",
+    "french": "Fidji",
+    "italian": "Figi",
+    "spanish": "Fiyi",
+    "japanese": "フィジー",
+    "russian": "Фиджи",
+    "germen": "Fidschi",
+    "emoji": "🇫🇯"
+  },
+  {
+    "abbr": "FI",
+    "chinese": "芬兰",
+    "code": "358",
+    "english": "Finland",
+    "spell": "fenlan",
+    "continent": "欧洲",
+    "french": "Finlande",
+    "italian": "Finlandia",
+    "spanish": "Finlandia",
+    "japanese": "フィンランド",
+    "russian": "Финляндия",
+    "germen": "Finnland",
+    "emoji": "🇫🇮"
+  },
+  {
+    "abbr": "FR",
+    "chinese": "法国",
+    "code": "33",
+    "english": "France",
+    "spell": "faguo",
+    "continent": "欧洲",
+    "french": "France",
+    "italian": "Francia",
+    "spanish": "Francia",
+    "japanese": "フランス",
+    "russian": "Франция",
+    "germen": "Frankreich",
+    "emoji": "🇫🇷"
+  },
+  {
+    "abbr": "GA",
+    "chinese": "加蓬",
+    "code": "241",
+    "english": "Gabon",
+    "spell": "jiapeng",
+    "continent": "非洲",
+    "french": "Gabon",
+    "italian": "Gabon",
+    "spanish": "Gabón",
+    "japanese": "ガボン",
+    "russian": "Габон",
+    "germen": "Gabun",
+    "emoji": "🇬🇦"
+  },
+  {
+    "abbr": "GM",
+    "chinese": "冈比亚",
+    "code": "220",
+    "english": "Gambia",
+    "spell": "gangbiya",
+    "continent": "非洲",
+    "french": "Gambie",
+    "italian": "Gambia",
+    "spanish": "Gambia",
+    "japanese": "ガンビア",
+    "russian": "Гамбия",
+    "germen": "Gambia",
+    "emoji": "🇬🇲"
+  },
+  {
+    "abbr": "GE",
+    "chinese": "格鲁吉亚",
+    "code": "995",
+    "english": "Georgia",
+    "spell": "gelujiya",
+    "french": "Géorgie",
+    "italian": "Georgia",
+    "spanish": "Georgia",
+    "japanese": "グルジア",
+    "russian": "Грузия",
+    "germen": "Georgien",
+    "emoji": "🇬🇪"
+  },
+  {
+    "abbr": "DE",
+    "chinese": "德国",
+    "code": "49",
+    "english": "Germany",
+    "spell": "deguo",
+    "continent": "欧洲",
+    "french": "Allemagne",
+    "italian": "Germania",
+    "spanish": "Alemania",
+    "japanese": "ドイツ",
+    "russian": "Германия",
+    "germen": "Deutschland",
+    "emoji": "🇩🇪"
+  },
+  {
+    "abbr": "GH",
+    "chinese": "加纳",
+    "code": "233",
+    "english": "Ghana",
+    "spell": "jiana",
+    "continent": "非洲",
+    "french": "Ghana",
+    "italian": "Ghana",
+    "spanish": "Ghana",
+    "japanese": "ガーナ",
+    "russian": "Гана",
+    "germen": "Ghana",
+    "emoji": "🇬🇭"
+  },
+  {
+    "abbr": "GR",
+    "chinese": "希腊",
+    "code": "30",
+    "english": "Greece",
+    "spell": "xila",
+    "continent": "欧洲",
+    "french": "Grèce",
+    "italian": "Grecia",
+    "spanish": "Grecia",
+    "japanese": "ギリシャ",
+    "russian": "Греция",
+    "germen": "Griechenland",
+    "emoji": "🇬🇷"
+  },
+  {
+    "abbr": "GL",
+    "chinese": "格陵兰",
+    "code": "299",
+    "english": "Greenland",
+    "spell": "gelinglan",
+    "french": "Groenland",
+    "italian": "Groenlandia",
+    "spanish": "Groenlandia",
+    "japanese": "グリーンランド",
+    "russian": "Гренландия",
+    "germen": "Grönland",
+    "emoji": "🇬🇱"
+  },
+  {
+    "abbr": "GT",
+    "chinese": "危地马拉",
+    "code": "502",
+    "english": "Guatemala",
+    "spell": "weidimala",
+    "continent": "北美洲",
+    "french": "Guatemala",
+    "italian": "Guatemala",
+    "spanish": "Guatemala",
+    "japanese": "グアテマラ",
+    "russian": "Гватемала",
+    "germen": "Guatemala",
+    "emoji": "🇬🇹"
+  },
+  {
+    "abbr": "GN",
+    "chinese": "几内亚",
+    "code": "224",
+    "english": "Guinea",
+    "spell": "jineiya",
+    "continent": "非洲",
+    "french": "Guinée",
+    "italian": "Guinea",
+    "spanish": "Guinea",
+    "japanese": "ギニア",
+    "russian": "Гвинея",
+    "germen": "Guinea",
+    "emoji": "🇬🇳"
+  },
+  {
+    "abbr": "GY",
+    "chinese": "圭亚那",
+    "code": "592",
+    "english": "Guyana",
+    "spell": "guiyanei",
+    "continent": "南美洲",
+    "french": "Guyane",
+    "italian": "Guyana",
+    "spanish": "Guyana",
+    "japanese": "ガイアナ",
+    "russian": "Гайана",
+    "germen": "Guyana",
+    "emoji": "🇬🇾"
+  },
+  {
+    "abbr": "HT",
+    "chinese": "海地",
+    "code": "509",
+    "english": "Haiti",
+    "spell": "haidi",
+    "continent": "北美洲",
+    "french": "Haïti",
+    "italian": "Haiti",
+    "spanish": "Haiti",
+    "japanese": "ハイチ",
+    "russian": "Гаити",
+    "germen": "Haiti",
+    "emoji": "🇭🇹"
+  },
+  {
+    "abbr": "HN",
+    "chinese": "洪都拉斯",
+    "code": "504",
+    "english": "Honduras",
+    "spell": "hongdoulasi",
+    "continent": "北美洲",
+    "french": "Honduras",
+    "italian": "Honduras",
+    "spanish": "Honduras",
+    "japanese": "ホンジュラス",
+    "russian": "Гондурас",
+    "germen": "Honduras",
+    "emoji": "🇭🇳"
+  },
+  {
     "abbr": "HU",
     "chinese": "匈牙利",
     "code": "36",
@@ -947,9 +1015,10 @@
     "spanish": "Hungría",
     "japanese": "ハンガリー",
     "russian": "Венгрия",
-    "germen": "Ungarn"
-},
-{
+    "germen": "Ungarn",
+    "emoji": "🇭🇺"
+  },
+  {
     "abbr": "IS",
     "chinese": "冰岛",
     "code": "354",
@@ -961,9 +1030,10 @@
     "spanish": "Islandia",
     "japanese": "アイスランド",
     "russian": "Исландия",
-    "germen": "Island"
-},
-{
+    "germen": "Island",
+    "emoji": "🇮🇸"
+  },
+  {
     "abbr": "IN",
     "chinese": "印度",
     "code": "91",
@@ -975,9 +1045,10 @@
     "spanish": "India",
     "japanese": "インド",
     "russian": "Индия",
-    "germen": "Indien"
-},
-{
+    "germen": "Indien",
+    "emoji": "🇮🇳"
+  },
+  {
     "abbr": "ID",
     "chinese": "印度尼西亚",
     "code": "62",
@@ -989,9 +1060,10 @@
     "spanish": "Indonesia",
     "japanese": "インドネシア",
     "russian": "Индонезия",
-    "germen": "Indonesien"
-},
-{
+    "germen": "Indonesien",
+    "emoji": "🇮🇩"
+  },
+  {
     "abbr": "IR",
     "chinese": "伊朗",
     "code": "98",
@@ -1003,9 +1075,10 @@
     "spanish": "Iran",
     "japanese": "イラン・イスラム共和国",
     "russian": "Иран",
-    "germen": "Iran"
-},
-{
+    "germen": "Iran",
+    "emoji": "🇮🇷"
+  },
+  {
     "abbr": "IQ",
     "chinese": "伊拉克",
     "code": "964",
@@ -1017,9 +1090,10 @@
     "spanish": "Irak",
     "japanese": "イラク",
     "russian": "Ирак",
-    "germen": "Irak"
-},
-{
+    "germen": "Irak",
+    "emoji": "🇮🇶"
+  },
+  {
     "abbr": "IE",
     "chinese": "爱尔兰",
     "code": "353",
@@ -1031,9 +1105,10 @@
     "spanish": "Irlanda",
     "japanese": "アイルランド",
     "russian": "Ирландия",
-    "germen": "Irland"
-},
-{
+    "germen": "Irland",
+    "emoji": "🇮🇪"
+  },
+  {
     "abbr": "IM",
     "chinese": "马恩岛",
     "code": "44",
@@ -1044,9 +1119,10 @@
     "spanish": "Reino Unido",
     "japanese": "イギリス",
     "russian": "Остров Мэн",
-    "germen": "Vereinigtes Königreich"
-},
-{
+    "germen": "Vereinigtes Königreich",
+    "emoji": "🇮🇲"
+  },
+  {
     "abbr": "IL",
     "chinese": "以色列",
     "code": "972",
@@ -1058,9 +1134,10 @@
     "spanish": "Israel",
     "japanese": "イスラエル",
     "russian": "Израиль",
-    "germen": "Israel"
-},
-{
+    "germen": "Israel",
+    "emoji": "🇮🇱"
+  },
+  {
     "abbr": "IT",
     "chinese": "意大利",
     "code": "39",
@@ -1072,22 +1149,24 @@
     "spanish": "Italia",
     "japanese": "イタリア",
     "russian": "Италия",
-    "germen": "Italien"
-},
-{
+    "germen": "Italien",
+    "emoji": "🇮🇹"
+  },
+  {
     "abbr": "CI",
     "chinese": "科特迪瓦",
     "code": "225",
     "english": "Ivory Coast",
     "spell": "ketediwa",
-    "french": "Côte d\u0027Ivoire",
-    "italian": "Costa D\u0027Avorio",
+    "french": "Côte d'Ivoire",
+    "italian": "Costa D'Avorio",
     "spanish": "Costa de Marfil",
     "japanese": "コートジボワール",
     "russian": "Кот-д'Ивуар",
-    "germen": "Elfenbeinküste"
-},
-{
+    "germen": "Elfenbeinküste",
+    "emoji": "🇨🇮"
+  },
+  {
     "abbr": "JM",
     "chinese": "牙买加",
     "code": "1876",
@@ -1099,9 +1178,10 @@
     "spanish": "Jamaica",
     "japanese": "ジャマイカ",
     "russian": "Ямайка",
-    "germen": "Jamaika"
-},
-{
+    "germen": "Jamaika",
+    "emoji": "🇯🇲"
+  },
+  {
     "abbr": "JP",
     "chinese": "日本",
     "code": "81",
@@ -1113,9 +1193,10 @@
     "spanish": "Japón",
     "japanese": "日本",
     "russian": "Япония",
-    "germen": "Japan"
-},
-{
+    "germen": "Japan",
+    "emoji": "🇯🇵"
+  },
+  {
     "abbr": "JO",
     "chinese": "约旦",
     "code": "962",
@@ -1127,9 +1208,10 @@
     "spanish": "Jordania",
     "japanese": "ヨルダン",
     "russian": "Иордания",
-    "germen": "Jordanien"
-},
-{
+    "germen": "Jordanien",
+    "emoji": "🇯🇴"
+  },
+  {
     "abbr": "KZ",
     "chinese": "哈萨克斯坦",
     "code": "7",
@@ -1141,9 +1223,10 @@
     "spanish": "Rusia",
     "japanese": "ロシア連邦",
     "russian": "Казахстан",
-    "germen": "Russland"
-},
-{
+    "germen": "Russland",
+    "emoji": "🇰🇿"
+  },
+  {
     "abbr": "KE",
     "chinese": "肯尼亚",
     "code": "254",
@@ -1155,9 +1238,10 @@
     "spanish": "Kenia",
     "japanese": "ケニア",
     "russian": "Кения",
-    "germen": "Kenia"
-},
-{
+    "germen": "Kenia",
+    "emoji": "🇰🇪"
+  },
+  {
     "abbr": "KR",
     "chinese": "韩国",
     "code": "82",
@@ -1169,9 +1253,10 @@
     "spanish": "Corea del Sur",
     "japanese": "大韓民国",
     "russian": "Корея",
-    "germen": "Südkorea"
-},
-{
+    "germen": "Südkorea",
+    "emoji": "🇰🇷"
+  },
+  {
     "abbr": "KW",
     "chinese": "科威特",
     "code": "965",
@@ -1183,9 +1268,10 @@
     "spanish": "Kuwait",
     "japanese": "クウェート",
     "russian": "Кувейт",
-    "germen": "Kuwait"
-},
-{
+    "germen": "Kuwait",
+    "emoji": "🇰🇼"
+  },
+  {
     "abbr": "KG",
     "chinese": "吉尔吉斯斯坦",
     "code": "996",
@@ -1196,9 +1282,10 @@
     "spanish": "Kirguizistán",
     "japanese": "キルギス",
     "russian": "Киргизия",
-    "germen": "Kirgisistan"
-},
-{
+    "germen": "Kirgisistan",
+    "emoji": "🇰🇬"
+  },
+  {
     "abbr": "LA",
     "chinese": "老挝",
     "code": "856",
@@ -1210,9 +1297,10 @@
     "spanish": "Laos",
     "japanese": "ラオス人民民主共和国",
     "russian": "Лаос",
-    "germen": "Laos"
-},
-{
+    "germen": "Laos",
+    "emoji": "🇱🇦"
+  },
+  {
     "abbr": "LV",
     "chinese": "拉脱维亚",
     "code": "371",
@@ -1224,9 +1312,10 @@
     "spanish": "Letonia",
     "japanese": "ラトビア",
     "russian": "Латвия",
-    "germen": "Lettland"
-},
-{
+    "germen": "Lettland",
+    "emoji": "🇱🇻"
+  },
+  {
     "abbr": "LB",
     "chinese": "黎巴嫩",
     "code": "961",
@@ -1238,9 +1327,10 @@
     "spanish": "Líbano",
     "japanese": "レバノン",
     "russian": "Ливан",
-    "germen": "Libanon"
-},
-{
+    "germen": "Libanon",
+    "emoji": "🇱🇧"
+  },
+  {
     "abbr": "LS",
     "chinese": "莱索托",
     "code": "266",
@@ -1251,9 +1341,10 @@
     "spanish": "Lesotho",
     "japanese": "レソト",
     "russian": "Лесото",
-    "germen": "Lesotho"
-},
-{
+    "germen": "Lesotho",
+    "emoji": "🇱🇸"
+  },
+  {
     "abbr": "LR",
     "chinese": "利比里亚",
     "code": "231",
@@ -1264,9 +1355,10 @@
     "spanish": "Liberia",
     "japanese": "リベリア",
     "russian": "Либерия",
-    "germen": "Liberia"
-},
-{
+    "germen": "Liberia",
+    "emoji": "🇱🇷"
+  },
+  {
     "abbr": "LY",
     "chinese": "利比亚",
     "code": "218",
@@ -1278,9 +1370,10 @@
     "spanish": "Libia",
     "japanese": "リビア",
     "russian": "Ливия",
-    "germen": "Libyen"
-},
-{
+    "germen": "Libyen",
+    "emoji": "🇱🇾"
+  },
+  {
     "abbr": "LT",
     "chinese": "立陶宛",
     "code": "370",
@@ -1292,9 +1385,10 @@
     "spanish": "Lituania",
     "japanese": "リトアニア",
     "russian": "Литва",
-    "germen": "Litauen"
-},
-{
+    "germen": "Litauen",
+    "emoji": "🇱🇹"
+  },
+  {
     "abbr": "LU",
     "chinese": "卢森堡",
     "code": "352",
@@ -1306,9 +1400,10 @@
     "spanish": "Luxemburgo",
     "japanese": "ルクセンブルク",
     "russian": "Люксембург",
-    "germen": "Luxemburg"
-},
-{
+    "germen": "Luxemburg",
+    "emoji": "🇱🇺"
+  },
+  {
     "abbr": "MO",
     "chinese": "中国澳门特别行政区",
     "code": "853",
@@ -1320,9 +1415,10 @@
     "spanish": "Macao",
     "japanese": "マカオ",
     "russian": "Макао SAR Китай",
-    "germen": "Macao"
-},
-{
+    "germen": "Macao",
+    "emoji": "🇲🇴"
+  },
+  {
     "abbr": "MK",
     "chinese": "马其顿",
     "code": "389",
@@ -1333,9 +1429,10 @@
     "spanish": "Macedonia",
     "japanese": "マケドニア旧ユーゴスラビア共和国",
     "russian": "Македония",
-    "germen": "Mazedonien"
-},
-{
+    "germen": "Mazedonien",
+    "emoji": "🇲🇰"
+  },
+  {
     "abbr": "MG",
     "chinese": "马达加斯加",
     "code": "261",
@@ -1347,9 +1444,10 @@
     "spanish": "Madagascar",
     "japanese": "マダガスカル",
     "russian": "Мадагаскар",
-    "germen": "Madagaskar"
-},
-{
+    "germen": "Madagaskar",
+    "emoji": "🇲🇬"
+  },
+  {
     "abbr": "MW",
     "chinese": "马拉维",
     "code": "265",
@@ -1360,9 +1458,10 @@
     "spanish": "Malawi",
     "japanese": "マラウイ",
     "russian": "Малави",
-    "germen": "Malawi"
-},
-{
+    "germen": "Malawi",
+    "emoji": "🇲🇼"
+  },
+  {
     "abbr": "MY",
     "chinese": "马来西亚",
     "code": "60",
@@ -1374,9 +1473,10 @@
     "spanish": "Malasia",
     "japanese": "マレーシア",
     "russian": "Малайзия",
-    "germen": "Malaysia"
-},
-{
+    "germen": "Malaysia",
+    "emoji": "🇲🇾"
+  },
+  {
     "abbr": "MV",
     "chinese": "马尔代夫",
     "code": "960",
@@ -1388,9 +1488,10 @@
     "spanish": "Maldivas",
     "japanese": "モルディブ",
     "russian": "Мальдивы",
-    "germen": "Malediven"
-},
-{
+    "germen": "Malediven",
+    "emoji": "🇲🇻"
+  },
+  {
     "abbr": "ML",
     "chinese": "马里",
     "code": "223",
@@ -1402,9 +1503,10 @@
     "spanish": "Mali",
     "japanese": "マリ",
     "russian": "Мали",
-    "germen": "Mali"
-},
-{
+    "germen": "Mali",
+    "emoji": "🇲🇱"
+  },
+  {
     "abbr": "MT",
     "chinese": "马耳他",
     "code": "356",
@@ -1416,9 +1518,10 @@
     "spanish": "Malta",
     "japanese": "マルタ",
     "russian": "Мальта",
-    "germen": "Malta"
-},
-{
+    "germen": "Malta",
+    "emoji": "🇲🇹"
+  },
+  {
     "abbr": "MR",
     "chinese": "毛利塔尼亚",
     "code": "222",
@@ -1430,9 +1533,10 @@
     "spanish": "Mauritania",
     "japanese": "モーリタニア",
     "russian": "Мавритания",
-    "germen": "Mauretanien"
-},
-{
+    "germen": "Mauretanien",
+    "emoji": "🇲🇷"
+  },
+  {
     "abbr": "MU",
     "chinese": "毛里求斯",
     "code": "230",
@@ -1444,9 +1548,10 @@
     "spanish": "Mauricio",
     "japanese": "モーリシャス",
     "russian": "Маврикий",
-    "germen": "Mauritius"
-},
-{
+    "germen": "Mauritius",
+    "emoji": "🇲🇺"
+  },
+  {
     "abbr": "MX",
     "chinese": "墨西哥",
     "code": "52",
@@ -1458,9 +1563,10 @@
     "spanish": "México",
     "japanese": "メキシコ",
     "russian": "Мексика",
-    "germen": "Mexiko"
-},
-{
+    "germen": "Mexiko",
+    "emoji": "🇲🇽"
+  },
+  {
     "abbr": "MD",
     "chinese": "摩尔多瓦",
     "code": "373",
@@ -1472,9 +1578,10 @@
     "spanish": "Moldavia",
     "japanese": "モルドバ共和国",
     "russian": "Молдавия",
-    "germen": "Moldawie"
-},
-{
+    "germen": "Moldawie",
+    "emoji": "🇲🇩"
+  },
+  {
     "abbr": "MC",
     "chinese": "摩纳哥",
     "code": "377",
@@ -1486,9 +1593,10 @@
     "spanish": "Mónaco",
     "japanese": "モナコ",
     "russian": "Монако",
-    "germen": "Monaco"
-},
-{
+    "germen": "Monaco",
+    "emoji": "🇲🇨"
+  },
+  {
     "abbr": "MN",
     "chinese": "蒙古",
     "code": "976",
@@ -1500,9 +1608,10 @@
     "spanish": "Mongolia",
     "japanese": "モンゴル",
     "russian": "Монголия",
-    "germen": "Mongolei"
-},
-{
+    "germen": "Mongolei",
+    "emoji": "🇲🇳"
+  },
+  {
     "abbr": "ME",
     "chinese": "黑山共和国",
     "code": "382",
@@ -1513,9 +1622,10 @@
     "spanish": "Montenegro",
     "japanese": "モンテネグロ",
     "russian": "Черногория",
-    "germen": "Montenegro"
-},
-{
+    "germen": "Montenegro",
+    "emoji": "🇲🇪"
+  },
+  {
     "abbr": "MA",
     "chinese": "摩洛哥",
     "code": "212",
@@ -1527,9 +1637,10 @@
     "spanish": "Sahara Occidental",
     "japanese": "西サハラ",
     "russian": "Марокко",
-    "germen": "Westsahara"
-},
-{
+    "germen": "Westsahara",
+    "emoji": "🇲🇦"
+  },
+  {
     "abbr": "MZ",
     "chinese": "莫桑比克",
     "code": "258",
@@ -1541,9 +1652,10 @@
     "spanish": "Mozambique",
     "japanese": "モザンビーク",
     "russian": "Мозамбик",
-    "germen": "Mosambik"
-},
-{
+    "germen": "Mosambik",
+    "emoji": "🇲🇿"
+  },
+  {
     "abbr": "MM",
     "chinese": "缅甸",
     "code": "95",
@@ -1554,9 +1666,10 @@
     "spanish": "Myanmar",
     "japanese": "ミャンマー",
     "russian": "Мьянма (Бирма)",
-    "germen": "Myanmar"
-},
-{
+    "germen": "Myanmar",
+    "emoji": "🇲🇲"
+  },
+  {
     "abbr": "NA",
     "chinese": "纳米比亚",
     "code": "264",
@@ -1568,9 +1681,10 @@
     "spanish": "Namibia",
     "japanese": "ナミビア",
     "russian": "Намибия",
-    "germen": "Namibia"
-},
-{
+    "germen": "Namibia",
+    "emoji": "🇳🇦"
+  },
+  {
     "abbr": "NP",
     "chinese": "尼泊尔",
     "code": "977",
@@ -1582,9 +1696,10 @@
     "spanish": "Nepal",
     "japanese": "ネパール",
     "russian": "Непал",
-    "germen": "Népal"
-},
-{
+    "germen": "Népal",
+    "emoji": "🇳🇵"
+  },
+  {
     "abbr": "NL",
     "chinese": "荷兰",
     "code": "31",
@@ -1596,9 +1711,10 @@
     "spanish": "Países Bajos",
     "japanese": "オランダ",
     "russian": "Нидерланды",
-    "germen": "Niederlande"
-},
-{
+    "germen": "Niederlande",
+    "emoji": "🇳🇱"
+  },
+  {
     "abbr": "NZ",
     "chinese": "新西兰",
     "code": "64",
@@ -1610,9 +1726,10 @@
     "spanish": "Islas Pitcairn",
     "japanese": "ピトケアン",
     "russian": "Новая Зеландия",
-    "germen": "Pitcairn"
-},
-{
+    "germen": "Pitcairn",
+    "emoji": "🇳🇿"
+  },
+  {
     "abbr": "NI",
     "chinese": "尼加拉瓜",
     "code": "505",
@@ -1624,9 +1741,10 @@
     "spanish": "Nicaragua",
     "japanese": "ニカラグア",
     "russian": "Никарагуа",
-    "germen": "Nicaragua"
-},
-{
+    "germen": "Nicaragua",
+    "emoji": "🇳🇮"
+  },
+  {
     "abbr": "NE",
     "chinese": "尼日尔",
     "code": "227",
@@ -1638,9 +1756,10 @@
     "spanish": "Níger",
     "japanese": "ニジェール",
     "russian": "Нигер",
-    "germen": "Niger"
-},
-{
+    "germen": "Niger",
+    "emoji": "🇳🇪"
+  },
+  {
     "abbr": "NG",
     "chinese": "尼日利亚",
     "code": "234",
@@ -1652,9 +1771,10 @@
     "spanish": "Nigeria",
     "japanese": "ナイジェリア",
     "russian": "Нигерия",
-    "germen": "Nigeria"
-},
-{
+    "germen": "Nigeria",
+    "emoji": "🇳🇬"
+  },
+  {
     "abbr": "KP",
     "chinese": "朝鲜",
     "code": "850",
@@ -1666,9 +1786,10 @@
     "spanish": "Corea del Norte",
     "japanese": "朝鮮民主主義人民共和国",
     "russian": "Северная Корея",
-    "germen": "Nordkorea"
-},
-{
+    "germen": "Nordkorea",
+    "emoji": "🇰🇵"
+  },
+  {
     "abbr": "NO",
     "chinese": "挪威",
     "code": "47",
@@ -1680,9 +1801,10 @@
     "spanish": "Noruega",
     "japanese": "ノルウェー",
     "russian": "Норвегия",
-    "germen": "Norwegen"
-},
-{
+    "germen": "Norwegen",
+    "emoji": "🇳🇴"
+  },
+  {
     "abbr": "OM",
     "chinese": "阿曼",
     "code": "968",
@@ -1694,9 +1816,10 @@
     "spanish": "Omán",
     "japanese": "オマーン",
     "russian": "Оман",
-    "germen": "Oman"
-},
-{
+    "germen": "Oman",
+    "emoji": "🇴🇲"
+  },
+  {
     "abbr": "PK",
     "chinese": "巴基斯坦",
     "code": "92",
@@ -1708,9 +1831,10 @@
     "spanish": "Pakistán",
     "japanese": "パキスタン",
     "russian": "Пакистан",
-    "germen": "Pakistan"
-},
-{
+    "germen": "Pakistan",
+    "emoji": "🇵🇰"
+  },
+  {
     "abbr": "PA",
     "chinese": "巴拿马",
     "code": "507",
@@ -1722,9 +1846,10 @@
     "spanish": "Panamá",
     "japanese": "パナマ",
     "russian": "Панама",
-    "germen": "Panama"
-},
-{
+    "germen": "Panama",
+    "emoji": "🇵🇦"
+  },
+  {
     "abbr": "PY",
     "chinese": "巴拉圭",
     "code": "595",
@@ -1736,9 +1861,10 @@
     "spanish": "Paraguay",
     "japanese": "パラグアイ",
     "russian": "Парагвай",
-    "germen": "Paraguay"
-},
-{
+    "germen": "Paraguay",
+    "emoji": "🇵🇾"
+  },
+  {
     "abbr": "PE",
     "chinese": "秘鲁",
     "code": "51",
@@ -1750,9 +1876,10 @@
     "spanish": "Perú",
     "japanese": "ペルー",
     "russian": "Перу",
-    "germen": "Peru"
-},
-{
+    "germen": "Peru",
+    "emoji": "🇵🇪"
+  },
+  {
     "abbr": "PH",
     "chinese": "菲律宾",
     "code": "63",
@@ -1764,9 +1891,10 @@
     "spanish": "Filipinas",
     "japanese": "フィリピン",
     "russian": "Филиппины",
-    "germen": "Philippinen"
-},
-{
+    "germen": "Philippinen",
+    "emoji": "🇵🇭"
+  },
+  {
     "abbr": "PL",
     "chinese": "波兰",
     "code": "48",
@@ -1778,9 +1906,10 @@
     "spanish": "Polonia",
     "japanese": "ポーランド",
     "russian": "Польша",
-    "germen": "Polen"
-},
-{
+    "germen": "Polen",
+    "emoji": "🇵🇱"
+  },
+  {
     "abbr": "PT",
     "chinese": "葡萄牙",
     "code": "351",
@@ -1792,9 +1921,10 @@
     "spanish": "Portugal",
     "japanese": "ポルトガル",
     "russian": "Португалия",
-    "germen": "Portugal"
-},
-{
+    "germen": "Portugal",
+    "emoji": "🇵🇹"
+  },
+  {
     "abbr": "PR",
     "chinese": "波多黎各",
     "code": "1787",
@@ -1805,9 +1935,10 @@
     "spanish": "Puerto Rico",
     "japanese": "プエルトリコ",
     "russian": "Пуэрто-Рико",
-    "germen": "Puerto Rico"
-},
-{
+    "germen": "Puerto Rico",
+    "emoji": "🇵🇷"
+  },
+  {
     "abbr": "QA",
     "chinese": "卡塔尔",
     "code": "974",
@@ -1819,9 +1950,10 @@
     "spanish": "Catar",
     "japanese": "カタール",
     "russian": "Катар",
-    "germen": "Katar"
-},
-{
+    "germen": "Katar",
+    "emoji": "🇶🇦"
+  },
+  {
     "abbr": "RE",
     "chinese": "留尼旺",
     "code": "262",
@@ -1832,9 +1964,10 @@
     "spanish": "Reunión",
     "japanese": "レユニオン",
     "russian": "воссоединение",
-    "germen": "Réunion"
-},
-{
+    "germen": "Réunion",
+    "emoji": "🇷🇪"
+  },
+  {
     "abbr": "RO",
     "chinese": "罗马尼亚",
     "code": "40",
@@ -1846,9 +1979,10 @@
     "spanish": "Rumania",
     "japanese": "ルーマニア",
     "russian": "Румыния",
-    "germen": "Rumänien"
-},
-{
+    "germen": "Rumänien",
+    "emoji": "🇷🇴"
+  },
+  {
     "abbr": "RU",
     "chinese": "俄罗斯",
     "code": "7",
@@ -1860,9 +1994,10 @@
     "spanish": "Rusia",
     "japanese": "ロシア連邦",
     "russian": "Россия",
-    "germen": "Russland"
-},
-{
+    "germen": "Russland",
+    "emoji": "🇷🇺"
+  },
+  {
     "abbr": "RW",
     "chinese": "卢旺达",
     "code": "250",
@@ -1874,9 +2009,10 @@
     "spanish": "Ruanda",
     "japanese": "ルワンダ",
     "russian": "Руанда",
-    "germen": "Ruanda"
-},
-{
+    "germen": "Ruanda",
+    "emoji": "🇷🇼"
+  },
+  {
     "abbr": "SM",
     "chinese": "圣马力诺",
     "code": "378",
@@ -1888,9 +2024,10 @@
     "spanish": "San Marino",
     "japanese": "サンマリノ",
     "russian": "Сан-Марино",
-    "germen": "San Marino"
-},
-{
+    "germen": "San Marino",
+    "emoji": "🇸🇲"
+  },
+  {
     "abbr": "SA",
     "chinese": "沙特阿拉伯",
     "code": "966",
@@ -1902,9 +2039,10 @@
     "spanish": "Arabia Saudí",
     "japanese": "サウジアラビア",
     "russian": "Саудовская Аравия",
-    "germen": "Saudi-Arabien"
-},
-{
+    "germen": "Saudi-Arabien",
+    "emoji": "🇸🇦"
+  },
+  {
     "abbr": "SN",
     "chinese": "塞内加尔",
     "code": "221",
@@ -1916,9 +2054,10 @@
     "spanish": "Senegal",
     "japanese": "セネガル",
     "russian": "Сенегал",
-    "germen": "Senegal"
-},
-{
+    "germen": "Senegal",
+    "emoji": "🇸🇳"
+  },
+  {
     "abbr": "RS",
     "chinese": "塞尔维亚",
     "code": "381",
@@ -1929,9 +2068,10 @@
     "spanish": "Serbia",
     "japanese": "セルビア",
     "russian": "Сербия",
-    "germen": "Serbien"
-},
-{
+    "germen": "Serbien",
+    "emoji": "🇷🇸"
+  },
+  {
     "abbr": "SL",
     "chinese": "塞拉利昂",
     "code": "232",
@@ -1942,9 +2082,10 @@
     "spanish": "Sierra Leone",
     "japanese": "シエラレオネ",
     "russian": "Сьерра-Леоне",
-    "germen": "Sierra Leone"
-},
-{
+    "germen": "Sierra Leone",
+    "emoji": "🇸🇱"
+  },
+  {
     "abbr": "SG",
     "chinese": "新加坡",
     "code": "65",
@@ -1956,9 +2097,10 @@
     "spanish": "Singapur",
     "japanese": "シンガポール",
     "russian": "Сингапур",
-    "germen": "Singapur"
-},
-{
+    "germen": "Singapur",
+    "emoji": "🇸🇬"
+  },
+  {
     "abbr": "SK",
     "chinese": "斯洛伐克",
     "code": "421",
@@ -1970,9 +2112,10 @@
     "spanish": "República Eslovaca",
     "japanese": "スロバキア",
     "russian": "Словакия",
-    "germen": "Slowakei"
-},
-{
+    "germen": "Slowakei",
+    "emoji": "🇸🇰"
+  },
+  {
     "abbr": "SI",
     "chinese": "斯洛文尼亚",
     "code": "386",
@@ -1983,9 +2126,10 @@
     "spanish": "Eslovenia",
     "japanese": "スロベニア",
     "russian": "Словения",
-    "germen": "Slowenien"
-},
-{
+    "germen": "Slowenien",
+    "emoji": "🇸🇮"
+  },
+  {
     "abbr": "SO",
     "chinese": "索马里",
     "code": "252",
@@ -1997,9 +2141,10 @@
     "spanish": "Somalia",
     "japanese": "ソマリア",
     "russian": "Сомали",
-    "germen": "Somalia"
-},
-{
+    "germen": "Somalia",
+    "emoji": "🇸🇴"
+  },
+  {
     "abbr": "ZA",
     "chinese": "南非",
     "code": "27",
@@ -2011,9 +2156,10 @@
     "spanish": "República de Sudáfrica",
     "japanese": "南アフリカ",
     "russian": "Южно-Африканская Республика (ЮАР)",
-    "germen": "Republik Südafrika"
-},
-{
+    "germen": "Republik Südafrika",
+    "emoji": "🇿🇦"
+  },
+  {
     "abbr": "ES",
     "chinese": "西班牙",
     "code": "34",
@@ -2025,9 +2171,10 @@
     "spanish": "España",
     "japanese": "スペイン",
     "russian": "Испания",
-    "germen": "Spanien"
-},
-{
+    "germen": "Spanien",
+    "emoji": "🇪🇸"
+  },
+  {
     "abbr": "LK",
     "chinese": "斯里兰卡",
     "code": "94",
@@ -2038,9 +2185,10 @@
     "spanish": "Sri Lanka",
     "japanese": "スリランカ",
     "russian": "Шри-Ланка",
-    "germen": "Sri Lanka"
-},
-{
+    "germen": "Sri Lanka",
+    "emoji": "🇱🇰"
+  },
+  {
     "abbr": "SD",
     "chinese": "苏丹",
     "code": "249",
@@ -2052,9 +2200,10 @@
     "spanish": "Sudán",
     "japanese": "スーダン",
     "russian": "Судан",
-    "germen": "Sudan"
-},
-{
+    "germen": "Sudan",
+    "emoji": "🇸🇩"
+  },
+  {
     "abbr": "SR",
     "chinese": "苏里南",
     "code": "597",
@@ -2065,9 +2214,10 @@
     "spanish": "Surinam",
     "japanese": "スリナム",
     "russian": "Суринам",
-    "germen": "Suriname"
-},
-{
+    "germen": "Suriname",
+    "emoji": "🇸🇷"
+  },
+  {
     "abbr": "SZ",
     "chinese": "斯威士兰",
     "code": "268",
@@ -2078,9 +2228,10 @@
     "spanish": "Suazilandia",
     "japanese": "スワジランド",
     "russian": "Свазиленд",
-    "germen": "Swasiland"
-},
-{
+    "germen": "Swasiland",
+    "emoji": "🇸🇿"
+  },
+  {
     "abbr": "SE",
     "chinese": "瑞典",
     "code": "46",
@@ -2092,9 +2243,10 @@
     "spanish": "Suecia",
     "japanese": "スウェーデン",
     "russian": "Швеция",
-    "germen": "Schweden"
-},
-{
+    "germen": "Schweden",
+    "emoji": "🇸🇪"
+  },
+  {
     "abbr": "CH",
     "chinese": "瑞士",
     "code": "41",
@@ -2106,9 +2258,10 @@
     "spanish": "Suiza",
     "japanese": "スイス",
     "russian": "Швейцария",
-    "germen": "Schweiz"
-},
-{
+    "germen": "Schweiz",
+    "emoji": "🇨🇭"
+  },
+  {
     "abbr": "SY",
     "chinese": "叙利亚",
     "code": "963",
@@ -2120,9 +2273,10 @@
     "spanish": "Siria",
     "japanese": "シリア・アラブ共和国",
     "russian": "Сирия",
-    "germen": "Syrien"
-},
-{
+    "germen": "Syrien",
+    "emoji": "🇸🇾"
+  },
+  {
     "abbr": "TW",
     "chinese": "中国台湾",
     "code": "886",
@@ -2134,9 +2288,10 @@
     "spanish": "Taiwán",
     "japanese": "台湾（中華民国）",
     "russian": "Тайвань",
-    "germen": "Taiwan"
-},
-{
+    "germen": "Taiwan",
+    "emoji": "🇹🇼"
+  },
+  {
     "abbr": "TJ",
     "chinese": "塔吉克斯坦",
     "code": "992",
@@ -2148,9 +2303,10 @@
     "spanish": "Tayikistán",
     "japanese": "タジキスタン",
     "russian": "Таджикистан",
-    "germen": "Tadschikistan"
-},
-{
+    "germen": "Tadschikistan",
+    "emoji": "🇹🇯"
+  },
+  {
     "abbr": "TZ",
     "chinese": "坦桑尼亚",
     "code": "255",
@@ -2162,9 +2318,10 @@
     "spanish": "Tanzania",
     "japanese": "タンザニア",
     "russian": "Танзания",
-    "germen": "Tansania"
-},
-{
+    "germen": "Tansania",
+    "emoji": "🇹🇿"
+  },
+  {
     "abbr": "TH",
     "chinese": "泰国",
     "code": "66",
@@ -2176,9 +2333,10 @@
     "spanish": "Tailandia",
     "japanese": "タイ",
     "russian": "Таиланд",
-    "germen": "Thailand"
-},
-{
+    "germen": "Thailand",
+    "emoji": "🇹🇭"
+  },
+  {
     "abbr": "TG",
     "chinese": "多哥",
     "code": "228",
@@ -2189,9 +2347,10 @@
     "spanish": "Togo",
     "japanese": "トーゴ",
     "russian": "Того",
-    "germen": "Togo"
-},
-{
+    "germen": "Togo",
+    "emoji": "🇹🇬"
+  },
+  {
     "abbr": "TO",
     "chinese": "汤加",
     "code": "676",
@@ -2203,9 +2362,10 @@
     "spanish": "Tonga",
     "japanese": "トンガ",
     "russian": "Тонга",
-    "germen": "Tonga"
-},
-{
+    "germen": "Tonga",
+    "emoji": "🇹🇴"
+  },
+  {
     "abbr": "TT",
     "chinese": "特立尼达和多巴哥",
     "code": "1868",
@@ -2216,9 +2376,10 @@
     "spanish": "Trinidad y Tobago",
     "japanese": "トリニダード・トバゴ",
     "russian": "Тринидад и Тобаго",
-    "germen": "Trinidad und Tobago"
-},
-{
+    "germen": "Trinidad und Tobago",
+    "emoji": "🇹🇹"
+  },
+  {
     "abbr": "TN",
     "chinese": "突尼斯",
     "code": "216",
@@ -2230,9 +2391,10 @@
     "spanish": "Túnez",
     "japanese": "チュニジア",
     "russian": "Тунис",
-    "germen": "Tunesien"
-},
-{
+    "germen": "Tunesien",
+    "emoji": "🇹🇳"
+  },
+  {
     "abbr": "TR",
     "chinese": "土耳其",
     "code": "90",
@@ -2244,9 +2406,10 @@
     "japanese": "トルコ",
     "russian": "Турция",
     "germen": "Türkei",
-	"continent": "欧洲"
-},
-{
+    "continent": "欧洲",
+    "emoji": "🇹🇷"
+  },
+  {
     "abbr": "TM",
     "chinese": "土库曼斯坦",
     "code": "993",
@@ -2258,9 +2421,10 @@
     "spanish": "Turkmenistán",
     "japanese": "トルクメニスタン",
     "russian": "Туркменистан",
-    "germen": "Turkmenistan"
-},
-{
+    "germen": "Turkmenistan",
+    "emoji": "🇹🇲"
+  },
+  {
     "abbr": "VI",
     "chinese": "美属维尔京群岛",
     "code": "1340",
@@ -2271,9 +2435,10 @@
     "spanish": "Islas Vírgenes de EE.UU",
     "japanese": "米領バージン諸島",
     "russian": "Виргинские острова США",
-    "germen": "US Jungferninseln"
-},
-{
+    "germen": "US Jungferninseln",
+    "emoji": "🇻🇮"
+  },
+  {
     "abbr": "UG",
     "chinese": "乌干达",
     "code": "256",
@@ -2285,9 +2450,10 @@
     "spanish": "Uganda",
     "japanese": "ウガンダ",
     "russian": "Уганда",
-    "germen": "Uganda"
-},
-{
+    "germen": "Uganda",
+    "emoji": "🇺🇬"
+  },
+  {
     "abbr": "UA",
     "chinese": "乌克兰",
     "code": "380",
@@ -2299,9 +2465,10 @@
     "spanish": "Ucrania",
     "japanese": "ウクライナ",
     "russian": "Украина",
-    "germen": "Ukraine"
-},
-{
+    "germen": "Ukraine",
+    "emoji": "🇺🇦"
+  },
+  {
     "abbr": "AE",
     "chinese": "阿拉伯联合酋长国",
     "code": "971",
@@ -2313,9 +2480,10 @@
     "spanish": "Emiratos Árabes Unidos",
     "japanese": "アラブ首長国連邦",
     "russian": "Объединённые Арабские Эмираты (ОАЭ)",
-    "germen": "Vereinigte Arabische Emirate"
-},
-{
+    "germen": "Vereinigte Arabische Emirate",
+    "emoji": "🇦🇪"
+  },
+  {
     "abbr": "GB",
     "chinese": "英国",
     "code": "44",
@@ -2327,9 +2495,10 @@
     "spanish": "Reino Unido",
     "japanese": "イギリス",
     "russian": "Объединенное Королевство",
-    "germen": "Vereinigtes Königreich"
-},
-{
+    "germen": "Vereinigtes Königreich",
+    "emoji": "🇬🇧"
+  },
+  {
     "abbr": "US",
     "chinese": "美国",
     "code": "1",
@@ -2337,13 +2506,14 @@
     "spell": "meiguo",
     "continent": "北美洲",
     "french": "États-Unis",
-    "italian": "Stati Uniti D\u0027America",
+    "italian": "Stati Uniti D'America",
     "spanish": "Estados Unidos",
     "japanese": "アメリカ合衆国",
     "russian": "Соединенные Штаты Америки",
-    "germen": "Vereinigte Staaten von Amerika"
-},
-{
+    "germen": "Vereinigte Staaten von Amerika",
+    "emoji": "🇺🇸"
+  },
+  {
     "abbr": "UY",
     "chinese": "乌拉圭",
     "code": "598",
@@ -2355,9 +2525,10 @@
     "spanish": "Uruguay",
     "japanese": "ウルグアイ",
     "russian": "Уругвай",
-    "germen": "Uruguay"
-},
-{
+    "germen": "Uruguay",
+    "emoji": "🇺🇾"
+  },
+  {
     "abbr": "UZ",
     "chinese": "乌兹别克斯坦",
     "code": "998",
@@ -2369,9 +2540,10 @@
     "spanish": "Uzbekistán",
     "japanese": "ウズベキスタン",
     "russian": "Узбекистан",
-    "germen": "Usbekistan"
-},
-{
+    "germen": "Usbekistan",
+    "emoji": "🇺🇿"
+  },
+  {
     "abbr": "VA",
     "chinese": "梵蒂冈城",
     "code": "379",
@@ -2383,9 +2555,10 @@
     "spanish": "Santa Sede",
     "japanese": "聖座",
     "russian": "Ватикан",
-    "germen": "Heiliger Stuhl"
-},
-{
+    "germen": "Heiliger Stuhl",
+    "emoji": "🇻🇦"
+  },
+  {
     "abbr": "VE",
     "chinese": "委内瑞拉",
     "code": "58",
@@ -2397,9 +2570,10 @@
     "spanish": "Venezuela",
     "japanese": "ベネズエラ・ボリバル共和国",
     "russian": "Венесуэла",
-    "germen": "Venezuela"
-},
-{
+    "germen": "Venezuela",
+    "emoji": "🇻🇪"
+  },
+  {
     "abbr": "VN",
     "chinese": "越南",
     "code": "84",
@@ -2411,9 +2585,10 @@
     "spanish": "Vietnam",
     "japanese": "ベトナム",
     "russian": "Вьетнам",
-    "germen": "Vietnam"
-},
-{
+    "germen": "Vietnam",
+    "emoji": "🇻🇳"
+  },
+  {
     "abbr": "YE",
     "chinese": "也门",
     "code": "967",
@@ -2425,23 +2600,10 @@
     "spanish": "Yemen",
     "japanese": "イエメン",
     "russian": "Йемен",
-    "germen": "Jemen"
-},
-{
-    "abbr": "YU",
-    "chinese": "南斯拉夫",
-    "code": "381",
-    "english": "Yugoslavia",
-    "spell": "nansilafu",
-    "continent": "欧洲",
-    "french": "Serbie",
-    "italian": "Serbia",
-    "spanish": "Serbia",
-    "japanese": "セルビア",
-    "russian": "Югославия",
-    "germen": "Serbien"
-},
-{
+    "germen": "Jemen",
+    "emoji": "🇾🇪"
+  },
+  {
     "abbr": "ZR",
     "chinese": "扎伊尔",
     "code": "243",
@@ -2453,9 +2615,10 @@
     "spanish": "Congo (Rep. Dem.)",
     "japanese": "コンゴ民主共和国",
     "russian": "Заир",
-    "germen": "Kongo (Dem. Rep.)"
-},
-{
+    "germen": "Kongo (Dem. Rep.)",
+    "emoji": ""
+  },
+  {
     "abbr": "ZM",
     "chinese": "赞比亚",
     "code": "260",
@@ -2467,9 +2630,10 @@
     "spanish": "Zambia",
     "japanese": "ザンビア",
     "russian": "Замбия",
-    "germen": "Sambia"
-},
-{
+    "germen": "Sambia",
+    "emoji": "🇿🇲"
+  },
+  {
     "abbr": "ZW",
     "chinese": "津巴布韦",
     "code": "263",
@@ -2481,5 +2645,7 @@
     "spanish": "Zimbabue",
     "japanese": "ジンバブエ",
     "russian": "Зимбабве",
-    "germen": "Simbabwe"
-}]
+    "germen": "Simbabwe",
+    "emoji": "🇿🇼"
+  }
+]
