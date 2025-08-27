@@ -535,5 +535,14 @@
       "v1.0.0": "首个版本，新增MeoW消息通知",
       "v1.0.1": "优化代码，修复运行一次按钮没办法自动关闭的问题"
     }
+  },
+  "BugReporter": {
+    "name": "Bug反馈",
+    "description": "自动上报异常，协助开发者发现和解决问题。",
+    "labels": "开发",
+    "version": "1.0",
+    "icon": "Alist_encrypt_A.png",
+    "author": "jxxghp",
+    "level": 1
   }
 }
