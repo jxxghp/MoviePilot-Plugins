@@ -541,9 +541,12 @@
     "name": "Bug反馈",
     "description": "自动上报异常，协助开发者发现和解决问题。",
     "labels": "开发",
-    "version": "1.0",
+    "version": "1.1",
     "icon": "Alist_encrypt_A.png",
     "author": "jxxghp",
-    "level": 1
+    "level": 1,
+    "history": {
+      "v1.1": "加强脱敏处理"
+    }
   }
 }
