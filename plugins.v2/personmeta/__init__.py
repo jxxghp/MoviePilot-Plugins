@@ -38,7 +38,7 @@ class PersonMeta(_PluginBase):
     # 插件图标
     plugin_icon = "actor.png"
     # 插件版本
-    plugin_version = "2.2"
+    plugin_version = "2.2.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -337,6 +337,9 @@ class PersonMeta(_PluginBase):
         if not self._enabled:
             return
         # 事件数据
+        if not event or not event.event_data:
+            logger.warn("TransferComplete事件数据为空")
+            return
         mediainfo: MediaInfo = event.event_data.get("mediainfo")
         meta: MetaBase = event.event_data.get("meta")
         if not mediainfo or not meta:
@@ -406,7 +409,7 @@ class PersonMeta(_PluginBase):
         """
         peoples = []
         # 更新当前媒体项人物
-        for people in iteminfo["People"] or []:
+        for people in iteminfo.get("People", []) or []:
             if self._event.is_set():
                 logger.info(f"演职人员刮削服务停止")
                 return
@@ -488,7 +491,7 @@ class PersonMeta(_PluginBase):
             if not seasons:
                 logger.warn(f"{item.title} 未找到季媒体项")
                 return
-            for season in seasons["Items"]:
+            for season in seasons.get("Items", []):
                 # 获取豆瓣演员信息
                 season_actors = self.__get_douban_actors(mediainfo=mediainfo, season=season.get("IndexNumber"))
                 # 如果是Jellyfin，更新季的人物，Emby/Plex季没有人物
@@ -514,7 +517,7 @@ class PersonMeta(_PluginBase):
                     logger.warn(f"{item.title} 未找到集媒体项")
                     continue
                 # 更新集媒体项人物
-                for episode in episodes["Items"]:
+                for episode in episodes.get("Items", []):
                     # 获取集媒体项详情
                     episodeinfo = self.get_iteminfo(server=server, server_type=server_type,
                                                     itemid=episode.get("Id"))
@@ -664,9 +667,13 @@ class PersonMeta(_PluginBase):
 
             # 锁定人物信息
             if updated_name:
+                if "LockedFields" not in personinfo:
+                    personinfo["LockedFields"] = []
                 if "Name" not in personinfo["LockedFields"]:
                     personinfo["LockedFields"].append("Name")
             if updated_overview:
+                if "LockedFields" not in personinfo:
+                    personinfo["LockedFields"] = []
                 if "Overview" not in personinfo["LockedFields"]:
                     personinfo["LockedFields"].append("Overview")
 
