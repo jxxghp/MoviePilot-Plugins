@@ -70,7 +70,7 @@ class ISiteUserInfo(metaclass=ABCMeta):
             "听听歌": ["TTG", "WiKi", "DoA", "NGB", "ARiN"],
             "馒头": ["MTeam", "MTeamTV"],
             "朋友": ["FRDS"],
-            "猪猪": ["PigoHD","PigoWeb","PigoNF"]
+            "猪猪": ["PigoHD","PigoWeb","PigoNF","PigoAD"]
         }
 
         # 错误信息
