@@ -40,11 +40,9 @@ class SyncCookieCloud(_PluginBase):
     _enabled: bool = False
     _onlyonce: bool = False
     _cron: str = ""
-    siteoper = None
     _scheduler: Optional[BackgroundScheduler] = None
 
     def init_plugin(self, config: dict = None):
-        self.siteoper = SiteOper()
 
         # 停止现有任务
         self.stop_service()
@@ -92,7 +90,7 @@ class SyncCookieCloud(_PluginBase):
         同步站点cookie到cookiecloud
         """
         # 获取所有站点
-        sites = self.siteoper.list_order_by_pri()
+        sites = SiteOper().list_order_by_pri()
         if not sites:
             return
 

@@ -1,24 +1,22 @@
-import glob
-import os
 import shutil
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any, List, Dict, Tuple, Optional
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from app.utils.string import StringUtils
-from app.schemas.types import EventType
-from app.schemas import ServiceInfo
-from app.core.event import eventmanager, Event
 
 from app.core.config import settings
-from app.plugins import _PluginBase
-from typing import Any, List, Dict, Tuple, Optional
-from app.log import logger
-from app.schemas import NotificationType
+from app.core.event import eventmanager, Event
 from app.helper.downloader import DownloaderHelper
+from app.log import logger
+from app.plugins import _PluginBase
+from app.schemas import NotificationType
+from app.schemas import ServiceInfo
+from app.schemas.types import EventType
+from app.utils.string import StringUtils
+
 
 class CleanInvalidSeed(_PluginBase):
     # 插件名称
@@ -56,6 +54,7 @@ class CleanInvalidSeed(_PluginBase):
     _exclude_categories = ""
     _exclude_labels = ""
     _more_logs = False
+    _downloaders = []
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
     _error_msg = [
@@ -67,7 +66,7 @@ class CleanInvalidSeed(_PluginBase):
     _custom_error_msg = ""
 
     def init_plugin(self, config: dict = None):
-        self.downloader_helper = DownloaderHelper()
+
         # 停止现有任务
         self.stop_service()
 
@@ -97,8 +96,7 @@ class CleanInvalidSeed(_PluginBase):
             self._scheduler.add_job(
                 func=self.clean_invalid_seed,
                 trigger="date",
-                run_date=datetime.now(tz=pytz.timezone(settings.TZ))
-                + timedelta(seconds=3),
+                run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                 name="清理无效种子",
             )
             # 关闭一次性开关
@@ -137,7 +135,7 @@ class CleanInvalidSeed(_PluginBase):
         )
 
     @property
-    def service_info(self) -> Optional[ServiceInfo]:
+    def service_info(self) -> Optional[Dict[str, ServiceInfo]]:
         """
         服务信息
         """
@@ -145,7 +143,7 @@ class CleanInvalidSeed(_PluginBase):
             logger.warning("尚未配置下载器，请检查配置")
             return None
 
-        services = self.downloader_helper.get_services(name_filters=self._downloaders)
+        services = DownloaderHelper().get_services(name_filters=self._downloaders)
 
         if not services:
             logger.warning("获取下载器实例失败，请检查配置")
@@ -166,11 +164,12 @@ class CleanInvalidSeed(_PluginBase):
 
         return active_services
 
-    def check_is_qb(self, service_info) -> bool:
+    @staticmethod
+    def check_is_qb(service_info) -> bool:
         """
         检查下载器类型是否为 qbittorrent 或 transmission
         """
-        if self.downloader_helper.is_downloader(service_type="qbittorrent", service=service_info):
+        if DownloaderHelper().is_downloader(service_type="qbittorrent", service=service_info):
             return True
 
         return False
@@ -225,11 +224,11 @@ class CleanInvalidSeed(_PluginBase):
             event_data = event.event_data
             if event_data:
                 if not (
-                    event_data.get("action") == "detect_invalid_torrents"
-                    or event_data.get("action") == "delete_invalid_torrents"
-                    or event_data.get("action") == "detect_invalid_files"
-                    or event_data.get("action") == "delete_invalid_files"
-                    or event_data.get("action") == "toggle_notify_all"
+                        event_data.get("action") == "detect_invalid_torrents"
+                        or event_data.get("action") == "delete_invalid_torrents"
+                        or event_data.get("action") == "detect_invalid_files"
+                        or event_data.get("action") == "delete_invalid_files"
+                        or event_data.get("action") == "toggle_notify_all"
                 ):
                     return
                 self.post_message(
@@ -344,7 +343,7 @@ class CleanInvalidSeed(_PluginBase):
             downloader_name = service.name
             downloader_obj = service.instance
             if not downloader_obj:
-                logger.error(f"{self.LOG_TAG} 获取下载器失败 {downloader_name}")
+                logger.error(f"获取下载器失败 {downloader_name}")
                 continue
             logger.info(f"开始清理 {downloader_name} 无效做种...")
             all_torrents = self.get_all_torrents(service)
@@ -376,13 +375,14 @@ class CleanInvalidSeed(_PluginBase):
                         is_tracker_working = True
 
                     if not (
-                        (tracker.get("status") == 4) and (tracker.get("msg") in error_msgs)
+                            (tracker.get("status") == 4) and (tracker.get("msg") in error_msgs)
                     ):
                         is_invalid = False
                         working_tracker_set.add(tracker_domian)
 
                     if self._more_logs:
-                        logger.info(f"处理 [{torrent.name}] tracker [{tracker_domian}]: 分类: [{torrent.category}], 标签: [{torrent.tags}], 状态: [{tracker.get('status')}], msg: [{tracker.get('msg')}], is_invalid: [{is_invalid}], is_working: [{is_tracker_working}]")
+                        logger.info(
+                            f"处理 [{torrent.name}] tracker [{tracker_domian}]: 分类: [{torrent.category}], 标签: [{torrent.tags}], 状态: [{tracker.get('status')}], msg: [{tracker.get('msg')}], is_invalid: [{is_invalid}], is_working: [{is_tracker_working}]")
                 if is_invalid:
                     temp_invalid_torrents.append(torrent)
                 elif not is_tracker_working:
@@ -433,24 +433,29 @@ class CleanInvalidSeed(_PluginBase):
                             if not is_excluded:
                                 if self._label_only:
                                     # 仅标记
-                                    downloader_obj.set_torrents_tag(ids=torrent.get("hash"), tags=[self._label if self._label != "" else "无效做种"])
+                                    downloader_obj.set_torrents_tag(ids=torrent.get("hash"), tags=[
+                                        self._label if self._label != "" else "无效做种"])
                                 else:
                                     # 只删除种子不删除文件，以防其它站点辅种
                                     downloader_obj.delete_torrents(False, torrent.get("hash"))
                                 # 标记已处理种子信息
                                 deleted_torrent_tuple_list.append(
-                                        (
-                                            torrent.name,
-                                            torrent.category,
-                                            torrent.tags,
-                                            torrent.size,
-                                            tracker_domian,
-                                            tracker.msg,
-                                        )
+                                    (
+                                        torrent.name,
+                                        torrent.category,
+                                        torrent.tags,
+                                        torrent.size,
+                                        tracker_domian,
+                                        tracker.msg,
                                     )
+                                )
                         break
             invalid_msg = f"检测到{len(invalid_torrent_tuple_list)}个失效做种\n"
             tracker_not_working_msg = f"检测到{len(tracker_not_working_torrents)}个tracker未工作做种，请检查种子状态\n"
+
+            exclude_categories_msg = ""
+            exclude_labels_msg = ""
+            deleted_msg = ""
 
             if self._label_only or self._delete_invalid_torrents:
                 if self._label_only:
@@ -513,34 +518,34 @@ class CleanInvalidSeed(_PluginBase):
                     logger.info(exclude_labels_msg)
             # 通知
             if self._notify:
-                invalid_msg = invalid_msg.replace("_", "\_")
+                invalid_msg = invalid_msg.replace("_", "\\_")
                 self.post_message(
                     mtype=NotificationType.SiteMessage,
                     title=f"【清理无效做种】",
                     text=invalid_msg,
                 )
                 if self._notify_all:
-                    tracker_not_working_msg = tracker_not_working_msg.replace("_", "\_")
+                    tracker_not_working_msg = tracker_not_working_msg.replace("_", "\\_")
                     self.post_message(
                         mtype=NotificationType.SiteMessage,
                         title=f"【清理无效做种】",
                         text=tracker_not_working_msg,
                     )
                 if self._label_only or self._delete_invalid_torrents:
-                    deleted_msg = deleted_msg.replace("_", "\_")
+                    deleted_msg = deleted_msg.replace("_", "\\_")
                     self.post_message(
                         mtype=NotificationType.SiteMessage,
                         title=f"【清理无效做种】",
                         text=deleted_msg,
                     )
                     if self._notify_all:
-                        exclude_categories_msg = exclude_categories_msg.replace("_", "\_")
+                        exclude_categories_msg = exclude_categories_msg.replace("_", "\\_")
                         self.post_message(
                             mtype=NotificationType.SiteMessage,
                             title=f"【清理无效做种】",
                             text=exclude_categories_msg,
                         )
-                        exclude_labels_msg = exclude_labels_msg.replace("_", "\_")
+                        exclude_labels_msg = exclude_labels_msg.replace("_", "\\_")
                         self.post_message(
                             mtype=NotificationType.SiteMessage,
                             title=f"【清理无效做种】",
@@ -559,7 +564,7 @@ class CleanInvalidSeed(_PluginBase):
             downloader_name = service.name
             downloader_obj = service.instance
             if not downloader_obj:
-                logger.error(f"{self.LOG_TAG} 获取下载器失败 {downloader_name}")
+                logger.error(f"获取下载器失败 {downloader_name}")
                 continue
             all_torrents += self.get_all_torrents(service)
 
@@ -638,7 +643,7 @@ class CleanInvalidSeed(_PluginBase):
             message += f"***已删除无效源文件，释放{StringUtils.str_filesize(total_size)}空间!***\n"
         logger.info(message)
         if self._notify:
-            message = message.replace("_", "\_")
+            message = message.replace("_", "\\_")
             self.post_message(
                 mtype=NotificationType.SiteMessage,
                 title=f"【清理无效做种】",
@@ -646,7 +651,8 @@ class CleanInvalidSeed(_PluginBase):
             )
         logger.info("检测无效源文件任务结束")
 
-    def get_size(self, path: Path):
+    @staticmethod
+    def get_size(path: Path):
         total_size = 0
         if path.is_file():
             return path.stat().st_size
@@ -801,7 +807,7 @@ class CleanInvalidSeed(_PluginBase):
                                             'model': 'downloaders',
                                             'label': '请选择下载器',
                                             'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.downloader_helper.get_configs().values()]
+                                                      for config in DownloaderHelper().get_configs().values()]
                                         }
                                     }
                                 ]
@@ -813,7 +819,7 @@ class CleanInvalidSeed(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": { "cols": 12, "md": 6 },
+                                "props": {"cols": 12, "md": 6},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -826,7 +832,7 @@ class CleanInvalidSeed(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": { "cols": 12, "md": 6 },
+                                "props": {"cols": 12, "md": 6},
                                 "content": [
                                     {
                                         "component": "VTextField",

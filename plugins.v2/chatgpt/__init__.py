@@ -13,11 +13,11 @@ class ChatGPT(_PluginBase):
     # 插件名称
     plugin_name = "ChatGPT"
     # 插件描述
-    plugin_desc = "消息交互支持与ChatGPT对话。"
+    plugin_desc = "大模型对话与媒体识别增强。"
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "2.1.6"
+    plugin_version = "2.1.7"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -337,7 +337,8 @@ class ChatGPT(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
-    def is_api_error(self, response):
+    @staticmethod
+    def is_api_error(response):
         """
         判断响应是否表示API错误
         :param response: API响应

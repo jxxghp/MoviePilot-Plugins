@@ -1,5 +1,6 @@
 import datetime
 import re
+from typing import Any, List, Dict, Tuple, Optional
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -7,12 +8,11 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.chain.system import SystemChain
 from app.core.config import settings
-from app.plugins import _PluginBase
-from typing import Any, List, Dict, Tuple, Optional
+from app.helper.system import SystemHelper
 from app.log import logger
+from app.plugins import _PluginBase
 from app.schemas import NotificationType
 from app.utils.http import RequestUtils
-from app.utils.system import SystemUtils
 
 
 class MoviePilotUpdateNotify(_PluginBase):
@@ -23,7 +23,7 @@ class MoviePilotUpdateNotify(_PluginBase):
     # 插件图标
     plugin_icon = "Moviepilot_A.png"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -70,7 +70,7 @@ class MoviePilotUpdateNotify(_PluginBase):
         # 自动重启
         if (server_update or front_update) and self._restart:
             logger.info("开始执行自动重启…")
-            SystemUtils.restart()
+            SystemHelper.restart()
 
     def __check_server_update(self):
         """
@@ -165,7 +165,7 @@ class MoviePilotUpdateNotify(_PluginBase):
             logger.error("无法获取版本信息，请检查网络连接或GitHub API请求。")
             return None
 
-    def __get_backend_latest(self) -> Tuple[str, str, str]:
+    def __get_backend_latest(self) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """
         获取最新版本
         """

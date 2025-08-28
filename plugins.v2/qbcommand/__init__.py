@@ -41,8 +41,6 @@ class QbCommand(_PluginBase):
     auth_level = 1
 
     # 私有属性
-    _sites = None
-    _siteoper = None
     _qb = None
     _enabled: bool = False
     _notify: bool = False
@@ -62,10 +60,10 @@ class QbCommand(_PluginBase):
     _multi_level_root_domain = ["edu.cn", "com.cn", "net.cn", "org.cn"]
     _scheduler = None
     _exclude_dirs = ""
+    _downloaders = []
+
     def init_plugin(self, config: dict = None):
-        self._sites = SitesHelper()
-        self._siteoper = SiteOper()
-        self.downloader_helper = DownloaderHelper()
+        
         # 停止现有任务
         self.stop_service()
         # 读取配置
@@ -87,7 +85,7 @@ class QbCommand(_PluginBase):
             self._op_site_ids = config.get("op_site_ids") or []
             self._downloaders = config.get("downloaders")
             # 查询所有站点
-            all_sites = [site for site in self._sites.get_indexers() if not site.get("public")] + self.__custom_sites()
+            all_sites = [site for site in SitesHelper().get_indexers() if not site.get("public")] + self.__custom_sites()
             # 过滤掉没有选中的站点
             self._op_sites = [site for site in all_sites if site.get("id") in self._op_site_ids]
             self._exclude_dirs = config.get("exclude_dirs") or ""
@@ -101,8 +99,7 @@ class QbCommand(_PluginBase):
                 self._scheduler.add_job(
                     self.pause_torrent,
                     "date",
-                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
-                    + timedelta(seconds=3),
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                 )
             elif self._only_resume_once:
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -110,8 +107,7 @@ class QbCommand(_PluginBase):
                 self._scheduler.add_job(
                     self.resume_torrent,
                     "date",
-                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
-                    + timedelta(seconds=3),
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                 )
 
             self._only_resume_once = False
@@ -136,9 +132,9 @@ class QbCommand(_PluginBase):
                 self._scheduler.start()
 
         if (
-            self._only_pause_upload
-            or self._only_pause_download
-            or self._only_pause_checking
+                self._only_pause_upload
+                or self._only_pause_download
+                or self._only_pause_checking
         ):
             if self._only_pause_upload:
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -146,8 +142,7 @@ class QbCommand(_PluginBase):
                 self._scheduler.add_job(
                     self.pause_torrent,
                     "date",
-                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
-                    + timedelta(seconds=3),
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                     kwargs={
                         'type': self.TorrentType.UPLOADING
                     }
@@ -158,8 +153,7 @@ class QbCommand(_PluginBase):
                 self._scheduler.add_job(
                     self.pause_torrent,
                     "date",
-                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
-                    + timedelta(seconds=3),
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                     kwargs={
                         'type': self.TorrentType.DOWNLOADING
                     }
@@ -170,8 +164,7 @@ class QbCommand(_PluginBase):
                 self._scheduler.add_job(
                     self.pause_torrent,
                     "date",
-                    run_date=datetime.now(tz=pytz.timezone(settings.TZ))
-                    + timedelta(seconds=3),
+                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                     kwargs={
                         'type': self.TorrentType.CHECKING
                     }
@@ -201,7 +194,7 @@ class QbCommand(_PluginBase):
         self.set_limit(self._upload_limit, self._download_limit)
 
     @property
-    def service_info(self) -> Optional[ServiceInfo]:
+    def service_info(self) -> Optional[Dict[str, ServiceInfo]]:
         """
         服务信息
         """
@@ -209,7 +202,7 @@ class QbCommand(_PluginBase):
             logger.warning("尚未配置下载器，请检查配置")
             return None
 
-        services = self.downloader_helper.get_services(name_filters=self._downloaders)
+        services = DownloaderHelper().get_services(name_filters=self._downloaders)
 
         if not services:
             logger.warning("获取下载器实例失败，请检查配置")
@@ -230,15 +223,17 @@ class QbCommand(_PluginBase):
 
         return active_services
 
-    def check_is_qb(self, service_info) -> bool:
+    @staticmethod
+    def check_is_qb(service_info) -> bool:
         """
         检查下载器类型是否为 qbittorrent 或 transmission
         """
-        if self.downloader_helper.is_downloader(service_type="qbittorrent", service=service_info):
+        if DownloaderHelper().is_downloader(service_type="qbittorrent", service=service_info):
             return True
-        elif self.downloader_helper.is_downloader(service_type="transmission", service=service_info):
+        elif DownloaderHelper().is_downloader(service_type="transmission", service=service_info):
             return False
         return False
+
     def get_state(self) -> bool:
         return self._enabled
 
@@ -409,9 +404,9 @@ class QbCommand(_PluginBase):
             if torrent.state_enum.is_uploading and not torrent.state_enum.is_paused:
                 uploading_torrents.append(torrent.get("hash"))
             elif (
-                torrent.state_enum.is_downloading
-                and not torrent.state_enum.is_paused
-                and not torrent.state_enum.is_checking
+                    torrent.state_enum.is_downloading
+                    and not torrent.state_enum.is_paused
+                    and not torrent.state_enum.is_checking
             ):
                 downloading_torrents.append(torrent.get("hash"))
             elif torrent.state_enum.is_checking:
@@ -476,7 +471,7 @@ class QbCommand(_PluginBase):
             downloader_name = service.name
             downloader_obj = service.instance
             if not downloader_obj:
-                logger.error(f"{self.LOG_TAG} 获取下载器失败 {downloader_name}")
+                logger.error(f"获取下载器失败 {downloader_name}")
                 continue
             all_torrents = self.get_all_torrents(service)
             hash_downloading, hash_uploading, hash_paused, hash_checking, hash_error = (
@@ -498,12 +493,12 @@ class QbCommand(_PluginBase):
                     mtype=NotificationType.SiteMessage,
                     title=f"【下载器{downloader_name}暂停任务启动】",
                     text=f"种子总数:  {len(all_torrents)} \n"
-                    f"做种数量:  {len(hash_uploading)}\n"
-                    f"下载数量:  {len(hash_downloading)}\n"
-                    f"检查数量:  {len(hash_checking)}\n"
-                    f"暂停数量:  {len(hash_paused)}\n"
-                    f"错误数量:  {len(hash_error)}\n"
-                    f"暂停操作中请稍等...\n",
+                         f"做种数量:  {len(hash_uploading)}\n"
+                         f"下载数量:  {len(hash_downloading)}\n"
+                         f"检查数量:  {len(hash_checking)}\n"
+                         f"暂停数量:  {len(hash_paused)}\n"
+                         f"错误数量:  {len(hash_error)}\n"
+                         f"暂停操作中请稍等...\n",
                 )
             pause_torrents = self.filter_pause_torrents(all_torrents)
             hash_downloading, hash_uploading, hash_paused, hash_checking, hash_error = (
@@ -551,11 +546,11 @@ class QbCommand(_PluginBase):
                     mtype=NotificationType.SiteMessage,
                     title=f"【下载器{downloader_name}暂停任务完成】",
                     text=f"种子总数:  {len(all_torrents)} \n"
-                    f"做种数量:  {len(hash_uploading)}\n"
-                    f"下载数量:  {len(hash_downloading)}\n"
-                    f"检查数量:  {len(hash_checking)}\n"
-                    f"暂停数量:  {len(hash_paused)}\n"
-                    f"错误数量:  {len(hash_error)}\n",
+                         f"做种数量:  {len(hash_uploading)}\n"
+                         f"下载数量:  {len(hash_downloading)}\n"
+                         f"检查数量:  {len(hash_checking)}\n"
+                         f"暂停数量:  {len(hash_paused)}\n"
+                         f"错误数量:  {len(hash_error)}\n",
                 )
 
     def __is_excluded(self, file_path) -> bool:
@@ -566,6 +561,7 @@ class QbCommand(_PluginBase):
             if exclude_dir and exclude_dir in str(file_path):
                 return True
         return False
+
     def filter_pause_torrents(self, all_torrents):
         torrents = []
         for torrent in all_torrents:
@@ -592,7 +588,7 @@ class QbCommand(_PluginBase):
             downloader_name = service.name
             downloader_obj = service.instance
             if not downloader_obj:
-                logger.error(f"{self.LOG_TAG} 获取下载器失败 {downloader_name}")
+                logger.error(f"获取下载器失败 {downloader_name}")
                 continue
             all_torrents = self.get_all_torrents(service)
             hash_downloading, hash_uploading, hash_paused, hash_checking, hash_error = (
@@ -613,12 +609,12 @@ class QbCommand(_PluginBase):
                     mtype=NotificationType.SiteMessage,
                     title=f"【下载器{downloader_name}开始任务启动】",
                     text=f"种子总数:  {len(all_torrents)} \n"
-                    f"做种数量:  {len(hash_uploading)}\n"
-                    f"下载数量:  {len(hash_downloading)}\n"
-                    f"检查数量:  {len(hash_checking)}\n"
-                    f"暂停数量:  {len(hash_paused)}\n"
-                    f"错误数量:  {len(hash_error)}\n"
-                    f"开始操作中请稍等...\n",
+                         f"做种数量:  {len(hash_uploading)}\n"
+                         f"下载数量:  {len(hash_downloading)}\n"
+                         f"检查数量:  {len(hash_checking)}\n"
+                         f"暂停数量:  {len(hash_paused)}\n"
+                         f"错误数量:  {len(hash_error)}\n"
+                         f"开始操作中请稍等...\n",
                 )
 
             resume_torrents = self.filter_resume_torrents(all_torrents)
@@ -655,11 +651,11 @@ class QbCommand(_PluginBase):
                     mtype=NotificationType.SiteMessage,
                     title=f"【下载器{downloader_name}开始任务完成】",
                     text=f"种子总数:  {len(all_torrents)} \n"
-                    f"做种数量:  {len(hash_uploading)}\n"
-                    f"下载数量:  {len(hash_downloading)}\n"
-                    f"检查数量:  {len(hash_checking)}\n"
-                    f"暂停数量:  {len(hash_paused)}\n"
-                    f"错误数量:  {len(hash_error)}\n",
+                         f"做种数量:  {len(hash_uploading)}\n"
+                         f"下载数量:  {len(hash_downloading)}\n"
+                         f"检查数量:  {len(hash_checking)}\n"
+                         f"暂停数量:  {len(hash_paused)}\n"
+                         f"错误数量:  {len(hash_error)}\n",
                 )
 
     def filter_resume_torrents(self, all_torrents):
@@ -714,7 +710,7 @@ class QbCommand(_PluginBase):
             downloader_name = service.name
             downloader_obj = service.instance
             if not downloader_obj:
-                logger.error(f"{self.LOG_TAG} 获取下载器失败 {downloader_name}")
+                logger.error(f"获取下载器失败 {downloader_name}")
                 continue
             all_torrents = self.get_all_torrents(service)
             hash_downloading, hash_uploading, hash_paused, hash_checking, hash_error = (
@@ -734,11 +730,11 @@ class QbCommand(_PluginBase):
                     mtype=NotificationType.SiteMessage,
                     title=f"【下载器{downloader_name}任务状态】",
                     text=f"种子总数:  {len(all_torrents)} \n"
-                    f"做种数量:  {len(hash_uploading)}\n"
-                    f"下载数量:  {len(hash_downloading)}\n"
-                    f"检查数量:  {len(hash_checking)}\n"
-                    f"暂停数量:  {len(hash_paused)}\n"
-                    f"错误数量:  {len(hash_error)}\n"
+                         f"做种数量:  {len(hash_uploading)}\n"
+                         f"下载数量:  {len(hash_downloading)}\n"
+                         f"检查数量:  {len(hash_checking)}\n"
+                         f"暂停数量:  {len(hash_paused)}\n"
+                         f"错误数量:  {len(hash_error)}\n"
                 )
 
     @eventmanager.register(EventType.PluginAction)
@@ -766,10 +762,10 @@ class QbCommand(_PluginBase):
             return True
 
         if (
-            not upload_limit
-            or not upload_limit.isdigit()
-            or not download_limit
-            or not download_limit.isdigit()
+                not upload_limit
+                or not upload_limit.isdigit()
+                or not download_limit
+                or not download_limit.isdigit()
         ):
             self.post_message(
                 mtype=NotificationType.SiteMessage,
@@ -783,7 +779,7 @@ class QbCommand(_PluginBase):
             downloader_name = service.name
             downloader_obj = service.instance
             if not downloader_obj:
-                logger.error(f"{self.LOG_TAG} 获取下载器失败 {downloader_name}")
+                logger.error(f"获取下载器失败 {downloader_name}")
                 continue
             flag = flag and downloader_obj.set_speed_limit(
                 download_limit=int(download_limit), upload_limit=int(upload_limit)
@@ -806,7 +802,7 @@ class QbCommand(_PluginBase):
             downloader_name = service.name
             downloader_obj = service.instance
             if not downloader_obj:
-                logger.error(f"{self.LOG_TAG} 获取下载器失败 {downloader_name}")
+                logger.error(f"获取下载器失败 {downloader_name}")
                 continue
             download_limit_current_val, _ = downloader_obj.get_speed_limit()
             flag = flag and downloader_obj.set_speed_limit(
@@ -831,7 +827,7 @@ class QbCommand(_PluginBase):
             downloader_name = service.name
             downloader_obj = service.instance
             if not downloader_obj:
-                logger.error(f"{self.LOG_TAG} 获取下载器失败 {downloader_name}")
+                logger.error(f"获取下载器失败 {downloader_name}")
                 continue
             _, upload_limit_current_val = downloader_obj.get_speed_limit()
             flag = flag and downloader_obj.set_speed_limit(
@@ -856,7 +852,7 @@ class QbCommand(_PluginBase):
         elif flag is None and self._enabled and self._enable_upload_limit:
             flag = self.set_upload_limit(upload_limit)
 
-        if flag == True:
+        if flag is True:
             logger.info(f"设置QB限速成功")
             if self._notify:
                 if upload_limit == 0:
@@ -872,7 +868,7 @@ class QbCommand(_PluginBase):
                     title=f"【QB远程操作】",
                     text=text,
                 )
-        elif flag == False:
+        elif flag is False:
             logger.error(f"QB设置限速失败")
             if self._notify:
                 self.post_message(
@@ -881,7 +877,8 @@ class QbCommand(_PluginBase):
                     text=f"设置QB限速失败",
                 )
 
-    def get_torrent_tracker(self, torrent):
+    @staticmethod
+    def get_torrent_tracker(torrent):
         """
         qb解析 tracker
         :return: tracker url
@@ -937,11 +934,11 @@ class QbCommand(_PluginBase):
         customSites = self.__custom_sites()
 
         site_options = [
-            {"title": site.name, "value": site.id}
-            for site in self._siteoper.list_order_by_pri()
-        ] + [
-            {"title": site.get("name"), "value": site.get("id")} for site in customSites
-        ]
+                           {"title": site.name, "value": site.id}
+                           for site in SiteOper().list_order_by_pri()
+                       ] + [
+                           {"title": site.get("name"), "value": site.get("id")} for site in customSites
+                       ]
         return [
             {
                 "component": "VForm",
@@ -1021,7 +1018,7 @@ class QbCommand(_PluginBase):
                                             'model': 'downloaders',
                                             'label': '下载器',
                                             'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.downloader_helper.get_configs().values()]
+                                                      for config in DownloaderHelper().get_configs().values()]
                                         }
                                     }
                                 ]

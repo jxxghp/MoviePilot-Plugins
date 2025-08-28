@@ -43,13 +43,15 @@ class HDSky(_ISiteSigninHandler):
         proxy = site_info.get("proxy")
         render = site_info.get("render")
         referer = site_info.get("url")
+        timeout = site_info.get("timeout")
 
         # 判断今日是否已签到
         html_text = self.get_page_source(url='https://hdsky.me',
                                          cookie=site_cookie,
                                          ua=ua,
                                          proxy=proxy,
-                                         render=render)
+                                         render=render,
+                                         timeout=timeout)
         if not html_text:
             logger.error(f"{site} 签到失败，请检查站点连通性")
             return False, '签到失败，请检查站点连通性'
@@ -73,7 +75,8 @@ class HDSky(_ISiteSigninHandler):
                                      content_type='application/x-www-form-urlencoded; charset=UTF-8',
                                      referer="https://hdsky.me/index.php",
                                      accept_type="*/*",
-                                     proxies=settings.PROXY if proxy else None
+                                     proxies=settings.PROXY if proxy else None,
+                                     timeout=timeout
                                      ).post_res(url='https://hdsky.me/image_code_ajax.php',
                                                 data={'action': 'new'})
             if image_res and image_res.status_code == 200:

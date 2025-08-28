@@ -42,7 +42,8 @@ class _ISiteSigninHandler(metaclass=ABCMeta):
         pass
 
     @staticmethod
-    def get_page_source(url: str, cookie: str, ua: str, proxy: bool, render: bool, token: str = None) -> str:
+    def get_page_source(url: str, cookie: str, ua: str, proxy: bool, render: bool,
+                        token: str = None, timeout: int = None) -> str:
         """
         获取页面源码
         :param url: Url地址
@@ -51,13 +52,15 @@ class _ISiteSigninHandler(metaclass=ABCMeta):
         :param proxy: 是否使用代理
         :param render: 是否渲染
         :param token: JWT Token
+        :param timeout: 请求超时时间，单位秒
         :return: 页面源码，错误信息
         """
         if render:
             return PlaywrightHelper().get_page_source(url=url,
                                                       cookies=cookie,
                                                       ua=ua,
-                                                      proxies=settings.PROXY_SERVER if proxy else None)
+                                                      proxies=settings.PROXY_SERVER if proxy else None,
+                                                      timeout=timeout or 60)
         else:
             if token:
                 headers = {
@@ -70,7 +73,8 @@ class _ISiteSigninHandler(metaclass=ABCMeta):
                     "Cookie": cookie
                 }
             res = RequestUtils(headers=headers,
-                               proxies=settings.PROXY if proxy else None).get_res(url=url)
+                               proxies=settings.PROXY if proxy else None,
+                               timeout=timeout or 20).get_res(url=url)
             if res is not None:
                 # 使用chardet检测字符编码
                 raw_data = res.content

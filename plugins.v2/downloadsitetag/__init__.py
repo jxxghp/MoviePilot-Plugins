@@ -45,9 +45,6 @@ class DownloadSiteTag(_PluginBase):
     # 退出事件
     _event = threading.Event()
     # 私有属性
-    downloadhistory_oper = None
-    sites_helper = None
-    downloader_helper = None
     _scheduler = None
     _enabled = False
     _onlyonce = False
@@ -64,9 +61,6 @@ class DownloadSiteTag(_PluginBase):
     _downloaders = None
 
     def init_plugin(self, config: dict = None):
-        self.downloadhistory_oper = DownloadHistoryOper()
-        self.downloader_helper = DownloaderHelper()
-        self.sites_helper = SitesHelper()
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
@@ -113,7 +107,7 @@ class DownloadSiteTag(_PluginBase):
             logger.warning("尚未配置下载器，请检查配置")
             return None
 
-        services = self.downloader_helper.get_services(name_filters=self._downloaders)
+        services = DownloaderHelper().get_services(name_filters=self._downloaders)
         if not services:
             logger.warning("获取下载器实例失败，请检查配置")
             return None
@@ -205,7 +199,7 @@ class DownloadSiteTag(_PluginBase):
         # 记录处理的种子, 供辅种(无下载历史)使用
         dispose_history = {}
         # 所有站点索引
-        indexers = [indexer.get("name") for indexer in self.sites_helper.get_indexers()]
+        indexers = [indexer.get("name") for indexer in SitesHelper().get_indexers()]
         # JackettIndexers索引器支持多个站点, 如果不存在历史记录, 则通过tracker会再次附加其他站点名称
         indexers.append("JackettIndexers")
         indexers = set(indexers)
@@ -230,6 +224,8 @@ class DownloadSiteTag(_PluginBase):
             # 按添加时间进行排序, 时间靠前的按大小和名称加入处理历史, 判定为原始种子, 其他为辅种
             torrents = self._torrents_sort(torrents=torrents, dl_type=service.type)
             logger.info(f"{self.LOG_TAG}下载器 {downloader} 分析种子信息中 ...")
+            downloadhis = DownloadHistoryOper()
+            siteshelper = SitesHelper()
             for torrent in torrents:
                 try:
                     if self._event.is_set():
@@ -246,7 +242,7 @@ class DownloadSiteTag(_PluginBase):
                     torrent_tags = self._get_label(torrent=torrent, dl_type=service.type)
                     torrent_cat = self._get_category(torrent=torrent, dl_type=service.type)
                     # 提取种子hash对应的下载历史
-                    history: DownloadHistory = self.downloadhistory_oper.get_by_hash(_hash)
+                    history: DownloadHistory = downloadhis.get_by_hash(_hash)
                     if not history:
                         # 如果找到已处理种子的历史, 表明当前种子是辅种, 否则创建一个空DownloadHistory
                         if _key and _key in dispose_history:
@@ -273,7 +269,7 @@ class DownloadSiteTag(_PluginBase):
                                     break
                             else:
                                 domain = StringUtils.get_url_domain(tracker)
-                            site_info = self.sites_helper.get_indexer(domain)
+                            site_info = siteshelper.get_indexer(domain)
                             if site_info:
                                 history.torrent_site = site_info.get("name")
                                 break
@@ -652,7 +648,7 @@ class DownloadSiteTag(_PluginBase):
                                             'model': 'downloaders',
                                             'label': '下载器',
                                             'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.downloader_helper.get_configs().values()]
+                                                      for config in DownloaderHelper().get_configs().values()]
                                         }
                                     }
                                 ]

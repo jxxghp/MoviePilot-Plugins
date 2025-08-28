@@ -1,7 +1,5 @@
 from typing import Tuple
 
-from ruamel.yaml import CommentedMap
-
 from app.log import logger
 from app.plugins.autosignin.sites import _ISiteSigninHandler
 from app.utils.string import StringUtils
@@ -28,7 +26,7 @@ class HDCity(_ISiteSigninHandler):
         """
         return True if StringUtils.url_equal(url, cls.site_url) else False
 
-    def signin(self, site_info: CommentedMap) -> Tuple[bool, str]:
+    def signin(self, site_info: dict) -> Tuple[bool, str]:
         """
         执行签到操作
         :param site_info: 站点信息，含有站点Url、站点Cookie、UA等信息

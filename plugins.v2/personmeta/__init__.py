@@ -38,7 +38,7 @@ class PersonMeta(_PluginBase):
     # 插件图标
     plugin_icon = "actor.png"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -55,9 +55,6 @@ class PersonMeta(_PluginBase):
 
     # 私有属性
     _scheduler = None
-    tmdbchain = None
-    mschain = None
-    mediaserver_helper = None
     _enabled = False
     _onlyonce = False
     _cron = None
@@ -67,9 +64,7 @@ class PersonMeta(_PluginBase):
     _mediaservers = []
 
     def init_plugin(self, config: dict = None):
-        self.tmdbchain = TmdbChain()
-        self.mschain = MediaServerChain()
-        self.mediaserver_helper = MediaServerHelper()
+
         if config:
             self._enabled = config.get("enabled")
             self._onlyonce = config.get("onlyonce")
@@ -266,7 +261,7 @@ class PersonMeta(_PluginBase):
                                             'model': 'mediaservers',
                                             'label': '媒体服务器',
                                             'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.mediaserver_helper.get_configs().values()]
+                                                      for config in MediaServerHelper().get_configs().values()]
                                         }
                                     }
                                 ]
@@ -316,7 +311,7 @@ class PersonMeta(_PluginBase):
             logger.warning("尚未配置媒体服务器，请检查配置")
             return None
 
-        services = self.mediaserver_helper.get_services(type_filter=type_filter, name_filters=self._mediaservers)
+        services = MediaServerHelper().get_services(type_filter=type_filter, name_filters=self._mediaservers)
         if not services:
             logger.warning("获取媒体服务器实例失败，请检查配置")
             return None
@@ -342,6 +337,9 @@ class PersonMeta(_PluginBase):
         if not self._enabled:
             return
         # 事件数据
+        if not event or not event.event_data:
+            logger.warn("TransferComplete事件数据为空")
+            return
         mediainfo: MediaInfo = event.event_data.get("mediainfo")
         meta: MetaBase = event.event_data.get("meta")
         if not mediainfo or not meta:
@@ -355,7 +353,7 @@ class PersonMeta(_PluginBase):
             logger.warn(f"{mediainfo.title_year} 在媒体库中不存在")
             return
         # 查询条目详情
-        iteminfo = self.mschain.iteminfo(server=existsinfo.server, item_id=existsinfo.itemid)
+        iteminfo = MediaServerChain().iteminfo(server=existsinfo.server, item_id=existsinfo.itemid)
         if not iteminfo:
             logger.warn(f"{mediainfo.title_year} 条目详情获取失败")
             return
@@ -371,12 +369,13 @@ class PersonMeta(_PluginBase):
         service_infos = self.service_infos()
         if not service_infos:
             return
+        mediaserverchain = MediaServerChain()
         for server, service in service_infos.items():
             # 扫描所有媒体库
             logger.info(f"开始刮削服务器 {server} 的演员信息 ...")
-            for library in self.mschain.librarys(server):
+            for library in mediaserverchain.librarys(server):
                 logger.info(f"开始刮削媒体库 {library.name} 的演员信息 ...")
-                for item in self.mschain.items(server, library.id):
+                for item in mediaserverchain.items(server, library.id):
                     if not item:
                         continue
                     if not item.item_id:
@@ -410,7 +409,7 @@ class PersonMeta(_PluginBase):
         """
         peoples = []
         # 更新当前媒体项人物
-        for people in iteminfo["People"] or []:
+        for people in iteminfo.get("People", []) or []:
             if self._event.is_set():
                 logger.info(f"演职人员刮削服务停止")
                 return
@@ -492,7 +491,7 @@ class PersonMeta(_PluginBase):
             if not seasons:
                 logger.warn(f"{item.title} 未找到季媒体项")
                 return
-            for season in seasons["Items"]:
+            for season in seasons.get("Items", []):
                 # 获取豆瓣演员信息
                 season_actors = self.__get_douban_actors(mediainfo=mediainfo, season=season.get("IndexNumber"))
                 # 如果是Jellyfin，更新季的人物，Emby/Plex季没有人物
@@ -518,7 +517,7 @@ class PersonMeta(_PluginBase):
                     logger.warn(f"{item.title} 未找到集媒体项")
                     continue
                 # 更新集媒体项人物
-                for episode in episodes["Items"]:
+                for episode in episodes.get("Items", []):
                     # 获取集媒体项详情
                     episodeinfo = self.get_iteminfo(server=server, server_type=server_type,
                                                     itemid=episode.get("Id"))
@@ -577,7 +576,7 @@ class PersonMeta(_PluginBase):
             # 从TMDB信息中更新人物信息
             person_tmdbid, person_imdbid = __get_peopleid(personinfo)
             if person_tmdbid:
-                person_detail = self.tmdbchain.person_detail(int(person_tmdbid))
+                person_detail = TmdbChain().person_detail(int(person_tmdbid))
                 if person_detail:
                     cn_name = self.__get_chinese_name(person_detail)
                     # 图片优先从TMDB获取
@@ -668,9 +667,13 @@ class PersonMeta(_PluginBase):
 
             # 锁定人物信息
             if updated_name:
+                if "LockedFields" not in personinfo:
+                    personinfo["LockedFields"] = []
                 if "Name" not in personinfo["LockedFields"]:
                     personinfo["LockedFields"].append("Name")
             if updated_overview:
+                if "LockedFields" not in personinfo:
+                    personinfo["LockedFields"] = []
                 if "Overview" not in personinfo["LockedFields"]:
                     personinfo["LockedFields"].append("Overview")
 
@@ -1002,7 +1005,8 @@ class PersonMeta(_PluginBase):
                         'Referer': "https://movie.douban.com/"
                     }, ua=settings.USER_AGENT).get_res(url=imageurl, raise_exception=True)
                 else:
-                    r = RequestUtils().get_res(url=imageurl, raise_exception=True)
+                    r = RequestUtils(proxies=settings.PROXY,
+                                     ua=settings.USER_AGENT).get_res(url=imageurl, raise_exception=True)
                 if r:
                     return base64.b64encode(r.content).decode()
                 else:

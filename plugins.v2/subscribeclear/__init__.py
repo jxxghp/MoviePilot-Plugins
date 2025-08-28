@@ -33,10 +33,9 @@ class SubscribeClear(_PluginBase):
     # 私有属性
     _titles = []
     _episodes = []
-    downloader_helper = None
 
     def init_plugin(self, config: dict = None):
-        self.downloader_helper = DownloaderHelper()
+
         if config:
             self._titles = config.get("titles") or []
             self._episodes = config.get("episodes") or []
@@ -48,11 +47,10 @@ class SubscribeClear(_PluginBase):
 
     def clear_history(self, titles: List[str], episodes: List[str]):
         logger.info(f"清除下载历史记录：{titles} {episodes}")
-        data = self.get_data()
-        down_oper = DownloadHistoryOper()
-        downloader_history ={}
+        data = self.get_download_data()
+        downloader_history = {}
         for d in data:
-            if d.title in titles or d.id in episodes: 
+            if d.title in titles or d.id in episodes:
                 tmp = downloader_history.get(d.downloader)
                 if not tmp:
                     tmp = []
@@ -70,7 +68,7 @@ class SubscribeClear(_PluginBase):
             history_torrents = {}
             for t in torrents:
                 logger.info(f"种子信息: {t}")
-                history_torrents[t.hash]=t
+                history_torrents[t.hash] = t
             for h in history:
                 # 判断当前历史记录的hash是否在未找到的hash列表中
                 if h.download_hash not in history_torrents.keys():
@@ -79,43 +77,39 @@ class SubscribeClear(_PluginBase):
                 else:
                     # 从下载器删除种子
                     self.delete_download_history(h, history_torrents[h.download_hash])
-                    
-                
-                
 
-    def delete_data(self, history: DownloadHistory):
+    @staticmethod
+    def delete_data(history: DownloadHistory):
         """
         从订阅记录中删除该信息
         """
         try:
             down_oper = DownloadHistoryOper()
             down_oper.delete_history(history.id)
-            logger.info(f"删除下载历史记录：{history.id} {history.title} {history.seasons} {history.episodes} {history.download_hash}")
+            logger.info(
+                f"删除下载历史记录：{history.id} {history.title} {history.seasons} {history.episodes} {history.download_hash}")
             return True
         except Exception as e:
             logger.error(f"删除下载历史记录失败：{str(e)}")
             return False
 
-
-    
-    def delete_download_history(self,history: DownloadHistory, torrent: Any):
+    def delete_download_history(self, history: DownloadHistory, torrent: Any):
         downloader_name = history.downloader
         downloader_obj = self.__get_downloader(downloader_name)
-        logger.info(f"删除种子信息：{history.id} {history.title} {history.seasons} {history.episodes} {history.download_hash}")
+        logger.info(
+            f"删除种子信息：{history.id} {history.title} {history.seasons} {history.episodes} {history.download_hash}")
         hashs = [history.download_hash]
         # 处理辅种
         torrents, error = downloader_obj.get_torrents()
-        if error :
+        if error:
             logger.error(f"获取辅种信息失败： {error}")
         else:
             for t in torrents:
                 if t.name == torrent.name and t.size == torrent.size:
                     hashs.append(t.hash)
-        downloader_obj.delete_torrents(delete_file=True,ids=hashs)
+        downloader_obj.delete_torrents(delete_file=True, ids=hashs)
         self.delete_data(history)
 
-
-            
     def get_state(self) -> bool:
         return True
 
@@ -141,17 +135,17 @@ class SubscribeClear(_PluginBase):
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         # 获取下载历史数据
-        histories = self.get_data()
-        
+        histories = self.get_download_data()
+
         # 构造标题和剧集列表
         titles = []
         episode_options = []
-        
+
         for history in histories:
             # 标题列表
             if history.title not in titles:
                 titles.append(history.title)
-            
+
             # 剧集列表
             episode_str = history.title
             if history.seasons:
@@ -160,7 +154,6 @@ class SubscribeClear(_PluginBase):
                 episode_str += f" {history.episodes}"
             episode_options.append({"title": episode_str, "value": history.id})
 
-                
         # 将列表转换为选择框选项格式
         title_options = [{"title": t, "value": t} for t in titles]
 
@@ -189,9 +182,9 @@ class SubscribeClear(_PluginBase):
                 }
             ]
         }
-        
+
         episode_select = {
-            'component': 'VRow', 
+            'component': 'VRow',
             'content': [
                 {
                     'component': 'VCol',
@@ -220,15 +213,16 @@ class SubscribeClear(_PluginBase):
                 'content': [
                     title_select,
                     episode_select
-                 ]
+                ]
             }
         ], {
             "titles": [],
             "episodes": []
         }
 
-    def get_data(self) -> List[DownloadHistory]:
-        down_oper = DownloadHistoryOper() 
+    @staticmethod
+    def get_download_data() -> List[DownloadHistory]:
+        down_oper = DownloadHistoryOper()
         downs = []
         page = 1
         while True:
@@ -241,7 +235,7 @@ class SubscribeClear(_PluginBase):
 
     def get_page(self) -> List[dict]:
         items = []
-        for down in self.get_data():
+        for down in self.get_download_data():
             items.append({
                 'component': 'tr',
                 'content': [
@@ -255,7 +249,7 @@ class SubscribeClear(_PluginBase):
                     },
                     {
                         'component': 'td',
-                        'text':down.seasons + " " + down.episodes
+                        'text': down.seasons + " " + down.episodes
                     },
                     {
                         'component': 'td',
@@ -300,7 +294,7 @@ class SubscribeClear(_PluginBase):
                                                         },
                                                         'text': '名称'
                                                     },
-                                                      {
+                                                    {
                                                         'component': 'th',
                                                         'props': {
                                                             'class': 'text-start ps-4'
@@ -330,14 +324,6 @@ class SubscribeClear(_PluginBase):
             }
         ]
 
-  
-    @staticmethod
-    def get_api(self) -> List[Dict[str, Any]]:
-        """
-        注册API
-        """
-        pass
-    
     def stop_service(self):
         """
         退出插件
@@ -349,7 +335,7 @@ class SubscribeClear(_PluginBase):
         """
         服务信息
         """
-        services = self.downloader_helper.get_services(type_filter="qbittorrent")
+        services = DownloaderHelper().get_services(type_filter="qbittorrent")
         if not services:
             logger.warning("获取下载器实例失败，请检查配置")
             return None

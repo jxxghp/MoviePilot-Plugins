@@ -1,16 +1,16 @@
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, List, Dict, Tuple
+from urllib.parse import urlparse, parse_qs
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from app.chain.tmdb import TmdbChain
 from app.core.config import settings
+from app.helper.wallpaper import WallpaperHelper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.utils.http import RequestUtils
-from app.utils.web import WebUtils
 
 
 class TmdbWallpaper(_PluginBase):
@@ -21,7 +21,7 @@ class TmdbWallpaper(_PluginBase):
     # 插件图标
     plugin_icon = "Macos_Sierra.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.4.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -237,13 +237,20 @@ class TmdbWallpaper(_PluginBase):
 
         if not self._savepath:
             return
-        if settings.WALLPAPER == "tmdb":
-            urls = TmdbChain().get_trending_wallpapers() or []
-            for url in urls:
+        urls = WallpaperHelper().get_wallpapers(10) or []
+        for url in urls:
+            if settings.WALLPAPER == "tmdb":
                 filename = url.split("/")[-1]
-                __save_file(url, filename)
-        else:
-            url = WebUtils.get_bing_wallpaper()
-            if url:
-                filename = f"{datetime.now().strftime('%Y%m%d')}.jpg"
-                __save_file(url, filename)
+            elif settings.WALLPAPER == "bing":
+                # 解析url参数，获取id的值
+                parsed_url = urlparse(url)
+                query_params = parse_qs(parsed_url.query)
+                param_value = query_params.get("id")
+                filename = param_value[0] if param_value else None
+            else:
+                # 其他壁纸类型，直接使用url的文件名hash
+                filename = url.split("/")[-1]
+                # 没有后缀的文件名，添加.jpg后缀
+                if not filename.endswith(".jpg"):
+                    filename += ".jpg"
+            __save_file(url, filename)

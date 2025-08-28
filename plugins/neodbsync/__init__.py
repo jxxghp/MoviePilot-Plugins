@@ -9,7 +9,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.chain.download import DownloadChain
-from app.chain.search import SearchChain
 from app.chain.subscribe import SubscribeChain
 from app.core.config import settings
 from app.core.event import Event
@@ -49,9 +48,6 @@ class NeoDBSync(_PluginBase):
 
     _scheduler: Optional[BackgroundScheduler] = None
     _cache_path: Optional[Path] = None
-    downloadchain = None
-    searchchain = None
-    subscribechain = None
 
     # 配置属性
     _enabled: bool = False
@@ -64,9 +60,6 @@ class NeoDBSync(_PluginBase):
     _tokens: str = ""
 
     def init_plugin(self, config: dict = None):
-        self.downloadchain = DownloadChain()
-        self.searchchain = SearchChain()
-        self.subscribechain = SubscribeChain()
 
         # 停止现有任务
         self.stop_service()
@@ -510,6 +503,8 @@ class NeoDBSync(_PluginBase):
                 logger.info(f"用户 {username} 没有想看数据")
                 continue
             # 遍历该用户的所有想看条目
+            downloadchain = DownloadChain()
+            subscribechain = SubscribeChain()
             for result in results:
                 try:
                     # Take the url as the unique identifier. For example: /movie/2fEdnxYWozPayayizQmk5M
@@ -539,19 +534,19 @@ class NeoDBSync(_PluginBase):
                         logger.warn(f'未识别到媒体信息，标题：{title}')
                         continue
                     # 查询缺失的媒体信息
-                    exist_flag, no_exists = self.downloadchain.get_no_exists_info(meta=meta, mediainfo=mediainfo)
+                    exist_flag, no_exists = downloadchain.get_no_exists_info(meta=meta, mediainfo=mediainfo)
                     if exist_flag:
                         logger.info(f'{mediainfo.title_year} 媒体库中已存在')
                     else:
                         # 添加订阅
                         logger.info(f'{mediainfo.title_year} 媒体库中不存在或不完整，添加订阅 ...')
-                        self.subscribechain.add(title=mediainfo.title,
-                                                year=mediainfo.year,
-                                                mtype=mediainfo.type,
-                                                tmdbid=mediainfo.tmdb_id,
-                                                season=meta.begin_season,
-                                                exist_ok=True,
-                                                username="NeoDB 想看")
+                        subscribechain.add(title=mediainfo.title,
+                                           year=mediainfo.year,
+                                           mtype=mediainfo.type,
+                                           tmdbid=mediainfo.tmdb_id,
+                                           season=meta.begin_season,
+                                           exist_ok=True,
+                                           username="NeoDB 想看")
                         action = "subscribe"
                         # 存储历史记录
                         history.append({

@@ -1,3 +1,4 @@
+import threading
 import time
 from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional
@@ -19,7 +20,7 @@ class MediaServerRefresh(_PluginBase):
     # 插件图标
     plugin_icon = "refresh2.png"
     # 插件版本
-    plugin_version = "1.3.2"
+    plugin_version = "1.3.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -32,13 +33,18 @@ class MediaServerRefresh(_PluginBase):
     auth_level = 1
 
     # 私有属性
-    mediaserver_helper = None
     _enabled = False
     _delay = 0
     _mediaservers = None
 
+    # 延迟相关的属性
+    _in_delay = False
+    _pending_items = []
+    _end_time = 0.0
+    _lock = threading.Lock()
+
     def init_plugin(self, config: dict = None):
-        self.mediaserver_helper = MediaServerHelper()
+
         if config:
             self._enabled = config.get("enabled")
             self._delay = config.get("delay") or 0
@@ -53,7 +59,7 @@ class MediaServerRefresh(_PluginBase):
             logger.warning("尚未配置媒体服务器，请检查配置")
             return None
 
-        services = self.mediaserver_helper.get_services(name_filters=self._mediaservers)
+        services = MediaServerHelper().get_services(name_filters=self._mediaservers)
         if not services:
             logger.warning("获取媒体服务器实例失败，请检查配置")
             return None
@@ -128,7 +134,7 @@ class MediaServerRefresh(_PluginBase):
                                             'model': 'mediaservers',
                                             'label': '媒体服务器',
                                             'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.mediaserver_helper.get_configs().values()]
+                                                      for config in MediaServerHelper().get_configs().values()]
                                         }
                                     }
                                 ]
@@ -182,25 +188,54 @@ class MediaServerRefresh(_PluginBase):
         if not self.service_infos:
             return
 
-        if self._delay:
-            logger.info(f"延迟 {self._delay} 秒后刷新媒体库... ")
-            time.sleep(float(self._delay))
-
         # 入库数据
         transferinfo: TransferInfo = event_info.get("transferinfo")
         if not transferinfo or not transferinfo.target_diritem or not transferinfo.target_diritem.path:
             return
 
+        def debounce_delay(duration: int):
+            """
+            延迟防抖优化
+
+            :return: 延迟是否已结束
+            """
+            with self._lock:
+                self._end_time = time.time() + float(duration)
+                if self._in_delay:
+                    return False
+                self._in_delay = True
+
+            def end_time():
+                with self._lock:
+                    return self._end_time
+
+            while time.time() < end_time():
+                time.sleep(1)
+            with self._lock:
+                self._in_delay = False
+            return True
+
         mediainfo: MediaInfo = event_info.get("mediainfo")
-        items = [
-            RefreshMediaItem(
-                title=mediainfo.title,
-                year=mediainfo.year,
-                type=mediainfo.type,
-                category=mediainfo.category,
-                target_path=Path(transferinfo.target_diritem.path)
-            )
-        ]
+        item = RefreshMediaItem(
+            title=mediainfo.title,
+            year=mediainfo.year,
+            type=mediainfo.type,
+            category=mediainfo.category,
+            target_path=Path(transferinfo.target_diritem.path),
+        )
+
+        if self._delay:
+            logger.info(f"延迟 {self._delay} 秒后刷新媒体库... ")
+            with self._lock:
+                self._pending_items.append(item)
+            if not debounce_delay(self._delay):
+                # 还在延迟中 忽略本次请求
+                return
+            with self._lock:
+                items = self._pending_items
+                self._pending_items = []
+        else:
+            items = [item]
 
         for name, service in self.service_infos.items():
             if hasattr(service.instance, 'refresh_library_by_items'):
@@ -215,4 +250,7 @@ class MediaServerRefresh(_PluginBase):
         """
         退出插件
         """
-        pass
+        with self._lock:
+            # 放弃等待，立即刷新
+            self._end_time = 0.0
+            # self._pending_items.clear()

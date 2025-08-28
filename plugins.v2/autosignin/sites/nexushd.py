@@ -40,6 +40,7 @@ class NexusHD(_ISiteSigninHandler):
         site_cookie = site_info.get("cookie")
         ua = site_info.get("ua")
         proxies = settings.PROXY if site_info.get("proxy") else None
+        timeout = site_info.get("timeout")
 
         # 获取页面html
         data = {
@@ -48,7 +49,8 @@ class NexusHD(_ISiteSigninHandler):
         }
         html_res = RequestUtils(cookies=site_cookie,
                                 ua=ua,
-                                proxies=proxies
+                                proxies=proxies,
+                                timeout=timeout
                                 ).post_res(url="https://v6.nexushd.org/signin.php", data=data)
         if not html_res or html_res.status_code != 200:
             logger.error(f"{site} 签到失败，请检查站点连通性")

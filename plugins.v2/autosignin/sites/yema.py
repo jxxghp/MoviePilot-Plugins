@@ -37,7 +37,7 @@ class YemaPT(_ISiteSigninHandler):
         }
         # 获取用户信息，更新最后访问时间
         res = (RequestUtils(headers=headers,
-                            timeout=15,
+                            timeout=site_info.get("timeout"),
                             cookies=site_info.get("cookie"),
                             proxies=settings.PROXY if site_info.get("proxy") else None,
                             referer=site_info.get('url')
@@ -64,7 +64,7 @@ class YemaPT(_ISiteSigninHandler):
         }
         # 获取用户信息，更新最后访问时间
         res = (RequestUtils(headers=headers,
-                            timeout=15,
+                            timeout=site_info.get("timeout"),
                             cookies=site_info.get("cookie"),
                             proxies=settings.PROXY if site_info.get("proxy") else None,
                             referer=site_info.get('url')

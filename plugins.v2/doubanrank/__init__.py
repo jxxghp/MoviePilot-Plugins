@@ -30,7 +30,7 @@ class DoubanRank(_PluginBase):
     # 插件图标
     plugin_icon = "movie.jpg"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.0.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -45,9 +45,6 @@ class DoubanRank(_PluginBase):
     # 退出事件
     _event = Event()
     # 私有属性
-    downloadchain: DownloadChain = None
-    subscribechain: SubscribeChain = None
-    mediachain: MediaChain = None
     _scheduler = None
     _douban_address = {
         'movie-ustop': 'https://rsshub.app/douban/movie/ustop',
@@ -70,9 +67,6 @@ class DoubanRank(_PluginBase):
     _proxy = False
 
     def init_plugin(self, config: dict = None):
-        self.downloadchain = DownloadChain()
-        self.subscribechain = SubscribeChain()
-        self.mediachain = MediaChain()
 
         if config:
             self._enabled = config.get("enabled")
@@ -570,14 +564,18 @@ class DoubanRank(_PluginBase):
                     meta.year = year
                     if mtype:
                         meta.type = mtype
+                    if meta.type not in (MediaType.MOVIE, MediaType.TV):
+                        meta.type = None
                     # 识别媒体信息
                     if douban_id:
                         # 识别豆瓣信息
                         if settings.RECOGNIZE_SOURCE == "themoviedb":
-                            tmdbinfo = self.mediachain.get_tmdbinfo_by_doubanid(doubanid=douban_id, mtype=meta.type)
+                            tmdbinfo = MediaChain().get_tmdbinfo_by_doubanid(doubanid=douban_id, mtype=meta.type)
                             if not tmdbinfo:
-                                logger.warn(f'未能通过豆瓣ID {douban_id} 获取到TMDB信息，标题：{title}，豆瓣ID：{douban_id}')
+                                logger.warn(
+                                    f'未能通过豆瓣ID {douban_id} 获取到TMDB信息，标题：{title}，豆瓣ID：{douban_id}')
                                 continue
+                            meta.type = tmdbinfo.get('media_type')
                             mediainfo = self.chain.recognize_media(meta=meta, tmdbid=tmdbinfo.get("id"))
                             if not mediainfo:
                                 logger.warn(f'TMDBID {tmdbinfo.get("id")} 未识别到媒体信息')
@@ -598,22 +596,23 @@ class DoubanRank(_PluginBase):
                         logger.info(f'{mediainfo.title_year} 评分不符合要求')
                         continue
                     # 查询缺失的媒体信息
-                    exist_flag, _ = self.downloadchain.get_no_exists_info(meta=meta, mediainfo=mediainfo)
+                    exist_flag, _ = DownloadChain().get_no_exists_info(meta=meta, mediainfo=mediainfo)
                     if exist_flag:
                         logger.info(f'{mediainfo.title_year} 媒体库中已存在')
                         continue
                     # 判断用户是否已经添加订阅
-                    if self.subscribechain.exists(mediainfo=mediainfo, meta=meta):
+                    subscribechain = SubscribeChain()
+                    if subscribechain.exists(mediainfo=mediainfo, meta=meta):
                         logger.info(f'{mediainfo.title_year} 订阅已存在')
                         continue
                     # 添加订阅
-                    self.subscribechain.add(title=mediainfo.title,
-                                            year=mediainfo.year,
-                                            mtype=mediainfo.type,
-                                            tmdbid=mediainfo.tmdb_id,
-                                            season=meta.begin_season,
-                                            exist_ok=True,
-                                            username="豆瓣榜单")
+                    subscribechain.add(title=mediainfo.title,
+                                       year=mediainfo.year,
+                                       mtype=mediainfo.type,
+                                       tmdbid=mediainfo.tmdb_id,
+                                       season=meta.begin_season,
+                                       exist_ok=True,
+                                       username="豆瓣榜单")
                     # 存储历史记录
                     history.append({
                         "title": title,
@@ -669,7 +668,7 @@ class DoubanRank(_PluginBase):
                     rss_info['title'] = title
                     rss_info['link'] = link
 
-                    doubanid = re.findall(r"/(\d+)/", link)
+                    doubanid = re.findall(r"/(\d+)(?=/|$)", link)
                     if doubanid:
                         doubanid = doubanid[0]
                     if doubanid and not str(doubanid).isdigit():

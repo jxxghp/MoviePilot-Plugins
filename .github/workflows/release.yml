@@ -1,0 +1,113 @@
+name: Plugin Release
+"on":
+  push:
+    paths:
+      - 'package.json'
+      - 'package.v2.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq zip
+
+      - name: Build and release changed plugins
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Track processed tags to avoid duplicates across package files
+          : > processed_tags.txt
+
+          process_package() {
+            local pkg_file="$1"
+            [ -f "$pkg_file" ] || return 0
+
+            echo "Processing $pkg_file"
+
+            # Extract entries with release == true: output format KEY|VERSION
+            mapfile -t entries < <(jq -r 'to_entries | map(select(.value.release == true)) | .[] | "\(.key)|\(.value.version)"' "$pkg_file")
+
+            if [ "${#entries[@]}" -eq 0 ]; then
+              echo "No plugins with release=true in $pkg_file"
+              return 0
+            fi
+
+            for entry in "${entries[@]}"; do
+              plugin_id="${entry%%|*}"
+              plugin_version="${entry##*|}"
+              plugin_id_lc="$(echo "$plugin_id" | tr '[:upper:]' '[:lower:]')"
+
+              dir1="plugins/${plugin_id_lc}"
+              dir2="plugins.v2/${plugin_id_lc}"
+              plugin_dir=""
+              if [ -d "$dir1" ]; then plugin_dir="$dir1"; fi
+              if [ -d "$dir2" ]; then plugin_dir="$dir2"; fi
+
+              if [ -z "$plugin_dir" ]; then
+                echo "WARN: directory for $plugin_id not found under plugins/ or plugins.v2/, skip."
+                continue
+              fi
+
+              tag="${plugin_id}_v${plugin_version}"
+              asset="${plugin_id_lc}_v${plugin_version}.zip"
+
+              if grep -qxF "$tag" processed_tags.txt; then
+                echo "Tag $tag already processed, skip."
+                continue
+              fi
+
+              # Find previous tag for this plugin (any version)
+              prev_tag="$(git tag --list "${plugin_id}_v*" --sort=-version:refname | head -n 1 || true)"
+
+              changed=1
+              if [ -n "$prev_tag" ]; then
+                if git diff --quiet "$prev_tag" -- "$plugin_dir"; then
+                  changed=0
+                fi
+              fi
+
+              if [ "$changed" -eq 0 ]; then
+                echo "No changes in $plugin_dir since $prev_tag, skip packaging $plugin_id."
+                echo "$tag" >> processed_tags.txt
+                continue
+              fi
+
+              echo "Packing $plugin_id from $plugin_dir -> $asset"
+              rm -f "$asset"
+              (cd "$(dirname "$plugin_dir")" && zip -r "$GITHUB_WORKSPACE/$asset" "$(basename "$plugin_dir")" -x "*/__pycache__/*" -x "*.pyc") >/dev/null
+
+              # If same tag exists, delete release and both remote/local tag first
+              if gh release view "$tag" >/dev/null 2>&1; then
+                echo "Release $tag exists, deleting..."
+                gh release delete "$tag" -y
+                git push origin :refs/tags/"$tag" || true
+              fi
+
+              # Ensure no stale local tag remains
+              git tag -d "$tag" >/dev/null 2>&1 || true
+
+              echo "Creating release $tag"
+              gh release create "$tag" "$asset" --title "$tag" --notes "Automated release of $plugin_id $plugin_version" --latest --target "$GITHUB_SHA"
+
+              echo "$tag" >> processed_tags.txt
+            done
+          }
+
+          process_package "package.json"
+          process_package "package.v2.json"
+
+

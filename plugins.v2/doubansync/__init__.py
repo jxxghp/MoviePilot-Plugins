@@ -9,6 +9,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app import schemas
 from app.chain.media import MediaChain
+from app.db.subscribe_oper import SubscribeOper
 from app.db.user_oper import UserOper
 from app.schemas.types import MediaType, EventType, SystemConfigKey
 
@@ -50,12 +51,6 @@ class DoubanSync(_PluginBase):
     _interests_url: str = "https://www.douban.com/feed/people/%s/interests"
     _scheduler: Optional[BackgroundScheduler] = None
     _cache_path: Optional[Path] = None
-    rsshelper = None
-    downloadchain = None
-    searchchain = None
-    subscribechain = None
-    mediachain = None
-    useroper = None
 
     # 配置属性
     _enabled: bool = False
@@ -69,12 +64,6 @@ class DoubanSync(_PluginBase):
     _search_download = False
 
     def init_plugin(self, config: dict = None):
-        self.rsshelper = RssHelper()
-        self.downloadchain = DownloadChain()
-        self.searchchain = SearchChain()
-        self.subscribechain = SubscribeChain()
-        self.mediachain = MediaChain()
-        self.useroper = UserOper()
 
         # 停止现有任务
         self.stop_service()
@@ -337,7 +326,7 @@ class DoubanSync(_PluginBase):
                                         }
                                     }
                                 ]
-                           }
+                            }
                         ]
                     },
                     {
@@ -546,12 +535,13 @@ class DoubanSync(_PluginBase):
         except Exception as e:
             logger.error("退出插件失败：%s" % str(e))
 
-    def __get_username_by_douban(self, user_id: str) -> Optional[str]:
+    @staticmethod
+    def __get_username_by_douban(user_id: str) -> Optional[str]:
         """
         根据豆瓣ID获取用户名
         """
         try:
-            return self.useroper.get_name(douban_userid=user_id)
+            return UserOper().get_name(douban_userid=user_id)
         except Exception as err:
             logger.warn(f'{err}, 需要 MoviePilot v2.2.6+ 版本')
         return None
@@ -579,23 +569,28 @@ class DoubanSync(_PluginBase):
             logger.info(f"开始同步用户 {user_id} 的豆瓣想看数据 ...")
             url = self._interests_url % user_id
             if version == "v2":
-                results = self.rsshelper.parse(url, headers={
+                results = RssHelper().parse(url, headers={
                     "User-Agent": settings.USER_AGENT
                 })
             else:
-                results = self.rsshelper.parse(url)
+                results = RssHelper().parse(url)
             if not results:
                 logger.warn(f"未获取到用户 {user_id} 豆瓣RSS数据：{url}")
                 continue
             else:
                 logger.info(f"获取到用户 {user_id} 豆瓣RSS数据：{len(results)}")
             # 解析数据
+            mediachain = MediaChain()
+            downloadchain = DownloadChain()
+            subscribechain = SubscribeChain()
+            searchchain = SearchChain()
+            subscribeoper = SubscribeOper()
             for result in results:
                 try:
                     dtype = result.get("title", "")[:2]
                     title = result.get("title", "")[2:]
                     # 增加豆瓣昵称，数据来源自app.helper.rss.py
-                    nickname = result.get("nickname","")
+                    nickname = result.get("nickname", "")
                     if nickname:
                         nickname = f"[{nickname}]"
                     if dtype not in ["想看"]:
@@ -620,7 +615,7 @@ class DoubanSync(_PluginBase):
                     douban_info = self.chain.douban_info(doubanid=douban_id)
                     meta.type = MediaType.MOVIE if douban_info.get("type") == "movie" else MediaType.TV
                     if settings.RECOGNIZE_SOURCE == "themoviedb":
-                        tmdbinfo = self.mediachain.get_tmdbinfo_by_doubanid(doubanid=douban_id, mtype=meta.type)
+                        tmdbinfo = mediachain.get_tmdbinfo_by_doubanid(doubanid=douban_id, mtype=meta.type)
                         if not tmdbinfo:
                             logger.warn(f'未能通过豆瓣ID {douban_id} 获取到TMDB信息，标题：{title}，豆瓣ID：{douban_id}')
                             continue
@@ -634,7 +629,7 @@ class DoubanSync(_PluginBase):
                             logger.warn(f'豆瓣ID {douban_id} 未识别到媒体信息')
                             continue
                     # 查询缺失的媒体信息
-                    exist_flag, no_exists = self.downloadchain.get_no_exists_info(meta=meta, mediainfo=mediainfo)
+                    exist_flag, no_exists = downloadchain.get_no_exists_info(meta=meta, mediainfo=mediainfo)
                     if exist_flag:
                         logger.info(f'{mediainfo.title_year} 媒体库中已存在')
                         action = "exist"
@@ -643,9 +638,10 @@ class DoubanSync(_PluginBase):
                         real_name = self.__get_username_by_douban(user_id)
                         if self._search_download:
                             # 先搜索资源
-                            logger.info(f'媒体库中不存在或不完整，开启搜索下载，开始搜索 {mediainfo.title_year} 的资源...')
-                             # 按订阅优先级规则组搜索过滤，站点为设置的订阅站点
-                            filter_results = self.searchchain.process(
+                            logger.info(
+                                f'媒体库中不存在或不完整，开启搜索下载，开始搜索 {mediainfo.title_year} 的资源...')
+                            # 按订阅优先级规则组搜索过滤，站点为设置的订阅站点
+                            filter_results = searchchain.process(
                                 mediainfo=mediainfo,
                                 no_exists=no_exists,
                                 sites=self.systemconfig.get(SystemConfigKey.RssSites),
@@ -656,7 +652,7 @@ class DoubanSync(_PluginBase):
                                 action = "download"
                                 if mediainfo.type == MediaType.MOVIE:
                                     # 电影类型调用单次下载
-                                    download_id = self.downloadchain.download_single(
+                                    download_id = downloadchain.download_single(
                                         context=filter_results[0],
                                         username=real_name or f"豆瓣{nickname}想看"
                                     )
@@ -666,7 +662,7 @@ class DoubanSync(_PluginBase):
                                         action = "subscribe"
                                 else:
                                     # 电视剧类型调用批量下载
-                                    downloaded_list, no_exists = self.downloadchain.batch_download(
+                                    downloaded_list, no_exists = downloadchain.batch_download(
                                         contexts=filter_results,
                                         no_exists=no_exists,
                                         username=real_name or f"豆瓣{nickname}想看"
@@ -678,13 +674,13 @@ class DoubanSync(_PluginBase):
 
                                         # 更新订阅信息
                                         logger.info(f'根据缺失剧集更新订阅信息 {mediainfo.title_year} ...')
-                                        subscribe = self.subscribechain.subscribeoper.get(sub_id)
+                                        subscribe = subscribeoper.get(sub_id)
                                         if subscribe:
-                                            self.subscribechain.finish_subscribe_or_not(subscribe=subscribe,
-                                                                                        meta=meta,
-                                                                                        mediainfo=mediainfo,
-                                                                                        downloads=downloaded_list,
-                                                                                        lefts=no_exists)
+                                            subscribechain.finish_subscribe_or_not(subscribe=subscribe,
+                                                                                   meta=meta,
+                                                                                   mediainfo=mediainfo,
+                                                                                   downloads=downloaded_list,
+                                                                                   lefts=no_exists)
 
                             else:
                                 logger.info(f'未找到符合条件资源，添加订阅 {mediainfo.title_year} ...')
@@ -714,8 +710,9 @@ class DoubanSync(_PluginBase):
         # 缓存只清理一次
         self._clearflag = False
 
-    def add_subscribe(self, mediainfo, meta, nickname, real_name):
-        return self.subscribechain.add(
+    @staticmethod
+    def add_subscribe(mediainfo, meta, nickname, real_name):
+        return SubscribeChain().add(
             title=mediainfo.title,
             year=mediainfo.year,
             mtype=mediainfo.type,

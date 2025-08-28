@@ -28,12 +28,11 @@ class CustomIndexer(_PluginBase):
     auth_level = 2
 
     # 私有属性
-    siteshelper = None
     _enabled = False
     _confstr = ""
 
     def init_plugin(self, config: dict = None):
-        self.siteshelper = SitesHelper()
+
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
@@ -49,7 +48,7 @@ class CustomIndexer(_PluginBase):
                         if not domain or not jsonstr:
                             continue
                         jsonstr = base64.b64decode(jsonstr).decode('utf-8')
-                        self.siteshelper.add_indexer(domain, json.loads(jsonstr))
+                        SitesHelper().add_indexer(domain, json.loads(jsonstr))
                     except Exception as err:
                         logger.error(f"自定义索引站点配置错误：{err}")
                         self.systemmessage.put(f"自定义索引站点配置错误：{err}", title="自定义索引站点")

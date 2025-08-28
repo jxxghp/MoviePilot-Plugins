@@ -1,5 +1,4 @@
 from typing import Tuple
-from urllib.parse import urljoin
 
 from ruamel.yaml import CommentedMap
 
@@ -38,10 +37,11 @@ class MTorrent(_ISiteSigninHandler):
             "Authorization": site_info.get("token")
         }
         url = site_info.get('url')
+        timeout = site_info.get("timeout")
         domain = StringUtils.get_url_domain(url)
         # 更新最后访问时间
         res = RequestUtils(headers=headers,
-                           timeout=60,
+                           timeout=timeout,
                            proxies=settings.PROXY if site_info.get("proxy") else None,
                            referer=f"{url}index"
                            ).post_res(url=f"https://api.{domain}/api/member/updateLastBrowse")

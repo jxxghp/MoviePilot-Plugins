@@ -194,10 +194,6 @@ class CrossSeed(_PluginBase):
     # 私有属性
     _scheduler = None
     cross_helper = None
-    sites = None
-    siteoper = None
-    torrent = None
-    downloader_helper = None
     # 开关
     _enabled = False
     _cron = None
@@ -233,10 +229,7 @@ class CrossSeed(_PluginBase):
     cached = 0
 
     def init_plugin(self, config: dict = None):
-        self.sites = SitesHelper()
-        self.siteoper = SiteOper()
-        self.torrent = TorrentHelper()
-        self.downloader_helper = DownloaderHelper()
+
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
@@ -257,7 +250,7 @@ class CrossSeed(_PluginBase):
             self._success_caches = [] if self._clearcache else config.get("success_caches") or []
 
             # 过滤掉已删除的站点
-            inner_site_list = self.siteoper.list_order_by_pri()
+            inner_site_list = SiteOper().list_order_by_pri()
             all_sites = [(site.id, site.name) for site in inner_site_list] + [
                 (site.get("id"), site.get("name")) for site in self.__custom_sites()
             ]
@@ -363,7 +356,7 @@ class CrossSeed(_PluginBase):
             logger.warning("尚未配置下载器，请检查配置")
             return None
 
-        services = self.downloader_helper.get_services(name_filters=self._downloaders)
+        services = DownloaderHelper().get_services(name_filters=self._downloaders)
         if not services:
             logger.warning("获取下载器实例失败，请检查配置")
             return None
@@ -445,7 +438,7 @@ class CrossSeed(_PluginBase):
 
         # 站点的可选项
         site_options = ([{"title": site.name, "value": site.id}
-                         for site in self.siteoper.list_order_by_pri()]
+                         for site in SiteOper().list_order_by_pri()]
                         + [{"title": site.get("name"), "value": site.get("id")}
                            for site in customSites])
         # 测试版本，只支持青蛙
@@ -557,7 +550,7 @@ class CrossSeed(_PluginBase):
                                             'model': 'downloaders',
                                             'label': '辅种下载器',
                                             'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.downloader_helper.get_configs().values()]
+                                                      for config in DownloaderHelper().get_configs().values()]
                                         }
                                     }
                                 ]
@@ -852,7 +845,7 @@ class CrossSeed(_PluginBase):
                     if not torrent_info.site_name:
                         # 尝试通过域名获取站点信息
                         tracker_domain = StringUtils.get_url_domain(tracker)
-                        site_info = self.sites.get_indexer(tracker_domain)
+                        site_info = SitesHelper().get_indexer(tracker_domain)
                         if site_info:
                             torrent_info.site_name = site_info.get("name")
 
@@ -983,7 +976,7 @@ class CrossSeed(_PluginBase):
         chunk_size = 100
         for site_config in self._site_cs_infos:
             # 检查站点是否已经停用
-            db_site = self.siteoper.get(site_config.id)
+            db_site = SiteOper().get(site_config.id)
             if db_site and not db_site.is_active:
                 logger.info(f"站点{site_config.name}已停用，跳过辅种")
                 continue
@@ -1045,7 +1038,8 @@ class CrossSeed(_PluginBase):
 
         logger.info(f"下载器 {service.name} 辅种完成")
 
-    def __download(self, service: ServiceInfo, content: Union[bytes, str],
+    @staticmethod
+    def __download(service: ServiceInfo, content: Union[bytes, str],
                    save_path: str) -> Optional[str]:
         """
         添加下载任务
@@ -1055,9 +1049,9 @@ class CrossSeed(_PluginBase):
             tag = StringUtils.generate_random_str(10)
 
             state = service.instance.add_torrent(content=content,
-                                        download_dir=save_path,
-                                        is_paused=True,
-                                        tag=["已整理", "辅种", tag])
+                                                 download_dir=save_path,
+                                                 is_paused=True,
+                                                 tag=["已整理", "辅种", tag])
             if not state:
                 return None
             else:
@@ -1070,9 +1064,9 @@ class CrossSeed(_PluginBase):
         elif service.type == "transmission":
             # 添加任务
             torrent = service.instance.add_torrent(content=content,
-                                          download_dir=save_path,
-                                          is_paused=True,
-                                          labels=["已整理", "辅种"])
+                                                   download_dir=save_path,
+                                                   is_paused=True,
+                                                   labels=["已整理", "辅种"])
             if not torrent:
                 return None
             else:
@@ -1099,7 +1093,7 @@ class CrossSeed(_PluginBase):
         torrent_url = site_config.get_torrent_url(tor.torrent_id)
 
         # 下载种子文件
-        _, content, _, _, error_msg = self.torrent.download_torrent(
+        _, content, _, _, error_msg = TorrentHelper().download_torrent(
             url=torrent_url,
             cookie=site_config.cookie,
             ua=site_config.ua or settings.USER_AGENT,

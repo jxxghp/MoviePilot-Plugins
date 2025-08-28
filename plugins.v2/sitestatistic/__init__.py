@@ -1,11 +1,10 @@
+import gc
 import warnings
-from collections import defaultdict
 from datetime import datetime, timedelta
 from threading import Lock
 from typing import Optional, Any, List, Dict, Tuple
 
 import pytz
-from app.helper.sites import SitesHelper
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app import schemas
@@ -14,6 +13,7 @@ from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.db.models.siteuserdata import SiteUserData
 from app.db.site_oper import SiteOper
+from app.helper.sites import SitesHelper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import EventType, NotificationType
@@ -32,7 +32,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.6"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "lightolly,jxxghp"
     # 作者主页
@@ -45,9 +45,6 @@ class SiteStatistic(_PluginBase):
     auth_level = 2
 
     # 配置属性
-    siteoper = None
-    siteshelper = None
-    sitechain = None
     _enabled: bool = False
     _onlyonce: bool = False
     _dashboard_type: str = "today"
@@ -55,9 +52,6 @@ class SiteStatistic(_PluginBase):
     _scheduler = None
 
     def init_plugin(self, config: dict = None):
-        self.siteoper = SiteOper()
-        self.siteshelper = SitesHelper()
-        self.sitechain = SiteChain()
 
         # 停止现有任务
         self.stop_service()
@@ -72,7 +66,7 @@ class SiteStatistic(_PluginBase):
         if self._onlyonce:
             config["onlyonce"] = False
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            self._scheduler.add_job(self.sitechain.refresh_userdatas, "date",
+            self._scheduler.add_job(SiteChain().refresh_userdatas, "date",
                                     run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                                     name="站点数据统计服务")
             self._scheduler.print_jobs()
@@ -235,9 +229,25 @@ class SiteStatistic(_PluginBase):
             download = int(today_data_dict[site].download or 0)
             updated_date = today_data_dict[site].updated_day
 
-            if self._notify_type == "inc" and yesterday_data_dict.get(site):
-                upload -= int(yesterday_data_dict[site].upload or 0)
-                download -= int(yesterday_data_dict[site].download or 0)
+            if self._notify_type == "inc":
+                # 增量数据模式：只有当有昨天数据时才计算增量
+                if yesterday_data_dict.get(site):
+                    yesterday_upload = int(yesterday_data_dict[site].upload or 0)
+                    yesterday_download = int(yesterday_data_dict[site].download or 0)
+                    
+                    # 如果昨天上传和下载数据为0，则跳过该站点
+                    # 因为昨天数据为0时，计算出来的是累计数据而非增量
+                    if not yesterday_upload and not yesterday_download:
+                        continue
+                    
+                    upload -= yesterday_upload
+                    download -= yesterday_download
+                    # 确保增量不为负数
+                    upload = max(0, upload)
+                    download = max(0, download)
+                else:
+                    # 没有昨天数据时，跳过该站点
+                    continue
 
             if updated_date and updated_date != today_date:
                 updated_date = f"（{updated_date}）"
@@ -263,65 +273,53 @@ class SiteStatistic(_PluginBase):
             self.post_message(mtype=NotificationType.SiteMessage,
                               title="站点数据统计", text="\n".join(sorted_messages))
 
-    def __get_data(self) -> Tuple[str, List[SiteUserData], List[SiteUserData]]:
+    @staticmethod
+    def __get_data() -> Tuple[str, List[SiteUserData], List[SiteUserData]]:
         """
         获取最近一次统计的日期、最近一次统计的站点数据、上一次的站点数据
         如果上一次某个站点数据缺失，则 fallback 到该站点之前最近有数据的日期
         """
-        # 获取所有原始数据
-        raw_data_list: List[SiteUserData] = self.siteoper.get_userdata()
-        if not raw_data_list:
+        # 优化：只获取最近的站点数据，而不是所有历史数据
+        latest_data: List[SiteUserData] = SiteOper().get_userdata_latest()
+        if not latest_data:
             return "", [], []
 
-        # 每个日期、每个站点只保留最后一条数据
-        data_list = list({f"{data.updated_day}_{data.name}": data for data in raw_data_list}.values())
+        # 过滤未启用或不存在的站点
+        site_domains = [site.domain for site in SiteOper().list_active()]
+        latest_data = [data for data in latest_data if data and data.domain in site_domains]
 
-        # 按日期倒序排序
-        data_list.sort(key=lambda x: x.updated_day, reverse=True)
+        # 获取最新日期（用于显示）
+        latest_day = max(data.updated_day for data in latest_data)
+        
+        # 按上传量降序排序
+        latest_data.sort(key=lambda x: x.upload or 0, reverse=True)
 
-        # 按日期分组数据
-        data_by_day = defaultdict(list)
-        for data in data_list:
-            data_by_day[data.updated_day].append(data)
-
-        # 获取最近一次统计的日期
-        latest_day = data_list[0].updated_day
-
-        # 筛选最近一次统计的数据（可能为空）
-        latest_data = [data for data in data_list if data.updated_day == latest_day]
-        # 最近一次统计按上传量降序排序
-        latest_data.sort(key=lambda x: x.upload, reverse=True)
-
-        # 获取所有日期倒序排序后的列表
-        sorted_dates = sorted(data_by_day.keys(), reverse=True)
-
-        # 计算前一天的日期字符串（相对于最近一次日期）
-        previous_day_str = (datetime.strptime(latest_day, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
-        # 获取前一天的站点数据
-        previous_day_sites = data_by_day.get(previous_day_str, [])
-        # 构建前一天站点到数据的映射
-        previous_by_site = {data.name: data for data in previous_day_sites}
-
-        # 准备查找早于前一天的日期列表，用于 fallback
-        fallback_dates = [d for d in sorted_dates if d < previous_day_str]
-
-        # 按站点细化进行上一次数据的 fallback 处理
+        # 为每个站点查找对应的前一天数据
         previous_data = []
         for current_site in latest_data:
             site_name = current_site.name
-            # 优先尝试获取前一天的同一站点数据
+            current_day = current_site.updated_day
+            
+            # 计算该站点的前一天日期
+            previous_day_str = (datetime.strptime(current_day, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+            
+            # 获取前一天的数据
+            previous_data_list = SiteOper().get_userdata_by_date(previous_day_str)
+            previous_by_site = {data.name: data for data in previous_data_list}
             site_prev = previous_by_site.get(site_name)
-
-            # 如果前一天没有该站点的数据，则进行逐日回退查找
-            if site_prev is None or site_prev.err_msg:
-                for d in fallback_dates:
-                    # 在每个候选日期中查找对应站点数据
-                    candidate = next((x for x in data_by_day[d] if x.name == site_name), None)
-                    if candidate:
+            
+            # 如果前一天没有该站点数据，尝试查找更早的数据
+            if not site_prev or site_prev.err_msg:
+                # 最多回溯7天，避免查询过多历史数据
+                for i in range(2, 8):
+                    fallback_date = (datetime.strptime(current_day, "%Y-%m-%d") - timedelta(days=i)).strftime("%Y-%m-%d")
+                    fallback_data_list = SiteOper().get_userdata_by_date(fallback_date)
+                    fallback_by_site = {data.name: data for data in fallback_data_list}
+                    candidate = fallback_by_site.get(site_name)
+                    if candidate and not candidate.err_msg:
                         site_prev = candidate
                         break
 
-            # 如果找到了上一次的数据，加入结果列表
             if site_prev:
                 previous_data.append(site_prev)
 
@@ -373,7 +371,18 @@ class SiteStatistic(_PluginBase):
             if not d1:
                 return {}
             if not d2:
-                return d1
+                # 如果没有昨天数据，返回空字典，表示无增量数据
+                return {}
+            
+            # 检查昨天的关键数据是否为0，如果是则不计算增量
+            # 因为昨天数据为0时，计算出来的是累计数据而非增量
+            for key in ['upload', 'download']:
+                if key in d2:
+                    yesterday_value = __to_numeric(d2.get(key))
+                    # 如果昨天数据为0，不计算增量
+                    if yesterday_value == 0:
+                        return {}
+            
             d = {k: __to_numeric(d1.get(k)) - __to_numeric(d2.get(k)) for k in d1
                  if k in d2 and __is_digit(d1.get(k)) and __is_digit(d2.get(k))}
             # 把小于0的数据变成0
@@ -677,14 +686,15 @@ class SiteStatistic(_PluginBase):
             # 计算增量数据集
             inc_data = {}
             for data in stattistic_data:
-                yesterday_datas = [yd for yd in yesterday_sites_data if yd.domain == data.domain]
+                # 修复：使用name进行匹配，保持一致性
+                yesterday_datas = [yd for yd in yesterday_sites_data if yd.name == data.name]
                 if yesterday_datas:
                     yesterday_data = yesterday_datas[0]
-                else:
-                    yesterday_data = None
-                inc = __sub_data(data.to_dict(), yesterday_data.to_dict() if yesterday_data else None)
-                if inc:
-                    inc_data[data.name] = inc
+                    # 只有当有昨天数据时才计算增量
+                    inc = __sub_data(data.to_dict(), yesterday_data.to_dict())
+                    if inc:
+                        inc_data[data.name] = inc
+                # 如果没有昨天数据，不添加到inc_data中
             # 今日上传
             uploads = {k: v for k, v in inc_data.items() if v.get("upload") if v.get("upload") > 0}
             # 今日上传站点
@@ -851,152 +861,80 @@ class SiteStatistic(_PluginBase):
             dashboard='all'
         )
 
-        # 站点数据明细
-        site_trs = [
-            {
-                'component': 'tr',
-                'props': {
-                    'class': 'text-sm'
-                },
-                'content': [
-                    {
-                        'component': 'td',
-                        'props': {
-                            'class': 'whitespace-nowrap break-keep text-high-emphasis'
-                        },
-                        'text': data.name
-                    },
-                    {
-                        'component': 'td',
-                        'text': data.username
-                    },
-                    {
-                        'component': 'td',
-                        'text': data.user_level
-                    },
-                    {
-                        'component': 'td',
-                        'props': {
-                            'class': 'text-success'
-                        },
-                        'text': StringUtils.str_filesize(data.upload)
-                    },
-                    {
-                        'component': 'td',
-                        'props': {
-                            'class': 'text-error'
-                        },
-                        'text': StringUtils.str_filesize(data.download)
-                    },
-                    {
-                        'component': 'td',
-                        'text': data.ratio
-                    },
-                    {
-                        'component': 'td',
-                        'text': format_bonus(data.bonus or 0)
-                    },
-                    {
-                        'component': 'td',
-                        'text': data.seeding
-                    },
-                    {
-                        'component': 'td',
-                        'text': StringUtils.str_filesize(data.seeding_size)
-                    }
-                ]
-            } for data in stattistic_data
+        # 优化：使用更轻量级的方式构建站点数据明细，避免创建过多嵌套对象
+        # 先准备表头
+        table_headers = [
+            {'text': '站点', 'class': 'text-start ps-4'},
+            {'text': '用户名', 'class': 'text-start ps-4'},
+            {'text': '用户等级', 'class': 'text-start ps-4'},
+            {'text': '上传量', 'class': 'text-start ps-4'},
+            {'text': '下载量', 'class': 'text-start ps-4'},
+            {'text': '分享率', 'class': 'text-start ps-4'},
+            {'text': '魔力值', 'class': 'text-start ps-4'},
+            {'text': '做种数', 'class': 'text-start ps-4'},
+            {'text': '做种体积', 'class': 'text-start ps-4'}
         ]
 
+        # 构建表头行
+        header_row = {
+            'component': 'thead',
+            'content': [
+                {
+                    'component': 'th',
+                    'props': {'class': header['class']},
+                    'text': header['text']
+                } for header in table_headers
+            ]
+        }
+
+        # 构建数据行，避免在列表推导式中创建复杂嵌套
+        table_rows = []
+        for data in stattistic_data:
+            # 预先计算所有需要的值
+            row_data = [
+                {'text': data.name, 'class': 'whitespace-nowrap break-keep text-high-emphasis'},
+                {'text': data.username, 'class': ''},
+                {'text': data.user_level, 'class': ''},
+                {'text': StringUtils.str_filesize(data.upload), 'class': 'text-success'},
+                {'text': StringUtils.str_filesize(data.download), 'class': 'text-error'},
+                {'text': data.ratio, 'class': ''},
+                {'text': format_bonus(data.bonus or 0), 'class': ''},
+                {'text': data.seeding, 'class': ''},
+                {'text': StringUtils.str_filesize(data.seeding_size), 'class': ''}
+            ]
+            
+            # 构建单行配置
+            row_content = []
+            for cell_data in row_data:
+                cell = {'component': 'td', 'text': cell_data['text']}
+                if cell_data['class']:
+                    cell['props'] = {'class': cell_data['class']}
+                row_content.append(cell)
+            
+            table_rows.append({
+                'component': 'tr',
+                'props': {'class': 'text-sm'},
+                'content': row_content
+            })
+
         # 拼装页面
-        return [
+        page = [
             {
                 'component': 'VRow',
                 'content': site_totals + [
                     # 各站点数据明细
                     {
                         'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                        },
+                        'props': {'cols': 12},
                         'content': [
                             {
                                 'component': 'VTable',
-                                'props': {
-                                    'hover': True
-                                },
+                                'props': {'hover': True},
                                 'content': [
-                                    {
-                                        'component': 'thead',
-                                        'content': [
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '站点'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '用户名'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '用户等级'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '上传量'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '下载量'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '分享率'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '魔力值'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '做种数'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '做种体积'
-                                            }
-                                        ]
-                                    },
+                                    header_row,
                                     {
                                         'component': 'tbody',
-                                        'content': site_trs
+                                        'content': table_rows
                                     }
                                 ]
                             }
@@ -1006,16 +944,19 @@ class SiteStatistic(_PluginBase):
             }
         ]
 
+        return page
+
     def stop_service(self):
         pass
 
-    def refresh_by_domain(self, domain: str, apikey: str) -> schemas.Response:
+    @staticmethod
+    def refresh_by_domain(domain: str, apikey: str) -> schemas.Response:
         """
         刷新一个站点数据，可由API调用
         """
         if apikey != settings.API_TOKEN:
             return schemas.Response(success=False, message="API密钥错误")
-        site_info = self.siteshelper.get_indexer(domain)
+        site_info = SitesHelper().get_indexer(domain)
         if site_info:
             site_data = SiteChain().refresh_userdata(site=site_info)
             if site_data:

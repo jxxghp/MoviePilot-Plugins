@@ -4,7 +4,6 @@ from abc import ABCMeta, abstractmethod
 from typing import Tuple
 
 import chardet
-from ruamel.yaml import CommentedMap
 
 from app.core.config import settings
 from app.helper.browser import PlaywrightHelper
@@ -33,7 +32,7 @@ class _ISiteSigninHandler(metaclass=ABCMeta):
         return False
 
     @abstractmethod
-    def signin(self, site_info: CommentedMap) -> Tuple[bool, str]:
+    def signin(self, site_info: dict) -> Tuple[bool, str]:
         """
         执行签到操作
         :param site_info: 站点信息，含有站点Url、站点Cookie、UA等信息

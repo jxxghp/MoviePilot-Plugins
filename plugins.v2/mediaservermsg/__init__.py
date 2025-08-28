@@ -18,7 +18,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -31,7 +31,6 @@ class MediaServerMsg(_PluginBase):
     auth_level = 1
 
     # 私有属性
-    mediaserver_helper = None
     _enabled = False
     _add_play_link = False
     _mediaservers = None
@@ -59,7 +58,7 @@ class MediaServerMsg(_PluginBase):
     }
 
     def init_plugin(self, config: dict = None):
-        self.mediaserver_helper = MediaServerHelper()
+
         if config:
             self._enabled = config.get("enabled")
             self._types = config.get("types") or []
@@ -74,7 +73,7 @@ class MediaServerMsg(_PluginBase):
             logger.warning("尚未配置媒体服务器，请检查配置")
             return None
 
-        services = self.mediaserver_helper.get_services(type_filter=type_filter, name_filters=self._mediaservers)
+        services = MediaServerHelper().get_services(type_filter=type_filter, name_filters=self._mediaservers)
         if not services:
             logger.warning("获取媒体服务器实例失败，请检查配置")
             return None
@@ -181,7 +180,7 @@ class MediaServerMsg(_PluginBase):
                                             'model': 'mediaservers',
                                             'label': '媒体服务器',
                                             'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.mediaserver_helper.get_configs().values()]
+                                                      for config in MediaServerHelper().get_configs().values()]
                                         }
                                     }
                                 ]
@@ -318,15 +317,16 @@ class MediaServerMsg(_PluginBase):
         # 消息图片
         image_url = event_info.image_url
         # 查询剧集图片
-        if (event_info.tmdb_id
-                and event_info.season_id
-                and event_info.episode_id):
+        if event_info.tmdb_id:
+            season_id = event_info.season_id if event_info.season_id else None
+            episode_id = event_info.episode_id if event_info.episode_id else None
+
             specific_image = self.chain.obtain_specific_image(
                 mediaid=event_info.tmdb_id,
                 mtype=MediaType.TV,
                 image_type=MediaImageType.Backdrop,
-                season=event_info.season_id,
-                episode=event_info.episode_id
+                season=season_id,
+                episode=episode_id
             )
             if specific_image:
                 image_url = specific_image
@@ -341,7 +341,7 @@ class MediaServerMsg(_PluginBase):
                 if service:
                     play_link = service.instance.get_play_url(event_info.item_id)
             elif event_info.channel:
-                services = self.mediaserver_helper.get_services(type_filter=event_info.channel)
+                services = MediaServerHelper().get_services(type_filter=event_info.channel)
                 for service in services.values():
                     play_link = service.instance.get_play_url(event_info.item_id)
                     if play_link:
