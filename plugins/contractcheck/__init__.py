@@ -35,7 +35,7 @@ class ContractCheck(_PluginBase):
     # 插件名称
     plugin_name = "契约检查"
     # 插件描述
-    plugin_desc = "定时检查保种契约达成情况。"
+    plugin_desc = "定时检查保种契约达成情况，修改基础为DzAvril佬的1.4版本，增加猪猪管组检查，请支持原作者。"
     # 插件图标
     plugin_icon = "contract.png"
     # 插件版本
