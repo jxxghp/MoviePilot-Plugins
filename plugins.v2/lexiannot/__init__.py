@@ -1834,16 +1834,16 @@ class LexiAnnot(_PluginBase):
             last_end_pos = 0
             lemma_to_query = []
             for token in doc:
-                if len(token.get('text')) == 1:
+                if len(token['text']) == 1:
                     continue
-                if token.get('lemma_') in swear_words:
+                if token['lemma_'] in swear_words:
                     continue
-                if token.get('pos_') not in ('NOUN', 'AUX', 'VERB', 'ADJ', 'ADV', 'ADP', 'CCONJ', 'SCONJ'):
+                if token['pos_'] not in ('NOUN', 'AUX', 'VERB', 'ADJ', 'ADV', 'ADP', 'CCONJ', 'SCONJ'):
                     continue
-                striped = token.get('lemma_').strip('-[')
+                striped = token['lemma_'].strip('-[')
                 if any(p.match(striped) for p in compiled_patterns):
                     continue
-                cefr = LexiAnnot.get_cefr_by_spacy(striped, token.get('pos_'), cefr_lexicon)
+                cefr = LexiAnnot.get_cefr_by_spacy(striped, token['pos_'], cefr_lexicon)
                 if cefr and cefr in simple_vocabulary:
                     continue
                 res_of_coco = LexiAnnot.query_coca20k(striped, coca20k_lexicon)
@@ -1857,7 +1857,7 @@ class LexiAnnot(_PluginBase):
                     continue
                 else:
                     lemma_to_query.append(striped)
-                striped_text = token.get('text').strip('-*[')
+                striped_text = token['text'].strip('-*[')
                 start_pos = text.find(striped_text, last_end_pos)
                 end_pos = start_pos + len(striped_text)
                 phonetics = ''
@@ -1877,7 +1877,7 @@ class LexiAnnot(_PluginBase):
                     pos_defs = res_of_coco.get('pos_defs') or []
                 last_end_pos = end_pos
                 new_vocab.append({'start': start_pos, 'end': end_pos, 'text': striped_text, 'lemma': striped,
-                                  'pos': token.get('pos_'), 'cefr': cefr, 'Chinese': '', 'phonetics': phonetics,
+                                  'pos': token['pos_'], 'cefr': cefr, 'Chinese': '', 'phonetics': phonetics,
                                   'pos_defs': pos_defs, 'exam_tags': exam_tags})
             line_data['new_vocab'] = new_vocab
         # 查询词汇翻译
