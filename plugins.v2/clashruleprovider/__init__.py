@@ -1532,10 +1532,10 @@ class ClashRuleProvider(_PluginBase):
         """
          从代理组中移除无效的出站
         """
-        outbounds = [proxy.get('name') for proxy in proxies if proxy.get('name')] + \
-                    [proxy_group.get('name') for proxy_group in proxy_groups if proxy_group.get('name')] + \
-                    [action.value for action in Action]
-        outbounds.append('GLOBAL')
+        outbounds = {proxy.get('name') for proxy in proxies if proxy.get('name')} | \
+                    {proxy_group.get('name') for proxy_group in proxy_groups if proxy_group.get('name')} | \
+                    {action.value for action in Action}
+        outbounds.add('GLOBAL')
         for proxy_group in proxy_groups:
             ps = []
             if proxy_group.get('proxies'):
