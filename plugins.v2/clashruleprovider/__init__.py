@@ -3,16 +3,22 @@ import copy
 import hashlib
 import json
 import math
+import pytz
 import re
 import time
 import urllib
+import yaml
 from datetime import datetime, timedelta
 from typing import Any, Optional, List, Dict, Tuple, Union
 from urllib.parse import urlparse
 
-import pytz
 import websockets
-import yaml
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from fastapi import HTTPException, Request, status, Body, Response
+from fastapi.responses import PlainTextResponse
+from sse_starlette.sse import EventSourceResponse
+
 from app import schemas
 from app.core.config import settings
 from app.core.event import eventmanager, Event
@@ -25,10 +31,6 @@ from app.schemas.types import EventType
 from app.schemas.types import NotificationType
 from app.utils.http import RequestUtils, AsyncRequestUtils
 from app.utils.ip import IpUtils
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from fastapi import HTTPException, Request, status, Body, Response
-from sse_starlette.sse import EventSourceResponse
 
 
 class ClashRuleProvider(_PluginBase):
@@ -39,7 +41,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.3.3"
+    plugin_version = "1.4.0"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -58,12 +60,9 @@ class ClashRuleProvider(_PluginBase):
     _notify = False
     # 订阅链接
     _sub_links = []
-    # Clash 面板 URL
-    _clash_dashboard_url = None
-    # Clash 面板密钥
-    _clash_dashboard_secret = None
+
     # MoviePilot URL
-    _movie_pilot_url = ''
+    _movie_pilot_url: str = ''
     _cron = ''
     _timeout = 10
     _retry_times = 3
@@ -81,6 +80,7 @@ class ClashRuleProvider(_PluginBase):
     _hint_geo_dat: bool = False
     # Cloudflare 优选 IPs 可通过外部设置
     _best_cf_ip: List[str] = []
+    _apikey: Optional[str] = None
 
     # 插件数据
     _top_rules: List[str] = []
@@ -89,21 +89,25 @@ class ClashRuleProvider(_PluginBase):
     _extra_rule_providers: Dict[str, Any] = {}
     _subscription_info = {}
     _ruleset_names: Dict[str, str] = {}
-    _proxy_groups = []
+    _proxy_groups: List[Dict[str, Any]] = []
     _extra_proxies = []
     _acl4ssr_providers: Dict[str, Any] = {}
     _acl4ssr_prefix: str = '🗂️=>'
     # 保存每个订阅文件的原始内容
     _clash_configs: Dict[str, Any] = {}
     _hosts: List[Dict[str, Any]] = []
+    _clash_dashboards: List[Dict[str, str]] = []
+    _active_dashboard: Optional[int] = None
 
     # protected variables
     _clash_rule_parser = None
     _ruleset_rule_parser = None
     _clash_template: Optional[Dict[str, Any]] = None
     _scheduler: Optional[BackgroundScheduler] = None
-    _countries: Optional[List[Dict[str, str]]] = None
+    _countries: List[Dict[str, str]] = []
     _geo_rules: Dict[str, List[str]] = {'geoip': [], 'geosite': []}
+    _clash_dashboard_url: str = ''
+    _clash_dashboard_secret: str = ''
 
     def init_plugin(self, config: dict = None):
         self.stop_service()
@@ -121,18 +125,22 @@ class ClashRuleProvider(_PluginBase):
         if config:
             self._enabled = config.get("enabled")
             self._proxy = config.get("proxy")
-            self._notify = config.get("notify"),
+            self._notify = bool(config.get("notify"))
             self._sub_links = config.get("sub_links") or []
-            self._clash_dashboard_url = config.get("clash_dashboard_url") or ''
-            if self._clash_dashboard_url:
-                self._clash_dashboard_url = self._clash_dashboard_url.rstrip("/")
-            if not (self._clash_dashboard_url.startswith('http://') or
-                    self._clash_dashboard_url.startswith('https://')):
-                self._clash_dashboard_url = 'http://' + self._clash_dashboard_url
-            self._clash_dashboard_secret = config.get("clash_dashboard_secret")
-            self._movie_pilot_url = config.get("movie_pilot_url")
+            clash_dashboards = config.get("clash_dashboards")
+            if clash_dashboards is None:
+                clash_dashboards = [{'url': config.get('clash_dashboard_url') or '',
+                                     'secret': config.get('clash_dashboard_secret') or ''}]
+            self._clash_dashboards = []
+            for clash_dashboard in clash_dashboards:
+                url = (clash_dashboard.get("url") or '').rstrip('/')
+                if not (url.startswith('http://') or url.startswith('https://')):
+                    url = 'http://' + url
+                self._clash_dashboards.append({'url': url, 'secret': clash_dashboard.get('secret') or ''})
+
+            self._movie_pilot_url = config.get("movie_pilot_url") or ''
             if self._movie_pilot_url:
-                self._movie_pilot_url = self._movie_pilot_url.rstrip("/")
+                self._movie_pilot_url = self._movie_pilot_url.rstrip('/')
             self._cron = config.get("cron_string") or '30 12 * * *'
             self._timeout = config.get("timeout")
             self._retry_times = config.get("retry_times") or 3
@@ -150,10 +158,19 @@ class ClashRuleProvider(_PluginBase):
             self._clash_template_yaml = config.get("clash_template") or ''
             self._hint_geo_dat = config.get("hint_geo_dat", False)
             self._best_cf_ip = config.get("best_cf_ip") or []
+            self._active_dashboard = config.get("active_dashboard")
+            if self._active_dashboard is None and self._clash_dashboards:
+                self._active_dashboard = 0
+            self._apikey = config.get("apikey")
+
+        self.__update_config()
         self._clash_rule_parser = ClashRuleParser()
         self._ruleset_rule_parser = ClashRuleParser()
         self._clash_template = {}
         self._countries = []
+        if self._active_dashboard is not None and self._active_dashboard in range(len(self._clash_dashboards)):
+            self._clash_dashboard_url = self._clash_dashboards[self._active_dashboard].get("url")
+            self._clash_dashboard_secret = self._clash_dashboards[self._active_dashboard].get("secret")
         if self._enabled:
             try:
                 self._clash_template = yaml.load(self._clash_template_yaml, Loader=yaml.SafeLoader) or {}
@@ -169,13 +186,16 @@ class ClashRuleProvider(_PluginBase):
                 logger.error(f"Error loading clash template yaml: {exc}")
             if self._group_by_region:
                 self._countries = ClashRuleProvider.__load_countries(
-                    f"{settings.ROOT_PATH}/app/plugins/clashruleprovider/countries.json")
+                    settings.ROOT_PATH / 'app' / 'plugins' / 'clashruleprovider' / 'countries.json')
             self.__parse_config()
             # 清理不存在的 URL
-            self._subscription_info = {url: self._subscription_info.get(url)
-                                       for url in self._sub_links if self._subscription_info.get(url)}
+            self._subscription_info = {url: self._subscription_info.get(url) or {} for url in self._sub_links}
+            for _, sub_info in self._subscription_info.items():
+                if 'enabled' not in sub_info:
+                    sub_info['enabled'] = True
             self._clash_configs = {url: self._clash_configs[url] for url in self._sub_links if
                                    self._clash_configs.get(url)}
+
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
             self._scheduler.start()
             # 更新订阅
@@ -366,6 +386,7 @@ class ClashRuleProvider(_PluginBase):
                 "path": "/ruleset",
                 "endpoint": self.get_ruleset,
                 "methods": ["GET"],
+                "allow_anonymous": True if self._apikey else False,
                 "summary": "获取规则集规则",
                 "description": "获取规则集规则"
             },
@@ -402,9 +423,18 @@ class ClashRuleProvider(_PluginBase):
                 "description": "删除一条 Host"
             },
             {
+                "path": "/subscription-info",
+                "endpoint": self.update_subscription_info,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "更新订阅信息",
+                "description": "更新订阅信息"
+            },
+            {
                 "path": "/config",
                 "endpoint": self.get_clash_config,
                 "methods": ["GET"],
+                "allow_anonymous": True if self._apikey else False,
                 "summary": "获取 Clash 配置",
                 "description": "获取 Clash 配置"
             },
@@ -512,6 +542,35 @@ class ClashRuleProvider(_PluginBase):
             }]
         return []
 
+    def __update_config(self):
+        config = {
+            'enabled': self._enabled,
+            'proxy': self._proxy,
+            'notify': self._notify,
+            'sub_links': self._sub_links,
+            'clash_dashboards': self._clash_dashboards,
+            'movie_pilot_url': self._movie_pilot_url,
+            'cron': self._cron,
+            'timeout': self._timeout,
+            'retry_times': self._retry_times,
+            'filter_keywords': self._filter_keywords,
+            'auto_update_subscriptions': self._auto_update_subscriptions,
+            'ruleset_prefix': self._ruleset_prefix,
+            'group_by_region': self._group_by_region,
+            'group_by_country': self._group_by_country,
+            'refresh_delay': self._refresh_delay,
+            'discard_rules': self._discard_rules,
+            'discard_proxy_groups': self._discard_proxy_groups,
+            'enable_acl4ssr': self._enable_acl4ssr,
+            'dashboard_components': self._dashboard_components,
+            'clash_template_yaml': self._clash_template_yaml,
+            'hint_geo_dat': self._hint_geo_dat,
+            'best_cf_ip': self._best_cf_ip,
+            'active_dashboard': self._active_dashboard,
+            'apikey': self._apikey
+        }
+        self.update_config(config)
+
     def update_best_cf_ip(self, ips: List[str]):
         """
         通过深拷贝更新 Cloudflare 优选 IPs
@@ -601,49 +660,81 @@ class ClashRuleProvider(_PluginBase):
     async def test_connectivity(self, params: Dict[str, Any]) -> schemas.Response:
         if not self._enabled:
             return schemas.Response(success=False, message="")
-        if not params.get('clash_dashboard_url') or not params.get('clash_dashboard_secret') \
-                or not params.get('sub_links'):
-            return schemas.Response(success=True, message="missing params")
-        clash_version_url = f"{params.get('clash_dashboard_url')}/version"
-        ret = await AsyncRequestUtils(accept_type="application/json",
-                                      headers={"authorization": f"Bearer {params.get('clash_dashboard_secret')}"}
-                                      ).get(clash_version_url)
-        if ret is None:
-            return schemas.Response(success=False, message="无法连接到Clash")
+        if params.get('clash_dashboards') is None or not params.get('sub_links'):
+            return schemas.Response(success=True, message="Missing params")
+
+        tasks = []
+        for clash_dashboard in params['clash_dashboards']:
+            url = clash_dashboard.get('url') or ''
+            secret = clash_dashboard.get('secret') or ''
+            tasks.append(asyncio.create_task(ClashRuleProvider.async_fetch_clash_version(url, secret)))
+        results  = await asyncio.gather(*tasks)
+        for i, result in enumerate(results):
+            if not result:
+                return schemas.Response(success=False,
+                                        message=f"无法连接到 Clash {params['clash_dashboards'][i].get('url')}")
         for sub_link in (params.get('sub_links') or []):
             ret = await AsyncRequestUtils(accept_type="text/html",
                                           proxies=settings.PROXY if self._proxy else None
                                           ).get(sub_link)
             if ret is None:
-                return schemas.Response(success=False, message=f"Unable to fetch {sub_link}")
+                return schemas.Response(success=False, message=f"无法获取 {sub_link}")
         return schemas.Response(success=True, message="测试连接成功")
 
-    def get_ruleset(self, name):
-        if not self._ruleset_names.get(name):
-            return None
-        name = self._ruleset_names.get(name)
-        rules = self.__get_ruleset(name)
+    @staticmethod
+    async def async_fetch_clash_version(url: str, secret: str) -> Optional[str]:
+        url = url.rstrip('/')
+        clash_version_url = f"{url}/version"
+        ret = await AsyncRequestUtils(accept_type="application/json",
+                                      headers={"authorization": f"Bearer {secret}"},
+                                      timeout=5
+                                      ).get_json(clash_version_url)
+        return ret
+
+    def get_ruleset(self, name: str, apikey: str) -> Response:
+        _apikey = self._apikey or settings.API_TOKEN
+        if apikey != _apikey:
+            raise HTTPException(status_code=403, detail="Invalid API Key")
+        ruleset_name = self._ruleset_names.get(name)
+        if ruleset_name is None:
+            raise HTTPException(status_code=404, detail=f"Ruleset '{name}' not found")
+
+        rules = self.__get_ruleset(ruleset_name)
         res = yaml.dump({"payload": rules}, allow_unicode=True)
-        return Response(content=res, media_type="text/yaml")
+
+        return PlainTextResponse(content=res, media_type="application/x-yaml")
 
     def get_clash_outbound(self) -> schemas.Response:
         outbound = self.clash_outbound()
         return schemas.Response(success=True, message="", data={"outbound": outbound})
 
-    def get_status(self):
+    def get_status(self)  -> schemas.Response:
         first_config = self._clash_configs.get(self._sub_links[0], {}) if self._sub_links else {}
         rule_size = len(first_config.get("rules", []))
-        return {"success": True, "message": "",
-                "data": {"state": self._enabled,
-                         "ruleset_prefix": self._ruleset_prefix,
-                         "clash": {"rule_size": rule_size},
-                         "best_cf_ip": self._best_cf_ip,
-                         "geoRules": self._geo_rules,
-                         "subscription_info": self._subscription_info,
-                         "sub_url": f"{self._movie_pilot_url}/api/v1/plugin/ClashRuleProvider/config?"
-                                    f"apikey={settings.API_TOKEN}"}}
+        data = {"state": self._enabled,
+                "ruleset_prefix": self._ruleset_prefix,
+                "clash": {"rule_size": rule_size},
+                "best_cf_ip": self._best_cf_ip,
+                "geoRules": self._geo_rules,
+                "subscription_info": self._subscription_info,
+                "sub_url": f"{self._movie_pilot_url}/api/v1/plugin/ClashRuleProvider/config?"
+                           f"apikey={self._apikey or settings.API_TOKEN}"}
+        return schemas.Response(success=True, message="", data=data)
 
-    def get_clash_config(self, request: Request):
+    def update_subscription_info(self, params: Dict[str, Any]) -> schemas.Response:
+        url = params.get('url')
+        field = params.get('field')
+        if 'value' not in params or url not in self._subscription_info or field not in ['name', 'enabled']:
+            return schemas.Response(success=False, message="Missing params")
+        value = params.get('value')
+        self._subscription_info[url][field] = value
+        self.save_data('subscription_info', self._subscription_info)
+        return schemas.Response(success=True)
+
+    def get_clash_config(self, apikey: str, request: Request):
+        _apikey = self._apikey or settings.API_TOKEN
+        if apikey != _apikey:
+            raise HTTPException(status_code=403, detail="Invalid API Key")
         logger.info(f"{request.client.host} 正在获取配置")
         config = self.clash_config()
         if not config:
@@ -798,7 +889,7 @@ class ClashRuleProvider(_PluginBase):
         if not config:
             return schemas.Response(success=False, message=f"订阅链接 {url} 更新失败")
         self._clash_configs[url] = config
-        self._subscription_info[url] = info
+        self._subscription_info[url] = {**info, 'enabled': self._subscription_info.get(url, {}).get('enabled', False)}
         self.save_data('clash_configs', self._clash_configs)
         self.save_data('subscription_info', self._subscription_info)
         return schemas.Response(success=True, message='订阅更新成功')
@@ -1005,7 +1096,7 @@ class ClashRuleProvider(_PluginBase):
         self.save_data('proxy_groups', self._proxy_groups)
         return schemas.Response(success=True, message='')
 
-    def clash_outbound(self) -> Optional[List]:
+    def clash_outbound(self) -> List[Dict[str, Any]]:
         first_config = self._clash_configs.get(self._sub_links[0], {}) if self._sub_links else {}
         outbound = [{'name': proxy_group.get("name")} for proxy_group in first_config.get("proxy-groups", [])]
         outbound.extend([{'name': proxy.get("name")} for proxy in first_config.get("proxies", [])])
@@ -1166,7 +1257,7 @@ class ClashRuleProvider(_PluginBase):
                             f"总量: {ClashRuleProvider.format_bytes(sub_info.get('total', 0))}\n"
                             f"过期时间: {ClashRuleProvider.format_expire_time(sub_info.get('expire', 0))}")
                 else:
-                    info = ""
+                    info = f"节点数量: {sub_info.get('proxy_num', 0)}\n"
                 message += f"订阅更新成功\n{info}"
             else:
                 message += '订阅更新失败'
@@ -1229,11 +1320,13 @@ class ClashRuleProvider(_PluginBase):
         all_proxies = []
         res = {}
         for index, url in enumerate(self._sub_links):
+            if not self._subscription_info.get(url, {}).get('enabled'):
+                continue
             config, sub_info = self.__get_subscription(url)
-            self._subscription_info[url] = sub_info or {}
             if not config:
                 res[url] = False
                 continue
+            self._subscription_info[url] = {**sub_info, 'enabled': True}
             res[url] = True
             self._clash_configs[url] = config
             all_proxies.extend(config.get("proxies", []))
@@ -1248,7 +1341,7 @@ class ClashRuleProvider(_PluginBase):
         logger.info(f"正在更新: {url}")
         ret = None
         for i in range(0, self._retry_times):
-            ret = RequestUtils(accept_type="text/html",
+            ret = RequestUtils(accept_type="text/html", timeout=self._timeout,
                                proxies=settings.PROXY if self._proxy else None
                                ).get_res(url)
             if ret:
@@ -1290,10 +1383,13 @@ class ClashRuleProvider(_PluginBase):
         """
         通知 Clash 刷新规则集
         """
-        url = f'{self._clash_dashboard_url}/providers/rules/{ruleset}'
-        RequestUtils(content_type="application/json",
-                     headers={"authorization": f"Bearer {self._clash_dashboard_secret}"}
-                     ).put(url)
+        for clash_dashboard in self._clash_dashboards:
+            clash_dashboard_url = clash_dashboard.get('url', '')
+            clash_dashboard_secret = clash_dashboard.get('secret', '')
+            url = f'{clash_dashboard_url}/providers/rules/{ruleset}'
+            RequestUtils(content_type="application/json", timeout=self._timeout,
+                         headers={"authorization": f"Bearer {clash_dashboard_secret}"}
+                         ).put(url)
 
     def proxy_groups_by_region(self) -> List[Dict[str, Any]]:
         return self.__group_by_region(self._countries, self.all_proxies())
@@ -1430,6 +1526,27 @@ class ClashRuleProvider(_PluginBase):
             to_list.append(item)
         return to_list
 
+    @staticmethod
+    def remove_invalid_outbounds(proxies: List[Dict[str, Any]], proxy_groups: List[Dict[str, Any]]
+                                ) -> List[Dict[str, Any]]:
+        """
+         从代理组中移除无效的出站
+        """
+        outbounds = {proxy.get('name') for proxy in proxies if proxy.get('name')} | \
+                    {proxy_group.get('name') for proxy_group in proxy_groups if proxy_group.get('name')} | \
+                    {action.value for action in Action}
+        outbounds.add('GLOBAL')
+        for proxy_group in proxy_groups:
+            ps = []
+            if proxy_group.get('proxies'):
+                for proxy in proxy_group.get('proxies', []):
+                    if proxy in outbounds:
+                        ps.append(proxy)
+                    else:
+                        logger.warn(f"Proxy {proxy!r} in {proxy_group.get('name')!r} doesn't exist. Skipping...")
+                proxy_group['proxies'] = ps
+        return proxy_groups
+
     def clash_config(self) -> Optional[Dict[str, Any]]:
         """
         整理 clash 配置，返回配置字典
@@ -1473,8 +1590,10 @@ class ClashRuleProvider(_PluginBase):
             groups_by_region = self.proxy_groups_by_region()
             if groups_by_region:
                 clash_config['proxy-groups'] = ClashRuleProvider.extend_with_name_checking(clash_config['proxy-groups'],
-                                                                                           groups_by_region)
-
+                                                                                  groups_by_region)
+        # 移除无效出站, 避免配置错误
+        clash_config['proxy-groups'] = ClashRuleProvider.remove_invalid_outbounds(clash_config.get('proxies', []),
+                                                                                 clash_config.get('proxy-groups', []))
         top_rules = []
         outbound_names = list(x.get("name") for x in self.clash_outbound())
 
@@ -1491,7 +1610,7 @@ class ClashRuleProvider(_PluginBase):
                 path_name = hashlib.sha256(action_str.encode('utf-8')).hexdigest()[:10]
                 self._ruleset_names[path_name] = rule_provider_name
                 sub_url = (f"{self._movie_pilot_url}/api/v1/plugin/ClashRuleProvider/ruleset?"
-                           f"name={path_name}&apikey={settings.API_TOKEN}")
+                           f"name={path_name}&apikey={self._apikey or settings.API_TOKEN}")
                 self._rule_provider[rule_provider_name] = {"behavior": "classical",
                                                            "format": "yaml",
                                                            "interval": 3600,
