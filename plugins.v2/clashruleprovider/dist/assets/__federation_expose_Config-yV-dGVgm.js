@@ -2,7 +2,7 @@ import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { V as VAceEditor } from './theme-monokai-Bn79mBHh.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
-const {createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,mergeProps:_mergeProps,withModifiers:_withModifiers,createElementVNode:_createElementVNode,unref:_unref,Fragment:_Fragment,createElementBlock:_createElementBlock} = await importShared('vue');
+const {createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,mergeProps:_mergeProps,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,withModifiers:_withModifiers,createElementVNode:_createElementVNode,unref:_unref} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "plugin-config" };
@@ -55,8 +55,9 @@ const isFormValid = ref(true);
 const error = ref(null);
 const saving = ref(false);
 const testing = ref(false);
-const showClashSecret = ref(false);
+ref(false);
 const dashboardComponents = ['Clash Info', 'Traffic Stats'];
+const showSecrets = ref({0: false});
 
 // Test result state
 const testResult = reactive({
@@ -72,8 +73,7 @@ const defaultConfig = {
   enabled: false,
   sub_links: [],
   filter_keywords: ["公益性", "高延迟", "域名", "官网", "重启", "过期时间", "系统代理"],
-  clash_dashboard_url: '',
-  clash_dashboard_secret: '',
+  clash_dashboards: [{url: '', secret: ''}],
   movie_pilot_url: '',
   cron_string: '0 */6 * * *',
   timeout: 10,
@@ -92,7 +92,9 @@ const defaultConfig = {
   dashboard_components: [],
   clash_template: '',
   hint_geo_dat: false,
-  best_cf_ip: []
+  best_cf_ip: [],
+  active_dashboard: 0,
+  apikey: null
 };
 
 // 响应式配置对象
@@ -151,6 +153,16 @@ function validateIPs(ips) {
   return true
 }
 
+const generateApiKey = () => {
+  // 简单生成随机字符串，可替换为更安全的算法
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let key = '';
+  for (let i = 0; i < 32; i++) {
+    key += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  config.apikey = key;
+};
+
 // 测试连接
 async function testConnection() {
   testing.value = true;
@@ -159,22 +171,13 @@ async function testConnection() {
 
   try {
     // 验证必需的参数
-    if (!config.clash_dashboard_url) {
-      throw new Error('请先配置 Clash 面板 URL')
-    }
-    if (!config.clash_dashboard_secret) {
-      throw new Error('请先配置 Clash 面板密钥')
-    }
     if (!config.sub_links || config.sub_links.length === 0) {
       throw new Error('请先配置至少一个订阅链接')
     }
-    if (!config.movie_pilot_url || config.movie_pilot_url.length === 0) {
-      throw new Error('请先MoviePilot链接')
-    }
+
     // 准备API请求参数
     const testParams = {
-      clash_dashboard_url: config.clash_dashboard_url,
-      clash_dashboard_secret: config.clash_dashboard_secret,
+      clash_dashboards: config.clash_dashboards,
       sub_links: config.sub_links // 使用第一个订阅链接进行测试
     };
 
@@ -237,6 +240,25 @@ function extractDomain(url) {
   }
 }
 
+const toggleSecret = (index) => {
+  showSecrets.value[index] = !showSecrets.value[index];
+};
+const addClashConfig = () => {
+  const newIndex = config.clash_dashboards.length;
+  config.clash_dashboards.push({url: '', secret: ''});
+  showSecrets.value[newIndex] = false;
+};
+
+const removeClashConfig = (index) => {
+  config.clash_dashboards.splice(index, 1);
+  delete showSecrets.value[index];
+
+  // 如果删除的是当前激活项，重置激活
+  if (config.active_dashboard === index) {
+    config.active_dashboard = config.clash_dashboards.length > 0 ? 0 : null;
+  }
+};
+
 function openClashTemplateDialog() {
   clashTemplateContent.value = config.clash_template;
   clashTemplateDialog.value = true;
@@ -278,13 +300,16 @@ return (_ctx, _cache) => {
   const _component_v_col = _resolveComponent("v-col");
   const _component_v_row = _resolveComponent("v-row");
   const _component_v_text_field = _resolveComponent("v-text-field");
+  const _component_v_select = _resolveComponent("v-select");
   const _component_v_tab = _resolveComponent("v-tab");
   const _component_v_tabs = _resolveComponent("v-tabs");
   const _component_v_divider = _resolveComponent("v-divider");
   const _component_v_chip = _resolveComponent("v-chip");
   const _component_v_combobox = _resolveComponent("v-combobox");
   const _component_v_window_item = _resolveComponent("v-window-item");
-  const _component_v_select = _resolveComponent("v-select");
+  const _component_v_radio = _resolveComponent("v-radio");
+  const _component_v_radio_group = _resolveComponent("v-radio-group");
+  const _component_row = _resolveComponent("row");
   const _component_v_cron_field = _resolveComponent("v-cron-field");
   const _component_v_window = _resolveComponent("v-window");
   const _component_v_expansion_panel_title = _resolveComponent("v-expansion-panel-title");
@@ -312,7 +337,7 @@ return (_ctx, _cache) => {
               }, {
                 default: _withCtx(() => [
                   _createVNode(_component_v_icon, { left: "" }, {
-                    default: _withCtx(() => _cache[33] || (_cache[33] = [
+                    default: _withCtx(() => _cache[32] || (_cache[32] = [
                       _createTextVNode("mdi-close")
                     ])),
                     _: 1
@@ -323,7 +348,7 @@ return (_ctx, _cache) => {
             ]),
             default: _withCtx(() => [
               _createVNode(_component_v_card_title, null, {
-                default: _withCtx(() => _cache[32] || (_cache[32] = [
+                default: _withCtx(() => _cache[31] || (_cache[31] = [
                   _createTextVNode("Clash Rule Provider 插件配置")
                 ])),
                 _: 1
@@ -349,7 +374,7 @@ return (_ctx, _cache) => {
                 ref_key: "form",
                 ref: form,
                 modelValue: isFormValid.value,
-                "onUpdate:modelValue": _cache[26] || (_cache[26] = $event => ((isFormValid).value = $event)),
+                "onUpdate:modelValue": _cache[25] || (_cache[25] = $event => ((isFormValid).value = $event)),
                 onSubmit: _withModifiers(saveConfig, ["prevent"])
               }, {
                 default: _withCtx(() => [
@@ -428,7 +453,10 @@ return (_ctx, _cache) => {
                   }),
                   _createVNode(_component_v_row, null, {
                     default: _withCtx(() => [
-                      _createVNode(_component_v_col, { cols: "12" }, {
+                      _createVNode(_component_v_col, {
+                        cols: "12",
+                        md: "4"
+                      }, {
                         default: _withCtx(() => [
                           _createVNode(_component_v_text_field, {
                             modelValue: config.movie_pilot_url,
@@ -441,7 +469,7 @@ return (_ctx, _cache) => {
                           }, {
                             "prepend-inner": _withCtx(() => [
                               _createVNode(_component_v_icon, { color: "success" }, {
-                                default: _withCtx(() => _cache[34] || (_cache[34] = [
+                                default: _withCtx(() => _cache[33] || (_cache[33] = [
                                   _createTextVNode("mdi-movie")
                                 ])),
                                 _: 1
@@ -451,13 +479,81 @@ return (_ctx, _cache) => {
                           }, 8, ["modelValue", "rules"])
                         ]),
                         _: 1
+                      }),
+                      _createVNode(_component_v_col, {
+                        cols: "12",
+                        md: "4"
+                      }, {
+                        default: _withCtx(() => [
+                          _createVNode(_component_v_text_field, {
+                            modelValue: config.apikey,
+                            "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((config.apikey) = $event)),
+                            label: "API Key",
+                            variant: "outlined",
+                            placeholder: "留空使用系统 API Key",
+                            hint: "用于服务认证的 API Key"
+                          }, {
+                            "prepend-inner": _withCtx(() => [
+                              _createVNode(_component_v_icon, { color: "warning" }, {
+                                default: _withCtx(() => _cache[34] || (_cache[34] = [
+                                  _createTextVNode("mdi-key")
+                                ])),
+                                _: 1
+                              })
+                            ]),
+                            "append-inner": _withCtx(() => [
+                              _createVNode(_component_v_icon, {
+                                color: "primary",
+                                class: "cursor-pointer",
+                                onClick: generateApiKey
+                              }, {
+                                default: _withCtx(() => _cache[35] || (_cache[35] = [
+                                  _createTextVNode(" mdi-autorenew ")
+                                ])),
+                                _: 1
+                              })
+                            ]),
+                            _: 1
+                          }, 8, ["modelValue"])
+                        ]),
+                        _: 1
+                      }),
+                      _createVNode(_component_v_col, {
+                        cols: "12",
+                        md: "4"
+                      }, {
+                        default: _withCtx(() => [
+                          _createVNode(_component_v_select, {
+                            modelValue: config.dashboard_components,
+                            "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((config.dashboard_components) = $event)),
+                            items: dashboardComponents,
+                            label: "仪表盘组件",
+                            "hide-details": "",
+                            variant: "outlined",
+                            multiple: "",
+                            chips: "",
+                            class: "mb-4",
+                            hint: "添加仪表盘组件"
+                          }, {
+                            "prepend-inner": _withCtx(() => [
+                              _createVNode(_component_v_icon, { color: "info" }, {
+                                default: _withCtx(() => _cache[36] || (_cache[36] = [
+                                  _createTextVNode("mdi-view-dashboard")
+                                ])),
+                                _: 1
+                              })
+                            ]),
+                            _: 1
+                          }, 8, ["modelValue"])
+                        ]),
+                        _: 1
                       })
                     ]),
                     _: 1
                   }),
                   _createVNode(_component_v_tabs, {
                     modelValue: activeTab.value,
-                    "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((activeTab).value = $event)),
+                    "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((activeTab).value = $event)),
                     class: "mt-4",
                     grow: ""
                   }, {
@@ -465,36 +561,36 @@ return (_ctx, _cache) => {
                       _createVNode(_component_v_tab, { value: "subscription" }, {
                         default: _withCtx(() => [
                           _createVNode(_component_v_icon, { start: "" }, {
-                            default: _withCtx(() => _cache[35] || (_cache[35] = [
+                            default: _withCtx(() => _cache[37] || (_cache[37] = [
                               _createTextVNode("mdi-link-variant")
                             ])),
                             _: 1
                           }),
-                          _cache[36] || (_cache[36] = _createTextVNode(" 订阅链接配置 "))
+                          _cache[38] || (_cache[38] = _createTextVNode(" 订阅链接配置 "))
                         ]),
                         _: 1
                       }),
                       _createVNode(_component_v_tab, { value: "clash" }, {
                         default: _withCtx(() => [
                           _createVNode(_component_v_icon, { start: "" }, {
-                            default: _withCtx(() => _cache[37] || (_cache[37] = [
+                            default: _withCtx(() => _cache[39] || (_cache[39] = [
                               _createTextVNode("mdi-application-brackets")
                             ])),
                             _: 1
                           }),
-                          _cache[38] || (_cache[38] = _createTextVNode(" Clash 面板配置 "))
+                          _cache[40] || (_cache[40] = _createTextVNode(" Clash 面板配置 "))
                         ]),
                         _: 1
                       }),
                       _createVNode(_component_v_tab, { value: "execution" }, {
                         default: _withCtx(() => [
                           _createVNode(_component_v_icon, { start: "" }, {
-                            default: _withCtx(() => _cache[39] || (_cache[39] = [
+                            default: _withCtx(() => _cache[41] || (_cache[41] = [
                               _createTextVNode("mdi-play-circle")
                             ])),
                             _: 1
                           }),
-                          _cache[40] || (_cache[40] = _createTextVNode(" 执行设置 "))
+                          _cache[42] || (_cache[42] = _createTextVNode(" 执行设置 "))
                         ]),
                         _: 1
                       })
@@ -504,7 +600,7 @@ return (_ctx, _cache) => {
                   _createVNode(_component_v_divider),
                   _createVNode(_component_v_window, {
                     modelValue: activeTab.value,
-                    "onUpdate:modelValue": _cache[19] || (_cache[19] = $event => ((activeTab).value = $event)),
+                    "onUpdate:modelValue": _cache[18] || (_cache[18] = $event => ((activeTab).value = $event)),
                     class: "pa-4"
                   }, {
                     default: _withCtx(() => [
@@ -519,7 +615,7 @@ return (_ctx, _cache) => {
                                 default: _withCtx(() => [
                                   _createVNode(_component_v_switch, {
                                     modelValue: config.discard_rules,
-                                    "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((config.discard_rules) = $event)),
+                                    "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((config.discard_rules) = $event)),
                                     label: "丢弃订阅规则",
                                     color: "primary",
                                     inset: "",
@@ -535,7 +631,7 @@ return (_ctx, _cache) => {
                                 default: _withCtx(() => [
                                   _createVNode(_component_v_switch, {
                                     modelValue: config.discard_proxy_groups,
-                                    "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((config.discard_proxy_groups) = $event)),
+                                    "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((config.discard_proxy_groups) = $event)),
                                     label: "丢弃订阅代理组",
                                     color: "primary",
                                     inset: "",
@@ -551,7 +647,7 @@ return (_ctx, _cache) => {
                                 default: _withCtx(() => [
                                   _createVNode(_component_v_switch, {
                                     modelValue: config.group_by_country,
-                                    "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((config.group_by_country) = $event)),
+                                    "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((config.group_by_country) = $event)),
                                     label: "按国家分组节点",
                                     color: "primary",
                                     inset: "",
@@ -567,7 +663,7 @@ return (_ctx, _cache) => {
                                 default: _withCtx(() => [
                                   _createVNode(_component_v_switch, {
                                     modelValue: config.group_by_region,
-                                    "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((config.group_by_region) = $event)),
+                                    "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((config.group_by_region) = $event)),
                                     label: "按大洲分组节点",
                                     color: "primary",
                                     inset: "",
@@ -585,7 +681,7 @@ return (_ctx, _cache) => {
                                 default: _withCtx(() => [
                                   _createVNode(_component_v_combobox, {
                                     modelValue: config.sub_links,
-                                    "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((config.sub_links) = $event)),
+                                    "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((config.sub_links) = $event)),
                                     label: "订阅链接",
                                     variant: "outlined",
                                     multiple: "",
@@ -594,6 +690,14 @@ return (_ctx, _cache) => {
                                     hint: "添加 Clash | V2Ray 订阅链接. 为避免冲突, 只有第一个链接的代理组会被保留",
                                     rules: [validateSubLinks]
                                   }, {
+                                    "prepend-inner": _withCtx(() => [
+                                      _createVNode(_component_v_icon, { color: "secondary" }, {
+                                        default: _withCtx(() => _cache[43] || (_cache[43] = [
+                                          _createTextVNode("mdi-link")
+                                        ])),
+                                        _: 1
+                                      })
+                                    ]),
                                     chip: _withCtx(({ props, item }) => [
                                       _createVNode(_component_v_chip, _mergeProps(props, {
                                         closable: "",
@@ -614,7 +718,7 @@ return (_ctx, _cache) => {
                                 default: _withCtx(() => [
                                   _createVNode(_component_v_combobox, {
                                     modelValue: config.filter_keywords,
-                                    "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((config.filter_keywords) = $event)),
+                                    "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((config.filter_keywords) = $event)),
                                     label: "节点过滤关键词",
                                     variant: "outlined",
                                     multiple: "",
@@ -623,6 +727,14 @@ return (_ctx, _cache) => {
                                     clearable: "",
                                     hint: "添加用于过滤节点的关键词"
                                   }, {
+                                    "prepend-inner": _withCtx(() => [
+                                      _createVNode(_component_v_icon, { color: "info" }, {
+                                        default: _withCtx(() => _cache[44] || (_cache[44] = [
+                                          _createTextVNode("mdi-filter")
+                                        ])),
+                                        _: 1
+                                      })
+                                    ]),
                                     chip: _withCtx(({ props, item }) => [
                                       _createVNode(_component_v_chip, _mergeProps(props, {
                                         closable: "",
@@ -648,88 +760,149 @@ return (_ctx, _cache) => {
                       }),
                       _createVNode(_component_v_window_item, { value: "clash" }, {
                         default: _withCtx(() => [
-                          _createVNode(_component_v_row, null, {
+                          _createVNode(_component_v_alert, {
+                            "border-color": "info",
+                            text: "",
+                            variant: "tonal",
+                            border: "start"
+                          }, {
+                            default: _withCtx(() => _cache[45] || (_cache[45] = [
+                              _createTextVNode(" Clash 访问地址用于通知 Clash 更新规则集; 选中的面板用于小组件显示 ")
+                            ])),
+                            _: 1
+                          }),
+                          _createVNode(_component_row, null, {
                             default: _withCtx(() => [
                               _createVNode(_component_v_col, { cols: "12" }, {
                                 default: _withCtx(() => [
-                                  _createVNode(_component_v_text_field, {
-                                    modelValue: config.clash_dashboard_url,
-                                    "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((config.clash_dashboard_url) = $event)),
-                                    label: "Clash 面板 URL",
-                                    variant: "outlined",
-                                    placeholder: "http://localhost:9090",
-                                    hint: "Clash 控制面板的访问地址",
-                                    rules: [v => !v || isValidUrl(v) || '请输入有效的URL地址']
+                                  _createVNode(_component_v_radio_group, {
+                                    modelValue: config.active_dashboard,
+                                    "onUpdate:modelValue": _cache[14] || (_cache[14] = $event => ((config.active_dashboard) = $event))
                                   }, {
-                                    "prepend-inner": _withCtx(() => [
-                                      _createVNode(_component_v_icon, { color: "primary" }, {
-                                        default: _withCtx(() => _cache[41] || (_cache[41] = [
-                                          _createTextVNode("mdi-web")
-                                        ])),
-                                        _: 1
-                                      })
+                                    default: _withCtx(() => [
+                                      (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(config.clash_dashboards, (item, index) => {
+                                        return (_openBlock(), _createBlock(_component_v_row, { key: index }, {
+                                          default: _withCtx(() => [
+                                            _createVNode(_component_v_col, {
+                                              cols: "12",
+                                              md: "1",
+                                              class: "d-flex align-center"
+                                            }, {
+                                              default: _withCtx(() => [
+                                                _createVNode(_component_v_radio, {
+                                                  value: index,
+                                                  color: "primary",
+                                                  label: ""
+                                                }, null, 8, ["value"])
+                                              ]),
+                                              _: 2
+                                            }, 1024),
+                                            _createVNode(_component_v_col, {
+                                              cols: "12",
+                                              md: "5"
+                                            }, {
+                                              default: _withCtx(() => [
+                                                _createVNode(_component_v_text_field, {
+                                                  modelValue: item.url,
+                                                  "onUpdate:modelValue": $event => ((item.url) = $event),
+                                                  label: "Clash 面板 URL",
+                                                  variant: "outlined",
+                                                  placeholder: "http://localhost:9090",
+                                                  density: "compact",
+                                                  rules: [v => !v || isValidUrl(v) || '请输入有效的URL地址']
+                                                }, {
+                                                  "prepend-inner": _withCtx(() => [
+                                                    _createVNode(_component_v_icon, { color: "primary" }, {
+                                                      default: _withCtx(() => _cache[46] || (_cache[46] = [
+                                                        _createTextVNode("mdi-web")
+                                                      ])),
+                                                      _: 1
+                                                    })
+                                                  ]),
+                                                  _: 2
+                                                }, 1032, ["modelValue", "onUpdate:modelValue", "rules"])
+                                              ]),
+                                              _: 2
+                                            }, 1024),
+                                            _createVNode(_component_v_col, {
+                                              cols: "12",
+                                              md: "5"
+                                            }, {
+                                              default: _withCtx(() => [
+                                                _createVNode(_component_v_text_field, {
+                                                  modelValue: item.secret,
+                                                  "onUpdate:modelValue": $event => ((item.secret) = $event),
+                                                  label: "Clash 面板密钥",
+                                                  variant: "outlined",
+                                                  placeholder: "your-clash-secret",
+                                                  density: "compact",
+                                                  "append-inner-icon": showSecrets.value[index] ? 'mdi-eye-off' : 'mdi-eye',
+                                                  type: showSecrets.value[index] ? 'text' : 'password',
+                                                  "onClick:appendInner": $event => (toggleSecret(index))
+                                                }, {
+                                                  "prepend-inner": _withCtx(() => [
+                                                    _createVNode(_component_v_icon, { color: "warning" }, {
+                                                      default: _withCtx(() => _cache[47] || (_cache[47] = [
+                                                        _createTextVNode("mdi-key")
+                                                      ])),
+                                                      _: 1
+                                                    })
+                                                  ]),
+                                                  _: 2
+                                                }, 1032, ["modelValue", "onUpdate:modelValue", "append-inner-icon", "type", "onClick:appendInner"])
+                                              ]),
+                                              _: 2
+                                            }, 1024),
+                                            _createVNode(_component_v_col, {
+                                              cols: "12",
+                                              md: "1",
+                                              class: "d-flex align-center"
+                                            }, {
+                                              default: _withCtx(() => [
+                                                _createVNode(_component_v_btn, {
+                                                  icon: "",
+                                                  color: "error",
+                                                  variant: "text",
+                                                  onClick: $event => (removeClashConfig(index))
+                                                }, {
+                                                  default: _withCtx(() => [
+                                                    _createVNode(_component_v_icon, null, {
+                                                      default: _withCtx(() => _cache[48] || (_cache[48] = [
+                                                        _createTextVNode("mdi-delete")
+                                                      ])),
+                                                      _: 1
+                                                    })
+                                                  ]),
+                                                  _: 2
+                                                }, 1032, ["onClick"])
+                                              ]),
+                                              _: 2
+                                            }, 1024)
+                                          ]),
+                                          _: 2
+                                        }, 1024))
+                                      }), 128))
                                     ]),
                                     _: 1
-                                  }, 8, ["modelValue", "rules"])
-                                ]),
-                                _: 1
-                              }),
-                              _createVNode(_component_v_col, {
-                                cols: "12",
-                                md: "6"
-                              }, {
-                                default: _withCtx(() => [
-                                  _createVNode(_component_v_text_field, {
-                                    modelValue: config.clash_dashboard_secret,
-                                    "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((config.clash_dashboard_secret) = $event)),
-                                    label: "Clash 面板密钥",
-                                    variant: "outlined",
-                                    placeholder: "your-clash-secret",
-                                    hint: "用于访问Clash API的密钥",
-                                    "append-inner-icon": showClashSecret.value ? 'mdi-eye-off' : 'mdi-eye',
-                                    type: showClashSecret.value ? 'text' : 'password',
-                                    "onClick:appendInner": _cache[14] || (_cache[14] = $event => (showClashSecret.value = !showClashSecret.value))
+                                  }, 8, ["modelValue"]),
+                                  _createVNode(_component_v_btn, {
+                                    size: "small",
+                                    color: "primary",
+                                    variant: "tonal",
+                                    class: "mt-2",
+                                    onClick: addClashConfig
                                   }, {
-                                    "prepend-inner": _withCtx(() => [
-                                      _createVNode(_component_v_icon, { color: "warning" }, {
-                                        default: _withCtx(() => _cache[42] || (_cache[42] = [
-                                          _createTextVNode("mdi-key")
+                                    default: _withCtx(() => [
+                                      _createVNode(_component_v_icon, { start: "" }, {
+                                        default: _withCtx(() => _cache[49] || (_cache[49] = [
+                                          _createTextVNode("mdi-plus")
                                         ])),
                                         _: 1
-                                      })
+                                      }),
+                                      _cache[50] || (_cache[50] = _createTextVNode(" 添加 "))
                                     ]),
                                     _: 1
-                                  }, 8, ["modelValue", "append-inner-icon", "type"])
-                                ]),
-                                _: 1
-                              }),
-                              _createVNode(_component_v_col, {
-                                cols: "12",
-                                md: "6"
-                              }, {
-                                default: _withCtx(() => [
-                                  _createVNode(_component_v_select, {
-                                    modelValue: config.dashboard_components,
-                                    "onUpdate:modelValue": _cache[15] || (_cache[15] = $event => ((config.dashboard_components) = $event)),
-                                    items: dashboardComponents,
-                                    label: "仪表盘组件",
-                                    "hide-details": "",
-                                    variant: "outlined",
-                                    multiple: "",
-                                    chips: "",
-                                    class: "mb-4",
-                                    hint: "添加仪表盘组件"
-                                  }, {
-                                    "prepend-inner": _withCtx(() => [
-                                      _createVNode(_component_v_icon, { color: "info" }, {
-                                        default: _withCtx(() => _cache[43] || (_cache[43] = [
-                                          _createTextVNode("mdi-view-dashboard")
-                                        ])),
-                                        _: 1
-                                      })
-                                    ]),
-                                    _: 1
-                                  }, 8, ["modelValue"])
+                                  })
                                 ]),
                                 _: 1
                               })
@@ -750,14 +923,14 @@ return (_ctx, _cache) => {
                                 default: _withCtx(() => [
                                   _createVNode(_component_v_cron_field, {
                                     modelValue: config.cron_string,
-                                    "onUpdate:modelValue": _cache[16] || (_cache[16] = $event => ((config.cron_string) = $event)),
+                                    "onUpdate:modelValue": _cache[15] || (_cache[15] = $event => ((config.cron_string) = $event)),
                                     label: "执行周期",
                                     placeholder: "0 4 * * *",
                                     hint: "使用标准Cron表达式格式 (分 时 日 月 周)"
                                   }, {
                                     "prepend-inner": _withCtx(() => [
                                       _createVNode(_component_v_icon, { color: "info" }, {
-                                        default: _withCtx(() => _cache[44] || (_cache[44] = [
+                                        default: _withCtx(() => _cache[51] || (_cache[51] = [
                                           _createTextVNode("mdi-clock-time-four-outline")
                                         ])),
                                         _: 1
@@ -775,7 +948,7 @@ return (_ctx, _cache) => {
                                 default: _withCtx(() => [
                                   _createVNode(_component_v_text_field, {
                                     modelValue: config.timeout,
-                                    "onUpdate:modelValue": _cache[17] || (_cache[17] = $event => ((config.timeout) = $event)),
+                                    "onUpdate:modelValue": _cache[16] || (_cache[16] = $event => ((config.timeout) = $event)),
                                     modelModifiers: { number: true },
                                     label: "超时时间",
                                     variant: "outlined",
@@ -796,7 +969,7 @@ return (_ctx, _cache) => {
                                 default: _withCtx(() => [
                                   _createVNode(_component_v_text_field, {
                                     modelValue: config.retry_times,
-                                    "onUpdate:modelValue": _cache[18] || (_cache[18] = $event => ((config.retry_times) = $event)),
+                                    "onUpdate:modelValue": _cache[17] || (_cache[17] = $event => ((config.retry_times) = $event)),
                                     modelModifiers: { number: true },
                                     label: "重试次数",
                                     variant: "outlined",
@@ -808,7 +981,7 @@ return (_ctx, _cache) => {
                                   }, {
                                     "prepend-inner": _withCtx(() => [
                                       _createVNode(_component_v_icon, { color: "info" }, {
-                                        default: _withCtx(() => _cache[45] || (_cache[45] = [
+                                        default: _withCtx(() => _cache[52] || (_cache[52] = [
                                           _createTextVNode("mdi-refresh")
                                         ])),
                                         _: 1
@@ -830,7 +1003,7 @@ return (_ctx, _cache) => {
                   }, 8, ["modelValue"]),
                   _createVNode(_component_v_expansion_panels, {
                     variant: "accordion",
-                    class: "mt-4"
+                    class: "mt-2"
                   }, {
                     default: _withCtx(() => [
                       _createVNode(_component_v_expansion_panel, null, {
@@ -838,12 +1011,12 @@ return (_ctx, _cache) => {
                           _createVNode(_component_v_expansion_panel_title, null, {
                             default: _withCtx(() => [
                               _createVNode(_component_v_icon, { class: "mr-2" }, {
-                                default: _withCtx(() => _cache[46] || (_cache[46] = [
+                                default: _withCtx(() => _cache[53] || (_cache[53] = [
                                   _createTextVNode("mdi-cog")
                                 ])),
                                 _: 1
                               }),
-                              _cache[47] || (_cache[47] = _createTextVNode(" 高级选项 "))
+                              _cache[54] || (_cache[54] = _createTextVNode(" 高级选项 "))
                             ]),
                             _: 1
                           }),
@@ -858,7 +1031,7 @@ return (_ctx, _cache) => {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_switch, {
                                         modelValue: config.hint_geo_dat,
-                                        "onUpdate:modelValue": _cache[20] || (_cache[20] = $event => ((config.hint_geo_dat) = $event)),
+                                        "onUpdate:modelValue": _cache[19] || (_cache[19] = $event => ((config.hint_geo_dat) = $event)),
                                         label: "Geo规则补全",
                                         color: "primary",
                                         inset: "",
@@ -874,7 +1047,7 @@ return (_ctx, _cache) => {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_switch, {
                                         modelValue: config.enable_acl4ssr,
-                                        "onUpdate:modelValue": _cache[21] || (_cache[21] = $event => ((config.enable_acl4ssr) = $event)),
+                                        "onUpdate:modelValue": _cache[20] || (_cache[20] = $event => ((config.enable_acl4ssr) = $event)),
                                         label: "ACL4SSR规则集",
                                         color: "primary",
                                         inset: "",
@@ -896,12 +1069,12 @@ return (_ctx, _cache) => {
                                       }, {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_icon, { left: "" }, {
-                                            default: _withCtx(() => _cache[48] || (_cache[48] = [
+                                            default: _withCtx(() => _cache[55] || (_cache[55] = [
                                               _createTextVNode("mdi-import")
                                             ])),
                                             _: 1
                                           }),
-                                          _cache[49] || (_cache[49] = _createTextVNode(" Clash 配置模板 "))
+                                          _cache[56] || (_cache[56] = _createTextVNode(" Clash 配置模板 "))
                                         ]),
                                         _: 1
                                       })
@@ -920,7 +1093,7 @@ return (_ctx, _cache) => {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_text_field, {
                                         modelValue: config.ruleset_prefix,
-                                        "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((config.ruleset_prefix) = $event)),
+                                        "onUpdate:modelValue": _cache[21] || (_cache[21] = $event => ((config.ruleset_prefix) = $event)),
                                         label: "规则集前缀",
                                         variant: "outlined",
                                         placeholder: "📂<=",
@@ -929,7 +1102,7 @@ return (_ctx, _cache) => {
                                       }, {
                                         "prepend-inner": _withCtx(() => [
                                           _createVNode(_component_v_icon, { color: "info" }, {
-                                            default: _withCtx(() => _cache[50] || (_cache[50] = [
+                                            default: _withCtx(() => _cache[57] || (_cache[57] = [
                                               _createTextVNode("mdi-palette")
                                             ])),
                                             _: 1
@@ -947,7 +1120,7 @@ return (_ctx, _cache) => {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_text_field, {
                                         modelValue: config.acl4ssr_prefix,
-                                        "onUpdate:modelValue": _cache[23] || (_cache[23] = $event => ((config.acl4ssr_prefix) = $event)),
+                                        "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((config.acl4ssr_prefix) = $event)),
                                         label: "ACL4SSR 规则集前缀",
                                         variant: "outlined",
                                         placeholder: "🗂️=>",
@@ -956,7 +1129,7 @@ return (_ctx, _cache) => {
                                       }, {
                                         "prepend-inner": _withCtx(() => [
                                           _createVNode(_component_v_icon, { color: "primary" }, {
-                                            default: _withCtx(() => _cache[51] || (_cache[51] = [
+                                            default: _withCtx(() => _cache[58] || (_cache[58] = [
                                               _createTextVNode("mdi-palette")
                                             ])),
                                             _: 1
@@ -974,7 +1147,7 @@ return (_ctx, _cache) => {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_text_field, {
                                         modelValue: config.refresh_delay,
-                                        "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((config.refresh_delay) = $event)),
+                                        "onUpdate:modelValue": _cache[23] || (_cache[23] = $event => ((config.refresh_delay) = $event)),
                                         modelModifiers: { number: true },
                                         label: "刷新延迟",
                                         variant: "outlined",
@@ -987,7 +1160,7 @@ return (_ctx, _cache) => {
                                       }, {
                                         "prepend-inner": _withCtx(() => [
                                           _createVNode(_component_v_icon, { color: "info" }, {
-                                            default: _withCtx(() => _cache[52] || (_cache[52] = [
+                                            default: _withCtx(() => _cache[59] || (_cache[59] = [
                                               _createTextVNode("mdi-clock-outline")
                                             ])),
                                             _: 1
@@ -1010,7 +1183,7 @@ return (_ctx, _cache) => {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_combobox, {
                                         modelValue: config.best_cf_ip,
-                                        "onUpdate:modelValue": _cache[25] || (_cache[25] = $event => ((config.best_cf_ip) = $event)),
+                                        "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((config.best_cf_ip) = $event)),
                                         label: "Cloudflare CDN 优选 IPs",
                                         variant: "outlined",
                                         multiple: "",
@@ -1059,7 +1232,7 @@ return (_ctx, _cache) => {
             text: "",
             variant: "tonal"
           }, {
-            default: _withCtx(() => _cache[53] || (_cache[53] = [
+            default: _withCtx(() => _cache[60] || (_cache[60] = [
               _createTextVNode(" 配置说明参考: "),
               _createElementVNode("a", {
                 href: "https://github.com/wumode/MoviePilot-Plugins/tree/main/plugins.v2/clashruleprovider/README.md",
@@ -1076,12 +1249,12 @@ return (_ctx, _cache) => {
               }, {
                 default: _withCtx(() => [
                   _createVNode(_component_v_icon, { left: "" }, {
-                    default: _withCtx(() => _cache[54] || (_cache[54] = [
+                    default: _withCtx(() => _cache[61] || (_cache[61] = [
                       _createTextVNode("mdi-view-dashboard-edit")
                     ])),
                     _: 1
                   }),
-                  _cache[55] || (_cache[55] = _createTextVNode(" 规则 "))
+                  _cache[62] || (_cache[62] = _createTextVNode(" 规则 "))
                 ]),
                 _: 1
               }),
@@ -1089,9 +1262,15 @@ return (_ctx, _cache) => {
                 color: "secondary",
                 onClick: resetForm
               }, {
-                default: _withCtx(() => _cache[56] || (_cache[56] = [
-                  _createTextVNode("重置")
-                ])),
+                default: _withCtx(() => [
+                  _createVNode(_component_v_icon, { left: "" }, {
+                    default: _withCtx(() => _cache[63] || (_cache[63] = [
+                      _createTextVNode("mdi-autorenew")
+                    ])),
+                    _: 1
+                  }),
+                  _cache[64] || (_cache[64] = _createTextVNode(" 重置 "))
+                ]),
                 _: 1
               }),
               _createVNode(_component_v_btn, {
@@ -1099,9 +1278,15 @@ return (_ctx, _cache) => {
                 onClick: testConnection,
                 loading: testing.value
               }, {
-                default: _withCtx(() => _cache[57] || (_cache[57] = [
-                  _createTextVNode("测试连接")
-                ])),
+                default: _withCtx(() => [
+                  _createVNode(_component_v_icon, { left: "" }, {
+                    default: _withCtx(() => _cache[65] || (_cache[65] = [
+                      _createTextVNode("mdi-connection")
+                    ])),
+                    _: 1
+                  }),
+                  _cache[66] || (_cache[66] = _createTextVNode(" 测试连接 "))
+                ]),
                 _: 1
               }, 8, ["loading"]),
               _createVNode(_component_v_spacer),
@@ -1111,9 +1296,15 @@ return (_ctx, _cache) => {
                 onClick: saveConfig,
                 loading: saving.value
               }, {
-                default: _withCtx(() => _cache[58] || (_cache[58] = [
-                  _createTextVNode(" 保存配置 ")
-                ])),
+                default: _withCtx(() => [
+                  _createVNode(_component_v_icon, { left: "" }, {
+                    default: _withCtx(() => _cache[67] || (_cache[67] = [
+                      _createTextVNode("mdi-content-save")
+                    ])),
+                    _: 1
+                  }),
+                  _cache[68] || (_cache[68] = _createTextVNode(" 保存配置 "))
+                ]),
                 _: 1
               }, 8, ["disabled", "loading"])
             ]),
@@ -1126,7 +1317,7 @@ return (_ctx, _cache) => {
                 variant: "tonal",
                 closable: "",
                 class: "ma-4 mt-0",
-                "onClick:close": _cache[27] || (_cache[27] = $event => (testResult.show = false))
+                "onClick:close": _cache[26] || (_cache[26] = $event => (testResult.show = false))
               }, {
                 default: _withCtx(() => [
                   _createElementVNode("div", _hoisted_2, [
@@ -1151,14 +1342,14 @@ return (_ctx, _cache) => {
     ]),
     _createVNode(_component_v_dialog, {
       modelValue: clashTemplateDialog.value,
-      "onUpdate:modelValue": _cache[31] || (_cache[31] = $event => ((clashTemplateDialog).value = $event)),
+      "onUpdate:modelValue": _cache[30] || (_cache[30] = $event => ((clashTemplateDialog).value = $event)),
       "max-width": "600"
     }, {
       default: _withCtx(() => [
         _createVNode(_component_v_card, null, {
           default: _withCtx(() => [
             _createVNode(_component_v_card_title, null, {
-              default: _withCtx(() => _cache[59] || (_cache[59] = [
+              default: _withCtx(() => _cache[69] || (_cache[69] = [
                 _createTextVNode("Clash 配置模板")
               ])),
               _: 1
@@ -1167,14 +1358,14 @@ return (_ctx, _cache) => {
               default: _withCtx(() => [
                 _createVNode(_component_v_select, {
                   modelValue: clashTemplateType.value,
-                  "onUpdate:modelValue": _cache[28] || (_cache[28] = $event => ((clashTemplateType).value = $event)),
+                  "onUpdate:modelValue": _cache[27] || (_cache[27] = $event => ((clashTemplateType).value = $event)),
                   items: ['YAML'],
                   label: "配置类型",
                   class: "mb-4"
                 }, null, 8, ["modelValue"]),
                 _createVNode(_unref(VAceEditor), {
                   value: clashTemplateContent.value,
-                  "onUpdate:value": _cache[29] || (_cache[29] = $event => ((clashTemplateContent).value = $event)),
+                  "onUpdate:value": _cache[28] || (_cache[28] = $event => ((clashTemplateContent).value = $event)),
                   lang: "yaml",
                   theme: "monokai",
                   hint: "",
@@ -1189,7 +1380,7 @@ return (_ctx, _cache) => {
                   class: "mb-4",
                   variant: "tonal"
                 }, {
-                  default: _withCtx(() => _cache[60] || (_cache[60] = [
+                  default: _withCtx(() => _cache[70] || (_cache[70] = [
                     _createTextVNode("规则和出站代理会被添加在配置模板上 ")
                   ])),
                   _: 1
@@ -1202,9 +1393,9 @@ return (_ctx, _cache) => {
                 _createVNode(_component_v_spacer),
                 _createVNode(_component_v_btn, {
                   text: "",
-                  onClick: _cache[30] || (_cache[30] = $event => (clashTemplateDialog.value = false))
+                  onClick: _cache[29] || (_cache[29] = $event => (clashTemplateDialog.value = false))
                 }, {
-                  default: _withCtx(() => _cache[61] || (_cache[61] = [
+                  default: _withCtx(() => _cache[71] || (_cache[71] = [
                     _createTextVNode("取消")
                   ])),
                   _: 1
@@ -1213,7 +1404,7 @@ return (_ctx, _cache) => {
                   color: "primary",
                   onClick: saveClashTemplate
                 }, {
-                  default: _withCtx(() => _cache[62] || (_cache[62] = [
+                  default: _withCtx(() => _cache[72] || (_cache[72] = [
                     _createTextVNode("确定")
                   ])),
                   _: 1
@@ -1232,6 +1423,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigComponent = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c2db3dad"]]);
+const ConfigComponent = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3939efa1"]]);
 
 export { ConfigComponent as default };

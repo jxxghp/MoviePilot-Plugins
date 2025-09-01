@@ -1,0 +1,69 @@
+
+.plugin-page[data-v-ad6ce99d] {
+  margin: 0 auto;
+}
+
+/* 使卡片等宽并适应移动端 */
+.d-flex.flex-wrap[data-v-ad6ce99d] {
+  gap: 16px;
+}
+
+/* 移动端堆叠布局 */
+@media (max-width: 768px) {
+.d-flex.flex-wrap[data-v-ad6ce99d] {
+    flex-direction: column;
+}
+}
+.drag-handle[data-v-ad6ce99d] {
+  cursor: move;
+}
+.toggle-container[data-v-ad6ce99d] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem;
+  margin-left: 0.75rem;
+  margin-right: 0.75rem;
+}
+.subscription-card[data-v-ad6ce99d] {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transition: transform 0.3s, box-shadow 0.3s;
+  background: white;
+}
+.subscription-card[data-v-ad6ce99d]:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+.card-title[data-v-ad6ce99d] {
+  color: whitesmoke;
+}
+.card-header[data-v-ad6ce99d] {
+  padding: 0.625rem;
+  background: linear-gradient(135deg, rgba(var(--v-theme-primary), 1) 0%, rgba(var(--v-theme-primary), 0.7) 100%);
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.card-refresh-button[data-v-ad6ce99d] {
+  background-color: rgba(var(--v-theme-primary), 0.9);
+  color: whitesmoke;
+  border: none;
+  border-radius: 6px;
+  padding: 0.625rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: background-color 0.3s;
+}
+.search-field[data-v-ad6ce99d] {
+  max-width: 25rem;
+}
+.clash-data-table[data-v-ad6ce99d] {
+  max-height: 40rem;
+  overflow-y: auto;
+}
+
