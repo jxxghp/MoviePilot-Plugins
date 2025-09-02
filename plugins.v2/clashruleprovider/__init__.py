@@ -41,7 +41,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.4.0"
+    plugin_version = "1.4.1"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -563,7 +563,7 @@ class ClashRuleProvider(_PluginBase):
             'discard_proxy_groups': self._discard_proxy_groups,
             'enable_acl4ssr': self._enable_acl4ssr,
             'dashboard_components': self._dashboard_components,
-            'clash_template_yaml': self._clash_template_yaml,
+            'clash_template': self._clash_template_yaml,
             'hint_geo_dat': self._hint_geo_dat,
             'best_cf_ip': self._best_cf_ip,
             'active_dashboard': self._active_dashboard,
