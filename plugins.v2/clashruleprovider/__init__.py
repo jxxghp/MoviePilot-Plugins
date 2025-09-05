@@ -24,14 +24,15 @@ from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
-from app.plugins.clashruleprovider.clashruleparser import Action, RuleType, ClashRule, MatchRule, LogicRule
-from app.plugins.clashruleprovider.clashruleparser import ClashRuleParser, Converter
-from app.plugins.clashruleprovider.clashruleparser import ProxyGroup, RuleProvider
 from app.schemas.types import EventType
 from app.schemas.types import NotificationType
 from app.utils.http import RequestUtils, AsyncRequestUtils
 from app.utils.ip import IpUtils
 
+from .configconverter import Converter
+from .clashruleparser import Action, RuleType, ClashRule, MatchRule, LogicRule
+from .clashruleparser import ClashRuleParser
+from .clashruleparser import ProxyGroup, RuleProvider
 
 class ClashRuleProvider(_PluginBase):
     # 插件名称
@@ -41,7 +42,7 @@ class ClashRuleProvider(_PluginBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "1.4.1"
+    plugin_version = "1.4.2"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -63,7 +64,7 @@ class ClashRuleProvider(_PluginBase):
 
     # MoviePilot URL
     _movie_pilot_url: str = ''
-    _cron = ''
+    _cron_string = ''
     _timeout = 10
     _retry_times = 3
     _filter_keywords = []
@@ -141,7 +142,7 @@ class ClashRuleProvider(_PluginBase):
             self._movie_pilot_url = config.get("movie_pilot_url") or ''
             if self._movie_pilot_url:
                 self._movie_pilot_url = self._movie_pilot_url.rstrip('/')
-            self._cron = config.get("cron_string") or '30 12 * * *'
+            self._cron_string = config.get("cron_string") or '30 12 * * *'
             self._timeout = config.get("timeout")
             self._retry_times = config.get("retry_times") or 3
             self._filter_keywords = config.get("filter_keywords")
@@ -536,7 +537,7 @@ class ClashRuleProvider(_PluginBase):
             return [{
                 "id": "ClashRuleProvider",
                 "name": "定时更新订阅",
-                "trigger": CronTrigger.from_crontab(self._cron),
+                "trigger": CronTrigger.from_crontab(self._cron_string),
                 "func": self.refresh_subscription_service,
                 "kwargs": {}
             }]
@@ -550,7 +551,7 @@ class ClashRuleProvider(_PluginBase):
             'sub_links': self._sub_links,
             'clash_dashboards': self._clash_dashboards,
             'movie_pilot_url': self._movie_pilot_url,
-            'cron': self._cron,
+            'cron_string': self._cron_string,
             'timeout': self._timeout,
             'retry_times': self._retry_times,
             'filter_keywords': self._filter_keywords,
@@ -976,6 +977,13 @@ class ClashRuleProvider(_PluginBase):
             proxy_copy = copy.deepcopy(proxy)
             proxy_copy['source'] = 'Template'
             proxies.append(proxy_copy)
+        for proxy in proxies:
+            proxy_link = ''
+            try:
+                proxy_link = Converter.convert_to_share_link(proxy)
+            except Exception as e:
+                logger.error(f"Failed to convert proxy link: {repr(e)}")
+            proxy['v2ray_link'] = proxy_link
         return schemas.Response(success=True, data={'extra_proxies': proxies})
 
     def add_extra_proxies(self, params: Dict[str, Any]):
