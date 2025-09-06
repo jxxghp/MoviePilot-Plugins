@@ -862,6 +862,13 @@ class AutoSubv2(_PluginBase):
             logger.info(f"英文字幕合并：合并前字幕数: {len(subs)},合并后字幕数: {len(valid_subs)}")
         else:
             valid_subs = subs
+        
+        if not valid_subs:
+            logger.warning("字幕文件为空或没有有效的字幕条目，跳过翻译")
+            # 创建一个空的字幕文件
+            self.__save_srt(dest_subtitle, [])
+            return
+            
         self._stats['total'] = len(valid_subs)
         processed = []
         current_batch = []
@@ -878,10 +885,13 @@ class AutoSubv2(_PluginBase):
             processed += self.__process_items(valid_subs, current_batch)
 
         self.__save_srt(dest_subtitle, processed)
+        
+        success_rate = (self._stats['batch_success'] / self._stats['total'] * 100) if self._stats['total'] > 0 else 0.0
+        
         logger.info(f"""
     翻译完成！
     总处理条目: {self._stats['total']}
-    批次成功: {self._stats['batch_success']} ({(self._stats['batch_success'] / self._stats['total']) * 100:.1f}%)
+    批次成功: {self._stats['batch_success']} ({success_rate:.1f}%)
     批次失败: {self._stats['batch_fail']}
     行补偿翻译: {self._stats['line_fallback']}
             """)
