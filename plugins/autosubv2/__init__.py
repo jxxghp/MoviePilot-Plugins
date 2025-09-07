@@ -101,6 +101,7 @@ class AutoSubv2(_PluginBase):
     _max_retries = None
     _enable_merge = None
     _enable_asr = None
+    _auto_detect_language = None
     _huggingface_proxy = None
     _faster_whisper_model_path = None
     _faster_whisper_model = None
@@ -126,6 +127,7 @@ class AutoSubv2(_PluginBase):
             self._faster_whisper_model_path = config.get('faster_whisper_model_path',
                                                          self.get_data_path() / "faster-whisper-models")
             self._huggingface_proxy = config.get('proxy', True)
+            self._auto_detect_language = config.get('auto_detect_language', False)
         self._translate_zh = config.get('translate_zh', False)
         if self._translate_zh:
             use_chatgpt = config.get('use_chatgpt', True)
@@ -407,16 +409,28 @@ class AutoSubv2(_PluginBase):
             model = WhisperModel(
                 download_model(self._faster_whisper_model, local_files_only=False, cache_dir=cache_dir),
                 device="cpu", compute_type="int8", cpu_threads=psutil.cpu_count(logical=False))
-            segments, info = model.transcribe(audio_file,
-                                              language=lang if lang != 'auto' else None,
-                                              word_timestamps=True,
-                                              vad_filter=True,
-                                              temperature=0,
-                                              beam_size=5)
-            logger.info("Detected language '%s' with probability %f" % (info.language, info.language_probability))
+            
+            try:
+                segments, info = model.transcribe(audio_file,
+                                                  language=lang if lang != 'auto' else None,
+                                                  word_timestamps=True,
+                                                  vad_filter=True,
+                                                  temperature=0,
+                                                  beam_size=5)
+                logger.info("Detected language '%s' with probability %f" % (info.language, info.language_probability))
 
-            if lang == 'auto':
-                lang = info.language
+                if lang == 'auto':
+                    lang = info.language
+            except ValueError as e:
+                if "max() iterable argument is empty" in str(e):
+                    logger.info("音频文件中未检测到任何语言内容，生成空字幕文件以避免重复处理")
+                    # 生成空的字幕文件，避免重复识别
+                    self.__save_srt(f"{audio_file}.srt", [])
+                    # 如果原本是auto检测，设置一个默认语言
+                    lang = 'und' if lang == 'auto' else lang
+                    return True, lang
+                else:
+                    raise e
 
             subs = []
             if lang in ['en', 'eng']:
@@ -481,9 +495,15 @@ class AutoSubv2(_PluginBase):
         if not ret:
             logger.info(f"字幕源偏好：{self._translate_preference} 获取音轨元数据失败")
             return False, None, None
-        if not iso639.find(audio_lang) or not iso639.to_iso639_1(audio_lang):
+        
+        # 如果开启了自动语言检测，直接设置为auto，跳过metadata的语言信息
+        if self._auto_detect_language:
+            logger.info("已开启自动语言检测，将使用whisper模型自动识别语言")
+            audio_lang = 'auto'
+        elif not iso639.find(audio_lang) or not iso639.to_iso639_1(audio_lang):
             logger.info(f"字幕源偏好：{self._translate_preference} 未从音轨元数据中获取到语言信息")
             audio_lang = 'auto'
+
         # 当字幕源偏好为origin_first时，优先使用音轨语言
         if self._translate_preference == "origin_first":
             prefer_subtitle_langs = ['en', 'eng'] if audio_lang == 'auto' else [audio_lang,
@@ -570,7 +590,7 @@ class AutoSubv2(_PluginBase):
                 os.remove(f"{audio_file.name}.srt")
                 return ret, lang, Path(f"{subtitle_file}.{lang}.srt")
             else:
-                logger.error(f"生成字幕失败")
+                logger.error("生成字幕失败")
                 return False, None, None
 
     @staticmethod
@@ -810,8 +830,8 @@ class AutoSubv2(_PluginBase):
 
     def __translate_to_zh(self, text: str, context: str = None) -> str:
         if self._event.is_set():
-            raise UserInterruptException(f"用户中断当前任务")
-        return self._openai.translate_to_zh(text, context)
+            raise UserInterruptException("用户中断当前任务")
+        return self._openai.translate_to_zh(text, context, max_retries=self._max_retries)
 
     def __process_batch(self, all_subs: list, batch: list) -> list:
         """批量处理逻辑"""
@@ -839,20 +859,17 @@ class AutoSubv2(_PluginBase):
 
     def __process_single(self, all_subs: List[srt.Subtitle], item: srt.Subtitle) -> srt.Subtitle:
         """单条处理逻辑"""
-        for _ in range(self._max_retries):
-            idx = all_subs.index(item)
-            context = self.__get_context(all_subs, [idx], is_batch=False) if self._context_window > 0 else None
-            success, trans = self.__translate_to_zh(item.content, context)
+        idx = all_subs.index(item)
+        context = self.__get_context(all_subs, [idx], is_batch=False) if self._context_window > 0 else None
+        success, trans = self.__translate_to_zh(item.content, context)
 
-            if success:
-                item.content = f"{trans}\n{item.content}"
-                self._stats['line_fallback'] += 1
-                return item
-
-            time.sleep(1)
-
-        item.content = f"[翻译失败]\n{item.content}"
-        return item
+        if success:
+            item.content = f"{trans}\n{item.content}"
+            self._stats['line_fallback'] += 1
+            return item
+        else:
+            item.content = f"[翻译失败]\n{item.content}"
+            return item
 
     def __translate_zh_subtitle(self, source_lang: str, source_subtitle: str, dest_subtitle: str):
         self._stats = {'total': 0, 'batch_success': 0, 'batch_fail': 0, 'line_fallback': 0}
@@ -1194,6 +1211,20 @@ class AutoSubv2(_PluginBase):
                                 'props': {'cols': 12, 'md': 4, 'v-show': 'enable_asr'},
                                 'content': [
                                     {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'auto_detect_language',
+                                            'label': '自动检测语言',
+                                            'hint': '使用whisper模型自动检测语言，而非依赖视频元数据'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 4, 'v-show': 'enable_asr'},
+                                'content': [
+                                    {
                                         'component': 'VSelect',
                                         'props': {
                                             'model': 'faster_whisper_model',
@@ -1206,10 +1237,15 @@ class AutoSubv2(_PluginBase):
                                         }
                                     }
                                 ]
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 4, 'v-show': 'enable_asr'},
+                                'props': {'cols': 12, 'md': 12, 'v-show': 'enable_asr'},
                                 'content': [
                                     {
                                         'component': 'VSwitch',
@@ -1508,6 +1544,7 @@ class AutoSubv2(_PluginBase):
             "translate_preference": "english_first",
             "translate_zh": False,
             "enable_asr": True,
+            "auto_detect_language": False,
             "faster_whisper_model": "base",
             "proxy": True,
             "use_chatgpt": True,
