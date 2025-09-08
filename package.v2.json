@@ -1,5 +1,5 @@
 {
-  "UserDownloadPath": {
+  "InterceptDownload": {
     "name": "用户下载拦截",
     "description": "拦截用户下载资源(自用，可能有bug)",
     "labels": "下载",
