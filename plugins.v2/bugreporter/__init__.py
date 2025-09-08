@@ -1,6 +1,4 @@
 import re
-import socket
-import ssl
 from typing import Any, Dict
 from typing import List, Tuple
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
@@ -43,7 +41,10 @@ class SentrySanitizer:
     NETWORK_ERROR_KEYWORDS = [
         "connection", "timeout", "network", "dns", "ssl", "certificate",
         "refused", "reset", "aborted", "unreachable", "no route to host",
-        "name or service not known", "temporary failure", "network is unreachable"
+        "name or service not known", "temporary failure", "network is unreachable",
+        "SOCKSHTTPSConnectionPool", "ERR_HTTP_RESPONSE_CODE_FAILURE", "HTTPSConnectionPool",
+        "网络连接", "无法连接", "请求失败", "下载失败", "请求返回空值", "图片失败", "未获取到返回数据",
+        "请求返回空值", "返回空响应", "连接出错", "请求错误", "未获取到"
     ]
 
     @classmethod
@@ -170,7 +171,7 @@ class BugReporter(_PluginBase):
     # 插件图标
     plugin_icon = "Alist_encrypt_A.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
