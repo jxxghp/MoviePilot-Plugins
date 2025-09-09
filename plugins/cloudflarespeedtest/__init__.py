@@ -173,7 +173,7 @@ class CloudflareSpeedTest(_PluginBase):
                 if not Path(f'{self._cf_path}/{self._binary_name}').exists() and \
                    Path(f'{self._cf_path}/{self._old_binary_name}').exists():
                     cf_command = f'cd {self._cf_path} && chmod a+x {self._old_binary_name} && ./{self._old_binary_name} {self._additional_args} -o {self._result_file}' + (
-                        f' -f {self._cf_ipv4}' if self._ipv4 else '') + (f' -f {self._cf_ipv6}\"' if self._ipv6 else '')
+                        f' -f {self._cf_ipv4}' if self._ipv4 else '') + (f' -f {self._cf_ipv6}' if self._ipv6 else '')
             logger.info(f'正在执行优选命令 {cf_command}')
             if SystemUtils.is_windows():
                 process = subprocess.Popen(cf_command, shell=True)
