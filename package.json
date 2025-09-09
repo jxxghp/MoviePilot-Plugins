@@ -217,12 +217,13 @@
     "name": "Cloudflare IP优选",
     "description": "🌩 测试 Cloudflare CDN 延迟和速度，自动优选IP。",
     "labels": "网络,站点",
-    "version": "1.4",
+    "version": "1.5",
     "icon": "cloudflare.jpg",
     "author": "thsrite",
     "level": 1,
     "v2": true,
     "history": {
+      "v1.5": "适配CloudflareSpeedTest新版名称",
       "v1.4": "修复立即运行一次",
       "v1.3": "调整插件开启状态判断条件",
       "v1.2": "增强API安全性"
