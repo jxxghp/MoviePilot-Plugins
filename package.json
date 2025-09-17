@@ -478,11 +478,12 @@
     "name": "演职人员刮削",
     "description": "刮削演职人员图片以及中文名称。",
     "labels": "媒体库,刮削",
-    "version": "1.4",
+    "version": "1.4.1",
     "icon": "actor.png",
     "author": "jxxghp",
     "level": 1,
     "history": {
+      "v1.4.1": "修复异常报错问题",
       "v1.4": "人物图片调整为优先从TMDB获取，避免douban图片CDN加载过慢的问题",
       "v1.3": "修复v1.8.5版本后刮削报错问题"
     }
@@ -561,12 +562,13 @@
     "name": "TMDB剧集组刮削",
     "description": "从TMDB剧集组刮削季集的实际顺序。",
     "labels": "刮削",
-    "version": "2.6",
+    "version": "2.6.1",
     "icon": "Element_A.png",
     "author": "叮叮当",
     "level": 1,
     "v2": true,
     "history": {
+      "v2.6.1": "修复异常报错日志",
       "v2.6": "修复无法获取媒体库中季0的问题",
       "v2.5": "修复当媒体服务器中剧集的季不完整时会中断的问题",
       "v2.3": "修复v2版本无法读取媒体库的问题",

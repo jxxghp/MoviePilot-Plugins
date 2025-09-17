@@ -47,7 +47,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 主题色
     plugin_color = "#098663"
     # 插件版本
-    plugin_version = "2.6"
+    plugin_version = "2.6.1"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -1278,8 +1278,11 @@ class EpisodeGroupMeta(_PluginBase):
                 res = instance.post_data(url=url)
                 if res and res.status_code in [200, 204]:
                     return True
-                else:
+                elif res is not None:
                     self.log_error(f"更新Jellyfin媒体项图片失败，错误码：{res.status_code}")
+                    return False
+                else:
+                    self.log_error(f"更新Jellyfin媒体项图片失败，返回空结果")
                     return False
             except Exception as err:
                 self.log_error(f"更新Jellyfin媒体项图片失败：{err}")
