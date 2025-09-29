@@ -726,7 +726,7 @@ class LexiAnnot(_PluginBase):
                                                             'label': '上下文窗口大小',
                                                             'placeholder': '10',
                                                             'type': 'number',
-                                                            'max': 20,
+                                                            'max': 100,
                                                             'min': 1,
                                                             'hint': '向Gemini发送的上下文长度'
                                                         }
