@@ -32,7 +32,7 @@ class ClashRuleManager:
     def export_rules(self) -> List[Dict[str, str]]:
         rules_list = []
         for rule in self.rules:
-            rules_list.append({'rule': rule.rule.raw_rule, 'remark': rule.remark, 'time_modified': rule.time_modified})
+            rules_list.append({'rule': str(rule.rule), 'remark': rule.remark, 'time_modified': rule.time_modified})
         return rules_list
 
     def append_rules(self, clash_rules: List[RuleItem]):
@@ -97,30 +97,10 @@ class ClashRuleManager:
 
     def has_rule(self, clash_rule: Union[ClashRule, LogicRule, MatchRule]) -> bool:
         """Check if there is an identical rule"""
-        for r in self.rules:
-            rule = r.rule
-            if rule.rule_type != RoutingRuleType.MATCH:
-                if rule.rule_type == clash_rule.rule_type and rule.action == clash_rule.action \
-                        and rule.payload == clash_rule.payload:
-                    return True
-            else:
-                if rule.rule_type == clash_rule.rule_type and rule.action == clash_rule.action:
-                    return True
-        return False
+        return any(r == clash_rule for r in self.rules)
 
     def has_rule_item(self, clash_rule: RuleItem) -> bool:
-        for r in self.rules:
-            if clash_rule.remark != r.remark:
-                continue
-            rule = r.rule
-            if rule.rule_type != RoutingRuleType.MATCH:
-                if rule.rule_type == clash_rule.rule.rule_type and rule.action == clash_rule.rule.action \
-                        and rule.payload == clash_rule.rule.payload:
-                    return True
-            else:
-                if rule.rule_type == clash_rule.rule.rule_type and rule.action == clash_rule.rule.action:
-                    return True
-        return False
+        return any(clash_rule.remark == r.remark and r.rule == clash_rule.rule for r in self.rules)
 
     def reorder_rules(self, moved_priority: int, target_priority: int) -> RuleItem:
         """Reorder the rules"""

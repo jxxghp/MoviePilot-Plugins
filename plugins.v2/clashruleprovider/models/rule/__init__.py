@@ -65,6 +65,9 @@ class Action(Enum):
     PASS = "PASS"
     COMPATIBLE = "COMPATIBLE"
 
+    def __str__(self) -> str:
+        return self.value
+
 
 class RuleBase(BaseModel):
     rule_type: RoutingRuleType
@@ -73,6 +76,14 @@ class RuleBase(BaseModel):
 
     def to_dict(self) -> Dict[str, Any]:
         pass
+
+    def __str__(self) -> str:
+        pass
+
+    def __eq__(self, other: 'RuleBase') -> bool:
+        if not isinstance(other, RuleBase):
+            return NotImplemented
+        return self.__str__() == other.__str__()
 
 
 class ClashRule(RuleBase):
@@ -92,6 +103,15 @@ class ClashRule(RuleBase):
             'additional_params': self.additional_params.value if self.additional_params else None,
             'raw': self.raw_rule
         }
+
+    def __str__(self) -> str:
+        return f"{self.condition_string()},{self.action}"
+
+    @validator('payload', allow_reuse=True)
+    def validate_payload(cls, v: str, values: Dict[str, Any]) -> Optional[str]:
+        if values.get('rule_type') == RoutingRuleType.NETWORK and v.upper() not in ('TCP', 'UDP'):
+            raise ValueError('Payload must be TCP or UDP')
+        return v
 
 
 class LogicRule(RuleBase):
@@ -121,6 +141,9 @@ class LogicRule(RuleBase):
             raise ValueError('A condition list must be provided')
         return v
 
+    def __str__(self) -> str:
+        return f"{self.condition_string()},{self.action}"
+
 
 class SubRule(RuleBase):
     rule_type: Literal[RoutingRuleType.SUB_RULE] = RoutingRuleType.SUB_RULE
@@ -128,7 +151,7 @@ class SubRule(RuleBase):
     action: str
 
     def condition_string(self) -> str:
-        return f"{self.rule_type.value},{self.condition.condition_string()}"
+        return f"{self.rule_type.value},({self.condition.condition_string()})"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -137,6 +160,9 @@ class SubRule(RuleBase):
             'action': self.action,
             'raw': self.raw_rule
         }
+
+    def __str__(self) -> str:
+        return f"{self.condition_string()},{self.action}"
 
 
 class MatchRule(RuleBase):
@@ -153,6 +179,9 @@ class MatchRule(RuleBase):
             'action': self.action.value if isinstance(self.action, Action) else self.action,
             'raw': self.raw_rule
         }
+
+    def __str__(self) -> str:
+        return f"{self.condition_string()},{self.action}"
 
 
 RuleType = Union[ClashRule, LogicRule, SubRule, MatchRule]
