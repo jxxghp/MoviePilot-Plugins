@@ -227,7 +227,7 @@ class ClashRuleProviderApi:
     @apis.register(path="/clash/ws/{endpoint}", methods=["GET"], allow_anonymous=True,
                    summary="转发 Clash API Websocket 请求")
     async def clash_websocket(self, request: Request, endpoint: str, secret: str):
-        if secret != self.config.dashboard_secret:
+        if not secrets.compare_digest(secret, self.config.dashboard_secret):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Secret 校验不通过")
         if endpoint not in ['traffic', 'connections', 'memory']:
             raise HTTPException(status_code=400, detail="Invalid endpoint")

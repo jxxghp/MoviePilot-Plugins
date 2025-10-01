@@ -5732,7 +5732,7 @@ return (_ctx, _cache) => {
                               label: "条件",
                               multiple: "",
                               chips: "",
-                              hint: "「(DOMAIN,baidu.com)」,「(NETWORK,TCP)",
+                              hint: "「(DOMAIN,baidu.com)」,「(NETWORK,TCP)」",
                               clearable: "",
                               required: "",
                               class: "mb-4"
