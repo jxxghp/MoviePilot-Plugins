@@ -726,7 +726,7 @@ class LexiAnnot(_PluginBase):
                                                             'label': '上下文窗口大小',
                                                             'placeholder': '10',
                                                             'type': 'number',
-                                                            'max': 20,
+                                                            'max': 100,
                                                             'min': 1,
                                                             'hint': '向Gemini发送的上下文长度'
                                                         }
@@ -1816,7 +1816,7 @@ class LexiAnnot(_PluginBase):
             return re.sub(pattern, lambda match: ' ' * len(match.group(1)), _text)
 
         simple_vocabulary = list(filter(lambda x: x < self._annot_level, ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']))
-        patterns = [r'\d+th|\d?1st|\d?2nd|\d?3rd', r"\w+'s$", r"\w+'t$", "[Ii]'m$", r"\w+'re$", r"\w+'ve$", r"\w+'ll$"]
+        patterns = [r'\d+th|\d?1st|\d?2nd|\d?3rd', r"\w+'s$", r"\w+'d$", r"\w+'t$", "[Ii]'m$", r"\w+'re$", r"\w+'ve$", r"\w+'ll$"]
         compiled_patterns = [re.compile(p) for p in patterns]
         model_temperature = float(self._model_temperature) if self._model_temperature else 0.3
         logger.info(f"通过 spaCy 分词...")
