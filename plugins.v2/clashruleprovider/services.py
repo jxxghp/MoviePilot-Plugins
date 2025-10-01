@@ -307,7 +307,7 @@ class ClashRuleProviderService:
                 for link in links:
                     proxy = Converter().convert_line(link, skip_exception=True)
                     if proxy:
-                        extra_proxies.append({'proxy': proxy, 'raw': None})
+                        extra_proxies.append({'proxy': proxy, 'raw': link})
             except Exception as err:
                 logger.error(f"Failed to load LINK payload: {repr(params)}: {repr(err)}")
         return extra_proxies
