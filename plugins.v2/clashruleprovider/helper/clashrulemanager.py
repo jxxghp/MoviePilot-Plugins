@@ -97,7 +97,7 @@ class ClashRuleManager:
 
     def has_rule(self, clash_rule: Union[ClashRule, LogicRule, MatchRule]) -> bool:
         """Check if there is an identical rule"""
-        return any(r == clash_rule for r in self.rules)
+        return any(r.rule == clash_rule for r in self.rules)
 
     def has_rule_item(self, clash_rule: RuleItem) -> bool:
         return any(clash_rule.remark == r.remark and r.rule == clash_rule.rule for r in self.rules)

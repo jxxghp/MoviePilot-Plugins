@@ -105,7 +105,10 @@ class ClashRule(RuleBase):
         }
 
     def __str__(self) -> str:
-        return f"{self.condition_string()},{self.action}"
+        rule_str = f"{self.condition_string()},{self.action}"
+        if self.additional_params:
+            rule_str += f",{self.additional_params.value}"
+        return rule_str
 
     @validator('payload', allow_reuse=True)
     def validate_payload(cls, v: str, values: Dict[str, Any]) -> Optional[str]:
