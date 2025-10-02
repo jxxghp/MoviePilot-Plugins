@@ -24,7 +24,7 @@ class ClashRuleParser:
             # Handle regular rules
             return ClashRuleParser._parse_regular_rule(line)
 
-        except (ValidationError, TypeError, ValueError):
+        except (ValidationError, TypeError, ValueError, RecursionError):
             return None
 
     @staticmethod
@@ -120,7 +120,7 @@ class ClashRuleParser:
         )
 
     @staticmethod
-    def _parenthesis_balance(s: str) -> int:
+    def _parenthesis_balance(s: str) -> Optional[int]:
         """Calculate balance of parenthesis"""
         balance = 0
         for i, char in enumerate(s):
@@ -128,6 +128,8 @@ class ClashRuleParser:
                 balance += 1
             elif char == ')':
                 balance -= 1
+            if balance < 0:
+                return None
         return balance
 
     @staticmethod
@@ -281,7 +283,7 @@ class ClashRuleParser:
                         )
                         conditions.append(condition)
                     except ValueError:
-                        continue
+                        raise ValueError(f"Invalid rule format: {content}")
         return conditions
 
 

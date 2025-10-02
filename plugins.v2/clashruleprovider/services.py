@@ -648,7 +648,7 @@ class ClashRuleProviderService:
                 if rule.payload not in config.get('rule-providers', {}):
                     logger.warn(f"规则集合 {rule.payload!r} 不存在, 跳过 {rule.raw_rule!r}")
                     continue
-            top_rules.append(rule.raw_rule)
+            top_rules.append(str(rule))
         for raw_rule in config.get("rules", []):
             rule = ClashRuleParser.parse_rule_line(raw_rule)
             if not rule:
@@ -659,7 +659,7 @@ class ClashRuleProviderService:
                     rule.rule_type != RoutingRuleType.SUB_RULE):
                 logger.warn(f"出站 {rule.action!r} 不存在, 跳过 {rule.raw_rule!r}")
                 continue
-            top_rules.append(rule.raw_rule)
+            top_rules.append(str(rule))
         config["rules"] = top_rules
 
         # 添加 Hosts
