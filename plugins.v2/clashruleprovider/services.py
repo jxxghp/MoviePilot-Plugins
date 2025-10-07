@@ -504,7 +504,7 @@ class ClashRuleProviderService:
                             key: Literal['rules', 'rule-providers', 'proxies', 'proxy-groups', 'proxy-providers']):
         default = copy.deepcopy(Crp.DEFAULT_CLASH_CONF[key])
         for conf in self.config.subscriptions_config:
-            url = conf["url"]
+            url = conf.url
             sub_config = self.state.clash_configs.get(url, {})
             if isinstance(default, dict):
                 default.update(sub_config.get(key, {}))
@@ -517,7 +517,7 @@ class ClashRuleProviderService:
                            ) -> Dict[str, Any]:
         result = {}
         for conf in self.config.subscriptions_config:
-            url = conf["url"]
+            url = conf.url
             sub_config = self.state.clash_configs.get(url, {})
             result[url] = sub_config.get(key, copy.deepcopy(Crp.DEFAULT_CLASH_CONF[key]))
         return result
@@ -923,10 +923,10 @@ class ClashRuleProviderService:
             return False, f'Host for domain {param.domain} not found.'
 
     async def refresh_subscription(self, url: str) -> Tuple[bool, str]:
-        sub_conf = next((conf for conf in self.config.subscriptions_config if conf['url'] == url), None)
+        sub_conf = next((conf for conf in self.config.subscriptions_config if conf.url == url), None)
         if not sub_conf:
             return False, f"Configuration for {url} not found."
-        config, info = await self.async_get_subscription(url, sub_conf)
+        config, info = await self.async_get_subscription(url, sub_conf.dict())
         if not config:
             return False, f"订阅链接 {url} 更新失败"
 
@@ -998,10 +998,10 @@ class ClashRuleProviderService:
     async def async_refresh_subscriptions(self) -> Dict[str, bool]:
         res = {}
         for sub_conf in self.config.subscriptions_config:
-            url = sub_conf['url']
+            url = sub_conf.url
             if not self.state.subscription_info.get(url, {}).get('enabled'):
                 continue
-            conf, sub_info = await self.async_get_subscription(url, conf=sub_conf)
+            conf, sub_info = await self.async_get_subscription(url, conf=sub_conf.dict())
             if not conf:
                 res[url] = False
                 continue
