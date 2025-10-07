@@ -104,7 +104,6 @@ class ImdbSource(_PluginBase):
         if not getattr(ChainBase.recognize_media, "_patched_by", object()) == id(self):
             self._original_method = getattr(ChainBase, "recognize_media", None)
 
-        patched_async_recognize_media._patched_by = id(self)
         setattr(patched_async_recognize_media, '_patched_by', id(self))
         # 保存原始方法
         if not getattr(ChainBase.async_recognize_media, "_patched_by", object()) == id(self):

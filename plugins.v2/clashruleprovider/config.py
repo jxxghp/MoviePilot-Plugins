@@ -13,6 +13,10 @@ class SubscriptionConfig(BaseModel):
     proxy_groups: Optional[bool] = Field(True, alias='proxy-groups')
     proxy_providers: Optional[bool] = Field(True, alias='proxy-providers')
 
+    @validator('url', allow_reuse=True)
+    def validate_url(cls, v: str):
+        return v.strip()
+
 
 class PluginConfig(BaseModel):
     """
