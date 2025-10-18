@@ -564,5 +564,17 @@
       "v1.2": "优化上报信息量",
       "v1.1": "加强脱敏处理"
     }
+  },
+  "EmbyActorEnhance": {
+    "name": "Emby演职人员增强",
+    "description": "媒体元数据刷新，演职人员角色中文，导入季演职人员，更新节目系列演职人员为各季合并。",
+    "labels": "Emby",
+    "version": "1.0.0",
+    "icon": "https://raw.githubusercontent.com/xiaoQQya/MoviePilot-Plugins/refs/heads/main/icons/actor.png",
+    "author": "xiaoQQya",
+    "level": 1,
+    "history": {
+      "v1.0.0": "Emby 演职人员增强插件"
+    }
   }
 }
