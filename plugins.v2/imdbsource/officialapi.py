@@ -332,7 +332,7 @@ class OfficialApiClient:
         self._req = RequestUtils(accept_type="application/json",
                                  content_type="application/json",
                                  timeout=10,
-                                 ua=None,
+                                 ua=ua,
                                  proxies=proxies,
                                  session=requests.Session())
         if proxies:
@@ -457,7 +457,7 @@ class OfficialApiClient:
                 if title_type in ImdbType._value2member_map_:
                     title_type_ids.append(title_type)
             if len(title_type_ids):
-                variables["titleTypeConstraint"] = {"anyTitleTypeIds": params.title_types}
+                variables["titleTypeConstraint"] = {"anyTitleTypeIds": title_type_ids}
         if params.genres:
             variables["genreConstraint"] = {"allGenreIds": params.genres, "excludeGenreIds": []}
         if params.countries:
@@ -504,11 +504,7 @@ class OfficialApiClient:
 
         params = {"operationName": operation_name,
                   "variables": variables}
-        try:
-            data = await self._async_request(params, sha256)
-        except Exception as e:
-            logger.debug(f"An error occurred while querying {operation_name}: {e}")
-            return None
+        data = await self._async_request(params, sha256)
         if not data:
             return None
         if 'error' in data:
