@@ -1,6 +1,7 @@
 import re
 import time
 from datetime import datetime, timedelta
+from http.cookies import SimpleCookie
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -22,7 +23,7 @@ class InvitesSignin(_PluginBase):
     # 插件图标
     plugin_icon = "invites.png"
     # 插件版本
-    plugin_version = "1.5.2"
+    plugin_version = "2.0.0"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -46,6 +47,8 @@ class InvitesSignin(_PluginBase):
     _user_password = None
     _retry_count = 2
     _retry_interval = 5
+    # User-Agent 字符串常量
+    _user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36"
 
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
@@ -96,7 +99,7 @@ class InvitesSignin(_PluginBase):
         """获取新的session"""
         headers = {
             "Cookie": f"flarum_remember={flarum_remember}",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36"
+            "User-Agent": self._user_agent
         }
         
         response = RequestUtils(headers=headers).get_res(url="https://invites.fun", allow_redirects=False)
@@ -118,6 +121,26 @@ class InvitesSignin(_PluginBase):
             return remember_match.group(1)
         return None
 
+    def __parse_cookie_string(self, cookie_str: str) -> dict:
+        """安全地解析cookie字符串，返回cookie字典"""
+        try:
+            # 使用SimpleCookie解析cookie字符串
+            cookie = SimpleCookie()
+            cookie.load(cookie_str)
+            
+            # 提取需要的cookie值
+            cookies = {}
+            if 'flarum_remember' in cookie:
+                cookies['flarum_remember'] = cookie['flarum_remember'].value
+            if 'flarum_session' in cookie:
+                cookies['flarum_session'] = cookie['flarum_session'].value
+                
+            return cookies
+        except Exception as e:
+            logger.error(f"解析cookie字符串失败: {e}")
+            # 如果解析失败，返回空字典
+            return {}
+
     def __login_with_credentials(self) -> dict:
         """使用用户名和密码登录药丸"""
         try:
@@ -125,7 +148,7 @@ class InvitesSignin(_PluginBase):
             headers_get = {
                 'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'accept-language': 'zh-CN,zh;q=0.9',
-                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36'
+                'user-agent': self._user_agent
             }
             
             response_get = RequestUtils(headers=headers_get).get_res('https://invites.fun/')
@@ -351,7 +374,7 @@ class InvitesSignin(_PluginBase):
                 'referer': 'https://invites.fun/',
                 'x-csrf-token': csrf_token,
                 'x-http-method-override': 'PATCH',
-                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36'
+                'user-agent': self._user_agent
             }
             
             # 构建签到请求的JSON数据
@@ -360,17 +383,19 @@ class InvitesSignin(_PluginBase):
                     'type': 'users',
                     'attributes': {
                         'canCheckin': False,
-                        'totalContinuousCheckIn': 2,
+                        'totalContinuousCheckIn': 2, #连续签到天数
                     },
                     'id': str(user_id),
                 },
             }
             
-            # 构建cookies
-            cookies = {
-                'flarum_remember': cookie_str.split('flarum_remember=')[1].split(';')[0],
-                'flarum_session': cookie_str.split('flarum_session=')[1].split(';')[0],
-            }
+            # 构建cookies - 使用安全的解析方法
+            cookies = self.__parse_cookie_string(cookie_str)
+            
+            # 验证必要的cookie是否存在
+            if not cookies.get('flarum_remember') or not cookies.get('flarum_session'):
+                logger.error("cookie中缺少必要的flarum_remember或flarum_session值")
+                return False
             
             # 执行签到请求
             checkin_url = f'https://invites.fun/api/users/{user_id}'
@@ -393,7 +418,7 @@ class InvitesSignin(_PluginBase):
                 
                 logger.info("药丸签到成功")
                 
-                # 发送通知 - 使用原有样式
+                # 发送通知
                 if self._notify:
                     self.post_message(
                         mtype=NotificationType.SiteMessage,
@@ -407,7 +432,7 @@ class InvitesSignin(_PluginBase):
                              "━━━━━━━━━━━━━━\n"
                              f"🕐 签到时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 
-                # 保存签到历史 - 兼容原有数据格式
+                # 保存签到历史
                 history = self.get_data('history') or []
                 history.append({
                     "date": datetime.today().strftime('%Y-%m-%d %H:%M:%S'),
@@ -570,7 +595,8 @@ class InvitesSignin(_PluginBase):
                                             'persistent-placeholder': True,
                                             'clearable': True
                                         }}
-                                    ]},{'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [
+                                    ]},
+                                    {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [
                                         {'component': 'VTextField', 'props': {
                                             'model': 'retry_interval',
                                             'label': '失败重试间隔(分钟)',
