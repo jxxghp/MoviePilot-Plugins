@@ -13,7 +13,6 @@ from app.utils.http import RequestUtils, AsyncRequestUtils
 from .schema.imdbtypes import ImdbType
 from .schema import VerticalList, AdvancedTitleSearchResponse, AdvancedTitleSearch, TitleEdge, SearchParams
 
-
 INTERESTS_ID: Final[Dict[str, Dict[str, str]]] = {
     "Action": {
         "Action": "in0000001",
@@ -277,45 +276,45 @@ INTERESTS_ID: Final[Dict[str, Dict[str, str]]] = {
 }
 CACHE_LIFETIME: Final[int] = 86400
 IMDB_GRAPHQL_QUERY: Final[str] = \
-"""query VerticalListPageItems( $titles: [ID!]! $names: [ID!]! $images: [ID!]! $videos: [ID!]!) {
-  titles(ids: $titles) { ...TitleParts meterRanking { currentRank meterType rankChange {changeDirection difference} } ratingsSummary { aggregateRating } }
-  names(ids: $names) { ...NameParts }
-  videos(ids: $videos) { ...VideoParts }
-  images(ids: $images) { ...ImageParts }
-}
-fragment TitleParts on Title {
-  id
-  titleText { text }
-  titleType { id }
-  releaseYear { year }
-  akas(first: 50) { edges { node { text country { id text } language { text } } } }
-  plot { plotText {plainText}}
-  primaryImage { id url width height }
-  releaseDate {day month year}
-  titleGenres {genres {genre { text }}}
-  certificate { rating }
-  originalTitleText{ text }
-  runtime { seconds }
-}
-fragment NameParts on Name {
-  id
-  nameText { text }
-  primaryImage { id url width height }
-}
-fragment ImageParts on Image {
-  id
-  height
-  width
-  url
-}
-fragment VideoParts on Video {
-  id
-  name { value }
-  contentType { displayName { value } id }
-  previewURLs { displayName { value } url videoDefinition videoMimeType }
-  playbackURLs { displayName { value } url videoDefinition videoMimeType }
-  thumbnail { height url width }
-}"""
+    """query VerticalListPageItems( $titles: [ID!]! $names: [ID!]! $images: [ID!]! $videos: [ID!]!) {
+      titles(ids: $titles) { ...TitleParts meterRanking { currentRank meterType rankChange {changeDirection difference} } ratingsSummary { aggregateRating } }
+      names(ids: $names) { ...NameParts }
+      videos(ids: $videos) { ...VideoParts }
+      images(ids: $images) { ...ImageParts }
+    }
+    fragment TitleParts on Title {
+      id
+      titleText { text }
+      titleType { id }
+      releaseYear { year }
+      akas(first: 50) { edges { node { text country { id text } language { text } } } }
+      plot { plotText {plainText}}
+      primaryImage { id url width height }
+      releaseDate {day month year}
+      titleGenres {genres {genre { text }}}
+      certificate { rating }
+      originalTitleText{ text }
+      runtime { seconds }
+    }
+    fragment NameParts on Name {
+      id
+      nameText { text }
+      primaryImage { id url width height }
+    }
+    fragment ImageParts on Image {
+      id
+      height
+      width
+      url
+    }
+    fragment VideoParts on Video {
+      id
+      name { value }
+      contentType { displayName { value } id }
+      previewURLs { displayName { value } url videoDefinition videoMimeType }
+      playbackURLs { displayName { value } url videoDefinition videoMimeType }
+      thumbnail { height url width }
+    }"""
 
 
 class PersistedQueryNotFound(Exception):
@@ -358,7 +357,7 @@ class OfficialApiClient:
             return {'error': error}
         return data.get("data")
 
-    @retry(Exception, logger=logger)
+    @retry(Exception, logger=logger, delay=1)
     @cached(maxsize=1024, ttl=CACHE_LIFETIME)
     def _query_graphql(self, query: str, variables: Dict[str, Any]) -> Optional[dict]:
         params = {'query': query, 'variables': variables}
@@ -370,7 +369,7 @@ class OfficialApiClient:
             return {'error': error}
         return data.get("data")
 
-    @retry(Exception, logger=logger)
+    @retry(Exception, logger=logger, delay=1)
     @cached(maxsize=1024, ttl=CACHE_LIFETIME)
     async def _async_query_graphql(self, query: str, variables: Dict[str, Any]) -> Optional[Dict]:
         params = {'query': query, 'variables': variables}
@@ -438,12 +437,12 @@ class OfficialApiClient:
 
         return ret
 
-    @retry(Exception, logger=logger)
+    @retry(Exception, logger=logger, delay=1)
     async def async_advanced_title_search(self,
-                                           params: SearchParams,
-                                           sha256: str,
-                                           last_cursor: Optional[str] = None,
-                                           ) -> Optional[AdvancedTitleSearch]:
+                                          params: SearchParams,
+                                          sha256: str,
+                                          last_cursor: Optional[str] = None,
+                                          ) -> Optional[AdvancedTitleSearch]:
 
         variables: Dict[str, Any] = {"first": 50,
                                      "locale": "en-US",
@@ -521,7 +520,8 @@ class OfficialApiClient:
             return None
         return ret.advanced_title_search
 
-    async def advanced_title_search_generator(self, params: SearchParams, sha256: str) -> AsyncGenerator[TitleEdge, None]:
+    async def advanced_title_search_generator(self, params: SearchParams, sha256: str) -> AsyncGenerator[
+        TitleEdge, None]:
         last_cursor = None
         while True:
             response = await self.async_advanced_title_search(params, sha256, last_cursor=last_cursor)

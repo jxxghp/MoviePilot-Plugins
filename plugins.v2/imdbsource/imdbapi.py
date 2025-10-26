@@ -35,7 +35,7 @@ class ImdbApiClient:
             client=self._free_api_client
         )
 
-    @retry(Exception, logger=logger)
+    @retry(Exception, logger=logger, delay=1)
     @cached(maxsize=1024, ttl=CACHE_LIFESPAN)
     def _free_imdb_api(self, path: str, params: Optional[dict] = None) -> Optional[dict]:
         r = self._req.get_res(url=f"{self.BASE_URL}{path}", params=params, raise_exception=True)
@@ -49,7 +49,7 @@ class ImdbApiClient:
             return None
         return r.json()
 
-    @retry(Exception, logger=logger)
+    @retry(Exception, logger=logger, delay=1)
     @cached(maxsize=1024, ttl=CACHE_LIFESPAN)
     async def _async_free_imdb_api(self, path: str, params: Optional[dict] = None) -> Optional[dict]:
         r = await self._async_req.get_res(url=f"{self.BASE_URL}{path}", params=params, raise_exception=True)
