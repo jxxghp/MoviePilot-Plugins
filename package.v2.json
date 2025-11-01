@@ -453,11 +453,12 @@
     "name": "IMDb源",
     "description": "让探索，推荐和媒体识别支持IMDb数据源。",
     "labels": "探索",
-    "version": "1.6.1",
+    "version": "1.6.2",
     "icon": "IMDb_IOS-OSX_App.png",
     "author": "wumode",
     "level": 1,
     "history": {
+      "v1.6.2": "修复 API 查询错误重试问题",
       "v1.6.1": "添加中文主屏幕组件; 修复 bug",
       "v1.5.8": "修改UA",
       "v1.5.7": "改进异常处理",
