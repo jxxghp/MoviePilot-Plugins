@@ -174,11 +174,12 @@
     "name": "媒体文件同步删除",
     "description": "同步删除历史记录、源文件和下载任务。",
     "labels": "文件整理",
-    "version": "1.7.1",
+    "version": "1.7.2",
     "icon": "mediasyncdel.png",
     "author": "thsrite",
     "level": 1,
     "history": {
+      "v1.7.2": "兼容windows路径",
       "v1.7.1": "修复删除剧集辅种失败报错问题",
       "v1.7": "修复重新整理被一并删除问题",
       "v1.6": "修复删除辅种",
