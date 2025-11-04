@@ -29,7 +29,7 @@ class MediaSyncDel(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "1.7.1"
+    plugin_version = "1.7.2"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -630,6 +630,8 @@ class MediaSyncDel(_PluginBase):
         media_name = event_data.item_name
         # 媒体路径
         media_path = event_data.item_path
+        # 兼容windows路径 如 C:\test.mp4 转换为 C:/test.mp4
+        media_path = media_path.replace('\\', '/')
         # tmdb_id
         tmdb_id = event_data.tmdb_id
         # 季数
@@ -710,6 +712,8 @@ class MediaSyncDel(_PluginBase):
         media_name = event_data.item_name
         # 媒体路径
         media_path = event_data.item_path
+        # 兼容windows路径 如 C:\test.mp4 转换为 C:/test.mp4
+        media_path = media_path.replace('\\', '/')
         # tmdb_id
         tmdb_id = event_data.tmdb_id
         # 季数
