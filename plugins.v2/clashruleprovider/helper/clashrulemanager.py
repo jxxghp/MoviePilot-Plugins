@@ -4,22 +4,23 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union, Iterator
 
 from .clashruleparser import ClashRuleParser
-from ..models.rule import Action, RoutingRuleType, MatchRule, ClashRule, LogicRule
+from ..models.rule import Action, RoutingRuleType, MatchRule, ClashRule, LogicRule, SubRule
 
 
 @dataclass
 class RuleItem:
     """Clash rule item"""
-    rule: Union[ClashRule, LogicRule, MatchRule]
+    rule: Union[ClashRule, LogicRule, MatchRule, SubRule]
     remark: str = field(default="")
     time_modified: float = field(default=0)
+
 
 class ClashRuleManager:
     """Clash rule manager"""
     def __init__(self):
         self.rules: List[RuleItem] = []
 
-    def import_rules(self, rules_list: List[Dict[str, str]]):
+    def import_rules(self, rules_list: List[Dict[str, Any]]):
         self.rules = []
         for r in rules_list:
             rule = ClashRuleParser.parse_rule_line(r['rule'])

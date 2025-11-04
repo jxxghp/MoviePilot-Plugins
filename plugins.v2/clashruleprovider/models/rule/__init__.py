@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, List, Optional, Union, Dict, Literal
 
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator, ValidationInfo
 
 
 class AdditionalParam(Enum):
@@ -95,7 +95,7 @@ class ClashRule(RuleBase):
     def condition_string(self) -> str:
         return f"{self.rule_type.value},{self.payload}"
 
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             'type': self.rule_type.value,
             'payload': self.payload,
@@ -110,9 +110,13 @@ class ClashRule(RuleBase):
             rule_str += f",{self.additional_params.value}"
         return rule_str
 
-    @validator('payload', allow_reuse=True)
-    def validate_payload(cls, v: str, values: Dict[str, Any]) -> Optional[str]:
-        if values.get('rule_type') == RoutingRuleType.NETWORK and v.upper() not in ('TCP', 'UDP'):
+    @field_validator('payload', mode='after')
+    @classmethod
+    def validate_payload(cls, v: Optional[str], info: ValidationInfo) -> Optional[str]:
+        # 获取其他字段的值
+        rule_type = info.data['rule_type']
+
+        if rule_type == RoutingRuleType.NETWORK and v is not None and v.upper() not in ('TCP', 'UDP'):
             raise ValueError('Payload must be TCP or UDP')
         return v
 
@@ -138,7 +142,8 @@ class LogicRule(RuleBase):
             'raw': self.raw_rule
         }
 
-    @validator('conditions', allow_reuse=True)
+    @field_validator('conditions', mode='after')
+    @classmethod
     def validate_conditions(cls, v: List[Union[ClashRule, 'LogicRule']]) -> List[Union[ClashRule, 'LogicRule']]:
         if not v:
             raise ValueError('A condition list must be provided')

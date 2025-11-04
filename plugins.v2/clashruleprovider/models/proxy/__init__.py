@@ -1,6 +1,6 @@
 from typing import Union
 
-from pydantic import Field, BaseModel
+from pydantic import Field, RootModel
 
 from .anytlsproxy import AnyTLSProxy
 from .directproxy import DirectProxy
@@ -43,5 +43,6 @@ ProxyType = Union[
     WireGuardProxy,
 ]
 
-class Proxy(BaseModel):
-    __root__: ProxyType = Field(..., discriminator="type")
+
+class Proxy(RootModel[ProxyType]):
+    root: ProxyType = Field(..., discriminator="type")

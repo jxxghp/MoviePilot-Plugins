@@ -36,28 +36,32 @@ class ImdbApiClient:
         )
 
     @retry(Exception, logger=logger, delay=1)
-    @cached(maxsize=1024, ttl=CACHE_LIFESPAN)
+    @cached(maxsize=4096, ttl=CACHE_LIFESPAN)
     def _free_imdb_api(self, path: str, params: Optional[dict] = None) -> Optional[dict]:
         r = self._req.get_res(url=f"{self.BASE_URL}{path}", params=params, raise_exception=True)
         if r is None:
             return None
         if r.status_code != 200:
             try:
-                logger.warn(f"{r.json().get('message')}")
+                logger.warning(
+                    f"Free IMDb API returned non-200 status: {r.status_code} for path={path} params={params}"
+                )
             except requests.exceptions.JSONDecodeError:
                 return None
             return None
         return r.json()
 
     @retry(Exception, logger=logger, delay=1)
-    @cached(maxsize=1024, ttl=CACHE_LIFESPAN)
+    @cached(maxsize=4096, ttl=CACHE_LIFESPAN)
     async def _async_free_imdb_api(self, path: str, params: Optional[dict] = None) -> Optional[dict]:
         r = await self._async_req.get_res(url=f"{self.BASE_URL}{path}", params=params, raise_exception=True)
         if r is None:
             return None
         if r.status_code != 200:
             try:
-                logger.warn(f"{path}: {r.json().get('message')}")
+                logger.warning(
+                    f"Free IMDb API returned non-200 status: {r.status_code} for path={path} params={params}"
+                )
             except requests.exceptions.JSONDecodeError:
                 return None
             return None
@@ -66,10 +70,10 @@ class ImdbApiClient:
     def search_titles(self, query: str, limit: Optional[int] = None) -> Optional[ImdbApiSearchTitlesResponse]:
         """
         Search for titles using a query string.
+
         :param query: Required. The search query for titles.
-        :param limit: Optional. Limit the number of results returned. Maximum is 50.
+        :param limit: Optional. Limit the number of results returned. The maximum is 50.
         :return: Search results.
-        See `curl -X 'GET' 'https://api.imdbapi.dev/search/titles?query=Kite' -H 'accept: application/json'`
         """
         path = '/search/titles'
         params: Dict[str, Any] = {'query': query}
@@ -79,7 +83,7 @@ class ImdbApiClient:
             r = self._free_imdb_api(path=path, params=params)
             if r is None:
                 return None
-            ret = ImdbApiSearchTitlesResponse.parse_obj(r)
+            ret = ImdbApiSearchTitlesResponse.model_validate(r)
         except Exception as e:
             logger.debug(f"An error occurred while searching for titles: {e}")
             return None
@@ -95,7 +99,7 @@ class ImdbApiClient:
             r = await self._async_free_imdb_api(path=endpoint, params=params)
             if r is None:
                 return None
-            ret = ImdbApiSearchTitlesResponse.parse_obj(r)
+            ret = ImdbApiSearchTitlesResponse.model_validate(r)
         except Exception as e:
             logger.debug(f"An error occurred while searching for titles: {e}")
             return None
@@ -105,14 +109,13 @@ class ImdbApiClient:
                         media_types: Optional[List[ImdbType]] = None,
                         year: Optional[int] = None) -> Optional[List[ImdbApiTitle]]:
         """
-        Perform an advanced search for titles using a query string with
-            additional filters.
+        Perform an advanced search for titles using a query string with additional filters.
+
         :param query: The search query for titles.
         :param limit: The maximum number of results to return.
         :param media_types: The type of titles to filter by.
         :param year: The start year for filtering titles.
         :return: Search results.
-        See `curl -X 'GET' 'https://api.imdbapi.dev/search/titles?query=Kite' -H 'accept: application/json'`
         """
 
         data = self.search_titles(query=query, limit=limit)
@@ -130,21 +133,22 @@ class ImdbApiClient:
                                     year: Optional[int] = None) -> Optional[List[ImdbApiTitle]]:
         """
         Perform an advanced search for titles using a query string with additional filters.
+
         :param query: The search query for titles.
         :param limit: The maximum number of results to return.
         :param media_types: The type of titles to filter by.
         :param year: The start year for filtering titles.
         :return: Search results.
-        See `curl -X 'GET' 'https://api.imdbapi.dev/search/titles?query=Kite' -H 'accept: application/json'`
         """
 
-        data = await self.async_search_titles(query=query, limit=limit)
-        if data is None:
+        res = await self.async_search_titles(query=query, limit=limit)
+        if res is None:
             return None
+        data = res.titles
         if year:
-            data = [title for title in data.titles if title.start_year == year]
+            data = [title for title in res.titles if title.start_year == year]
         if media_types:
-            data = [title for title in data.titles if title.type in media_types]
+            data = [title for title in res.titles if title.type in media_types]
         return data
 
     def titles(self,
@@ -165,6 +169,7 @@ class ImdbApiClient:
                page_token: Optional[str] = None) -> Optional[ImdbApiListTitlesResponse]:
         """
         Retrieve a list of titles with optional filters.
+
         :param types: Optional. The type of titles to filter by. If not specified,
             all types are returned.
             - MOVIE: Represents a movie title.
@@ -254,7 +259,7 @@ class ImdbApiClient:
             params['pageToken'] = page_token
 
         try:
-            return ImdbApiListTitlesResponse.parse_obj(self._free_imdb_api(path=path, params=params))
+            return ImdbApiListTitlesResponse.model_validate(self._free_imdb_api(path=path, params=params))
         except Exception as e:
             logger.debug(f"An error occurred while listing titles: {e}")
             return None
@@ -312,7 +317,7 @@ class ImdbApiClient:
             r = await self._async_free_imdb_api(path=path, params=params)
             if r is None:
                 return None
-            return ImdbApiListTitlesResponse.parse_obj(r)
+            return ImdbApiListTitlesResponse.model_validate(r)
         except Exception as e:
             logger.debug(f"An error occurred while listing titles: {e}")
             return None
@@ -408,14 +413,14 @@ class ImdbApiClient:
     def title(self, title_id: str) -> Optional[ImdbApiTitle]:
         """
         Retrieve a title's details using its IMDb ID.
+
         :param title_id: The IMDb title ID in the format 'tt1234567'.
         :return: Details.
-        See `curl -X 'GET' 'https://api.imdbapi.dev/titles/tt0944947' -H 'accept: application/json'`
         """
         path = '/titles/%s'
         try:
             r = self._free_imdb_api(path=path % title_id)
-            ret = ImdbApiTitle.parse_obj(r)
+            ret = ImdbApiTitle.model_validate(r)
         except Exception as e:
             logger.debug(f"An error occurred while retrieving details: {e}")
             return None
@@ -427,7 +432,7 @@ class ImdbApiClient:
             r = await self._async_free_imdb_api(path=path % title_id)
             if r is None:
                 return None
-            ret = ImdbApiTitle.parse_obj(r)
+            ret = ImdbApiTitle.model_validate(r)
         except Exception as e:
             logger.debug(f"An error occurred while retrieving details: {e}")
             return None
@@ -438,14 +443,14 @@ class ImdbApiClient:
         ImdbApiListTitleEpisodesResponse]:
         """
         Retrieve the episodes associated with a specific title.
+
         :param title_id: Required. IMDb title ID in the format "tt1234567".
         :param season: Optional. The season number to filter episodes by.
         :param page_size: Optional. The maximum number of episodes to return per page.
-            The value must be between 1 and 50. Default is 20.
+            The value must be between 1 and 50. The default is 20.
         :param page_token: Optional. Token for pagination, if applicable.
         :return: Episodes.
-        See `curl -X 'GET' 'https://api.imdbapi.dev/titles/tt0944947/episodes?season=1&pageSize=5' \
-            -H 'accept: application/json'`
+
         """
         path = '/titles/%s/episodes'
         param: Dict[str, Any] = {}
@@ -457,7 +462,7 @@ class ImdbApiClient:
             param['pageToken'] = page_token
         try:
             r = self._free_imdb_api(path=path % title_id, params=param)
-            ret = ImdbApiListTitleEpisodesResponse.parse_obj(r)
+            ret = ImdbApiListTitleEpisodesResponse.model_validate(r)
         except Exception as e:
             logger.debug(f"An error occurred while retrieving episodes: {e}")
             return None
@@ -479,7 +484,7 @@ class ImdbApiClient:
             r = await self._async_free_imdb_api(path=path % title_id, params=param)
             if r is None:
                 return None
-            ret = ImdbApiListTitleEpisodesResponse.parse_obj(r)
+            ret = ImdbApiListTitleEpisodesResponse.model_validate(r)
         except Exception as e:
             logger.debug(f"An error occurred while retrieving episodes: {e}")
             return None
@@ -527,13 +532,14 @@ class ImdbApiClient:
     def seasons(self, title_id: str) -> Optional[ImdbApiListTitleSeasonsResponse]:
         """
         Retrieve the seasons associated with a specific title.
+
         :param title_id: Required. IMDb title ID in the format "tt1234567".
         :return: Seasons.
         """
         path = '/titles/%s/seasons'
         try:
             r = self._free_imdb_api(path=path % title_id)
-            ret = ImdbApiListTitleSeasonsResponse.parse_obj(r)
+            ret = ImdbApiListTitleSeasonsResponse.model_validate(r)
         except Exception as e:
             logger.debug(f"An error occurred while retrieving seasons: {e}")
             return None
@@ -545,7 +551,7 @@ class ImdbApiClient:
             r = await self._async_free_imdb_api(path=path % title_id)
             if r is None:
                 return None
-            ret = ImdbApiListTitleSeasonsResponse.parse_obj(r)
+            ret = ImdbApiListTitleSeasonsResponse.model_validate(r)
         except Exception as e:
             logger.debug(f"An error occurred while retrieving seasons: {e}")
             return None
@@ -556,14 +562,14 @@ class ImdbApiClient:
                 ) -> Optional[ImdbApiListTitleCreditsResponse]:
         """
         Retrieve the credits associated with a specific title.
+
         :param title_id: Required. IMDb title ID in the format "tt1234567".
         :param categories: Optional. The categories of credits to filter by.
         :param page_size: Optional. The maximum number of credits to return per page.
-            The value must be between 1 and 50. Default is 20.
+            The value must be between 1 and 50. The default is 20.
         :param page_token: Optional. Token for pagination, if applicable.
         :return: Credits.
-        See `curl -X 'GET' 'https://api.imdbapi.dev/titles/tt0944947/credits?categories=CAST' \
-            -H 'accept: application/json'`
+
         """
         path = '/titles/%s/credits'
         param: Dict[str, Any] = {}
@@ -575,7 +581,7 @@ class ImdbApiClient:
             param['pageToken'] = page_token
         try:
             r = self._free_imdb_api(path=path % title_id, params=param)
-            ret = ImdbApiListTitleCreditsResponse.parse_obj(r)
+            ret = ImdbApiListTitleCreditsResponse.model_validate(r)
         except Exception as e:
             logger.debug(f"An error occurred while retrieving credits: {e}")
             return None
@@ -597,7 +603,7 @@ class ImdbApiClient:
             r = await self._async_free_imdb_api(path=path % title_id, params=param)
             if r is None:
                 return None
-            ret = ImdbApiListTitleCreditsResponse.parse_obj(r)
+            ret = ImdbApiListTitleCreditsResponse.model_validate(r)
         except Exception as e:
             logger.debug(f"An error occurred while retrieving credits: {e}")
             return None
@@ -646,13 +652,14 @@ class ImdbApiClient:
     def akas(self, title_id: str) -> Optional[ImdbapiListTitleAKAsResponse]:
         """
         Retrieve the alternative titles (AKAs) associated with a specific title.
+
         :param title_id: Required. IMDb title ID in the format "tt1234567".
         :return: AKAs.
         """
         path = '/titles/%s/akas'
         try:
             r = self._free_imdb_api(path=path % title_id)
-            ret = ImdbapiListTitleAKAsResponse.parse_obj(r)
+            ret = ImdbapiListTitleAKAsResponse.model_validate(r)
         except Exception as e:
             logger.debug(f"An error occurred while retrieving alternative titles: {e}")
             return None
@@ -666,7 +673,7 @@ class ImdbApiClient:
             r = await self._async_free_imdb_api(path=path % title_id)
             if r is None:
                 return None
-            ret = ImdbapiListTitleAKAsResponse.parse_obj(r)
+            ret = ImdbapiListTitleAKAsResponse.model_validate(r)
         except Exception as e:
             logger.debug(f"An error occurred while retrieving alternative titles: {e}")
             return None

@@ -1,6 +1,6 @@
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Dict
 
-from pydantic import BaseModel, Field, validator, HttpUrl
+from pydantic import BaseModel, Field, model_validator, HttpUrl, RootModel
 
 
 class RuleProvider(BaseModel):
@@ -16,44 +16,44 @@ class RuleProvider(BaseModel):
                             alias="size-limit")
     payload: Optional[List[str]] = Field(None, description="Content, only effective when type is inline")
 
-    @validator("url", pre=True, always=True, allow_reuse=True)
-    def check_url_for_http_type(cls, v, values):
-        if values.get("type") == "http" and v is None:
+    @model_validator(mode="before")
+    @classmethod
+    def validate_type_relationships(cls, values):
+        """Perform cross-field validation before the model is created."""
+        type_ = values.get('type')
+        url = values.get('url')
+        path = values.get('path')
+        payload = values.get('payload')
+        format_ = values.get('format', 'yaml')
+        behavior = values.get('behavior')
+
+        # url check
+        if type_ == "http" and url is None:
             raise ValueError("url must be configured if the type is 'http'")
-        elif values.get("type") != "http":
-            return None
-        return v
+        if type_ != "http" and 'url' in values:
+            values['url'] = None
 
-    @validator("path", pre=True, always=True, allow_reuse=True)
-    def check_path_for_file_type(cls, v, values):
-        if values.get("type") == "file" and v is None:
+        # path check
+        if type_ == "file" and path is None:
             raise ValueError("path must be configured if the type is 'file'")
-        elif values.get("type") != "file":
-            return None
-        return v
+        if type_ != "file" and 'path' in values:
+            values['path'] = None
 
-    @validator("payload", pre=True, always=True, allow_reuse=True)
-    def handle_payload_for_non_inline_type(cls, v, values):
-        # If type is not inline, payload should be ignored (set to None)
-        if values.get("type") != "inline" and v is not None:
-            return None
-        return v
+        # payload handling
+        if type_ == "inline":
+            if payload is None:
+                raise ValueError("payload must be configured if the type is 'inline'")
+            if not isinstance(payload, list):
+                raise ValueError("payload must be a list of strings when type is 'inline'")
+        elif 'payload' in values:
+            values['payload'] = None
 
-    @validator("payload", allow_reuse=True)
-    def check_payload_type_for_inline(cls, v, values):
-        if values.get("type") == "inline" and v is not None and not isinstance(v, list):
-            raise ValueError("payload must be a list of strings when type is 'inline'")
-        if values.get("type") == "inline" and v is None:
-            raise ValueError("payload must be configured if the type is 'inline'")
-        return v
-
-    @validator("format", allow_reuse=True)
-    def check_format_with_behavior(cls, v, values):
-        behavior = values.get("behavior")
-        if v == "mrs" and behavior not in ["domain", "ipcidr"]:
+        # format-behavior rule
+        if format_ == "mrs" and behavior not in {"domain", "ipcidr"}:
             raise ValueError("mrs format only supports 'domain' or 'ipcidr' behavior")
-        return v
+
+        return values
 
 
-class RuleProviders(BaseModel):
-    __root__: dict[str, RuleProvider]
+class RuleProviders(RootModel[Dict[str, RuleProvider]]):
+    root: Dict[str, RuleProvider]

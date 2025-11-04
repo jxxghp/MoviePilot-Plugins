@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from .models.api import ClashApi
 
@@ -13,8 +13,9 @@ class SubscriptionConfig(BaseModel):
     proxy_groups: Optional[bool] = Field(True, alias='proxy-groups')
     proxy_providers: Optional[bool] = Field(True, alias='proxy-providers')
 
-    @validator('url', allow_reuse=True)
-    def validate_url(cls, v: str):
+    @field_validator('url')
+    @classmethod
+    def validate_url(cls, v: str) -> str:
         return v.strip()
 
 
@@ -46,7 +47,8 @@ class PluginConfig(BaseModel):
     clash_dashboards: List[ClashApi] = Field(default_factory=list)
     active_dashboard: Optional[int] = None
 
-    @validator('clash_dashboards', allow_reuse=True)
+    @field_validator('clash_dashboards')
+    @classmethod
     def validate_clash_dashboards(cls, v: List[ClashApi]):
         for item in v:
             url = item.url.rstrip('/')
@@ -55,15 +57,18 @@ class PluginConfig(BaseModel):
             item.url = url
         return v
 
-    @validator('movie_pilot_url', allow_reuse=True)
+    @field_validator('movie_pilot_url')
+    @classmethod
     def validate_movie_pilot_url(cls, v: str):
         return v.rstrip('/')
 
-    @validator('ruleset_prefix', allow_reuse=True)
+    @field_validator('ruleset_prefix')
+    @classmethod
     def validate_ruleset_prefix(cls, v: str):
         return v.strip()
 
-    @validator('acl4ssr_prefix', allow_reuse=True)
+    @field_validator('acl4ssr_prefix')
+    @classmethod
     def validate_acl4ssr_prefix(cls, v: str):
         return v.strip()
 
