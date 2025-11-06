@@ -79,6 +79,7 @@ class BrushConfig:
         self.qb_category = config.get("qb_category")
         self.site_hr_active = config.get("site_hr_active", False)
         self.site_skip_tips = config.get("site_skip_tips", False)
+        self.rss_support = config.get("rss_support", False)
 
         self.brush_tag = "刷流"
         # 站点独立配置
@@ -123,7 +124,8 @@ class BrushConfig:
             "qb_category",
             "site_hr_active",
             "site_skip_tips",
-            "del_no_free"
+            "del_no_free",
+            "rss_support"
             # 当新增支持字段时，仅在此处添加字段名
         }
         try:
@@ -193,7 +195,9 @@ class BrushConfig:
     "del_no_free": false,
     "qb_category": "刷流",
     "site_hr_active": true,
-    "site_skip_tips": true
+    "site_skip_tips": true,
+    "rss_support": true
+"
 }]"""
         return desc + config
 
@@ -259,7 +263,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "4.3.3"
+    plugin_version = "4.3.4"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -1638,6 +1642,22 @@ class BrushFlow(_PluginBase):
                                                         }
                                                     }
                                                 ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'rss_support',
+                                                            'label': '启用RSS支持',
+                                                        }
+                                                    }
+                                                ]
                                             }
                                         ]
                                     }
@@ -1817,7 +1837,8 @@ class BrushFlow(_PluginBase):
             "freeleech": "free",
             "hr": "yes",
             "enable_site_config": False,
-            "site_config": BrushConfig.get_demo_site_config()
+            "site_config": BrushConfig.get_demo_site_config(),
+            "rss_support": False
         }
 
     def get_page(self) -> List[dict]:
@@ -2002,7 +2023,14 @@ class BrushFlow(_PluginBase):
             return True
 
         logger.info(f"开始获取站点 {siteinfo.name} 的新种子 ...")
-        torrents = TorrentsChain().browse(domain=siteinfo.domain)
+
+        # 根据rss_support配置决定使用browse还是rss方法获取种子
+        brush_config = self.__get_brush_config(sitename=siteinfo.name)
+        if brush_config.rss_support:
+            torrents = TorrentsChain().rss(domain=siteinfo.domain)
+        else:
+            torrents = TorrentsChain().browse(domain=siteinfo.domain)
+
         if not torrents:
             logger.info(f"站点 {siteinfo.name} 没有获取到种子")
             return True
@@ -3048,6 +3076,7 @@ class BrushFlow(_PluginBase):
             "enable_site_config": brush_config.enable_site_config,
             "site_config": brush_config.site_config,
             "del_no_free": brush_config.del_no_free,
+            "rss_support": brush_config.rss_support,
             "_tabs": self._tabs
         }
 
