@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional, List, Tuple, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from .imdbapi import ImdbApiTitle, ImdbApiEpisode, ImdbApiCredit
 from .imdbtypes import ImdbTitle, ImdbName, ImdbImage, ImdbVideo, AkasNode, TitleEdge
@@ -15,8 +15,8 @@ class StaffPickEntry(BaseModel):
     name: str
     ttconst: str
     rmconst: str
-    detail: Optional[str] = ''
-    description: Optional[str] = ''
+    detail: Optional[str] = ""
+    description: Optional[str] = ""
     relatedconst: List[str] = Field(default_factory=list)
     viconst: Optional[str] = None
 
@@ -40,8 +40,19 @@ class ImdbMediaInfo(ImdbApiTitle):
     credits: List[ImdbApiCredit] = Field(default_factory=list)
 
     @classmethod
-    def from_title(cls, parent: ImdbApiTitle, **kwargs):
-        return cls(**parent.dict(by_alias=True), **kwargs)
+    def from_title(
+        cls,
+        title: ImdbApiTitle,
+        akas: Optional[List[AkasNode]] = None,
+        episodes: Optional[List[ImdbApiEpisode]] = None,
+        api_credits: Optional[List[ImdbApiCredit]] = None,
+    ) -> "ImdbMediaInfo":
+        return cls(
+            **title.model_dump(exclude_none=True, by_alias=True),
+            akas=akas if akas is not None else [],
+            episodes=episodes if episodes is not None else [],
+            credits=api_credits if api_credits is not None else []
+        )
 
 
 class ImdbApiHash(BaseModel):
@@ -92,9 +103,10 @@ class SearchParams(BaseModel):
     ranked: Optional[Tuple[str, ...]] = None
     interests: Optional[Tuple[str, ...]] = None
 
-    class Config:
-        frozen = True
-        allow_mutation = False
+    model_config = ConfigDict(
+        frozen=True,
+        validate_assignment=False
+    )
 
 
 class ErrorExtension(BaseModel):

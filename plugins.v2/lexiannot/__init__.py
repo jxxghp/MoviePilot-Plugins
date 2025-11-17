@@ -8,12 +8,11 @@ import sys
 import time
 import threading
 import uuid
-import venv
 from collections import Counter
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Optional, Union, Type, TypeVar
+from typing import Any, Dict, List, Tuple, Optional
 
 import pysubs2
 import pymediainfo
@@ -26,17 +25,16 @@ from app.log import logger
 from app.plugins import _PluginBase
 from app.core.cache import cached
 from app.core.event import eventmanager, Event
-from app.utils.system import SystemUtils
 from app.schemas.types import NotificationType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 from app.schemas import TransferInfo
 from app.schemas.types import EventType
 from app.core.context import MediaInfo
-from app.plugins.lexiannot.query_gemini import DialogueTranslationTask, VocabularyTranslationTask, Vocabulary, Context
+from app.plugins.lexiannot.query_gemini import (
+    DialogueTranslationTask, VocabularyTranslationTask, Vocabulary, Context, TranslationTasks, translate, T
+)
 from app.plugins.lexiannot.spacyworker import SpacyWorker
-
-T = TypeVar('T', VocabularyTranslationTask, DialogueTranslationTask)
 
 
 class TaskStatus(Enum):
@@ -85,7 +83,7 @@ class LexiAnnot(_PluginBase):
     # 插件图标
     plugin_icon = "LexiAnnot.png"
     # 插件版本
-    plugin_version = "1.1.2"
+    plugin_version = "1.1.3"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -143,7 +141,7 @@ class LexiAnnot(_PluginBase):
     def init_plugin(self, config=None):
         self.stop_service()
         if config:
-            self._enabled = config.get("enabled")
+            self._enabled = bool(config.get("enabled"))
             self._annot_level = config.get("annot_level") or 'C1'
             self._send_notify = config.get("send_notify")
             self._onlyonce = config.get("onlyonce")
@@ -206,7 +204,8 @@ class LexiAnnot(_PluginBase):
 
             if self._onlyonce:
                 for file_path in self._custom_files.split("\n"):
-                    if not file_path:
+                    file_path = file_path.strip()
+                    if not file_path or file_path.startswith("#"):
                         continue
                     self.add_media_file(file_path)
                 self._onlyonce = False
@@ -850,7 +849,7 @@ class LexiAnnot(_PluginBase):
                                             'model': 'custom_files',
                                             'label': '手动处理视频路径',
                                             'rows': 3,
-                                            'placeholder': '每行一个文件'
+                                            'placeholder': '# 每行一个文件'
                                         }
                                     }
                                 ]
@@ -1110,33 +1109,36 @@ class LexiAnnot(_PluginBase):
 
     def __update_config(self):
         with self._config_updating_lock:
-            self.update_config({'enabled': self._enabled,
-                                'annot_level': self._annot_level,
-                                'send_notify': self._send_notify,
-                                'onlyonce': self._onlyonce,
-                                'show_vocabulary_detail': self._show_vocabulary_detail,
-                                'sentence_translation': self._sentence_translation,
-                                'in_place': self._in_place,
-                                'enable_gemini': self._enable_gemini,
-                                'gemini_model': self._gemini_model,
-                                'gemini_apikey': self._gemini_apikey,
-                                'context_window': self._context_window,
-                                'max_retries': self._max_retries,
-                                'request_interval': self._request_interval,
-                                'ffmpeg_path': self._ffmpeg_path,
-                                'english_only': self._english_only,
-                                'when_file_trans': self._when_file_trans,
-                                'model_temperature': self._model_temperature,
-                                'show_phonetics': self._show_phonetics,
-                                'custom_files': self._custom_files,
-                                'accent_color': self._accent_color,
-                                'font_scaling': self._font_scaling,
-                                'opacity': self._opacity,
-                                'spacy_model': self._spacy_model,
-                                'exam_tags': self._exam_tags,
-                                'delete_data': self._delete_data,
-                                'libraries': self._libraries
-                                })
+            self.update_config(
+                {
+                    'enabled': self._enabled,
+                    'annot_level': self._annot_level,
+                    'send_notify': self._send_notify,
+                    'onlyonce': self._onlyonce,
+                    'show_vocabulary_detail': self._show_vocabulary_detail,
+                    'sentence_translation': self._sentence_translation,
+                    'in_place': self._in_place,
+                    'enable_gemini': self._enable_gemini,
+                    'gemini_model': self._gemini_model,
+                    'gemini_apikey': self._gemini_apikey,
+                    'context_window': self._context_window,
+                    'max_retries': self._max_retries,
+                    'request_interval': self._request_interval,
+                    'ffmpeg_path': self._ffmpeg_path,
+                    'english_only': self._english_only,
+                    'when_file_trans': self._when_file_trans,
+                    'model_temperature': self._model_temperature,
+                    'show_phonetics': self._show_phonetics,
+                    'custom_files': self._custom_files,
+                    'accent_color': self._accent_color,
+                    'font_scaling': self._font_scaling,
+                    'opacity': self._opacity,
+                    'spacy_model': self._spacy_model,
+                    'exam_tags': self._exam_tags,
+                    'delete_data': self._delete_data,
+                    'libraries': self._libraries
+                }
+            )
 
     def __process_tasks(self):
         """
@@ -1153,11 +1155,8 @@ class LexiAnnot(_PluginBase):
             return
         if self._enable_gemini:
             self._gemini_available = True
-            res = self.init_venv()
-            if not res:
-                self._gemini_available = False
             if not self._gemini_apikey:
-                logger.warn(f"未提供GEMINI APIKEY")
+                logger.warn("未提供GEMINI APIKEY")
                 self._gemini_available = False
 
         while not self._shutdown_event.is_set():
@@ -1190,7 +1189,7 @@ class LexiAnnot(_PluginBase):
             return TaskStatus.FAILED
         lexicon = self.__load_lexicon_from_local()
         if not lexicon:
-            logger.error(f"字典加载失败")
+            logger.error("字典加载失败")
             return TaskStatus.FAILED
 
         video = Path(path)
@@ -1210,7 +1209,10 @@ class LexiAnnot(_PluginBase):
                               mtype=NotificationType.Plugin,
                               text=f"{message}")
         ffmpeg_path = self._ffmpeg_path if self._ffmpeg_path else 'ffmpeg'
-        embedded_subtitles = LexiAnnot.__extract_subtitles_by_lang(path, 'en', ffmpeg_path)
+        eng_mark = ['en', 'en-US', 'eng', 'en-GB', 'english', 'en-AU']
+        embedded_subtitles = LexiAnnot._extract_subtitles_by_lang(path, eng_mark, ffmpeg_path)
+        if not embedded_subtitles:
+            return TaskStatus.CANCELED
         embedded_subtitles = sorted(embedded_subtitles, key=lambda track: 'SDH' in track['title'])
         ret_message = ''
         if embedded_subtitles:
@@ -1250,9 +1252,9 @@ class LexiAnnot(_PluginBase):
 
         return TaskStatus.COMPLETED
 
-    @cached(maxsize=1000, ttl=1800)
+    @cached(maxsize=1, ttl=1800)
     def __load_lexicon_version(self) -> Optional[str]:
-        logger.info(f"正在检查远程词典文件版本...")
+        logger.info("正在检查远程词典文件版本...")
         url = f'{self._lexicon_repo}master/version'
         version = RequestUtils().get(url, headers=settings.REPO_GITHUB_HEADERS())
         if version is None:
@@ -1309,12 +1311,12 @@ class LexiAnnot(_PluginBase):
 
         lexicon = self.__load_lexicon_from_local()
         latest = self.__load_lexicon_version() or '0.0.0'
-        if not lexicon or StringUtils.compare_version(lexicon.get('version'), '<', latest):
+        if not lexicon or StringUtils.compare_version(lexicon.get('version') or '0.0.0', '<', latest):
             lexicon = self.__retrieve_lexicon_online(latest)
 
         if not (nlp and lexicon):
             self._loaded = False
-            logger.warn(f"插件数据加载失败")
+            logger.warn("插件数据加载失败")
         else:
             self._loaded = True
             logger.info(f"当前词典文件版本: {lexicon.get('version')}")
@@ -1352,7 +1354,7 @@ class LexiAnnot(_PluginBase):
             return
 
         # 入库数据
-        transfer_info: TransferInfo = event_info.get("transferinfo")
+        transfer_info: TransferInfo | None = event_info.get("transferinfo")
         if not transfer_info or not transfer_info.target_diritem or not transfer_info.target_diritem.path:
             return
 
@@ -1360,19 +1362,20 @@ class LexiAnnot(_PluginBase):
         in_libraries = False
         libraries = {library.name: library.library_path for library in DirectoryHelper().get_library_dirs()}
         for library_name in self._libraries:
-            if library_name in libraries and Path(transfer_info.target_diritem.path).is_relative_to(
-                    Path(libraries[library_name])):
-                in_libraries = True
-                break
+            if library_name in libraries:
+                ll = libraries[library_name]
+                if ll and Path(transfer_info.target_diritem.path).is_relative_to(Path(ll)):
+                    in_libraries = True
+                    break
         if not in_libraries:
             return
 
-        mediainfo: MediaInfo = event_info.get("mediainfo")
-        if self._english_only:
+        mediainfo: MediaInfo | None = event_info.get("mediainfo")
+        if self._english_only and mediainfo:
             if mediainfo.original_language and mediainfo.original_language != 'en':
                 logger.info(f"原始语言 ({mediainfo.original_language}) 不为英语, 跳过 {mediainfo.title}： ")
                 return
-        for new_path in transfer_info.file_list_new:
+        for new_path in transfer_info.file_list_new or []:
             self.add_media_file(new_path)
 
     @staticmethod
@@ -1511,7 +1514,8 @@ class LexiAnnot(_PluginBase):
             style = dialogue.style
             text = dialogue.plaintext
             sub_text = text.split('\n')
-            if style not in styles or not text: continue
+            if style not in styles or not text:
+                continue
             styles[style]['text'].extend(sub_text)
             styles[style]['duration'] += dialogue.duration
             styles[style]['text_size'] += len(text)
@@ -1529,8 +1533,10 @@ class LexiAnnot(_PluginBase):
                 try:
                     lang = detect(text_fragment)
                     languages.append(lang)
-                except:
-                    pass  # 无法检测的文本
+                except Exception as e:
+                    # 无法检测的文本
+                    logger.debug(e)
+                    pass
 
             if languages:
                 language_counts = Counter(languages)
@@ -1550,6 +1556,7 @@ class LexiAnnot(_PluginBase):
                                    weights=None):
         """
         根据语言分析结果和已知的字幕语言，使用加权评分选择主要样式
+
         :params language_analysis: `analyze_ass_language` 函数的输出结果
         :params known_language: 已知的字幕语言代码
         :params weights: 各个维度的权重，权重之和应为 1
@@ -1584,8 +1591,7 @@ class LexiAnnot(_PluginBase):
     @staticmethod
     def set_srt_style(ass: SSAFile) -> SSAFile:
         ass.info['ScaledBorderAndShadow'] = 'no'
-        play_res_y = int(ass.info.get('PlayResY'))
-        play_res_x = int(ass.info.get('PlayResX'))
+        play_res_y = int(ass.info['PlayResY'])
         if 'Default' in ass.styles:
             ass.styles['Default'].marginv = play_res_y // 16
             ass.styles['Default'].fontname = 'Microsoft YaHei'
@@ -1594,8 +1600,8 @@ class LexiAnnot(_PluginBase):
 
     def __set_style(self, ass: SSAFile) -> SSAFile:
         font_scaling = float(self._font_scaling) if self._font_scaling and len(self._font_scaling) else 1
-        play_res_y = int(ass.info.get('PlayResY'))
-        play_res_x = int(ass.info.get('PlayResX'))
+        play_res_y = int(ass.info['PlayResY'])
+        play_res_x = int(ass.info['PlayResX'])
         # 创建一个新样式
         fs = play_res_y // 16 * font_scaling
         new_style = pysubs2.SSAStyle()
@@ -1613,7 +1619,7 @@ class LexiAnnot(_PluginBase):
         new_style.alignment = pysubs2.Alignment.TOP_LEFT
         new_style.marginl = play_res_x // 20
         new_style.marginr = play_res_x // 20
-        new_style.marginv = fs
+        new_style.marginv = int(fs)
         ass.styles['Annotation EN'] = new_style
         zh_style = new_style.copy()
         zh_style.name = 'Annotation ZH'
@@ -1699,16 +1705,22 @@ class LexiAnnot(_PluginBase):
             return None
 
     @staticmethod
-    def __extract_subtitles_by_lang(video_path: str, lang: str = 'en', ffmpeg: str = 'ffmpeg') -> Optional[List[Dict]]:
+    def _extract_subtitles_by_lang(video_path: str, lang: str | list = 'en', ffmpeg: str = 'ffmpeg') -> Optional[List[Dict]]:
         """
         提取视频文件中的内嵌英文字幕，使用 MediaInfo 查找字幕流。
         """
+
+        def check_lang(track_lang: str) -> bool:
+            if isinstance(lang, list):
+                return track_lang in lang
+            return track_lang == lang
+
         supported_codec = ['S_TEXT/UTF8', 'S_TEXT/ASS']
         subtitles = []
         try:
             media_info: pymediainfo.MediaInfo = pymediainfo.MediaInfo.parse(video_path)
             for track in media_info.tracks:
-                if track.track_type == 'Text' and track.language == lang and track.codec_id in supported_codec:
+                if track.track_type == 'Text' and check_lang(track_lang=track.language) and track.codec_id in supported_codec:
                     subtitle_stream_index = track.stream_identifier  # MediaInfo 的 stream_id 从 1 开始，ffmpeg 从 0 开始
                     subtitle = LexiAnnot.__extract_subtitle(video_path, subtitle_stream_index, ffmpeg)
                     if subtitle:
@@ -1731,74 +1743,29 @@ class LexiAnnot(_PluginBase):
             logger.error(f"使用 MediaInfo 提取字幕时发生错误：{e}")
             return None
 
-    def init_venv(self) -> bool:
-        venv_dir = os.path.join(self.get_data_path(), "venv_genai")
-        python_path = os.path.join(venv_dir, "bin", "python") if os.name != "nt" else os.path.join(venv_dir, "Scripts",
-                                                                                                   "python.exe")
-        # 创建虚拟环境
-        try:
-            if not os.path.exists(venv_dir):
-                logger.info(f"为 google-genai 初始化虚拟环境: {venv_dir}")
-                venv.create(venv_dir, with_pip=True, symlinks=True, clear=True)
-                logger.info(f"虚拟环境创建成功: {venv_dir}")
-            SystemUtils.execute_with_subprocess([python_path, "-m", "pip", "install", 'google-genai'])
-        except subprocess.CalledProcessError as e:
-            logger.warn(f"虚拟环境创建失败: {e}")
-            shutil.rmtree(venv_dir)
-            return False
-        self._venv_python = python_path
-
-        return True
-
     def __query_gemini(
             self,
-            tasks: List[T],
-            task_type: Type[T],
+            tasks: TranslationTasks,
             api_key: str,
             system_instruction: str,
             model: str,
             temperature: float
     ) -> List[T]:
-        input_dict = {
-            'tasks': [task.dict() for task in tasks],
-            'params': {
-                'api_key': api_key,
-                'system_instruction': system_instruction,
-                'schema': task_type.__name__,
-                'model': model,
-                'temperature': temperature,
-                'max_retries': self._max_retries
-            }
-        }
+        response = translate(
+            api_key=api_key,
+            translation_tasks=tasks,
+            system_instruction=system_instruction,
+            gemini_model=model,
+            temperature=temperature,
+            max_retries=self._max_retries
+        )
 
-        try:
-            result = subprocess.run(
-                [self._venv_python, self._query_gemini_script],
-                input=json.dumps(input_dict),
-                capture_output=True,
-                text=True,
-                check=True
-            )
-        except subprocess.CalledProcessError as e:
-            logger.warning(f"Subprocess failed: {str(e)}")
-            return tasks
+        if not response.success:
+            logger.warning(f"Error in subprocess response: {response.message}")
+            return tasks.tasks
 
-        try:
-            response = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            logger.warning(f"Invalid JSON from subprocess:\n{result.stdout}")
-            return tasks
-
-        if not response.get("success"):
-            logger.warning(f"Error in subprocess response: {response.get('message')}")
-            return tasks
-
-        try:
-            self._total_token_count += response['data']['total_token_count'] or 0
-            return [task_type(**task_data) for task_data in response["data"]["tasks"]]
-        except Exception as e:
-            logger.warning(f"Failed to reconstruct tasks: {str(e)}")
-            return tasks
+        self._total_token_count += response.total_token_count
+        return response.tasks
 
     def __process_by_ai(self, lines_to_process: List[Dict[str, Any]],
                         cefr_lexicon: Dict[str, Any],
@@ -1819,9 +1786,9 @@ class LexiAnnot(_PluginBase):
         patterns = [r'\d+th|\d?1st|\d?2nd|\d?3rd', r"\w+'s$", r"\w+'d$", r"\w+'t$", "[Ii]'m$", r"\w+'re$", r"\w+'ve$", r"\w+'ll$"]
         compiled_patterns = [re.compile(p) for p in patterns]
         model_temperature = float(self._model_temperature) if self._model_temperature else 0.3
-        logger.info(f"通过 spaCy 分词...")
+        logger.info("通过 spaCy 分词...")
         vocabulary_trans_instruction = '''You are an expert translator. You will be given a list of English words along with their context, formatted as JSON. For each entry, provide the most appropriate translation in Simplified Chinese based on the context.
-    Only complete the `Chinese` field. Do not include pinyin, explanations, or any additional information.'''
+Only complete the `Chinese` field. Do not include pinyin, explanations, or any additional information.'''
         # 使用nlp分词
         for line_data in lines_to_process:
             if self._shutdown_event.is_set():
@@ -1881,10 +1848,10 @@ class LexiAnnot(_PluginBase):
                                   'pos_defs': pos_defs, 'exam_tags': exam_tags})
             line_data['new_vocab'] = new_vocab
         # 查询词汇翻译
-        task_bulk: List[Union[VocabularyTranslationTask | DialogueTranslationTask]] = []
+        task_bulk: List[VocabularyTranslationTask] = []
         i = 0
         if self._gemini_available:
-            logger.info(f"查询词汇翻译...")
+            logger.info("查询词汇翻译...")
         for line_data in lines_to_process:
             if self._shutdown_event.is_set():
                 return lines_to_process
@@ -1894,21 +1861,27 @@ class LexiAnnot(_PluginBase):
             if not (len(line_data["new_vocab"]) or (i == len(lines_to_process) and len(task_bulk))):
                 continue
             new_vocab = [Vocabulary(lemma=new_vocab['lemma'], Chinese='') for new_vocab in line_data['new_vocab']]
-            task_bulk.append(VocabularyTranslationTask(index=line_data['index'],
-                                                       vocabulary=new_vocab,
-                                                       context=Context(
-                                                           original_text=line_data['raw_subtitle'].replace('\n', ' ')
-                                                       )))
+            task_bulk.append(
+                VocabularyTranslationTask(
+                    index=line_data['index'],
+                    id=f"{line_data['index']}",
+                    vocabulary=new_vocab,
+                    context=Context(
+                        original_text=line_data['raw_subtitle'].replace('\n', ' ')
+                    )
+                )
+            )
             if len(task_bulk) >= self._context_window or (len(task_bulk) and i == len(lines_to_process)):
                 logger.info(f"processing dialogues: "
                             f"{LexiAnnot.format_duration(lines_to_process[task_bulk[0].index]['time_code'][0])} -> "
                             f"{LexiAnnot.format_duration(lines_to_process[i - 1]['time_code'][1])}")
-                answer: Optional[List[VocabularyTranslationTask]] = self.__query_gemini(task_bulk,
-                                                                                        VocabularyTranslationTask,
-                                                                                        self._gemini_apikey,
-                                                                                        vocabulary_trans_instruction,
-                                                                                        self._gemini_model,
-                                                                                        model_temperature)
+                answer: List[VocabularyTranslationTask] = self.__query_gemini(
+                    TranslationTasks[VocabularyTranslationTask](tasks=task_bulk),
+                    self._gemini_apikey,
+                    vocabulary_trans_instruction,
+                    self._gemini_model,
+                    model_temperature
+                )
                 if not answer:
                     continue
                 time.sleep(self._request_interval)
@@ -1931,13 +1904,18 @@ class LexiAnnot(_PluginBase):
         if not self._sentence_translation:
             return lines_to_process
         if self._gemini_available:
-            logger.info(f"查询整句翻译...")
+            logger.info("查询整句翻译...")
         # 查询整句翻译
         translation_tasks: List[DialogueTranslationTask] = []
         for line_data in lines_to_process:
-            translation_tasks.append(DialogueTranslationTask(index=line_data['index'],
-                                                             original_text=line_data['raw_subtitle'].replace('\n', ' '),
-                                                             Chinese=''))
+            translation_tasks.append(
+                DialogueTranslationTask(
+                    id=f"{line_data['index']}",
+                    index=line_data['index'],
+                    original_text=line_data['raw_subtitle'].replace('\n', ' '),
+                    Chinese=''
+                )
+            )
         i = 0
         dialog_trans_instruction = '''You are an expert translator. You will be given a list of dialogue translation tasks in JSON format. For each entry, provide the most appropriate translation in Simplified Chinese based on the context. 
     Only complete the `Chinese` field. Do not include pinyin, explanations, or any additional information.'''
@@ -1952,12 +1930,13 @@ class LexiAnnot(_PluginBase):
             logger.info(f"processing dialogues: "
                         f"{LexiAnnot.format_duration(lines_to_process[i]['time_code'][0])} -> "
                         f"{LexiAnnot.format_duration(lines_to_process[min(len(translation_tasks), i + self._context_window) - 1]['time_code'][1])}")
-            answer: List[DialogueTranslationTask] = self.__query_gemini(task_bulk,
-                                                                        DialogueTranslationTask,
-                                                                        self._gemini_apikey,
-                                                                        dialog_trans_instruction,
-                                                                        self._gemini_model,
-                                                                        model_temperature)
+            answer: List[DialogueTranslationTask] = self.__query_gemini(
+                TranslationTasks[DialogueTranslationTask](tasks=task_bulk),
+                self._gemini_apikey,
+                dialog_trans_instruction,
+                self._gemini_model,
+                model_temperature
+            )
             time.sleep(self._request_interval)
             for answer_line in answer:
                 if answer_line.index not in range(i, i + self._context_window):
@@ -1999,9 +1978,9 @@ class LexiAnnot(_PluginBase):
             'SCONJ': 'conj.'
         }
         statistical_res = LexiAnnot.analyze_ass_language(ass_file)
-        main_style = LexiAnnot.select_main_style_weighted(statistical_res, lang)
+        main_style: str | None = LexiAnnot.select_main_style_weighted(statistical_res, lang)
         if not main_style:
-            logger.error(f'无法确定主要字幕样式')
+            logger.error('无法确定主要字幕样式')
             return None
         index = 0
         lines_to_process = []

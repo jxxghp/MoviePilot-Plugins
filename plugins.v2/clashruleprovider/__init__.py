@@ -32,7 +32,7 @@ class ClashRuleProvider(_ClashRuleProviderBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "2.0.8"
+    plugin_version = "2.0.9"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -46,13 +46,13 @@ class ClashRuleProvider(_ClashRuleProviderBase):
     # 主线程事件循环
     event_loop: Optional[asyncio.AbstractEventLoop] = None
 
+    # Runtime variables
+    services: ClashRuleProviderService
+    api: ClashRuleProviderApi
+
     def __init__(self):
         # Configuration attributes
         super().__init__()
-
-        # Runtime variables
-        self.services: Optional[ClashRuleProviderService] = None
-        self.api: Optional[ClashRuleProviderApi] = None
 
     def init_plugin(self, conf: dict = None):
         self.stop_service()
@@ -77,7 +77,7 @@ class ClashRuleProvider(_ClashRuleProviderBase):
         if conf:
             try:
                 raw_conf = PluginConfig.upgrade_conf(conf)
-                self.config = PluginConfig.parse_obj(raw_conf)
+                self.config = PluginConfig.model_validate(raw_conf)
             except ValidationError as e:
                 logger.error(f"解析配置出错: {e}")
                 return
@@ -194,11 +194,8 @@ class ClashRuleProvider(_ClashRuleProviderBase):
                 self.scheduler.remove_all_jobs()
                 if self.scheduler.running:
                     self.scheduler.shutdown()
-                self.scheduler = None
             except Exception as e:
                 logger.error(f"退出插件失败：{e}")
-        self.services = None
-        self.api = None
 
     def get_service(self) -> List[Dict[str, Any]]:
         if self.get_state() and self.config.auto_update_subscriptions and self.config.sub_links:
@@ -246,7 +243,7 @@ class ClashRuleProvider(_ClashRuleProviderBase):
                               )
 
     def _update_config(self):
-        conf = self.config.dict(by_alias=True)
+        conf = self.config.model_dump(by_alias=True)
         self.update_config(conf)
 
     def update_best_cf_ip(self, ips: List[str]):
@@ -256,7 +253,7 @@ class ClashRuleProvider(_ClashRuleProviderBase):
         self.update_config(conf)
 
     @eventmanager.register(EventType.PluginAction)
-    def update_cloudflare_ips_handler(self, event: Event = None):
+    def update_cloudflare_ips_handler(self, event: Event):
         event_data = event.event_data
         if not event_data or event_data.get("action") != "update_cloudflare_ips":
             return

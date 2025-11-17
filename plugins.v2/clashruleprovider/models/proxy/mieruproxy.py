@@ -1,6 +1,6 @@
 from typing import Optional, Literal
 
-from pydantic import Field, validator
+from pydantic import Field, model_validator
 
 from .proxybase import ProxyBase
 
@@ -15,12 +15,11 @@ class MieruProxy(ProxyBase):
         'MULTIPLEXING_OFF', 'MULTIPLEXING_LOW', 'MULTIPLEXING_MIDDLE', 'MULTIPLEXING_HIGH']] = 'MULTIPLEXING_LOW'
     handshake_mode: Optional[Literal['HANDSHAKE_STANDARD', 'HANDSHAKE_NO_WAIT']] = 'HANDSHAKE_STANDARD'
 
-    @validator('port', 'port_range', allow_reuse=True)
-    def validate_port_config(cls, v, values):
-        port = values.get('port')
-        port_range = values.get('port_range')
-        if not port and not port_range:
-            raise ValueError("either port or port-range must be set")
-        if port and port_range:
-            raise ValueError("port and port-range cannot be set at the same time")
-        return v
+    @model_validator(mode='after')
+    def validate_port_config(self):
+        """Pydantic v2 style model-level validation."""
+        if not getattr(self, 'port', None) and not getattr(self, 'port_range', None):
+            raise ValueError("either 'port' or 'port-range' must be set")
+        if getattr(self, 'port', None) and getattr(self, 'port_range', None):
+            raise ValueError("'port' and 'port-range' cannot be set at the same time")
+        return self

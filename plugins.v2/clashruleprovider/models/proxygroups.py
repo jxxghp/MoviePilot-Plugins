@@ -1,7 +1,7 @@
 import re
 from typing import List, Optional, Union, Literal
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, RootModel
 
 
 class ProxyGroupBase(BaseModel):
@@ -51,7 +51,8 @@ class ProxyGroupBase(BaseModel):
     hidden: Optional[bool] = Field(False, description="Hides the proxy group in the API.")
     icon: Optional[str] = Field(None, description="Icon string for the proxy group, for UI use.")
 
-    @validator('expected_status', allow_reuse=True)
+    @field_validator('expected_status')
+    @classmethod
     def validate_expected_status(cls, v: Optional[str]) -> Optional[str]:
         if v is None or v == '*':
             return v
@@ -114,8 +115,5 @@ class SmartGroup(ProxyGroupBase):
 ProxyGroupType = Union[SelectGroup, RelayGroup, FallbackGroup, UrlTestGroup, LoadBalanceGroup, SmartGroup]
 
 
-class ProxyGroup(BaseModel):
-    __root__: ProxyGroupType = Field(..., discriminator='type')
-
-    def dict(self, **kwargs):
-        return self.__root__.dict(**kwargs)
+class ProxyGroup(RootModel[ProxyGroupType]):
+    root: ProxyGroupType = Field(..., discriminator='type')
