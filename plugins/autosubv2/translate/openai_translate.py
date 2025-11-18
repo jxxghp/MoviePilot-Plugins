@@ -12,29 +12,17 @@ class OpenAi:
     _api_key: str = None
     _api_url: str = None
     _model: str = "gpt-3.5-turbo"
-    _client: openai.OpenAI = None
 
     def __init__(self, api_key: str = None, api_url: str = None, proxy: dict = None, model: str = None,
                  compatible: bool = False):
         self._api_key = api_key
         self._api_url = api_url
+        openai.api_base = self._api_url if compatible else self._api_url + "/v1"
+        openai.api_key = self._api_key
+        if proxy and proxy.get("https"):
+            openai.proxy = proxy.get("https")
         if model:
             self._model = model
-        
-        # 初始化 OpenAI 客户端
-        if self._api_key and self._api_url:
-            base_url = self._api_url if compatible else self._api_url + "/v1"
-            http_client = None
-            if proxy and proxy.get("https"):
-                import httpx
-                proxy_url = proxy.get("https")
-                # httpx 支持字符串格式的代理 URL
-                http_client = httpx.Client(proxies=proxy_url, timeout=60.0)
-            self._client = openai.OpenAI(
-                api_key=self._api_key,
-                base_url=base_url,
-                http_client=http_client
-            )
 
     @staticmethod
     def __save_session(session_id: str, message: str):
@@ -85,8 +73,6 @@ class OpenAi:
         """
         获取模型
         """
-        if not self._client:
-            raise ValueError("OpenAI client not initialized. Please check API key and API URL.")
         if not isinstance(message, list):
             if prompt:
                 message = [
@@ -106,10 +92,9 @@ class OpenAi:
                         "content": message
                     }
                 ]
-        # 新版本 API 不支持 user 参数，需要从 kwargs 中移除
-        kwargs.pop('user', None)
-        return self._client.chat.completions.create(
+        return openai.ChatCompletion.create(
             model=self._model,
+            user=user,
             messages=message,
             **kwargs
         )
