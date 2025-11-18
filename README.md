@@ -1389,6 +1389,10 @@ def get_actions(self) -> List[Dict[str, Any]]:
         
         # 输入参数模型，定义工具接收的参数及其类型和说明
         args_schema: Type[BaseModel] = MyToolInput
+
+        def get_tool_message(self, **kwargs) -> Optional[str]:
+          """根据订阅参数生成友好的提示消息"""
+          pass
         
         async def run(self, query: str, limit: Optional[int] = None, **kwargs) -> str:
             """
@@ -1435,6 +1439,7 @@ def get_actions(self) -> List[Dict[str, Any]]:
 - 4. 工具类实现要求：
     - **必须继承自 `app.agent.tools.base.MoviePilotTool`**
     - **必须实现 `run` 方法**（异步方法），接收参数并返回字符串结果
+    - **必须实现 `get_tool_message` 方法**，以显示友好的工具执行提示给用户
     - **必须定义 `name` 属性**（字符串），工具的唯一标识
     - **必须定义 `description` 属性**（字符串），详细描述工具功能，帮助智能体理解何时使用该工具
     - **可选定义 `args_schema` 属性**（Pydantic模型类），用于定义输入参数的结构和验证
