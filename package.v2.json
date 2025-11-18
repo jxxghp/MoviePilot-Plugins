@@ -244,11 +244,12 @@
     "name": "IYUU自动辅种",
     "description": "基于IYUU官方Api实现自动辅种。",
     "labels": "做种,IYUU",
-    "version": "2.14",
+    "version": "2.15",
     "icon": "IYUU.png",
     "author": "jxxghp,CKun",
     "level": 2,
     "history": {
+      "v2.15": "修复海豹不能辅种的问题",
       "v2.14": "修复馒头不能辅种的问题",
       "v2.13": "开启跳过校验后需手动开启自动开始",
       "v2.12": "增加qb下载器分类复用配置",
