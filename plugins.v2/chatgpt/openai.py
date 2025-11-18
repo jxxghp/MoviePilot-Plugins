@@ -15,8 +15,9 @@ class OpenAi:
     _model: str = "gpt-3.5-turbo"
     _prompt: str = '接下来我会给你一个电影或电视剧的文件名，你需要识别文件名中的名称、版本、分段、年份、分瓣率、季集等信息，并按以下JSON格式返回：{"name":string,"version":string,"part":string,"year":string,"resolution":string,"season":number|null,"episode":number|null}，特别注意返回结果需要严格附合JSON格式，不需要有任何其它的字符。如果中文电影或电视剧的文件名中存在谐音字或字母替代的情况，请还原最有可能的结果。'
 
-    def __init__(self, api_key: str = None, api_url: str = None, proxy: dict = None, model: str = None, compatible:
-    bool = False, customize_prompt: str = None):
+    def __init__(self, api_key: str = None, api_url: str = None,
+                 proxy: dict = None, model: str = None,
+                 compatible: bool = False, customize_prompt: str = None):
         self._api_key = api_key
         self._api_url = api_url
         if compatible:
@@ -30,6 +31,7 @@ class OpenAi:
             self._model = model
         if customize_prompt:
             self._prompt = customize_prompt
+
     def get_state(self) -> bool:
         return True if self._api_key else False
 
