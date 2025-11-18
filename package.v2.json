@@ -103,11 +103,12 @@
     "name": "ChatGPT",
     "description": "消息交互支持与ChatGPT对话。",
     "labels": "消息通知,识别",
-    "version": "2.1.7",
+    "version": "2.1.8",
     "icon": "Chatgpt_A.png",
     "author": "jxxghp",
     "level": 1,
     "history": {
+      "v2.1.8": "修复 OpenAI API >=1.0.0 兼容性问题",
       "v2.1.7":"独立安装OpenAi SDK依赖",
       "v2.1.6": "支持自定义辅助识别提示词",
       "v2.1.5": "兼容一些模型返回json数据信息用markdown语法包裹的情况",
