@@ -68,13 +68,14 @@ def translate(
     returns: GeminiResponse containing the results
     """
 
-    client = genai.Client(api_key=api_key)
+
     messages = []
 
     response_schema = type(translation_tasks)
 
     for attempt in range(1, max_retries + 1):
         try:
+            client = genai.Client(api_key=api_key)
             response = client.models.generate_content(
                 model=gemini_model,
                 contents=translation_tasks.model_dump_json(),
@@ -100,7 +101,7 @@ def translate(
         except Exception as e:
             messages.append(f"Attempt {attempt} failed: {str(e)}")
             if attempt < max_retries:
-                time.sleep(retry_delay)
+                time.sleep(attempt*retry_delay)
 
     return GeminiResponse(
         tasks=[],

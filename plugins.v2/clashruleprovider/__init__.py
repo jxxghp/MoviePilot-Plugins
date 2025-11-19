@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.schemas.types import EventType, NotificationType
-from app.scheduler import Scheduler
+from app.core.config import global_vars
 
 from .api import ClashRuleProviderApi, apis
 from .base import _ClashRuleProviderBase
@@ -92,11 +92,7 @@ class ClashRuleProvider(_ClashRuleProviderBase):
         self.state.ruleset_rules_manager.clear()
 
         if ClashRuleProvider.event_loop is None:
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = Scheduler().loop
-            ClashRuleProvider.event_loop = loop
+            ClashRuleProvider.event_loop = global_vars.loop
         self.scheduler = AsyncIOScheduler(timezone=settings.TZ, event_loop=ClashRuleProvider.event_loop)
         self.services = ClashRuleProviderService(self.__class__.__name__, self.config, self.state, self.store,
                                                  self.scheduler)
