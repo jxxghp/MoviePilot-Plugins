@@ -1,86 +1,108 @@
-import re
-from typing import Optional, List, Callable
+import ipaddress
+import socket
+from urllib.parse import urlparse
 
-import dns.asyncresolver
-import dns.resolver
+from dns import asyncresolver, query
+from dns.nameserver import Do53Nameserver, DoHNameserver, DoTNameserver, DoQNameserver
+from dns.resolver import NoAnswer, NXDOMAIN
 
 from app.log import logger
 
 
 class DnsHelper:
-    def __init__(self, dns_server: str):
-        self.method_name = "Local"
-        self.doh_url = "https://dns.alidns.com/dns-query"
-        self.__resolver = dns.asyncresolver.Resolver()
-        self.__dns_query_method = self.__query_method(dns_server)
 
-    def __query_method(self, dns_input: str) -> Callable:
-        if not dns_input:
-            return self.query_dns_local
-        if dns_input.startswith('https://'):
-            self.doh_url = dns_input
-            self.method_name = dns_input
-            return self.query_dns_doh
-        udp_match = re.match(r"^(?:udp://)?(\[?.+?]?)(?::(\d+))?$", dns_input)
-        if udp_match:
-            try:
-                self.__resolver.nameservers = [udp_match.group(1).strip('[]')]
-                if udp_match.group(2):
-                    self.__resolver.port = int(udp_match.group(2))
-                self.method_name = f"udp://{self.__resolver.nameservers[0]}:{self.__resolver.port}"
-            except Exception as e:
-                logger.warn(f'{e}, using default resolver')
-                return self.query_dns_local
-            return self.query_dns_udp
-        logger.warn(f'Unknown method {dns_input}, using default resolver')
-        return self.query_dns_local
+    def __init__(self, dns_server: str | None = None):
+        self._resolver = asyncresolver.Resolver()
+        self._use_tcp: bool = False
+        if dns_server:
+            self.nameserver = dns_server
 
-    async def query_dns(self, domain: str, dns_type: str = "A") -> Optional[List[str]]:
-        answers = await self.__dns_query_method(domain, dns_type)
-        return answers
+    @property
+    def nameserver(self) ->str:
+        nameserver = self._resolver.nameservers[0]
+        return str(nameserver)
 
-    async def query_dns_local(self, domain: str, dns_type: str = "A") -> Optional[List[str]]:
+    @nameserver.setter
+    def nameserver(self, value: str | None):
+        if value is None:
+            self._resolver = asyncresolver.Resolver()
+            return
+        self._parse_dns_server(value)
+
+    @staticmethod
+    def get_ip_from_hostname(hostname) -> str | None:
         try:
-            answer = await self.__resolver.resolve(domain, dns_type)
-            return [record.address for record in answer if hasattr(record, "address")]
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
-            return []
-        except Exception as e:
-            # logger.error(f"本地DNS查询错误: {e} {domain}")
+            # 获取IP地址
+            ip = socket.gethostbyname(hostname)
+            return ip
+        except socket.gaierror:
             return None
 
-    async def query_dns_doh(self, domain: str, dns_type: str = 'A') -> Optional[List[str]]:
+    @staticmethod
+    def is_ip_address(hostname):
+        try:
+            # 尝试解析为IP地址
+            ipaddress.ip_address(hostname)
+            return True
+        except ValueError:
+            return False
+
+    def _parse_dns_server(self, dns_server: str):
+        if "://" not in dns_server:
+            dns_server = f"udp://{dns_server}"
+        parsed = urlparse(dns_server)
+
+        # check and resolve the hostname
+        hostname = parsed.hostname
+        if hostname is None:
+            return
+        if DnsHelper.is_ip_address(hostname):
+            address = hostname
+            hostname = None
+        else:
+            address = DnsHelper.get_ip_from_hostname(hostname)
+            if address is None:
+                return
+
+        nameserver =  None
+        match parsed.scheme:
+            case "udp":
+                nameserver = Do53Nameserver(address, parsed.port or 53)
+            case "tcp":
+                nameserver = Do53Nameserver(address, parsed.port or 53)
+                self._use_tcp = True
+            case "https":
+                nameserver = DoHNameserver(url=dns_server)
+            case "tls":
+                nameserver = DoTNameserver(address=address, port=parsed.port or 853, hostname=hostname)
+            case "h3":
+                nameserver = DoHNameserver(url=dns_server.replace("h3://", "https://"),
+                                           http_version=query.HTTPVersion.H3)
+            case "quic":
+                nameserver = DoQNameserver(address=address, port=parsed.port or 853, server_hostname=hostname)
+            case _:
+                nameserver = None
+        if nameserver is None:
+            self._resolver = asyncresolver.Resolver()
+            return
+        self._resolver.nameservers = [nameserver]
+
+    async def resolve_name(self, domain: str, family: int = socket.AF_UNSPEC) -> list[str] | None:
         """
-        使用 DNS-over-HTTPS (DoH) 异步解析域名。
+        异步解析域名
 
         :param domain: 要解析的域名
-        :param dns_type: DNS 记录类型，例如 'A', 'AAAA'
+        :param family: The address family
+            - socket.AF_UNSPEC: both IPv4 and IPv6 addresses
+            - socket.AF_INET6: IPv6 addresses only
+            - socket.AF_INET: IPv4 addresses only
         :return: IP 地址列表，或 None
         """
-
         try:
-            query = dns.message.make_query(domain, dns_type)
-            response = await dns.asyncquery.https(query, self.doh_url)
-            return [
-                item.address for rrset in response.answer for item in rrset.items
-                if hasattr(item, "address")
-            ]
-        except Exception as e:
-            return None
-
-    async def query_dns_udp(self, domain: str, dns_type: str = 'A') -> Optional[List[str]]:
-        """
-        使用 UDP 异步方式解析域名
-
-        :param domain: 域名
-        :param dns_type: 记录类型，如 A、AAAA
-        :return: IP地址列表 或 None
-        """
-
-        try:
-            answer = await self.__resolver.resolve(domain, dns_type)
-            return [record.address for record in answer]
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+            answer = await self._resolver.resolve_name(domain, family=family, tcp=self._use_tcp)
+            return [a for a in answer.addresses()]
+        except (NoAnswer, NXDOMAIN):
             return []
-        except Exception:
+        except Exception as e:
+            logger.debug(f"DNS查询出错 ({domain}): {e} ")
             return None

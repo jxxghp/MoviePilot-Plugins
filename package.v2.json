@@ -437,11 +437,12 @@
     "name": "绕过Trackers",
     "description": "提供tracker服务器IP地址列表，帮助IPv6连接绕过OpenClash。",
     "labels": "工具",
-    "version": "1.4.3",
+    "version": "1.5.0",
     "icon": "Clash_A.png",
     "author": "wumode",
     "level": 2,
     "history": {
+      "v1.5.0": "新增 Page 界面; 支持通过`/check_ip` 命令检查IP; 改进 UI",
       "v1.4.3": "修复 bug",
       "v1.4.2": "修复插件动作",
       "v1.4.1": "修复通知类型错误",
