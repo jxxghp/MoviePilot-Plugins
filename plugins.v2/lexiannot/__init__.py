@@ -83,7 +83,7 @@ class LexiAnnot(_PluginBase):
     # 插件图标
     plugin_icon = "LexiAnnot.png"
     # 插件版本
-    plugin_version = "1.1.3"
+    plugin_version = "1.1.4"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -109,7 +109,7 @@ class LexiAnnot(_PluginBase):
     _context_window: int = 0
     _max_retries: int = 0
     _request_interval: int = 0
-    _ffmpeg_path = ''
+    _ffmpeg_path: str = 'ffmpeg'
     _english_only = False
     _when_file_trans = False
     _model_temperature = ''
@@ -154,7 +154,7 @@ class LexiAnnot(_PluginBase):
             self._context_window = int(config.get("context_window") or 10)
             self._max_retries = int(config.get("max_retries") or 3)
             self._request_interval = int(config.get("request_interval") or 3)
-            self._ffmpeg_path = config.get("ffmpeg_path")
+            self._ffmpeg_path = config.get("ffmpeg_path") or 'ffmpeg'
             self._english_only = config.get("english_only")
             self._when_file_trans = config.get("when_file_trans")
             self._model_temperature = config.get("model_temperature") or '0.3'
@@ -975,31 +975,23 @@ class LexiAnnot(_PluginBase):
                 },
                 'content': [
                     {
-                        'component': 'VRow',
+                        'component': 'VCol',
                         'props': {
-                            'class': 'd-none d-sm-block',
+                            'cols': 12,
                         },
                         'content': [
                             {
-                                'component': 'VCol',
+                                'component': 'VDataTableVirtual',
                                 'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VDataTableVirtual',
-                                        'props': {
-                                            'class': 'text-sm',
-                                            'headers': headers,
-                                            'items': items,
-                                            'height': '30rem',
-                                            'density': 'compact',
-                                            'fixed-header': True,
-                                            'hide-no-data': True,
-                                            'hover': True
-                                        }
-                                    }
-                                ]
+                                    'class': 'text-sm',
+                                    'headers': headers,
+                                    'items': items,
+                                    'height': '30rem',
+                                    'density': 'compact',
+                                    'fixed-header': True,
+                                    'hide-no-data': True,
+                                    'hover': True
+                                }
                             }
                         ]
                     }
@@ -1213,7 +1205,11 @@ class LexiAnnot(_PluginBase):
         embedded_subtitles = LexiAnnot._extract_subtitles_by_lang(path, eng_mark, ffmpeg_path)
         if not embedded_subtitles:
             return TaskStatus.CANCELED
-        embedded_subtitles = sorted(embedded_subtitles, key=lambda track: 'SDH' in track['title'])
+        # order factor = 0, if 'SDH' in track['title']
+        # order factor = track['duration'], otherwise
+        embedded_subtitles = sorted(embedded_subtitles,
+                                    key=lambda track: track['duration']*(1-int('SDH' in track['title'])),
+                                    reverse=True)
         ret_message = ''
         if embedded_subtitles:
             logger.info(f'提取到 {len(embedded_subtitles)} 条英语文本字幕')
@@ -1705,7 +1701,8 @@ class LexiAnnot(_PluginBase):
             return None
 
     @staticmethod
-    def _extract_subtitles_by_lang(video_path: str, lang: str | list = 'en', ffmpeg: str = 'ffmpeg') -> Optional[List[Dict]]:
+    def _extract_subtitles_by_lang(video_path: str, lang: str | list = 'en', ffmpeg: str = 'ffmpeg'
+                                   ) -> Optional[List[Dict]]:
         """
         提取视频文件中的内嵌英文字幕，使用 MediaInfo 查找字幕流。
         """
@@ -1720,12 +1717,19 @@ class LexiAnnot(_PluginBase):
         try:
             media_info: pymediainfo.MediaInfo = pymediainfo.MediaInfo.parse(video_path)
             for track in media_info.tracks:
-                if track.track_type == 'Text' and check_lang(track_lang=track.language) and track.codec_id in supported_codec:
+                if (track.track_type == 'Text' and check_lang(track_lang=track.language)
+                        and track.codec_id in supported_codec):
                     subtitle_stream_index = track.stream_identifier  # MediaInfo 的 stream_id 从 1 开始，ffmpeg 从 0 开始
                     subtitle = LexiAnnot.__extract_subtitle(video_path, subtitle_stream_index, ffmpeg)
+                    duration = 0
+                    if hasattr(track, 'duration'):
+                        try:
+                            duration = int(float(track.duration))
+                        except (ValueError, TypeError):
+                            pass
                     if subtitle:
                         subtitles.append({'title': track.title or '', 'subtitle': subtitle, 'codec_id': track.codec_id,
-                                          'stream_id': subtitle_stream_index})
+                                          'stream_id': subtitle_stream_index, 'duration': duration})
             if subtitles:
                 return subtitles
             else:
@@ -1761,7 +1765,7 @@ class LexiAnnot(_PluginBase):
         )
 
         if not response.success:
-            logger.warning(f"Error in subprocess response: {response.message}")
+            logger.warning(f"Error in response: {response.message}")
             return tasks.tasks
 
         self._total_token_count += response.total_token_count
@@ -1918,7 +1922,7 @@ Only complete the `Chinese` field. Do not include pinyin, explanations, or any a
             )
         i = 0
         dialog_trans_instruction = '''You are an expert translator. You will be given a list of dialogue translation tasks in JSON format. For each entry, provide the most appropriate translation in Simplified Chinese based on the context. 
-    Only complete the `Chinese` field. Do not include pinyin, explanations, or any additional information.'''
+Only complete the `Chinese` field. Do not include pinyin, explanations, or any additional information.'''
         while i < len(translation_tasks):
             if self._shutdown_event.is_set():
                 return lines_to_process
@@ -2044,4 +2048,8 @@ Only complete the `Chinese` field. Do not include pinyin, explanations, or any a
                 if chinese and chinese[-1] in ['。', '，']:
                     chinese = chinese[:-1]
                 main_dialogue[line_data['index']].text = main_dialogue[line_data['index']].text + f"\\N{chinese}"
+
+        # 避免 Infuse 显示乱码
+        unexplainable_line = pysubs2.SSAEvent(start=0, end=0, text=f"{{\\rAnnotation ZH}}{self.plugin_name}{{\\r}}")
+        ass_file.insert(0, unexplainable_line)
         return ass_file
