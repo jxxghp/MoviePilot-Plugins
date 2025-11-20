@@ -9,11 +9,10 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import ValidationError
 
-from app.core.config import settings
+from app.core.config import settings, global_vars
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.schemas.types import EventType, NotificationType
-from app.core.config import global_vars
 
 from .api import ClashRuleProviderApi, apis
 from .base import _ClashRuleProviderBase
@@ -32,7 +31,7 @@ class ClashRuleProvider(_ClashRuleProviderBase):
     # 插件图标
     plugin_icon = "Mihomo_Meta_A.png"
     # 插件版本
-    plugin_version = "2.0.9"
+    plugin_version = "2.0.10"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页

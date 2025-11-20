@@ -505,6 +505,7 @@ class ToBypassTrackers(_PluginBase):
                                             'title': '如何使用',
                                             'text': '在「OpenClash->插件设置->流量控制->绕过指定区域 IP」选择「绕过中国大陆」; '
                                                     '在「OpenClash->插件设置->大陆白名单订阅」填入「订阅 URL」。'
+                                                    '使用聊天命令`/check_ip <域名或IP>`检查 IP 是否在绕过列表。'
                                         }
                                     }
                                 ]
