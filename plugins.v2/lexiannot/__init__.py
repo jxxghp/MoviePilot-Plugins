@@ -1721,15 +1721,12 @@ class LexiAnnot(_PluginBase):
                         and track.codec_id in supported_codec):
                     subtitle_stream_index = track.stream_identifier  # MediaInfo 的 stream_id 从 1 开始，ffmpeg 从 0 开始
                     subtitle = LexiAnnot.__extract_subtitle(video_path, subtitle_stream_index, ffmpeg)
+                    duration = 0
                     if hasattr(track, 'duration'):
-                        if isinstance(track.duration, str) and StringUtils.is_number(track.duration):
+                        try:
                             duration = int(float(track.duration))
-                        elif isinstance(track.duration, int):
-                            duration = track.duration
-                        else:
-                            duration = 0
-                    else:
-                        duration = 0
+                        except (ValueError, TypeError):
+                            pass
                     if subtitle:
                         subtitles.append({'title': track.title or '', 'subtitle': subtitle, 'codec_id': track.codec_id,
                                           'stream_id': subtitle_stream_index, 'duration': duration})
