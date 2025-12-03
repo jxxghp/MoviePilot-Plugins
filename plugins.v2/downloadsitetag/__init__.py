@@ -807,10 +807,31 @@ class DownloadSiteTag(_PluginBase):
                                 },
                                 'content': [
                                     {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '定时任务：支持两种定时方式，主要针对辅种刷流等种子补全站点信息。如没有对应的需求建议切换为禁用。'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'category_movie',
-                                            'label': '电影分类名称(默认: 电影)',
+                                            'label': '下载器里的电影分类名称(默认: 电影)',
                                             'placeholder': '电影'
                                         }
                                     }
@@ -831,7 +852,7 @@ class DownloadSiteTag(_PluginBase):
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'category_tv',
-                                            'label': '电视分类名称(默认: 电视)',
+                                            'label': '下载器里的电视分类名称(默认: 电视)',
                                             'placeholder': '电视'
                                         }
                                     }
@@ -852,7 +873,7 @@ class DownloadSiteTag(_PluginBase):
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'category_anime',
-                                            'label': '动漫分类名称(默认: 动漫)',
+                                            'label': '下载器里的动漫分类名称(默认: 动漫)',
                                             'placeholder': '动漫'
                                         }
                                     }
@@ -874,7 +895,7 @@ class DownloadSiteTag(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '以下为默认的tracker映射规则，您可以根据需要修改或添加新的规则。'
+                                            'text': '以下为tracker映射规则，您可以根据需要修改或添加新的规则。'
                                         }
                                     }
                                 ]
@@ -898,27 +919,6 @@ class DownloadSiteTag(_PluginBase):
                                             'rows': 8,
                                             'placeholder': '每行一个映射，格式：tracker域名 -> 映射域名\n例如：chdbits.xyz -> ptchdbits.co',
                                             'hint': '支持的分隔符：->, →, :, ：，空格'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'info',
-                                            'variant': 'tonal',
-                                            'text': '定时任务：支持两种定时方式，主要针对辅种刷流等种子补全站点信息。如没有对应的需求建议切换为禁用。'
                                         }
                                     }
                                 ]
