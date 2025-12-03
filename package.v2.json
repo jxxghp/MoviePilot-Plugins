@@ -62,11 +62,12 @@
     "name": "下载任务分类与标签",
     "description": "自动给下载任务分类与打站点标签、剧集名称标签",
     "labels": "下载管理",
-    "version": "2.2",
+    "version": "2.3",
     "icon": "Youtube-dl_B.png",
     "author": "叮叮当",
     "level": 1,
     "history": {
+      "v2.3": "增加tracker映射配置",
       "v2.2": "MoviePilot V2 版本下载任务分类与标签插件"
     }
   },

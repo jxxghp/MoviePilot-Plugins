@@ -28,7 +28,7 @@ class DownloadSiteTag(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "2.2"
+    plugin_version = "2.3"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -59,8 +59,22 @@ class DownloadSiteTag(_PluginBase):
     _category_tv = None
     _category_anime = None
     _downloaders = None
+    # 默认的tracker映射字符串（用于显示在界面上）
+    _tracker_mappings_default = "\n".join([
+        "chdbits.xyz -> ptchdbits.co",
+        "agsvpt.trackers.work -> agsvpt.com",
+        "tracker.cinefiles.info -> audiences.me",
+        "# 格式说明：tracker域名 -> 映射域名",
+        "# 使用 -> 作为分隔符",
+        "# 每行一个映射规则，空行和以#开头的行会被忽略",
+        "# 站点管理中必须存在对应的域名才能生效"
+    ])
+    _tracker_mappings_str = ""
+    _tracker_mappings = {}
 
     def init_plugin(self, config: dict = None):
+        # 初始化默认的tracker映射
+        self._tracker_mappings = self._parse_tracker_mappings(self._tracker_mappings_default)
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
@@ -76,6 +90,17 @@ class DownloadSiteTag(_PluginBase):
             self._category_tv = config.get("category_tv") or "电视"
             self._category_anime = config.get("category_anime") or "动漫"
             self._downloaders = config.get("downloaders")
+            self._tracker_mappings_str = config.get("tracker_mappings_str", "")
+
+            # 此设置对于老用户来说缺乏具体说明，因此如果为空，表示用户首次更新，则使用默认配置起到提示作用
+            if not ("tracker_mappings_str" in config):
+                config["tracker_mappings_str"] = self._tracker_mappings_default
+                self.update_config(config)
+            # 如果用户有配置，解析并合并到默认映射中
+            elif self._tracker_mappings_str:
+                user_mappings = self._parse_tracker_mappings(self._tracker_mappings_str)
+                # 将用户映射合并到默认映射中，用户映射会覆盖默认映射中相同的key
+                self._tracker_mappings.update(user_mappings)
 
         # 停止现有任务
         self.stop_service()
@@ -203,11 +228,6 @@ class DownloadSiteTag(_PluginBase):
         # JackettIndexers索引器支持多个站点, 如果不存在历史记录, 则通过tracker会再次附加其他站点名称
         indexers.append("JackettIndexers")
         indexers = set(indexers)
-        tracker_mappings = {
-            "chdbits.xyz": "ptchdbits.co",
-            "agsvpt.trackers.work": "agsvpt.com",
-            "tracker.cinefiles.info": "audiences.me",
-        }
         for service in self.service_infos.values():
             downloader = service.name
             downloader_obj = service.instance
@@ -263,7 +283,7 @@ class DownloadSiteTag(_PluginBase):
                         trackers = self._get_trackers(torrent=torrent, dl_type=service.type)
                         for tracker in trackers:
                             # 检查tracker是否包含特定的关键字，并进行相应的映射
-                            for key, mapped_domain in tracker_mappings.items():
+                            for key, mapped_domain in self._tracker_mappings.items():
                                 if key in tracker:
                                     domain = mapped_domain
                                     break
@@ -334,6 +354,47 @@ class DownloadSiteTag(_PluginBase):
                 # 电视剧
                 _cat = self._category_tv
         return _cat
+
+    @staticmethod
+    def _parse_tracker_mappings(mapping_str: str) -> dict:
+        """
+        解析tracker映射规则字符串为字典
+        格式：tracker域名 -> 映射域名
+        例如：chdbits.xyz -> ptchdbits.co
+        使用"->"作为分隔符
+        """
+        tracker_mappings = {}
+        if not mapping_str:
+            return tracker_mappings
+            
+        lines = mapping_str.strip().split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue  # 跳过空行和注释行
+                
+            # 支持多种分隔符
+            separators = ['->', '→', ':', '：']
+            separator = None
+            for sep in separators:
+                if sep in line:
+                    separator = sep
+                    break
+            
+            if separator:
+                parts = line.split(separator, 1)
+                if len(parts) == 2:
+                    key = parts[0].strip()
+                    value = parts[1].strip()
+                    if key and value:
+                        tracker_mappings[key] = value
+            else:
+                # 如果没有找到分隔符，尝试按空格分割
+                parts = line.split()
+                if len(parts) >= 2:
+                    tracker_mappings[parts[0].strip()] = parts[1].strip()
+                    
+        return tracker_mappings
 
     @staticmethod
     def _torrent_key(torrent: Any, dl_type: str) -> Optional[Tuple[int, str]]:
@@ -537,6 +598,7 @@ class DownloadSiteTag(_PluginBase):
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
+        
         return [
             {
                 'component': 'VForm',
@@ -745,11 +807,33 @@ class DownloadSiteTag(_PluginBase):
                                 },
                                 'content': [
                                     {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '定时任务：支持两种定时方式，主要针对辅种刷流等种子补全站点信息。如没有对应的需求建议切换为禁用。'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'category_movie',
                                             'label': '电影分类名称(默认: 电影)',
-                                            'placeholder': '电影'
+                                            'placeholder': '电影',
+                                            'hint': '请填写下载器里已创建的电影分类名称'
                                         }
                                     }
                                 ]
@@ -770,7 +854,8 @@ class DownloadSiteTag(_PluginBase):
                                         'props': {
                                             'model': 'category_tv',
                                             'label': '电视分类名称(默认: 电视)',
-                                            'placeholder': '电视'
+                                            'placeholder': '电视',
+                                            'hint': '请填写下载器里已创建的电视分类名称'
                                         }
                                     }
                                 ]
@@ -791,7 +876,8 @@ class DownloadSiteTag(_PluginBase):
                                         'props': {
                                             'model': 'category_anime',
                                             'label': '动漫分类名称(默认: 动漫)',
-                                            'placeholder': '动漫'
+                                            'placeholder': '动漫',
+                                            'hint': '请填写下载器里已创建的动漫分类名称'
                                         }
                                     }
                                 ]
@@ -804,7 +890,7 @@ class DownloadSiteTag(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12,
+                                    'cols': 12
                                 },
                                 'content': [
                                     {
@@ -812,7 +898,30 @@ class DownloadSiteTag(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '定时任务：支持两种定时方式，主要针对辅种刷流等种子补全站点信息。如没有对应的需求建议切换为禁用。'
+                                            'text': '以下为tracker映射规则，您可以根据需要修改或添加新的规则。'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextarea',
+                                        'props': {
+                                            'model': 'tracker_mappings_str',
+                                            'label': 'Tracker域名映射规则',
+                                            'rows': 8,
+                                            'placeholder': '每行一个映射，格式：tracker域名 -> 映射域名\n例如：chdbits.xyz -> ptchdbits.co',
+                                            'hint': '支持的分隔符：->, →, :, ：，空格'
                                         }
                                     }
                                 ]
@@ -833,7 +942,8 @@ class DownloadSiteTag(_PluginBase):
             "interval": "计划任务",
             "interval_cron": "5 4 * * *",
             "interval_time": "6",
-            "interval_unit": "小时"
+            "interval_unit": "小时",
+            "tracker_mappings_str": self._tracker_mappings_default  # 添加默认的映射规则字符串
         }
 
     def get_page(self) -> List[dict]:
