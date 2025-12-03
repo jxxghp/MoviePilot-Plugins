@@ -59,6 +59,16 @@ class DownloadSiteTag(_PluginBase):
     _category_tv = None
     _category_anime = None
     _downloaders = None
+    # 默认的tracker映射字符串（用于显示在界面上）
+    _tracker_mappings_default = "\n".join([
+        "chdbits.xyz -> ptchdbits.co",
+        "agsvpt.trackers.work -> agsvpt.com",
+        "tracker.cinefiles.info -> audiences.me",
+        "# 格式说明：tracker域名 -> 映射域名",
+        "# 使用 -> 作为分隔符",
+        "# 每行一个映射规则，空行和以#开头的行会被忽略",
+        "# 站点管理中必须存在对应的域名才能生效"
+    ])
     _tracker_mappings_str = ""
     _tracker_mappings = {}
 
@@ -86,8 +96,12 @@ class DownloadSiteTag(_PluginBase):
             self._downloaders = config.get("downloaders")
             self._tracker_mappings_str = config.get("tracker_mappings_str", "")
 
+            # 此设置对于老用户来说缺乏具体说明，因此如果为空，表示用户首次更新，则使用默认配置起到提示作用
+            if not ("tracker_mappings_str" in config):
+                config["tracker_mappings_str"] = self._tracker_mappings_default
+                self.update_config(config)
             # 如果用户有配置，解析并合并到默认映射中
-            if self._tracker_mappings_str:
+            elif self._tracker_mappings_str:
                 user_mappings = self._parse_tracker_mappings(self._tracker_mappings_str)
                 # 将用户映射合并到默认映射中，用户映射会覆盖默认映射中相同的key
                 self._tracker_mappings.update(user_mappings)
@@ -588,16 +602,6 @@ class DownloadSiteTag(_PluginBase):
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
-        # 默认的tracker映射字符串（用于显示在界面上）
-        default_mappings = [
-            "chdbits.xyz -> ptchdbits.co",
-            "agsvpt.trackers.work -> agsvpt.com",
-            "tracker.cinefiles.info -> audiences.me",
-            "# 格式说明：tracker域名 -> 映射域名",
-            "# 使用 -> 作为分隔符",
-            "# 每行一个映射规则，空行和以#开头的行会被忽略"
-        ]
-        default_mappings_str = "\n".join(default_mappings)
         
         return [
             {
@@ -831,8 +835,9 @@ class DownloadSiteTag(_PluginBase):
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'category_movie',
-                                            'label': '下载器里的电影分类名称(默认: 电影)',
-                                            'placeholder': '电影'
+                                            'label': '电影分类名称(默认: 电影)',
+                                            'placeholder': '电影',
+                                            'hint': '请填写下载器里已创建的电影分类名称'
                                         }
                                     }
                                 ]
@@ -852,8 +857,9 @@ class DownloadSiteTag(_PluginBase):
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'category_tv',
-                                            'label': '下载器里的电视分类名称(默认: 电视)',
-                                            'placeholder': '电视'
+                                            'label': '电视分类名称(默认: 电视)',
+                                            'placeholder': '电视',
+                                            'hint': '请填写下载器里已创建的电视分类名称'
                                         }
                                     }
                                 ]
@@ -873,8 +879,9 @@ class DownloadSiteTag(_PluginBase):
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'category_anime',
-                                            'label': '下载器里的动漫分类名称(默认: 动漫)',
-                                            'placeholder': '动漫'
+                                            'label': '动漫分类名称(默认: 动漫)',
+                                            'placeholder': '动漫',
+                                            'hint': '请填写下载器里已创建的动漫分类名称'
                                         }
                                     }
                                 ]
@@ -940,7 +947,7 @@ class DownloadSiteTag(_PluginBase):
             "interval_cron": "5 4 * * *",
             "interval_time": "6",
             "interval_unit": "小时",
-            "tracker_mappings_str": default_mappings_str  # 添加默认的映射规则字符串
+            "tracker_mappings_str": self._tracker_mappings_default  # 添加默认的映射规则字符串
         }
 
     def get_page(self) -> List[dict]:
