@@ -74,11 +74,7 @@ class DownloadSiteTag(_PluginBase):
 
     def init_plugin(self, config: dict = None):
         # 初始化默认的tracker映射
-        self._tracker_mappings = {
-            "chdbits.xyz": "ptchdbits.co",
-            "agsvpt.trackers.work": "agsvpt.com",
-            "tracker.cinefiles.info": "audiences.me",
-        }
+        self._tracker_mappings = self._parse_tracker_mappings(self._tracker_mappings_default)
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
