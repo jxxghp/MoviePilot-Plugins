@@ -72,8 +72,12 @@ class DownloadSiteTag(_PluginBase):
     ])
     _tracker_mappings_str = ""
     _tracker_mappings = {}
+    # 防抖定时器字典
+    _debounce_timers = {}
 
     def init_plugin(self, config: dict = None):
+        # 初始化防抖字典
+        self._debounce_timers = {}
         # 初始化默认的tracker映射
         self._tracker_mappings = self._parse_tracker_mappings(self._tracker_mappings_default)
         # 读取配置
@@ -108,8 +112,10 @@ class DownloadSiteTag(_PluginBase):
         self.stop_service()
 
         if self._onlyonce:
-            # 创建定时任务控制器
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+            # 确保scheduler存在
+            if not self._scheduler:
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+            
             # 执行一次, 关闭onlyonce
             self._onlyonce = False
             config.update({"onlyonce": self._onlyonce})
@@ -598,11 +604,31 @@ class DownloadSiteTag(_PluginBase):
             if unused_tags:
                 downloader_obj.delete_torrents_tag(ids=None, tag=unused_tags)
                 logger.info(
-                    f"{self.LOG_TAG}删除所有未被任何种子使用的标签: {",".join(unused_tags)}")
+                    f"{self.LOG_TAG}删除所有未被任何种子使用的标签: {','.join(unused_tags)}")
         except Exception as e:
             logger.error(
                 f"{self.LOG_TAG}删除所有未被任何种子使用的标签时发生了错误: {str(e)}")
 
+    def _del_unused_tags_debounced(self, downloader_name: str):
+        """
+        防抖版本的标签清理方法
+        """
+        try:
+            logger.info(f"{self.LOG_TAG}执行防抖后的标签清理，下载器: {downloader_name}")
+            
+            # 清理对应的定时任务引用
+            if downloader_name in self._debounce_timers:
+                del self._debounce_timers[downloader_name]
+            
+            # 获取服务并执行清理
+            service = self.service_infos.get(downloader_name)
+            if service:
+                self._del_unused_tags(service=service)
+            else:
+                logger.warning(f"{self.LOG_TAG}下载器 {downloader_name} 已不存在于服务列表中")
+                
+        except Exception as e:
+            logger.error(f"{self.LOG_TAG}防抖标签清理时发生了错误: {str(e)}")
 
     @eventmanager.register(EventType.DownloadAdded)
     def download_added(self, event: Event):
@@ -651,13 +677,14 @@ class DownloadSiteTag(_PluginBase):
     @eventmanager.register(EventType.DownloadDeleted)
     def download_deleted(self, event: Event):
         """
-        删除下载事件
+        删除下载事件 - 防抖版本
         """
         if not self.get_state() or not self._enabled_del_tags:
             return
 
         if not event.event_data:
             return
+        
         try:
             downloader = event.event_data.get("downloader")
             if not downloader:
@@ -669,11 +696,50 @@ class DownloadSiteTag(_PluginBase):
                 logger.info(f"触发删除下载事件，但没有监听下载器 {downloader}，跳过后续处理")
                 return
 
-            # 执行通用方法, 删除所有未被任何种子使用的标签
-            self._del_unused_tags(service=service)
+            # 获取下载器名称作为防抖键
+            debounce_key = downloader
+            
+            # 如果已经有一个定时任务存在，先取消它
+            if debounce_key in self._debounce_timers:
+                old_job = self._debounce_timers.get(debounce_key)
+                if old_job:
+                    try:
+                        # 尝试移除旧的定时任务
+                        if old_job in self._scheduler.get_jobs():
+                            old_job.remove()
+                            logger.debug(f"{self.LOG_TAG}移除旧的标签清理定时任务，下载器: {downloader}")
+                    except Exception as e:
+                        # 任务可能已被移除或其他原因，忽略错误
+                        logger.debug(f"{self.LOG_TAG}移除旧定时任务失败（可能已被移除）: {str(e)}")
+                    finally:
+                        # 从字典中移除引用
+                        del self._debounce_timers[debounce_key]
+            
+            # 创建新的延迟任务（30秒后执行）确保scheduler存在
+            if not self._scheduler:
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+
+            # 确保scheduler已启动
+            if not self._scheduler.running:
+                self._scheduler.start()
+
+            # 创建延迟任务
+            job_id = f"del_unused_tags_{downloader}_{datetime.datetime.now().timestamp()}"
+            job = self._scheduler.add_job(
+                func=self._del_unused_tags_debounced,
+                trigger='date',
+                run_date=datetime.datetime.now(
+                    tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=30),
+                args=[downloader],
+                id=job_id
+            )
+            
+            # 存储定时任务引用
+            self._debounce_timers[debounce_key] = job
+            logger.debug(f"{self.LOG_TAG}为下载器 {downloader} 创建30秒后执行的标签清理任务，任务ID: {job_id}")
+                    
         except Exception as e:
-            logger.error(
-                f"{self.LOG_TAG}分析删除下载事件时发生了错误: {str(e)}")        
+            logger.error(f"{self.LOG_TAG}分析删除下载事件时发生了错误: {str(e)}")
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -1060,5 +1126,7 @@ class DownloadSiteTag(_PluginBase):
                     self._scheduler.shutdown()
                     self._event.clear()
                 self._scheduler = None
+                # 清理所有防抖定时任务
+                self._debounce_timers.clear()
         except Exception as e:
             print(str(e))
