@@ -490,8 +490,12 @@ class DownloadSiteTag(_PluginBase):
         获取种子标签
         """
         try:
-            return [str(tag).strip() for tag in torrent.get("tags", "").split(',')] \
-                if dl_type == "qbittorrent" else torrent.labels or []
+            if dl_type == "qbittorrent":
+                tags_str = torrent.get("tags", "")
+                # 处理空字符串情况，并过滤掉空白标签
+                return [tag.strip() for tag in tags_str.split(',') if tag.strip()] if tags_str else []
+            else:
+                return torrent.labels or []
         except Exception as e:
             print(str(e))
             return []
