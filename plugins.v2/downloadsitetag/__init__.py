@@ -28,7 +28,7 @@ class DownloadSiteTag(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "2.3"
+    plugin_version = "2.4"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -55,6 +55,7 @@ class DownloadSiteTag(_PluginBase):
     _enabled_media_tag = False
     _enabled_tag = True
     _enabled_category = False
+    _enabled_del_tags = False
     _category_movie = None
     _category_tv = None
     _category_anime = None
@@ -86,6 +87,7 @@ class DownloadSiteTag(_PluginBase):
             self._enabled_media_tag = config.get("enabled_media_tag")
             self._enabled_tag = config.get("enabled_tag")
             self._enabled_category = config.get("enabled_category")
+            self._enabled_del_tags = config.get("enabled_del_tags")
             self._category_movie = config.get("category_movie") or "电影"
             self._category_tv = config.get("category_tv") or "电视"
             self._category_anime = config.get("category_anime") or "动漫"
@@ -216,7 +218,7 @@ class DownloadSiteTag(_PluginBase):
 
     def _complemented_history(self):
         """
-        补全下载历史的标签与分类
+        补全下载历史的标签与分类，且执行清理未使用的标签
         """
         if not self.service_infos:
             return
@@ -333,6 +335,10 @@ class DownloadSiteTag(_PluginBase):
                 except Exception as e:
                     logger.error(
                         f"{self.LOG_TAG}分析种子信息时发生了错误: {str(e)}")
+            
+            # 执行清理未使用标签
+            if self._enabled_del_tags:
+                self._del_unused_tags(service=service, torrents=torrents)
 
         logger.info(f"{self.LOG_TAG}执行完成")
 
@@ -549,6 +555,50 @@ class DownloadSiteTag(_PluginBase):
                     downloader_obj.set_torrent_tag(ids=_hash, tags=_tags)
             logger.warn(
                 f"{self.LOG_TAG}下载器: {service.name} 种子id: {_hash} {('  标签: ' + ','.join(_tags)) if _tags else ''} {('  分类: ' + _cat) if _cat else ''}")
+    
+    def _del_unused_tags(self, service: ServiceInfo, torrents: Any = None):
+        """
+        删除所有未被任何种子使用的标签
+        """
+        # 只有qb下载器才需要删除未使用的标签，TR下载器未使用标签会自动移除
+        if not service or not service.instance or service.type != "qbittorrent":
+            return
+
+        downloader_obj = service.instance
+        try:
+            # 获取所有现有的标签 调用内部qbc的API
+            all_tags = downloader_obj.qbc.torrents_tags()
+            if not all_tags:
+                logger.info(
+                    f"{self.LOG_TAG}下载器: {service.name} 当前没有任何标签，跳过删除未使用标签操作")
+                return
+            # 获取下载器中的种子
+            if not torrents:
+                torrents, error = downloader_obj.get_torrents()
+                # 如果下载器获取种子发生错误 或 没有种子 则跳过
+                if error or not torrents:
+                    logger.warn(
+                        f"{self.LOG_TAG}删除所有未被任何种子使用的标签时发生了错误或查询不到任何种子!")
+                    return
+            logger.info(
+                f"{self.LOG_TAG}删除所有未被任何种子使用的标签: {service.name} 查询到 {len(torrents)} 个种子")
+            # 收集所有正在被使用的标签
+            used_tags_set = set()
+            for torrent in torrents:
+                tag = self._get_label(torrent=torrent, dl_type=service.type)
+                if tag:  # 确保种子有标签
+                    used_tags_set.update(tag)
+            # 计算未使用的标签（在全部标签中但不在使用集合中）
+            unused_tags = [tag for tag in all_tags if tag not in used_tags_set]
+            # 删除未使用的标签
+            if unused_tags:
+                downloader_obj.delete_torrents_tag(ids=None, tag=unused_tags)
+                logger.info(
+                    f"{self.LOG_TAG}删除所有未被任何种子使用的标签: {",".join(unused_tags)}")
+        except Exception as e:
+            logger.error(
+                f"{self.LOG_TAG}删除所有未被任何种子使用的标签时发生了错误: {str(e)}")
+
 
     @eventmanager.register(EventType.DownloadAdded)
     def download_added(self, event: Event):
@@ -571,7 +621,7 @@ class DownloadSiteTag(_PluginBase):
             if not service:
                 logger.info(f"触发添加下载事件，但没有监听下载器 {downloader}，跳过后续处理")
                 return
-
+            
             context: Context = event.event_data.get("context")
             _hash = event.event_data.get("hash")
             _torrent = context.torrent_info
@@ -592,7 +642,34 @@ class DownloadSiteTag(_PluginBase):
                 self._set_torrent_info(service=service, _hash=_hash, _tags=_tags, _cat=_cat)
         except Exception as e:
             logger.error(
-                f"{self.LOG_TAG}分析下载事件时发生了错误: {str(e)}")
+                f"{self.LOG_TAG}分析添加下载事件时发生了错误: {str(e)}")
+    
+    @eventmanager.register(EventType.DownloadDeleted)
+    def download_deleted(self, event: Event):
+        """
+        删除下载事件
+        """
+        if not self.get_state() or not self._enabled_del_tags:
+            return
+
+        if not event.event_data:
+            return
+        try:
+            downloader = event.event_data.get("downloader")
+            if not downloader:
+                logger.info("触发删除下载事件，但没有获取到下载器信息，跳过后续处理")
+                return
+
+            service = self.service_infos.get(downloader)
+            if not service:
+                logger.info(f"触发删除下载事件，但没有监听下载器 {downloader}，跳过后续处理")
+                return
+
+            # 执行通用方法, 删除所有未被任何种子使用的标签
+            self._del_unused_tags(service=service)
+        except Exception as e:
+            logger.error(
+                f"{self.LOG_TAG}分析删除下载事件时发生了错误: {str(e)}")        
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -678,7 +755,8 @@ class DownloadSiteTag(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12
+                                    'cols': 12,
+                                    'md': 6
                                 },
                                 'content': [
                                     {
@@ -689,7 +767,23 @@ class DownloadSiteTag(_PluginBase):
                                         }
                                     }
                                 ]
-                            }
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VCheckboxBtn',
+                                        'props': {
+                                            'model': 'enabled_del_tags',
+                                            'label': '自动删除未使用标签',
+                                        }
+                                    }
+                                ]
+                            },
                         ]
                     },
                     {
@@ -936,6 +1030,7 @@ class DownloadSiteTag(_PluginBase):
             "enabled_tag": True,
             "enabled_media_tag": False,
             "enabled_category": False,
+            "enabled_del_tags": False,
             "category_movie": "电影",
             "category_tv": "电视",
             "category_anime": "动漫",
