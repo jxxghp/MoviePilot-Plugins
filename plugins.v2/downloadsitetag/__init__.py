@@ -184,7 +184,7 @@ class DownloadSiteTag(_PluginBase):
         tasks = []
         if self._enabled:
             if self._enabled_del_tags:
-                # 添加 删除所有未被任何种子使用的标签 任务 每天凌晨4点执行
+                # 添加 删除所有未被任何种子使用的标签 任务 每5分钟执行一次
                 tasks.append({
                     "id": "DeleteUnusedTags",
                     "name": "删除下载器中未被使用的标签",
@@ -587,15 +587,15 @@ class DownloadSiteTag(_PluginBase):
         if not self.service_infos:
             return
         for service in self.service_infos.values():
+            # 仅qb支持删除未使用标签
+            if service.type != "qbittorrent":
+                continue
+            downloader = service.name
+            downloader_obj = service.instance
+            if not downloader_obj:
+                logger.error(f"{self.LOG_TAG} 删除未使用标签公共服务，获取下载器失败 {downloader}")
+                continue
             try:
-                # 仅qb支持删除未使用标签
-                if service.type != "qbittorrent":
-                    continue
-                downloader = service.name
-                downloader_obj = service.instance
-                if not downloader_obj:
-                    logger.error(f"{self.LOG_TAG} 删除未使用标签公共服务，获取下载器失败 {downloader}")
-                    continue
                 # 初始化下载器 获取全量数据
                 if downloader not in self._del_tags_task_rid:
                     data = downloader_obj.qbc.sync_maindata(rid=0)
