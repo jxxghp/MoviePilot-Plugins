@@ -422,7 +422,7 @@ class DownloadSiteTag(_PluginBase):
             
             # 执行清理未使用标签
             if self._enabled_del_tags:
-                self._del_unused_tags(service=service, torrents=torrents)
+                self._del_unused_tags(service=service)
 
         logger.info(f"{self.LOG_TAG}执行完成")
 
@@ -931,8 +931,7 @@ class DownloadSiteTag(_PluginBase):
                                         'props': {
                                             'model': 'site_prefix',
                                             'label': '站点标签前缀',
-                                            'placeholder': 'PT：',
-                                            'hint': '站点标签前缀，如：PT：，留空表示不使用前缀。设置前缀后会自动识别历史标签并更新'
+                                            'placeholder': '留空表示不使用前缀，自动识别历史标签并更新',
                                         }
                                     }
                                 ]
@@ -949,8 +948,7 @@ class DownloadSiteTag(_PluginBase):
                                         'props': {
                                             'model': 'media_prefix',
                                             'label': '剧名标签前缀',
-                                            'placeholder': 'NM：',
-                                            'hint': '剧名标签前缀，如：NM：，留空表示不使用前缀。设置前缀后会自动识别历史标签并更新'
+                                            'placeholder': '留空表示不使用前缀，自动识别历史标签并更新',
                                         }
                                     }
                                 ]
