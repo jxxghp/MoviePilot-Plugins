@@ -28,7 +28,7 @@ class DownloadSiteTag(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "2.4"
+    plugin_version = "2.5"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -72,8 +72,11 @@ class DownloadSiteTag(_PluginBase):
     ])
     _tracker_mappings_str = ""
     _tracker_mappings = {}
+    _del_tags_task_rid = {}
 
     def init_plugin(self, config: dict = None):
+        # 初始化删除标签任务rid映射
+        self._del_tags_task_rid = {}
         # 初始化默认的tracker映射
         self._tracker_mappings = self._parse_tracker_mappings(self._tracker_mappings_default)
         # 读取配置
@@ -103,6 +106,10 @@ class DownloadSiteTag(_PluginBase):
                 user_mappings = self._parse_tracker_mappings(self._tracker_mappings_str)
                 # 将用户映射合并到默认映射中，用户映射会覆盖默认映射中相同的key
                 self._tracker_mappings.update(user_mappings)
+            
+            # 首次运行时，从下载器初始化rid映射
+            if self._enabled_del_tags:
+                self._task_del_unused_tags()
 
         # 停止现有任务
         self.stop_service()
@@ -173,7 +180,20 @@ class DownloadSiteTag(_PluginBase):
             "kwargs": {} # 定时器参数
         }]
         """
+        # 初始化公共服务列表
+        tasks = []
         if self._enabled:
+            if self._enabled_del_tags:
+                # 添加 删除所有未被任何种子使用的标签 任务 每5分钟执行一次
+                tasks.append({
+                    "id": "DeleteUnusedTags",
+                    "name": "删除下载器中未被使用的标签",
+                    "trigger": "interval",
+                    "func": self._task_del_unused_tags,
+                    "kwargs": {
+                        "minutes": 5
+                    }
+                })
             if self._interval == "计划任务" or self._interval == "固定间隔":
                 if self._interval == "固定间隔":
                     if self._interval_unit == "小时":
@@ -190,7 +210,7 @@ class DownloadSiteTag(_PluginBase):
                         if self._interval_time < 5:
                             self._interval_time = 5
                             logger.info(f"{self.LOG_TAG}启动定时服务: 最小不少于5分钟, 防止执行间隔太短任务冲突")
-                        return [{
+                        tasks.append({
                             "id": "DownloadSiteTag",
                             "name": "补全下载历史的标签与分类",
                             "trigger": "interval",
@@ -198,16 +218,16 @@ class DownloadSiteTag(_PluginBase):
                             "kwargs": {
                                 "minutes": self._interval_time
                             }
-                        }]
+                        })
                 else:
-                    return [{
+                    tasks.append({
                         "id": "DownloadSiteTag",
                         "name": "补全下载历史的标签与分类",
                         "trigger": CronTrigger.from_crontab(self._interval_cron),
                         "func": self._complemented_history,
                         "kwargs": {}
-                    }]
-        return []
+                    })
+        return tasks
 
     @staticmethod
     def str_to_number(s: str, i: int) -> int:
@@ -560,9 +580,48 @@ class DownloadSiteTag(_PluginBase):
             logger.warn(
                 f"{self.LOG_TAG}下载器: {service.name} 种子id: {_hash} {('  标签: ' + ','.join(_tags)) if _tags else ''} {('  分类: ' + _cat) if _cat else ''}")
     
+    def _task_del_unused_tags(self):
+        """
+        公共服务：删除所有未被任何种子使用的标签，遍历全部下载器
+        """
+        if not self.service_infos:
+            return
+        for service in self.service_infos.values():
+            # 仅qb支持删除未使用标签
+            if service.type != "qbittorrent":
+                continue
+            downloader = service.name
+            downloader_obj = service.instance
+            if not downloader_obj:
+                logger.error(f"{self.LOG_TAG} 删除未使用标签公共服务，获取下载器失败 {downloader}")
+                continue
+            try:
+                # 初始化下载器 获取全量数据
+                if downloader not in self._del_tags_task_rid:
+                    data = downloader_obj.qbc.sync_maindata(rid=0)
+                    logger.info(f"{self.LOG_TAG}初始化删除未使用标签任务 RID for {downloader}  full_update: {data.get('full_update', False)}")
+                    self._del_tags_task_rid[downloader] = data.get("rid", 0)
+                else:
+                    # 提取上次返回的 rid
+                    last_rid = self._del_tags_task_rid[downloader]
+                    data = downloader_obj.qbc.sync_maindata(rid=last_rid)
+                    # 更新 rid 用于下次访问
+                    self._del_tags_task_rid[downloader] = data.get("rid", last_rid)
+                    # 可能服务器重启，或其他原因导致 rid 状态已被重置
+                    if data.get("full_update", False):
+                        logger.info(f"{self.LOG_TAG}重置删除未使用标签任务 RID for {downloader}  full_update: {data.get('full_update', False)}")
+                        continue
+                    if data.get('torrents_removed', []):
+                        logger.info(f"{self.LOG_TAG}删除未使用标签任务 RID for {downloader} 发现删除种子，即将执行清理未使用标签操作！")
+                        # 指定下载器服务，执行删除未使用标签
+                        self._del_unused_tags(service=service)
+            except Exception as e:
+                logger.error(
+                    f"{self.LOG_TAG}删除未使用标签公共服务，下载器：{downloader}   发生了错误: {str(e)}")
+
     def _del_unused_tags(self, service: ServiceInfo, torrents: Any = None):
         """
-        删除所有未被任何种子使用的标签
+        删除所有未被任何种子使用的标签, 可指定下载器与种子列表
         """
         # 只有qb下载器才需要删除未使用的标签，TR下载器未使用标签会自动移除
         if not service or not service.instance or service.type != "qbittorrent":
@@ -647,33 +706,6 @@ class DownloadSiteTag(_PluginBase):
         except Exception as e:
             logger.error(
                 f"{self.LOG_TAG}分析添加下载事件时发生了错误: {str(e)}")
-    
-    @eventmanager.register(EventType.DownloadDeleted)
-    def download_deleted(self, event: Event):
-        """
-        删除下载事件
-        """
-        if not self.get_state() or not self._enabled_del_tags:
-            return
-
-        if not event.event_data:
-            return
-        try:
-            downloader = event.event_data.get("downloader")
-            if not downloader:
-                logger.info("触发删除下载事件，但没有获取到下载器信息，跳过后续处理")
-                return
-
-            service = self.service_infos.get(downloader)
-            if not service:
-                logger.info(f"触发删除下载事件，但没有监听下载器 {downloader}，跳过后续处理")
-                return
-
-            # 执行通用方法, 删除所有未被任何种子使用的标签
-            self._del_unused_tags(service=service)
-        except Exception as e:
-            logger.error(
-                f"{self.LOG_TAG}分析删除下载事件时发生了错误: {str(e)}")        
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
