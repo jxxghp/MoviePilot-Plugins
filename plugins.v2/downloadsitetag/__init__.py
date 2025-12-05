@@ -75,7 +75,7 @@ class DownloadSiteTag(_PluginBase):
     _del_tags_task_rid = {}
 
     def init_plugin(self, config: dict = None):
-        # 初始化删除标签任务RID映射
+        # 初始化删除标签任务rid映射
         self._del_tags_task_rid = {}
         # 初始化默认的tracker映射
         self._tracker_mappings = self._parse_tracker_mappings(self._tracker_mappings_default)
@@ -106,6 +106,10 @@ class DownloadSiteTag(_PluginBase):
                 user_mappings = self._parse_tracker_mappings(self._tracker_mappings_str)
                 # 将用户映射合并到默认映射中，用户映射会覆盖默认映射中相同的key
                 self._tracker_mappings.update(user_mappings)
+            
+            # 首次运行时，从下载器初始化rid映射
+            if self._enabled_del_tags:
+                self._del_unused_tags()
 
         # 停止现有任务
         self.stop_service()
