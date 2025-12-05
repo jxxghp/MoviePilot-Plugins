@@ -109,7 +109,7 @@ class DownloadSiteTag(_PluginBase):
             
             # 首次运行时，从下载器初始化rid映射
             if self._enabled_del_tags:
-                self._del_unused_tags()
+                self._task_del_unused_tags()
 
         # 停止现有任务
         self.stop_service()
@@ -189,7 +189,7 @@ class DownloadSiteTag(_PluginBase):
                     "id": "DeleteUnusedTags",
                     "name": "删除下载器中未被使用的标签",
                     "trigger": "interval",
-                    "func": self._del_unused_tags,
+                    "func": self._task_del_unused_tags,
                     "kwargs": {
                         "minutes": 5
                     }
@@ -580,9 +580,9 @@ class DownloadSiteTag(_PluginBase):
             logger.warn(
                 f"{self.LOG_TAG}下载器: {service.name} 种子id: {_hash} {('  标签: ' + ','.join(_tags)) if _tags else ''} {('  分类: ' + _cat) if _cat else ''}")
     
-    def _del_unused_tags(self):
+    def _task_del_unused_tags(self):
         """
-        删除所有未被任何种子使用的标签，遍历全部下载器
+        公共服务：删除所有未被任何种子使用的标签，遍历全部下载器
         """
         if not self.service_infos:
             return
