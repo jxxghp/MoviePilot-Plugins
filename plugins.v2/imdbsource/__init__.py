@@ -5,9 +5,11 @@ from typing import Any, Callable, Coroutine, Dict, Optional, List, Tuple
 
 import zhconv
 from apscheduler.triggers.cron import CronTrigger
+from fastapi import Query
 
 from app import schemas
 from app.chain import ChainBase
+from app.core.cache import cached
 from app.core.config import settings
 from app.core.context import MediaInfo
 from app.core.event import eventmanager, Event
@@ -30,7 +32,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.6.2"
+    plugin_version = "1.6.3"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -54,7 +56,7 @@ class ImdbSource(_PluginBase):
     _interval: int = 10
 
     # 私有属性
-    _imdb_helper: Optional[ImdbHelper] = None
+    _imdb_helper: ImdbHelper = None
     _img_proxy_prefix: str = ''
     _original_method: Optional[Callable] = None
     _original_async_method: Optional[Callable[..., Coroutine[Any, Any, Optional[MediaInfo]]]] = None
@@ -110,16 +112,16 @@ class ImdbSource(_PluginBase):
             self._original_async_method = getattr(ChainBase, "async_recognize_media", None)
 
         if config:
-            self._enabled = config.get("enabled")
-            self._proxy = config.get("proxy")
-            self._staff_picks = config.get("staff_picks")
-            self._recognize_media = config.get("recognize_media")
-            self._chinese_component = config.get("chinese_component")
+            self._enabled = bool(config.get("enabled"))
+            self._proxy = bool(config.get("proxy"))
+            self._staff_picks = bool(config.get("staff_picks"))
+            self._recognize_media = bool(config.get("recognize_media"))
+            self._chinese_component = bool(config.get("chinese_component"))
             self._interval = int(config.get("interval") or 10)
             if 'interests' not in config:
                 self._interests = ['Anime', 'Documentary', 'Sitcom']
             else:
-                self._interests = config.get("interests")
+                self._interests = config["interests"]
                 if isinstance(self._interests, str):
                     self._interests = [self._interests]
             self._component_size = config.get("component_size") or "medium"
@@ -201,26 +203,27 @@ class ImdbSource(_PluginBase):
         if not self._staff_picks:
             return None
 
-        def year_and_type(imdb_entry: StaffPickEntry, imdb_titles: List[ImdbTitle]) -> Tuple[MediaType, str, str]:
+        def year_and_type(imdb_entry: StaffPickEntry, imdb_titles: List[ImdbTitle]) -> Tuple[MediaType, str | None, str | None]:
             title = next((t for t in imdb_titles if t.id == imdb_entry.ttconst), None)
             if not title:
                 return MediaType.MOVIE, datetime.now().date().strftime("%Y"), ''
             media_id = title.title_type.id
-            release_year = title.release_year.year if title.release_year else datetime.now().date().strftime("%Y")
+            release_year = f"{title.release_year.year}" if title.release_year else datetime.now().date().strftime("%Y")
             media_type = ImdbHelper.type_to_mtype(media_id.value)
-            media_plot = title.plot.plot_text.plain_text if title.plot else ''
+            media_plot = title.plot.plot_text.plain_text if title.plot and title.plot.plot_text else ''
             return media_type, release_year, media_plot
 
         # 列配置
         size_config = {
-            "small": {"cols": {"cols": 12, "md": 4}, "height": 335},
-            "medium-small": {"cols": {"cols": 12, "md": 6}, "height": 335},
-            "medium": {"cols": {"cols": 12, "md": 8}, "height": 335},
+            "small": {"cols": {"cols": 12, "md": 4}},
+            "medium-small": {"cols": {"cols": 12, "md": 6}},
+            "medium": {"cols": {"cols": 12, "md": 8}},
         }
-        config = size_config.get(self._component_size, 'medium')
 
-        cols = config["cols"]
-        height = config["height"]
+        config = size_config[self._component_size or "medium"]
+
+        cols: dict[str, int] = config["cols"]
+        height = 335
         is_mobile = ImdbSource.is_mobile(kwargs.get('user_agent'))
         if is_mobile:
             height *= 1.75
@@ -398,7 +401,7 @@ class ImdbSource(_PluginBase):
                 ]
             }
 
-            title_ui = {
+            title_ui: dict[str, Any] = {
                 'component': 'div',
                 'props': {
                     'class': 'd-flex flex-column justify-end',
@@ -1003,7 +1006,7 @@ class ImdbSource(_PluginBase):
                             sort_by: str = 'POPULARITY',
                             sort_order: str = 'DESC',
                             using_rating: bool = False,
-                            user_rating: str = None,
+                            user_rating: list[int] = Query(None, alias="user_rating[]"),
                             year: str = None,
                             award: str = None,
                             ranked_list: str = None,
@@ -1015,9 +1018,11 @@ class ImdbSource(_PluginBase):
         if mtype == 'movies':
             title_type = ("movie",)
         if user_rating and using_rating:
-            user_rating = float(user_rating)
+            user_rating_min = float(user_rating[0])
+            user_rating_max = float(user_rating[1])
         else:
-            user_rating = None
+            user_rating_min = None
+            user_rating_max = None
         genres = (genre,) if genre else None
         countries = (country,) if country else None
         languages = (lang,) if lang else None
@@ -1073,7 +1078,8 @@ class ImdbSource(_PluginBase):
             genres=genres,
             sort_by=sort_by,
             sort_order=sort_order,
-            rating_min=user_rating,
+            rating_min=user_rating_min,
+            rating_max=user_rating_max,
             countries=countries,
             languages=languages,
             release_date_end=release_date_end,
@@ -1647,7 +1653,7 @@ class ImdbSource(_PluginBase):
                         }
                     },
                     {
-                        "component": "VSlider",
+                        "component": "VRangeSlider",
                         "props": {
                             "v-model": "user_rating",
                             "thumb-label": True,
@@ -1684,7 +1690,7 @@ class ImdbSource(_PluginBase):
                 "sort_order": "DESC",
                 "status": None,
                 "year": None,
-                "user_rating": 1,
+                "user_rating": [1, 10],
                 "using_rating": False,
                 "award": None,
                 "ranked_list": None
@@ -1700,7 +1706,7 @@ class ImdbSource(_PluginBase):
             event_data.extra_sources.append(imdb_source)
 
     @eventmanager.register(ChainEventType.MediaRecognizeConvert)
-    async def async_media_recognize_covert(self, event: Event) -> Optional[dict]:
+    async def async_media_recognize_covert(self, event: Event):
         if not self._enabled:
             return
         event_data: MediaRecognizeConvertEventData = event.event_data
@@ -1708,7 +1714,7 @@ class ImdbSource(_PluginBase):
             return
         if event_data.convert_type != "themoviedb":
             return
-        if not event_data.mediaid.startswith("imdb"):
+        if not event_data.mediaid.startswith("imdb:"):
             return
         imdb_id = event_data.mediaid[5:]
         tmdb_id = await self.async_imdb_to_tmdb(imdb_id)
@@ -1774,7 +1780,8 @@ class ImdbSource(_PluginBase):
         info: Optional[ImdbMediaInfo] = None
         # 简体名称
         zh_name = zhconv.convert(meta.cn_name, 'zh-hans') if meta.cn_name else None
-        names = list(dict.fromkeys([k for k in [meta.cn_name, zh_name, meta.en_name] if k]))
+        media_names = list(dict.fromkeys([k for k in [meta.cn_name, zh_name, meta.en_name] if k]))
+        names: list[str] = [name for name in media_names if isinstance(name, str)]
         for name in names:
             if meta.begin_season:
                 logger.info(f"正在识别 {name} 第{meta.begin_season}季 ...")
@@ -1801,11 +1808,13 @@ class ImdbSource(_PluginBase):
             if info:
                 break
         if info:
-            info = self._imdb_helper.update_info(info.id, info=info)
+            info: ImdbMediaInfo = self._imdb_helper.update_info(info.id, info=info)
             mediainfo = ImdbHelper.convert_mediainfo(info)
-            mediainfo.tmdb_id = self.imdb_to_tmdb(info.id, mediainfo)
+            tmdb_id = self.imdb_to_tmdb(info.id, mediainfo)
+            if tmdb_id:
+                mediainfo.tmdb_id = tmdb_id
             cat = ImdbHelper.get_category(ImdbHelper.type_to_mtype(info.type.value),
-                                          info.dict(by_alias=True, exclude_none=True))
+                                          info.model_dump(by_alias=True, exclude_none=True))
             mediainfo.set_category(cat)
             logger.info(f"{meta.name} IMDb 识别结果：{mediainfo.type.value} "
                         f"{mediainfo.title_year} "
@@ -1843,7 +1852,8 @@ class ImdbSource(_PluginBase):
         info: Optional[ImdbMediaInfo] = None
         # 简体名称
         zh_name = zhconv.convert(meta.cn_name, 'zh-hans') if meta.cn_name else None
-        names = list(dict.fromkeys([k for k in [meta.cn_name, zh_name, meta.en_name] if k]))
+        media_names = list(dict.fromkeys([k for k in [meta.cn_name, zh_name, meta.en_name] if k]))
+        names: list[str] = [name for name in media_names if isinstance(name, str)]
         for name in names:
             if meta.begin_season:
                 logger.info(f"正在识别 {name} 第{meta.begin_season}季 ...")
@@ -1871,11 +1881,13 @@ class ImdbSource(_PluginBase):
             if info:
                 break
         if info:
-            info = await self._imdb_helper.async_update_info(info.id, info=info)
+            info: ImdbMediaInfo = await self._imdb_helper.async_update_info(info.id, info=info)
             mediainfo = ImdbHelper.convert_mediainfo(info)
-            mediainfo.tmdb_id = await self.async_imdb_to_tmdb(info.id, mediainfo)
+            tmdb_id = await self.async_imdb_to_tmdb(info.id, mediainfo)
+            if tmdb_id:
+                mediainfo.tmdb_id = tmdb_id
             cat = ImdbHelper.get_category(ImdbHelper.type_to_mtype(info.type.value),
-                                          info.dict(by_alias=True, exclude_none=True))
+                                          info.model_dump(by_alias=True, exclude_none=True))
             mediainfo.set_category(cat)
             logger.info(f"{meta.name} IMDb 识别结果：{mediainfo.type.value} "
                         f"{mediainfo.title_year} "
@@ -1943,7 +1955,8 @@ class ImdbSource(_PluginBase):
         most_popular = pick_most_popular(filtered)
         return most_popular.get("id") if most_popular else None
 
-    def imdb_to_tmdb(self, imdb_id: str, media_info: Optional[MediaInfo] = None) -> Optional[int]:
+    @cached(maxsize=4096, ttl=86400)
+    def find_imdb_id(self, imdb_id: str) -> Optional[dict]:
         api_key = settings.TMDB_API_KEY
         api_url = (
             f"https://{settings.TMDB_API_DOMAIN}/3/find/{imdb_id}"
@@ -1951,18 +1964,27 @@ class ImdbSource(_PluginBase):
         )
         data = RequestUtils(accept_type="application/json", proxies=settings.PROXY if self._proxy else None
                             ).get_json(api_url)
-        if not data:
-            return None
-        return ImdbSource._match_results(data, media_info)
+        return data
 
-    async def async_imdb_to_tmdb(self, imdb_id: str, media_info: Optional[MediaInfo] = None) -> Optional[int]:
+    @cached(maxsize=4096, ttl=86400)
+    async def async_find_imdb_id(self, imdb_id: str) -> Optional[dict]:
         api_key = settings.TMDB_API_KEY
         api_url = (
             f"https://{settings.TMDB_API_DOMAIN}/3/find/{imdb_id}"
             f"?api_key={api_key}&external_source=imdb_id"
         )
         data = await AsyncRequestUtils(accept_type="application/json", proxies=settings.PROXY if self._proxy else None
-                                       ).get_json(api_url)
+                            ).get_json(api_url)
+        return data
+
+    def imdb_to_tmdb(self, imdb_id: str, media_info: Optional[MediaInfo] = None) -> Optional[int]:
+        data = self.find_imdb_id(imdb_id)
         if not data:
             return None
-        return self._match_results(data, media_info)
+        return ImdbSource._match_results(data, media_info)
+
+    async def async_imdb_to_tmdb(self, imdb_id: str, media_info: Optional[MediaInfo] = None) -> Optional[int]:
+        data = await self.async_find_imdb_id(imdb_id)
+        if not data:
+            return None
+        return ImdbSource._match_results(data, media_info)

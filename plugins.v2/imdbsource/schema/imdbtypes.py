@@ -131,7 +131,7 @@ class ImdbTitle(BaseModel):
     title_text: TextField = Field(alias='titleText')
     title_type: TitleType = Field(alias='titleType')
     release_year: Optional[ReleaseYear] = Field(None, alias='releaseYear')
-    akas: Optional[Akas]
+    akas: Optional[Akas] = None
     plot: Optional[Plot] = None
     primary_image: Optional[ImdbImage] = Field(default=None, alias='primaryImage')
     meter_ranking: Optional[MeterRanking] = Field(default=None, alias='meterRanking')

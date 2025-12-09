@@ -321,11 +321,12 @@
     "name": "IYUU自动辅种",
     "description": "基于IYUU官方Api实现自动辅种。",
     "labels": "做种,IYUU",
-    "version": "1.9.11",
+    "version": "1.9.12",
     "icon": "IYUU.png",
     "author": "jxxghp",
     "level": 2,
     "history": {
+      "v1.9.12": "修复海豹不能辅种的问题",
       "v1.9.11": "修复馒头不能辅种的问题",
       "v1.9.10": "Revert 辅种结束后，一起开始所有辅种后暂停的种子（排除了出错的种子）",
       "v1.9.9": "修复qb辅种结束后自动开始暂停的种子",

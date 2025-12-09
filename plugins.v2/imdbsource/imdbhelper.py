@@ -20,12 +20,13 @@ from .officialapi import SearchParams, OfficialApiClient, PersistedQueryNotFound
 from .schema import StaffPickApiResponse, ImdbMediaInfo, ImdbApiHash, TitleEdge
 from .schema.imdbapi import ImdbapiPrecisionDate, ImdbApiTitle
 from .schema.imdbtypes import ImdbType, AkasNode, ImdbTitle, ImdbDate
+from ...utils.common import retry
 
 
 class ImdbHelper:
     MAX_STATES = 128
 
-    def __init__(self, proxies = None):
+    def __init__(self, proxies: Dict[str, str] = None):
         self._proxies = proxies
         self.imdbapi_client = ImdbApiClient(proxies=self._proxies, ua=settings.NORMAL_USER_AGENT)
         self.official_api_client = OfficialApiClient(proxies=self._proxies, ua=settings.NORMAL_USER_AGENT)
@@ -38,9 +39,14 @@ class ImdbHelper:
     def get_interests_id(self) -> Dict[str, str]:
         return self.official_api_client.interests_id
 
-    async def async_fetch_github_file(self, repo: str, owner: str, file_path: str, branch: str = None) -> Optional[str]:
+    @staticmethod
+    @retry(Exception, logger=logger, delay=1)
+    async def _async_fetch_github_file(proxies: Dict[str, str] | None, repo: str, owner: str, file_path: str,
+                                       branch: str = None) -> Optional[str]:
         """
         异步从GitHub仓库获取指定文本文件内容
+
+        :param proxies: 代理配置
         :param repo: 仓库名称
         :param owner: 仓库所有者
         :param file_path: 文件路径(相对于仓库根目录)
@@ -50,35 +56,42 @@ class ImdbHelper:
         api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{file_path}"
         if branch:
             api_url = f"{api_url}?ref={branch}"
-        response = await AsyncRequestUtils(headers=settings.GITHUB_HEADERS, proxies=self._proxies).get_res(api_url)
+        response = await AsyncRequestUtils(headers=settings.GITHUB_HEADERS, proxies=proxies
+                                           ).get_res(api_url, raise_exception=True)
         if not response or response.status_code != 200:
             return None
-        try:
-            data = response.json()
-            content_base64 = data['content']
-            json_bytes = base64.b64decode(content_base64)
-            json_text = json_bytes.decode('utf-8')
-        except (TypeError, ValueError, KeyError, UnicodeDecodeError):
-            return None
+        data = response.json()
+        content_base64 = data['content']
+        json_bytes = base64.b64decode(content_base64)
+        json_text = json_bytes.decode('utf-8')
         return json_text
+
+    @staticmethod
+    async def async_fetch_github_file(proxies: Dict[str, str] | None, repo: str, owner: str, file_path: str,
+                                      branch: str = None) -> Optional[str]:
+        try:
+            return await ImdbHelper._async_fetch_github_file(proxies, repo, owner, file_path, branch)
+        except Exception as e:
+            logger.error(f"Error getting GitHub file: {str(e)}")
+            return None
 
     @cached(maxsize=1)
     async def async_fetch_hash(self) -> Optional[ImdbApiHash]:
         """
         异步获取 IMDb hash
         """
-        res = await self.async_fetch_github_file(
+        res = await ImdbHelper.async_fetch_github_file(
+            self._proxies,
             'MoviePilot-Plugins',
             'wumode',
             'plugins.v2/imdbsource/imdb_hash.json',
             'imdbsource_assets'
         )
         if not res:
-            logger.error("Error getting hash")
             return None
         try:
             hash_data = json.loads(res)
-            data = ImdbApiHash.parse_obj(hash_data)
+            data = ImdbApiHash.model_validate(hash_data)
         except (JSONDecodeError, ValidationError):
             return None
         return data
@@ -89,7 +102,8 @@ class ImdbHelper:
         获取 IMDb Staff Picks
         """
         file = 'staff_picks.zh.json' if zh else 'staff_picks.json'
-        res = await self.async_fetch_github_file(
+        res = await ImdbHelper.async_fetch_github_file(
+            self._proxies,
             'MoviePilot-Plugins',
             'wumode',
             f'plugins.v2/imdbsource/{file}',
@@ -99,7 +113,7 @@ class ImdbHelper:
             logger.error("Error getting staff picks")
             return None
         try:
-            data = StaffPickApiResponse.parse_obj(json.loads(res))
+            data = StaffPickApiResponse.model_validate_json(res)
         except (JSONDecodeError, ValidationError):
             return None
         return data
@@ -115,6 +129,7 @@ class ImdbHelper:
     def compare_names(file_name: str, names: Union[list, str]) -> bool:
         """
         比较文件名是否匹配，忽略大小写和特殊字符
+
         :param file_name: 识别的文件名或者种子名
         :param names: TMDB返回的译名
         :return: True or False
@@ -239,6 +254,7 @@ class ImdbHelper:
     def match_by(self, name: str, mtype: Optional[MediaType] = None, year: Optional[str] = None) -> Optional[ImdbMediaInfo]:
         """
         根据名称同时查询电影和电视剧，没有类型也没有年份时使用
+
         :param name: 识别的文件名或种子名
         :param mtype: 类型：电影、电视剧
         :param year: 年份，如要是季集需要是首播年份
@@ -273,14 +289,15 @@ class ImdbHelper:
             title = next((t for t in titles if t.id == result.id), None)
             if not title:
                 continue
-            akas = [edge.node for edge in title.akas.edges]
+            title_akas = title.akas
+            akas = [edge.node for edge in title_akas.edges] if title_akas is not None else []
             start_year = result.start_year
             if year and str(start_year) != year:
                 continue
             if ImdbHelper.compare_names(name, [result.primary_title or '', result.original_title or '']):
                 ret_info = ImdbMediaInfo.from_title(result, akas=akas)
                 return ret_info
-            names = [edge.node.text for edge in title.akas.edges]
+            names = [edge.node.text for edge in title.akas.edges] if title.akas is not None else []
             if ImdbHelper.compare_names(name, names):
                 ret_info = ImdbMediaInfo.from_title(result, akas=akas)
                 return ret_info
@@ -316,14 +333,15 @@ class ImdbHelper:
             title = next((t for t in titles if t.id == result.id), None)
             if not title:
                 continue
-            akas = title.akas
+            title_akas = title.akas
+            akas = [edge.node for edge in title_akas.edges] if title_akas is not None else []
             start_year = result.start_year
             if year and str(start_year) != year:
                 continue
             if ImdbHelper.compare_names(name, [result.primary_title or '', result.original_title or '']):
                 ret_info = ImdbMediaInfo.from_title(result, akas=akas)
                 return ret_info
-            names = [edge.node.text for edge in title.akas.edges]
+            names = [edge.node.text for edge in title.akas.edges] if title.akas is not None else []
             if ImdbHelper.compare_names(name, names):
                 ret_info = ImdbMediaInfo.from_title(result, akas=akas)
                 return ret_info
@@ -332,6 +350,7 @@ class ImdbHelper:
     def match_by_season(self, name: str, season_year: str, season_number: int) -> Optional[ImdbMediaInfo]:
         """
         根据电视剧的名称和季的年份及序号匹配 IMDb
+
         :param name: 识别的文件名或者种子名
         :param season_year: 季的年份
         :param season_number: 季序号
@@ -381,6 +400,8 @@ class ImdbHelper:
 
         async def __season_match(imdb_id: str, _season_year: str, _season_number: int) -> bool:
             release_dates = await self._async_tv_release_data_by_season(imdb_id)
+            if not release_dates:
+                return False
             for s, release_date in release_dates.items():
                 if not release_date or not release_date.year:
                     continue
@@ -426,6 +447,7 @@ class ImdbHelper:
               ) -> Optional[ImdbMediaInfo]:
         """
         搜索 IMDb 中的媒体信息，匹配返回一条尽可能正确的信息
+
         :param name: 检索的名称
         :param mtype: 类型：电影、电视剧
         :param year: 年份，如要是季集需要是首播年份
@@ -479,6 +501,7 @@ class ImdbHelper:
     def update_info(self, title_id: str, info: ImdbMediaInfo) -> ImdbMediaInfo:
         """
         Given a Title ID, update its media information.
+
         :param title_id: IMDb ID.
         :param info: Media information to be updated.
         :return: IMDb info.
@@ -486,35 +509,42 @@ class ImdbHelper:
         details = self.imdbapi_client.title(title_id) or info
         akas = info.akas
         if not akas:
-            akas = self.imdbapi_client.akas(title_id) or []
+            resp = self.imdbapi_client.akas(title_id)
+            akas = resp.akas if resp else []
         credit_list = [credit for credit in self.imdbapi_client.credits_generator(title_id)]
         episodes = [episode for episode in self.imdbapi_client.episodes_generator(title_id)]
-        return ImdbMediaInfo.from_title(details, akas=akas, credits=credit_list, episodes=episodes)
+        return ImdbMediaInfo.from_title(details, akas=akas, api_credits=credit_list, episodes=episodes)
 
     async def async_update_info(self, title_id: str, info: ImdbMediaInfo) -> ImdbMediaInfo:
         details = await self.imdbapi_client.async_title(title_id) or info
         akas = info.akas
         if not akas:
-            akas = await self.imdbapi_client.async_akas(title_id) or []
+            resp = await self.imdbapi_client.async_akas(title_id)
+            akas = resp.akas if resp else []
         credit_list = [credit async for credit in self.imdbapi_client.async_credits_generator(title_id)]
         episodes = [episode async for episode in self.imdbapi_client.async_episodes_generator(title_id)]
-        return ImdbMediaInfo.from_title(details, akas=akas, credits=credit_list, episodes=episodes)
+        return ImdbMediaInfo.from_title(details, akas=akas, api_credits=credit_list, episodes=episodes)
 
     @staticmethod
     def convert_mediainfo(info: ImdbMediaInfo) -> MediaInfo:
         mediainfo = MediaInfo()
         mediainfo.source = 'imdb'
         mediainfo.type = ImdbHelper.type_to_mtype(info.type.value)
-        mediainfo.title = info.primary_title
-        mediainfo.year = f"{info.start_year or 0}"
+        mediainfo.title = info.primary_title or ""
+        mediainfo.year = f"{info.start_year}" if info.start_year else ""
         mediainfo.imdb_id = info.id
-        mediainfo.overview = info.plot
-        spoken_languages = info.spoken_languages
-        mediainfo.original_language = spoken_languages[0].code if spoken_languages else None
-        mediainfo.original_title = info.original_title
+        mediainfo.overview = info.plot or ""
+        if info.spoken_languages:
+            original_language = info.spoken_languages[0].code
+            if original_language:
+                mediainfo.original_language = original_language
+        if info.original_title:
+            mediainfo.original_title = info.original_title
         mediainfo.names = [aka.text for aka in info.akas]
-        mediainfo.origin_country = [origin_country.code for origin_country in info.origin_countries]
-        mediainfo.poster_path = info.primary_image.url if info.primary_image else None
+        if info.origin_countries:
+            mediainfo.origin_country = [origin_country.code for origin_country in info.origin_countries]
+        if info.primary_image and info.primary_image.url:
+            mediainfo.poster_path = info.primary_image.url
         mediainfo.genres = [{"id": genre, "name": genre} for genre in info.genres or []]
         directors = []
         actors = []
@@ -528,13 +558,20 @@ class ImdbHelper:
         mediainfo.director = directors
         mediainfo.actor = actors
         vote = info.rating.aggregate_rating if info.rating and info.rating.aggregate_rating else None
-        mediainfo.vote_average = round(float(vote), 1) if vote else None
+        if vote:
+            mediainfo.vote_average = round(float(vote), 1)
         season_years: Dict[int, int] = {}
         if mediainfo.type == MediaType.TV:
             for episode in info.episodes:
-                season = int(episode.season) if StringUtils.is_number(episode.season) else 0
+                ep_season = episode.season
+                if ep_season is None:
+                    continue
+                season = int(ep_season) if StringUtils.is_number(ep_season) else 0
                 if season not in season_years:
-                    season_years[season] = episode.release_date.year if episode.release_date else 0
+                    if episode.release_date and episode.release_date.year:
+                        season_years[season] = episode.release_date.year
+                    else:
+                        season_years[season] = 0
                 mediainfo.seasons.setdefault(season, []).append(episode)
                 mediainfo.season_years[season] = season_years[season]
 
@@ -566,4 +603,3 @@ class ImdbHelper:
             mediainfo.release_date = ImdbHelper.release_date_string(info.release_date)
 
         return mediainfo
-

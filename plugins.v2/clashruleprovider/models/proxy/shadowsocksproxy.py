@@ -1,6 +1,6 @@
 from typing import Optional, Dict, Literal, List, Union
 
-from pydantic import Field, BaseModel, validator
+from pydantic import Field, BaseModel, field_validator, ValidationInfo
 
 from .proxybase import ProxyBase
 
@@ -87,24 +87,24 @@ class ShadowsocksProxy(ProxyBase):
         RestlsPluginOpts,
     ]] = Field(None, alias='plugin-opts')
 
-    class Config:
-        extra = 'allow'
-        allow_population_by_field_name = True
 
-    @validator('plugin_opts', allow_reuse=True)
-    def validate_plugin_opts(cls, v, values):
-        plugin = values.get('plugin')
+    @field_validator("plugin_opts")
+    @classmethod
+    def validate_plugin_opts(cls, v, info: ValidationInfo):
+        plugin = info.data.get("plugin")
         if plugin and v:
+            if not isinstance(plugin, str):
+                raise ValueError("plugin must be a string")
             plugin_model_map = {
-                'obfs': ObfsPluginOpts,
-                'v2ray-plugin': V2rayPluginOpts,
-                'gost-plugin': GostPluginOpts,
-                'shadow-tls': ShadowTlsPluginOpts,
-                'restls': RestlsPluginOpts
+                "obfs": "ObfsPluginOpts",
+                "v2ray-plugin": "V2rayPluginOpts",
+                "gost-plugin": "GostPluginOpts",
+                "shadow-tls": "ShadowTlsPluginOpts",
+                "restls": "RestlsPluginOpts",
             }
 
             expected_model = plugin_model_map.get(plugin)
-            if expected_model and not isinstance(v, expected_model):
-                raise ValueError(f"{plugin} plugin requires {expected_model.__name__}")
+            if expected_model and v.__class__.__name__ != expected_model:
+                raise ValueError(f"{plugin} plugin requires {expected_model}")
 
         return v

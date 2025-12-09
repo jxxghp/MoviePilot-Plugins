@@ -3,6 +3,7 @@ import re
 from datetime import datetime, timedelta
 from threading import Event
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urljoin
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -33,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.14"
+    plugin_version = "2.15"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -1224,6 +1225,12 @@ class IYUUAutoSeed(_PluginBase):
             """
             return True if "monikadesign." in url else False
 
+        def __is_gpw(url: str):
+            """
+            判断是否为gpw站点
+            """
+            return True if "greatposterwall." in url else False
+        
         def __get_mteam_enclosure(tid: str, apikey: str):
             """
             获取mteam种子下载链接
@@ -1264,6 +1271,69 @@ class IYUUAutoSeed(_PluginBase):
             rsskey = rss_match.group(1)
             return f"{site.get('url')}torrents/download/{tid}.{rsskey}"
 
+        def __get_gpw_torrent_url_from_page(seed: dict, site: dict):
+            """
+            从详情页面获取下载链接
+            """
+            if not site.get('url'):
+                logger.warn(f"站点 {site.get('name')} 未获取站点地址，无法获取种子下载链接")
+                return None
+            
+            try:
+                page_url = f"{site.get('url')}torrents.php?torrentid={seed.get('torrent_id')}&hit=1"
+                logger.info(f"正在获取种子下载链接：{page_url} ...")
+
+                res = RequestUtils(
+                    cookies=site.get("cookie"),
+                    ua=site.get("ua") or settings.USER_AGENT,
+                    proxies=settings.PROXY if site.get("proxy") else None
+                ).get_res(url=page_url)
+
+
+                if res is None or res.status_code not in (200, 500):
+                    logger.error(f"获取种子下载链接失败，请求失败：{page_url}，{res.status_code if res else ''}")
+                    return None
+                # Fix encoding
+                if "charset=utf-8" in res.text or "charset=UTF-8" in res.text:
+                    res.encoding = "UTF-8"
+                else:
+                    res.encoding = res.apparent_encoding
+
+                if not res.text:
+                    logger.warn(f"获取种子下载链接失败，页面内容为空：{page_url}")
+                    return None
+                    # 使用xpath从页面中获取下载链接
+                html = etree.HTML(res.text)
+                if html is None:
+                    logger.warning(f"解析页面失败：{page_url}")
+                    return None            
+                    
+                xpath = "//a[contains(@href, 'torrents.php?action=download')]/@href"
+                urls = html.xpath(xpath)
+            
+                if not urls:
+                    logger.warning(f"获取种子下载链接失败，未找到下载链接：{page_url}")
+                    return None
+                
+                torrent_id = str(seed.get("torrent_id"))
+                matched_url = None
+                # Strict match using regex id=xxxx
+                for u in urls:
+                    if re.search(rf"id={torrent_id}(?:&|$)", u):
+                        matched_url = u
+                        break
+                if not matched_url:
+                    logger.warning(f"未找到与 torrent_id={torrent_id} 对应的下载链接")
+                    return None    
+                
+                final_url = urljoin(site['url'], matched_url)
+
+                logger.info(f"获取种子下载链接成功：{final_url}")
+                return final_url
+            except Exception as e:
+                logger.warn(f"获取种子下载链接失败：{str(e)}")
+                return None
+            
         def __is_special_site(url: str):
             """
             判断是否为特殊站点
@@ -1288,6 +1358,10 @@ class IYUUAutoSeed(_PluginBase):
             if __is_monika(site.get('url')):
                 # 返回种子id和站点配置中所Monika的rss链接
                 return __get_monika_torrent(tid=seed.get("torrent_id"), rssurl=site.get("rss"))
+            if __is_gpw(site.get('url')):
+                # 从详情页面获取下载链接
+                return __get_gpw_torrent_url_from_page(seed=seed, site=site)
+            
             elif __is_special_site(site.get('url')):
                 # 从详情页面获取下载链接
                 return self.__get_torrent_url_from_page(seed=seed, site=site)

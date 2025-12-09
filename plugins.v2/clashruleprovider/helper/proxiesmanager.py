@@ -31,16 +31,16 @@ class ProxyManager:
         :param raw: Proxy raw
         :raises: ValueError if proxy name already exists
         """
-        proxy = Proxy.parse_obj(proxy_dict)
+        proxy = Proxy.model_validate(proxy_dict)
         raw = raw or proxy_dict
-        self.add(proxy.__root__, remark=remark, raw=raw)
+        self.add(proxy.root, remark=remark, raw=raw)
 
     def add_from_list(self, proxies: List[Dict[str, Any]], remark: str = "", skip_existing: bool = False):
         """Add proxies from the proxies list. """
         proxies_list = []
         for proxy in proxies:
-            p = Proxy.parse_obj(proxy)
-            proxies_list.append(ProxyItem(p.__root__, remark, raw=proxy))
+            p = Proxy.model_validate(proxy)
+            proxies_list.append(ProxyItem(p.root, remark, raw=proxy))
 
         for proxy_item in proxies_list:
             try:
@@ -53,7 +53,7 @@ class ProxyManager:
     def get_all_proxies(self) -> List[Dict[str, Any]]:
         proxies = []
         for proxy_item in self.proxies.values():
-            proxy_dict = proxy_item.proxy.dict(by_alias=True, exclude_none=True)
+            proxy_dict = proxy_item.proxy.model_dump(by_alias=True, exclude_none=True)
             proxies.append(proxy_dict)
         return proxies
 
@@ -89,7 +89,7 @@ class ProxyManager:
             if proxy.raw:
                 proxies.append(copy.deepcopy(proxy.raw))
             else:
-                proxies.append(proxy.proxy.dict(by_alias=True, exclude_none=True))
+                proxies.append(proxy.proxy.model_dump(by_alias=True, exclude_none=True))
         return proxies
 
     def proxy_names(self) -> Iterator[str]:

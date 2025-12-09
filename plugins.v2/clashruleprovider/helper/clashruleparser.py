@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Optional, Union
 
 from pydantic import ValidationError
 
-from ..models.rule import RuleType, Action, RoutingRuleType, MatchRule, ClashRule, LogicRule, SubRule
+from ..models.rule import RuleType, Action, RoutingRuleType, MatchRule, ClashRule, LogicRule, SubRule, AdditionalParam
 
 
 class ClashRuleParser:
@@ -33,7 +33,7 @@ class ClashRuleParser:
             return None
         try:
             if clash_rule.get("type") in ('AND', 'OR', 'NOT'):
-                conditions = clash_rule.get("conditions")
+                conditions = clash_rule.get("conditions", [])
                 if not conditions:
                     return None
                 conditions = [ClashRuleParser._remove_parenthesis(f"({c})") for c in conditions]
@@ -105,6 +105,8 @@ class ClashRuleParser:
             raise ValueError(f"Unknown rule type: {rule_type_str}")
 
         # Try to convert action to enum, otherwise keep as string (custom proxy group)
+        if additional_params is not None:
+            additional_params = AdditionalParam(additional_params)
         try:
             action_enum = Action(action.upper())
             final_action = action_enum
@@ -121,7 +123,7 @@ class ClashRuleParser:
 
     @staticmethod
     def _parenthesis_balance(s: str) -> Optional[int]:
-        """Calculate balance of parenthesis"""
+        """Calculate the balance of parenthesis"""
         balance = 0
         for i, char in enumerate(s):
             if char == '(':
@@ -218,9 +220,9 @@ class ClashRuleParser:
     def _parse_logic_conditions(conditions_str: str) -> List[Union[ClashRule, LogicRule]]:
         """
         Parse conditions within logic rules, supporting nested logic.
-        examples of conditions_str:
-            (DOMAIN,baidu.com)
-            (AND,(DOMAIN,baidu.com),(NETWORK,TCP))
+        The examples of conditions_str:
+            - (DOMAIN,baidu.com)`
+            - (AND,(DOMAIN,baidu.com),(NETWORK,TCP))
         """
 
         def __extract_condition_strings(_con_str: str) -> List[str]:
@@ -308,7 +310,7 @@ class ClashRuleParser:
     def validate_rule(rule: ClashRule) -> bool:
         """Validate a parsed rule"""
         try:
-            # Basic validation based on rule type
+            # Basic validation based on the rule type
             if rule.rule_type in [RoutingRuleType.IP_CIDR, RoutingRuleType.IP_CIDR6]:
                 # Validate CIDR format
                 return '/' in rule.payload
@@ -318,7 +320,7 @@ class ClashRuleParser:
                 return rule.payload.isdigit() or '-' in rule.payload
 
             elif rule.rule_type == RoutingRuleType.NETWORK:
-                # Validate network type
+                # Validate the network type
                 return rule.payload.lower() in ['tcp', 'udp']
 
             elif rule.rule_type == RoutingRuleType.DOMAIN_REGEX or rule.rule_type == RoutingRuleType.PROCESS_PATH_REGEX:

@@ -1,6 +1,6 @@
 from typing import List, Optional, Union, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from .rule import RoutingRuleType, Action, AdditionalParam
 from .ruleproviders import RuleProvider
@@ -9,13 +9,14 @@ class RuleData(BaseModel):
     priority: int
     type: RoutingRuleType
     payload: Optional[str] = None
-    action: Union[Action, str]
+    action: Union['Action', str]
     additional_params: Optional[AdditionalParam] = None
     conditions: Optional[List[str]] = None
     condition: Optional[str] = None
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(
+        use_enum_values=True
+    )
 
 class ClashApi(BaseModel):
     url: str

@@ -81,4 +81,4 @@ class SpacyWorker:
         if self.proc.is_alive():
             self.task_q.put(None)
             self.proc.join()
-            logger.info(f"SpacyWorker 子进程退出")
+            logger.info("SpacyWorker 子进程退出")
