@@ -510,9 +510,9 @@ class MediaServerMsg(_PluginBase):
 
         # 处理消息图片
         image_url = event_info.image_url
-        if not image_url: 
+        if not image_url and event_info.tmdb_id: 
             # 查询电影图片
-            if event_info.item_type == "MOV":
+            if event_info.item_type == "MOV" :
                 image_url = self.chain.obtain_specific_image(
                     mediaid=event_info.tmdb_id,
                     mtype=MediaType.MOVIE,
@@ -520,7 +520,7 @@ class MediaServerMsg(_PluginBase):
                 )
 
             # 查询剧集图片
-            elif event_info.tmdb_id:
+            else:
                 season_id = event_info.season_id if event_info.season_id else None
                 episode_id = event_info.episode_id if event_info.episode_id else None
 
