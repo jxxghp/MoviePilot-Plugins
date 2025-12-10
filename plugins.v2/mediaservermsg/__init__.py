@@ -510,28 +510,29 @@ class MediaServerMsg(_PluginBase):
 
         # 处理消息图片
         image_url = event_info.image_url
-        # 查询电影图片
-        if event_info.item_type == "MOV":
-            image_url = self.chain.obtain_specific_image(
-                mediaid=event_info.tmdb_id,
-                mtype=MediaType.MOVIE,
-                image_type=MediaImageType.Poster
-            )
+        if not image_url: 
+            # 查询电影图片
+            if event_info.item_type == "MOV":
+                image_url = self.chain.obtain_specific_image(
+                    mediaid=event_info.tmdb_id,
+                    mtype=MediaType.MOVIE,
+                    image_type=MediaImageType.Poster
+                )
 
-        # 查询剧集图片
-        elif event_info.tmdb_id:
-            season_id = event_info.season_id if event_info.season_id else None
-            episode_id = event_info.episode_id if event_info.episode_id else None
+            # 查询剧集图片
+            elif event_info.tmdb_id:
+                season_id = event_info.season_id if event_info.season_id else None
+                episode_id = event_info.episode_id if event_info.episode_id else None
 
-            specific_image = self.chain.obtain_specific_image(
-                mediaid=event_info.tmdb_id,
-                mtype=MediaType.TV,
-                image_type=MediaImageType.Backdrop,
-                season=season_id,
-                episode=episode_id
-            )
-            if specific_image:
-                image_url = specific_image
+                specific_image = self.chain.obtain_specific_image(
+                    mediaid=event_info.tmdb_id,
+                    mtype=MediaType.TV,
+                    image_type=MediaImageType.Backdrop,
+                    season=season_id,
+                    episode=episode_id
+                )
+                if specific_image:
+                    image_url = specific_image
         # 使用默认图片
         if not image_url:
             image_url = self._webhook_images.get(event_info.channel)
@@ -667,38 +668,38 @@ class MediaServerMsg(_PluginBase):
         overview = None
         try:
             if not first_event.tmdb_id:
-                        logger.debug("tmdb_id为空，使用原有逻辑发送消息")
-                        # 使用原有逻辑构造消息
-                        message_title = f"📺 {self._webhook_actions.get(first_event.event)}剧集：{first_event.item_name}"
-                        message_texts = []
-                        message_texts.append(f"⏰ 时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}")
+                logger.debug("tmdb_id为空，使用原有逻辑发送消息")
+                # 使用原有逻辑构造消息
+                message_title = f"📺 {self._webhook_actions.get(first_event.event)}剧集：{first_event.item_name}"
+                message_texts = []
+                message_texts.append(f"⏰ 时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}")
 
-                        # 收集集数信息
-                        episode_details = []
-                        for event in events:
-                            if event.season_id is not None and event.episode_id is not None:
-                                episode_details.append(f"S{int(event.season_id):02d}E{int(event.episode_id):02d}")
+                # 收集集数信息
+                episode_details = []
+                for event in events:
+                    if event.season_id is not None and event.episode_id is not None:
+                        episode_details.append(f"S{int(event.season_id):02d}E{int(event.episode_id):02d}")
 
-                        if episode_details:
-                            message_texts.append(f"📺 季集：{', '.join(episode_details)}")
+                if episode_details:
+                    message_texts.append(f"📺 季集：{', '.join(episode_details)}")
 
-                        message_content = "\n".join(message_texts)
+                message_content = "\n".join(message_texts)
 
-                        # 使用默认图片
-                        image_url = first_event.image_url or self._webhook_images.get(first_event.channel)
+                # 使用默认图片
+                image_url = first_event.image_url or self._webhook_images.get(first_event.channel)
 
-                        # 处理播放链接
-                        play_link = None
-                        if self._add_play_link:
-                            play_link = self._get_play_link(first_event)
+                # 处理播放链接
+                play_link = None
+                if self._add_play_link:
+                    play_link = self._get_play_link(first_event)
 
-                        # 发送消息
-                        self.post_message(mtype=NotificationType.MediaServer,
-                                          title=message_title,
-                                          text=message_content,
-                                          image=image_url,
-                                          link=play_link)
-                        return
+                # 发送消息
+                self.post_message(mtype=NotificationType.MediaServer,
+                                    title=message_title,
+                                    text=message_content,
+                                    image=image_url,
+                                    link=play_link)
+                return
             if first_event.item_type in ["TV", "SHOW"]:
                 logger.debug("查询TV类型的TMDB信息")
                 tmdb_info = self._get_tmdb_info(
