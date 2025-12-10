@@ -37,7 +37,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.7.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -455,7 +455,7 @@ class MediaServerMsg(_PluginBase):
         logger.debug(f"json_object存在: {bool(event_info.json_object)}, 类型: {type(event_info.json_object)}")
 
         # 判断是否需要进行TV剧集入库聚合处理
-        if (self._aggregate_enabled and 
+        if (self._aggregate_enabled and
                 event_info.event == "library.new" and
                 event_info.item_type in ["TV", "SHOW"] and
                 event_info.json_object and
@@ -510,8 +510,16 @@ class MediaServerMsg(_PluginBase):
 
         # 处理消息图片
         image_url = event_info.image_url
+        # 查询电影图片
+        if event_info.item_type == "MOV":
+            image_url = self.chain.obtain_specific_image(
+                mediaid=event_info.tmdb_id,
+                mtype=MediaType.MOVIE,
+                image_type=MediaImageType.Poster
+            )
+
         # 查询剧集图片
-        if event_info.tmdb_id:
+        elif event_info.tmdb_id:
             season_id = event_info.season_id if event_info.season_id else None
             episode_id = event_info.episode_id if event_info.episode_id else None
 
@@ -658,6 +666,39 @@ class MediaServerMsg(_PluginBase):
         tmdb_info = None
         overview = None
         try:
+            if not first_event.tmdb_id:
+                        logger.debug("tmdb_id为空，使用原有逻辑发送消息")
+                        # 使用原有逻辑构造消息
+                        message_title = f"📺 {self._webhook_actions.get(first_event.event)}剧集：{first_event.item_name}"
+                        message_texts = []
+                        message_texts.append(f"⏰ 时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}")
+
+                        # 收集集数信息
+                        episode_details = []
+                        for event in events:
+                            if event.season_id is not None and event.episode_id is not None:
+                                episode_details.append(f"S{int(event.season_id):02d}E{int(event.episode_id):02d}")
+
+                        if episode_details:
+                            message_texts.append(f"📺 季集：{', '.join(episode_details)}")
+
+                        message_content = "\n".join(message_texts)
+
+                        # 使用默认图片
+                        image_url = first_event.image_url or self._webhook_images.get(first_event.channel)
+
+                        # 处理播放链接
+                        play_link = None
+                        if self._add_play_link:
+                            play_link = self._get_play_link(first_event)
+
+                        # 发送消息
+                        self.post_message(mtype=NotificationType.MediaServer,
+                                          title=message_title,
+                                          text=message_content,
+                                          image=image_url,
+                                          link=play_link)
+                        return
             if first_event.item_type in ["TV", "SHOW"]:
                 logger.debug("查询TV类型的TMDB信息")
                 tmdb_info = self._get_tmdb_info(
@@ -665,11 +706,6 @@ class MediaServerMsg(_PluginBase):
                     mtype=MediaType.TV,
                     season=first_event.season_id
                 )
-
-            elif first_event.item_type == "MOV":
-                logger.debug("查询MOV类型的TMDB信息")
-                tmdb_info = self.chain.tmdb_info(tmdbid=first_event.tmdb_id, mtype=MediaType.MOVIE)
-
             logger.debug(f"从TMDB获取到的信息: {tmdb_info}")
         except Exception as e:
             logger.debug(f"获取TMDB信息时出错: {str(e)}")
