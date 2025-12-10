@@ -7,7 +7,7 @@ import re
 import time
 import yaml
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Literal, Tuple
+from typing import Any, Dict, List, Optional, Literal, Tuple, overload
 
 from fastapi import HTTPException
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -49,7 +49,7 @@ class ClashRuleProviderService:
         self.store.save_data(Crp.KEY_RULESET_RULES, self.state.ruleset_rules_manager.export_rules())
 
     def load_rules(self):
-        def process_rules(raw_rules: List[str], manager: ClashRuleManager, key: str):
+        def process_rules(raw_rules: List[str | dict[str, Any]], manager: ClashRuleManager, key: str):
             raw_rules = raw_rules or []
             rules = [self._upgrade_rule(r) if isinstance(r, str) else r for r in raw_rules]
             manager.import_rules(rules)
@@ -66,7 +66,7 @@ class ClashRuleProviderService:
         if isinstance(rule, ClashRule) and rule.rule_type == RoutingRuleType.RULE_SET and rule.payload.startswith(
                 self.config.ruleset_prefix):
             remark = 'Auto'
-        return {'rule': rule_string, 'remark': remark, 'time_modified': time.time()}
+        return {'rule': rule_string, 'remark': remark, 'time_modified': f"{int(time.time())}"}
 
     def save_proxies(self):
         proxies = self.state.proxies_manager.export_raw(condition=lambda proxy: proxy.remark == 'Manual')
@@ -97,13 +97,13 @@ class ClashRuleProviderService:
             self.save_proxies()
 
     def overwrite_proxy(self, proxy: Dict[str, Any]):
-        proxy_base = ProxyBase.parse_obj(proxy)
-        tls = TLSMixin.parse_obj(proxy)
-        network = NetworkMixin.parse_obj(proxy)
+        proxy_base = ProxyBase.model_validate(proxy)
+        tls = TLSMixin.model_validate(proxy)
+        network = NetworkMixin.model_validate(proxy)
         overwrite_config = {
-            'base': proxy_base.dict(by_alias=True, exclude_none=True),
-            'tls': tls.dict(by_alias=True, exclude_none=True),
-            'network': network.dict(by_alias=True, exclude_none=True),
+            'base': proxy_base.model_dump(by_alias=True, exclude_none=True),
+            'tls': tls.model_dump(by_alias=True, exclude_none=True),
+            'network': network.model_dump(by_alias=True, exclude_none=True),
             'lifetime': Crp.OVERWRITTEN_PROXIES_LIFETIME
         }
         self.state.overwritten_proxies[proxy_base.name] = overwrite_config
@@ -114,9 +114,9 @@ class ClashRuleProviderService:
         self.store.save_data('overwritten_proxies', self.state.overwritten_proxies)
 
     def overwrite_region_group(self, region_group: ProxyGroup):
-        overwrite_config = {k: v for k, v in region_group.dict(by_alias=True, exclude_none=True).items() if
+        overwrite_config = {k: v for k, v in region_group.model_dump(by_alias=True, exclude_none=True).items() if
                             k not in {Crp.KEY_NAME, Crp.KEY_PROXIES, 'use'}}
-        self.state.overwritten_region_groups[region_group.__root__.name] = overwrite_config
+        self.state.overwritten_region_groups[region_group.root.name] = overwrite_config
         self._group_by_region.cache_clear()
         self.store.save_data('overwritten_region_groups', self.state.overwritten_region_groups)
 
@@ -165,6 +165,8 @@ class ClashRuleProviderService:
         for outbound in new_outbounds:
             clash_rule = ClashRuleParser.parse_rule_line(
                 f"RULE-SET,{self.config.ruleset_prefix}{outbound},{outbound}")
+            if clash_rule is None:
+                continue
             rule = RuleItem(rule=clash_rule, remark='Auto')
             if not manager.has_rule_item(rule):
                 manager.insert_rule_at_priority(rule, 0)
@@ -276,7 +278,7 @@ class ClashRuleProviderService:
             self.remove_overwritten_proxy(previous_name)
             return True, ''
         try:
-            Proxy.parse_obj(proxy_dict)
+            Proxy.model_validate(proxy_dict)
             if proxy_dict[Crp.KEY_NAME] != previous_name:
                 return False, "Proxy name is not allowed to be overwritten"
             self.overwrite_proxy(proxy_dict)
@@ -337,15 +339,16 @@ class ClashRuleProviderService:
         if regex is None:
             proxy_items = list(self.state.proxies_manager)
         else:
+            compiled = re.compile(regex)
             proxy_items = self.state.proxies_manager.filter_proxies_by_condition(
-                lambda item: bool(re.compile(regex).match(item.remark))
+                lambda item: bool(compiled.match(item.remark))
             )
 
         result = []
         for p in proxy_items:
             if any(keyword in p.proxy.name for keyword in self.config.filter_keywords):
                 continue
-            proxy_dict = _overwrite_proxy(p.proxy.dict(by_alias=True, exclude_none=True))
+            proxy_dict = _overwrite_proxy(p.proxy.model_dump(by_alias=True, exclude_none=True))
             if flat:
                 result.append(proxy_dict)
             else:
@@ -392,7 +395,7 @@ class ClashRuleProviderService:
                     country = hk
                 if any(key in proxy_node[Crp.KEY_NAME] for key in ("🇹🇼", "TW", "台湾")):
                     country = tw
-            continent = continent_map.get(country.get('continent'))
+            continent = continent_map.get(country['continent'])
             if continent and group_by_region:
                 continent_groups.setdefault(continent, []).append(proxy_node[Crp.KEY_NAME])
             if group_by_country:
@@ -500,6 +503,12 @@ class ClashRuleProviderService:
             graph[name] = [p for p in proxies if p in group_names]
         return graph
 
+    @overload
+    def value_from_sub_conf(self, key: Literal['rules', 'proxies', 'proxy-groups']) -> list: ...
+
+    @overload
+    def value_from_sub_conf(self, key: Literal['rule-providers', 'proxy-providers']) -> dict: ...
+
     def value_from_sub_conf(self,
                             key: Literal['rules', 'rule-providers', 'proxies', 'proxy-groups', 'proxy-providers']):
         default = copy.deepcopy(Crp.DEFAULT_CLASH_CONF[key])
@@ -579,8 +588,10 @@ class ClashRuleProviderService:
 
         for key, default in Crp.DEFAULT_CLASH_CONF.items():
             if isinstance(default, dict):
+                assert key in {'rule-providers', 'proxy-providers'}
                 UtilsProvider.update_with_checking(self.value_from_sub_conf(key), config.get(key, {}))
             elif isinstance(default, list):
+                assert key in {'rules', 'proxies', 'proxy-groups'}
                 self._extend_with_name_checking(config.get(key, []), self.value_from_sub_conf(key))
         proxies = []
         for proxy in self.get_proxies():
@@ -714,19 +725,19 @@ class ClashRuleProviderService:
         """
         Adds a new proxy group, saves the state, and returns status.
         """
-        if any(x.get(Crp.KEY_NAME) == item.__root__.name for x in self.state.proxy_groups):
-            return False, f"The proxy group name {item.__root__.name} already exists"
+        if any(x.get(Crp.KEY_NAME) == item.root.name for x in self.state.proxy_groups):
+            return False, f"The proxy group name {item.root.name} already exists"
         try:
-            proxy_group = ProxyGroup.parse_obj(item)
+            proxy_group = ProxyGroup.model_validate(item)
         except Exception as e:
             logger.error(f"Failed to parse proxy group: {repr(e)}")
             return False, "Failed to parse proxy group"
-        self.state.proxy_groups.append(proxy_group.dict(by_alias=True, exclude_none=True))
+        self.state.proxy_groups.append(proxy_group.model_dump(by_alias=True, exclude_none=True))
         self.store.save_data('proxy_groups', self.state.proxy_groups)
         return True, "Proxy group added successfully."
 
     def update_proxy_group(self, previous_name: str, item: ProxyGroup) -> Tuple[bool, str]:
-        proxy_group = item.__root__
+        proxy_group = item.root
         region_groups = {g[Crp.KEY_NAME] for g in self.proxy_groups_by_region()}
         if previous_name in region_groups:
             self.overwrite_region_group(item)
@@ -740,7 +751,7 @@ class ClashRuleProviderService:
                                x.get(Crp.KEY_NAME) == proxy_group.name), None)
         if new_name_index is not None and new_name_index != index:
             return False, f"The proxy group name {proxy_group.name} already exists"
-        self.state.proxy_groups[index] = proxy_group.dict(by_alias=True, exclude_none=True)
+        self.state.proxy_groups[index] = proxy_group.model_dump(by_alias=True, exclude_none=True)
         self.store.save_data('proxy_groups', self.state.proxy_groups)
         return True, ''
 
@@ -751,7 +762,7 @@ class ClashRuleProviderService:
         new_name = rule_provider_data.name
         if name != new_name:
             self.state.rule_providers.pop(name, None)
-        self.state.rule_providers[new_name] = rule_provider_data.rule_provider.dict(by_alias=True,
+        self.state.rule_providers[new_name] = rule_provider_data.rule_provider.model_dump(by_alias=True,
                                                                                     exclude_none=True)
         self.store.save_data('extra_rule_providers', self.state.rule_providers)
         return True, "Rule provider updated successfully."
@@ -820,7 +831,7 @@ class ClashRuleProviderService:
         try:
             dst_priority = rule_data.priority
             src_priority = priority
-            clash_rule = ClashRuleParser.parse_rule_dict(rule_data.dict(exclude_none=True))
+            clash_rule = ClashRuleParser.parse_rule_dict(rule_data.model_dump(exclude_none=True))
             if not clash_rule:
                 return False, f"无效的规则: {rule_data!r}"
             if rule_type == 'ruleset':
@@ -847,9 +858,9 @@ class ClashRuleProviderService:
     def add_rule(self, rule_type: str, rule_data: RuleData) -> Tuple[bool, str]:
         try:
             priority = rule_data.priority
-            clash_rule = ClashRuleParser.parse_rule_dict(rule_data.dict(exclude_none=True))
+            clash_rule = ClashRuleParser.parse_rule_dict(rule_data.model_dump(exclude_none=True))
             if not clash_rule:
-                return False, f"无效的输入规则: {rule_data.dict(exclude_none=True)}"
+                return False, f"无效的输入规则: {rule_data.model_dump(exclude_none=True)}"
             rule_item = RuleItem(rule=clash_rule, remark='Manual', time_modified=time.time())
             if rule_type == 'ruleset':
                 self.state.ruleset_rules_manager.insert_rule_at_priority(rule_item, priority)
@@ -901,7 +912,7 @@ class ClashRuleProviderService:
     def update_hosts(self, param: HostData) -> Tuple[bool, str]:
         if not param.value:
             return False, "无效的参数"
-        value = param.value.dict(exclude_none=True)
+        value = param.value.model_dump(exclude_none=True)
         for i, host in enumerate(self.state.hosts):
             if host.get('domain') == param.domain:
                 self.state.hosts[i] = {**host, **value}
@@ -926,7 +937,7 @@ class ClashRuleProviderService:
         sub_conf = next((conf for conf in self.config.subscriptions_config if conf.url == url), None)
         if not sub_conf:
             return False, f"Configuration for {url} not found."
-        config, info = await self.async_get_subscription(url, sub_conf.dict())
+        config, info = await self.async_get_subscription(url, sub_conf.model_dump())
         if not config:
             return False, f"订阅链接 {url} 更新失败"
 
@@ -978,7 +989,7 @@ class ClashRuleProviderService:
 
             if not isinstance(rs, dict):
                 raise ValueError("Subscription content is not a valid dictionary.")
-
+            rs: dict[str, Any] = rs
             logger.info(f"已刷新: {UtilsProvider.get_url_domain(url)}. 节点数量: {len(rs.get(Crp.KEY_PROXIES, []))}")
             for key, default in Crp.DEFAULT_CLASH_CONF.items():
                 rs.setdefault(key, copy.deepcopy(default))
@@ -1001,7 +1012,7 @@ class ClashRuleProviderService:
             url = sub_conf.url
             if not self.state.subscription_info.get(url, {}).get('enabled'):
                 continue
-            conf, sub_info = await self.async_get_subscription(url, conf=sub_conf.dict())
+            conf, sub_info = await self.async_get_subscription(url, conf=sub_conf.model_dump())
             if not conf:
                 res[url] = False
                 continue

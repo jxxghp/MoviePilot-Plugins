@@ -170,7 +170,7 @@ class ClashRuleProviderApi:
         proxy_providers = self.services.all_proxy_providers()
         return schemas.Response(success=True, data={'proxy_providers': proxy_providers})
 
-    @apis.register(path="/ruleset", methods=["GET"], allow_anonymous=bool(True), summary="获取规则集规则")
+    @apis.register(path="/ruleset", methods=["GET"], allow_anonymous=True, summary="获取规则集规则")
     def get_ruleset(self, name: str, apikey: str) -> PlainTextResponse:
         _apikey = self.config.apikey or settings.API_TOKEN
         if not secrets.compare_digest(_apikey, apikey):

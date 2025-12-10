@@ -1,4 +1,5 @@
 import re
+from textwrap import dedent
 from typing import Any, Dict, List, Optional, Final, AsyncGenerator
 
 import httpx
@@ -275,8 +276,8 @@ INTERESTS_ID: Final[Dict[str, Dict[str, str]]] = {
     }
 }
 CACHE_LIFETIME: Final[int] = 86400
-IMDB_GRAPHQL_QUERY: Final[str] = \
-    """query VerticalListPageItems( $titles: [ID!]! $names: [ID!]! $images: [ID!]! $videos: [ID!]!) {
+IMDB_GRAPHQL_QUERY: Final[str] = dedent("""
+    query VerticalListPageItems( $titles: [ID!]! $names: [ID!]! $images: [ID!]! $videos: [ID!]!) {
       titles(ids: $titles) { ...TitleParts meterRanking { currentRank meterType rankChange {changeDirection difference} } ratingsSummary { aggregateRating } }
       names(ids: $names) { ...NameParts }
       videos(ids: $videos) { ...VideoParts }
@@ -314,7 +315,8 @@ IMDB_GRAPHQL_QUERY: Final[str] = \
       previewURLs { displayName { value } url videoDefinition videoMimeType }
       playbackURLs { displayName { value } url videoDefinition videoMimeType }
       thumbnail { height url width }
-    }"""
+    }
+""")
 
 
 class PersistedQueryNotFound(Exception):
@@ -402,7 +404,7 @@ class OfficialApiClient:
                 if error:
                     logger.error(f"Error querying VerticalListPageItems: {error}")
                 return None
-            ret = VerticalList.parse_obj(data)
+            ret = VerticalList.model_validate(data)
         except Exception as e:
             logger.debug(f"An error occurred while querying VerticalListPageItems: {e}")
             return None
@@ -430,7 +432,7 @@ class OfficialApiClient:
                 if error:
                     logger.error(f"Error querying VerticalListPageItems: {error}")
                 return None
-            ret = VerticalList.parse_obj(data)
+            ret = VerticalList.model_validate(data)
         except Exception as e:
             logger.debug(f"An error occurred while querying VerticalListPageItems: {e}")
             return None
@@ -514,7 +516,7 @@ class OfficialApiClient:
                     raise PersistedQueryNotFound(error['message'])
             return None
         try:
-            ret = AdvancedTitleSearchResponse.parse_obj(data)
+            ret = AdvancedTitleSearchResponse.model_validate(data)
         except ValidationError as err:
             logger.error(f"{err}")
             return None

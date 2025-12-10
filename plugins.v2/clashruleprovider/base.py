@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import Final, Optional, Literal, Dict
+from typing import Final, Literal, Dict
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -27,12 +27,8 @@ class _ClashRuleProviderBase(_PluginBase, ABC):
     KEY_PROXY_GROUPS: Final[str] = "proxy-groups"
     KEY_NAME: Final[str] = "name"
 
-    def __init__(self):
-        # Configuration attributes
-        super().__init__()
-
-        # Runtime variables
-        self.state: Optional[PluginState] = None
-        self.config: Optional[PluginConfig] = None
-        self.store: Optional[PluginStore] = None
-        self.scheduler: Optional[AsyncIOScheduler] = None
+    # Runtime variables
+    state: PluginState
+    config: PluginConfig
+    store: PluginStore
+    scheduler: AsyncIOScheduler = None
