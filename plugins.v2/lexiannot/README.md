@@ -6,9 +6,9 @@ ___
 
 ## 主要功能
 
-![](https://images2.imgbox.com/d6/b6/kZu6EH2a_o.png)
 ![](https://images2.imgbox.com/c8/3a/rEJBWu5v_o.png)
 ![](https://images2.imgbox.com/56/c0/FBhJMvRD_o.jpg)
+![](https://images2.imgbox.com/e8/8c/B1EJwst7_o.jpg)
 ![](https://images2.imgbox.com/8a/d4/AtgOe265_o.jpg)
 
 - 识别视频的原始语言和字幕语言

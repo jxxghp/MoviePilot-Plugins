@@ -460,6 +460,8 @@ def _context_process_chain(
                     continue
                 if any(w.text == new_word.text for w in seg.candidate_words):
                     continue
+                if new_word.lemma in lexi.swear_words:
+                    continue
                 new_meta = WordMetadata(
                     start_pos=start_pos,
                     end_pos=start_pos + len(new_word.text),
@@ -471,6 +473,7 @@ def _context_process_chain(
                     pos=new_word.pos,
                     meta=new_meta
                 )
+
                 built_word = _update_word_via_lexicon(built_word, lexi)
                 if built_word.cefr and built_word.cefr < leaner_level:
                     continue
@@ -504,7 +507,7 @@ Your goal is to identify **only** content that helps them reach native-level pro
     *   Avoid repeating words already listed in `candidate_words`.
     *   Must exist in the exact form in `context_text`.
     *   Provide lemma and POS.
-    *   **Do NOT include** simple high-frequency words, common fillers ('gonna', 'gotta'), or basic swear words unless necessary for context.
+    *   **Do NOT include** simple high-frequency words, common fillers ('gonna', 'gotta'), or basic swear words.
 
 -------------------------
 You MUST return output strictly matching the provided Pydantic schema. 
@@ -711,16 +714,12 @@ def llm_process_chain(
     if media_context and media_context.media_info and media_context.meta_info:
         media_info = media_context.media_info
         if media_info.type == MediaType.TV:
-            media_name = (
-                f"{media_info.title_year} {media_context.meta_info.season_episode}"
-            )
+            media_name = f"{media_info.title_year} {media_context.meta_info.season_episode}"
         else:
             media_name = f"{media_info.title_year}"
 
     segments_list = []
-    for context, (start, end) in segments.context_generator(
-        context_window=context_window, extra_len=2
-    ):
+    for context, (start, end) in segments.context_generator(context_window=context_window, extra_len=2):
         if shutdown_event.is_set():
             break
         logger.info(

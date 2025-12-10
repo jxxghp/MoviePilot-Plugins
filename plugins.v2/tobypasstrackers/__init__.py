@@ -51,11 +51,11 @@ class ToBypassTrackers(_PluginBase):
     # 插件名称
     plugin_name = "绕过Trackers"
     # 插件描述
-    plugin_desc = "提供tracker服务器IP地址列表，帮助IPv6连接绕过OpenClash。"
+    plugin_desc = "提供 Tracker 服务器 IP 地址列表，帮助 IPv6 连接绕过 OpenClash。"
     # 插件图标
     plugin_icon = "Clash_A.png"
     # 插件版本
-    plugin_version = "1.5.0"
+    plugin_version = "1.5.1"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -558,7 +558,6 @@ class ToBypassTrackers(_PluginBase):
                                     'title': '绕过的 Tracker 服务器 IP 列表',
                                     'subtitle': '以下是已解析并添加到绕过列表中的 Tracker 服务器 IP 地址，'
                                                 '请在 OpenClash 中配置「绕过中国大陆 IP」并订阅本列表以实现绕过效果。',
-                                    'variant': 'elevated',
                                 },
                                 'content': [
                                     {
@@ -589,7 +588,7 @@ class ToBypassTrackers(_PluginBase):
                             {
                                 'component': 'VCard',
                                 'props': {
-                                    'class': 'mb-4',
+                                    'class': 'pa-0',
                                     'title': '排除的 IP 列表',
                                     'variant': 'elevated',
                                 },
@@ -696,14 +695,18 @@ class ToBypassTrackers(_PluginBase):
         for ip in ip_list:
             detail = bypassed.get(ip)
             excluded_detail = excluded.get(ip)
-            if ip in excluded and excluded_detail is not None:
+            sub_message = f"「{ip}」"
+            if excluded_detail is not None:
                 detail_msg = '\n'.join(f"{k}: {v}" for k,v in excluded_detail.to_dict().items())
-                message += f"\nIP 地址 {ip} 在排除列表中，不会被绕过：\n{detail_msg}\n"
-            elif ip in bypassed and detail is not None:
+                sub_message += f" 在排除列表中：\n{detail_msg}\n"
+            if detail is not None:
                 detail_msg = '\n'.join(f"{k}: {v}" for k,v in detail.to_dict().items())
-                message += f"\nIP 地址 {ip} 会被绕过：\n{detail_msg}\n"
+                sub_message += f" 在绕过列表中：\n{detail_msg}\n"
+            if detail and not excluded_detail:
+                sub_message += f"✈️ 会被绕过。\n"
             else:
-                message += f"\nIP 地址 {ip} 不在绕过列表中。\n"
+                sub_message += f"🛑 不会被绕过。\n"
+            message += sub_message + "\n"
         self.post_message(channel=channel, user=userid, text=message, title=f"{host}")
 
     @overload
@@ -892,26 +895,26 @@ class ToBypassTrackers(_PluginBase):
                                                             timestamp=int(time.time())))
                 except ValueError:
                         exempted_domains.append(exempted_domain)
-
+        cidr_details_dict = {detail.ip_cidr: detail for detail in cidr_details}
         asyncio.run(resolve_all(exempted_domains, exempted_ipv6, exempted_ip, exempted_cidr_details))
         for ip in exempted_ip:
-            index = ToBypassTrackers._search_subnet(ip, ip_list)
-            if index == -1:
-                continue
-            subnet = ip_list[index]
-            ip_list.pop(index)
-            if subnet.prefixlen < 12:
-                new_subnet = IPv4Network((ip.network_address, subnet.prefixlen + 8), strict=False)
-                ip_list.extend(subnet.address_exclude(new_subnet))
+            while (index:= ToBypassTrackers._search_subnet(ip, ip_list)) != -1:
+                subnet = ip_list[index]
+                ip_list.pop(index)
+                source = cidr_details_dict[str(subnet)].domain if str(subnet) in cidr_details_dict else "CN"
+                logger.warn(f"Excluding subnet {subnet} ({source}) for exempted IP {ip}")
+                if subnet.prefixlen < 12:
+                    new_subnet = IPv4Network((ip.network_address, subnet.prefixlen + 8), strict=False)
+                    ip_list.extend(subnet.address_exclude(new_subnet))
         for ip in exempted_ipv6:
-            index = ToBypassTrackers._search_subnet(ip, ipv6_list)
-            if index == -1:
-                continue
-            subnet = ipv6_list[index]
-            ipv6_list.pop(index)
-            if subnet.prefixlen < 32:
-                new_subnet = IPv6Network((ip.network_address, min(32, subnet.prefixlen + 8)), strict=False)
-                ipv6_list.extend(subnet.address_exclude(new_subnet))
+            while (index:=ToBypassTrackers._search_subnet(ip, ipv6_list)) != -1:
+                subnet = ipv6_list[index]
+                ipv6_list.pop(index)
+                source = cidr_details_dict[str(subnet)].domain if str(subnet) in cidr_details_dict else "CN"
+                logger.warn(f"Excluding subnet {subnet} ({source}) for exempted IP {ip}")
+                if subnet.prefixlen < 32:
+                    new_subnet = IPv6Network((ip.network_address, min(32, subnet.prefixlen + 8)), strict=False)
+                    ipv6_list.extend(subnet.address_exclude(new_subnet))
         ipv4_txt = "\n".join(str(net) for net in ip_list)
         ipv6_txt = "\n".join(str(net) for net in ipv6_list)
         self.save_data("ipv4_txt", ipv4_txt)

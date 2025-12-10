@@ -1275,7 +1275,7 @@ class LexiAnnot(_PluginBase):
                     f"{media_info.title_year} {context.meta_info.season_episode}"
                 )
             else:
-                media_name = f"{media_info.title_year}.{video_path.suffix}"
+                media_name = f"{media_info.title_year}"
         message = f"标题： {media_name}"
         if phase == "start":
             self.post_message(
@@ -1803,7 +1803,7 @@ class LexiAnnot(_PluginBase):
 
         usage_style = zh_style.copy()
         usage_style.name = "Annotation USAGE"
-        usage_style.fontsize = fs * 0.5
+        usage_style.fontsize = fs * 0.75
         usage_style.italic = True
         usage_style.primarycolor = Color(224, 224, 224, self._color_alpha)
         ass.styles["Annotation USAGE"] = usage_style
@@ -2060,12 +2060,10 @@ class LexiAnnot(_PluginBase):
                     exams = [exam for exam in word.exams if exam in self._exam_tags]
                     new_text = f"{{\\c{abgr_str}}}{word.text}{{\\r}}"
                     if self._in_place:
-                        part_of_speech = f"{{\\fnTimes New Roman\\fs{int(main_style_fs * 0.75)}\\i1}}{UNIVERSAL_POS_MAP[word.pos] or ''}{{\\r}}"
-                        new_text = (
-                            new_text + f" ({word.llm_translation} {part_of_speech})"
-                            if word.llm_translation
-                            else ""
-                        )
+                        part_of_speech = (f"{{\\fnTimes New Roman\\fs{int(main_style_fs * 0.75)}\\i1}}"
+                                          f"{UNIVERSAL_POS_MAP[word.pos] or ''}{{\\r}}")
+                        new_text = new_text + f" ({word.llm_translation} {part_of_speech})" \
+                            if word.llm_translation else ""
                     else:
                         dialogue = SSAEvent()
                         dialogue.start = main_processor[seg.index].start
@@ -2086,7 +2084,10 @@ class LexiAnnot(_PluginBase):
                             if word.phonetics and self._show_phonetics
                             else ""
                         )
-                        annot_text = f"{word.lemma} {style_text('Annotation POS', UNIVERSAL_POS_MAP[word.pos] or '')} {style_text('Annotation ZH', word.llm_translation or '')}{cefr_text}{exam_text}{phone_text}"
+                        annot_text = (f"{word.lemma} "
+                                      f"{style_text('Annotation POS', UNIVERSAL_POS_MAP[word.pos] or '')} "
+                                      f"{style_text('Annotation ZH', word.llm_translation or '')}"
+                                      f"{cefr_text}{exam_text}{phone_text}")
                         dialogue.text = annot_text
                         ass_file.append(dialogue)
                         if word.llm_usage_context:
@@ -2094,9 +2095,7 @@ class LexiAnnot(_PluginBase):
                                 start=main_processor[seg.index].start,
                                 style="DETAIL CN",
                                 end=main_processor[seg.index].end,
-                                text=style_text(
-                                    "Annotation USAGE", word.llm_usage_context
-                                ),
+                                text=style_text("Annotation USAGE", f"{{\\q1}}{word.llm_usage_context}"),
                             )
                             ass_file.append(dialogue)
                         if self._show_vocabulary_detail and word.pos_defs:
