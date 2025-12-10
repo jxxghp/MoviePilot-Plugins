@@ -3,7 +3,7 @@ from typing import Optional, List, Tuple, Union
 
 from pydantic import BaseModel, Field, ConfigDict
 
-from .imdbapi import ImdbApiTitle, ImdbApiEpisode, ImdbApiCredit
+from .imdbapi import ImdbApiTitle, ImdbApiEpisode, ImdbApiCredit, ImdbapiImage
 from .imdbtypes import ImdbTitle, ImdbName, ImdbImage, ImdbVideo, AkasNode, TitleEdge
 
 
@@ -38,6 +38,7 @@ class ImdbMediaInfo(ImdbApiTitle):
     akas: List[AkasNode] = Field(default_factory=list)
     episodes: List[ImdbApiEpisode] = Field(default_factory=list)
     credits: List[ImdbApiCredit] = Field(default_factory=list)
+    images: List[ImdbapiImage] = Field(default_factory=list)
 
     @classmethod
     def from_title(
@@ -46,14 +47,28 @@ class ImdbMediaInfo(ImdbApiTitle):
         akas: Optional[List[AkasNode]] = None,
         episodes: Optional[List[ImdbApiEpisode]] = None,
         api_credits: Optional[List[ImdbApiCredit]] = None,
+        images: Optional[List[ImdbapiImage]] = None
     ) -> "ImdbMediaInfo":
-        return cls(
+        fields = {
             **title.model_dump(exclude_none=True, by_alias=True),
-            akas=akas if akas is not None else [],
-            episodes=episodes if episodes is not None else [],
-            credits=api_credits if api_credits is not None else []
-        )
+        }
+        if akas is not None:
+            fields['akas'] = akas
+        if episodes is not None:
+            fields['episodes'] = episodes
+        if api_credits is not None:
+            fields['credits'] = api_credits
+        if images is not None:
+            fields['images'] = images
+        return cls(**fields)
 
+    def backdrop_path(self) -> str | None:
+        if self.images:
+            for image in self.images:
+                if image.url and image.type == 'still_frame':
+                    # replace('@._V1', '@._V1_QL75_UX327_')
+                    return image.url
+        return None
 
 class ImdbApiHash(BaseModel):
     advanced_title_search: str = Field(alias="AdvancedTitleSearch")
@@ -104,8 +119,7 @@ class SearchParams(BaseModel):
     interests: Optional[Tuple[str, ...]] = None
 
     model_config = ConfigDict(
-        frozen=True,
-        validate_assignment=False
+        frozen=True
     )
 
 

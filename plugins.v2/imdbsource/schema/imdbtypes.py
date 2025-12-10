@@ -73,6 +73,9 @@ class ImdbImage(BaseModel):
     width: Optional[int] = None
     height: Optional[int] = None
 
+    def poster_path(self):
+        return self.url.replace('@._V1', '@._V1_QL75_UY414_CR6,0,280,414_')
+
 
 class RankChange(BaseModel):
     change_direction: Optional[str] = Field(default=None, alias='changeDirection')

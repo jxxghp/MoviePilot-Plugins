@@ -233,6 +233,8 @@ class ImdbHelper:
                     break
         except PersistedQueryNotFound:
             await self.async_fetch_hash.cache_clear()
+        except RuntimeError:
+            pass
         return edges
 
     def _tv_release_data_by_season(self, title_id: str) -> Optional[Dict[str, ImdbapiPrecisionDate]]:
@@ -513,7 +515,8 @@ class ImdbHelper:
             akas = resp.akas if resp else []
         credit_list = [credit for credit in self.imdbapi_client.credits_generator(title_id)]
         episodes = [episode for episode in self.imdbapi_client.episodes_generator(title_id)]
-        return ImdbMediaInfo.from_title(details, akas=akas, api_credits=credit_list, episodes=episodes)
+        images = [image for image in self.imdbapi_client.images_generator(title_id)]
+        return ImdbMediaInfo.from_title(details, akas=akas, api_credits=credit_list, episodes=episodes, images=images)
 
     async def async_update_info(self, title_id: str, info: ImdbMediaInfo) -> ImdbMediaInfo:
         details = await self.imdbapi_client.async_title(title_id) or info
@@ -523,7 +526,8 @@ class ImdbHelper:
             akas = resp.akas if resp else []
         credit_list = [credit async for credit in self.imdbapi_client.async_credits_generator(title_id)]
         episodes = [episode async for episode in self.imdbapi_client.async_episodes_generator(title_id)]
-        return ImdbMediaInfo.from_title(details, akas=akas, api_credits=credit_list, episodes=episodes)
+        images = [image async for image in self.imdbapi_client.async_images_generator(title_id)]
+        return ImdbMediaInfo.from_title(details, akas=akas, api_credits=credit_list, episodes=episodes, images=images)
 
     @staticmethod
     def convert_mediainfo(info: ImdbMediaInfo) -> MediaInfo:
@@ -545,6 +549,8 @@ class ImdbHelper:
             mediainfo.origin_country = [origin_country.code for origin_country in info.origin_countries]
         if info.primary_image and info.primary_image.url:
             mediainfo.poster_path = info.primary_image.url
+        if info.images:
+            mediainfo.backdrop_path = info.backdrop_path()  # noqa
         mediainfo.genres = [{"id": genre, "name": genre} for genre in info.genres or []]
         directors = []
         actors = []
@@ -589,10 +595,7 @@ class ImdbHelper:
             mediainfo.year = f"{info.release_year.year}"
             mediainfo.title_year = f"{mediainfo.title} ({mediainfo.year})" if mediainfo.year else mediainfo.title
         if info.primary_image:
-            primary_image = info.primary_image.url if info.primary_image else None
-            if primary_image:
-                poster_path = primary_image.replace('@._V1', '@._V1_QL75_UY414_CR6,0,280,414_')
-                mediainfo.poster_path = poster_path
+            mediainfo.poster_path = info.primary_image.poster_path()
         if info.ratings_summary:
             mediainfo.vote_average = info.ratings_summary.aggregate_rating
         if info.runtime:
