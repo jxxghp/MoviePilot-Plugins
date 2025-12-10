@@ -520,7 +520,7 @@ class MediaServerMsg(_PluginBase):
                 )
 
             # 查询剧集图片
-            else:
+            elif event_info.item_type in ["TV", "SHOW"]:
                 season_id = event_info.season_id if event_info.season_id else None
                 episode_id = event_info.episode_id if event_info.episode_id else None
 
