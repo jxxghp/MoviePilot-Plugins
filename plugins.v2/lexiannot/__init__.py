@@ -2091,11 +2091,12 @@ class LexiAnnot(_PluginBase):
                         dialogue.text = annot_text
                         ass_file.append(dialogue)
                         if word.llm_usage_context:
+                            usage = word.llm_usage_context.replace('，', '，\\n').replace('。', '。\\n')
                             dialogue = SSAEvent(
                                 start=main_processor[seg.index].start,
                                 style="DETAIL CN",
                                 end=main_processor[seg.index].end,
-                                text=style_text("Annotation USAGE", f"{{\\q1}}{word.llm_usage_context}"),
+                                text=style_text("Annotation USAGE", usage),
                             )
                             ass_file.append(dialogue)
                         if self._show_vocabulary_detail and word.pos_defs:
@@ -2130,7 +2131,7 @@ class LexiAnnot(_PluginBase):
 
         # 避免 Infuse 显示乱码
         unexplainable_line = SSAEvent(
-            start=0, end=0, text=f"{style_text('Annotation ZH', self.plugin_name)}"
+            start=0, end=0, text=f"{style_text('Annotation ZH', f"< {self.plugin_name} >")}"
         )
         ass_file.insert(0, unexplainable_line)
         return ass_file, segments.statistics

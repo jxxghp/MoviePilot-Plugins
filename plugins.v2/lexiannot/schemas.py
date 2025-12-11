@@ -34,6 +34,25 @@ class UniversalPos(str, Enum):
     X = "X"  # Other/unknown
 
 
+class  LexicalFeatures(str, Enum):
+    """Lexical features for words."""
+
+    FORMAL = "formal"
+    INFORMAL = "informal"
+    SLANG = "slang"
+    COLLOQUIAL = "colloquial"
+    ARCHAIC = "archaic"
+    DIALECT = "dialect"
+    TECHNICAL = "technical"
+    LITERARY = "literary"
+    ABBREVIATION = "abbreviation"
+    NAME = "name"
+    IDIOMATIC = "idiomatic"
+    NEOLOGISM = "neologism"
+    GIBBERISH = "gibberish"
+    COMPOUND = "compound"
+
+
 class IDGenerator(metaclass=Singleton):
     """Singleton class for generating unique IDs."""
 
@@ -57,18 +76,14 @@ class TaskStatus(Enum):
 
 
 class TaskParams(BaseModel):
-    skip_existing: bool = Field(
-        default=True, description="Whether to skip existing subtitle files"
-    )
+    skip_existing: bool = Field(default=True, description="Whether to skip existing subtitle files")
 
 
 class TasksApiParams(BaseModel):
     operation: Literal["DELETE", "RETRY", "IGNORE"] = Field(
         ..., description="Operation to perform on the tasks"
     )
-    task_id: str | None = Field(
-        default=None, description="Unique identifier for the task"
-    )
+    task_id: str | None = Field(default=None, description="Unique identifier for the task")
 
 
 class SegmentStatistics(BaseModel):
@@ -104,12 +119,8 @@ class SegmentStatistics(BaseModel):
 class ProcessResult(BaseModel):
     """Result of processing a task."""
 
-    message: str | None = Field(
-        default=None, description="Additional message or error information"
-    )
-    status: TaskStatus = Field(
-        default=TaskStatus.PENDING, description="Current status of the task"
-    )
+    message: str | None = Field(default=None, description="Additional message or error information")
+    status: TaskStatus = Field(default=TaskStatus.PENDING, description="Current status of the task")
     statistics: SegmentStatistics | None = Field(default=None, description="Statistics of the task")
 
 
@@ -119,32 +130,18 @@ class Task(BaseModel):
         default_factory=lambda: str(uuid.uuid4()),
         description="Unique identifier for the task",
     )
-    status: TaskStatus = Field(
-        default=TaskStatus.PENDING, description="Current status of the task"
-    )
-    add_time: str | None = Field(
-        default=None, description="Add time of the task, format %Y-%m-%d %H:%M:%S"
-    )
-    complete_time: str | None = Field(
-        default=None, description="Complete time of the task"
-    )
+    status: TaskStatus = Field(default=TaskStatus.PENDING, description="Current status of the task")
+    add_time: str | None = Field(default=None, description="Add time of the task, format %Y-%m-%d %H:%M:%S")
+    complete_time: str | None = Field(default=None, description="Complete time of the task")
     tokens_used: int = Field(default=0, description="Number of used tokens")
-    message: str | None = Field(
-        default=None, description="Additional message or error information"
-    )
-    params: TaskParams = Field(
-        default_factory=TaskParams, description="Parameters for the task"
-    )
+    message: str | None = Field(default=None, description="Additional message or error information")
+    params: TaskParams = Field(default_factory=TaskParams, description="Parameters for the task")
     statistics: SegmentStatistics | None = Field(default=None, description="Statistics of the task")
 
 
 class WordMetadata(BaseModel):
-    start_pos: int = Field(
-        ..., description="Start position of the word in the context sentence"
-    )
-    end_pos: int = Field(
-        ..., description="End position of the word in the context sentence"
-    )
+    start_pos: int = Field(..., description="Start position of the word in the context sentence")
+    end_pos: int = Field(..., description="End position of the word in the context sentence")
     context_id: int = Field(..., description="Identifier of the context sentence")
     word_id: int = Field(
         default_factory=lambda: IDGenerator().next_id(),
@@ -166,35 +163,22 @@ class PosDef(BaseModel):
 class WordBase(BaseModel):
     text: str = Field(..., description="The word or phrase")
     lemma: str = Field(..., description="Lemma form of the word")
-    pos: UniversalPos = Field(
-        default=UniversalPos.X, description="Universal POS tag of the word"
-    )
+    pos: UniversalPos = Field(default=UniversalPos.X, description="Universal POS tag of the word")
 
 
 class Word(WordBase):
-    phonetics: str | None = Field(
-        default=None, description="Phonetic transcription of the word"
-    )
-    meta: WordMetadata = Field(
-        default_factory=WordMetadata, description="Additional metadata"
-    )
+    phonetics: str | None = Field(default=None, description="Phonetic transcription of the word")
+    meta: WordMetadata = Field(default_factory=WordMetadata, description="Additional metadata")
     cefr: Cefr | None = Field(default=None, description="CEFR level")
     exams: list[str] = Field(
         default_factory=list,
         description="Exams whose vocabulary syllabus include this word",
     )
-    pos_defs: list[PosDef] = Field(
-        default_factory=list, description="Part of speech definitions"
-    )
-    llm_translation: str | None = Field(
-        default=None, description="LLM generated Chinese translation"
-    )
-    llm_usage_context: str | None = Field(
-        default=None, description="LLM generated cultural context"
-    )
-    llm_example_sentences: list[str] = Field(
-        default_factory=list, description="LLM generated example sentences"
-    )
+    pos_defs: list[PosDef] = Field(default_factory=list, description="Part of speech definitions")
+    llm_translation: str | None = Field(default=None, description="LLM generated Chinese translation")
+    llm_usage_context: str | None = Field(default=None, description="LLM generated cultural context")
+    lexical_features: list[LexicalFeatures] = Field(default_factory=list, description="Lexical features")
+    llm_example_sentences: list[str] = Field(default_factory=list, description="LLM generated example sentences")
 
     @property
     def pos_defs_plaintext(self) -> str:
@@ -211,13 +195,9 @@ class SubtitleSegment(BaseModel):
     start_time: int = Field(
         ..., description="Start time of the subtitle segment in milliseconds"
     )
-    end_time: int = Field(
-        ..., description="End time of the subtitle segment in milliseconds"
-    )
+    end_time: int = Field(..., description="End time of the subtitle segment in milliseconds")
     plaintext: str = Field(..., description="Text content of the subtitle segment")
-    Chinese: str | None = Field(
-        default=None, description="Chinese translation of the subtitle segment"
-    )
+    Chinese: str | None = Field(default=None, description="Chinese translation of the subtitle segment")
     candidate_words: list[Word] = Field(
         default_factory=list, description="List of words worth learning in the segment"
     )
@@ -270,6 +250,7 @@ class SegmentList(RootModel):
             total_words=len(all_words),
             cefr_distribution=dict(cefr_counts),
             pos_distribution=dict(pos_counts),
+            exam_distribution=dict(exam_counts)
         )
 
     def context_generator(
@@ -309,12 +290,8 @@ class SpacyToken(BaseModel):
     lemma_: str = Field(..., description="Lemma form of the word (string)")
     pos_: str = Field(..., description="POS tag of the word")
     text: str = Field(..., description="Text of the word")
-    is_stop: bool = Field(
-        default=False, description="Indicates if the word is a stop word"
-    )
-    is_punct: bool = Field(
-        default=False, description="Indicates if the word is punctuation"
-    )
+    is_stop: bool = Field(default=False, description="Indicates if the word is a stop word")
+    is_punct: bool = Field(default=False, description="Indicates if the word is punctuation")
     ent_iob_: str = Field(..., description="Entity IOB")
 
 
@@ -325,15 +302,11 @@ class SpacyNamedEntity(BaseModel):
 
 class NlpResult(BaseModel):
     tokens: list[SpacyToken] = Field(default_factory=list, description="List of tokens")
-    entities: list[SpacyNamedEntity] = Field(
-        default_factory=list, description="List of named entities"
-    )
+    entities: list[SpacyNamedEntity] = Field(default_factory=list, description="List of named entities")
 
 
 class LlmFeedbackAboutCandidateWord(BaseModel):
-    should_keep: bool = Field(
-        ..., description="Indicates whether to keep the candidate word"
-    )
+    should_keep: bool = Field(..., description="Indicates whether to keep the candidate word")
     # reason: str | None = Field(default=None, description="Concise reason for the decision")
     word_id: int = Field(..., description="Identifier of the word in the context")
     text: str | None = Field(default=None, description="The vocabulary word or phrase")
@@ -356,31 +329,22 @@ class LlmFeedback(BaseModel):
 
 class LlmWordEnrichment(BaseModel):
     word_id: int = Field(..., description="Identifier of the word in the context")
-    translation: str | None = Field(
-        default=None, description="Chinese translation of the word"
-    )
-    usage_context: str | None = Field(
-        default=None, description="Usage or Cultural Context"
-    )
+    translation: str | None = Field(default=None, description="Chinese translation of the word")
+    usage_context: str | None = Field(default=None, description="Usage or Cultural Context")
+    lexical_features: list[LexicalFeatures] = Field(default_factory=list, description="Lexical features")
 
 
 class LlmEnrichmentResult(BaseModel):
-    enriched_words: list[LlmWordEnrichment] = Field(
-        default_factory=list, description="List of enriched word data."
-    )
+    enriched_words: list[LlmWordEnrichment] = Field(default_factory=list, description="List of enriched word data.")
 
 
 class LlmSegmentTranslation(BaseModel):
     index: int = Field(..., description="Index of the subtitle segment")
-    translation: str = Field(
-        ..., description="Natural Chinese translation of the segment"
-    )
+    translation: str = Field(..., description="Natural Chinese translation of the segment")
 
 
 class LlmTranslationResult(BaseModel):
-    translations: list[LlmSegmentTranslation] = Field(
-        default_factory=list, description="List of segment translations"
-    )
+    translations: list[LlmSegmentTranslation] = Field(default_factory=list, description="List of segment translations")
 
 
 class VocabularyAnnotatingToolInput(BaseModel):
@@ -389,6 +353,4 @@ class VocabularyAnnotatingToolInput(BaseModel):
         description="This is a tool for adding a new vocabulary-annotating task to AnnotLexi.",
     )
     video_path: str = Field(..., description="Path to the video file")
-    skip_existing: bool = Field(
-        default=True, description="Whether to skip existing subtitle files"
-    )
+    skip_existing: bool = Field(default=True, description="Whether to skip existing subtitle files")

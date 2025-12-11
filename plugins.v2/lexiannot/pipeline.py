@@ -545,10 +545,13 @@ Here are the candidate words identified by a basic algorithm:
 For each word (identified by `WORD_ID`), provide:
 1.  **Translation:** A concise Chinese translation.
 2.  **Usage or Cultural Context (optional, in Chinese)**:
+    *   **Keep it brief and clear.**
     *   ONLY include if:
         - The word has a specific meaning in this context that differs from its common definition;
         - It is slang, idiom, phrasal, metaphorical, or culturally loaded;
     *   ONLY provide this context when learners would likely struggle to understand the word's usage without it.
+3.  **Lexical Features**:
+    *   Select the most appropriate tag(s) if applicable.
 
 **For each word, provide the `word_id` to ensure proper mapping.**
 **Your judgment should be based strictly on the provided subtitle context. DO NOT fabricate context or forced explanation.**
@@ -611,6 +614,7 @@ Here are the words you need to enrich:
                     if candidate_word.meta.word_id == enriched_word_data.word_id:
                         candidate_word.llm_translation = enriched_word_data.translation
                         candidate_word.llm_usage_context = enriched_word_data.usage_context
+                        candidate_word.lexical_features = enriched_word_data.lexical_features
                         break
     # 整句翻译
     if translate_sentences:
@@ -722,6 +726,7 @@ def llm_process_chain(
     for context, (start, end) in segments.context_generator(context_window=context_window, extra_len=2):
         if shutdown_event.is_set():
             break
+
         logger.info(
             f"Processing segments {format_time_extended(context[0].start_time)} ({context[0].index}) ->"
             f" {format_time_extended(context[-1].end_time)} ({context[-1].index}) via LLM..."
