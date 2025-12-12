@@ -69,7 +69,7 @@ def initialize_llm(
     max_retries: int = 3,
     proxy: bool = False,
 ) -> BaseChatModel:
-    """初始化LLM模型"""
+    """初始化 LLM"""
 
     if provider == "google":
         if proxy:
@@ -277,13 +277,8 @@ def _update_word_via_lexicon(word: Word, lexi: Lexicon) -> Word:
     return word
 
 
-def extract_advanced_words(
-    segment: SubtitleSegment,
-    lexi: Lexicon,
-    spacy_worker: SpacyWorker,
-    simple_level: set[Cefr],
-    exams: list[str],
-) -> list[Word]:
+def extract_advanced_words(segment: SubtitleSegment, lexi: Lexicon, spacy_worker: SpacyWorker,
+                           simple_level: set[Cefr]) -> list[Word]:
     text = segment.clean_text
     doc = spacy_worker.submit(text)
     last_end_pos = 0
@@ -331,9 +326,7 @@ def extract_advanced_words(
     return words
 
 
-def _find_segment_by_word_id(
-    segments: list[SubtitleSegment], word_id: int
-) -> SubtitleSegment | None:
+def _find_segment_by_word_id(segments: list[SubtitleSegment], word_id: int) -> SubtitleSegment | None:
     for segment in segments:
         for word in segment.candidate_words:
             if word.meta.word_id == word_id:
@@ -705,7 +698,7 @@ def llm_process_chain(
     根据 LLM 的反馈更新字幕片段中的单词信息
 
     :param lexi: 词典对象
-    :param llm: 大语言模型对象
+    :param llm: LLM 对象
     :param segments: 字幕片段
     :param shutdown_event: 关闭事件
     :param context_window: 上下文窗口大小

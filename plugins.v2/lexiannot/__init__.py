@@ -1,3 +1,4 @@
+import copy
 import os
 import json
 import queue
@@ -31,7 +32,7 @@ from app.schemas.types import EventType
 from app.core.context import MediaInfo
 from app.chain.media import MediaChain
 
-from .agenttool import VocabularyAnnotatingTool
+from .agenttool import QueryAnnotationTasksTool, VocabularyAnnotatingTool
 from .lexicon import Lexicon
 from .schemas import (
     IDGenerator,
@@ -181,7 +182,7 @@ class LexiAnnot(_PluginBase):
             # 从字典中恢复队列
             with self._tasks_lock:
                 for task_id, task in self._tasks.items():
-                    if task.status == TaskStatus.PENDING:
+                    if task.status in {TaskStatus.PENDING, TaskStatus.RUNNING}:
                         self._task_queue.put(task)
 
             self._shutdown_event = threading.Event()
@@ -361,26 +362,11 @@ class LexiAnnot(_PluginBase):
                                                             "model": "annot_level",
                                                             "label": "标注词汇的最低CEFR等级",
                                                             "items": [
-                                                                {
-                                                                    "title": "B1",
-                                                                    "value": "B1",
-                                                                },
-                                                                {
-                                                                    "title": "B2",
-                                                                    "value": "B2",
-                                                                },
-                                                                {
-                                                                    "title": "C1",
-                                                                    "value": "C1",
-                                                                },
-                                                                {
-                                                                    "title": "C2",
-                                                                    "value": "C2",
-                                                                },
-                                                                {
-                                                                    "title": "C2+",
-                                                                    "value": "C2+",
-                                                                },
+                                                                {"title": "B1", "value": "B1"},
+                                                                {"title": "B2", "value": "B2"},
+                                                                {"title": "C1", "value": "C1"},
+                                                                {"title": "C2", "value": "C2"},
+                                                                {"title": "C2+", "value": "C2+"},
                                                             ],
                                                         },
                                                     }
@@ -412,42 +398,15 @@ class LexiAnnot(_PluginBase):
                                                             "chips": True,
                                                             "multiple": True,
                                                             "items": [
-                                                                {
-                                                                    "title": "四级",
-                                                                    "value": "CET-4",
-                                                                },
-                                                                {
-                                                                    "title": "六级",
-                                                                    "value": "CET-6",
-                                                                },
-                                                                {
-                                                                    "title": "考研",
-                                                                    "value": "NPEE",
-                                                                },
-                                                                {
-                                                                    "title": "雅思",
-                                                                    "value": "IELTS",
-                                                                },
-                                                                {
-                                                                    "title": "托福",
-                                                                    "value": "TOEFL",
-                                                                },
-                                                                {
-                                                                    "title": "专四",
-                                                                    "value": "TEM-4",
-                                                                },
-                                                                {
-                                                                    "title": "专八",
-                                                                    "value": "TEM-8",
-                                                                },
-                                                                {
-                                                                    "title": "GRE",
-                                                                    "value": "GRE",
-                                                                },
-                                                                {
-                                                                    "title": "PET",
-                                                                    "value": "PET",
-                                                                },
+                                                                {"title": "四级", "value": "CET-4"},
+                                                                {"title": "六级", "value": "CET-6"},
+                                                                {"title": "考研", "value": "NPEE"},
+                                                                {"title": "雅思", "value": "IELTS"},
+                                                                {"title": "托福", "value": "TOEFL"},
+                                                                {"title": "专四", "value": "TEM-4"},
+                                                                {"title": "专八", "value": "TEM-8"},
+                                                                {"title": "GRE", "value": "GRE"},
+                                                                {"title": "PET", "value": "PET"},
                                                             ],
                                                         },
                                                     }
@@ -496,30 +455,12 @@ class LexiAnnot(_PluginBase):
                                                             "model": "font_scaling",
                                                             "label": "字体缩放",
                                                             "items": [
-                                                                {
-                                                                    "title": "50%",
-                                                                    "value": "0.5",
-                                                                },
-                                                                {
-                                                                    "title": "75%",
-                                                                    "value": "0.75",
-                                                                },
-                                                                {
-                                                                    "title": "100%",
-                                                                    "value": "1",
-                                                                },
-                                                                {
-                                                                    "title": "125%",
-                                                                    "value": "1.25",
-                                                                },
-                                                                {
-                                                                    "title": "150%",
-                                                                    "value": "1.5",
-                                                                },
-                                                                {
-                                                                    "title": "200%",
-                                                                    "value": "2",
-                                                                },
+                                                                {"title": "50%", "value": "0.5"},
+                                                                {"title": "75%", "value": "0.75"},
+                                                                {"title": "100%", "value": "1"},
+                                                                {"title": "125%", "value": "1.25"},
+                                                                {"title": "150%", "value": "1.5"},
+                                                                {"title": "200%", "value": "2"}
                                                             ],
                                                         },
                                                     }
@@ -549,26 +490,11 @@ class LexiAnnot(_PluginBase):
                                                             "model": "opacity",
                                                             "label": "透明度",
                                                             "items": [
-                                                                {
-                                                                    "title": "0",
-                                                                    "value": "0",
-                                                                },
-                                                                {
-                                                                    "title": "25%",
-                                                                    "value": "63",
-                                                                },
-                                                                {
-                                                                    "title": "50%",
-                                                                    "value": "127",
-                                                                },
-                                                                {
-                                                                    "title": "75%",
-                                                                    "value": "191",
-                                                                },
-                                                                {
-                                                                    "title": "100%",
-                                                                    "value": "255",
-                                                                },
+                                                                {"title": "0", "value": "0"},
+                                                                {"title": "25%", "value": "63"},
+                                                                {"title": "50%", "value": "127"},
+                                                                {"title": "75%", "value": "191"},
+                                                                {"title": "100%", "value": "255"},
                                                             ],
                                                         },
                                                     }
@@ -1100,7 +1026,7 @@ class LexiAnnot(_PluginBase):
         获取插件智能体工具
         返回工具类列表，每个工具类必须继承自 MoviePilotTool
         """
-        return [VocabularyAnnotatingTool]
+        return [VocabularyAnnotatingTool, QueryAnnotationTasksTool]
 
     def stop_service(self):
         """
@@ -1170,7 +1096,12 @@ class LexiAnnot(_PluginBase):
             }
         self.save_data("tasks", tasks_dict)
 
-    def add_task(self, video_file: str, skip_existing=True):
+    def get_tasks(self) -> list[Task]:
+        return [copy.deepcopy(task) for task in self._tasks.values()]
+
+    def add_task(self, video_file: str, skip_existing=True) -> bool:
+        if not self._enabled:
+            return False
         task = Task(
             video_path=video_file,
             add_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -1181,6 +1112,7 @@ class LexiAnnot(_PluginBase):
         self._task_queue.put(task)
         self.save_tasks()
         logger.info(f"加入任务队列: {video_file}")
+        return True
 
     def add_media_file(self, path: str, skip_existing: bool = True):
         """
@@ -1193,10 +1125,7 @@ class LexiAnnot(_PluginBase):
 
     def delete_tasks(self, task_id: str | None):
         historical_status = {
-            TaskStatus.COMPLETED,
-            TaskStatus.FAILED,
-            TaskStatus.CANCELED,
-            TaskStatus.IGNORED,
+            TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELED, TaskStatus.IGNORED,
         }
         with self._tasks_lock:
             if task_id is None:
@@ -1271,9 +1200,8 @@ class LexiAnnot(_PluginBase):
         if context and context.media_info and context.meta_info:
             media_info = context.media_info
             if media_info.type == MediaType.TV:
-                media_name = (
-                    f"{media_info.title_year} {context.meta_info.season_episode}"
-                )
+                media_name = f"{media_info.title_year} {context.meta_info.season_episode}"
+
             else:
                 media_name = f"{media_info.title_year}"
         message = f"标题： {media_name}"
@@ -1979,8 +1907,7 @@ class LexiAnnot(_PluginBase):
                 segment=seg,
                 lexi=lexi,
                 spacy_worker=spacy_worker,
-                simple_level=simple_vocabulary,
-                exams=self._exam_tags,
+                simple_level=simple_vocabulary
             )
         if self._gemini_available:
             if self._use_mp_agent:

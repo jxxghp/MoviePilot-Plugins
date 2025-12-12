@@ -34,7 +34,7 @@ class UniversalPos(str, Enum):
     X = "X"  # Other/unknown
 
 
-class  LexicalFeatures(str, Enum):
+class LexicalFeatures(str, Enum):
     """Lexical features for words."""
 
     FORMAL = "formal"
@@ -335,7 +335,7 @@ class LlmWordEnrichment(BaseModel):
 
 
 class LlmEnrichmentResult(BaseModel):
-    enriched_words: list[LlmWordEnrichment] = Field(default_factory=list, description="List of enriched word data.")
+    enriched_words: list[LlmWordEnrichment] = Field(default_factory=list, description="List of enriched word data")
 
 
 class LlmSegmentTranslation(BaseModel):
@@ -350,7 +350,12 @@ class LlmTranslationResult(BaseModel):
 class VocabularyAnnotatingToolInput(BaseModel):
     explanation: str = Field(
         ...,
-        description="This is a tool for adding a new vocabulary-annotating task to AnnotLexi.",
+        description="This is a tool for adding a new vocabulary-annotating task to AnnotLexi",
     )
     video_path: str = Field(..., description="Path to the video file")
     skip_existing: bool = Field(default=True, description="Whether to skip existing subtitle files")
+
+
+class QueryAnnotationTasksToolInput(BaseModel):
+    count: int = Field(default=5, description="The maximum number of returned annotation tasks")
+    explanation: str = Field(..., description="This is a tool for querying the latest annotation tasks in AnnotLexi")
