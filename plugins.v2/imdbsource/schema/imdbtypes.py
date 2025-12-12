@@ -69,12 +69,14 @@ class Plot(BaseModel):
 
 class ImdbImage(BaseModel):
     id: str
-    url: str
+    url: Optional[str] = None
     width: Optional[int] = None
     height: Optional[int] = None
 
     def poster_path(self):
-        return self.url.replace('@._V1', '@._V1_QL75_UY414_CR6,0,280,414_')
+        if self.url:
+            return self.url.replace('@._V1', '@._V1_QL75_UY414_CR6,0,280,414_')
+        return None
 
 
 class RankChange(BaseModel):

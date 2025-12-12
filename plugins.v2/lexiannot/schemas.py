@@ -264,7 +264,7 @@ class SegmentList(RootModel):
         :yield: 包含上下文的字幕片段列表。
         """
         total_segments = len(self.root)
-        for i in range(total_segments // context_window + 1):
+        for i in range((total_segments + context_window - 1) // context_window):
             real_start = i * context_window
             real_end = min(total_segments, (i + 1) * context_window) - 1
             start_index = max(0, i * context_window - extra_len)
