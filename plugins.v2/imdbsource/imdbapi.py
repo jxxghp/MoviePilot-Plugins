@@ -8,9 +8,10 @@ from app.log import logger
 from app.utils.common import retry
 from app.utils.http import RequestUtils, AsyncRequestUtils
 
-from .schema.imdbapi import ImdbApiTitle, ImdbApiEpisode, ImdbApiCredit
-from .schema.imdbapi import ImdbApiSearchTitlesResponse, ImdbApiListTitlesResponse, ImdbApiListTitleEpisodesResponse, \
-    ImdbApiListTitleSeasonsResponse, ImdbApiListTitleCreditsResponse, ImdbapiListTitleAKAsResponse
+from .schema.imdbapi import ImdbApiTitle, ImdbApiEpisode, ImdbApiCredit, ImdbapiImage
+from .schema.imdbapi import (ImdbApiSearchTitlesResponse, ImdbApiListTitlesResponse, ImdbApiListTitleEpisodesResponse,
+                             ImdbApiListTitleSeasonsResponse, ImdbApiListTitleCreditsResponse,
+                             ImdbapiListTitleAKAsResponse, ImdbApiTitleImagesResponse)
 from .schema.imdbtypes import ImdbType
 
 
@@ -678,3 +679,93 @@ class ImdbApiClient:
             logger.debug(f"An error occurred while retrieving alternative titles: {e}")
             return None
         return ret
+
+    def images(self, title_id: str, types: list[str] | None = None, page_size: int | None = None,
+               page_token: str | None = None) -> ImdbApiTitleImagesResponse | None:
+        """
+        Retrieve the images associated with a specific title.
+
+        :param title_id: Required. IMDb title ID in the format "tt1234567".
+        :param types: Optional. The types of images to filter by.
+            - 'poster'
+            - 'behind_the_scenes'
+            - 'still_frame'
+        :param page_size: Optional. The maximum number of images to return per page.
+            The value must be between 1 and 50. The default is 20.
+        :param page_token: Optional. Token for pagination, if applicable.
+        """
+        path = '/titles/%s/images'
+        param: Dict[str, Any] = {}
+        if types:
+            param['types'] = types
+        if page_size is not None:
+            param['pageSize'] = page_size
+        if page_token is not None:
+            param['pageToken'] = page_token
+        try:
+            r = self._free_imdb_api(path=path % title_id, params=param)
+            if r is None:
+                return None
+            ret = ImdbApiTitleImagesResponse.model_validate(r)
+        except Exception as e:
+            logger.debug(f"An error occurred while retrieving images: {e}")
+            return None
+        return ret
+
+    async def async_images(self, title_id: str, types: list[str] | None = None, page_size: int = 20,
+                           page_token: str | None = None) -> ImdbApiTitleImagesResponse | None:
+        path = '/titles/%s/images'
+        param: Dict[str, Any] = {}
+        if types:
+            param['types'] = types
+        if page_size is not None:
+            param['pageSize'] = page_size
+        if page_token is not None:
+            param['pageToken'] = page_token
+        try:
+            r = await self._async_free_imdb_api(path=path % title_id, params=param)
+            if r is None:
+                return None
+            ret = ImdbApiTitleImagesResponse.model_validate(r)
+        except Exception as e:
+            logger.debug(f"An error occurred while retrieving images: {e}")
+            return None
+        return ret
+
+    def images_generator(self, title_id: str, types: list[str] | None = None
+                         ) -> Generator[ImdbapiImage, None, None]:
+        page_token = None
+        while True:
+            response = self.images(
+                title_id=title_id,
+                types=types,
+                page_size=50,
+                page_token=page_token
+            )
+            if not response:
+                return
+            for image in response.images:
+                yield image
+
+            page_token = response.next_page_token
+            if not page_token:
+                break
+
+    async def async_images_generator(self, title_id: str, types: list[str] | None = None
+                                     ) -> AsyncGenerator[ImdbapiImage, None]:
+        page_token = None
+        while True:
+            response = await self.async_images(
+                title_id=title_id,
+                types=types,
+                page_size=50,
+                page_token=page_token
+            )
+            if not response:
+                return
+            for image in response.images:
+                yield image
+
+            page_token = response.next_page_token
+            if not page_token:
+                break

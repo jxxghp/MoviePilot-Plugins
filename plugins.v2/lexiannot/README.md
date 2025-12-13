@@ -1,26 +1,32 @@
 # 美剧生词标注
 
 根据CEFR等级，为英语影视剧标注高级词汇。
+___
+在影视剧入库后，LexiAnnot 会读取媒体文件的MediaInfo和文件列表，如果视频的原始语言为英语并且包含英文文本字幕，LexiAnnot将为其生成包含词汇注释的`.en.ass`字幕文件。
 
-在影视剧入库后，LexiAnnot会读取媒体文件的MediaInfo和文件列表，如果视频的原始语言为英语并且包含英文文本字幕，LexiAnnot将为其生成包含词汇注释的.ass字幕文件。
+## 主要功能
 
-![](https://images2.imgbox.com/d6/b6/kZu6EH2a_o.png)
 ![](https://images2.imgbox.com/c8/3a/rEJBWu5v_o.png)
-![](https://images2.imgbox.com/97/b7/d6RXFtwD_o.png)
+![](https://images2.imgbox.com/56/c0/FBhJMvRD_o.jpg)
+![](https://images2.imgbox.com/e8/8c/B1EJwst7_o.jpg)
 ![](https://images2.imgbox.com/8a/d4/AtgOe265_o.jpg)
 
-# Gemini
+- 识别视频的原始语言和字幕语言
+- 自动适应原字幕样式
+- 俚语 / 自造词 / 熟词生义标注和解释
 
-- **[获取APIKEY](https://aistudio.google.com/app/apikey)**
-- **[速率限制](https://ai.google.dev/gemini-api/docs/rate-limits)**
+## 使用配置
 
-**确保可以正常访问下面的域名**
+- spaCy 模型
+  - spaCy 用于词形还原、POS 标注和命名实体识别，`en_core_web_sm`或`en_core_web_md` 已足够满足需求。
+- LLM 设置
+  - 一集影视剧的字幕通常包含数千个单词，建议使用支持长文本输入的模型，选择一个适当的上下文窗口大小。
+  - 处理 60 min 的影视剧字幕大约会消耗 `60K`~`80K` token，具体取决于字幕内容。
+  - 配置请参考 MoviePilot 智能助手的设置部分。
+- Agent 工具
+  - 在聊天中使用 `/ai` 命令告诉智能助手你要标注的影视剧。
 
-- googleapis.com
-- google.dev
-- aistudio.google.com
-
-# CEFR
+## CEFR
 
 CEFR全称是Common European Framework of Reference for Languages。
 
@@ -36,20 +42,18 @@ CEFR全称是Common European Framework of Reference for Languages。
   - **C1** (高级/Advanced)：能够理解各种较长、要求较高的文本，并能识别隐含意义，表达流利、自然，能灵活有效地使用语言来应对各种目的。
   - **C2** (精通/Proficient)：能够轻松理解几乎所有听到的或读到的内容，能够非常流利、准确、精细地表达自己，即使在复杂的情况下也能区分细微的含义。
 
-# 计划
+## 计划
 
 - 双语字幕支持
 - ~~考试词汇标注~~
 
-# FAQ
+## FAQ
 
-- **为什么需要用到Gemini**
-  - LexiAnnot使用的词典仅包含约18000个单词，无法覆盖影视剧中的海量的俚语、习语、流行语等更广泛的表达形式
 - **只能处理已有字幕的视频吗？**
   - 是的，视频需要包含**英文文本字幕**
 - **为什么无法处理一些包含字幕视频**
   - 目前无法识别基于图片的字幕(通常是特效字幕)
 
-# 感谢
+## 感谢
 
 - [coca-vocabulary-20000](https://github.com/llt22/coca-vocabulary-20000)

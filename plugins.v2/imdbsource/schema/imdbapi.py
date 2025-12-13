@@ -114,10 +114,13 @@ class ImdbApiEpisode(BaseModel):
     release_date: Optional[ImdbapiPrecisionDate] = Field(None, alias='releaseDate')
 
 
-class ImdbApiListTitleEpisodesResponse(BaseModel):
-    episodes: List[ImdbApiEpisode] = Field(default_factory=list)
+class PagedResponse(BaseModel):
     total_count: int = Field(alias='totalCount')
     next_page_token: Optional[str] = Field(None, alias='nextPageToken')
+
+
+class ImdbApiListTitleEpisodesResponse(PagedResponse):
+    episodes: List[ImdbApiEpisode] = Field(default_factory=list)
 
 
 class ImdbApiSeason(BaseModel):
@@ -137,10 +140,8 @@ class ImdbApiCredit(BaseModel):
     episode_count: Optional[int] = Field(None, alias='episodeCount')
 
 
-class ImdbApiListTitleCreditsResponse(BaseModel):
+class ImdbApiListTitleCreditsResponse(PagedResponse):
     credits: List[ImdbApiCredit] = Field(default_factory=list)
-    total_count: int = Field(alias='totalCount')
-    next_page_token: Optional[str] = Field(None, alias='nextPageToken')
 
 
 class ImdbapiAka(AkasNode):
@@ -149,3 +150,7 @@ class ImdbapiAka(AkasNode):
 
 class ImdbapiListTitleAKAsResponse(BaseModel):
     akas: List[ImdbapiAka]
+
+
+class ImdbApiTitleImagesResponse(PagedResponse):
+    images: List[ImdbapiImage] = Field(default_factory=list)
