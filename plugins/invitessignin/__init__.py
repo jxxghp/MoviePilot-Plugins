@@ -23,7 +23,7 @@ class InvitesSignin(_PluginBase):
     # 插件图标
     plugin_icon = "invites.png"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.0.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -42,13 +42,15 @@ class InvitesSignin(_PluginBase):
     _cookie = None
     _onlyonce = False
     _notify = False
+    # 代理相关
+    _use_proxy = True  # 是否使用代理，默认启用
     _history_days = None
     _username = None
     _user_password = None
     _retry_count = 2
     _retry_interval = 5
     # User-Agent 字符串常量
-    _user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36"
+    _user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0"
 
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
@@ -63,6 +65,7 @@ class InvitesSignin(_PluginBase):
             self._cookie = config.get("cookie")
             self._notify = config.get("notify")
             self._onlyonce = config.get("onlyonce")
+            self._use_proxy = config.get("use_proxy", True)
             self._history_days = int(config.get("history_days") or 30)
             self._username = config.get("username")
             self._user_password = config.get("user_password")
@@ -83,6 +86,7 @@ class InvitesSignin(_PluginBase):
                 "enabled": self._enabled,
                 "cookie": self._cookie,
                 "notify": self._notify,
+                "use_proxy": self._use_proxy,
                 "history_days": self._history_days,
                 "username": self._username,
                 "user_password": self._user_password,
@@ -95,23 +99,53 @@ class InvitesSignin(_PluginBase):
                 self._scheduler.print_jobs()
                 self._scheduler.start()
 
+    def _get_proxies(self):
+        """
+        获取代理设置
+        """
+        if not self._use_proxy:
+            logger.debug("未启用代理")
+            return None
+
+        try:
+            # 获取系统代理设置
+            if hasattr(settings, 'PROXY') and settings.PROXY:
+                logger.debug(f"使用系统代理: {settings.PROXY}")
+                return settings.PROXY
+            else:
+                logger.debug("系统代理未配置")
+                return None
+        except Exception as e:
+            logger.error(f"获取代理设置出错: {str(e)}")
+            return None
+
     def __get_new_session(self, flarum_remember: str) -> str:
         """获取新的session"""
         headers = {
             "Cookie": f"flarum_remember={flarum_remember}",
-            "User-Agent": self._user_agent
+            "User-Agent": self._user_agent,
+            "Upgrade-Insecure-Requests": "1",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
         }
         
-        response = RequestUtils(headers=headers).get_res(url="https://invites.fun", allow_redirects=False)
+        # 获取代理
+        proxies = self._get_proxies()
+        
+        # 尝试获取新session，禁止重定向以便捕获Set-Cookie
+        response = RequestUtils(headers=headers, proxies=proxies).get_res(url="https://invites.fun", allow_redirects=False)
         if not response:
             return None
             
-        # 从Set-Cookie响应头中提取新的flarum_session
+        # 1. 优先尝试从Set-Cookie响应头中提取
         cookies = response.headers.get('Set-Cookie', '')
         session_match = re.search(r'flarum_session=([^;]+)', cookies)
-        
         if session_match:
             return session_match.group(1)
+            
+        # 2. 如果没有Set-Cookie，检查是否本身已经有了session (某些情况下可能直接返回了页面)
+        if response.cookies.get('flarum_session'):
+            return response.cookies.get('flarum_session')
+            
         return None
 
     def __get_remember_value(self, cookie: str) -> str:
@@ -146,12 +180,16 @@ class InvitesSignin(_PluginBase):
         try:
             # 第一步：获取初始session和csrf token
             headers_get = {
-                'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'accept-language': 'zh-CN,zh;q=0.9',
-                'user-agent': self._user_agent
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Language': 'zh-CN,zh;q=0.9',
+                'User-Agent': self._user_agent,
+                'Upgrade-Insecure-Requests': '1'
             }
             
-            response_get = RequestUtils(headers=headers_get).get_res('https://invites.fun/')
+            # 获取代理
+            proxies = self._get_proxies()
+            
+            response_get = RequestUtils(headers=headers_get, proxies=proxies).get_res('https://invites.fun/')
             if not response_get or response_get.status_code != 200:
                 logger.error("获取初始session失败")
                 return {"success": False, "error": "获取初始session失败"}
@@ -177,12 +215,12 @@ class InvitesSignin(_PluginBase):
             }
             
             headers_login = {
-                'accept': '*/*',
-                'content-type': 'application/json; charset=UTF-8',
-                'origin': 'https://invites.fun',
-                'referer': 'https://invites.fun/',
+                'Accept': '*/*',
+                'Content-Type': 'application/json; charset=UTF-8',
+                'Origin': 'https://invites.fun',
+                'Referer': 'https://invites.fun/',
                 'x-csrf-token': csrf_token,
-                'user-agent': headers_get['user-agent']
+                'User-Agent': self._user_agent
             }
             
             json_data_login = {
@@ -191,7 +229,7 @@ class InvitesSignin(_PluginBase):
                 'remember': True,
             }
             
-            login_response = RequestUtils(cookies=cookies_login, headers=headers_login).post_res(
+            login_response = RequestUtils(cookies=cookies_login, headers=headers_login, proxies=proxies).post_res(
                 'https://invites.fun/login', 
                 json=json_data_login
             )
@@ -235,6 +273,57 @@ class InvitesSignin(_PluginBase):
         except Exception as e:
             logger.error(f"登录过程中发生异常: {e}")
             return {"success": False, "error": f"登录异常: {e}"}
+
+    def __update_cookie_if_changed(self, new_cookie_str: str):
+        """
+        检查Cookie是否发生变化，如果有变化则更新配置
+        """
+        try:
+            if not new_cookie_str:
+                return
+
+            # 解析新Cookie
+            new_cookies = self.__parse_cookie_string(new_cookie_str)
+            new_remember = new_cookies.get('flarum_remember')
+            new_session = new_cookies.get('flarum_session')
+
+            if not new_remember or not new_session:
+                return
+
+            # 解析旧Cookie
+            old_cookies = self.__parse_cookie_string(self._cookie or "")
+            old_remember = old_cookies.get('flarum_remember')
+            old_session = old_cookies.get('flarum_session')
+
+            # 对比是否变化
+            if new_remember != old_remember or new_session != old_session:
+                # 构造标准格式的Cookie字符串
+                final_cookie = f"flarum_remember={new_remember}; flarum_session={new_session}"
+                
+                logger.info(f"Cookie已更新，保存新配置")
+                
+                # 更新内存中的配置
+                self._cookie = final_cookie
+                
+                # 更新持久化配置
+                self.update_config({
+                    "onlyonce": self._onlyonce,
+                    "cron": self._cron,
+                    "enabled": self._enabled,
+                    "cookie": self._cookie,
+                    "notify": self._notify,
+                    "use_proxy": self._use_proxy,
+                    "history_days": self._history_days,
+                    "username": self._username,
+                    "user_password": self._user_password,
+                    "retry_count": self._retry_count,
+                    "retry_interval": self._retry_interval
+                })
+            else:
+                logger.debug("Cookie未发生变化，无需更新")
+                
+        except Exception as e:
+            logger.error(f"更新Cookie配置失败: {e}")
 
     def __signin(self):
         """药丸签到"""
@@ -301,8 +390,11 @@ class InvitesSignin(_PluginBase):
             new_cookie = f"flarum_remember={flarum_remember}; flarum_session={new_session}"
             logger.info("成功刷新session")
             
+            # 获取代理
+            proxies = self._get_proxies()
+            
             # 4. 使用新cookie获取csrfToken和userId
-            res = RequestUtils(cookies=new_cookie).get_res(url="https://invites.fun")
+            res = RequestUtils(cookies=new_cookie, proxies=proxies).get_res(url="https://invites.fun")
             if not res or res.status_code != 200:
                 logger.error("请求药丸错误")
                 return False
@@ -329,7 +421,13 @@ class InvitesSignin(_PluginBase):
                 return False
                 
             # 执行签到
-            return self.__perform_checkin(userId, new_cookie, csrfToken)
+            result = self.__perform_checkin(userId, new_cookie, csrfToken)
+            
+            # 如果签到成功，尝试更新Cookie
+            if result:
+                self.__update_cookie_if_changed(new_cookie)
+                
+            return result
             
         except Exception as e:
             logger.error(f"Cookie签到过程中发生异常: {e}")
@@ -353,11 +451,17 @@ class InvitesSignin(_PluginBase):
             cookie_str = f"flarum_remember={login_result['flarum_remember']}; flarum_session={login_result['flarum_session']}"
             
             # 执行签到
-            return self.__perform_checkin(
+            result = self.__perform_checkin(
                 login_result['user_id'], 
                 cookie_str, 
                 login_result['csrf_token']
             )
+            
+            # 如果签到成功，尝试更新Cookie
+            if result:
+                self.__update_cookie_if_changed(cookie_str)
+                
+            return result
             
         except Exception as e:
             logger.error(f"登录签到过程中发生异常: {e}")
@@ -397,9 +501,12 @@ class InvitesSignin(_PluginBase):
                 logger.error("cookie中缺少必要的flarum_remember或flarum_session值")
                 return False
             
+            # 获取代理
+            proxies = self._get_proxies()
+            
             # 执行签到请求
             checkin_url = f'https://invites.fun/api/users/{user_id}'
-            response = RequestUtils(cookies=cookies, headers=headers).post_res(
+            response = RequestUtils(cookies=cookies, headers=headers, proxies=proxies).post_res(
                 checkin_url, 
                 json=json_data
             )
@@ -512,9 +619,10 @@ class InvitesSignin(_PluginBase):
                             {'component': 'VDivider'},
                             {'component': 'VCardText', 'content': [
                                 {'component': 'VRow', 'content': [
-                                    {'component': 'VCol', 'props': {'cols': 12, 'md': 4}, 'content': [{'component': 'VSwitch', 'props': {'model': 'enabled', 'label': '启用插件', 'color': 'primary'}}]},
-                                    {'component': 'VCol', 'props': {'cols': 12, 'md': 4}, 'content': [{'component': 'VSwitch', 'props': {'model': 'notify', 'label': '开启通知', 'color': 'info'}}]},
-                                    {'component': 'VCol', 'props': {'cols': 12, 'md': 4}, 'content': [{'component': 'VSwitch', 'props': {'model': 'onlyonce', 'label': '立即运行一次', 'color': 'success'}}]},
+                                    {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'enabled', 'label': '启用插件', 'color': 'primary'}}]},
+                                    {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'use_proxy', 'label': '使用代理', 'color': 'warning'}}]},
+                                    {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'notify', 'label': '开启通知', 'color': 'info'}}]},
+                                    {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'onlyonce', 'label': '立即运行一次', 'color': 'success'}}]},
                                 ]},
                             ]}
                         ]
@@ -534,7 +642,7 @@ class InvitesSignin(_PluginBase):
                                     {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [
                                         {'component': 'VTextField', 'props': {
                                             'model': 'username',
-                                            'label': '药丸用户名',
+                                            'label': '用户名',
                                             'placeholder': '请输入用户名',
                                             'prepend-inner-icon': 'mdi-account',
                                             'autocomplete': 'new-username',
@@ -545,8 +653,8 @@ class InvitesSignin(_PluginBase):
                                     {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [
                                         {'component': 'VTextField', 'props': {
                                             'model': 'user_password',
-                                            'label': '药丸密码',
-                                            'placeholder': '请输入药丸密码',
+                                            'label': '密码',
+                                            'placeholder': '请输入密码',
                                             'prepend-inner-icon': 'mdi-lock',
                                             'type': 'password',
                                             'autocomplete': 'new-password',
@@ -576,7 +684,7 @@ class InvitesSignin(_PluginBase):
                                     {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [
                                         {'component': 'VTextField', 'props': {
                                             'model': 'cookie',
-                                            'label': '药丸Cookie',
+                                            'label': 'Cookie',
                                             'placeholder': '需要包含 flarum_remember 值',
                                             'prepend-inner-icon': 'mdi-cookie',
                                             'type': 'password',
@@ -670,6 +778,7 @@ class InvitesSignin(_PluginBase):
             "enabled": False,
             "onlyonce": False,
             "notify": False,
+            "use_proxy": True,
             "cookie": "",
             "history_days": 30,
             "cron": "0 9 * * *",
