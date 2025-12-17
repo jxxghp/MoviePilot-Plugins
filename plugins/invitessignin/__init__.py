@@ -23,7 +23,7 @@ class InvitesSignin(_PluginBase):
     # 插件图标
     plugin_icon = "invites.png"
     # 插件版本
-    plugin_version = "2.0.1"
+    plugin_version = "2.0.2"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -99,7 +99,7 @@ class InvitesSignin(_PluginBase):
                 self._scheduler.print_jobs()
                 self._scheduler.start()
 
-    def _get_proxies(self):
+    def __get_proxies(self):
         """
         获取代理设置
         """
@@ -129,22 +129,22 @@ class InvitesSignin(_PluginBase):
         }
         
         # 获取代理
-        proxies = self._get_proxies()
+        proxies = self.__get_proxies()
         
         # 尝试获取新session，禁止重定向以便捕获Set-Cookie
         response = RequestUtils(headers=headers, proxies=proxies).get_res(url="https://invites.fun", allow_redirects=False)
         if not response:
             return None
             
-        # 1. 优先尝试从Set-Cookie响应头中提取
+        # 1. 优先尝试从 response.cookies 中获取 (requests 自动处理)
+        if response.cookies.get('flarum_session'):
+            return response.cookies.get('flarum_session')
+
+        # 2. 作为备用，尝试从 Set-Cookie 响应头中提取
         cookies = response.headers.get('Set-Cookie', '')
         session_match = re.search(r'flarum_session=([^;]+)', cookies)
         if session_match:
             return session_match.group(1)
-            
-        # 2. 如果没有Set-Cookie，检查是否本身已经有了session (某些情况下可能直接返回了页面)
-        if response.cookies.get('flarum_session'):
-            return response.cookies.get('flarum_session')
             
         return None
 
@@ -187,7 +187,7 @@ class InvitesSignin(_PluginBase):
             }
             
             # 获取代理
-            proxies = self._get_proxies()
+            proxies = self.__get_proxies()
             
             response_get = RequestUtils(headers=headers_get, proxies=proxies).get_res('https://invites.fun/')
             if not response_get or response_get.status_code != 200:
@@ -327,6 +327,23 @@ class InvitesSignin(_PluginBase):
 
     def __signin(self):
         """药丸签到"""
+        # 1. 检查今日是否已签到
+        try:
+            history = self.get_data('history') or []
+            if history:
+                # 按时间倒序排序
+                history = sorted(history, key=lambda x: x.get("date") or "", reverse=True)
+                last_checkin = history[0]
+                last_date = last_checkin.get("date", "")
+                if last_date:
+                    # 获取今日日期字符串 YYYY-MM-DD
+                    today_str = datetime.now().strftime('%Y-%m-%d')
+                    if last_date.startswith(today_str):
+                        logger.info(f"今日已签到 ({last_date})，跳过本次任务")
+                        return
+        except Exception as e:
+            logger.warning(f"检查签到历史失败: {e}")
+
         for attempt in range(self._retry_count):
             logger.info(f"开始第 {attempt + 1} 次签到尝试")
             
@@ -391,7 +408,7 @@ class InvitesSignin(_PluginBase):
             logger.info("成功刷新session")
             
             # 获取代理
-            proxies = self._get_proxies()
+            proxies = self.__get_proxies()
             
             # 4. 使用新cookie获取csrfToken和userId
             res = RequestUtils(cookies=new_cookie, proxies=proxies).get_res(url="https://invites.fun")
@@ -502,7 +519,7 @@ class InvitesSignin(_PluginBase):
                 return False
             
             # 获取代理
-            proxies = self._get_proxies()
+            proxies = self.__get_proxies()
             
             # 执行签到请求
             checkin_url = f'https://invites.fun/api/users/{user_id}'
