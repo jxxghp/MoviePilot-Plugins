@@ -832,19 +832,28 @@ class MediaServerMsg(_PluginBase):
                     )
                 logger.debug(f"从TMDB获取到的信息: {tmdb_info}")
             except Exception as e:
-                logger.debug(f"获取TMDB信息时出错: {str(e)}")
+                logger.error(f"获取TMDB信息时出错: {str(e)}")
 
             overview = safe_get_overview(tmdb_info, first_event, is_multiple_episodes)
 
             # 消息标题
             show_name = first_event.item_name
-            if ' ' in show_name:
-                show_name = show_name.split(' ', 1)[0]
+            # 从json_object中提取SeriesName作为剧集名称
+            try:
+                if (hasattr(first_event, 'json_object') and 
+                    first_event.json_object and 
+                    isinstance(first_event.json_object, dict)):
+                    item = first_event.json_object.get("Item", {})
+                    series_name = item.get("SeriesName")
+                    if series_name:
+                        show_name = series_name
+            except Exception as e:
+                logger.error(f"从json_object提取SeriesName时出错: {str(e)}")
 
             message_title = f"📺 {self._webhook_actions.get(first_event.event, '新入库')}剧集：{show_name}"
 
             if is_multiple_episodes:
-                message_title += f" 等{events_count}个文件"
+                message_title += f" {events_count}个文件"
 
             logger.debug(f"构建消息标题: {message_title}")
 
