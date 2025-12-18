@@ -8,12 +8,10 @@ from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.helper.mediaserver import MediaServerHelper
 from app.log import logger
-from app.modules.emby import Emby
 from app.modules.themoviedb import CategoryHelper
 from app.plugins import _PluginBase
 from app.schemas import WebhookEventInfo, ServiceInfo, MediaServerItem
 from app.schemas.types import EventType, MediaType, MediaImageType, NotificationType
-from app.utils.http import RequestUtils
 from app.utils.web import WebUtils
 
 
@@ -457,23 +455,23 @@ class MediaServerMsg(_PluginBase):
 
             # TV剧集结入库聚合处理
             logger.debug("检查是否需要进行TV剧集聚合处理")
-            
+
             def should_aggregate_tv() -> bool:
                 """判断是否需要进行TV剧集聚合处理"""
                 if not self._aggregate_enabled:
                     return False
-                    
+
                 if event_type != "library.new":
                     return False
-                    
+
                 item_type = getattr(event_info, 'item_type', None)
                 if item_type not in ["TV", "SHOW"]:
                     return False
-                    
+
                 json_object = getattr(event_info, 'json_object', None)
                 if not json_object or not isinstance(json_object, dict):
                     return False
-                    
+
                 return True
 
             # 判断是否需要进行TV剧集入库聚合处理
@@ -494,7 +492,7 @@ class MediaServerMsg(_PluginBase):
             client = getattr(event_info, 'client', '')
             user_name = getattr(event_info, 'user_name', '')
             expiring_key = f"{item_id}-{client}-{user_name}"
-            
+
             # 过滤停止播放重复消息
             if str(event_type) == "playback.stop" and expiring_key in self._webhook_msg_keys.keys():
                 # 刷新过期时间
@@ -504,7 +502,7 @@ class MediaServerMsg(_PluginBase):
             # 构造消息标题
             item_type = getattr(event_info, 'item_type', '')
             item_name = getattr(event_info, 'item_name', '')
-            
+
             message_title = ""
             event_action = self._webhook_actions.get(event_type, event_type)
             if item_type in ["TV", "SHOW"]:
@@ -521,14 +519,14 @@ class MediaServerMsg(_PluginBase):
             user_name = getattr(event_info, 'user_name', None)
             if user_name:
                 message_texts.append(f"用户：{user_name}")
-                
+
             device_name = getattr(event_info, 'device_name', None)
             client = getattr(event_info, 'client', None)
             if device_name:
                 message_texts.append(f"设备：{client or ''} {device_name}")
             elif client:
                 message_texts.append(f"设备：{client}")
-                
+
             ip = getattr(event_info, 'ip', None)
             if ip:
                 try:
@@ -537,7 +535,7 @@ class MediaServerMsg(_PluginBase):
                 except Exception as e:
                     logger.debug(f"获取IP位置信息时出错: {str(e)}")
                     message_texts.append(f"IP地址：{ip}")
-                    
+
             percentage = getattr(event_info, 'percentage', None)
             if percentage:
                 try:
@@ -545,11 +543,11 @@ class MediaServerMsg(_PluginBase):
                     message_texts.append(f"进度：{percentage_val}%")
                 except (ValueError, TypeError):
                     pass
-                    
+
             overview = getattr(event_info, 'overview', None)
             if overview:
                 message_texts.append(f"剧情：{overview}")
-                
+
             message_texts.append(f"时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}")
 
             # 消息内容
@@ -560,7 +558,7 @@ class MediaServerMsg(_PluginBase):
             tmdb_id = getattr(event_info, 'tmdb_id', None)
             season_id = getattr(event_info, 'season_id', None)
             episode_id = getattr(event_info, 'episode_id', None)
-            
+
             # 查询电影图片
             if item_type == "MOV" and tmdb_id:
                 try:
@@ -586,7 +584,7 @@ class MediaServerMsg(_PluginBase):
                         image_url = specific_image
                 except Exception as e:
                     logger.debug(f"获取剧集图片时出错: {str(e)}")
-                    
+
             # 使用默认图片
             if not image_url:
                 channel = getattr(event_info, 'channel', '')
@@ -608,7 +606,7 @@ class MediaServerMsg(_PluginBase):
             # 发送消息
             self.post_message(mtype=NotificationType.MediaServer,
                               title=message_title, text=message_content, image=image_url, link=play_link)
-                              
+
         except Exception as e:
             logger.error(f"处理Webhook事件时发生错误: {str(e)}", exc_info=True)
 
@@ -642,7 +640,7 @@ class MediaServerMsg(_PluginBase):
                 return str(series_id)
         except Exception as e:
             logger.debug(f"获取剧集ID时出错: {str(e)}")
-            
+
         return None
 
     def _aggregate_tv_episodes(self, series_id: str, event_info: WebhookEventInfo):
@@ -659,12 +657,12 @@ class MediaServerMsg(_PluginBase):
         """
         try:
             logger.debug(f"开始执行聚合处理: series_id={series_id}")
-            
+
             # 参数校验
             if not series_id:
                 logger.warning("无效的series_id")
                 return
-                
+
             # 初始化该series_id的消息列表
             if series_id not in self._pending_messages:
                 logger.debug(f"为series_id={series_id}初始化消息列表")
@@ -760,7 +758,7 @@ class MediaServerMsg(_PluginBase):
             # 通过TMDB ID获取详细信息
             tmdb_info = None
             overview = None
-            
+
             # 安全地获取概述信息
             def safe_get_overview(tmdb_data, event_data, multiple_eps):
                 """安全地获取剧集概述"""
@@ -772,9 +770,9 @@ class MediaServerMsg(_PluginBase):
                     else:
                         # 单集情况下尝试获取具体集数的概述
                         episodes = tmdb_data.get('episodes', [])
-                        if (episodes and 
-                            hasattr(event_data, 'episode_id') and 
-                            event_data.episode_id is not None):
+                        if (episodes and
+                                hasattr(event_data, 'episode_id') and
+                                event_data.episode_id is not None):
                             try:
                                 ep_index = int(event_data.episode_id) - 1
                                 if 0 <= ep_index < len(episodes):
@@ -797,8 +795,8 @@ class MediaServerMsg(_PluginBase):
                     # 收集集数信息
                     episode_details = []
                     for event in events:
-                        if (hasattr(event, 'season_id') and event.season_id is not None and 
-                            hasattr(event, 'episode_id') and event.episode_id is not None):
+                        if (hasattr(event, 'season_id') and event.season_id is not None and
+                                hasattr(event, 'episode_id') and event.episode_id is not None):
                             try:
                                 episode_details.append(f"S{int(event.season_id):02d}E{int(event.episode_id):02d}")
                             except (ValueError, TypeError):
@@ -824,7 +822,7 @@ class MediaServerMsg(_PluginBase):
                                       image=image_url,
                                       link=play_link)
                     return
-                
+
                 if first_event.item_type in ["TV", "SHOW"]:
                     logger.debug("查询TV类型的TMDB信息")
                     tmdb_info = self._get_tmdb_info(
@@ -837,12 +835,12 @@ class MediaServerMsg(_PluginBase):
                 logger.debug(f"获取TMDB信息时出错: {str(e)}")
 
             overview = safe_get_overview(tmdb_info, first_event, is_multiple_episodes)
-            
+
             # 消息标题
             show_name = first_event.item_name
             if ' ' in show_name:
                 show_name = show_name.split(' ', 1)[0]
-                
+
             message_title = f"📺 {self._webhook_actions.get(first_event.event, '新入库')}剧集：{show_name}"
 
             if is_multiple_episodes:
@@ -857,7 +855,7 @@ class MediaServerMsg(_PluginBase):
             # 添加每个集数的信息并合并连续集数
             episodes_detail = self._merge_continuous_episodes(events)
             message_texts.append(f"📺 季集：{episodes_detail}")
-            
+
             # 确定二级分类
             cat = None
             if tmdb_info:
@@ -868,10 +866,10 @@ class MediaServerMsg(_PluginBase):
                         cat = self.category.get_movie_category(tmdb_info)
                 except Exception as e:
                     logger.debug(f"获取分类时出错: {str(e)}")
-                    
+
             if cat:
                 message_texts.append(f"📚 分类：{cat}")
-                
+
             # 评分信息
             if tmdb_info and tmdb_info.get('vote_average'):
                 try:
@@ -879,7 +877,7 @@ class MediaServerMsg(_PluginBase):
                     message_texts.append(f"⭐ 评分：{rating}/10")
                 except (ValueError, TypeError):
                     pass
-                    
+
                 # 类型信息 - genres可能是字典列表或字符串列表
                 genres = tmdb_info.get('genres', [])
                 if genres:
@@ -899,7 +897,7 @@ class MediaServerMsg(_PluginBase):
                             message_texts.append(f"🎭 类型：{genre_text}")
                     except Exception as e:
                         logger.debug(f"处理类型信息时出错: {str(e)}")
-                        
+
             if overview:
                 # 限制overview只显示前100个字符，超出部分用...代替
                 try:
@@ -929,7 +927,7 @@ class MediaServerMsg(_PluginBase):
                         logger.debug(f"使用TMDB背景URL: {image_url}")
                 except Exception as e:
                     logger.debug(f"处理图片URL时出错: {str(e)}")
-                    
+
             # 使用默认图片
             if not image_url:
                 channel = getattr(first_event, 'channel', '')
@@ -965,7 +963,7 @@ class MediaServerMsg(_PluginBase):
         """
         # 按季分组集数信息
         season_episodes = {}
-        
+
         # 安全获取tmdb_info
         tmdb_info = {}
         try:
@@ -977,20 +975,20 @@ class MediaServerMsg(_PluginBase):
                 ) or {}
         except Exception as e:
             logger.debug(f"获取TMDB信息时出错: {str(e)}")
-            
+
         for event in events:
             # 提取季号和集号
             season, episode = None, None
             episode_name = ""
 
             try:
-                if (hasattr(event, 'json_object') and 
-                    event.json_object and 
-                    isinstance(event.json_object, dict)):
+                if (hasattr(event, 'json_object') and
+                        event.json_object and
+                        isinstance(event.json_object, dict)):
                     item = event.json_object.get("Item", {})
                     season = item.get("ParentIndexNumber")
                     episode = item.get("IndexNumber")
-                    
+
                     # 安全地获取剧集名称
                     if episode is not None:
                         try:
@@ -1001,10 +999,10 @@ class MediaServerMsg(_PluginBase):
                                 episode_name = episode_data.get('name', '')
                         except (ValueError, TypeError, IndexError):
                             pass
-                            
+
                     if not episode_name:
                         episode_name = item.get("Name", "")
-                        
+
                 # 如果无法从json_object获取信息，则尝试从event_info直接获取
                 if season is None:
                     season = getattr(event, "season_id", None)
@@ -1017,7 +1015,7 @@ class MediaServerMsg(_PluginBase):
                 if season is not None and episode is not None:
                     season_key = int(season)
                     episode_key = int(episode)
-                    
+
                     if season_key not in season_episodes:
                         season_episodes[season_key] = []
                     season_episodes[season_key].append({
@@ -1145,7 +1143,7 @@ class MediaServerMsg(_PluginBase):
         try:
             server_name = getattr(event_info, 'server_name', None)
             item_id = getattr(event_info, 'item_id', None)
-            
+
             if not item_id:
                 return None
 
@@ -1174,7 +1172,7 @@ class MediaServerMsg(_PluginBase):
 
         except Exception as e:
             logger.debug(f"获取播放链接时发生未知错误: {str(e)}")
-            
+
         return None
 
     @cached(
@@ -1229,10 +1227,10 @@ class MediaServerMsg(_PluginBase):
                     timer.cancel()
                 except Exception as e:
                     logger.debug(f"取消定时器时出错: {str(e)}")
-                    
+
             self._aggregate_timers.clear()
             self._pending_messages.clear()
-            
+
             # 清理缓存
             try:
                 self._get_tmdb_info.cache_clear()
