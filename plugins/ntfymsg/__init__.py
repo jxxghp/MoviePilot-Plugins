@@ -353,9 +353,9 @@ class NtfyMsg(_PluginBase):
         # 类型
         msg_type: NotificationType = msg_body.get("type")
         # 标题
-        title = msg_body.get("title") or ""
+        title = msg_body.get("title") or "\u200b"
         # 文本
-        text = msg_body.get("text") or ""
+        text = msg_body.get("text") or "\u200b"
 
         if not title and not text:
             logger.warn("标题和内容不能同时为空")
