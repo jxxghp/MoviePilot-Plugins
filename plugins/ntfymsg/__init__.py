@@ -16,7 +16,7 @@ class NtfyClient:
         headers = {
             "Title": title.encode(encoding='utf-8'),
             "Markdown": "true" if format_as_markdown else "false",
-            "Icon": "https://movie-pilot.org/images/logo.png",
+            "Icon": "https://cdn.jsdelivr.net/gh/jxxghp/MoviePilot-Frontend@v2/public/logo.png",
         }
 
         if self._token:
@@ -62,7 +62,7 @@ class NtfyMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Ntfy_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "lethargicScribe"
     # 作者主页

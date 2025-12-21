@@ -810,13 +810,14 @@
     "name": "ntfy消息推送",
     "description": "支持使用ntfy发送消息通知。",
     "labels": "消息通知",
-    "version": "1.1",
+    "version": "1.2",
     "icon": "Ntfy_A.png",
     "author": "lethargicScribe",
     "level": 1,
     "v2": true,
     "history": {
-      "v1.1": "添加Token认证和用户动作"
+      "v1.1": "添加Token认证和用户动作",
+      "v1.2": "修复 ntfy 通知图标链接失效的问题"
     }
   },
   "GotifyMsg": {
