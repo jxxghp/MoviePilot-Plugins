@@ -16,7 +16,7 @@ class NtfyClient:
         headers = {
             "Title": title.encode(encoding='utf-8'),
             "Markdown": "true" if format_as_markdown else "false",
-            "Icon": "https://movie-pilot.org/images/logo.png",
+            "Icon": "https://cdn.jsdelivr.net/gh/jxxghp/MoviePilot-Frontend@v2/public/logo.png",
         }
 
         if self._token:
