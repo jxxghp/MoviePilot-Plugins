@@ -1592,7 +1592,7 @@ class LexiAnnot(_PluginBase):
             使用等长的空格替换文本中的 (xxx) 模式。
             例如："(Hi)" 会被替换成 "    " (4个空格)
             """
-            pattern = r"(\(.*?\)|\[.*?\])"
+            pattern = r"(\([^()]*\)|\[[^\[\]]*\])"
             return re.sub(pattern, lambda match: " " * len(match.group(1)), _text)
 
         styles = {}
@@ -1654,9 +1654,9 @@ class LexiAnnot(_PluginBase):
         if weights is None:
             weights = {"times": 0.5, "text_size": 0.4, "duration": 0.1}
         matching_styles = []
-        max_times = max([analysis.get("times", 0) for _, analysis in analysis.items() if analysis]) or 1
-        max_text_size = max([analysis.get("text_size", 0) for _, analysis in analysis.items() if analysis]) or 1
-        max_duration = max([analysis.get("duration", 0) for _, analysis in analysis.items() if analysis]) or 1
+        max_times = max([analysis.get("times", 0) for _, analysis in analysis.items() if analysis] or [0]) or 1
+        max_text_size = max([analysis.get("text_size", 0) for _, analysis in analysis.items() if analysis] or [0]) or 1
+        max_duration = max([analysis.get("duration", 0) for _, analysis in analysis.items() if analysis] or [0]) or 1
         for style, analysis in analysis.items():
             if not analysis:
                 continue
