@@ -296,7 +296,7 @@ class ImdbSource(_PluginBase):
                                         'props': {
                                             'class': 'mb-1 text-white text-shadow font-extrabold text-2xl line-clamp-2 overflow-hidden text-ellipsis ...'
                                         },
-                                        'html': f"{entry.name} <span class='text-base font-normal'>{year_and_type(imdb_title)[1]}</span>",
+                                        'html': f"{entry.name} <span class='text-base font-normal'>{year}</span>",
                                     },
                                     {
                                         'component': 'span',
@@ -369,7 +369,7 @@ class ImdbSource(_PluginBase):
             }
             poster_url = next((f"{title.primary_image.url if title.primary_image else ''}" for title in titles if
                                title.id == entry.ttconst), None)
-            poster_url = f"{self._img_proxy_prefix}{quote(poster_url)}"
+            poster_url = f"{self._img_proxy_prefix}{quote(poster_url or '')}"
             poster_com = {
                 'component': 'VImg',
                 'props': {
