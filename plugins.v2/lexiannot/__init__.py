@@ -61,7 +61,7 @@ class LexiAnnot(_PluginBase):
     # 插件图标
     plugin_icon = "LexiAnnot.png"
     # 插件版本
-    plugin_version = "1.2.0"
+    plugin_version = "1.2.1"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -756,6 +756,7 @@ class LexiAnnot(_PluginBase):
                                                                 {"title": "0.3", "value": "0.3"},
                                                                 {"title": "0.4", "value": "0.4"},
                                                                 {"title": "0.5", "value": "0.5"},
+                                                                {"title": "1.0", "value": "1.0"},
                                                             ],
                                                         },
                                                     }
@@ -887,7 +888,7 @@ class LexiAnnot(_PluginBase):
             "ffmpeg_path": "",
             "english_only": True,
             "when_file_trans": True,
-            "model_temperature": "0.1",
+            "model_temperature": "0.3",
             "custom_files": "",
             "accent_color": "",
             "font_scaling": "1",
@@ -1339,6 +1340,7 @@ class LexiAnnot(_PluginBase):
         )
         ret_message = ""
         stat = None
+        ret_status: TaskStatus = TaskStatus.FAILED
         if embedded_subtitles:
             logger.info(f"提取到 {len(embedded_subtitles)} 条英语文本字幕")
             for embedded_subtitle in embedded_subtitles:
@@ -1364,10 +1366,11 @@ class LexiAnnot(_PluginBase):
                         ass_subtitle.save(str(ass_file))
                         ret_message = "字幕已保存"
                         logger.info(f"字幕已保存：{str(ass_file)}")
+                        ret_status = TaskStatus.COMPLETED
+                        break
                     except Exception as e:
                         ret_message = f"字幕文件 {ass_file} 保存失败"
                         logger.error(f"字幕文件 {ass_file} 保存失败, {e}")
-                    break
                 else:
                     logger.info(
                         f"处理字幕{embedded_subtitle['codec_id']}-{embedded_subtitle['stream_id']}失败"
@@ -1378,7 +1381,7 @@ class LexiAnnot(_PluginBase):
             ret_message = "未能找到可提取的英文字幕"
         logger.info(f"✅ Finished: {path}")
 
-        return ProcessResult(status=TaskStatus.COMPLETED, message=ret_message, statistics=stat)
+        return ProcessResult(status=ret_status, message=ret_message, statistics=stat)
 
     @cached(maxsize=1, ttl=1800)
     def __load_lexicon_version(self) -> Optional[str]:
@@ -1513,13 +1516,8 @@ class LexiAnnot(_PluginBase):
 
         mediainfo: MediaInfo | None = event_info.get("mediainfo")
         if self._english_only and mediainfo:
-            if mediainfo.original_language and mediainfo.original_language not in {
-                "en",
-                "eng",
-            }:
-                logger.info(
-                    f"原始语言 ({mediainfo.original_language}) 不为英语, 跳过 {mediainfo.title}： "
-                )
+            if mediainfo.original_language and mediainfo.original_language not in {"en","eng"}:
+                logger.info(f"原始语言 ({mediainfo.original_language}) 不为英语, 跳过 {mediainfo.title}： ")
                 return
         for new_path in transfer_info.file_list_new or []:
             self.add_media_file(new_path)
@@ -1537,10 +1535,7 @@ class LexiAnnot(_PluginBase):
         new_list = []
         replacements.sort(key=lambda x: x["end"] - x["start"], reverse=True)
         for r in replacements:
-            if any(
-                    (r["start"] >= new["start"] and r["end"] <= new["end"])
-                    for new in new_list
-            ):
+            if any((r["start"] >= new["start"] and r["end"] <= new["end"]) for new in new_list):
                 continue
             new_list.append(r)
         return new_list
@@ -1591,12 +1586,21 @@ class LexiAnnot(_PluginBase):
 
     @staticmethod
     def analyze_ass_language(ass_file: SSAFile):
+
+        def _replace_with_spaces(_text):
+            """
+            使用等长的空格替换文本中的 (xxx) 模式。
+            例如："(Hi)" 会被替换成 "    " (4个空格)
+            """
+            pattern = r"(\([^()]*\)|\[[^\[\]]*\])"
+            return re.sub(pattern, lambda match: " " * len(match.group(1)), _text)
+
         styles = {}
         for style in ass_file.styles:
             styles[style] = {"text": [], "duration": 0, "text_size": 0, "times": 0}
         for dialogue in ass_file:
             style = dialogue.style
-            text = dialogue.plaintext
+            text = _replace_with_spaces(dialogue.plaintext)
             sub_text = text.split("\n")
             if style not in styles or not text:
                 continue
@@ -1638,13 +1642,11 @@ class LexiAnnot(_PluginBase):
         return style_language_analysis
 
     @staticmethod
-    def select_main_style_weighted(
-            language_analysis: Dict[str, Any], known_language: str, weights=None
-    ):
+    def select_main_style_weighted(analysis: Dict[str, Any], known_language: str, weights = None):
         """
         根据语言分析结果和已知的字幕语言，使用加权评分选择主要样式
 
-        :params language_analysis: `analyze_ass_language` 函数的输出结果
+        :params analysis: `analyze_ass_language` 函数的输出结果
         :params known_language: 已知的字幕语言代码
         :params weights: 各个维度的权重，权重之和应为 1
         :returns: 主要字幕的样式名称，如果没有匹配的样式则返回 None
@@ -1652,20 +1654,10 @@ class LexiAnnot(_PluginBase):
         if weights is None:
             weights = {"times": 0.5, "text_size": 0.4, "duration": 0.1}
         matching_styles = []
-        max_times = max([analysis.get("times", 0) for _, analysis in language_analysis.items() if analysis]) or 1
-        max_text_size = (
-                    max([analysis.get("text_size", 0) for _, analysis in language_analysis.items() if analysis]) or 1)
-        max_duration = (
-                max(
-                    [
-                        analysis.get("duration", 0)
-                        for _, analysis in language_analysis.items()
-                        if analysis
-                    ]
-                )
-                or 1
-        )
-        for style, analysis in language_analysis.items():
+        max_times = max([analysis.get("times", 0) for _, analysis in analysis.items() if analysis] or [0]) or 1
+        max_text_size = max([analysis.get("text_size", 0) for _, analysis in analysis.items() if analysis] or [0]) or 1
+        max_duration = max([analysis.get("duration", 0) for _, analysis in analysis.items() if analysis] or [0]) or 1
+        for style, analysis in analysis.items():
             if not analysis:
                 continue
             if analysis.get("main_language") == known_language:
@@ -1898,7 +1890,7 @@ class LexiAnnot(_PluginBase):
             )
         )
 
-        # model_temperature = float(self._model_temperature) if self._model_temperature else 0.1
+        model_temperature = float(self._model_temperature) if self._model_temperature else 0.3
         logger.info("通过 spaCy 分词...")
         for seg in segments:
             if self._shutdown_event.is_set():
@@ -1925,7 +1917,7 @@ class LexiAnnot(_PluginBase):
                 model_name=llm_model_name,
                 base_url=llm_base_url,
                 api_key=llm_apikey,
-                temperature=self._model_temperature,
+                temperature=model_temperature,
                 max_retries=self._max_retries,
                 proxy=self._use_proxy,
             )
@@ -1958,9 +1950,7 @@ class LexiAnnot(_PluginBase):
         )  # &H00FFFFFF&
 
         statistical_res = LexiAnnot.analyze_ass_language(ass_file)
-        main_style: str | None = LexiAnnot.select_main_style_weighted(
-            statistical_res, lang
-        )
+        main_style: str | None = LexiAnnot.select_main_style_weighted(statistical_res, lang)
         if not main_style:
             logger.error("无法确定主要字幕样式")
             return None, None
@@ -1996,16 +1986,8 @@ class LexiAnnot(_PluginBase):
                         dialogue.start = main_processor[seg.index].start
                         dialogue.end = main_processor[seg.index].end
                         dialogue.style = "Annotation EN"
-                        cefr_text = (
-                            f" {style_text('Annotation CEFR', word.cefr)}"
-                            if word.cefr
-                            else ""
-                        )
-                        exam_text = (
-                            f" {style_text('Annotation EXAM', ' '.join(exams))}"
-                            if exams
-                            else ""
-                        )
+                        cefr_text = f" {style_text('Annotation CEFR', word.cefr)}" if word.cefr else ""
+                        exam_text = f" {style_text('Annotation EXAM', ' '.join(exams))}" if exams else ""
                         phone_text = (
                             f"{__N}{style_text('Annotation PHONE', f'/{word.phonetics}/')}"
                             if word.phonetics and self._show_phonetics
@@ -2050,10 +2032,10 @@ class LexiAnnot(_PluginBase):
                 )
             if self._sentence_translation:
                 chinese = seg.Chinese
-                if chinese and chinese[-1] in ["。", "，"]:
+                if chinese and chinese[-1] in {"。", "，"}:
                     chinese = chinese[:-1]
                 main_processor[seg.index].text = (
-                        main_processor[seg.index].text + f"\\N{{\\fs{int(main_style_fs * 0.75)}}}{chinese}{{\\r}}"
+                    main_processor[seg.index].text + f"\\N{{\\fs{int(main_style_fs * 0.75)}}}{chinese}{{\\r}}"
                 )
 
         # 避免 Infuse 显示乱码
