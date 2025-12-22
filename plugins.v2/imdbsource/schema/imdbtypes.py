@@ -147,6 +147,15 @@ class ImdbTitle(BaseModel):
     original_title_text: Optional[TextField] = Field(default=None, alias='originalTitleText')
     runtime: Optional[SecondsField] = Field(default=None, alias='runtime')
 
+    @property
+    def plot_text(self) -> str:
+        return self.plot.plot_text.plain_text if self.plot and self.plot.plot_text else ''
+
+    @property
+    def rating_text(self) -> str:
+        if self.ratings_summary and self.ratings_summary.aggregate_rating:
+            return f"{self.ratings_summary.aggregate_rating:.1f}"
+        return "-"
 
 class Thumbnail(BaseModel):
     url: str
