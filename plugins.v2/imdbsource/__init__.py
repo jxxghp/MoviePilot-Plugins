@@ -2,6 +2,7 @@ import re
 import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Coroutine, Dict, Optional, List, Tuple
+from urllib.parse import quote
 
 import zhconv
 from apscheduler.triggers.cron import CronTrigger
@@ -20,7 +21,8 @@ from app.plugins.imdbsource.officialapi import INTERESTS_ID
 from app.plugins.imdbsource.schema import StaffPickEntry, ImdbTitle, StaffPickApiResponse, ImdbMediaInfo, SearchParams
 from app.log import logger
 from app.schemas import DiscoverSourceEventData, MediaRecognizeConvertEventData, RecommendSourceEventData
-from app.schemas.types import ChainEventType, MediaType
+from app.schemas.types import ChainEventType, MediaType, EventType
+from app.scheduler import Scheduler
 from app.utils.http import AsyncRequestUtils, RequestUtils
 
 
@@ -32,7 +34,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.6.4"
+    plugin_version = "1.6.5"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -57,7 +59,7 @@ class ImdbSource(_PluginBase):
 
     # 私有属性
     _imdb_helper: ImdbHelper = None
-    _img_proxy_prefix: str = ''
+    _img_proxy_prefix: str = '/api/v1/system/cache/image?url='
     _original_method: Optional[Callable] = None
     _original_async_method: Optional[Callable[..., Coroutine[Any, Any, Optional[MediaInfo]]]] = None
     _staff_picks_cache: Optional[StaffPickApiResponse] = None
@@ -134,7 +136,6 @@ class ImdbSource(_PluginBase):
         if "media-imdb.com" not in settings.SECURITY_IMAGE_DOMAINS:
             settings.SECURITY_IMAGE_DOMAINS.append("media-imdb.com")
         if self._enabled:
-
             if self._recognize_media and self._recognition_mode == 'auxiliary':
                 # 替换 ChainBase.recognize_media
                 if not (getattr(ChainBase.recognize_media, "_patched_by", object()) == id(self)):
@@ -203,15 +204,11 @@ class ImdbSource(_PluginBase):
         if not self._staff_picks:
             return None
 
-        def year_and_type(imdb_entry: StaffPickEntry, imdb_titles: List[ImdbTitle]) -> Tuple[MediaType, str | None, str | None]:
-            title = next((t for t in imdb_titles if t.id == imdb_entry.ttconst), None)
-            if not title:
-                return MediaType.MOVIE, datetime.now().date().strftime("%Y"), ''
+        def year_and_type(title: ImdbTitle) -> Tuple[MediaType, str | None]:
             media_id = title.title_type.id
             release_year = f"{title.release_year.year}" if title.release_year else datetime.now().date().strftime("%Y")
             media_type = ImdbHelper.type_to_mtype(media_id.value)
-            media_plot = title.plot.plot_text.plain_text if title.plot and title.plot.plot_text else ''
-            return media_type, release_year, media_plot
+            return media_type, release_year
 
         # 列配置
         size_config = {
@@ -264,12 +261,15 @@ class ImdbSource(_PluginBase):
         titles = imdb_items.titles
         contents = []
         for entry in entries:
+            imdb_title = next((t for t in titles if t.id == entry.ttconst), None)
+            if not imdb_title:
+                continue
             cast = [name for related in entry.relatedconst for name in names if name.id == related]
-            mtype, year, plot = year_and_type(entry, titles)
+            mtype, year = year_and_type(imdb_title)
             mp_url = f"/media?mediaid=imdb:{entry.ttconst}&title={entry.name}&year={year}&type={mtype.value}"
             primary_img_url = next((f"{image.url}" for image in images
                                     if image.id == entry.rmconst), '')
-            primary_img_url = f'{self._img_proxy_prefix}{primary_img_url}'
+            primary_img_url = f'{self._img_proxy_prefix}{quote(primary_img_url)}'
             item1 = {
                 'component': 'VCarouselItem',
                 'props': {
@@ -290,19 +290,20 @@ class ImdbSource(_PluginBase):
                                     'to': mp_url,
                                     'class': 'no-underline'
                                 },
-                                'content': [{
-                                    'component': 'h1',
-                                    'props': {
-                                        'class': 'mb-1 text-white text-shadow font-extrabold text-2xl line-clamp-2 overflow-hidden text-ellipsis ...'
+                                'content': [
+                                    {
+                                        'component': 'h1',
+                                        'props': {
+                                            'class': 'mb-1 text-white text-shadow font-extrabold text-2xl line-clamp-2 overflow-hidden text-ellipsis ...'
+                                        },
+                                        'html': f"{entry.name} <span class='text-base font-normal'>{year_and_type(imdb_title)[1]}</span>",
                                     },
-                                    'html': f"{entry.name} <span class='text-base font-normal'>{year_and_type(entry, titles)[1]}</span>",
-                                },
                                     {
                                         'component': 'span',
                                         'props': {
                                             'class': 'text-shadow line-clamp-2 overflow-hidden text-ellipsis ...'
                                         },
-                                        'html': plot,
+                                        'html': imdb_title.plot_text,
                                     }
                                 ]
                             },
@@ -334,15 +335,16 @@ class ImdbSource(_PluginBase):
                                         {
                                             'component': 'VAvatar',
                                             'props': {
-                                                'size': f'{48 if is_mobile else 64}',
-                                                'class': 'mb-1'
+                                                'size': f'{54 if is_mobile else 64}',
+                                                'class': 'mb-1 hover-card',
                                             },
                                             'content': [
                                                 {
                                                     'component': 'VImg',
                                                     'props': {
                                                         'src': f"{self._img_proxy_prefix}"
-                                                               f"{cs.primary_image.url if cs.primary_image else ''}",
+                                                               f"{quote(cs.primary_image.url 
+                                                                        if cs.primary_image else '')}",
                                                         'alt': cs.name_text.text,
                                                         'cover': True
                                                     }
@@ -367,14 +369,14 @@ class ImdbSource(_PluginBase):
             }
             poster_url = next((f"{title.primary_image.url if title.primary_image else ''}" for title in titles if
                                title.id == entry.ttconst), None)
-            poster_url = f"{self._img_proxy_prefix}{poster_url}"
+            poster_url = f"{self._img_proxy_prefix}{quote(poster_url)}"
             poster_com = {
                 'component': 'VImg',
                 'props': {
                     'src': poster_url,
                     'alt': '海报',
                     'cover': True,
-                    'class': 'rounded',
+                    'class': 'rounded hover-poster',
                     'max-width': '160',
                     'max-height': '240',
                     'style': 'height: auto; aspect-ratio: 2/3;',
@@ -395,8 +397,49 @@ class ImdbSource(_PluginBase):
                             'style': 'display: flex; justify-content: center;'
                         },
                         'content': [
-                            poster_com
+                            poster_com,
                         ]
+                    },
+                ]
+            }
+
+            rating_ui = {
+                'component': 'div',
+                'props': {
+                    'class': 'mb-2 d-flex align-center',
+                },
+                'content': [
+                    {
+                        'component': 'div',
+                        'props': {
+                            'class': 'd-flex align-center',
+                        },
+                        'content': [
+                            {
+                                'component': 'VIcon',
+                                'props': {
+                                    'color': 'warning',
+                                    'size': 16
+                                },
+                                'text': 'mdi-star'
+                            },
+                            {
+                                'component': 'span',
+                                'props': {
+                                    'class': 'text-body-2 ml-1',
+                                    'style': 'color: rgba(231, 227, 252, 0.8);'
+                                },
+                                'text': f"{imdb_title.rating_text}/10",
+                            },
+                        ]
+                    },
+                    {
+                        'component': 'span',
+                        'props': {
+                            'class': 'text-warning font-weight-bold ml-4',
+                            'color': 'warning'
+                        },
+                        'text': entry.detail,
                     }
                 ]
             }
@@ -431,13 +474,7 @@ class ImdbSource(_PluginBase):
                             }
                         ]
                     },
-                    {
-                        'component': 'div',
-                        'props': {
-                            'class': 'text-yellow font-weight-bold mb-2',
-                        },
-                        'html': entry.detail
-                    },
+                    rating_ui,
                     {
                         'component': 'span',
                         'props': {
@@ -510,7 +547,33 @@ class ImdbSource(_PluginBase):
 
             contents.append(item1)
             contents.append(item2)
+        style = {
+            'component': 'style',
+            'text': """
+.hover-card {
+  border: 2px solid transparent;
+  transition: border-color 0.3s ease-in-out;
+  box-sizing: border-box;
+}
+.hover-card:hover {
+  border-color: #ff8400;
+  cursor: pointer;
+}
+.hover-poster {
+  box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+  transition: all 0.3s ease; 
+  backface-visibility: hidden; 
+}
+.hover-poster:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 20px 25px -5px rgba(0,0,0,0.4), 
+              0 10px 10px -5px rgba(0,0,0,0.2); 
+  cursor: pointer;
+}
+"""
+        }
         elements = [
+            style,
             {
                 'component': 'VCard',
                 'props': {
@@ -1988,3 +2051,13 @@ class ImdbSource(_PluginBase):
         if not data:
             return None
         return ImdbSource._match_results(data, media_info)
+
+    @eventmanager.register(EventType.PluginReload)
+    def reload(self, event):
+        """
+        响应插件重载事件
+        """
+        plugin_id = event.event_data.get("plugin_id")
+
+        if plugin_id == self.__class__.__name__:
+            Scheduler().update_plugin_job(plugin_id)

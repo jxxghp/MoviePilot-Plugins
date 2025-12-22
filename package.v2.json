@@ -465,11 +465,12 @@
     "name": "IMDb源",
     "description": "让探索，推荐和媒体识别支持IMDb数据源。",
     "labels": "探索",
-    "version": "1.6.4",
+    "version": "1.6.5",
     "icon": "IMDb_IOS-OSX_App.png",
     "author": "wumode",
     "level": 1,
     "history": {
+      "v1.6.5": "仪表盘组件支持图片缓存",
       "v1.6.4": "为元数据增加背景图",
       "v1.6.3": "优化媒体识别速度; 适配 Pydantic V2 (主程序版本需高于 2.8.1-1)",
       "v1.6.2": "修复 API 查询错误重试问题",
