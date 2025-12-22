@@ -849,7 +849,6 @@
     "icon": "Macos_Sierra.png",
     "author": "jxxghp",
     "level": 1,
-    "v2": true,
     "history": {
       "v1.4.1": "修复Bing壁纸命名问题",
       "v1.3": "适配MoviePilot v2.5.3+版本",
