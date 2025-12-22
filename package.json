@@ -1054,18 +1054,5 @@
     "author": "cddjr",
     "level": 1,
     "v2": true
-  },
-  "PlayletFortuneWheel": {
-    "name": "PlayLet幸运大转盘",
-    "description": "每日自动抽奖，坚持抽奖，越抽越幸运...",
-    "labels": "站点",
-    "version": "1.1.0",
-    "icon": "playlet-fortune-wheel.png",
-    "author": "ArvinChen9539",
-    "level": 1,
-    "v2": true,
-    "history": {
-      "v1.1.0": "修复抽中彩虹id时报错的问题\n修复抽奖发生异常时没有提示和终止的问题"
-    }
   }
 }
