@@ -37,7 +37,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.8.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -761,29 +761,62 @@ class MediaServerMsg(_PluginBase):
 
             # 安全地获取概述信息
             def safe_get_overview(tmdb_data, event_data, multiple_eps):
-                """安全地获取剧集概述"""
+                """
+                安全地获取剧集概述信息
+                
+                该函数按照以下优先级获取剧情概述：
+                1. 首先尝试使用来自webhook事件的overview（event_data.overview）
+                2. 如果webhook事件中没有overview，则从TMDB数据中获取
+                   - 如果是多集入库（multiple_eps=True），则返回剧集整体概述
+                   - 如果是单集入库（multiple_eps=False），则优先返回该集的概述
+                     如果该集概述为空，则回退到剧集整体概述
+                
+                Args:
+                    tmdb_data (dict): TMDB API返回的剧集数据
+                    event_data (WebhookEventInfo): Webhook事件数据
+                    multiple_eps (bool): 是否为多集入库（多个episode聚合发送）
+                
+                Returns:
+                    str: 剧情概述信息，如果无法获取则返回空字符串
+                """
+                # 优先使用来自webhook事件的概述信息
                 if event_data.overview:
                     return event_data.overview
+                
+                # 如果webhook事件中没有概述，则尝试从TMDB数据中获取
                 elif tmdb_data:
+                    # 多集入库情况下，返回剧集整体概述
                     if multiple_eps:
                         return tmdb_data.get('overview', '')
                     else:
-                        # 单集情况下尝试获取具体集数的概述
+                        # 单集入库情况下，优先获取具体集数的概述
                         episodes = tmdb_data.get('episodes', [])
+                        
+                        # 检查是否有episode_id，并且episodes数据存在
                         if (episodes and
                                 hasattr(event_data, 'episode_id') and
                                 event_data.episode_id is not None):
                             try:
+                                # 将episode_id转换为数组索引（集数从1开始，数组从0开始）
                                 ep_index = int(event_data.episode_id) - 1
+                                
+                                # 确保索引在有效范围内
                                 if 0 <= ep_index < len(episodes):
                                     episode_info = episodes[ep_index]
-                                    return episode_info.get('overview', tmdb_data.get('overview', ''))
+                                    episode_overview = episode_info.get('overview', '')
+                                    
+                                    # 如果该集的概述存在且非空，则返回该集概述
+                                    if episode_overview:
+                                        return episode_overview
                             except (ValueError, TypeError):
+                                # 如果转换episode_id为整数失败，跳过异常，回退到剧集整体概述
                                 pass
-                        # 如果无法获取单集概述，回退到剧集整体概述
+                        
+                        # 如果无法获取该集概述，或episode_id不存在，回退到剧集整体概述
                         return tmdb_data.get('overview', '')
+                
+                # 如果以上都失败，返回空字符串
                 return ''
-
             try:
                 if not first_event.tmdb_id:
                     logger.debug("tmdb_id为空，使用原有逻辑发送消息")
