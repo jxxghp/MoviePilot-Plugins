@@ -197,7 +197,6 @@ class BrushConfig:
     "site_hr_active": true,
     "site_skip_tips": true,
     "rss_support": true
-"
 }]"""
         return desc + config
 
@@ -263,7 +262,7 @@ class BrushFlow(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "4.3.4"
+    plugin_version = "4.3.5"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     # 作者主页
@@ -2247,16 +2246,34 @@ class BrushFlow(_PluginBase):
             return False, "存在H&R"
 
         # 包含规则
-        if brush_config.include and not (
-                re.search(brush_config.include, torrent.title, re.I) or re.search(brush_config.include,
-                                                                                  torrent.description, re.I)):
-            return False, "不符合包含规则"
+        if brush_config.include:
+            try:
+                include_match = False
+                if torrent.title and re.search(brush_config.include, torrent.title, re.I):
+                    include_match = True
+                elif torrent.description and re.search(brush_config.include, torrent.description, re.I):
+                    include_match = True
+                
+                if not include_match:
+                    return False, "不符合包含规则"
+            except re.error:
+                logger.warning(f"包含规则正则表达式错误: {brush_config.include}")
+                return False, "包含规则正则表达式错误"
 
         # 排除规则
-        if brush_config.exclude and (
-                re.search(brush_config.exclude, torrent.title, re.I) or re.search(brush_config.exclude,
-                                                                                  torrent.description, re.I)):
-            return False, "符合排除规则"
+        if brush_config.exclude:
+            try:
+                exclude_match = False
+                if torrent.title and re.search(brush_config.exclude, torrent.title, re.I):
+                    exclude_match = True
+                elif torrent.description and re.search(brush_config.exclude, torrent.description, re.I):
+                    exclude_match = True
+                    
+                if exclude_match:
+                    return False, "符合排除规则"
+            except re.error:
+                logger.warning(f"排除规则正则表达式错误: {brush_config.exclude}")
+                return False, "排除规则正则表达式错误"
 
         # 种子大小（GB）
         if brush_config.size:
