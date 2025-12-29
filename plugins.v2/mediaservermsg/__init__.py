@@ -37,7 +37,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.8.1"
+    plugin_version = "1.8.2.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -65,7 +65,7 @@ class MediaServerMsg(_PluginBase):
     # Webhook事件映射配置
     _webhook_actions = {
         "library.new": "新入库",
-        "system.webhooktest": "测试",
+        "system.notificationtest": "测试",
         "playback.start": "开始播放",
         "playback.stop": "停止播放",
         "user.authenticated": "登录成功",
@@ -189,7 +189,7 @@ class MediaServerMsg(_PluginBase):
             {"title": "开始播放", "value": "playback.start|media.play|PlaybackStart"},
             {"title": "停止播放", "value": "playback.stop|media.stop|PlaybackStop"},
             {"title": "用户标记", "value": "item.rate"},
-            {"title": "测试", "value": "system.webhooktest"},
+            {"title": "测试", "value": "system.notificationtest"},
             {"title": "登录成功", "value": "user.authenticated"},
             {"title": "登录失败", "value": "user.authenticationfailed"},
         ]
@@ -435,6 +435,7 @@ class MediaServerMsg(_PluginBase):
                 allowed_types.update(_type.split("|"))
 
             if event_type not in allowed_types:
+                logger.debug(f"事件类型 {event_type} 不在用户配置的允许范围内{allowed_types}")
                 logger.info(f"未开启 {event_type} 类型的消息通知")
                 return
 
@@ -763,26 +764,26 @@ class MediaServerMsg(_PluginBase):
             def safe_get_overview(tmdb_data, event_data, multiple_eps):
                 """
                 安全地获取剧集概述信息
-                
+
                 该函数按照以下优先级获取剧情概述：
                 1. 首先尝试使用来自webhook事件的overview（event_data.overview）
                 2. 如果webhook事件中没有overview，则从TMDB数据中获取
                    - 如果是多集入库（multiple_eps=True），则返回剧集整体概述
                    - 如果是单集入库（multiple_eps=False），则优先返回该集的概述
                      如果该集概述为空，则回退到剧集整体概述
-                
+
                 Args:
                     tmdb_data (dict): TMDB API返回的剧集数据
                     event_data (WebhookEventInfo): Webhook事件数据
                     multiple_eps (bool): 是否为多集入库（多个episode聚合发送）
-                
+
                 Returns:
                     str: 剧情概述信息，如果无法获取则返回空字符串
                 """
                 # 优先使用来自webhook事件的概述信息
                 if event_data.overview:
                     return event_data.overview
-                
+
                 # 如果webhook事件中没有概述，则尝试从TMDB数据中获取
                 elif tmdb_data:
                     # 多集入库情况下，返回剧集整体概述
@@ -791,7 +792,7 @@ class MediaServerMsg(_PluginBase):
                     else:
                         # 单集入库情况下，优先获取具体集数的概述
                         episodes = tmdb_data.get('episodes', [])
-                        
+
                         # 检查是否有episode_id，并且episodes数据存在
                         if (episodes and
                                 hasattr(event_data, 'episode_id') and
@@ -799,22 +800,22 @@ class MediaServerMsg(_PluginBase):
                             try:
                                 # 将episode_id转换为数组索引（集数从1开始，数组从0开始）
                                 ep_index = int(event_data.episode_id) - 1
-                                
+
                                 # 确保索引在有效范围内
                                 if 0 <= ep_index < len(episodes):
                                     episode_info = episodes[ep_index]
                                     episode_overview = episode_info.get('overview', '')
-                                    
+
                                     # 如果该集的概述存在且非空，则返回该集概述
                                     if episode_overview:
                                         return episode_overview
                             except (ValueError, TypeError):
                                 # 如果转换episode_id为整数失败，跳过异常，回退到剧集整体概述
                                 pass
-                        
+
                         # 如果无法获取该集概述，或episode_id不存在，回退到剧集整体概述
                         return tmdb_data.get('overview', '')
-                
+
                 # 如果以上都失败，返回空字符串
                 return ''
             try:
@@ -873,9 +874,9 @@ class MediaServerMsg(_PluginBase):
             show_name = first_event.item_name
             # 从json_object中提取SeriesName作为剧集名称
             try:
-                if (hasattr(first_event, 'json_object') and 
-                    first_event.json_object and 
-                    isinstance(first_event.json_object, dict)):
+                if (hasattr(first_event, 'json_object') and
+                        first_event.json_object and
+                        isinstance(first_event.json_object, dict)):
                     item = first_event.json_object.get("Item", {})
                     series_name = item.get("SeriesName")
                     if series_name:
@@ -959,14 +960,24 @@ class MediaServerMsg(_PluginBase):
 
             if not image_url and tmdb_info:
                 try:
-                    if not is_multiple_episodes and tmdb_info.get('poster_path'):
-                        # 剧集图片
-                        image_url = f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{tmdb_info.get('poster_path')}"
-                        logger.debug(f"使用剧集图片URL: {image_url}")
-                    elif is_multiple_episodes and tmdb_info.get('backdrop_path'):
-                        # 使用TMDB背景
-                        image_url = f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{tmdb_info.get('backdrop_path')}"
-                        logger.debug(f"使用TMDB背景URL: {image_url}")
+                    if not is_multiple_episodes:
+                        # 单集时优先使用poster_path
+                        if tmdb_info.get('poster_path'):
+                            image_url = f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{tmdb_info.get('poster_path')}"
+                            logger.debug(f"使用剧集海报URL: {image_url}")
+                        elif tmdb_info.get('backdrop_path'):
+                            # 如果海报为空，则使用背景
+                            image_url = f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{tmdb_info.get('backdrop_path')}"
+                            logger.debug(f"使用TMDB背景URL: {image_url}")
+                    else:
+                        # 多集时优先使用backdrop_path
+                        if tmdb_info.get('backdrop_path'):
+                            image_url = f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{tmdb_info.get('backdrop_path')}"
+                            logger.debug(f"使用TMDB背景URL: {image_url}")
+                        elif tmdb_info.get('poster_path'):
+                            # 如果背景为空，则使用海报
+                            image_url = f"https://{settings.TMDB_IMAGE_DOMAIN}/t/p/original{tmdb_info.get('poster_path')}"
+                            logger.debug(f"使用剧集海报URL: {image_url}")
                 except Exception as e:
                     logger.debug(f"处理图片URL时出错: {str(e)}")
 
