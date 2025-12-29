@@ -47,14 +47,14 @@ class DoubanRank(_PluginBase):
     # 私有属性
     _scheduler = None
     _douban_address = {
-        'movie-ustop': 'https://rsshub.app/douban/movie/ustop',
-        'movie-weekly': 'https://rsshub.app/douban/movie/weekly',
-        'movie-real-time': 'https://rsshub.app/douban/movie/weekly/movie_real_time_hotest',
-        'show-domestic': 'https://rsshub.app/douban/movie/weekly/show_domestic',
-        'movie-hot-gaia': 'https://rsshub.app/douban/movie/weekly/movie_hot_gaia',
-        'tv-hot': 'https://rsshub.app/douban/movie/weekly/tv_hot',
-        'movie-top250': 'https://rsshub.app/douban/movie/weekly/movie_top250',
-        'movie-top250-full': 'https://rsshub.app/douban/list/movie_top250',
+        'movie-ustop': '/douban/movie/ustop',
+        'movie-weekly': '/douban/movie/weekly',
+        'movie-real-time': '/douban/movie/weekly/movie_real_time_hotest',
+        'show-domestic': '/douban/movie/weekly/show_domestic',
+        'movie-hot-gaia': '/douban/movie/weekly/movie_hot_gaia',
+        'tv-hot': '/douban/movie/weekly/tv_hot',
+        'movie-top250': '/douban/movie/weekly/movie_top250',
+        'movie-top250-full': '/douban/list/movie_top250',
     }
     _enabled = False
     _cron = ""
@@ -65,6 +65,7 @@ class DoubanRank(_PluginBase):
     _clear = False
     _clearflag = False
     _proxy = False
+    _rsshub = "https://rsshub.app"
 
     def init_plugin(self, config: dict = None):
 
@@ -74,6 +75,7 @@ class DoubanRank(_PluginBase):
             self._proxy = config.get("proxy")
             self._onlyonce = config.get("onlyonce")
             self._vote = float(config.get("vote")) if config.get("vote") else 0
+            self._rsshub = config.get("rsshub") or "https://rsshub.app"
             rss_addrs = config.get("rss_addrs")
             if rss_addrs:
                 if isinstance(rss_addrs, str):
@@ -237,7 +239,7 @@ class DoubanRank(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -254,7 +256,7 @@ class DoubanRank(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -263,6 +265,23 @@ class DoubanRank(_PluginBase):
                                             'model': 'vote',
                                             'label': '评分',
                                             'placeholder': '评分大于等于该值才订阅'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'rsshub',
+                                            'label': 'RSSHub地址',
+                                            'placeholder': 'https://rsshub.app'
                                         }
                                     }
                                 ]
@@ -345,6 +364,7 @@ class DoubanRank(_PluginBase):
             "proxy": False,
             "onlyonce": False,
             "vote": "",
+            "rsshub": "https://rsshub.app",
             "ranks": [],
             "rss_addrs": "",
             "clear": False
@@ -508,6 +528,7 @@ class DoubanRank(_PluginBase):
             "cron": self._cron,
             "onlyonce": self._onlyonce,
             "vote": self._vote,
+            "rsshub": self._rsshub,
             "ranks": self._ranks,
             "rss_addrs": '\n'.join(map(str, self._rss_addrs)),
             "clear": self._clear
@@ -518,7 +539,10 @@ class DoubanRank(_PluginBase):
         刷新RSS
         """
         logger.info(f"开始刷新豆瓣榜单 ...")
-        addr_list = self._rss_addrs + [self._douban_address.get(rank) for rank in self._ranks]
+        # 构建完整的RSS地址
+        rsshub_base = self._rsshub.rstrip('/')
+        rank_addrs = [f"{rsshub_base}{self._douban_address.get(rank)}" for rank in self._ranks if self._douban_address.get(rank)]
+        addr_list = self._rss_addrs + rank_addrs
         if not addr_list:
             logger.info(f"未设置榜单RSS地址")
             return

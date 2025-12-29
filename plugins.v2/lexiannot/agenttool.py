@@ -14,9 +14,7 @@ class VocabularyAnnotatingTool(MoviePilotTool):
     # 工具名称
     name: str = "vocabulary_annotating_tool"
     # 工具描述
-    description: str = (
-        "Add new vocabulary annotation task to plugin LexiAnnot's task queue."
-    )
+    description: str = "Add new vocabulary annotation task to plugin LexiAnnot's task queue."
     # 输入参数模型
     args_schema: Type[BaseModel] = VocabularyAnnotatingToolInput
 
@@ -74,9 +72,7 @@ class QueryAnnotationTasksTool(MoviePilotTool):
     # 工具名称
     name: str = "query_annotation_tasks_tool"
     # 工具描述
-    description: str = (
-        "Query the latest vocabulary annotation tasks from plugin LexiAnnot."
-    )
+    description: str = "Query the latest vocabulary annotation tasks from plugin LexiAnnot."
     # 输入参数模型
     args_schema: Type[BaseModel] = QueryAnnotationTasksToolInput
 

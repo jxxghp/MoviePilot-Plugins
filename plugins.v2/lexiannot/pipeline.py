@@ -500,7 +500,7 @@ Your goal is to identify **only** content that helps them reach native-level pro
     *   Avoid repeating words already listed in `candidate_words`.
     *   Must exist in the exact form in `context_text`.
     *   Provide lemma and POS.
-    *   **Do NOT include** simple high-frequency words, common fillers ('gonna', 'gotta'), or basic swear words.
+    *   **Do NOT include** simple high-frequency words, common fillers ('gonna', 'gotta'), onomatopoeia, or basic swear words.
 
 -------------------------
 You MUST return output strictly matching the provided Pydantic schema. 
