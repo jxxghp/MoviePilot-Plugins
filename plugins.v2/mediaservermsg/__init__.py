@@ -65,7 +65,7 @@ class MediaServerMsg(_PluginBase):
     # Webhook事件映射配置
     _webhook_actions = {
         "library.new": "新入库",
-        "system.notificationtest": "测试",
+        "system.webhooktest": "测试",
         "playback.start": "开始播放",
         "playback.stop": "停止播放",
         "user.authenticated": "登录成功",
