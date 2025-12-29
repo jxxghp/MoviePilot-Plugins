@@ -16,7 +16,7 @@ class NtfyClient:
         headers = {
             "Title": title.encode(encoding='utf-8'),
             "Markdown": "true" if format_as_markdown else "false",
-            "Icon": "https://movie-pilot.org/images/logo.png",
+            "Icon": "https://cdn.jsdelivr.net/gh/jxxghp/MoviePilot-Frontend@v2/public/logo.png",
         }
 
         if self._token:
@@ -62,7 +62,7 @@ class NtfyMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Ntfy_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "lethargicScribe"
     # 作者主页
@@ -353,9 +353,9 @@ class NtfyMsg(_PluginBase):
         # 类型
         msg_type: NotificationType = msg_body.get("type")
         # 标题
-        title = msg_body.get("title")
+        title = msg_body.get("title") or "\u200b"
         # 文本
-        text = msg_body.get("text")
+        text = msg_body.get("text") or "\u200b"
 
         if not title and not text:
             logger.warn("标题和内容不能同时为空")
