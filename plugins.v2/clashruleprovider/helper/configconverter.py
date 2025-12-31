@@ -2,7 +2,7 @@ import base64
 import importlib
 import json
 import os
-from typing import List, Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union
 from urllib.parse import quote
 
 from .converters import BaseConverter
@@ -54,8 +54,8 @@ class Converter:
                 print(f"Could not load converter for {module_name}: {e}")
         return converters
 
-    def convert_line(self, line: str, names: Optional[Dict[str, int]] = None, skip_exception: bool = True
-                     ) -> Optional[Dict[str, Any]]:
+    def convert_line(self, line: str, names: dict[str, int] | None = None, skip_exception: bool = True,
+                     logger: Any = None) -> dict[str, Any] | None:
         """
         Parses a single subscription link and converts it to a proxy dictionary.
         """
@@ -73,12 +73,15 @@ class Converter:
             try:
                 return converter.convert(line, names)
             except Exception as e:
+                if logger:
+                    logger.error(f"Error converting line {line}: {e}")
                 if not skip_exception:
                     raise ValueError(f"{scheme.upper()} parse error: {e}") from e
                 return None
         return None
 
-    def convert_v2ray(self, v2ray_link: Union[list, bytes], skip_exception: bool = True) -> List[Dict[str, Any]]:
+    def convert_v2ray(self, v2ray_link: Union[list, bytes], skip_exception: bool = True,
+                      logger: Any = None) -> dict[str, dict[str, Any]]:
         """
         Converts a base64 encoded V2Ray subscription content or a list of links
         into a list of proxy dictionaries.
@@ -89,15 +92,15 @@ class Converter:
         else:
             lines = v2ray_link
 
-        proxies = []
+        proxies: dict[str, dict[str, Any]] = {}
         names = {}
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            proxy = self.convert_line(line, names, skip_exception=skip_exception)
+            proxy = self.convert_line(line, names, skip_exception=skip_exception, logger=logger)
             if proxy:
-                proxies.append(proxy)
+                proxies[line] = proxy
             elif not skip_exception:
                 raise ValueError("Failed to convert one of the links in the subscription.")
         return proxies

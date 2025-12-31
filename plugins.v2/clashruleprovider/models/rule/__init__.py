@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any, List, Optional, Union, Dict, Literal
 
 from pydantic import BaseModel, field_validator, ValidationInfo
@@ -57,16 +57,13 @@ class RoutingRuleType(Enum):
     MATCH = "MATCH"
 
 
-class Action(Enum):
+class Action(StrEnum):
     """Enumeration of rule actions"""
     DIRECT = "DIRECT"
     REJECT = "REJECT"
     REJECT_DROP = "REJECT-DROP"
     PASS = "PASS"
     COMPATIBLE = "COMPATIBLE"
-
-    def __str__(self) -> str:
-        return self.value
 
 
 class RuleBase(BaseModel):
@@ -101,7 +98,7 @@ class ClashRule(RuleBase):
             'payload': self.payload,
             'action': self.action.value if isinstance(self.action, Action) else self.action,
             'additional_params': self.additional_params.value if self.additional_params else None,
-            'raw': self.raw_rule
+            'rule_string': str(self)
         }
 
     def __str__(self) -> str:
@@ -131,7 +128,7 @@ class LogicRule(RuleBase):
         return f"{self.rule_type.value},({conditions_str})"
 
     def to_dict(self) -> Dict[str, Any]:
-        conditions = []
+        conditions: list[str] = []
         for condition in self.conditions:
             conditions.append(condition.condition_string())
 
@@ -139,7 +136,7 @@ class LogicRule(RuleBase):
             'type': self.rule_type.value,
             'conditions': conditions,
             'action': self.action.value if isinstance(self.action, Action) else self.action,
-            'raw': self.raw_rule
+            'rule_string': str(self)
         }
 
     @field_validator('conditions', mode='after')
@@ -166,7 +163,7 @@ class SubRule(RuleBase):
             'type': self.rule_type.value,
             'condition': f"({self.condition.condition_string()})",
             'action': self.action,
-            'raw': self.raw_rule
+            'rule_string': str(self)
         }
 
     def __str__(self) -> str:
@@ -185,7 +182,7 @@ class MatchRule(RuleBase):
         return {
             'type': 'MATCH',
             'action': self.action.value if isinstance(self.action, Action) else self.action,
-            'raw': self.raw_rule
+            'rule_string': str(self)
         }
 
     def __str__(self) -> str:

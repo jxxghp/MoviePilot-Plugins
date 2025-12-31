@@ -34,6 +34,7 @@ class Hysteria2Converter(BaseConverter):
                 "skip-cert-verify": StringUtils.to_bool(query.get("insecure", "false")),
                 "down": query.get("down"),
                 "up": query.get("up"),
+                "udp": True
             }
             if "pinSHA256" in query:
                 proxy["fingerprint"] = query.get("pinSHA256")

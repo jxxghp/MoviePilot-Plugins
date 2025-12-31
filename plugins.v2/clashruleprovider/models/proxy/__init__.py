@@ -1,6 +1,7 @@
-from typing import Union
+import jsonpatch
+from typing import Union, Any
 
-from pydantic import Field, RootModel
+from pydantic import Field, RootModel, model_validator
 
 from .anytlsproxy import AnyTLSProxy
 from .directproxy import DirectProxy
@@ -22,6 +23,7 @@ from .tuicproxy import TuicProxy
 from .vlessproxy import VlessProxy
 from .vmessproxy import VmessProxy
 from .wireguardproxy import WireGuardProxy
+from ..generics import ResourceItem, ResourceList
 
 ProxyType = Union[
     AnyTLSProxy,
@@ -46,3 +48,31 @@ ProxyType = Union[
 
 class Proxy(RootModel[ProxyType]):
     root: ProxyType = Field(..., discriminator="type")
+
+    @property
+    def name(self) -> str:
+        return self.root.name
+
+    def __getattr__(self, item):
+        return getattr(self.root, item)
+
+    def patch(self, patch: str) -> 'Proxy':
+        src = self.model_dump(mode='json', by_alias=True)
+        patched = jsonpatch.apply_patch(src, patch=patch, in_place=True)
+        return Proxy.model_validate(patched)
+
+
+class ProxyData(ResourceItem[Proxy]):
+    raw: Union[str, dict[str, Any], None] = None
+    v2ray_link: str | None = None
+
+    @model_validator(mode="after")
+    def validate_name_consistency(self):
+        if self.name != self.data.name:
+            raise ValueError(f"name ({self.name}) must equal data.name ({self.data.name})")
+        return self
+
+
+class Proxies(ResourceList[ProxyData]):
+    """Proxies Collection"""
+    pass

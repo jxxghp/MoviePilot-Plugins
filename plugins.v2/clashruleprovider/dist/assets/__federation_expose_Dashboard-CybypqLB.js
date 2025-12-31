@@ -1,5 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
+import { n as formatBytes, _ as _export_sfc } from './_plugin-vue_export-helper-D32QZFxh.js';
+import { M as MetaLogo } from './Meta-1zu2nKV2.js';
 
 /*!
  * @kurkle/color v0.3.4
@@ -583,7 +584,7 @@ class Color {
 }
 
 /*!
- * Chart.js v4.5.0
+ * Chart.js v4.5.1
  * https://www.chartjs.org
  * (c) 2025 Chart.js Contributors
  * Released under the MIT License
@@ -2868,10 +2869,10 @@ function getMaximumSize(canvas, bbWidth, bbHeight, aspectRatio) {
  * @returns True if the canvas context size or transformation has changed.
  */ function retinaScale(chart, forceRatio, forceStyle) {
     const pixelRatio = forceRatio || 1;
-    const deviceHeight = Math.floor(chart.height * pixelRatio);
-    const deviceWidth = Math.floor(chart.width * pixelRatio);
-    chart.height = Math.floor(chart.height);
-    chart.width = Math.floor(chart.width);
+    const deviceHeight = round1(chart.height * pixelRatio);
+    const deviceWidth = round1(chart.width * pixelRatio);
+    chart.height = round1(chart.height);
+    chart.width = round1(chart.width);
     const canvas = chart.canvas;
     // If no style has been set on the canvas, the render size is used as display size,
     // making the chart visually bigger, so let's enforce it to the "correct" values.
@@ -3341,7 +3342,7 @@ function getDatasetClipArea(chart, meta) {
 }
 
 /*!
- * Chart.js v4.5.0
+ * Chart.js v4.5.1
  * https://www.chartjs.org
  * (c) 2025 Chart.js Contributors
  * Released under the MIT License
@@ -5193,19 +5194,24 @@ class DoughnutController extends DatasetController {
                 labels: {
                     generateLabels (chart) {
                         const data = chart.data;
+                        const { labels: { pointStyle , textAlign , color , useBorderRadius , borderRadius  }  } = chart.legend.options;
                         if (data.labels.length && data.datasets.length) {
-                            const { labels: { pointStyle , color  }  } = chart.legend.options;
                             return data.labels.map((label, i)=>{
                                 const meta = chart.getDatasetMeta(0);
                                 const style = meta.controller.getStyle(i);
                                 return {
                                     text: label,
                                     fillStyle: style.backgroundColor,
-                                    strokeStyle: style.borderColor,
                                     fontColor: color,
-                                    lineWidth: style.borderWidth,
-                                    pointStyle: pointStyle,
                                     hidden: !chart.getDataVisibility(i),
+                                    lineDash: style.borderDash,
+                                    lineDashOffset: style.borderDashOffset,
+                                    lineJoin: style.borderJoinStyle,
+                                    lineWidth: style.borderWidth,
+                                    strokeStyle: style.borderColor,
+                                    textAlign: textAlign,
+                                    pointStyle: pointStyle,
+                                    borderRadius: useBorderRadius && (borderRadius || style.borderRadius),
                                     index: i
                                 };
                             });
@@ -8435,18 +8441,22 @@ var registry = /* #__PURE__ */ new Registry();
 
 class PluginService {
     constructor(){
-        this._init = [];
+        this._init = undefined;
     }
  notify(chart, hook, args, filter) {
         if (hook === 'beforeInit') {
             this._init = this._createDescriptors(chart, true);
             this._notify(this._init, chart, 'install');
         }
+        if (this._init === undefined) {
+            return;
+        }
         const descriptors = filter ? this._descriptors(chart).filter(filter) : this._descriptors(chart);
         const result = this._notify(descriptors, chart, hook, args);
         if (hook === 'afterDestroy') {
             this._notify(descriptors, chart, 'stop');
             this._notify(this._init, chart, 'uninstall');
+            this._init = undefined;
         }
         return result;
     }
@@ -8889,7 +8899,7 @@ function needContext(proxy, names) {
     return false;
 }
 
-var version = "4.5.0";
+var version = "4.5.1";
 
 const KNOWN_POSITIONS = [
     'top',
@@ -14926,29 +14936,20 @@ const registerables = [
 
 Chart.register(...registerables);
 
-const {defineComponent:_defineComponent} = await importShared('vue');
+const {defineComponent:_defineComponent$2} = await importShared('vue');
 
-const {toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,createElementVNode:_createElementVNode,openBlock:_openBlock,createBlock:_createBlock,createElementBlock:_createElementBlock} = await importShared('vue');
+const {toDisplayString:_toDisplayString$1,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,createVNode:_createVNode$1,createElementVNode:_createElementVNode$1,unref:_unref$1,openBlock:_openBlock$2,createBlock:_createBlock$2} = await importShared('vue');
 
-const _hoisted_1 = { class: "dashboard-widget" };
-const _hoisted_2 = { class: "font-weight-bold text-caption" };
-const _hoisted_3 = { class: "font-weight-bold text-caption" };
-const _hoisted_4 = { class: "font-weight-bold text-caption" };
-const _hoisted_5 = { class: "font-weight-bold text-caption" };
-const _hoisted_6 = { class: "font-weight-bold text-caption" };
-const _hoisted_7 = { class: "font-weight-bold text-caption" };
-const _hoisted_8 = { class: "d-flex flex-column" };
-const _hoisted_9 = { class: "d-flex align-center text-center" };
-const _hoisted_10 = { class: "d-flex flex-column flex-grow-1 justify-space-between gap-4 mt-8" };
-const _hoisted_11 = { class: "d-flex justify-space-between text-body-2 border-b pb-1" };
-const _hoisted_12 = { class: "d-flex justify-space-between text-body-2 border-b pb-1" };
-const _hoisted_13 = { class: "d-flex justify-space-between text-body-2 border-b pb-1" };
-const _hoisted_14 = { class: "d-flex justify-space-between text-body-2 border-b pb-1" };
-const _hoisted_15 = { class: "d-flex justify-space-between text-body-2" };
-const {reactive,onMounted,onUnmounted,ref} = await importShared('vue');
+const _hoisted_1$2 = { class: "font-weight-bold text-caption" };
+const _hoisted_2$1 = { class: "font-weight-bold text-caption" };
+const _hoisted_3$1 = { class: "font-weight-bold text-caption" };
+const _hoisted_4$1 = { class: "font-weight-bold text-caption" };
+const _hoisted_5$1 = { class: "font-weight-bold text-caption" };
+const _hoisted_6$1 = { class: "font-weight-bold text-caption" };
+const {reactive: reactive$1,onMounted: onMounted$1,onUnmounted: onUnmounted$1,ref: ref$1} = await importShared('vue');
 const maxPoints = 150;
-const _sfc_main = /* @__PURE__ */ _defineComponent({
-  __name: "Dashboard",
+const _sfc_main$2 = /* @__PURE__ */ _defineComponent$2({
+  __name: "TrafficStatsCard",
   props: {
     config: {
       type: Object,
@@ -14957,39 +14958,33 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
     allowRefresh: {
       type: Boolean,
       default: true
-    },
-    api: {
-      type: Object,
-      required: true
     }
   },
   setup(__props) {
-    const uploadSpeed = ref(0);
-    const downloadSpeed = ref(0);
-    const uploaded = ref(0);
-    const downloaded = ref(0);
-    const activeConnections = ref(0);
-    const coreUsage = ref(0);
-    const uploadHistory = ref(Array(maxPoints).fill(0));
-    const downloadHistory = ref(Array(maxPoints).fill(0));
-    const memoryHistory = ref(Array(maxPoints).fill(0));
-    const speedLabels = ref([]);
-    const memoryLabels = ref([]);
+    const props = __props;
+    const uploadSpeed = ref$1(0);
+    const downloadSpeed = ref$1(0);
+    const uploaded = ref$1(0);
+    const downloaded = ref$1(0);
+    const activeConnections = ref$1(0);
+    const coreUsage = ref$1(0);
+    const uploadHistory = ref$1(Array(maxPoints).fill(0));
+    const downloadHistory = ref$1(Array(maxPoints).fill(0));
+    const memoryHistory = ref$1(Array(maxPoints).fill(0));
+    const speedLabels = ref$1([]);
+    const memoryLabels = ref$1([]);
+    const speedChartCanvas = ref$1(null);
+    const memoryChartCanvas = ref$1(null);
     let chartInstance = null;
     let memChartInstance = null;
-    let refreshTimer = null;
     let evtSource = null;
     let connectionsEvtSource = null;
-    function formatBytes(bytes) {
-      if (bytes < 1024) return `${bytes} B`;
-      const units = ["KB", "MB", "GB"];
-      let i = -1;
-      do {
-        bytes /= 1024;
-        i++;
-      } while (bytes >= 1024 && i < units.length - 1);
-      return `${bytes.toFixed(1)} ${units[i]}`;
-    }
+    const defaultConfig = {
+      title: "Clash Info",
+      clash_available: false,
+      secret: ""
+    };
+    const componentConfig = reactive$1({ ...defaultConfig });
     function formatTime(date) {
       return date.toTimeString().split(" ")[0];
     }
@@ -15024,39 +15019,428 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
       memChartInstance.data.labels = [...memoryLabels.value];
       memChartInstance.update();
     }
-    const defaultConfig = {
-      "title": "Clash Info",
-      "clash_available": false,
-      "secret": ""
+    function getCurrentTimeLabel() {
+      const now = /* @__PURE__ */ new Date();
+      return formatTime(now);
+    }
+    onMounted$1(() => {
+      if (props.config?.attrs) {
+        Object.keys(props.config.attrs).forEach((key) => {
+          if (key in componentConfig) {
+            componentConfig[key] = props.config.attrs[key];
+          }
+        });
+      }
+      const ctx = speedChartCanvas.value?.getContext("2d");
+      const memCtx = memoryChartCanvas.value?.getContext("2d");
+      if (!ctx || !memCtx) {
+        return;
+      }
+      speedLabels.value = initializeTimeLabels();
+      chartInstance = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: Array(maxPoints).fill(""),
+          datasets: [
+            {
+              label: "上传速度",
+              data: [...uploadHistory.value],
+              borderColor: "rgba(255, 206, 86, 1)",
+              borderWidth: 0.75,
+              backgroundColor: "rgba(255, 206, 86, 0.2)",
+              fill: true,
+              tension: 0.3,
+              pointRadius: 0,
+              pointHoverRadius: 0
+            },
+            {
+              label: "下载速度",
+              data: [...downloadHistory.value],
+              borderWidth: 0.75,
+              borderColor: "rgba(54, 162, 235, 1)",
+              backgroundColor: "rgba(54, 162, 235, 0.2)",
+              fill: true,
+              tension: 0.3,
+              pointRadius: 0,
+              pointHoverRadius: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          animation: false,
+          scales: {
+            x: {
+              display: true,
+              grid: {
+                display: false
+              },
+              ticks: {
+                maxRotation: 0,
+                minRotation: 0,
+                autoSkip: false,
+                callback: function(value) {
+                  const label = this.getLabelForValue(Number(value));
+                  const [hh, mm, ss] = label.split(":");
+                  if (ss === "00") {
+                    return `${hh}:${mm}`;
+                  } else {
+                    return "";
+                  }
+                }
+              }
+            },
+            y: {
+              beginAtZero: true,
+              grid: {
+                color: "rgba(121, 114, 235, 0.1)"
+              },
+              ticks: {
+                callback: function(value) {
+                  return formatBytes(Number(value)) + "/s";
+                }
+              }
+            }
+          }
+        }
+      });
+      memoryLabels.value = initializeTimeLabels();
+      memChartInstance = new Chart(memCtx, {
+        type: "line",
+        data: {
+          labels: Array(maxPoints).fill(""),
+          datasets: [
+            {
+              label: "内核占用",
+              data: [...memoryHistory.value],
+              borderWidth: 0.75,
+              borderColor: "rgba(85, 206, 86, 1)",
+              backgroundColor: "rgba(85, 206, 86, 0.2)",
+              fill: true,
+              tension: 0.3,
+              pointRadius: 0,
+              pointHoverRadius: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          animation: false,
+          scales: {
+            x: {
+              display: true,
+              grid: {
+                display: false
+              },
+              ticks: {
+                maxRotation: 0,
+                minRotation: 0,
+                autoSkip: false,
+                callback: function(value) {
+                  const label = this.getLabelForValue(Number(value));
+                  const [hh, mm, ss] = label.split(":");
+                  if (ss === "00") {
+                    return `${hh}:${mm}`;
+                  } else {
+                    return "";
+                  }
+                }
+              }
+            },
+            y: {
+              grid: {
+                color: "rgba(121, 114, 235, 0.1)"
+              },
+              beginAtZero: true,
+              ticks: {
+                callback: function(value) {
+                  return formatBytes(Number(value));
+                }
+              }
+            }
+          }
+        }
+      });
+      if (props.allowRefresh && componentConfig.clash_available) {
+        evtSource = new EventSource(
+          "api/v1/plugin/ClashRuleProvider/clash/ws/traffic?secret=" + componentConfig.secret
+        );
+        evtSource.addEventListener("traffic", (event) => {
+          const data = JSON.parse(event.data);
+          if (!data?.error) {
+            uploadSpeed.value = data.up;
+            downloadSpeed.value = data.down;
+            uploadHistory.value.push(data.up);
+            downloadHistory.value.push(data.down);
+            speedLabels.value.push(getCurrentTimeLabel());
+            updateChart();
+          }
+        });
+        connectionsEvtSource = new EventSource(
+          "api/v1/plugin/ClashRuleProvider/clash/ws/connections?secret=" + componentConfig.secret
+        );
+        connectionsEvtSource.addEventListener("connections", (event) => {
+          const data = JSON.parse(event.data);
+          if (!data?.error) {
+            uploaded.value = data.uploadTotal;
+            downloaded.value = data.downloadTotal;
+            activeConnections.value = data.connections.length;
+            coreUsage.value = data.memory;
+            memoryHistory.value.push(data.memory);
+            memoryLabels.value.push(getCurrentTimeLabel());
+            updateMemoryChart();
+          }
+        });
+      }
+    });
+    onUnmounted$1(() => {
+      if (connectionsEvtSource) connectionsEvtSource.close();
+      if (evtSource) evtSource.close();
+      if (chartInstance) chartInstance.destroy();
+      if (memChartInstance) memChartInstance.destroy();
+    });
+    return (_ctx, _cache) => {
+      const _component_v_card_title = _resolveComponent$1("v-card-title");
+      const _component_v_card_item = _resolveComponent$1("v-card-item");
+      const _component_v_sheet = _resolveComponent$1("v-sheet");
+      const _component_v_col = _resolveComponent$1("v-col");
+      const _component_v_row = _resolveComponent$1("v-row");
+      const _component_v_container = _resolveComponent$1("v-container");
+      const _component_v_card_text = _resolveComponent$1("v-card-text");
+      const _component_v_card = _resolveComponent$1("v-card");
+      return _openBlock$2(), _createBlock$2(_component_v_card, { class: "h-100" }, {
+        default: _withCtx$1(() => [
+          _createVNode$1(_component_v_card_item, null, {
+            default: _withCtx$1(() => [
+              _createVNode$1(_component_v_card_title, null, {
+                default: _withCtx$1(() => [
+                  _createTextVNode$1(_toDisplayString$1(__props.config?.attrs?.title || "Clash Info"), 1)
+                ]),
+                _: 1
+              })
+            ]),
+            _: 1
+          }),
+          _createVNode$1(_component_v_card_text, { class: "pa-0 h-100 d-flex flex-column" }, {
+            default: _withCtx$1(() => [
+              _createVNode$1(_component_v_container, {
+                fluid: "",
+                class: "fill-height pa-0"
+              }, {
+                default: _withCtx$1(() => [
+                  _createVNode$1(_component_v_row, {
+                    dense: "",
+                    class: "fill-height"
+                  }, {
+                    default: _withCtx$1(() => [
+                      _createVNode$1(_component_v_col, {
+                        cols: "12",
+                        md: "6",
+                        class: "d-flex flex-column gap-2"
+                      }, {
+                        default: _withCtx$1(() => [
+                          _createVNode$1(_component_v_sheet, { class: "pa-2 rounded elevation-6 d-flex flex-column flex-grow-1" }, {
+                            default: _withCtx$1(() => [
+                              _createElementVNode$1("canvas", {
+                                ref_key: "speedChartCanvas",
+                                ref: speedChartCanvas,
+                                style: { "max-height": "200px" },
+                                class: "flex-grow-1"
+                              }, null, 512)
+                            ]),
+                            _: 1
+                          }),
+                          _createVNode$1(_component_v_row, {
+                            dense: "",
+                            justify: "space-between"
+                          }, {
+                            default: _withCtx$1(() => [
+                              _createVNode$1(_component_v_col, { cols: "4" }, {
+                                default: _withCtx$1(() => [
+                                  _createVNode$1(_component_v_sheet, { class: "pa-3 rounded text-center" }, {
+                                    default: _withCtx$1(() => [
+                                      _createElementVNode$1("div", _hoisted_1$2, _toDisplayString$1(_unref$1(formatBytes)(uploadSpeed.value)) + "/s", 1),
+                                      _cache[0] || (_cache[0] = _createElementVNode$1("div", null, "上传速度", -1))
+                                    ]),
+                                    _: 1
+                                  })
+                                ]),
+                                _: 1
+                              }),
+                              _createVNode$1(_component_v_col, { cols: "4" }, {
+                                default: _withCtx$1(() => [
+                                  _createVNode$1(_component_v_sheet, { class: "pa-3 rounded text-center" }, {
+                                    default: _withCtx$1(() => [
+                                      _createElementVNode$1("div", _hoisted_2$1, _toDisplayString$1(_unref$1(formatBytes)(downloadSpeed.value)) + "/s ", 1),
+                                      _cache[1] || (_cache[1] = _createElementVNode$1("div", null, "下载速度", -1))
+                                    ]),
+                                    _: 1
+                                  })
+                                ]),
+                                _: 1
+                              }),
+                              _createVNode$1(_component_v_col, { cols: "4" }, {
+                                default: _withCtx$1(() => [
+                                  _createVNode$1(_component_v_sheet, { class: "pa-3 rounded text-center" }, {
+                                    default: _withCtx$1(() => [
+                                      _createElementVNode$1("div", _hoisted_3$1, _toDisplayString$1(activeConnections.value), 1),
+                                      _cache[2] || (_cache[2] = _createElementVNode$1("div", null, "活跃连接", -1))
+                                    ]),
+                                    _: 1
+                                  })
+                                ]),
+                                _: 1
+                              })
+                            ]),
+                            _: 1
+                          })
+                        ]),
+                        _: 1
+                      }),
+                      _createVNode$1(_component_v_col, {
+                        cols: "12",
+                        md: "6",
+                        class: "d-flex flex-column gap-2"
+                      }, {
+                        default: _withCtx$1(() => [
+                          _createVNode$1(_component_v_sheet, { class: "pa-2 rounded elevation-6 flex-grow-1" }, {
+                            default: _withCtx$1(() => [
+                              _createElementVNode$1("canvas", {
+                                ref_key: "memoryChartCanvas",
+                                ref: memoryChartCanvas,
+                                style: { "max-height": "200px" },
+                                class: "flex-grow-1"
+                              }, null, 512)
+                            ]),
+                            _: 1
+                          }),
+                          _createVNode$1(_component_v_row, {
+                            dense: "",
+                            justify: "space-between"
+                          }, {
+                            default: _withCtx$1(() => [
+                              _createVNode$1(_component_v_col, { cols: "4" }, {
+                                default: _withCtx$1(() => [
+                                  _createVNode$1(_component_v_sheet, { class: "pa-3 rounded text-center" }, {
+                                    default: _withCtx$1(() => [
+                                      _createElementVNode$1("div", _hoisted_4$1, _toDisplayString$1(_unref$1(formatBytes)(uploaded.value)), 1),
+                                      _cache[3] || (_cache[3] = _createElementVNode$1("div", null, "上传量", -1))
+                                    ]),
+                                    _: 1
+                                  })
+                                ]),
+                                _: 1
+                              }),
+                              _createVNode$1(_component_v_col, { cols: "4" }, {
+                                default: _withCtx$1(() => [
+                                  _createVNode$1(_component_v_sheet, { class: "pa-3 rounded text-center" }, {
+                                    default: _withCtx$1(() => [
+                                      _createElementVNode$1("div", _hoisted_5$1, _toDisplayString$1(_unref$1(formatBytes)(downloaded.value)), 1),
+                                      _cache[4] || (_cache[4] = _createElementVNode$1("div", null, "下载量", -1))
+                                    ]),
+                                    _: 1
+                                  })
+                                ]),
+                                _: 1
+                              }),
+                              _createVNode$1(_component_v_col, { cols: "4" }, {
+                                default: _withCtx$1(() => [
+                                  _createVNode$1(_component_v_sheet, { class: "pa-3 rounded text-center" }, {
+                                    default: _withCtx$1(() => [
+                                      _createElementVNode$1("div", _hoisted_6$1, _toDisplayString$1(_unref$1(formatBytes)(coreUsage.value)), 1),
+                                      _cache[5] || (_cache[5] = _createElementVNode$1("div", null, "内核占用", -1))
+                                    ]),
+                                    _: 1
+                                  })
+                                ]),
+                                _: 1
+                              })
+                            ]),
+                            _: 1
+                          })
+                        ]),
+                        _: 1
+                      })
+                    ]),
+                    _: 1
+                  })
+                ]),
+                _: 1
+              })
+            ]),
+            _: 1
+          })
+        ]),
+        _: 1
+      });
     };
+  }
+});
+
+const {defineComponent:_defineComponent$1} = await importShared('vue');
+
+const {toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,unref:_unref,openBlock:_openBlock$1,createBlock:_createBlock$1,createElementVNode:_createElementVNode} = await importShared('vue');
+
+const _hoisted_1$1 = { class: "d-flex flex-column" };
+const _hoisted_2 = { class: "d-flex align-center text-center" };
+const _hoisted_3 = { class: "d-flex flex-column flex-grow-1 justify-space-between gap-4 mt-8" };
+const _hoisted_4 = { class: "d-flex justify-space-between text-body-2 border-b pb-1" };
+const _hoisted_5 = { class: "d-flex justify-space-between text-body-2 border-b pb-1" };
+const _hoisted_6 = { class: "d-flex justify-space-between text-body-2 border-b pb-1" };
+const _hoisted_7 = { class: "d-flex justify-space-between text-body-2 border-b pb-1" };
+const _hoisted_8 = { class: "d-flex justify-space-between text-body-2" };
+const {reactive,onMounted,onUnmounted,ref} = await importShared('vue');
+const _sfc_main$1 = /* @__PURE__ */ _defineComponent$1({
+  __name: "ClashInfoCard",
+  props: {
+    config: {
+      type: Object,
+      default: () => ({})
+    },
+    allowRefresh: {
+      type: Boolean,
+      default: true
+    },
+    api: {
+      type: Object,
+      required: true
+    }
+  },
+  setup(__props) {
+    const props = __props;
+    const defaultConfig = {
+      title: "Clash Info",
+      clash_available: false,
+      secret: ""
+    };
+    const componentConfig = reactive({ ...defaultConfig });
     const clashInfo = ref({
-      "version": { "meta": false, "version": "unknown" },
-      "status": "not connected",
-      "configs": {},
-      "rules": {},
-      "proxies": [],
+      version: { meta: false, version: "unknown" },
+      status: "not connected",
+      configs: {},
+      rules: {},
+      proxies: [],
       "rule-providers": {}
     });
-    const componentConfig = reactive({ ...defaultConfig });
+    let refreshTimer = null;
     async function fetchClashData(endpoint, dataKey) {
       try {
-        const data = await props.api.get(`plugin/ClashRuleProvider/clash/proxy${endpoint}`);
+        const data = await props.api.get(`plugin/ClashRuleProvider/clash/proxy/${endpoint}`);
         if (!data) {
-          throw new Error("Network response was not ok");
+          clashInfo.value.status = "not connected";
         }
         clashInfo.value.status = "connected";
         clashInfo.value[dataKey] = data;
       } catch (error) {
-        console.error(`Error fetching ${endpoint}:`, error);
         clashInfo.value.status = "not connected";
       }
     }
     async function fetchAllClashData() {
       await Promise.all([
-        fetchClashData("/version", "version"),
-        fetchClashData("/configs", "configs"),
-        fetchClashData("/rules", "rules"),
-        fetchClashData("/providers/rules", "rule-providers")
+        fetchClashData("version", "version"),
+        fetchClashData("configs", "configs"),
+        fetchClashData("rules", "rules"),
+        fetchClashData("providers/rules", "rule-providers")
       ]);
     }
     function setupRefreshTimer() {
@@ -15066,454 +15450,142 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
         }, 3e4);
       }
     }
-    function getCurrentTimeLabel() {
-      const now = /* @__PURE__ */ new Date();
-      return formatTime(now);
-    }
-    onMounted(
-      () => {
-        if (props.config?.attrs) {
-          Object.keys(props.config.attrs).forEach((key) => {
-            if (key in componentConfig) {
-              componentConfig[key] = props.config.attrs[key];
-            }
-          });
-        }
-        if (props.config?.key === "traffic_stats") {
-          const ctx = document.getElementById("speedChart").getContext("2d");
-          const memCtx = document.getElementById("memoryChart").getContext("2d");
-          speedLabels.value = initializeTimeLabels();
-          chartInstance = new Chart(ctx, {
-            type: "line",
-            data: {
-              labels: Array(maxPoints).fill(""),
-              datasets: [
-                {
-                  label: "上传速度",
-                  data: [...uploadHistory.value],
-                  borderColor: "rgba(255, 206, 86, 1)",
-                  borderWidth: 0.75,
-                  backgroundColor: "rgba(255, 206, 86, 0.2)",
-                  fill: true,
-                  tension: 0.3,
-                  pointRadius: 0,
-                  pointHoverRadius: 0
-                },
-                {
-                  label: "下载速度",
-                  data: [...downloadHistory.value],
-                  borderWidth: 0.75,
-                  borderColor: "rgba(54, 162, 235, 1)",
-                  backgroundColor: "rgba(54, 162, 235, 0.2)",
-                  fill: true,
-                  tension: 0.3,
-                  pointRadius: 0,
-                  pointHoverRadius: 0
-                }
-              ]
-            },
-            options: {
-              responsive: true,
-              animation: false,
-              scales: {
-                x: {
-                  display: true,
-                  grid: {
-                    display: false
-                  },
-                  ticks: {
-                    maxRotation: 0,
-                    minRotation: 0,
-                    autoSkip: false,
-                    callback: function(value, index, values) {
-                      const label = this.getLabelForValue(value);
-                      const [hh, mm, ss] = label.split(":");
-                      if (ss === "00") {
-                        return `${hh}:${mm}`;
-                      } else {
-                        return "";
-                      }
-                    }
-                  }
-                },
-                y: {
-                  beginAtZero: true,
-                  grid: {
-                    color: "rgba(121, 114, 235, 0.1)"
-                  },
-                  ticks: {
-                    callback: function(value) {
-                      return formatBytes(value) + "/s";
-                    }
-                  }
-                }
-              }
-            }
-          });
-          memoryLabels.value = initializeTimeLabels();
-          memChartInstance = new Chart(memCtx, {
-            type: "line",
-            data: {
-              labels: Array(maxPoints).fill(""),
-              datasets: [
-                {
-                  label: "内核占用",
-                  data: [...memoryHistory.value],
-                  borderWidth: 0.75,
-                  borderColor: "rgba(85, 206, 86, 1)",
-                  backgroundColor: "rgba(85, 206, 86, 0.2)",
-                  fill: true,
-                  tension: 0.3,
-                  pointRadius: 0,
-                  pointHoverRadius: 0
-                }
-              ]
-            },
-            options: {
-              responsive: true,
-              animation: false,
-              scales: {
-                x: {
-                  display: true,
-                  grid: {
-                    display: false
-                  },
-                  ticks: {
-                    maxRotation: 0,
-                    minRotation: 0,
-                    autoSkip: false,
-                    callback: function(value, index, values) {
-                      const label = this.getLabelForValue(value);
-                      const [hh, mm, ss] = label.split(":");
-                      if (ss === "00") {
-                        return `${hh}:${mm}`;
-                      } else {
-                        return "";
-                      }
-                    }
-                  }
-                },
-                y: {
-                  grid: {
-                    color: "rgba(121, 114, 235, 0.1)"
-                  },
-                  beginAtZero: true,
-                  ticks: {
-                    callback: function(value) {
-                      return formatBytes(value);
-                    }
-                  }
-                }
-              }
-            }
-          });
-          if (props.allowRefresh && componentConfig.clash_available) {
-            evtSource = new EventSource("api/v1/plugin/ClashRuleProvider/clash/ws/traffic?secret=" + componentConfig.secret);
-            evtSource.addEventListener("traffic", (event) => {
-              const data = JSON.parse(event.data);
-              if (!data?.error) {
-                uploadSpeed.value = data.up;
-                downloadSpeed.value = data.down;
-                uploadHistory.value.push(data.up);
-                downloadHistory.value.push(data.down);
-                speedLabels.value.push(getCurrentTimeLabel());
-                clashInfo.value.status = "connected";
-                updateChart();
-              } else {
-                clashInfo.value.status = "not connected";
-              }
-            });
-            evtSource.onerror = (err) => {
-              clashInfo.value.status = "not connected";
-            };
-            connectionsEvtSource = new EventSource("api/v1/plugin/ClashRuleProvider/clash/ws/connections?secret=" + componentConfig.secret);
-            connectionsEvtSource.addEventListener("connections", (event) => {
-              const data = JSON.parse(event.data);
-              if (!data?.error) {
-                uploaded.value = data.uploadTotal;
-                downloaded.value = data.downloadTotal;
-                activeConnections.value = data.connections.length;
-                coreUsage.value = data.memory;
-                memoryHistory.value.push(data.memory);
-                memoryLabels.value.push(getCurrentTimeLabel());
-                updateMemoryChart();
-              } else {
-                clashInfo.value.status = "not connected";
-              }
-            });
-            connectionsEvtSource.onerror = (err) => {
-              clashInfo.value.status = "not connected";
-            };
+    onMounted(() => {
+      if (props.config?.attrs) {
+        Object.keys(props.config.attrs).forEach((key) => {
+          if (key in componentConfig) {
+            componentConfig[key] = props.config.attrs[key];
           }
-        } else {
-          if (componentConfig.clash_available) {
-            fetchAllClashData();
-            setupRefreshTimer();
-          }
-        }
+        });
       }
-    );
+      if (componentConfig.clash_available) {
+        fetchAllClashData();
+        setupRefreshTimer();
+      }
+    });
     onUnmounted(() => {
       if (refreshTimer) {
         clearInterval(refreshTimer);
       }
-      if (connectionsEvtSource) connectionsEvtSource.close();
-      if (evtSource) evtSource.close();
     });
-    const props = __props;
     return (_ctx, _cache) => {
       const _component_v_card_title = _resolveComponent("v-card-title");
       const _component_v_card_item = _resolveComponent("v-card-item");
-      const _component_v_sheet = _resolveComponent("v-sheet");
-      const _component_v_col = _resolveComponent("v-col");
-      const _component_v_row = _resolveComponent("v-row");
-      const _component_v_container = _resolveComponent("v-container");
-      const _component_v_card_text = _resolveComponent("v-card-text");
-      const _component_v_card = _resolveComponent("v-card");
       const _component_v_img = _resolveComponent("v-img");
       const _component_v_chip = _resolveComponent("v-chip");
-      return _openBlock(), _createElementBlock("div", _hoisted_1, [
-        __props.config?.key === "traffic_stats" ? (_openBlock(), _createBlock(_component_v_card, {
-          key: 0,
-          class: "h-100"
-        }, {
-          default: _withCtx(() => [
-            _createVNode(_component_v_card_item, null, {
-              default: _withCtx(() => [
-                _createVNode(_component_v_card_title, null, {
-                  default: _withCtx(() => [
-                    _createTextVNode(_toDisplayString(__props.config?.attrs?.title || "Clash Info"), 1)
-                  ]),
-                  _: 1
-                })
-              ]),
-              _: 1
-            }),
-            _createVNode(_component_v_card_text, { class: "pa-0 h-100 d-flex flex-column" }, {
-              default: _withCtx(() => [
-                _createVNode(_component_v_container, {
-                  fluid: "",
-                  class: "fill-height pa-0"
-                }, {
-                  default: _withCtx(() => [
-                    _createVNode(_component_v_row, {
-                      dense: "",
-                      class: "fill-height"
+      const _component_v_card_text = _resolveComponent("v-card-text");
+      const _component_v_card = _resolveComponent("v-card");
+      return _openBlock$1(), _createBlock$1(_component_v_card, { class: "h-100" }, {
+        default: _withCtx(() => [
+          _createVNode(_component_v_card_item, null, {
+            default: _withCtx(() => [
+              _createVNode(_component_v_card_title, null, {
+                default: _withCtx(() => [
+                  _createTextVNode(_toDisplayString(__props.config?.attrs?.title || "Clash Info"), 1)
+                ]),
+                _: 1
+              })
+            ]),
+            _: 1
+          }),
+          _createVNode(_component_v_card_text, { class: "h-100 d-flex flex-column pt-4" }, {
+            default: _withCtx(() => [
+              _createElementVNode("div", _hoisted_1$1, [
+                _createElementVNode("div", _hoisted_2, [
+                  clashInfo.value.version.meta ? (_openBlock$1(), _createBlock$1(_component_v_img, {
+                    key: 0,
+                    src: `/api/v1/plugin/file/clashruleprovider/dist${_unref(MetaLogo)}`,
+                    alt: "Logo",
+                    "max-height": "48",
+                    contain: ""
+                  }, null, 8, ["src"])) : (_openBlock$1(), _createBlock$1(_component_v_img, {
+                    key: 1,
+                    src: "/api/v1/system/img/1?cache=1&imgurl=https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/Clash_A.png",
+                    alt: "Logo",
+                    "max-height": "48",
+                    contain: ""
+                  }))
+                ]),
+                _createElementVNode("div", _hoisted_3, [
+                  _createElementVNode("div", _hoisted_4, [
+                    _cache[0] || (_cache[0] = _createElementVNode("span", null, "连接状态", -1)),
+                    _createVNode(_component_v_chip, {
+                      size: "small",
+                      color: clashInfo.value.status === "connected" ? "success" : "grey"
                     }, {
                       default: _withCtx(() => [
-                        _createVNode(_component_v_col, {
-                          cols: "12",
-                          md: "6",
-                          class: "d-flex flex-column gap-2"
-                        }, {
-                          default: _withCtx(() => [
-                            _createVNode(_component_v_sheet, { class: "pa-2 rounded elevation-6 d-flex flex-column flex-grow-1" }, {
-                              default: _withCtx(() => _cache[0] || (_cache[0] = [
-                                _createElementVNode("canvas", {
-                                  id: "speedChart",
-                                  style: { "max-height": "200px" },
-                                  class: "flex-grow-1"
-                                }, null, -1)
-                              ])),
-                              _: 1
-                            }),
-                            _createVNode(_component_v_row, {
-                              dense: "",
-                              justify: "space-between"
-                            }, {
-                              default: _withCtx(() => [
-                                _createVNode(_component_v_col, { cols: "4" }, {
-                                  default: _withCtx(() => [
-                                    _createVNode(_component_v_sheet, { class: "pa-3 rounded text-center" }, {
-                                      default: _withCtx(() => [
-                                        _createElementVNode("div", _hoisted_2, _toDisplayString(formatBytes(uploadSpeed.value)) + "/s", 1),
-                                        _cache[1] || (_cache[1] = _createElementVNode("div", null, "上传速度", -1))
-                                      ]),
-                                      _: 1
-                                    })
-                                  ]),
-                                  _: 1
-                                }),
-                                _createVNode(_component_v_col, { cols: "4" }, {
-                                  default: _withCtx(() => [
-                                    _createVNode(_component_v_sheet, { class: "pa-3 rounded text-center" }, {
-                                      default: _withCtx(() => [
-                                        _createElementVNode("div", _hoisted_3, _toDisplayString(formatBytes(downloadSpeed.value)) + "/s", 1),
-                                        _cache[2] || (_cache[2] = _createElementVNode("div", null, "下载速度", -1))
-                                      ]),
-                                      _: 1
-                                    })
-                                  ]),
-                                  _: 1
-                                }),
-                                _createVNode(_component_v_col, { cols: "4" }, {
-                                  default: _withCtx(() => [
-                                    _createVNode(_component_v_sheet, { class: "pa-3 rounded text-center" }, {
-                                      default: _withCtx(() => [
-                                        _createElementVNode("div", _hoisted_4, _toDisplayString(activeConnections.value), 1),
-                                        _cache[3] || (_cache[3] = _createElementVNode("div", null, "活跃连接", -1))
-                                      ]),
-                                      _: 1
-                                    })
-                                  ]),
-                                  _: 1
-                                })
-                              ]),
-                              _: 1
-                            })
-                          ]),
-                          _: 1
-                        }),
-                        _createVNode(_component_v_col, {
-                          cols: "12",
-                          md: "6",
-                          class: "d-flex flex-column gap-2"
-                        }, {
-                          default: _withCtx(() => [
-                            _createVNode(_component_v_sheet, { class: "pa-2 rounded elevation-6 flex-grow-1" }, {
-                              default: _withCtx(() => _cache[4] || (_cache[4] = [
-                                _createElementVNode("canvas", {
-                                  id: "memoryChart",
-                                  style: { "max-height": "200px" },
-                                  class: "flex-grow-1"
-                                }, null, -1)
-                              ])),
-                              _: 1
-                            }),
-                            _createVNode(_component_v_row, {
-                              dense: "",
-                              justify: "space-between"
-                            }, {
-                              default: _withCtx(() => [
-                                _createVNode(_component_v_col, { cols: "4" }, {
-                                  default: _withCtx(() => [
-                                    _createVNode(_component_v_sheet, { class: "pa-3 rounded text-center" }, {
-                                      default: _withCtx(() => [
-                                        _createElementVNode("div", _hoisted_5, _toDisplayString(formatBytes(uploaded.value)), 1),
-                                        _cache[5] || (_cache[5] = _createElementVNode("div", null, "上传量", -1))
-                                      ]),
-                                      _: 1
-                                    })
-                                  ]),
-                                  _: 1
-                                }),
-                                _createVNode(_component_v_col, { cols: "4" }, {
-                                  default: _withCtx(() => [
-                                    _createVNode(_component_v_sheet, { class: "pa-3 rounded text-center" }, {
-                                      default: _withCtx(() => [
-                                        _createElementVNode("div", _hoisted_6, _toDisplayString(formatBytes(downloaded.value)), 1),
-                                        _cache[6] || (_cache[6] = _createElementVNode("div", null, "下载量", -1))
-                                      ]),
-                                      _: 1
-                                    })
-                                  ]),
-                                  _: 1
-                                }),
-                                _createVNode(_component_v_col, { cols: "4" }, {
-                                  default: _withCtx(() => [
-                                    _createVNode(_component_v_sheet, { class: "pa-3 rounded text-center" }, {
-                                      default: _withCtx(() => [
-                                        _createElementVNode("div", _hoisted_7, _toDisplayString(formatBytes(coreUsage.value)), 1),
-                                        _cache[7] || (_cache[7] = _createElementVNode("div", null, "内核占用", -1))
-                                      ]),
-                                      _: 1
-                                    })
-                                  ]),
-                                  _: 1
-                                })
-                              ]),
-                              _: 1
-                            })
-                          ]),
-                          _: 1
-                        })
+                        _createTextVNode(_toDisplayString(clashInfo.value.status), 1)
                       ]),
                       _: 1
-                    })
+                    }, 8, ["color"])
                   ]),
-                  _: 1
-                })
-              ]),
-              _: 1
-            })
-          ]),
-          _: 1
-        })) : (_openBlock(), _createBlock(_component_v_card, {
-          key: 1,
-          class: "h-100"
-        }, {
-          default: _withCtx(() => [
-            _createVNode(_component_v_card_item, null, {
-              default: _withCtx(() => [
-                _createVNode(_component_v_card_title, null, {
-                  default: _withCtx(() => [
-                    _createTextVNode(_toDisplayString(__props.config?.attrs?.title || "Clash Info"), 1)
+                  _createElementVNode("div", _hoisted_5, [
+                    _cache[1] || (_cache[1] = _createElementVNode("span", null, "内核版本", -1)),
+                    _createElementVNode("span", null, _toDisplayString(clashInfo.value.version.version), 1)
                   ]),
-                  _: 1
-                })
-              ]),
-              _: 1
-            }),
-            _createVNode(_component_v_card_text, { class: "h-100 d-flex flex-column pt-4" }, {
-              default: _withCtx(() => [
-                _createElementVNode("div", _hoisted_8, [
-                  _createElementVNode("div", _hoisted_9, [
-                    clashInfo.value.version.meta ? (_openBlock(), _createBlock(_component_v_img, {
-                      key: 0,
-                      src: "/api/v1/system/img/1?cache=1&imgurl=https://raw.githubusercontent.com/MetaCubeX/mihomo/refs/heads/Meta/Meta.png",
-                      alt: "Logo",
-                      "max-height": "48",
-                      contain: ""
-                    })) : (_openBlock(), _createBlock(_component_v_img, {
-                      key: 1,
-                      src: "/api/v1/system/img/1?cache=1&imgurl=https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/Clash_A.png",
-                      alt: "Logo",
-                      "max-height": "48",
-                      contain: ""
-                    }))
+                  _createElementVNode("div", _hoisted_6, [
+                    _cache[2] || (_cache[2] = _createElementVNode("span", null, "混合代理端口", -1)),
+                    _createElementVNode("span", null, _toDisplayString(clashInfo.value.configs?.["mixed-port"] || 0), 1)
                   ]),
-                  _createElementVNode("div", _hoisted_10, [
-                    _createElementVNode("div", _hoisted_11, [
-                      _cache[8] || (_cache[8] = _createElementVNode("span", null, "连接状态", -1)),
-                      _createVNode(_component_v_chip, {
-                        size: "small",
-                        color: clashInfo.value.status === "connected" ? "success" : "grey"
-                      }, {
-                        default: _withCtx(() => [
-                          _createTextVNode(_toDisplayString(clashInfo.value.status), 1)
-                        ]),
-                        _: 1
-                      }, 8, ["color"])
-                    ]),
-                    _createElementVNode("div", _hoisted_12, [
-                      _cache[9] || (_cache[9] = _createElementVNode("span", null, "内核版本", -1)),
-                      _createElementVNode("span", null, _toDisplayString(clashInfo.value.version.version), 1)
-                    ]),
-                    _createElementVNode("div", _hoisted_13, [
-                      _cache[10] || (_cache[10] = _createElementVNode("span", null, "混合代理端口", -1)),
-                      _createElementVNode("span", null, _toDisplayString(clashInfo.value.configs?.["mixed-port"] || 0), 1)
-                    ]),
-                    _createElementVNode("div", _hoisted_14, [
-                      _cache[11] || (_cache[11] = _createElementVNode("span", null, "规则数量", -1)),
-                      _createElementVNode("span", null, _toDisplayString(clashInfo.value.rules?.rules.length), 1)
-                    ]),
-                    _createElementVNode("div", _hoisted_15, [
-                      _cache[12] || (_cache[12] = _createElementVNode("span", null, "规则集数量", -1)),
-                      _createElementVNode("span", null, _toDisplayString(Object.keys(clashInfo.value?.["rule-providers"]?.["providers"] || {}).length || 0), 1)
-                    ])
+                  _createElementVNode("div", _hoisted_7, [
+                    _cache[3] || (_cache[3] = _createElementVNode("span", null, "规则数量", -1)),
+                    _createElementVNode("span", null, _toDisplayString(clashInfo.value.rules?.rules.length), 1)
+                  ]),
+                  _createElementVNode("div", _hoisted_8, [
+                    _cache[4] || (_cache[4] = _createElementVNode("span", null, "规则集数量", -1)),
+                    _createElementVNode("span", null, _toDisplayString(Object.keys(clashInfo.value?.["rule-providers"]?.["providers"] || {}).length || 0), 1)
                   ])
                 ])
-              ]),
-              _: 1
-            })
-          ]),
-          _: 1
-        }))
+              ])
+            ]),
+            _: 1
+          })
+        ]),
+        _: 1
+      });
+    };
+  }
+});
+
+const {defineComponent:_defineComponent} = await importShared('vue');
+
+const {openBlock:_openBlock,createBlock:_createBlock,createElementBlock:_createElementBlock} = await importShared('vue');
+
+const _hoisted_1 = { class: "dashboard-widget" };
+const _sfc_main = /* @__PURE__ */ _defineComponent({
+  __name: "Dashboard",
+  props: {
+    config: {
+      type: Object,
+      default: () => ({})
+    },
+    allowRefresh: {
+      type: Boolean,
+      default: true
+    },
+    api: {
+      type: Object,
+      required: true
+    }
+  },
+  setup(__props) {
+    return (_ctx, _cache) => {
+      return _openBlock(), _createElementBlock("div", _hoisted_1, [
+        __props.config?.key === "traffic_stats" ? (_openBlock(), _createBlock(_sfc_main$2, {
+          key: 0,
+          config: __props.config,
+          "allow-refresh": __props.allowRefresh
+        }, null, 8, ["config", "allow-refresh"])) : (_openBlock(), _createBlock(_sfc_main$1, {
+          key: 1,
+          config: __props.config,
+          "allow-refresh": __props.allowRefresh,
+          api: __props.api
+        }, null, 8, ["config", "allow-refresh", "api"]))
       ]);
     };
   }
 });
 
-const DashboardComponent = /* @__PURE__ */ _export_sfc(_sfc_main, [["__scopeId", "data-v-de7a088e"]]);
+const DashboardComponent = /* @__PURE__ */ _export_sfc(_sfc_main, [["__scopeId", "data-v-318a5020"]]);
 
 export { DashboardComponent as default };

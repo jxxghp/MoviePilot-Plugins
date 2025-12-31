@@ -1,9 +1,8 @@
 # Clash Rule Provider
 
-**Clash Rule Provider** 生成适用于 [Meta Kernel](https://github.com/MetaCubeX/mihomo/tree/Meta) 定制配置，便于增加、修改和删除规则。
+**Clash Rule Provider** 是一个[MoviePilot](https://github.com/jxxghp/MoviePilot)插件，用于生成适用于 [Meta Kernel](https://github.com/MetaCubeX/mihomo/tree/Meta) 定制配置，便于增加、修改和删除规则，基于 Meta 内核丰富的代理组配置，提供灵活的路由功能。
 
 - 即时通知 Clash 刷新规则集合
-- 基于 Meta 内核丰富的代理组配置，提供灵活的路由功能
 - 支持按大洲和国家分组节点
 - 支持覆写出站代理
 - GEO 规则输入提示
@@ -13,7 +12,7 @@
 
 ### 规则集规则
 
-用于添加能够在 Clash 中即时生效的规则，Clash Rule Provider 会根据每条规则的**出站**生成相应的**规则集合** `📂<-` + `出站`。
+用于添加能够在 Clash 中即时生效的规则，Clash Rule Provider 会根据每条规则的**出站**生成相应的**规则集合**。
 
 ### 置顶规则
 
@@ -42,3 +41,27 @@
 ### Hosts
 
 如果需要自动更新此处使用的 Cloudflare IP, 可以通过其它[插件](https://github.com/wumode/MoviePilot-Addons)实现。
+
+### 配置隐藏
+
+如果希望某些代理组、规则或是代理节点仅在特定条件下可见，可以使用可见性限制功能。例如，可以设置某些规则集仅在特定网络环境下可见。
+自定义表达式是个返回`bool`值的Python表达式，可以使用以下变量:
+
+```python
+# 请求 URL
+url: str
+# 客户端的IP地址
+client_host: str
+# 请求的标识符
+identifier: str | None = None
+# User-Agent
+user_agent : str | None = None
+```
+
+表达式示例:
+- `client_host == '192.168.1.1'`
+- `identifier == 'office-laptop' and 'Mobile' in user_agent`
+
+## 远程组件
+
+[ClashRuleProvider-Remote](https://github.com/wumode/ClashRuleProvider-Remote)

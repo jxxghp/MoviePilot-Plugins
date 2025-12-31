@@ -1,18 +1,10 @@
-import time
-
-from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union, Iterator
 
-from .clashruleparser import ClashRuleParser
-from ..models.rule import Action, RoutingRuleType, MatchRule, ClashRule, LogicRule, SubRule
+from pydantic import TypeAdapter, ValidationError
 
-
-@dataclass
-class RuleItem:
-    """Clash rule item"""
-    rule: Union[ClashRule, LogicRule, MatchRule, SubRule]
-    remark: str = field(default="")
-    time_modified: float = field(default=0)
+from ..models.metadata import Metadata
+from ..models.rule import Action, RoutingRuleType, MatchRule, ClashRule, LogicRule
+from ..models.ruleitem import RuleItem, RuleData
 
 
 class ClashRuleManager:
@@ -21,20 +13,17 @@ class ClashRuleManager:
         self.rules: List[RuleItem] = []
 
     def import_rules(self, rules_list: List[Dict[str, Any]]):
-        self.rules = []
+        self.rules.clear()
         for r in rules_list:
-            rule = ClashRuleParser.parse_rule_line(r['rule'])
-            if rule is None:
+            try:
+                rule = RuleItem.model_validate(r)
+            except ValidationError:
                 continue
-            remark = r.get('remark', '')
-            time_modified = r.get('time_modified', time.time())
-            self.rules.append(RuleItem(rule=rule, remark=remark, time_modified=time_modified))
+            self.rules.append(rule)
 
     def export_rules(self) -> List[Dict[str, str]]:
-        rules_list = []
-        for rule in self.rules:
-            rules_list.append({'rule': str(rule.rule), 'remark': rule.remark, 'time_modified': rule.time_modified})
-        return rules_list
+        adapter = TypeAdapter(list[RuleItem])
+        return adapter.dump_python(self.rules, mode='json')
 
     def append_rules(self, clash_rules: List[RuleItem]):
         self.rules.extend(clash_rules)
@@ -63,6 +52,15 @@ class ClashRuleManager:
         if 0 <= priority < len(self.rules):
             return self.rules.pop(priority)
         return None
+
+    def remove_rules_at_priorities(self, priorities: list[int]) -> list[RuleItem]:
+        """Remove rules at specific priorities"""
+        removed = []
+        # Sort priorities in descending order to avoid index shift issues during removal
+        for priority in sorted(priorities, reverse=True):
+            if 0 <= priority < len(self.rules):
+                removed.append(self.rules.pop(priority))
+        return removed
 
     def remove_rules_by_lambda(self, condition: Callable[[RuleItem], bool]):
         """Remove rules by lambda"""
@@ -101,7 +99,7 @@ class ClashRuleManager:
         return any(r.rule == clash_rule for r in self.rules)
 
     def has_rule_item(self, clash_rule: RuleItem) -> bool:
-        return any(clash_rule.remark == r.remark and r.rule == clash_rule.rule for r in self.rules)
+        return any(clash_rule.meta.source == r.meta.source and r.rule == clash_rule.rule for r in self.rules)
 
     def reorder_rules(self, moved_priority: int, target_priority: int) -> RuleItem:
         """Reorder the rules"""
@@ -113,13 +111,27 @@ class ClashRuleManager:
         self.rules.insert(target_priority, rule)
         return rule
 
-    def to_list(self) -> List[Dict[str, Any]]:
+    def update_rules_at_priorities(self, priorities: dict[int, bool]) -> list[RuleItem]:
+        """Disable rules"""
+        updated = []
+        for priority, disabled in priorities.items():
+            if 0 <= priority < len(self.rules):
+                self.rules[priority].meta.disabled = disabled
+                updated.append(self.rules[priority])
+        return updated
+
+    def update_rule_meta_at_priority(self, priority: int, meta: Metadata) -> bool:
+        """Update rule metadata at priority"""
+        if 0 <= priority < len(self.rules):
+            self.rules[priority].meta = meta
+            return True
+        return False
+
+    def to_list(self) -> list[RuleData]:
         """Convert parsed rules to a list"""
-        result = []
+        result: list[RuleData] = []
         for priority, rule_item in enumerate(self.rules):
-            rule_dict = {'remark': rule_item.remark, 'time_modified': rule_item.time_modified,'priority': priority,
-                         **rule_item.rule.to_dict()}
-            result.append(rule_dict)
+            result.append(RuleData.from_rule_item(rule_item, priority))
         return result
 
     def clear(self):
