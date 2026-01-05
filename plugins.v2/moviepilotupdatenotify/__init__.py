@@ -23,7 +23,7 @@ class MoviePilotUpdateNotify(_PluginBase):
     # 插件图标
     plugin_icon = "Moviepilot_A.png"
     # 插件版本
-    plugin_version = "2.2"
+    plugin_version = "2.3"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -171,7 +171,7 @@ class MoviePilotUpdateNotify(_PluginBase):
         """
         result = self.__get_latest_version("https://api.github.com/repos/jxxghp/MoviePilot/releases")
         if result:
-            return result['tag_name'], result['body'], result['published_at']
+            return result['tag_name'], f"{result['body'] or ''}", result['published_at']
         return None, None, None
 
     def __get_front_latest(self):
@@ -180,7 +180,7 @@ class MoviePilotUpdateNotify(_PluginBase):
         """
         result = self.__get_latest_version("https://api.github.com/repos/jxxghp/MoviePilot-Frontend/releases")
         if result:
-            return result['tag_name'], result['body'], result['published_at']
+            return result['tag_name'], f"{result['body'] or ''}", result['published_at']
         return None, None, None
 
     def get_state(self) -> bool:

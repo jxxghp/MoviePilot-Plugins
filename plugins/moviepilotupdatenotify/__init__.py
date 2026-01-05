@@ -22,7 +22,7 @@ class MoviePilotUpdateNotify(_PluginBase):
     # 插件图标
     plugin_icon = "Moviepilot_A.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -151,7 +151,7 @@ class MoviePilotUpdateNotify(_PluginBase):
         if version_res:
             ver_json = version_res.json()
             version = f"{ver_json['tag_name']}"
-            description = f"{ver_json['body']}"
+            description = f"{ver_json['body'] or ''}"
             update_time = f"{ver_json['published_at']}"
             return version, description, update_time
         else:
@@ -167,7 +167,7 @@ class MoviePilotUpdateNotify(_PluginBase):
         if version_res:
             ver_json = version_res.json()
             version = f"{ver_json['tag_name']}"
-            description = f"{ver_json['body']}"
+            description = f"{ver_json['body'] or ''}"
             update_time = f"{ver_json['published_at']}"
             return version, description, update_time
         else:
