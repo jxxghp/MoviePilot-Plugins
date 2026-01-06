@@ -6,19 +6,26 @@ import socket
 import time
 from datetime import datetime, timedelta
 from ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address
+from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional, Literal, overload
+from urllib.parse import urlparse
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Response
 from pydantic import BaseModel, Field
+from torrentool.api import Torrent
+from torrentool.exceptions import BencodeDecodingError
 
+from app.chain.torrents import TorrentsChain
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.db.site_oper import SiteOper
+from app.helper.torrent import TorrentHelper
 from app.log import logger
 from app.plugins import _PluginBase
+from app.scheduler import Scheduler
 from app.schemas.types import EventType, NotificationType
 from app.utils.http import RequestUtils
 from .dns_helper import DnsHelper
@@ -55,7 +62,7 @@ class ToBypassTrackers(_PluginBase):
     # 插件图标
     plugin_icon = "Clash_A.png"
     # 插件版本
-    plugin_version = "1.5.1"
+    plugin_version = "1.5.2"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -74,6 +81,7 @@ class ToBypassTrackers(_PluginBase):
     # 开关
     _enabled: bool = False
     _cron: str = ""
+    _sync_cron: str = ""
     _notify: bool = False
     _onlyonce: bool = False
     _custom_trackers: str = ""
@@ -84,24 +92,15 @@ class ToBypassTrackers(_PluginBase):
     _bypass_ipv4: bool = True
     _bypass_ipv6: bool = True
     _dns_input: str | None = None
-    trackers: Dict[str, List[str]] = {}
 
     def init_plugin(self, config: dict = None):
 
         self.stop_service()
-        self.trackers = {}
-
-        try:
-            site_file = settings.ROOT_PATH/'app'/'plugins'/self.__class__.__name__.lower()/'sites'/'trackers'
-            with open(site_file, "r", encoding="utf-8") as f:
-                base64_str = f.read()
-                self.trackers = json.loads(base64.b64decode(base64_str).decode("utf-8"))
-        except Exception as e:
-            logger.error(f"插件加载错误：{e}")
         # 配置
         if config:
             self._enabled = bool(config.get("enabled"))
             self._cron = config.get("cron") or "0 4 * * *"
+            self._sync_cron = config.get("sync_cron") or "30 4 * * 1"
             self._onlyonce = bool(config.get("onlyonce"))
             self._notify = bool(config.get("notify"))
             self._custom_trackers = config.get("custom_trackers") or ""
@@ -137,6 +136,7 @@ class ToBypassTrackers(_PluginBase):
             {
                 "enabled": self._enabled,
                 "cron": self._cron,
+                "sync_cron": self._sync_cron,
                 "onlyonce": self._onlyonce,
                 "bypassed_sites": self._bypassed_sites,
                 "custom_trackers": self._custom_trackers,
@@ -146,7 +146,7 @@ class ToBypassTrackers(_PluginBase):
                 "china_ip_route": self._china_ip_route,
                 "china_ipv6_route": self._china_ipv6_route,
                 "bypass_ipv6": self._bypass_ipv6,
-                "bypass_ipv4": self._bypass_ipv4
+                "bypass_ipv4": self._bypass_ipv4,
             }
         )
 
@@ -327,7 +327,7 @@ class ToBypassTrackers(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -344,7 +344,24 @@ class ToBypassTrackers(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VCronField',
+                                        'props': {
+                                            'model': 'sync_cron',
+                                            'label': 'Trackers 更新周期',
+                                            'placeholder': '30 4 * * 1'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -526,7 +543,8 @@ class ToBypassTrackers(_PluginBase):
             "china_ip_route": True,
             "china_ipv6_route": True,
             "bypass_ipv4": True,
-            "bypass_ipv6": True
+            "bypass_ipv6": True,
+            "sync_cron": "30 4 * * 1"
         }
 
     def get_page(self) -> List[dict]:
@@ -663,14 +681,84 @@ class ToBypassTrackers(_PluginBase):
         }]
         """
         if self.get_state():
-            return [{
-                "id": "ToBypassTrackers",
-                "name": "绕过Trackers服务",
-                "trigger": CronTrigger.from_crontab(self._cron),
-                "func": self.update_ips,
-                "kwargs": {}
-            }]
+            return [
+                {
+                    "id": "UpdateIPs",
+                    "name": "更新IP列表",
+                    "trigger": CronTrigger.from_crontab(self._cron),
+                    "func": self.update_ips,
+                    "kwargs": {}
+                },
+                {
+                    "id": "GetTrackers",
+                    "name": "更新Trackers",
+                    "trigger": CronTrigger.from_crontab(self._sync_cron),
+                    "func": self.refresh_trackers,
+                    "kwargs": {}
+                }
+            ]
         return []
+
+    @eventmanager.register(EventType.PluginReload)
+    def reload(self, event):
+        """
+        响应插件重载事件
+        """
+        plugin_id = event.event_data.get("plugin_id")
+
+        if plugin_id == self.__class__.__name__:
+            Scheduler().update_plugin_job(plugin_id)
+
+    @property
+    def trackers(self) -> dict[str, list[str]]:
+        trackers: dict[str, list[str]] = {}
+        tracker_file = Path(self.get_data_path() / "trackers.json")
+        try:
+            if tracker_file.exists():
+                trackers: dict[str, list[str]] = json.loads(tracker_file.read_text())
+            else:
+                file = settings.ROOT_PATH / 'app' / 'plugins' / self.__class__.__name__.lower() / 'sites' / 'trackers'
+                with open(file, "r", encoding="utf-8") as f:
+                    base64_str = f.read()
+                    trackers = json.loads(base64.b64decode(base64_str).decode("utf-8"))
+        except Exception as e:
+            logger.error(f"trackers 加载错误：{e}")
+        return trackers
+
+    def refresh_trackers(self):
+        """更新 Tracker 服务器列表"""
+        logger.info("开始从站点获取最新 Tracker 服务器 ...")
+        trackers = self.trackers
+        sites = [site for site in SiteOper().list_order_by_pri() if site.id in self._bypassed_sites]
+        torrents_chain = TorrentsChain()
+        for site in sites:
+            torrents = torrents_chain.browse(domain=site.domain)
+            if not torrents:
+                continue
+            torrent_url = torrents[0].enclosure
+            _, content, _, _, error_msg = TorrentHelper().download_torrent(
+                url=torrent_url,
+                cookie=site.cookie,
+                ua=site.ua or settings.USER_AGENT,
+                proxy=bool(site.proxy))
+            if not content or error_msg:
+                continue
+            try:
+                torrent = Torrent.from_string(content)
+            except BencodeDecodingError as e:
+                logger.error(f"解析 {site.name} 种子文件失败: {e}")
+                continue
+            servers: list[str] = []
+            for urls in torrent.announce_urls:
+                for url in urls:
+                    parsed = urlparse(url)
+                    if parsed.hostname:
+                        servers.append(parsed.hostname)
+            if servers:
+                trackers[site.domain] = servers
+        tracker_file = Path(self.get_data_path() / "trackers.json")
+        tracker_file.write_text(json.dumps(trackers, indent=4))
+        logger.info("已更新 Tracker 服务器列表")
 
     def bypassed_ips(self, protocol: Literal['4', '6']) -> Response:
         data_key = "ipv4_txt" if protocol == '4' else "ipv6_txt"
