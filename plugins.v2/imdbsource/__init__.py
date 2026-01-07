@@ -34,7 +34,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.6.5"
+    plugin_version = "1.6.6"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -285,28 +285,19 @@ class ImdbSource(_PluginBase):
                         },
                         'content': [
                             {
-                                'component': 'RouterLink',
+                                'component': 'h1',
                                 'props': {
-                                    'to': mp_url,
-                                    'class': 'no-underline'
+                                    'class': 'mb-1 text-white text-shadow font-extrabold text-2xl line-clamp-2 overflow-hidden text-ellipsis ...'
                                 },
-                                'content': [
-                                    {
-                                        'component': 'h1',
-                                        'props': {
-                                            'class': 'mb-1 text-white text-shadow font-extrabold text-2xl line-clamp-2 overflow-hidden text-ellipsis ...'
-                                        },
-                                        'html': f"{entry.name} <span class='text-base font-normal'>{year}</span>",
-                                    },
-                                    {
-                                        'component': 'span',
-                                        'props': {
-                                            'class': 'text-shadow line-clamp-2 overflow-hidden text-ellipsis ...'
-                                        },
-                                        'html': imdb_title.plot_text,
-                                    }
-                                ]
+                                'html': f"{entry.name} <span class='text-base font-normal'>{year}</span>",
                             },
+                            {
+                                'component': 'span',
+                                'props': {
+                                    'class': 'text-shadow line-clamp-2 overflow-hidden text-ellipsis ...'
+                                },
+                                'html': imdb_title.plot_text,
+                            }
                         ]
                     }
                 ]
@@ -392,7 +383,8 @@ class ImdbSource(_PluginBase):
                     {
                         'component': 'a',
                         'props': {
-                            'href': f'#{mp_url}',
+                            'href': f"https://www.imdb.com/title/{entry.ttconst}",
+                            'target': '_blank',
                             'class': 'no-underline w-100',
                             'style': 'display: flex; justify-content: center;'
                         },
@@ -454,15 +446,17 @@ class ImdbSource(_PluginBase):
                     {
                         'component': 'a',
                         'props': {
-                            'href': f"https://www.imdb.com/title/{entry.ttconst}",
-                            'target': '_blank',
+                            'href': f'#{mp_url}',
                             'rel': 'noopener noreferrer',
                             'class': 'text-h4 font-weight-bold mb-2 d-flex text-white align-center',
                         },
                         'content': [
                             {
                                 'component': 'span',
-                                'html': f"{entry.name}"
+                                'html': f"{entry.name}",
+                                'props': {
+                                    'class': 'line-clamp-2 overflow-hidden',
+                                }
                             },
                             {
                                 'component': 'v-icon',
