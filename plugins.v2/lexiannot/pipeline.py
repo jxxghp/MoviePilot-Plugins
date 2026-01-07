@@ -406,6 +406,7 @@ def _context_process_chain(
                 [
                     f"- {word.text} (WORD_ID: {word.meta.word_id}, LEMMA: {word.lemma}, CEFR: {word.cefr}, POS: {word.pos})"
                     for seg in segment_list
+                    if start <= seg.index <= end
                     for word in seg.candidate_words
                 ]
             ),
@@ -468,7 +469,7 @@ def _context_process_chain(
                 )
 
                 built_word = _update_word_via_lexicon(built_word, lexi)
-                if built_word.cefr and built_word.cefr < leaner_level:
+                if built_word.cefr and built_word.cefr <= leaner_level:
                     continue
                 seg.candidate_words.append(built_word)
 
@@ -477,26 +478,31 @@ def _context_process_chain(
             (
                 "system",
                 """You are an expert in linguistics and language learning. Your task is to analyze subtitle segments.
-Please perform the following tasks for an English learner at {leaner_level} CEFR level.
+Please perform the following tasks for an non-native English learner.
 
-**CRITICAL INSTRUCTION**: The learner is advanced. They already know common daily vocabulary.
-Your goal is to identify **only** content that helps them reach native-level proficiency.
+**CRITICAL INSTRUCTION**: The learner is at the {leaner_level} level.
+They are proficient in vocabulary at or below this level.
+Your goal is two-fold:
+1.  **Learning**: Identify content challenging for their current level.
+2.  **Comprehension**: Ensure they understand **specific or low-frequency vocabulary** crucial for the narrative, even if it is not "core" vocabulary.
 
 1.  **Review and Evaluate Candidate Words:**
-    *   **Goal**: Filter out simple words and correct any errors in lemma/POS/text.
+    *   **Goal**: Filter out words that are easy, BUT **retain** rare or specific words needed for understanding.
     *   **Action**: Return feedback items **ONLY** for words that:
         1.  Should be **discarded** (too simple, trivial filler, profanity without cultural value). Set `should_keep` to `False`.
         2.  Need **correction** (wrong lemma, POS, or text boundary). Set `should_keep` to `True` and provide correct values.
     *   **Implicit Rule**: If a word is appropriate for the learner and has correct info, **DO NOT** include it in the output list.
-    *   **Keep criteria**: Keep simple words **ONLY IF** used in a non-literal, metaphorical, or idiomatic sense.
-    *   **Discard criteria**: Discard trivial conversational fillers ('gonna', 'wanna'), simple interjections, common profanity, and words below {leaner_level} level.
+    *   **Keep criteria**:
+        *    Keep simple words **ONLY IF** used in a non-literal, metaphorical, or idiomatic sense.
+        *   **Specific/Concrete Vocabulary**: Keep low-frequency words (e.g., like 'chamomile', 'cavernous' for B2) that are rare but essential for visualizing the scene or understanding the plot. **Do NOT discard these just because they are rare.**
+    *   **Discard criteria**: Discard trivial conversational fillers ('gonna', 'wanna'), simple interjections, common profanity, and words well below {leaner_level} level (unless they fit the 'Keep criteria').
 
 2.  **Identify Missed Words:**
-    *   Identify any additional single words or phrases (typically 1-3 words) from the `context_text` that may be important for {leaner_level} learners. This specifically includes:
-        *   **Slang or informal expressions.**
-        *   **Internet terms or modern colloquialisms.**
-        *   **Words or phrases that require specific cultural background knowledge to understand.**
-        *   **Any other words or phrases that are challenging.**
+    *   Identify any additional single words or phrases (typically 1-3 words) from the `context_text` that may be important for {leaner_level} learners or for **plot comprehension**.
+    *   **Targets**:
+        *   **Slang, idioms, or modern colloquialisms.**
+        *   **Low-frequency words** (e.g., 'shimmer', 'rugged') missed by the algorithm.
+        *   **Words requiring cultural background.**
     *   Avoid repeating words already listed in `candidate_words`.
     *   Must exist in the exact form in `context_text`.
     *   Provide lemma and POS.
