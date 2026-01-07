@@ -3,7 +3,6 @@ import os
 import json
 import queue
 import re
-import shutil
 import subprocess
 import sys
 import threading
@@ -61,7 +60,7 @@ class LexiAnnot(_PluginBase):
     # 插件图标
     plugin_icon = "LexiAnnot.png"
     # 插件版本
-    plugin_version = "1.2.1"
+    plugin_version = "1.2.2"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -163,10 +162,6 @@ class LexiAnnot(_PluginBase):
             self._color_alpha = int(self._opacity) if self._opacity and len(self._opacity) else 0
         if self._delete_data:
             # 删除不再保存在数据库的数据
-            self.del_data("cefr_lexicon")
-            self.del_data("coca2k_lexicon")
-            self.del_data("swear_words")
-            self.del_data("lexicon_version")
             self.delete_data()
             self._delete_data = False
             self._loaded = False
@@ -1064,15 +1059,6 @@ class LexiAnnot(_PluginBase):
             logger.error(f"词典 {lexicon_path} 删除失败: {e}")
         self._load_lexicon_from_local.cache_clear()
 
-        # 删除虚拟环境
-        venv_dir = data_path / "venv_genai"
-        if os.path.exists(venv_dir):
-            try:
-                shutil.rmtree(venv_dir)
-                logger.info(f"虚拟环境 {venv_dir} 已删除")
-            except Exception as e:
-                logger.error(f"虚拟环境 {venv_dir} 删除失败: {e}")
-
         # 删除任务记录
         with self._tasks_lock:
             self._tasks = {}
@@ -1324,9 +1310,7 @@ class LexiAnnot(_PluginBase):
 
         ffmpeg_path = self._ffmpeg_path if self._ffmpeg_path else "ffmpeg"
         eng_mark = ["en", "en-US", "eng", "en-GB", "english", "en-AU"]
-        embedded_subtitles = LexiAnnot._extract_subtitles_by_lang(
-            path, eng_mark, ffmpeg_path
-        )
+        embedded_subtitles = LexiAnnot._extract_subtitles_by_lang(path, eng_mark, ffmpeg_path)
         if not embedded_subtitles:
             return ProcessResult(
                 status=TaskStatus.CANCELED, message="未找到嵌入式英文文本字幕"
@@ -1345,22 +1329,14 @@ class LexiAnnot(_PluginBase):
             logger.info(f"提取到 {len(embedded_subtitles)} 条英语文本字幕")
             for embedded_subtitle in embedded_subtitles:
                 if self._shutdown_event.is_set():
-                    return ProcessResult(
-                        status=TaskStatus.CANCELED, message="任务已取消"
-                    )
-                ass_subtitle = SSAFile.from_string(
-                    embedded_subtitle["subtitle"], format_="ass"
-                )
+                    return ProcessResult(status=TaskStatus.CANCELED, message="任务已取消")
+                ass_subtitle = SSAFile.from_string(embedded_subtitle["subtitle"], format_="ass")
                 if embedded_subtitle.get("codec_id") == "S_TEXT/UTF8":
                     ass_subtitle = LexiAnnot.set_srt_style(ass_subtitle)
                 ass_subtitle = self.__set_style(ass_subtitle)
-                ass_subtitle, stat = self.process_subtitles(
-                    ass_subtitle, lexi, spacy_worker, mediainfo
-                )
+                ass_subtitle, stat = self.process_subtitles(ass_subtitle, lexi, spacy_worker, mediainfo)
                 if self._shutdown_event.is_set():
-                    return ProcessResult(
-                        status=TaskStatus.CANCELED, message="任务已取消"
-                    )
+                    return ProcessResult(status=TaskStatus.CANCELED, message="任务已取消")
                 if ass_subtitle:
                     try:
                         ass_subtitle.save(str(ass_file))
@@ -1810,7 +1786,7 @@ class LexiAnnot(_PluginBase):
     @staticmethod
     def _extract_subtitles_by_lang(
             video_path: str, lang: str | list = "en", ffmpeg: str = "ffmpeg"
-    ) -> Optional[List[Dict]]:
+    ) -> list[dict]:
         """
         提取视频文件中的内嵌英文字幕，使用 MediaInfo 查找字幕流。
         """
@@ -1853,21 +1829,25 @@ class LexiAnnot(_PluginBase):
                             }
                         )
             if subtitles:
-                return subtitles
-            else:
+                # remove outliers with abnormally short duration
+                if len(subtitles) > 1:
+                    durations = [sub["duration"] for sub in subtitles if sub["duration"] > 0]
+                    if durations:
+                        avg_duration = sum(durations) / len(durations)
+                        subtitles = [
+                            sub for sub in subtitles if sub["duration"] >= avg_duration * 0.2
+                        ]
+            if not subtitles:
                 logger.warn("未找到标记为英语的文本字幕流")
-                return None
 
         except FileNotFoundError:
             logger.error(f"找不到视频文件 '{video_path}'")
-            return None
         except subprocess.CalledProcessError as e:
             logger.error(f"错误：提取字幕失败。\n错误信息：{e}")
             logger.error(f"FFmpeg 输出 (stderr):\n{e.stderr}")
-            return None
         except Exception as e:
             logger.error(f"使用 MediaInfo 提取字幕时发生错误：{e}")
-            return None
+        return subtitles
 
     def _process_chain(
             self,
@@ -1884,12 +1864,9 @@ class LexiAnnot(_PluginBase):
         :param spacy_worker: spaCy 分词器
         :returns: 处理后的字幕行列表
         """
-        simple_vocabulary = set(
-            filter(
-                lambda x: x < self._annot_level, ["A1", "A2", "B1", "B2", "C1", "C2"]
-            )
-        )
-
+        CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
+        simple_vocabulary = set(filter(lambda x: x < self._annot_level, CEFR_LEVELS))
+        learner_level = max(simple_vocabulary)
         model_temperature = float(self._model_temperature) if self._model_temperature else 0.3
         logger.info("通过 spaCy 分词...")
         for seg in segments:
@@ -1927,7 +1904,7 @@ class LexiAnnot(_PluginBase):
                 segments=segments,
                 shutdown_event=self._shutdown_event,
                 context_window=self._context_window,
-                leaner_level=self._annot_level,
+                leaner_level=learner_level,
                 media_context=mediainfo,
                 translate_sentences=self._sentence_translation
             )
