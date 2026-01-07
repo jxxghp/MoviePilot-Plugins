@@ -1864,7 +1864,8 @@ class LexiAnnot(_PluginBase):
         :param spacy_worker: spaCy 分词器
         :returns: 处理后的字幕行列表
         """
-        simple_vocabulary = set(filter(lambda x: x < self._annot_level, ["A1", "A2", "B1", "B2", "C1", "C2"]))
+        CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
+        simple_vocabulary = set(filter(lambda x: x < self._annot_level, CEFR_LEVELS))
         learner_level = max(simple_vocabulary)
         model_temperature = float(self._model_temperature) if self._model_temperature else 0.3
         logger.info("通过 spaCy 分词...")

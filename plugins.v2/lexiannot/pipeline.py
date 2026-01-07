@@ -696,7 +696,7 @@ def llm_process_chain(
     segments: SegmentList,
     shutdown_event: threading.Event,
     context_window: int = 30,
-    leaner_level: str = "C1",
+    learner_level: str = "C1",
     media_context: Context | None = None,
     translate_sentences: bool = False,
 ) -> SegmentList:
@@ -708,7 +708,7 @@ def llm_process_chain(
     :param segments: 字幕片段
     :param shutdown_event: 关闭事件
     :param context_window: 上下文窗口大小
-    :param leaner_level: 学习者的 CEFR 水平
+    :param learner_level: 学习者的 CEFR 水平
     :param media_context: 媒体信息
     :param translate_sentences: 是否翻译句子
     :returns: 更新后的字幕片段列表
@@ -732,7 +732,7 @@ def llm_process_chain(
         )
         segments_list.extend(
             _context_process_chain(
-                lexi, llm, context, start, end, leaner_level, media_name, translate_sentences
+                lexi, llm, context, start, end, learner_level, media_name, translate_sentences
             )
         )
 
