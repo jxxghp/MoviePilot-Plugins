@@ -1,0 +1,15 @@
+{
+  "ShBark": {
+    "name": "Bark消息推送【自用】",
+    "description": "支持使用Bark发送消息通知【自用】",
+    "labels": "消息通知",
+    "version": "1.0",
+    "icon": "",
+    "author": "SunHang",
+    "level": 1,
+    "v2": true,
+    "history": {
+      "v1.0": "增加消息过滤，只发给过滤后的用户"
+    }
+  }
+}
