@@ -156,6 +156,13 @@ class ClashConfig(BaseModel):
 
         return serialized_groups
 
+    @field_validator("mode", mode="before")
+    @classmethod
+    def validate_mode(cls, v):
+        if isinstance(v, str):
+            return v.lower()
+        return v
+
     @field_validator("rules", mode="before")
     @classmethod
     def validate_rules(cls, v):

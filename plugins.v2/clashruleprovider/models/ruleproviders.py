@@ -1,6 +1,6 @@
-from typing import List, Optional, Literal
+from typing import Annotated, List, Optional, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .generics import ResourceItem, ResourceList
 from .types import VehicleType
@@ -14,15 +14,17 @@ class RuleProvider(BaseModel):
     )
 
     type: VehicleType = Field(..., description="Provider type")
-    url: Optional[HttpUrl] = Field(default=None, description="Must be configured if the type is http")
+    url: Optional[str] = Field(default=None, description="Must be configured if the type is http")
     path: Optional[str] = Field(default=None, description="Optional, file path, must be unique.")
     interval: Optional[int] = Field(default=None, ge=0, description="The update interval for the provider, in seconds.")
     proxy: Optional[str] = Field(default=None, description="Download/update through the specified proxy.")
     behavior: Optional[Literal["domain", "ipcidr", "classical"]] = Field(None,
                                                                          description="Behavior of the rule provider")
     format: Literal["yaml", "text", "mrs"] = Field("yaml", description="Format of the rule provider file")
-    size_limit: int = Field(default=0, ge=0, alias="size-limit",
-                            description="The maximum size of downloadable files in bytes (0 for no limit)")
+    size_limit: Annotated[int, Field(
+        default=0, ge=0, validation_alias="size-limit", serialization_alias="size-limit",
+        description="The maximum size of downloadable files in bytes (0 for no limit)")
+    ] = 0
     payload: Optional[List[str]] = Field(default=None, description="Content, only effective when type is inline")
 
     @model_validator(mode="before")

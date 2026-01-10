@@ -3952,7 +3952,7 @@ const _sfc_main$w = /* @__PURE__ */ _defineComponent$w({
 
 const {defineComponent:_defineComponent$v} = await importShared('vue');
 
-const {createTextVNode:_createTextVNode$v,resolveComponent:_resolveComponent$v,withCtx:_withCtx$v,createVNode:_createVNode$v,createElementVNode:_createElementVNode$o,renderList:_renderList$a,Fragment:_Fragment$b,openBlock:_openBlock$v,createElementBlock:_createElementBlock$c,toDisplayString:_toDisplayString$s,createBlock:_createBlock$v,createCommentVNode:_createCommentVNode$o} = await importShared('vue');
+const {createTextVNode:_createTextVNode$v,resolveComponent:_resolveComponent$v,withCtx:_withCtx$v,createVNode:_createVNode$v,createElementVNode:_createElementVNode$o,renderList:_renderList$a,Fragment:_Fragment$b,openBlock:_openBlock$v,createElementBlock:_createElementBlock$c,toDisplayString:_toDisplayString$s,createBlock:_createBlock$v,createCommentVNode:_createCommentVNode$r} = await importShared('vue');
 
 const _hoisted_1$l = { class: "d-flex align-center justify-space-between mb-2" };
 const _hoisted_2$f = {
@@ -4154,7 +4154,7 @@ const _sfc_main$v = /* @__PURE__ */ _defineComponent$v({
                       }, null, 8, ["onClick"])
                     ]);
                   }), 128)),
-                  customExpressions.value.length === 0 ? (_openBlock$v(), _createElementBlock$c("div", _hoisted_2$f, " 无自定义表达式 ")) : _createCommentVNode$o("", true)
+                  customExpressions.value.length === 0 ? (_openBlock$v(), _createElementBlock$c("div", _hoisted_2$f, " 无自定义表达式 ")) : _createCommentVNode$r("", true)
                 ]),
                 _: 1
               }),
@@ -4278,7 +4278,7 @@ const defaultRuleProvider = {
 
 const {defineComponent:_defineComponent$u} = await importShared('vue');
 
-const {createTextVNode:_createTextVNode$u,resolveComponent:_resolveComponent$u,withCtx:_withCtx$u,createVNode:_createVNode$u,mergeProps:_mergeProps$i,unref:_unref$p,openBlock:_openBlock$u,createBlock:_createBlock$u,createCommentVNode:_createCommentVNode$n,toDisplayString:_toDisplayString$r} = await importShared('vue');
+const {createTextVNode:_createTextVNode$u,resolveComponent:_resolveComponent$u,withCtx:_withCtx$u,createVNode:_createVNode$u,mergeProps:_mergeProps$m,unref:_unref$p,openBlock:_openBlock$u,createBlock:_createBlock$u,createCommentVNode:_createCommentVNode$q,toDisplayString:_toDisplayString$r} = await importShared('vue');
 const _sfc_main$u = /* @__PURE__ */ _defineComponent$u({
   __name: "RuleActionMenu",
   props: {
@@ -4304,7 +4304,7 @@ const _sfc_main$u = /* @__PURE__ */ _defineComponent$u({
       const _component_v_menu = _resolveComponent$u("v-menu");
       return _openBlock$u(), _createBlock$u(_component_v_menu, { "min-width": "120" }, {
         activator: _withCtx$u(({ props }) => [
-          _createVNode$u(_component_v_btn, _mergeProps$i({
+          _createVNode$u(_component_v_btn, _mergeProps$m({
             color: "secondary",
             icon: "",
             size: "small",
@@ -4329,7 +4329,7 @@ const _sfc_main$u = /* @__PURE__ */ _defineComponent$u({
               _createTextVNode$u(" 根据规则集自动添加 ")
             ])),
             _: 1
-          })) : _createCommentVNode$n("", true)
+          })) : _createCommentVNode$q("", true)
         ]),
         default: _withCtx$u(() => [
           _createVNode$u(_component_v_list, { density: "compact" }, {
@@ -4382,7 +4382,7 @@ const _sfc_main$u = /* @__PURE__ */ _defineComponent$u({
                   })
                 ]),
                 _: 1
-              })) : _createCommentVNode$n("", true),
+              })) : _createCommentVNode$q("", true),
               !__props.hideVisibility ? (_openBlock$u(), _createBlock$u(_component_v_list_item, {
                 key: 1,
                 onClick: _cache[2] || (_cache[2] = ($event) => emit("editVisibility"))
@@ -4407,7 +4407,7 @@ const _sfc_main$u = /* @__PURE__ */ _defineComponent$u({
                   })
                 ]),
                 _: 1
-              })) : _createCommentVNode$n("", true),
+              })) : _createCommentVNode$q("", true),
               !_unref$p(isSystemRule)(__props.rule) ? (_openBlock$u(), _createBlock$u(_component_v_list_item, {
                 key: 2,
                 onClick: _cache[3] || (_cache[3] = ($event) => emit("delete"))
@@ -4432,7 +4432,7 @@ const _sfc_main$u = /* @__PURE__ */ _defineComponent$u({
                   })
                 ]),
                 _: 1
-              })) : _createCommentVNode$n("", true)
+              })) : _createCommentVNode$q("", true)
             ]),
             _: 1
           })
@@ -4445,7 +4445,7 @@ const _sfc_main$u = /* @__PURE__ */ _defineComponent$u({
 
 const {defineComponent:_defineComponent$t} = await importShared('vue');
 
-const {resolveComponent:_resolveComponent$t,createVNode:_createVNode$t,withCtx:_withCtx$t,Teleport:_Teleport$1,openBlock:_openBlock$t,createBlock:_createBlock$t,createCommentVNode:_createCommentVNode$m,unref:_unref$o,toDisplayString:_toDisplayString$q,createTextVNode:_createTextVNode$t,createElementVNode:_createElementVNode$n,Fragment:_Fragment$a,createElementBlock:_createElementBlock$b} = await importShared('vue');
+const {resolveComponent:_resolveComponent$t,createVNode:_createVNode$t,withCtx:_withCtx$t,Teleport:_Teleport$1,openBlock:_openBlock$t,createBlock:_createBlock$t,createCommentVNode:_createCommentVNode$p,unref:_unref$o,toDisplayString:_toDisplayString$q,createTextVNode:_createTextVNode$t,createElementVNode:_createElementVNode$n,Fragment:_Fragment$a,createElementBlock:_createElementBlock$b} = await importShared('vue');
 
 const _hoisted_1$k = ["colspan"];
 const {ref: ref$k} = await importShared('vue');
@@ -4610,7 +4610,7 @@ const _sfc_main$t = /* @__PURE__ */ _defineComponent$t({
             ]),
             _: 1
           })
-        ])) : _createCommentVNode$m("", true),
+        ])) : _createCommentVNode$p("", true),
         __props.group ? (_openBlock$t(), _createBlock$t(_component_v_data_table, {
           key: 1,
           modelValue: selected.value,
@@ -4813,7 +4813,7 @@ const _sfc_main$t = /* @__PURE__ */ _defineComponent$t({
 
 const {defineComponent:_defineComponent$s} = await importShared('vue');
 
-const {toDisplayString:_toDisplayString$p,createTextVNode:_createTextVNode$s,resolveComponent:_resolveComponent$s,withCtx:_withCtx$s,createVNode:_createVNode$s,createElementVNode:_createElementVNode$m,unref:_unref$n,openBlock:_openBlock$s,createBlock:_createBlock$s} = await importShared('vue');
+const {toDisplayString:_toDisplayString$p,createTextVNode:_createTextVNode$s,resolveComponent:_resolveComponent$s,withCtx:_withCtx$s,createVNode:_createVNode$s,mergeProps:_mergeProps$l,openBlock:_openBlock$s,createBlock:_createBlock$s,createCommentVNode:_createCommentVNode$o,createElementVNode:_createElementVNode$m,unref:_unref$n} = await importShared('vue');
 
 const _hoisted_1$j = { class: "d-flex justify-space-between align-center px-4 pt-3" };
 const _hoisted_2$e = ["title"];
@@ -4829,7 +4829,7 @@ const _sfc_main$s = /* @__PURE__ */ _defineComponent$s({
       required: true
     }
   },
-  emits: ["edit", "delete", "change-status"],
+  emits: ["edit", "delete", "change-status", "edit-visibility"],
   setup(__props, { emit: __emit }) {
     const props = __props;
     const emit = __emit;
@@ -4842,13 +4842,17 @@ const _sfc_main$s = /* @__PURE__ */ _defineComponent$s({
     function updateStatus(disabled) {
       emit("change-status", props.rule.priority, disabled, props.ruleset);
     }
+    function editVisibility() {
+      emit("edit-visibility", props.rule.priority, props.ruleset);
+    }
     return (_ctx, _cache) => {
       const _component_v_chip = _resolveComponent$s("v-chip");
+      const _component_v_icon = _resolveComponent$s("v-icon");
+      const _component_v_tooltip = _resolveComponent$s("v-tooltip");
       const _component_v_col = _resolveComponent$s("v-col");
       const _component_v_row = _resolveComponent$s("v-row");
       const _component_v_card_text = _resolveComponent$s("v-card-text");
       const _component_v_divider = _resolveComponent$s("v-divider");
-      const _component_v_icon = _resolveComponent$s("v-icon");
       const _component_v_spacer = _resolveComponent$s("v-spacer");
       const _component_v_card_actions = _resolveComponent$s("v-card-actions");
       const _component_v_card = _resolveComponent$s("v-card");
@@ -4870,7 +4874,25 @@ const _sfc_main$s = /* @__PURE__ */ _defineComponent$s({
                 _createTextVNode$s(_toDisplayString$p(__props.rule.priority), 1)
               ]),
               _: 1
-            })
+            }),
+            __props.rule.meta.invisible_to && __props.rule.meta.invisible_to.length > 0 ? (_openBlock$s(), _createBlock$s(_component_v_tooltip, {
+              key: 0,
+              text: "已配置可见性限制",
+              location: "top"
+            }, {
+              activator: _withCtx$s(({ props: props2 }) => [
+                _createVNode$s(_component_v_icon, _mergeProps$l(props2, {
+                  size: "small",
+                  color: "warning"
+                }), {
+                  default: _withCtx$s(() => _cache[2] || (_cache[2] = [
+                    _createTextVNode$s(" mdi-eye-off-outline ")
+                  ])),
+                  _: 2
+                }, 1040)
+              ]),
+              _: 1
+            })) : _createCommentVNode$o("", true)
           ]),
           _createVNode$s(_component_v_card_text, { class: "pt-2 pb-4" }, {
             default: _withCtx$s(() => [
@@ -4883,7 +4905,7 @@ const _sfc_main$s = /* @__PURE__ */ _defineComponent$s({
                     cols: "3",
                     class: "text-caption text-medium-emphasis"
                   }, {
-                    default: _withCtx$s(() => _cache[2] || (_cache[2] = [
+                    default: _withCtx$s(() => _cache[3] || (_cache[3] = [
                       _createTextVNode$s("类型")
                     ])),
                     _: 1
@@ -4917,7 +4939,7 @@ const _sfc_main$s = /* @__PURE__ */ _defineComponent$s({
                     cols: "3",
                     class: "text-caption text-medium-emphasis"
                   }, {
-                    default: _withCtx$s(() => _cache[3] || (_cache[3] = [
+                    default: _withCtx$s(() => _cache[4] || (_cache[4] = [
                       _createTextVNode$s("内容")
                     ])),
                     _: 1
@@ -4945,7 +4967,7 @@ const _sfc_main$s = /* @__PURE__ */ _defineComponent$s({
                     cols: "3",
                     class: "text-caption text-medium-emphasis"
                   }, {
-                    default: _withCtx$s(() => _cache[4] || (_cache[4] = [
+                    default: _withCtx$s(() => _cache[5] || (_cache[5] = [
                       _createTextVNode$s("出站")
                     ])),
                     _: 1
@@ -4986,10 +5008,12 @@ const _sfc_main$s = /* @__PURE__ */ _defineComponent$s({
               _createVNode$s(_component_v_spacer),
               _createVNode$s(_sfc_main$u, {
                 rule: __props.rule,
+                "hide-visibility": __props.ruleset == "ruleset",
                 onEdit: _cache[0] || (_cache[0] = ($event) => editRule(__props.rule.priority)),
                 onDelete: _cache[1] || (_cache[1] = ($event) => deleteRule(__props.rule.priority)),
-                onChangeStatus: updateStatus
-              }, null, 8, ["rule"])
+                onChangeStatus: updateStatus,
+                onEditVisibility: editVisibility
+              }, null, 8, ["rule", "hide-visibility"])
             ]),
             _: 1
           })
@@ -5000,7 +5024,7 @@ const _sfc_main$s = /* @__PURE__ */ _defineComponent$s({
   }
 });
 
-const RuleCard = /* @__PURE__ */ _export_sfc(_sfc_main$s, [["__scopeId", "data-v-da4a3497"]]);
+const RuleCard = /* @__PURE__ */ _export_sfc(_sfc_main$s, [["__scopeId", "data-v-5bf9d562"]]);
 
 /**
  * lodash (Custom Build) <https://lodash.com/>
@@ -5384,7 +5408,7 @@ const debounce$1 = /*@__PURE__*/getDefaultExportFromCjs(lodash_debounce);
 
 const {defineComponent:_defineComponent$r} = await importShared('vue');
 
-const {toDisplayString:_toDisplayString$o,createTextVNode:_createTextVNode$r,resolveComponent:_resolveComponent$r,withCtx:_withCtx$r,createVNode:_createVNode$r,openBlock:_openBlock$r,createBlock:_createBlock$r,createCommentVNode:_createCommentVNode$l,withModifiers:_withModifiers$4} = await importShared('vue');
+const {toDisplayString:_toDisplayString$o,createTextVNode:_createTextVNode$r,resolveComponent:_resolveComponent$r,withCtx:_withCtx$r,createVNode:_createVNode$r,openBlock:_openBlock$r,createBlock:_createBlock$r,createCommentVNode:_createCommentVNode$n,withModifiers:_withModifiers$4} = await importShared('vue');
 
 const {ref: ref$j,computed: computed$8,toRaw: toRaw$8} = await importShared('vue');
 const _sfc_main$r = /* @__PURE__ */ _defineComponent$r({
@@ -5722,7 +5746,7 @@ const _sfc_main$r = /* @__PURE__ */ _defineComponent$r({
                         hint: "可选参数",
                         "persistent-hint": "",
                         class: "mb-4"
-                      }, null, 8, ["modelValue", "items"])) : _createCommentVNode$l("", true),
+                      }, null, 8, ["modelValue", "items"])) : _createCommentVNode$n("", true),
                       _createVNode$r(_component_v_text_field, {
                         modelValue: rule.value.priority,
                         "onUpdate:modelValue": _cache[10] || (_cache[10] = ($event) => rule.value.priority = $event),
@@ -5775,11 +5799,11 @@ const _sfc_main$r = /* @__PURE__ */ _defineComponent$r({
 
 const {defineComponent:_defineComponent$q} = await importShared('vue');
 
-const {resolveComponent:_resolveComponent$q,createVNode:_createVNode$q,withCtx:_withCtx$q,createElementVNode:_createElementVNode$l,renderList:_renderList$9,Fragment:_Fragment$9,openBlock:_openBlock$q,createElementBlock:_createElementBlock$a,createBlock:_createBlock$q,unref:_unref$m,toDisplayString:_toDisplayString$n,createTextVNode:_createTextVNode$q,mergeProps:_mergeProps$h,createCommentVNode:_createCommentVNode$k} = await importShared('vue');
+const {resolveComponent:_resolveComponent$q,createVNode:_createVNode$q,withCtx:_withCtx$q,createElementVNode:_createElementVNode$l,renderList:_renderList$9,Fragment:_Fragment$9,openBlock:_openBlock$q,createElementBlock:_createElementBlock$a,createBlock:_createBlock$q,unref:_unref$m,toDisplayString:_toDisplayString$n,createTextVNode:_createTextVNode$q,mergeProps:_mergeProps$k,createCommentVNode:_createCommentVNode$m} = await importShared('vue');
 
 const _hoisted_1$i = { class: "mb-2 position-relative" };
 const _hoisted_2$d = { class: "pa-4" };
-const _hoisted_3$c = { class: "d-none d-sm-flex clash-data-table" };
+const _hoisted_3$d = { class: "d-none d-sm-flex clash-data-table" };
 const _hoisted_4$b = { class: "d-sm-none" };
 const _hoisted_5$8 = {
   class: "pa-4",
@@ -6009,7 +6033,7 @@ const _sfc_main$q = /* @__PURE__ */ _defineComponent$q({
             _: 1
           })
         ]),
-        _createElementVNode$l("div", _hoisted_3$c, [
+        _createElementVNode$l("div", _hoisted_3$d, [
           _createVNode$q(_sfc_main$t, {
             group: group.value,
             "sorted-rules": _ctx.rules,
@@ -6099,7 +6123,7 @@ const _sfc_main$q = /* @__PURE__ */ _defineComponent$q({
                 default: _withCtx$q(() => [
                   _createVNode$q(_component_v_menu, null, {
                     activator: _withCtx$q(({ props: props2 }) => [
-                      _createVNode$q(_component_v_btn, _mergeProps$h(props2, {
+                      _createVNode$q(_component_v_btn, _mergeProps$k(props2, {
                         icon: "",
                         rounded: "circle",
                         variant: "tonal",
@@ -6161,7 +6185,7 @@ const _sfc_main$q = /* @__PURE__ */ _defineComponent$q({
           onShowSnackbar: _cache[7] || (_cache[7] = (val) => emit("show-snackbar", val)),
           onShowError: _cache[8] || (_cache[8] = (msg) => emit("show-error", msg)),
           onClose: closeRuleDialog
-        }, null, 8, ["modelValue", "initial-rule", "is-adding", "editing-type", "rule-provider-names", "geo-rules", "custom-outbounds", "api"])) : _createCommentVNode$k("", true)
+        }, null, 8, ["modelValue", "initial-rule", "is-adding", "editing-type", "rule-provider-names", "geo-rules", "custom-outbounds", "api"])) : _createCommentVNode$m("", true)
       ]);
     };
   }
@@ -6169,7 +6193,7 @@ const _sfc_main$q = /* @__PURE__ */ _defineComponent$q({
 
 const {defineComponent:_defineComponent$p} = await importShared('vue');
 
-const {unref:_unref$l,resolveComponent:_resolveComponent$p,createVNode:_createVNode$p,withCtx:_withCtx$p,Teleport:_Teleport,openBlock:_openBlock$p,createBlock:_createBlock$p,createCommentVNode:_createCommentVNode$j,createTextVNode:_createTextVNode$p,toDisplayString:_toDisplayString$m,createElementVNode:_createElementVNode$k,mergeProps:_mergeProps$g} = await importShared('vue');
+const {unref:_unref$l,resolveComponent:_resolveComponent$p,createVNode:_createVNode$p,withCtx:_withCtx$p,Teleport:_Teleport,openBlock:_openBlock$p,createBlock:_createBlock$p,createCommentVNode:_createCommentVNode$l,createTextVNode:_createTextVNode$p,toDisplayString:_toDisplayString$m,createElementVNode:_createElementVNode$k,mergeProps:_mergeProps$j} = await importShared('vue');
 
 const _hoisted_1$h = { class: "d-flex align-center" };
 const {ref: ref$h} = await importShared('vue');
@@ -6328,7 +6352,7 @@ const _sfc_main$p = /* @__PURE__ */ _defineComponent$p({
               ]),
               _: 1
             })
-          ])) : _createCommentVNode$j("", true)
+          ])) : _createCommentVNode$l("", true)
         ]),
         "item.handler": _withCtx$p(({}) => [
           _createVNode$p(_component_v_icon, {
@@ -6404,7 +6428,7 @@ const _sfc_main$p = /* @__PURE__ */ _defineComponent$p({
               location: "top"
             }, {
               activator: _withCtx$p(({ props: props2 }) => [
-                _createVNode$p(_component_v_icon, _mergeProps$g(props2, {
+                _createVNode$p(_component_v_icon, _mergeProps$j(props2, {
                   size: "small",
                   color: "warning"
                 }), {
@@ -6415,7 +6439,7 @@ const _sfc_main$p = /* @__PURE__ */ _defineComponent$p({
                 }, 1040)
               ]),
               _: 1
-            })) : _createCommentVNode$j("", true)
+            })) : _createCommentVNode$l("", true)
           ])
         ]),
         "item.actions": _withCtx$p(({ item }) => [
@@ -6607,11 +6631,11 @@ const _sfc_main$o = /* @__PURE__ */ _defineComponent$o({
 
 const {defineComponent:_defineComponent$n} = await importShared('vue');
 
-const {resolveComponent:_resolveComponent$n,createVNode:_createVNode$n,withCtx:_withCtx$n,createElementVNode:_createElementVNode$i,renderList:_renderList$8,Fragment:_Fragment$8,openBlock:_openBlock$n,createElementBlock:_createElementBlock$9,createBlock:_createBlock$n,unref:_unref$j,toDisplayString:_toDisplayString$l,createTextVNode:_createTextVNode$n,mergeProps:_mergeProps$f,createCommentVNode:_createCommentVNode$i} = await importShared('vue');
+const {resolveComponent:_resolveComponent$n,createVNode:_createVNode$n,withCtx:_withCtx$n,createElementVNode:_createElementVNode$i,renderList:_renderList$8,Fragment:_Fragment$8,openBlock:_openBlock$n,createElementBlock:_createElementBlock$9,createBlock:_createBlock$n,unref:_unref$j,toDisplayString:_toDisplayString$l,createTextVNode:_createTextVNode$n,mergeProps:_mergeProps$i,createCommentVNode:_createCommentVNode$k} = await importShared('vue');
 
 const _hoisted_1$g = { class: "mb-2 position-relative" };
 const _hoisted_2$c = { class: "pa-4" };
-const _hoisted_3$b = { class: "d-none d-sm-flex clash-data-table" };
+const _hoisted_3$c = { class: "d-none d-sm-flex clash-data-table" };
 const _hoisted_4$a = { class: "d-sm-none" };
 const _hoisted_5$7 = {
   class: "pa-4",
@@ -6855,7 +6879,7 @@ const _sfc_main$n = /* @__PURE__ */ _defineComponent$n({
             _: 1
           })
         ]),
-        _createElementVNode$i("div", _hoisted_3$b, [
+        _createElementVNode$i("div", _hoisted_3$c, [
           _createVNode$n(_sfc_main$p, {
             "sorted-rules": _ctx.rules,
             page: page.value,
@@ -6884,7 +6908,8 @@ const _sfc_main$n = /* @__PURE__ */ _defineComponent$n({
                       rule: item,
                       onDelete: deleteRule,
                       onEdit: editRule,
-                      onChangeStatus: handleStatusChange
+                      onChangeStatus: handleStatusChange,
+                      onEditVisibility: editVisibility
                     }, null, 8, ["rule"])
                   ]),
                   _: 2
@@ -6944,7 +6969,7 @@ const _sfc_main$n = /* @__PURE__ */ _defineComponent$n({
                 default: _withCtx$n(() => [
                   _createVNode$n(_component_v_menu, null, {
                     activator: _withCtx$n(({ props: props2 }) => [
-                      _createVNode$n(_component_v_btn, _mergeProps$f(props2, {
+                      _createVNode$n(_component_v_btn, _mergeProps$i(props2, {
                         icon: "",
                         rounded: "circle",
                         variant: "tonal",
@@ -7007,7 +7032,7 @@ const _sfc_main$n = /* @__PURE__ */ _defineComponent$n({
           onShowSnackbar: _cache[6] || (_cache[6] = (val) => emit("show-snackbar", val)),
           onShowError: _cache[7] || (_cache[7] = (msg) => emit("show-error", msg)),
           onClose: closeRuleDialog
-        }, null, 8, ["modelValue", "initial-rule", "is-adding", "editing-type", "rule-provider-names", "geo-rules", "custom-outbounds", "api"])) : _createCommentVNode$i("", true),
+        }, null, 8, ["modelValue", "initial-rule", "is-adding", "editing-type", "rule-provider-names", "geo-rules", "custom-outbounds", "api"])) : _createCommentVNode$k("", true),
         importRuleDialog.value ? (_openBlock$n(), _createBlock$n(_sfc_main$o, {
           key: 1,
           modelValue: importRuleDialog.value,
@@ -7016,7 +7041,7 @@ const _sfc_main$n = /* @__PURE__ */ _defineComponent$n({
           onRefresh: _cache[9] || (_cache[9] = ($event) => emit("refresh", ["top"])),
           onShowSnackbar: _cache[10] || (_cache[10] = (val) => emit("show-snackbar", val)),
           onShowError: _cache[11] || (_cache[11] = (msg) => emit("show-error", msg))
-        }, null, 8, ["modelValue", "api"])) : _createCommentVNode$i("", true)
+        }, null, 8, ["modelValue", "api"])) : _createCommentVNode$k("", true)
       ]);
     };
   }
@@ -7024,7 +7049,7 @@ const _sfc_main$n = /* @__PURE__ */ _defineComponent$n({
 
 const {defineComponent:_defineComponent$m} = await importShared('vue');
 
-const {createTextVNode:_createTextVNode$m,resolveComponent:_resolveComponent$m,withCtx:_withCtx$m,createVNode:_createVNode$m,mergeProps:_mergeProps$e,unref:_unref$i,toDisplayString:_toDisplayString$k,openBlock:_openBlock$m,createBlock:_createBlock$m,createCommentVNode:_createCommentVNode$h} = await importShared('vue');
+const {createTextVNode:_createTextVNode$m,resolveComponent:_resolveComponent$m,withCtx:_withCtx$m,createVNode:_createVNode$m,mergeProps:_mergeProps$h,unref:_unref$i,toDisplayString:_toDisplayString$k,openBlock:_openBlock$m,createBlock:_createBlock$m,createCommentVNode:_createCommentVNode$j} = await importShared('vue');
 const _sfc_main$m = /* @__PURE__ */ _defineComponent$m({
   __name: "ProxyGroupActionMenu",
   props: {
@@ -7045,7 +7070,7 @@ const _sfc_main$m = /* @__PURE__ */ _defineComponent$m({
       const _component_v_menu = _resolveComponent$m("v-menu");
       return _openBlock$m(), _createBlock$m(_component_v_menu, { "min-width": "120" }, {
         activator: _withCtx$m(({ props }) => [
-          _createVNode$m(_component_v_btn, _mergeProps$e({
+          _createVNode$m(_component_v_btn, _mergeProps$h({
             color: "secondary",
             icon: "",
             size: "small",
@@ -7089,7 +7114,7 @@ const _sfc_main$m = /* @__PURE__ */ _defineComponent$m({
                   })
                 ]),
                 _: 1
-              })) : _createCommentVNode$h("", true),
+              })) : _createCommentVNode$j("", true),
               _createVNode$m(_component_v_list_item, {
                 onClick: _cache[1] || (_cache[1] = ($event) => emit("showYaml"))
               }, {
@@ -7138,7 +7163,7 @@ const _sfc_main$m = /* @__PURE__ */ _defineComponent$m({
                   })
                 ]),
                 _: 1
-              })) : _createCommentVNode$h("", true),
+              })) : _createCommentVNode$j("", true),
               _unref$i(isManual)(__props.proxyGroup.meta.source) ? (_openBlock$m(), _createBlock$m(_component_v_list_item, {
                 key: 2,
                 onClick: _cache[3] || (_cache[3] = ($event) => emit("editVisibility"))
@@ -7163,7 +7188,7 @@ const _sfc_main$m = /* @__PURE__ */ _defineComponent$m({
                   })
                 ]),
                 _: 1
-              })) : _createCommentVNode$h("", true),
+              })) : _createCommentVNode$j("", true),
               __props.proxyGroup.meta.patched ? (_openBlock$m(), _createBlock$m(_component_v_list_item, {
                 key: 3,
                 onClick: _cache[4] || (_cache[4] = ($event) => emit("deletePatch"))
@@ -7188,7 +7213,7 @@ const _sfc_main$m = /* @__PURE__ */ _defineComponent$m({
                   })
                 ]),
                 _: 1
-              })) : _createCommentVNode$h("", true),
+              })) : _createCommentVNode$j("", true),
               _unref$i(isManual)(__props.proxyGroup.meta.source) ? (_openBlock$m(), _createBlock$m(_component_v_list_item, {
                 key: 4,
                 onClick: _cache[5] || (_cache[5] = ($event) => emit("delete"))
@@ -7213,7 +7238,7 @@ const _sfc_main$m = /* @__PURE__ */ _defineComponent$m({
                   })
                 ]),
                 _: 1
-              })) : _createCommentVNode$h("", true)
+              })) : _createCommentVNode$j("", true)
             ]),
             _: 1
           })
@@ -7226,7 +7251,7 @@ const _sfc_main$m = /* @__PURE__ */ _defineComponent$m({
 
 const {defineComponent:_defineComponent$l} = await importShared('vue');
 
-const {unref:_unref$h,toDisplayString:_toDisplayString$j,createTextVNode:_createTextVNode$l,resolveComponent:_resolveComponent$l,withCtx:_withCtx$l,createVNode:_createVNode$l,mergeProps:_mergeProps$d,openBlock:_openBlock$l,createBlock:_createBlock$l,createCommentVNode:_createCommentVNode$g,createElementVNode:_createElementVNode$h} = await importShared('vue');
+const {unref:_unref$h,toDisplayString:_toDisplayString$j,createTextVNode:_createTextVNode$l,resolveComponent:_resolveComponent$l,withCtx:_withCtx$l,createVNode:_createVNode$l,mergeProps:_mergeProps$g,openBlock:_openBlock$l,createBlock:_createBlock$l,createCommentVNode:_createCommentVNode$i,createElementVNode:_createElementVNode$h} = await importShared('vue');
 
 const _hoisted_1$f = { class: "d-flex align-center" };
 const {ref: ref$e} = await importShared('vue');
@@ -7329,7 +7354,7 @@ const _sfc_main$l = /* @__PURE__ */ _defineComponent$l({
               location: "top"
             }, {
               activator: _withCtx$l(({ props }) => [
-                _createVNode$l(_component_v_icon, _mergeProps$d(props, {
+                _createVNode$l(_component_v_icon, _mergeProps$g(props, {
                   size: "small",
                   color: "warning"
                 }), {
@@ -7340,14 +7365,14 @@ const _sfc_main$l = /* @__PURE__ */ _defineComponent$l({
                 }, 1040)
               ]),
               _: 1
-            })) : _createCommentVNode$g("", true),
+            })) : _createCommentVNode$i("", true),
             item.meta.patched ? (_openBlock$l(), _createBlock$l(_component_v_tooltip, {
               key: 1,
               text: "已应用补丁",
               location: "top"
             }, {
               activator: _withCtx$l(({ props }) => [
-                _createVNode$l(_component_v_icon, _mergeProps$d(props, {
+                _createVNode$l(_component_v_icon, _mergeProps$g(props, {
                   size: "small",
                   color: "info"
                 }), {
@@ -7358,7 +7383,7 @@ const _sfc_main$l = /* @__PURE__ */ _defineComponent$l({
                 }, 1040)
               ]),
               _: 1
-            })) : _createCommentVNode$g("", true)
+            })) : _createCommentVNode$i("", true)
           ])
         ]),
         "item.actions": _withCtx$l(({ item }) => [
@@ -7380,10 +7405,11 @@ const _sfc_main$l = /* @__PURE__ */ _defineComponent$l({
 
 const {defineComponent:_defineComponent$k} = await importShared('vue');
 
-const {toDisplayString:_toDisplayString$i,createElementVNode:_createElementVNode$g,unref:_unref$g,createTextVNode:_createTextVNode$k,resolveComponent:_resolveComponent$k,withCtx:_withCtx$k,createVNode:_createVNode$k,openBlock:_openBlock$k,createBlock:_createBlock$k} = await importShared('vue');
+const {toDisplayString:_toDisplayString$i,createElementVNode:_createElementVNode$g,createTextVNode:_createTextVNode$k,resolveComponent:_resolveComponent$k,mergeProps:_mergeProps$f,withCtx:_withCtx$k,createVNode:_createVNode$k,openBlock:_openBlock$k,createBlock:_createBlock$k,createCommentVNode:_createCommentVNode$h,unref:_unref$g} = await importShared('vue');
 
 const _hoisted_1$e = { class: "d-flex justify-space-between align-center px-4 pt-3" };
 const _hoisted_2$b = ["title"];
+const _hoisted_3$b = { class: "d-flex align-center" };
 const _sfc_main$k = /* @__PURE__ */ _defineComponent$k({
   __name: "ProxyGroupCard",
   props: {
@@ -7392,16 +7418,17 @@ const _sfc_main$k = /* @__PURE__ */ _defineComponent$k({
       required: true
     }
   },
-  emits: ["showYaml", "editProxyGroup", "deleteProxyGroup", "deletePatch", "changeStatus"],
+  emits: ["showYaml", "editProxyGroup", "deleteProxyGroup", "deletePatch", "changeStatus", "editVisibility"],
   setup(__props, { emit: __emit }) {
     const emit = __emit;
     return (_ctx, _cache) => {
+      const _component_v_icon = _resolveComponent$k("v-icon");
+      const _component_v_tooltip = _resolveComponent$k("v-tooltip");
       const _component_v_chip = _resolveComponent$k("v-chip");
       const _component_v_col = _resolveComponent$k("v-col");
       const _component_v_row = _resolveComponent$k("v-row");
       const _component_v_card_text = _resolveComponent$k("v-card-text");
       const _component_v_divider = _resolveComponent$k("v-divider");
-      const _component_v_icon = _resolveComponent$k("v-icon");
       const _component_v_spacer = _resolveComponent$k("v-spacer");
       const _component_v_card_actions = _resolveComponent$k("v-card-actions");
       const _component_v_card = _resolveComponent$k("v-card");
@@ -7417,16 +7444,37 @@ const _sfc_main$k = /* @__PURE__ */ _defineComponent$k({
               class: "font-weight-bold text-truncate",
               title: __props.proxyGroupData.data.name
             }, _toDisplayString$i(__props.proxyGroupData.data.name), 9, _hoisted_2$b),
-            _createVNode$k(_component_v_chip, {
-              size: "small",
-              color: _unref$g(getSourceColor)(__props.proxyGroupData.meta.source),
-              variant: "outlined"
-            }, {
-              default: _withCtx$k(() => [
-                _createTextVNode$k(_toDisplayString$i(__props.proxyGroupData.meta.source), 1)
-              ]),
-              _: 1
-            }, 8, ["color"])
+            _createElementVNode$g("div", _hoisted_3$b, [
+              __props.proxyGroupData.meta.invisible_to && __props.proxyGroupData.meta.invisible_to.length > 0 ? (_openBlock$k(), _createBlock$k(_component_v_tooltip, {
+                key: 0,
+                text: "已配置可见性限制",
+                location: "top"
+              }, {
+                activator: _withCtx$k(({ props }) => [
+                  _createVNode$k(_component_v_icon, _mergeProps$f(props, {
+                    size: "small",
+                    color: "warning",
+                    class: "mr-2"
+                  }), {
+                    default: _withCtx$k(() => _cache[6] || (_cache[6] = [
+                      _createTextVNode$k(" mdi-eye-off-outline ")
+                    ])),
+                    _: 2
+                  }, 1040)
+                ]),
+                _: 1
+              })) : _createCommentVNode$h("", true),
+              _createVNode$k(_component_v_chip, {
+                size: "small",
+                color: _unref$g(getSourceColor)(__props.proxyGroupData.meta.source),
+                variant: "outlined"
+              }, {
+                default: _withCtx$k(() => [
+                  _createTextVNode$k(_toDisplayString$i(__props.proxyGroupData.meta.source), 1)
+                ]),
+                _: 1
+              }, 8, ["color"])
+            ])
           ]),
           _createVNode$k(_component_v_card_text, { class: "pt-2 pb-4" }, {
             default: _withCtx$k(() => [
@@ -7439,7 +7487,7 @@ const _sfc_main$k = /* @__PURE__ */ _defineComponent$k({
                     cols: "3",
                     class: "text-caption text-medium-emphasis"
                   }, {
-                    default: _withCtx$k(() => _cache[5] || (_cache[5] = [
+                    default: _withCtx$k(() => _cache[7] || (_cache[7] = [
                       _createTextVNode$k("类型")
                     ])),
                     _: 1
@@ -7485,7 +7533,8 @@ const _sfc_main$k = /* @__PURE__ */ _defineComponent$k({
                 onShowYaml: _cache[1] || (_cache[1] = ($event) => emit("showYaml", __props.proxyGroupData.data)),
                 onEdit: _cache[2] || (_cache[2] = ($event) => emit("editProxyGroup", __props.proxyGroupData.data.name)),
                 onDelete: _cache[3] || (_cache[3] = ($event) => emit("deleteProxyGroup", __props.proxyGroupData.data.name)),
-                onDeletePatch: _cache[4] || (_cache[4] = ($event) => emit("deletePatch", __props.proxyGroupData.data.name))
+                onDeletePatch: _cache[4] || (_cache[4] = ($event) => emit("deletePatch", __props.proxyGroupData.data.name)),
+                onEditVisibility: _cache[5] || (_cache[5] = ($event) => emit("editVisibility", __props.proxyGroupData.data.name))
               }, null, 8, ["proxy-group"])
             ]),
             _: 1
@@ -7497,11 +7546,11 @@ const _sfc_main$k = /* @__PURE__ */ _defineComponent$k({
   }
 });
 
-const ProxyGroupCard = /* @__PURE__ */ _export_sfc(_sfc_main$k, [["__scopeId", "data-v-ef6241d5"]]);
+const ProxyGroupCard = /* @__PURE__ */ _export_sfc(_sfc_main$k, [["__scopeId", "data-v-88bfc397"]]);
 
 const {defineComponent:_defineComponent$j} = await importShared('vue');
 
-const {toDisplayString:_toDisplayString$h,createTextVNode:_createTextVNode$j,resolveComponent:_resolveComponent$j,withCtx:_withCtx$j,createVNode:_createVNode$j,openBlock:_openBlock$j,createBlock:_createBlock$j,createCommentVNode:_createCommentVNode$f,createElementVNode:_createElementVNode$f,withModifiers:_withModifiers$3} = await importShared('vue');
+const {toDisplayString:_toDisplayString$h,createTextVNode:_createTextVNode$j,resolveComponent:_resolveComponent$j,withCtx:_withCtx$j,createVNode:_createVNode$j,openBlock:_openBlock$j,createBlock:_createBlock$j,createCommentVNode:_createCommentVNode$g,createElementVNode:_createElementVNode$f,withModifiers:_withModifiers$3} = await importShared('vue');
 
 const {ref: ref$d,computed: computed$5,toRaw: toRaw$5} = await importShared('vue');
 const _sfc_main$j = /* @__PURE__ */ _defineComponent$j({
@@ -7728,7 +7777,7 @@ const _sfc_main$j = /* @__PURE__ */ _defineComponent$j({
                         hint: "节点切换容差",
                         rules: [(v) => v >= 0 || "容差需不小于0"],
                         class: "mb-4"
-                      }, null, 8, ["modelValue", "rules"])) : _createCommentVNode$f("", true),
+                      }, null, 8, ["modelValue", "rules"])) : _createCommentVNode$g("", true),
                       proxyGroup.value.type === "load-balance" ? (_openBlock$j(), _createBlock$j(_component_v_select, {
                         key: 1,
                         modelValue: proxyGroup.value.strategy,
@@ -7737,7 +7786,7 @@ const _sfc_main$j = /* @__PURE__ */ _defineComponent$j({
                         items: strategyTypes.value,
                         hint: "负载均衡策略",
                         class: "mb-4"
-                      }, null, 8, ["modelValue", "items"])) : _createCommentVNode$f("", true),
+                      }, null, 8, ["modelValue", "items"])) : _createCommentVNode$g("", true),
                       proxyGroup.value.type === "smart" ? (_openBlock$j(), _createBlock$j(_component_v_select, {
                         key: 2,
                         modelValue: proxyGroup.value.strategy,
@@ -7746,7 +7795,7 @@ const _sfc_main$j = /* @__PURE__ */ _defineComponent$j({
                         items: smartStrategyTypes.value,
                         hint: "负载均衡策略",
                         class: "mb-4"
-                      }, null, 8, ["modelValue", "items"])) : _createCommentVNode$f("", true),
+                      }, null, 8, ["modelValue", "items"])) : _createCommentVNode$g("", true),
                       proxyGroup.value.type === "smart" ? (_openBlock$j(), _createBlock$j(_component_v_row, { key: 3 }, {
                         default: _withCtx$j(() => [
                           _createVNode$j(_component_v_col, {
@@ -7783,7 +7832,7 @@ const _sfc_main$j = /* @__PURE__ */ _defineComponent$j({
                           })
                         ]),
                         _: 1
-                      })) : _createCommentVNode$f("", true),
+                      })) : _createCommentVNode$g("", true),
                       _createVNode$j(_component_v_row, null, {
                         default: _withCtx$j(() => [
                           _createVNode$j(_component_v_col, {
@@ -8082,7 +8131,7 @@ const _sfc_main$j = /* @__PURE__ */ _defineComponent$j({
                           })
                         ]),
                         _: 1
-                      })) : _createCommentVNode$f("", true)
+                      })) : _createCommentVNode$g("", true)
                     ]),
                     _: 1
                   }),
@@ -8140,7 +8189,7 @@ const _sfc_main$j = /* @__PURE__ */ _defineComponent$j({
 
 const {defineComponent:_defineComponent$i} = await importShared('vue');
 
-const {resolveComponent:_resolveComponent$i,createVNode:_createVNode$i,withCtx:_withCtx$i,createElementVNode:_createElementVNode$e,renderList:_renderList$7,Fragment:_Fragment$7,openBlock:_openBlock$i,createElementBlock:_createElementBlock$8,createBlock:_createBlock$i,unref:_unref$f,toDisplayString:_toDisplayString$g,createTextVNode:_createTextVNode$i,mergeProps:_mergeProps$c,createCommentVNode:_createCommentVNode$e} = await importShared('vue');
+const {resolveComponent:_resolveComponent$i,createVNode:_createVNode$i,withCtx:_withCtx$i,createElementVNode:_createElementVNode$e,renderList:_renderList$7,Fragment:_Fragment$7,openBlock:_openBlock$i,createElementBlock:_createElementBlock$8,createBlock:_createBlock$i,unref:_unref$f,toDisplayString:_toDisplayString$g,createTextVNode:_createTextVNode$i,mergeProps:_mergeProps$e,createCommentVNode:_createCommentVNode$f} = await importShared('vue');
 
 const _hoisted_1$d = { class: "mb-2 position-relative" };
 const _hoisted_2$a = { class: "pa-4" };
@@ -8382,7 +8431,8 @@ const _sfc_main$i = /* @__PURE__ */ _defineComponent$i({
                       onDeleteProxyGroup: deleteProxyGroup,
                       onDeletePatch: deletePatch,
                       onShowYaml: _cache[4] || (_cache[4] = (o) => emit("show-yaml", o)),
-                      onChangeStatus: handleStatusChange
+                      onChangeStatus: handleStatusChange,
+                      onEditVisibility: editVisibility
                     }, null, 8, ["proxy-group-data"])
                   ]),
                   _: 2
@@ -8437,7 +8487,7 @@ const _sfc_main$i = /* @__PURE__ */ _defineComponent$i({
                 default: _withCtx$i(() => [
                   _createVNode$i(_component_v_menu, null, {
                     activator: _withCtx$i(({ props: props2 }) => [
-                      _createVNode$i(_component_v_btn, _mergeProps$c(props2, {
+                      _createVNode$i(_component_v_btn, _mergeProps$e(props2, {
                         icon: "",
                         rounded: "circle",
                         variant: "tonal",
@@ -8496,7 +8546,7 @@ const _sfc_main$i = /* @__PURE__ */ _defineComponent$i({
           onRefresh: _cache[8] || (_cache[8] = ($event) => emit("refresh", ["clash-outbounds", "proxy-groups"])),
           onShowSnackbar: _cache[9] || (_cache[9] = (val) => emit("show-snackbar", val)),
           onShowError: _cache[10] || (_cache[10] = (msg) => emit("show-error", msg))
-        }, null, 8, ["modelValue", "initial-value", "is-adding", "proxy-providers", "custom-outbounds", "api"])) : _createCommentVNode$e("", true)
+        }, null, 8, ["modelValue", "initial-value", "is-adding", "proxy-providers", "custom-outbounds", "api"])) : _createCommentVNode$f("", true)
       ]);
     };
   }
@@ -8504,7 +8554,7 @@ const _sfc_main$i = /* @__PURE__ */ _defineComponent$i({
 
 const {defineComponent:_defineComponent$h} = await importShared('vue');
 
-const {createTextVNode:_createTextVNode$h,resolveComponent:_resolveComponent$h,withCtx:_withCtx$h,createVNode:_createVNode$h,mergeProps:_mergeProps$b,unref:_unref$e,toDisplayString:_toDisplayString$f,openBlock:_openBlock$h,createBlock:_createBlock$h,createCommentVNode:_createCommentVNode$d} = await importShared('vue');
+const {createTextVNode:_createTextVNode$h,resolveComponent:_resolveComponent$h,withCtx:_withCtx$h,createVNode:_createVNode$h,mergeProps:_mergeProps$d,unref:_unref$e,toDisplayString:_toDisplayString$f,openBlock:_openBlock$h,createBlock:_createBlock$h,createCommentVNode:_createCommentVNode$e} = await importShared('vue');
 const _sfc_main$h = /* @__PURE__ */ _defineComponent$h({
   __name: "ProxyActionMenu",
   props: {
@@ -8525,7 +8575,7 @@ const _sfc_main$h = /* @__PURE__ */ _defineComponent$h({
       const _component_v_menu = _resolveComponent$h("v-menu");
       return _openBlock$h(), _createBlock$h(_component_v_menu, { "min-width": "120" }, {
         activator: _withCtx$h(({ props }) => [
-          _createVNode$h(_component_v_btn, _mergeProps$b({
+          _createVNode$h(_component_v_btn, _mergeProps$d({
             color: "secondary",
             icon: "",
             size: "small",
@@ -8569,7 +8619,7 @@ const _sfc_main$h = /* @__PURE__ */ _defineComponent$h({
                   })
                 ]),
                 _: 1
-              })) : _createCommentVNode$d("", true),
+              })) : _createCommentVNode$e("", true),
               _createVNode$h(_component_v_list_item, {
                 onClick: _cache[1] || (_cache[1] = ($event) => emit("showYaml"))
               }, {
@@ -8642,7 +8692,7 @@ const _sfc_main$h = /* @__PURE__ */ _defineComponent$h({
                   })
                 ]),
                 _: 1
-              })) : _createCommentVNode$d("", true),
+              })) : _createCommentVNode$e("", true),
               __props.proxy.v2ray_link ? (_openBlock$h(), _createBlock$h(_component_v_list_item, {
                 key: 2,
                 onClick: _cache[4] || (_cache[4] = ($event) => emit("copyToClipboard", __props.proxy.v2ray_link))
@@ -8667,7 +8717,7 @@ const _sfc_main$h = /* @__PURE__ */ _defineComponent$h({
                   })
                 ]),
                 _: 1
-              })) : _createCommentVNode$d("", true),
+              })) : _createCommentVNode$e("", true),
               __props.proxy.meta.patched ? (_openBlock$h(), _createBlock$h(_component_v_list_item, {
                 key: 3,
                 onClick: _cache[5] || (_cache[5] = ($event) => emit("deletePatch"))
@@ -8692,7 +8742,7 @@ const _sfc_main$h = /* @__PURE__ */ _defineComponent$h({
                   })
                 ]),
                 _: 1
-              })) : _createCommentVNode$d("", true),
+              })) : _createCommentVNode$e("", true),
               _createVNode$h(_component_v_list_item, {
                 disabled: !(_unref$e(isManual)(__props.proxy.meta.source) || _unref$e(isInvalid)(__props.proxy.meta.source)),
                 onClick: _cache[6] || (_cache[6] = ($event) => emit("delete"))
@@ -8730,7 +8780,7 @@ const _sfc_main$h = /* @__PURE__ */ _defineComponent$h({
 
 const {defineComponent:_defineComponent$g} = await importShared('vue');
 
-const {unref:_unref$d,toDisplayString:_toDisplayString$e,createTextVNode:_createTextVNode$g,resolveComponent:_resolveComponent$g,withCtx:_withCtx$g,createVNode:_createVNode$g,openBlock:_openBlock$g,createBlock:_createBlock$g,createCommentVNode:_createCommentVNode$c,createElementVNode:_createElementVNode$d,mergeProps:_mergeProps$a} = await importShared('vue');
+const {unref:_unref$d,toDisplayString:_toDisplayString$e,createTextVNode:_createTextVNode$g,resolveComponent:_resolveComponent$g,withCtx:_withCtx$g,createVNode:_createVNode$g,openBlock:_openBlock$g,createBlock:_createBlock$g,createCommentVNode:_createCommentVNode$d,createElementVNode:_createElementVNode$d,mergeProps:_mergeProps$c} = await importShared('vue');
 
 const _hoisted_1$c = { class: "d-flex align-center" };
 const {ref: ref$b} = await importShared('vue');
@@ -8810,7 +8860,7 @@ const _sfc_main$g = /* @__PURE__ */ _defineComponent$g({
               })
             ]),
             _: 2
-          }, 1032, ["onClick"])) : _createCommentVNode$c("", true)
+          }, 1032, ["onClick"])) : _createCommentVNode$d("", true)
         ]),
         "item.type": _withCtx$g(({ item }) => [
           _createVNode$g(_component_v_chip, {
@@ -8870,7 +8920,7 @@ const _sfc_main$g = /* @__PURE__ */ _defineComponent$g({
               location: "top"
             }, {
               activator: _withCtx$g(({ props }) => [
-                _createVNode$g(_component_v_icon, _mergeProps$a(props, {
+                _createVNode$g(_component_v_icon, _mergeProps$c(props, {
                   size: "small",
                   color: "warning"
                 }), {
@@ -8881,14 +8931,14 @@ const _sfc_main$g = /* @__PURE__ */ _defineComponent$g({
                 }, 1040)
               ]),
               _: 1
-            })) : _createCommentVNode$c("", true),
+            })) : _createCommentVNode$d("", true),
             item.meta.patched ? (_openBlock$g(), _createBlock$g(_component_v_tooltip, {
               key: 1,
               text: "已应用补丁",
               location: "top"
             }, {
               activator: _withCtx$g(({ props }) => [
-                _createVNode$g(_component_v_icon, _mergeProps$a(props, {
+                _createVNode$g(_component_v_icon, _mergeProps$c(props, {
                   size: "small",
                   color: "info"
                 }), {
@@ -8899,7 +8949,7 @@ const _sfc_main$g = /* @__PURE__ */ _defineComponent$g({
                 }, 1040)
               ]),
               _: 1
-            })) : _createCommentVNode$c("", true)
+            })) : _createCommentVNode$d("", true)
           ])
         ]),
         "item.actions": _withCtx$g(({ item }) => [
@@ -8922,11 +8972,11 @@ const _sfc_main$g = /* @__PURE__ */ _defineComponent$g({
 
 const {defineComponent:_defineComponent$f} = await importShared('vue');
 
-const {toDisplayString:_toDisplayString$d,createElementVNode:_createElementVNode$c,unref:_unref$c,createTextVNode:_createTextVNode$f,resolveComponent:_resolveComponent$f,withCtx:_withCtx$f,createVNode:_createVNode$f,openBlock:_openBlock$f,createBlock:_createBlock$f} = await importShared('vue');
+const {toDisplayString:_toDisplayString$d,createElementVNode:_createElementVNode$c,createTextVNode:_createTextVNode$f,resolveComponent:_resolveComponent$f,mergeProps:_mergeProps$b,withCtx:_withCtx$f,createVNode:_createVNode$f,openBlock:_openBlock$f,createBlock:_createBlock$f,createCommentVNode:_createCommentVNode$c,unref:_unref$c} = await importShared('vue');
 
 const _hoisted_1$b = { class: "d-flex justify-space-between align-center px-4 pt-3" };
 const _hoisted_2$9 = ["title"];
-const _hoisted_3$9 = ["title"];
+const _hoisted_3$9 = { class: "d-flex align-center" };
 const _sfc_main$f = /* @__PURE__ */ _defineComponent$f({
   __name: "ProxyCard",
   props: {
@@ -8935,16 +8985,17 @@ const _sfc_main$f = /* @__PURE__ */ _defineComponent$f({
       required: true
     }
   },
-  emits: ["copyToClipboard", "showYaml", "editProxy", "deleteProxy", "deletePatch", "changeStatus"],
+  emits: ["copyToClipboard", "showYaml", "editProxy", "deleteProxy", "deletePatch", "changeStatus", "editVisibility"],
   setup(__props, { emit: __emit }) {
     const emit = __emit;
     return (_ctx, _cache) => {
+      const _component_v_icon = _resolveComponent$f("v-icon");
+      const _component_v_tooltip = _resolveComponent$f("v-tooltip");
       const _component_v_chip = _resolveComponent$f("v-chip");
       const _component_v_col = _resolveComponent$f("v-col");
       const _component_v_row = _resolveComponent$f("v-row");
       const _component_v_card_text = _resolveComponent$f("v-card-text");
       const _component_v_divider = _resolveComponent$f("v-divider");
-      const _component_v_icon = _resolveComponent$f("v-icon");
       const _component_v_spacer = _resolveComponent$f("v-spacer");
       const _component_v_card_actions = _resolveComponent$f("v-card-actions");
       const _component_v_card = _resolveComponent$f("v-card");
@@ -8960,16 +9011,37 @@ const _sfc_main$f = /* @__PURE__ */ _defineComponent$f({
               class: "font-weight-bold text-truncate",
               title: __props.proxyData.data.name
             }, _toDisplayString$d(__props.proxyData.data.name), 9, _hoisted_2$9),
-            _createVNode$f(_component_v_chip, {
-              size: "small",
-              color: _unref$c(getSourceColor)(__props.proxyData.meta.source),
-              variant: "outlined"
-            }, {
-              default: _withCtx$f(() => [
-                _createTextVNode$f(_toDisplayString$d(__props.proxyData.meta.source), 1)
-              ]),
-              _: 1
-            }, 8, ["color"])
+            _createElementVNode$c("div", _hoisted_3$9, [
+              __props.proxyData.meta.invisible_to && __props.proxyData.meta.invisible_to.length > 0 ? (_openBlock$f(), _createBlock$f(_component_v_tooltip, {
+                key: 0,
+                text: "已配置可见性限制",
+                location: "top"
+              }, {
+                activator: _withCtx$f(({ props }) => [
+                  _createVNode$f(_component_v_icon, _mergeProps$b(props, {
+                    size: "small",
+                    color: "warning",
+                    class: "mr-2"
+                  }), {
+                    default: _withCtx$f(() => _cache[7] || (_cache[7] = [
+                      _createTextVNode$f(" mdi-eye-off-outline ")
+                    ])),
+                    _: 2
+                  }, 1040)
+                ]),
+                _: 1
+              })) : _createCommentVNode$c("", true),
+              _createVNode$f(_component_v_chip, {
+                size: "small",
+                color: _unref$c(getSourceColor)(__props.proxyData.meta.source),
+                variant: "outlined"
+              }, {
+                default: _withCtx$f(() => [
+                  _createTextVNode$f(_toDisplayString$d(__props.proxyData.meta.source), 1)
+                ]),
+                _: 1
+              }, 8, ["color"])
+            ])
           ]),
           _createVNode$f(_component_v_card_text, { class: "pt-2 pb-4" }, {
             default: _withCtx$f(() => [
@@ -8982,7 +9054,7 @@ const _sfc_main$f = /* @__PURE__ */ _defineComponent$f({
                     cols: "3",
                     class: "text-caption text-medium-emphasis"
                   }, {
-                    default: _withCtx$f(() => _cache[6] || (_cache[6] = [
+                    default: _withCtx$f(() => _cache[8] || (_cache[8] = [
                       _createTextVNode$f("类型")
                     ])),
                     _: 1
@@ -9001,34 +9073,6 @@ const _sfc_main$f = /* @__PURE__ */ _defineComponent$f({
                         ]),
                         _: 1
                       }, 8, ["color"])
-                    ]),
-                    _: 1
-                  })
-                ]),
-                _: 1
-              }),
-              _createVNode$f(_component_v_row, {
-                "no-gutters": "",
-                class: "align-center"
-              }, {
-                default: _withCtx$f(() => [
-                  _createVNode$f(_component_v_col, {
-                    cols: "3",
-                    class: "text-caption text-medium-emphasis"
-                  }, {
-                    default: _withCtx$f(() => _cache[7] || (_cache[7] = [
-                      _createTextVNode$f("服务器")
-                    ])),
-                    _: 1
-                  }),
-                  _createVNode$f(_component_v_col, {
-                    cols: "9",
-                    class: "text-body-2 text-truncate font-weight-medium"
-                  }, {
-                    default: _withCtx$f(() => [
-                      _createElementVNode$c("span", {
-                        title: __props.proxyData.data.server
-                      }, _toDisplayString$d(__props.proxyData.data.server), 9, _hoisted_3$9)
                     ]),
                     _: 1
                   })
@@ -9057,7 +9101,8 @@ const _sfc_main$f = /* @__PURE__ */ _defineComponent$f({
                 onEdit: _cache[2] || (_cache[2] = ($event) => emit("editProxy", __props.proxyData)),
                 onDelete: _cache[3] || (_cache[3] = ($event) => emit("deleteProxy", __props.proxyData.data.name)),
                 onDeletePatch: _cache[4] || (_cache[4] = ($event) => emit("deletePatch", __props.proxyData.data.name)),
-                onCopyToClipboard: _cache[5] || (_cache[5] = (text) => emit("copyToClipboard", text))
+                onCopyToClipboard: _cache[5] || (_cache[5] = (text) => emit("copyToClipboard", text)),
+                onEditVisibility: _cache[6] || (_cache[6] = ($event) => emit("editVisibility", __props.proxyData.data.name))
               }, null, 8, ["proxy"])
             ]),
             _: 1
@@ -9069,7 +9114,7 @@ const _sfc_main$f = /* @__PURE__ */ _defineComponent$f({
   }
 });
 
-const ProxyCard = /* @__PURE__ */ _export_sfc(_sfc_main$f, [["__scopeId", "data-v-ca5a79a2"]]);
+const ProxyCard = /* @__PURE__ */ _export_sfc(_sfc_main$f, [["__scopeId", "data-v-e80a10d3"]]);
 
 const {defineComponent:_defineComponent$e} = await importShared('vue');
 
@@ -10235,7 +10280,7 @@ const _sfc_main$e = /* @__PURE__ */ _defineComponent$e({
 
 const {defineComponent:_defineComponent$d} = await importShared('vue');
 
-const {resolveComponent:_resolveComponent$d,createVNode:_createVNode$d,withCtx:_withCtx$d,createElementVNode:_createElementVNode$a,renderList:_renderList$6,Fragment:_Fragment$6,openBlock:_openBlock$d,createElementBlock:_createElementBlock$6,createBlock:_createBlock$d,unref:_unref$b,toDisplayString:_toDisplayString$c,createTextVNode:_createTextVNode$d,mergeProps:_mergeProps$9,createCommentVNode:_createCommentVNode$a} = await importShared('vue');
+const {resolveComponent:_resolveComponent$d,createVNode:_createVNode$d,withCtx:_withCtx$d,createElementVNode:_createElementVNode$a,renderList:_renderList$6,Fragment:_Fragment$6,openBlock:_openBlock$d,createElementBlock:_createElementBlock$6,createBlock:_createBlock$d,unref:_unref$b,toDisplayString:_toDisplayString$c,createTextVNode:_createTextVNode$d,mergeProps:_mergeProps$a,createCommentVNode:_createCommentVNode$a} = await importShared('vue');
 
 const _hoisted_1$9 = { class: "mb-2 position-relative" };
 const _hoisted_2$7 = { class: "pa-4" };
@@ -10535,7 +10580,8 @@ const _sfc_main$d = /* @__PURE__ */ _defineComponent$d({
                       onEditProxy: openProxiesDialog,
                       onDeleteProxy: deleteProxy,
                       onDeletePatch: deletePatch,
-                      onChangeStatus: handleStatusChange
+                      onChangeStatus: handleStatusChange,
+                      onEditVisibility: editVisibility
                     }, null, 8, ["proxy-data"])
                   ]),
                   _: 2
@@ -10590,7 +10636,7 @@ const _sfc_main$d = /* @__PURE__ */ _defineComponent$d({
                 default: _withCtx$d(() => [
                   _createVNode$d(_component_v_menu, null, {
                     activator: _withCtx$d(({ props: props2 }) => [
-                      _createVNode$d(_component_v_btn, _mergeProps$9(props2, {
+                      _createVNode$d(_component_v_btn, _mergeProps$a(props2, {
                         icon: "",
                         rounded: "circle",
                         variant: "tonal",
@@ -11155,7 +11201,7 @@ const SubscriptionTab = /* @__PURE__ */ _export_sfc(_sfc_main$b, [["__scopeId", 
 
 const {defineComponent:_defineComponent$a} = await importShared('vue');
 
-const {createTextVNode:_createTextVNode$a,resolveComponent:_resolveComponent$a,withCtx:_withCtx$a,createVNode:_createVNode$a,mergeProps:_mergeProps$8,unref:_unref$9,toDisplayString:_toDisplayString$a,openBlock:_openBlock$a,createBlock:_createBlock$a,createCommentVNode:_createCommentVNode$7} = await importShared('vue');
+const {createTextVNode:_createTextVNode$a,resolveComponent:_resolveComponent$a,withCtx:_withCtx$a,createVNode:_createVNode$a,mergeProps:_mergeProps$9,unref:_unref$9,toDisplayString:_toDisplayString$a,openBlock:_openBlock$a,createBlock:_createBlock$a,createCommentVNode:_createCommentVNode$7} = await importShared('vue');
 const _sfc_main$a = /* @__PURE__ */ _defineComponent$a({
   __name: "RuleProviderActionMenu",
   props: {
@@ -11176,7 +11222,7 @@ const _sfc_main$a = /* @__PURE__ */ _defineComponent$a({
       const _component_v_menu = _resolveComponent$a("v-menu");
       return _openBlock$a(), _createBlock$a(_component_v_menu, { "min-width": "120" }, {
         activator: _withCtx$a(({ props }) => [
-          _createVNode$a(_component_v_btn, _mergeProps$8({
+          _createVNode$a(_component_v_btn, _mergeProps$9({
             color: "secondary",
             icon: "",
             size: "small",
@@ -11332,7 +11378,7 @@ const _sfc_main$a = /* @__PURE__ */ _defineComponent$a({
 
 const {defineComponent:_defineComponent$9} = await importShared('vue');
 
-const {unref:_unref$8,toDisplayString:_toDisplayString$9,createTextVNode:_createTextVNode$9,resolveComponent:_resolveComponent$9,withCtx:_withCtx$9,createVNode:_createVNode$9,openBlock:_openBlock$9,createBlock:_createBlock$9,createCommentVNode:_createCommentVNode$6,mergeProps:_mergeProps$7,createElementVNode:_createElementVNode$7} = await importShared('vue');
+const {unref:_unref$8,toDisplayString:_toDisplayString$9,createTextVNode:_createTextVNode$9,resolveComponent:_resolveComponent$9,withCtx:_withCtx$9,createVNode:_createVNode$9,openBlock:_openBlock$9,createBlock:_createBlock$9,createCommentVNode:_createCommentVNode$6,mergeProps:_mergeProps$8,createElementVNode:_createElementVNode$7} = await importShared('vue');
 
 const _hoisted_1$6 = { class: "d-flex align-center" };
 const {ref: ref$6} = await importShared('vue');
@@ -11464,7 +11510,7 @@ const _sfc_main$9 = /* @__PURE__ */ _defineComponent$9({
               location: "top"
             }, {
               activator: _withCtx$9(({ props }) => [
-                _createVNode$9(_component_v_icon, _mergeProps$7(props, {
+                _createVNode$9(_component_v_icon, _mergeProps$8(props, {
                   size: "small",
                   color: "warning"
                 }), {
@@ -11506,12 +11552,12 @@ const _sfc_main$9 = /* @__PURE__ */ _defineComponent$9({
 
 const {defineComponent:_defineComponent$8} = await importShared('vue');
 
-const {toDisplayString:_toDisplayString$8,createElementVNode:_createElementVNode$6,unref:_unref$7,createTextVNode:_createTextVNode$8,resolveComponent:_resolveComponent$8,withCtx:_withCtx$8,createVNode:_createVNode$8,openBlock:_openBlock$8,createBlock:_createBlock$8,createCommentVNode:_createCommentVNode$5} = await importShared('vue');
+const {toDisplayString:_toDisplayString$8,createElementVNode:_createElementVNode$6,createTextVNode:_createTextVNode$8,resolveComponent:_resolveComponent$8,mergeProps:_mergeProps$7,withCtx:_withCtx$8,createVNode:_createVNode$8,openBlock:_openBlock$8,createBlock:_createBlock$8,createCommentVNode:_createCommentVNode$5,unref:_unref$7} = await importShared('vue');
 
 const _hoisted_1$5 = { class: "d-flex justify-space-between align-center px-4 pt-3" };
 const _hoisted_2$5 = ["title"];
-const _hoisted_3$5 = { class: "text-body-2 font-weight-medium" };
-const _hoisted_4$5 = ["title"];
+const _hoisted_3$5 = { class: "d-flex align-center" };
+const _hoisted_4$5 = { class: "text-body-2 font-weight-medium" };
 const _sfc_main$8 = /* @__PURE__ */ _defineComponent$8({
   __name: "RuleProviderCard",
   props: {
@@ -11520,16 +11566,17 @@ const _sfc_main$8 = /* @__PURE__ */ _defineComponent$8({
       required: true
     }
   },
-  emits: ["editRuleProvider", "deleteRuleProvider", "showYaml", "changeStatus"],
+  emits: ["editRuleProvider", "deleteRuleProvider", "showYaml", "changeStatus", "editVisibility"],
   setup(__props, { emit: __emit }) {
     const emit = __emit;
     return (_ctx, _cache) => {
+      const _component_v_icon = _resolveComponent$8("v-icon");
+      const _component_v_tooltip = _resolveComponent$8("v-tooltip");
       const _component_v_chip = _resolveComponent$8("v-chip");
       const _component_v_col = _resolveComponent$8("v-col");
       const _component_v_row = _resolveComponent$8("v-row");
       const _component_v_card_text = _resolveComponent$8("v-card-text");
       const _component_v_divider = _resolveComponent$8("v-divider");
-      const _component_v_icon = _resolveComponent$8("v-icon");
       const _component_v_spacer = _resolveComponent$8("v-spacer");
       const _component_v_card_actions = _resolveComponent$8("v-card-actions");
       const _component_v_card = _resolveComponent$8("v-card");
@@ -11545,16 +11592,37 @@ const _sfc_main$8 = /* @__PURE__ */ _defineComponent$8({
               class: "font-weight-bold text-truncate",
               title: __props.ruleProviderData.name
             }, _toDisplayString$8(__props.ruleProviderData.name), 9, _hoisted_2$5),
-            _createVNode$8(_component_v_chip, {
-              size: "small",
-              color: _unref$7(getSourceColor)(__props.ruleProviderData.meta.source),
-              variant: "outlined"
-            }, {
-              default: _withCtx$8(() => [
-                _createTextVNode$8(_toDisplayString$8(__props.ruleProviderData.meta.source), 1)
-              ]),
-              _: 1
-            }, 8, ["color"])
+            _createElementVNode$6("div", _hoisted_3$5, [
+              __props.ruleProviderData.meta.invisible_to && __props.ruleProviderData.meta.invisible_to.length > 0 ? (_openBlock$8(), _createBlock$8(_component_v_tooltip, {
+                key: 0,
+                text: "已配置可见性限制",
+                location: "top"
+              }, {
+                activator: _withCtx$8(({ props }) => [
+                  _createVNode$8(_component_v_icon, _mergeProps$7(props, {
+                    size: "small",
+                    color: "warning",
+                    class: "mr-2"
+                  }), {
+                    default: _withCtx$8(() => _cache[5] || (_cache[5] = [
+                      _createTextVNode$8(" mdi-eye-off-outline ")
+                    ])),
+                    _: 2
+                  }, 1040)
+                ]),
+                _: 1
+              })) : _createCommentVNode$5("", true),
+              _createVNode$8(_component_v_chip, {
+                size: "small",
+                color: _unref$7(getSourceColor)(__props.ruleProviderData.meta.source),
+                variant: "outlined"
+              }, {
+                default: _withCtx$8(() => [
+                  _createTextVNode$8(_toDisplayString$8(__props.ruleProviderData.meta.source), 1)
+                ]),
+                _: 1
+              }, 8, ["color"])
+            ])
           ]),
           _createVNode$8(_component_v_card_text, { class: "pt-2 pb-4" }, {
             default: _withCtx$8(() => [
@@ -11567,77 +11635,14 @@ const _sfc_main$8 = /* @__PURE__ */ _defineComponent$8({
                     cols: "3",
                     class: "text-caption text-medium-emphasis"
                   }, {
-                    default: _withCtx$8(() => _cache[4] || (_cache[4] = [
+                    default: _withCtx$8(() => _cache[6] || (_cache[6] = [
                       _createTextVNode$8("类型")
                     ])),
                     _: 1
                   }),
                   _createVNode$8(_component_v_col, { cols: "9" }, {
                     default: _withCtx$8(() => [
-                      _createElementVNode$6("span", _hoisted_3$5, _toDisplayString$8(__props.ruleProviderData.data.type), 1)
-                    ]),
-                    _: 1
-                  })
-                ]),
-                _: 1
-              }),
-              _createVNode$8(_component_v_row, {
-                "no-gutters": "",
-                class: "mb-2 align-center"
-              }, {
-                default: _withCtx$8(() => [
-                  _createVNode$8(_component_v_col, {
-                    cols: "3",
-                    class: "text-caption text-medium-emphasis"
-                  }, {
-                    default: _withCtx$8(() => _cache[5] || (_cache[5] = [
-                      _createTextVNode$8("行为")
-                    ])),
-                    _: 1
-                  }),
-                  _createVNode$8(_component_v_col, { cols: "9" }, {
-                    default: _withCtx$8(() => [
-                      __props.ruleProviderData.data?.behavior ? (_openBlock$8(), _createBlock$8(_component_v_chip, {
-                        key: 0,
-                        color: _unref$7(getBehaviorColor)(__props.ruleProviderData.data.behavior),
-                        size: "x-small",
-                        label: "",
-                        variant: "tonal",
-                        class: "font-weight-medium"
-                      }, {
-                        default: _withCtx$8(() => [
-                          _createTextVNode$8(_toDisplayString$8(__props.ruleProviderData.data.behavior), 1)
-                        ]),
-                        _: 1
-                      }, 8, ["color"])) : _createCommentVNode$5("", true)
-                    ]),
-                    _: 1
-                  })
-                ]),
-                _: 1
-              }),
-              _createVNode$8(_component_v_row, {
-                "no-gutters": "",
-                class: "align-center"
-              }, {
-                default: _withCtx$8(() => [
-                  _createVNode$8(_component_v_col, {
-                    cols: "3",
-                    class: "text-caption text-medium-emphasis"
-                  }, {
-                    default: _withCtx$8(() => _cache[6] || (_cache[6] = [
-                      _createTextVNode$8("内容")
-                    ])),
-                    _: 1
-                  }),
-                  _createVNode$8(_component_v_col, {
-                    cols: "9",
-                    class: "text-body-2 text-truncate font-weight-medium"
-                  }, {
-                    default: _withCtx$8(() => [
-                      _createElementVNode$6("span", {
-                        title: __props.ruleProviderData.data.format
-                      }, _toDisplayString$8(__props.ruleProviderData.data.format), 9, _hoisted_4$5)
+                      _createElementVNode$6("span", _hoisted_4$5, _toDisplayString$8(__props.ruleProviderData.data.type), 1)
                     ]),
                     _: 1
                   })
@@ -11664,7 +11669,8 @@ const _sfc_main$8 = /* @__PURE__ */ _defineComponent$8({
                 onChangeStatus: _cache[0] || (_cache[0] = (disabled) => emit("changeStatus", __props.ruleProviderData.name, disabled)),
                 onEdit: _cache[1] || (_cache[1] = ($event) => emit("editRuleProvider", __props.ruleProviderData.name)),
                 onShowYaml: _cache[2] || (_cache[2] = ($event) => emit("showYaml", __props.ruleProviderData.data)),
-                onDelete: _cache[3] || (_cache[3] = ($event) => emit("deleteRuleProvider", __props.ruleProviderData.name))
+                onDelete: _cache[3] || (_cache[3] = ($event) => emit("deleteRuleProvider", __props.ruleProviderData.name)),
+                onEditVisibility: _cache[4] || (_cache[4] = ($event) => emit("editVisibility", __props.ruleProviderData.name))
               }, null, 8, ["rule-provider"])
             ]),
             _: 1
@@ -11676,7 +11682,7 @@ const _sfc_main$8 = /* @__PURE__ */ _defineComponent$8({
   }
 });
 
-const RuleProviderCard = /* @__PURE__ */ _export_sfc(_sfc_main$8, [["__scopeId", "data-v-24eb2895"]]);
+const RuleProviderCard = /* @__PURE__ */ _export_sfc(_sfc_main$8, [["__scopeId", "data-v-01e2e8ef"]]);
 
 const {defineComponent:_defineComponent$7} = await importShared('vue');
 
@@ -12163,7 +12169,8 @@ const _sfc_main$6 = /* @__PURE__ */ _defineComponent$6({
                       onEditRuleProvider: editRuleProvider,
                       onDeleteRuleProvider: deleteRuleProvider,
                       onShowYaml: _cache[3] || (_cache[3] = (o) => emit("show-yaml", o)),
-                      onChangeStatus: handleStatusChange
+                      onChangeStatus: handleStatusChange,
+                      onEditVisibility: editVisibility
                     }, null, 8, ["rule-provider-data"])
                   ]),
                   _: 2
