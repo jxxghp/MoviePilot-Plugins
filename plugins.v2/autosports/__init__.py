@@ -1,7 +1,9 @@
 import base64
 import json
+import os
 from copy import deepcopy
 from dataclasses import fields, dataclass
+from pathlib import Path
 from platform import machine
 from re import match
 from types import NoneType
@@ -20,13 +22,13 @@ from app.chain.subscribe import SubscribeChain
 from app.chain.transfer import job_lock
 from app.core.config import settings
 from app.core.meta import MetaVideo, MetaBase
-from app.core.metainfo import MetaInfo
+from app.core.metainfo import MetaInfo, MetaInfoPath
 from app.core.context import MediaInfo, Context, TorrentInfo
 from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
-from app.schemas import MediaType, ServiceInfo
+from app.schemas import MediaType, ServiceInfo, TransferDirectoryConf
 import datetime
 import re
 import traceback
@@ -51,6 +53,8 @@ from app.helper.sites import SitesHelper
 
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
+from app.utils.system import SystemUtils
+from directory import DirectoryHelper
 from downloader import DownloaderHelper
 
 
@@ -93,6 +97,10 @@ class AutoSports(_PluginBase):
     __category: str = ""
     __tags: list[str] = []
     __size_range: str = ""
+    # 转移与刮削相关
+    __target_path: str = ""
+    __transfer_type: str = ""
+    __need_rename: bool = True
     __downloaders = None
     __scheduler: BackgroundScheduler = None
 
@@ -338,7 +346,13 @@ class AutoSports(_PluginBase):
             self.__clear = config.get("clear")
             self.__action = config.get("action")
             self.__save_path = config.get("save_path")
+            self.__dest_path = config.get("dest_path")
             self.__downloaders = config.get("downloaders")
+            self.__transfer_type = config.get("transfer_type") or "link"
+            if config.get("need_rename"):
+                self.__need_rename = config.get("need_rename")
+            else:
+                self.__need_rename = True
             # 如果未设置下载器，使用默认的下载器
             if not self.__downloaders:
                 for downloader_config in DownloaderHelper().get_configs().values():
@@ -512,6 +526,96 @@ class AutoSports(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'proxy',
+                                            'label': '使用代理服务器',
+                                        }
+                                    }
+                                ]
+                            }, {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'filter',
+                                            'label': '使用订阅优先级规则',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'clear',
+                                            'label': '清理历史记录',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'force_en',
+                                            'label': '是否只下载英文解说版本',
+                                        }
+                                    }
+                                ]
+                            },
+
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'need_rename',
+                                            'label': '是否开启自动重命名',
+                                        }
+                                    }
+                                ]
+                            },
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
                                     'md': 6
                                 },
                                 'content': [
@@ -559,10 +663,10 @@ class AutoSports(_PluginBase):
                                     {
                                         'component': 'VTextarea',
                                         'props': {
-                                            'model': 'teams_info',
-                                            'label': '关注球队名',
+                                            'model': 'football_apikey',
+                                            'label': '比赛元数据 API key (请前往 football-data.org 自行获取)',
                                             'rows': 3,
-                                            'placeholder': '请输入关注球队的名称，一行一个（英文，关键字即可）'
+                                            'placeholder': '请输入 football-data.org 上有效的 API key'
                                         }
                                     }
                                 ]
@@ -575,20 +679,20 @@ class AutoSports(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12
+                                    'cols': 12,
                                 },
                                 'content': [
                                     {
                                         'component': 'VTextarea',
                                         'props': {
-                                            'model': 'football_apikey',
-                                            'label': '比赛元数据 API key',
+                                            'model': 'teams_info',
+                                            'label': '关注球队名，请输入关注球队的名称，一行一个（英文，关键字即可）',
                                             'rows': 3,
-                                            'placeholder': '请输入 football-data.org 上有效的 API key'
+                                            'placeholder': 'Barcelona'
                                         }
                                     }
                                 ]
-                            }
+                            },
                         ]
                     },
                     {
@@ -628,22 +732,6 @@ class AutoSports(_PluginBase):
                                     }
                                 ]
                             },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'force_en',
-                                            'label': '是否只下载英文解说版本',
-                                        }
-                                    }
-                                ]
-                            },
                         ]
                     },
                     {
@@ -677,7 +765,7 @@ class AutoSports(_PluginBase):
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'lowest_pix',
-                                            'label': '最低清晰度(p)',
+                                            'label': '最低清晰度(p)，请输入整数',
                                             'placeholder': '如：720'
                                         }
                                     }
@@ -747,47 +835,16 @@ class AutoSports(_PluginBase):
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextField',
+                                        'component': 'VSelect',
                                         'props': {
-                                            'model': 'save_path',
-                                            'label': '保存目录',
-                                            'placeholder': '下载时有效，留空自动'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'proxy',
-                                            'label': '使用代理服务器',
-                                        }
-                                    }
-                                ]
-                            }, {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'filter',
-                                            'label': '使用订阅优先级规则',
+                                            'model': 'transfer_type',
+                                            'label': '转移方式',
+                                            'items': [
+                                                {'title': '移动', 'value': 'move'},
+                                                {'title': '复制', 'value': 'copy'},
+                                                {'title': '硬链接', 'value': 'link'},
+                                                {'title': '软链接', 'value': 'softlink'},
+                                            ]
                                         }
                                     }
                                 ]
@@ -796,20 +853,38 @@ class AutoSports(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 6
                                 },
                                 'content': [
                                     {
-                                        'component': 'VSwitch',
+                                        'component': 'VTextField',
                                         'props': {
-                                            'model': 'clear',
-                                            'label': '清理历史记录',
+                                            'model': 'save_path',
+                                            'label': '下载目录',
+                                            'placeholder': '下载时有效'
                                         }
                                     }
                                 ]
-                            }
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'dest_path',
+                                            'label': '转移目录',
+                                            'placeholder': '下载时有效'
+                                        }
+                                    }
+                                ]
+                            },
                         ]
-                    }
+                    },
                 ]
             }
         ], {
@@ -826,11 +901,14 @@ class AutoSports(_PluginBase):
             "filter": False,
             "action": "download",
             "save_path": "",
+            "dest_path": "",
             "category": "",
             "tags": [],
             "size_range": "",
             "force_en": False,
             "lowest_px": "720",
+            "transfer_type": "link",
+            "need_rename": True,
         }
 
     def get_page(self) -> List[dict]:
@@ -988,12 +1066,15 @@ class AutoSports(_PluginBase):
             "clear": self.__clear,
             "action": self.__action,
             "save_path": self.__save_path,
+            "dest_path": self.__dest_path,
             "category": self.__category,
             "tags": self.__tags,
             "size_range": self.__size_range,
             "downloaders": self.__downloaders,
             "force_en": self.__force_en,
             "lowest_pix": self.__lowest_pix,
+            "transfer_type": self.__transfer_type,
+            "need_rename": self.__need_rename,
         })
 
     def check(self):
@@ -1168,12 +1249,31 @@ class AutoSports(_PluginBase):
                     "tmdbid": match_mediainfo.tmdb_id,
                     "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
-            logger.info(f"体育比赛刷新完成")
+            logger.info(f"体育比赛下载刷新完成")
         # 保存历史记录
         self.save_data('history', history)
+
+        # 开始全量同步目录中所有体育比赛文件
+        # TODO：到这了
+        # sync_all()
+
         # 缓存只清理一次
         self.__clearflag = False
 
+
+    def sync_all(self):
+        """
+        立即运行一次，全量同步目录中所有文件
+        """
+        logger.info("开始全量同步体育比赛监控目录 ...")
+        # 遍历所有监控目录
+        for mon_path in self.__save_path:
+            # 遍历目录下所有文件
+            for file_path in SystemUtils.list_files(Path(mon_path), settings.RMT_MEDIAEXT):
+                self.__handle_file(is_directory=Path(file_path).is_dir(),
+                                   event_path=str(file_path),
+                                   source_dir=mon_path)
+        logger.info("全量同步体育比赛监控目录完成！")
 
     def scrape_competition(self, matchinfo: MediaInfo, match_parse: {}):
         """
@@ -1533,6 +1633,199 @@ class AutoSports(_PluginBase):
             result = result[1:]
 
         return result
+
+    def __handle_file(self, is_directory: bool, event_path: str, source_dir: str):
+        """
+        同步一个文件
+        :event.is_directory
+        :param event_path: 事件文件路径
+        :param source_dir: 监控目录
+        """
+        try:
+            # 转移路径
+            dest_dir = self._dirconf.get(source_dir)
+            # 是否重命名
+            rename_conf = self._renameconf.get(source_dir)
+            # # 封面比例
+            # cover_conf = self._coverconf.get(source_dir)
+            # 元数据
+            file_meta = MetaInfoPath(Path(event_path))
+            if not file_meta.name:
+                logger.error(f"{Path(event_path).name} 无法识别有效信息")
+                return
+            # 识别媒体信息
+            mediainfo: MediaInfo = self.chain.recognize_media(meta=file_meta)
+
+            transfer_flag = False
+            title = None
+            # 走tmdb刮削
+            if mediainfo:
+                try:
+                    # 查询转移目的目录
+                    target_dir = DirectoryHelper().get_dir(mediainfo, src_path=Path(source_dir))
+                    if not target_dir or not target_dir.library_path:
+                        target_dir = TransferDirectoryConf()
+                        target_dir.library_path = dest_dir
+                        target_dir.transfer_type = self._transfer_type
+                        target_dir.renaming = True
+                        target_dir.notify = False
+                        target_dir.overwrite_mode = 'never'
+                        target_dir.library_storage = "local"
+                    else:
+                        target_dir.transfer_type = self._transfer_type
+
+                    if not target_dir.library_path:
+                        logger.error(f"未配置监控目录 {source_dir} 的目的目录")
+                        return
+
+                    # 更新媒体图片
+                    self.chain.obtain_images(mediainfo=mediainfo)
+                    episodes_info = self.tmdbchain.tmdb_episodes(tmdbid=mediainfo.tmdb_id,
+                                                                 season=file_meta.begin_season or 1)
+                    mediainfo.category = ""
+                    # 转移
+                    transferinfo: TransferInfo = self.chain.transfer(mediainfo=mediainfo,
+                                                                     path=Path(event_path),
+                                                                     target=Path(dest_dir),
+                                                                     meta=file_meta,
+                                                                     episodes_info=episodes_info)
+                    if not transferinfo:
+                        logger.error("文件转移模块运行失败")
+                        transfer_flag = False
+                    else:
+                        self.chain.scrape_metadata(fileitem=transferinfo.target_diritem,
+                                                   meta=file_meta,
+                                                   mediainfo=mediainfo)
+                        transfer_flag = True
+                except Exception as e:
+                    print(str(e))
+                    transfer_flag = False
+                    logger.error(f"{event_path} tmdb刮削失败")
+                # 广播事件
+                # self.eventmanager.send_event(EventType.TransferComplete, {
+                #     'meta': file_meta,
+                #     'mediainfo': mediainfo,
+                #     'transferinfo': transferinfo
+                # })
+            if not transfer_flag:
+                target_path = event_path.replace(source_dir, dest_dir)
+
+                # 目录重命名
+                if str(rename_conf) == "true" or str(rename_conf) == "false":
+                    rename_conf = bool(rename_conf)
+                    target = target_path.replace(dest_dir, "")
+                    parent = Path(Path(target).parents[0])
+                    last = target.replace(str(parent), "")
+                    if rename_conf:
+                        # 自定义识别次
+                        title, _ = WordsMatcher().prepare(str(parent))
+                        target_path = Path(dest_dir).joinpath(title + last)
+                    else:
+                        title = parent
+                else:
+                    if str(rename_conf) == "smart":
+                        target = target_path.replace(dest_dir, "")
+                        parent = Path(Path(target).parents[0])
+                        last = target.replace(str(parent), "")
+                        # 取.第一个
+                        title = Path(parent).name.split(".")[0]
+                        target_path = Path(dest_dir).joinpath(title + last)
+                    else:
+                        logger.error(f"{target_path} 智能重命名失败")
+                        return
+
+                # 文件夹同步创建
+                if is_directory:
+                    # 目标文件夹不存在则创建
+                    if not Path(target_path).exists():
+                        logger.info(f"创建目标文件夹 {target_path}")
+                        os.makedirs(target_path)
+                else:
+                    # 媒体重命名
+                    try:
+                        pattern = r'S\d+E\d+'
+                        matches = re.search(pattern, Path(target_path).name)
+                        if matches:
+                            target_path = Path(
+                                target_path).parent / f"{matches.group()}{Path(Path(target_path).name).suffix}"
+                        else:
+                            print("未找到匹配的季数和集数")
+                    except Exception as e:
+                        print(e)
+
+                    # 目标文件夹不存在则创建
+                    if not Path(target_path).parent.exists():
+                        logger.info(f"创建目标文件夹 {Path(target_path).parent}")
+                        os.makedirs(Path(target_path).parent)
+
+                    # 文件：nfo、图片、视频文件
+                    if Path(target_path).exists():
+                        logger.debug(f"目标文件 {target_path} 已存在")
+                        return
+
+                    # 硬链接
+                    retcode = self.__transfer_command(file_item=Path(event_path),
+                                                      target_file=target_path,
+                                                      transfer_type=self._transfer_type)
+                    if retcode == 0:
+                        logger.info(f"文件 {event_path} 硬链接完成")
+                        # 生成 tvshow.nfo
+                        if not (target_path.parent / "tvshow.nfo").exists():
+                            self.__gen_tv_nfo_file(dir_path=target_path.parent,
+                                                   title=title)
+
+                        # 生成缩略图
+                        if not (target_path.parent / "poster.jpg").exists():
+                            thumb_path = self.gen_file_thumb(title=title,
+                                                             rename_conf=rename_conf,
+                                                             file_path=target_path)
+                            if thumb_path and Path(thumb_path).exists():
+                                self.__save_poster(input_path=thumb_path,
+                                                   poster_path=target_path.parent / "poster.jpg",
+                                                   cover_conf=cover_conf)
+                                if (target_path.parent / "poster.jpg").exists():
+                                    logger.info(f"{target_path.parent / 'poster.jpg'} 缩略图已生成")
+                                thumb_path.unlink()
+                            else:
+                                # 检查是否有缩略图
+                                thumb_files = SystemUtils.list_files(directory=target_path.parent,
+                                                                     extensions=[".jpg"])
+                                if thumb_files:
+                                    # 生成poster
+                                    for thumb in thumb_files:
+                                        self.__save_poster(input_path=thumb,
+                                                           poster_path=target_path.parent / "poster.jpg",
+                                                           cover_conf=cover_conf)
+                                        break
+                                    # 删除多余jpg
+                                    for thumb in thumb_files:
+                                        Path(thumb).unlink()
+                    else:
+                        logger.error(f"文件 {event_path} 硬链接失败，错误码：{retcode}")
+            if self._notify:
+                # 发送消息汇总
+                media_list = self._medias.get(mediainfo.title_year if mediainfo else title) or {}
+                if media_list:
+                    media_files = media_list.get("files") or []
+                    if media_files:
+                        if str(event_path) not in media_files:
+                            media_files.append(str(event_path))
+                    else:
+                        media_files = [str(event_path)]
+                    media_list = {
+                        "files": media_files,
+                        "time": datetime.datetime.now()
+                    }
+                else:
+                    media_list = {
+                        "files": [str(event_path)],
+                        "time": datetime.datetime.now()
+                    }
+                self._medias[mediainfo.title_year if mediainfo else title] = media_list
+        except Exception as e:
+            logger.error(f"event_handler_created error: {e}")
+            print(str(e))
+
 
     @staticmethod
     def __get_redict_url(url: str, proxies: str = None, ua: str = None, cookie: str = None) -> Optional[str]:
