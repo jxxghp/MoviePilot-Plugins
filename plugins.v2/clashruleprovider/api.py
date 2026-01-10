@@ -132,7 +132,7 @@ class ClashRuleProviderApi:
     def get_rule_providers(self) -> schemas.Response:
         return schemas.Response(success=True, data=self.services.state.all_rule_providers)
 
-    @apis.register(path="/rule-providers/{name}", methods=["POST"], auth="bear", summary="添加代理组")
+    @apis.register(path="/rule-providers/{name}", methods=["POST"], auth="bear", summary="添加规则集合")
     def add_rule_provider(self, name: str, item: RuleProvider):
         success, message = self.services.add_rule_provider(name, item)
         return schemas.Response(success=success, message=message)
