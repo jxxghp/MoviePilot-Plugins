@@ -1,18 +1,32 @@
-from typing import List, Tuple, Dict, Any
+import base64
+import json
+from copy import deepcopy
+from dataclasses import fields, dataclass
+from platform import machine
+from re import match
+from types import NoneType
+from typing import List, Tuple, Dict, Any, Union
 
 from cachetools import cached, TTLCache
+from langsmith import expect
+from six import reraise
 
+from app.api.endpoints.dashboard import downloader
 from app.api.endpoints.media import seasons
 from app.chain.download import DownloadChain
 from app.chain.media import MediaChain
 from app.chain.search import SearchChain
 from app.chain.subscribe import SubscribeChain
+from app.chain.transfer import job_lock
 from app.core.config import settings
+from app.core.meta import MetaVideo
 from app.core.metainfo import MetaInfo
 from app.core.context import MediaInfo, Context, TorrentInfo
 from app.log import logger
+from app.modules.qbittorrent import Qbittorrent
+from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
-from app.schemas import MediaType
+from app.schemas import MediaType, ServiceInfo
 import datetime
 import re
 import traceback
@@ -35,12 +49,9 @@ from app.schemas import ExistMediaInfo
 from app.schemas.types import SystemConfigKey, MediaType
 from app.helper.sites import SitesHelper
 
-
-def RecognizeMatchMetadata(result):
-  """
-    根据自定义规则刮削体育比赛信息
-  """
-  pass
+from app.utils.http import RequestUtils
+from app.utils.string import StringUtils
+from downloader import DownloaderHelper
 
 
 class AutoSports(_PluginBase):
@@ -51,7 +62,7 @@ class AutoSports(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/shortcut.png"
     # 插件版本
-    plugin_version = "0.1.0"
+    plugin_version = "0.2.0"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -63,21 +74,59 @@ class AutoSports(_PluginBase):
     # 可使用的用户级别
     auth_level = 1
 
-    _enable: bool = False
-    _teams_info: str = ""
-    _cron: str = ""
-    _notify: bool = False
-    _onlyonce: bool = False
-    _address: str = ""
-    _include: str = ""
-    _exclude: str = ""
-    _proxy: bool = False
-    _filter: bool = False
-    _clear: bool = False
-    _clearflag: bool = False
-    _action: str = "download"
-    _save_path: str = ""
-    _size_range: str = ""
+    __enabled: bool = False
+    __teams_info: str = ""
+    __football_apikey: str = ""
+    __cron: str = ""
+    __notify: bool = False
+    __onlyonce: bool = False
+    __include: str = ""
+    __exclude: str = ""
+    __proxy: bool = False
+    __filter: bool = False
+    __clear: bool = False
+    __clearflag: bool = False
+    __action: str = "download"
+    __save_path: str = ""
+    __category: str = ""
+    __tags: list[str] = []
+    __size_range: str = ""
+    __downloaders = None
+    __scheduler: BackgroundScheduler = None
+
+    # 赛事刮削信息
+    # 自定义映射关系
+    __match_parses = [
+      {
+        "names": ["西甲", "La Liga", "LaLiga", "Laliga"],
+        "shortname": "PD",
+        "title": "西班牙足球甲级联赛",
+        "en_title": "La Liga",
+        "year": 1929,
+        "overview": "西班牙足球甲级联赛（西班牙语：Primera División de España或La Liga，由于赞助原因，正式名称为LALIGA EA SPORTS），通常简称西甲或西甲联赛，是西班牙足球联赛系统的第 1 级别，亦是职业联赛的最高级别、联赛系统的最高级别和西班牙顶级足球联赛，目前有 20 支球队。皇家马德里是历史上夺得最多冠军的球队（36次），其次是巴塞罗那（28次），以及马德里竞技（11次）。 ",
+        "season_years": list(range(1929, 2101)),
+        "homepage": "https://www.laliga.com/en-GB",
+        "languages": "Spanish",
+        "origin_country": "Spain",
+        "original_name": "La Liga",
+        "production_companies": "UEFA（欧洲）",
+        "production_countries": "Spain",
+        "spoken_languages": "Spanish",
+        "runtime": 9000,
+      },
+      {
+        "names": ["欧洲冠军联赛", "Champions League", "UCL"],
+        "title": "欧洲冠军联赛",
+      },
+      {
+        "names": ["西班牙国王杯", "Copa Del Rey"],
+        "title": "西班牙国王杯",
+      },
+      {
+        "names": ["西班牙超级杯", "Supercopa de España"],
+        "title": "西班牙超级杯",
+      },
+    ]
 
     downloadchain: DownloadChain = None
     subscribechain: SubscribeChain = None
@@ -85,6 +134,29 @@ class AutoSports(_PluginBase):
     searchchain: SearchChain = None
 
     torrents_list = []
+
+    @property
+    def __downloader(self) -> Optional[Union[Qbittorrent, Transmission]]:
+      """
+      下载器实例
+      """
+      return self.__service_info.instance if self.__service_info else None
+
+    @property
+    def __service_info(self) -> Optional[ServiceInfo]:
+      """
+      服务信息
+      """
+      service = DownloaderHelper().get_service(name=self.__downloaders)
+      if not service:
+        self.__log_and_notify_error("站点刷流任务出错，获取下载器实例失败，请检查配置")
+        return None
+
+      if service.instance.is_inactive():
+        self.__log_and_notify_error("站点刷流任务出错，下载器未连接")
+        return None
+
+      return service
 
     @staticmethod
     def add_site() -> dict:
@@ -94,26 +166,22 @@ class AutoSports(_PluginBase):
       indexer: dict = {
         "id": "sportscult",
         "name": "Sportscult",
-        "domain": "https://sportscult.org/index.php?page=torrents&search=barcelona&category=0&active=1&gold=0",
+        "domain": "https://sportscult.org/",
         "encoding": "UTF-8",
-        "public": false,
+        "public": False,
+        "result_num": 30,
+        "timeout": 30,
         "search": {
           "paths": [
             {
-              "path": "index.php",
+              "path": "index.php?page=torrents&active=1&gold=0&search=barcelona&&order=3&by=2",
               "method": "get"
             }
-          ],
-          "params": {
-            "page": "torrent",
-            "search": "{keyword}",
-            "active": 1,
-            "gold": 0
-          },
-          "batch": {
-            "delimiter": " ",
-            "space_replace": "_"
-          }
+          ]
+        },
+        "browse": {
+          "path": "?p={page}",
+          "start": 1
         },
         "category": {
           "movie": [
@@ -121,20 +189,20 @@ class AutoSports(_PluginBase):
           ],
           "tv": [
             {
-                "id": 43,
-                "cat": "La Liga",
-                "desc": "西甲"
+              "id": 43,
+              "cat": "La Liga",
+              "desc": "西甲"
             },
             {
-                "id": 60,
-                "cat": "Champions League",
-                "desc": "欧冠"
-            }
+              "id": 60,
+              "cat": "Champions League",
+              "desc": "欧冠"
+            },
           ]
         },
         "torrents": {
           "list": {
-            "selector": "table.lista > tbody > tr:has(\"td.lista\")"
+            "selector": "table.lista > tr:has(\"td.lista.specialPadding\")"
           },
           "fields": {
             "id": {
@@ -150,11 +218,11 @@ class AutoSports(_PluginBase):
                 }
               ]
             },
-            "title_default": {
+            "title_optional": {
               "selector": "a[href*=\"torrent-details&id=\"]"
             },
-            "title_optional": {
-              "optional": true,
+            "title_default": {
+              "optional": True,
               "selector": "a[title][href*=\"torrent-details&id=\"]",
               "attribute": "title"
             },
@@ -170,7 +238,7 @@ class AutoSports(_PluginBase):
               "attribute": "href"
             },
             "imdbid": {
-              "optional": true,
+              "optional": True,
               "selector": "div.imdb_100 > a",
               "attribute": "href",
               "filters": [
@@ -185,12 +253,11 @@ class AutoSports(_PluginBase):
             },
             "date_elapsed": {
               "selector": "td:nth-child(5)",
-              "optional": true
+              "optional": True
             },
             "date_added": {
               "selector": "td:nth-child(5)",
-              "attribute": "title",
-              "optional": true
+              "optional": True
             },
             "size": {
               "selector": "td:nth-child(4)"
@@ -219,13 +286,19 @@ class AutoSports(_PluginBase):
               }
             },
             "description": {
-              "optional": true,
+              "optional": True,
               "selector": "a[href*=\"torrent-details&id=\"]",
               "contents": -1
             },
             "labels": {
-              "optional": true,
-              "selector": "a[href*=\"torrent-details&id=\"]"
+              "optional": True,
+              "selector": "td:nth-child(8) > a",
+              "attribute": "alt"
+            },
+            "category": {
+              "optional": True,
+              "selector": "td:nth-child(8) > a",
+              "attribute": "alt"
             }
           }
         }
@@ -241,52 +314,75 @@ class AutoSports(_PluginBase):
 
       sportscult_json = self.add_site()
       # 添加 SportsCult 站点
+      # TODO: 如果已存在该站点，不再添加
       SitesHelper().add_indexer(domain="sportscult.org", indexer=sportscult_json)
 
 
       # 配置
       if config:
         self.__validate_and_fix_config(config=config)
-        self._teams_info = config.get("teams_info")
-        self._enabled = config.get("enabled")
-        self._cron = config.get("cron")
-        self._notify = config.get("notify")
-        self._onlyonce = config.get("onlyonce")
-        self._address = config.get("address")
-        self._include = config.get("include")
-        self._exclude = config.get("exclude")
-        self._proxy = config.get("proxy")
-        self._filter = config.get("filter")
-        self._clear = config.get("clear")
-        self._action = config.get("action")
-        self._save_path = config.get("save_path")
-        self._size_range = config.get("size_range")
+        self.__football_apikey = config.get("football_apikey")
+        self.__teams_info = config.get("teams_info")
+        self.__enabled = config.get("enabled")
+        self.__cron = config.get("cron")
+        self.__notify = config.get("notify")
+        self.__onlyonce = config.get("onlyonce")
+        self.__include = config.get("include")
+        self.__exclude = config.get("exclude")
+        self.__proxy = config.get("proxy")
+        self.__filter = config.get("filter")
+        self.__clear = config.get("clear")
+        self.__action = config.get("action")
+        self.__save_path = config.get("save_path")
+        self.__downloaders = config.get("downloaders")
+        # 如果未设置下载器，使用默认的下载器
+        if not self.__downloaders:
+          for downloader_config in DownloaderHelper().get_configs().values():
+            if downloader_config.default:
+              self.__downloaders = downloader_config.name
+              break
 
-      if self._onlyonce:
-        self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+        try:
+          category_gotten = config.get("category")
+          self.__category = category_gotten
+        except AttributeError:
+          self.__category = ""
+        try:
+          tags_gotten = config.get("tags")
+          self.__tags = tags_gotten.split(",")
+        except AttributeError:
+          self.__tags = []
+        self.__size_range = config.get("size_range")
+
+      if not self.__football_apikey:
+        logger.error("无法对比赛进行刮削，请填入有效的 football-data.org API key")
+        self.stop_service()
+
+      if self.__onlyonce:
+        self.__scheduler = BackgroundScheduler(timezone=settings.TZ)
         logger.info(f"自定义订阅服务启动，立即运行一次")
-        self._scheduler.add_job(func=self.check, trigger='date',
-                                run_date=datetime.datetime.now(
+        self.__scheduler.add_job(func=self.check, trigger='date',
+                                 run_date=datetime.datetime.now(
                                   tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
-                                )
+                                 )
 
         # 启动任务
-        if self._scheduler.get_jobs():
-          self._scheduler.print_jobs()
-          self._scheduler.start()
+        if self.__scheduler.get_jobs():
+          self.__scheduler.print_jobs()
+          self.__scheduler.start()
 
-      if self._onlyonce or self._clear:
+      if self.__onlyonce or self.__clear:
         # 关闭一次性开关
-        self._onlyonce = False
+        self.__onlyonce = False
         # 记录清理缓存设置
-        self._clearflag = self._clear
+        self.__clearflag = self.__clear
         # 关闭清理缓存开关
-        self._clear = False
+        self.__clear = False
         # 保存设置
         self.__update_config()
 
     def get_state(self) -> bool:
-      return self._enabled
+      return self.__enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -326,15 +422,15 @@ class AutoSports(_PluginBase):
           "kwargs": {} # 定时器参数
       }]
       """
-      if self._enabled and self._cron:
+      if self.__enabled and self.__cron:
         return [{
           "id": "RssSubscribe",
           "name": "自定义订阅服务",
-          "trigger": CronTrigger.from_crontab(self._cron),
+          "trigger": CronTrigger.from_crontab(self.__cron),
           "func": self.check,
           "kwargs": {}
         }]
-      elif self._enabled:
+      elif self.__enabled:
         return [{
           "id": "RssSubscribe",
           "name": "自定义订阅服务",
@@ -438,31 +534,9 @@ class AutoSports(_PluginBase):
                         'model': 'action',
                         'label': '动作',
                         'items': [
-                          {'title': '订阅', 'value': 'subscribe'},
+                          {'title': '订阅（暂不支持）', 'value': 'subscribe'},
                           {'title': '下载', 'value': 'download'}
                         ]
-                      }
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              'component': 'VRow',
-              'content': [
-                {
-                  'component': 'VCol',
-                  'props': {
-                    'cols': 12
-                  },
-                  'content': [
-                    {
-                      'component': 'VTextarea',
-                      'props': {
-                        'model': 'address',
-                        'label': 'RSS地址',
-                        'rows': 3,
-                        'placeholder': '每行一个RSS地址'
                       }
                     }
                   ]
@@ -485,6 +559,28 @@ class AutoSports(_PluginBase):
                         'label': '关注球队名',
                         'rows': 3,
                         'placeholder': '请输入关注球队的名称，一行一个（英文，关键字即可）'
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              'component': 'VRow',
+              'content': [
+                {
+                  'component': 'VCol',
+                  'props': {
+                    'cols': 12
+                  },
+                  'content': [
+                    {
+                      'component': 'VTextarea',
+                      'props': {
+                        'model': 'football_apikey',
+                        'label': '比赛元数据 API key',
+                        'rows': 3,
+                        'placeholder': '请输入 football-data.org 上有效的 API key'
                       }
                     }
                   ]
@@ -546,6 +642,62 @@ class AutoSports(_PluginBase):
                         'model': 'size_range',
                         'label': '种子大小(GB)',
                         'placeholder': '如：3 或 3-5'
+                      }
+                    }
+                  ]
+                },
+                {
+                  'component': 'VCol',
+                  'props': {
+                    'cols': 12,
+                    'md': 6
+                  },
+                  'content': [
+                    {
+                      'component': 'VTextField',
+                      'props': {
+                        'model': 'category',
+                        'label': '种子分类，留空为不设置',
+                        'placeholder': '如：Sports'
+                      }
+                    }
+                  ]
+                },
+                {
+                  'component': 'VCol',
+                  'props': {
+                    'cols': 12,
+                    'md': 6
+                  },
+                  'content': [
+                    {
+                      'component': 'VTextField',
+                      'props': {
+                        'model': 'tags',
+                        'label': '种子标签，以逗号隔开，留空为不设置',
+                        'placeholder': '如：Sportscult,AutoSports'
+                      }
+                    }
+                  ]
+                },
+                {
+                  'component': 'VCol',
+                  'props': {
+                    'cols': 12,
+                    'md': 6
+                  },
+                  'content': [
+                    {
+                      'component': 'VSelect',
+                      'props': {
+                        'multiple': False,
+                        'chips': True,
+                        'clearable': True,
+                        'model': 'downloaders',
+                        'label': '下载器',
+                        'items': [
+                          {"title": config.name, "value": config.name} for config in DownloaderHelper().get_configs().values()
+                        ]
                       }
                     }
                   ]
@@ -625,17 +777,20 @@ class AutoSports(_PluginBase):
         }
       ], {
         "enabled": False,
+        "football_apikey": "",
+        "teams_info": "",
         "notify": True,
         "onlyonce": False,
         "cron": "*/30 * * * *",
-        "address": "",
         "include": "",
         "exclude": "",
         "proxy": False,
         "clear": False,
         "filter": False,
-        "action": "subscribe",
+        "action": "download",
         "save_path": "",
+        "category": "",
+        "tags": [],
         "size_range": ""
       }
 
@@ -753,11 +908,11 @@ class AutoSports(_PluginBase):
       退出插件
       """
       try:
-        if self._scheduler:
-          self._scheduler.remove_all_jobs()
-          if self._scheduler.running:
-            self._scheduler.shutdown()
-          self._scheduler = None
+        if self.__scheduler:
+          self.__scheduler.remove_all_jobs()
+          if self.__scheduler.running:
+            self.__scheduler.shutdown()
+          self.__scheduler = None
       except Exception as e:
         logger.error("退出插件失败：%s" % str(e))
 
@@ -781,30 +936,34 @@ class AutoSports(_PluginBase):
       更新设置
       """
       self.update_config({
-        "enabled": self._enabled,
-        "notify": self._notify,
-        "onlyonce": self._onlyonce,
-        "cron": self._cron,
-        "address": self._address,
-        "include": self._include,
-        "exclude": self._exclude,
-        "proxy": self._proxy,
-        "clear": self._clear,
-        "filter": self._filter,
-        "action": self._action,
-        "save_path": self._save_path,
-        "size_range": self._size_range
+        "enabled": self.__enabled,
+        "football_apikey": self.__football_apikey,
+        "teams_info": self.__teams_info,
+        "notify": self.__notify,
+        "onlyonce": self.__onlyonce,
+        "cron": self.__cron,
+        "include": self.__include,
+        "exclude": self.__exclude,
+        "proxy": self.__proxy,
+        "filter": self.__filter,
+        "clear": self.__clear,
+        "action": self.__action,
+        "save_path": self.__save_path,
+        "category": self.__category,
+        "tags": self.__tags,
+        "size_range": self.__size_range,
+        "downloaders": self.__downloaders,
       })
 
     def check(self):
       """
       自动下载 SportsCult 球队最新内容
       """
-      if not self._teams_info:
+      if not self.__teams_info:
         logger.error(f"未输入球队名，不会进行任何操作，请输入球队名再试")
         return
       # 读取历史记录
-      if self._clearflag:
+      if self.__clearflag:
         history = []
       else:
         history: List[dict] = self.get_data('history') or []
@@ -813,48 +972,53 @@ class AutoSports(_PluginBase):
       downloadchain = DownloadChain()
       subscribechain = SubscribeChain()
 
-      sportscult_indexer: dict = {}
+      # sportscult_indexer: dict = {}
 
       for indexer in SitesHelper().get_indexers():
         # 检查站点索引开关
-        if indexer.get("id") == "sportscult":
-          sportscult_indexer = indexer
+        if indexer.get("is_active"):
+          # sportscult_indexer = indexer
+          sportscult_indexer_id: int = indexer.get("id")
+        else:
+          logger.error(f"Sportscults站点未启用，请检查站点设置")
+          return
 
-      for team_info in self._teams_info.split("\n"):
+      for team_info in self.__teams_info.split("\n"):
         # 在 SportsCult 搜索种子
         if not team_info:
           continue
         logger.info(f"开始在 Sportscult 搜索 {team_info} 的比赛...")
 
-        results = searchchain.search_torrents(site=sportscult_indexer, keyword=team_info, mtype=MediaType.TV, page=1)
+        results = searchchain.search_by_title(title=team_info, sites=[sportscult_indexer_id])
 
         if not results:
           logger.error(f"未获取到该球队相关比赛种子，请更换关键词再试试：{team_info}")
           return
 
         # 解析数据
-        for result in results:
+        for torrent_hash in results:
           try:
-            title = result.get("title")
-            description = result.get("description")
-            enclosure = result.get("enclosure")
-            link = result.get("link")
-            size = result.get("size")
-            pubdate: datetime.datetime = result.get("pubdate")
+            title = torrent_hash.torrent_info.title
+            logger.info(f"找到种子：{title}，开始处理......")
+            description = torrent_hash.torrent_info.description
+            enclosure = torrent_hash.torrent_info.enclosure
+            link = torrent_hash.torrent_info.page_url
+            size = torrent_hash.torrent_info.size
+            pubdate: datetime.datetime = torrent_hash.torrent_info.pubdate
             # 检查是否处理过
             if not title or title in [h.get("key") for h in history]:
               continue
             # 检查规则
-            if self._include and not re.search(r"%s" % self._include,
+            if self.__include and not re.search(r"%s" % self.__include,
                                                f"{title} {description}", re.IGNORECASE):
               logger.info(f"{title} - {description} 不符合包含规则")
               continue
-            if self._exclude and re.search(r"%s" % self._exclude,
+            if self.__exclude and re.search(r"%s" % self.__exclude,
                                            f"{title} {description}", re.IGNORECASE):
               logger.info(f"{title} - {description} 不符合排除规则")
               continue
-            if self._size_range:
-              sizes = [float(_size) * 1024 ** 3 for _size in self._size_range.split("-")]
+            if self.__size_range:
+              sizes = [float(_size) * 1024 ** 3 for _size in self.__size_range.split("-")]
               if len(sizes) == 1 and float(size) < sizes[0]:
                 logger.info(f"{title} - 种子大小不符合条件")
                 continue
@@ -862,118 +1026,242 @@ class AutoSports(_PluginBase):
                 logger.info(f"{title} - 种子大小不在指定范围")
                 continue
 
-            # 识别体育比赛信息
-            mediainfo = RecognizeMatchMetadata(result)
-
             # 种子
-            torrentinfo = TorrentInfo(
-              title=title,
-              description=description,
-              enclosure=enclosure,
-              page_url=link,
-              size=size,
-              pubdate=pubdate.strftime("%Y-%m-%d %H:%M:%S") if pubdate else None,
-              site_proxy=self._proxy,
-            )
+            torrentinfo = torrent_hash.torrent_info
+            metainfo = torrent_hash.meta_info
+            # 识别体育比赛信息
+            match_mediainfo = self.recognize_competition_mediainfo(torrentinfo, metainfo)
+            if not match_mediainfo:
+              # 如果未识别成功，跳过
+              continue
+            match_metainfo = self.recognized_match_metainfo(match_mediainfo, metainfo)
+            if not match_metainfo:
+              # 如果未识别成功，跳过
+              continue
 
-            filter_groups = filter_groups = self.systemconfig.get(SystemConfigKey.SubscribeFilterRuleGroups)
+            filter_groups = self.systemconfig.get(SystemConfigKey.SubscribeFilterRuleGroups)
 
             # 过滤种子
-            if self._filter:
-              result = self.chain.filter_torrents(
+            if self.__filter:
+              torrent_hash = self.chain.filter_torrents(
                 rule_groups=filter_groups,
                 torrent_list=[torrentinfo],
-                mediainfo=mediainfo
+                mediainfo=match_mediainfo
               )
-              if not result:
+              if not torrent_hash:
                 logger.info(f"{title} {description} 不匹配过滤规则")
                 continue
-            # 媒体库已存在的剧集
-            exist_info: Optional[ExistMediaInfo] = self.chain.media_exists(mediainfo=mediainfo)
-            if mediainfo.type == MediaType.TV:
-              if exist_info:
-                exist_season = exist_info.seasons
-                if exist_season:
-                  exist_episodes = exist_season.get(meta.begin_season)
-                  if exist_episodes and set(meta.episode_list).issubset(set(exist_episodes)):
-                    logger.info(f'{mediainfo.title_year} {meta.season_episode} 己存在')
-                    continue
-            elif exist_info:
-              # 电影已存在
-              logger.info(f'{mediainfo.title_year} 己存在')
-              continue
+
+            # 判断媒体库是否已存在该场比赛
+            exist_info: Optional[ExistMediaInfo] = self.chain.media_exists(mediainfo=match_mediainfo)
+            if exist_info:
+              exist_season = exist_info.seasons
+              if exist_season:
+                exist_episodes = exist_season.get(metainfo.begin_season)
+                if exist_episodes and set(metainfo.episode_list).issubset(set(exist_episodes)):
+                  logger.info(f'{match_mediainfo.title_year} {metainfo.season_episode} 己存在')
+                  continue
+
             # 下载或订阅
-            if self._action == "download":
+            if self.__action == "download":
               # 添加下载
-              result = downloadchain.download_single(
-                context=Context(
-                  meta_info=meta,
-                  media_info=mediainfo,
-                  torrent_info=torrentinfo,
-                ),
-                save_path=self._save_path,
-                username="RSS订阅"
-              )
-              if not result:
+              torrent_hash = self.__download(torrentinfo)
+              if not torrent_hash:
                 logger.error(f'{title} 下载失败')
-                continue
+                # 调试用，找到就退出
+                return
+                # continue
+              logger.info(f'{title} 下载成功，种子 HASH 值为：{torrent_hash}')
+              # 调试用，找到就退出
+              return
+
             else:
+              # TODO: 支持订阅功能
+              logger.error(f'暂不支持订阅功能，请等待适配')
+              # 保存历史记录
+              self.save_data('history', history)
+              # 缓存只清理一次
+              self.__clearflag = False
+              return
               # 检查是否在订阅中
-              subflag = subscribechain.exists(mediainfo=mediainfo, meta=meta)
+              subflag = subscribechain.exists(mediainfo=match_mediainfo, meta=metainfo)
               if subflag:
-                logger.info(f'{mediainfo.title_year} {meta.season} 正在订阅中')
+                logger.info(f'{match_mediainfo.title_year} {metainfo.season} 正在订阅中')
                 continue
               # 添加订阅
-              subscribechain.add(title=mediainfo.title,
-                                 year=mediainfo.year,
-                                 mtype=mediainfo.type,
-                                 tmdbid=mediainfo.tmdb_id,
-                                 season=meta.begin_season,
+              subscribechain.add(title=match_mediainfo.title,
+                                 year=match_mediainfo.year,
+                                 mtype=match_mediainfo.type,
+                                 tmdbid=match_mediainfo.tmdb_id,
+                                 season=metainfo.begin_season,
                                  exist_ok=True,
-                                 username="RSS订阅")
+                                 username="AutoSports")
             # 存储历史记录
             history.append({
-              "title": f"{mediainfo.title} {meta.season}",
+              "title": f"{match_mediainfo.title} {match_metainfo.season}",
               "key": f"{title}",
-              "type": mediainfo.type.value,
-              "year": mediainfo.year,
-              "poster": mediainfo.get_poster_image(),
-              "overview": mediainfo.overview,
-              "tmdbid": mediainfo.tmdb_id,
+              "type": match_mediainfo.type.value,
+              "year": match_mediainfo.year,
+              "poster": match_mediainfo.get_poster_image(),
+              "overview": match_mediainfo.overview,
+              "tmdbid": match_mediainfo.tmdb_id,
               "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             })
           except Exception as err:
-            logger.error(f'刷新RSS数据出错：{str(err)} - {traceback.format_exc()}')
-        logger.info(f"RSS {url} 刷新完成")
+            logger.error(f'自动下载体育数据出错：{str(err)} - {traceback.format_exc()}')
+        logger.info(f"体育比赛刷新完成")
       # 保存历史记录
       self.save_data('history', history)
       # 缓存只清理一次
-      self._clearflag = False
+      self.__clearflag = False
 
-    def __log_and_notify_error(self, message):
+    @dataclass
+    class MatchInfo:
       """
-      记录错误日志并发送系统通知
+        用于刮削的体育比赛数据结构类
       """
-      logger.error(message)
-      self.systemmessage.put(message, title="自定义订阅")
 
-    def __validate_and_fix_config(self, config: dict = None) -> bool:
+    def scrape_competition(self, matchinfo: MediaInfo, match_parse: {}):
       """
-      检查并修正配置值
+        根据给定的 JSON 规则刮削体育比赛
       """
-      size_range = config.get("size_range")
-      if size_range and not self.__is_number_or_range(str(size_range)):
-        self.__log_and_notify_error(f"自定义订阅出错，种子大小设置错误：{size_range}")
-        config["size_range"] = None
-        return False
-      return True
+      for f in fields(matchinfo):
+        if f.name in match_parse:
+          setattr(matchinfo, f.name, match_parse[f.name])
+      pass
 
-    @staticmethod
-    def __is_number_or_range(value):
+    def get_match_raw_metadata(self, competition_name:str = '', season:int = 0, home_team: list[str] = '', away_team: list[str] = ''):
       """
-      检查字符串是否表示单个数字或数字范围（如'5', '5.5', '5-10' 或 '5.5-10.2'）
+        从 football-data.org 获取比赛信息
       """
-      return bool(re.match(r"^\d+(\.\d+)?(-\d+(\.\d+)?)?$", value))
+      import requests
+
+      if not competition_name or not season or not home_team or not away_team:
+        logger.error(f'缺少必须比赛信息，无法进行刮削，competition_name: {competition_name}，season: {season}, home_team: {home_team}, away_team: {away_team}')
+        return None
+
+      # 寻找比赛缩写
+      for match_parse in self.__match_parses:
+        if competition_name == match_parse["title"]:
+          competition_shortname = match_parse["shortname"]
+          break
+        else:
+          continue
+
+      headers = {"X-Auth-Token": self.__football_apikey}
+
+      timeout = (30, 30)
+
+      url = f"https://api.football-data.org/v4/competitions/{competition_shortname}/matches"
+      params = {
+        "season": season
+      }
+
+      resp = requests.get(url, headers=headers, params=params, timeout=timeout)
+      data = resp.json()
+
+      for match in data["matches"]:
+        home = match["homeTeam"]["name"]
+        away = match["awayTeam"]["name"]
+
+        if any(home_team_i in home for home_team_i in home_team) and any(away_team_i in away for away_team_i in away_team):
+          return match
+
+      logger.error(f'未匹配到相关比赛，请检查输入信息，competition_name: {competition_name}，season: {season}, home_team: {home_team}, away_team: {away_team}')
+      return None
+
+    def recognized_match_metainfo(self, match_mediainfo: MediaInfo, metainfo: MetaVideo) -> MetaVideo | None:
+      """
+        根据给定的规则刮削单场比赛信息
+      """
+      match_metainfo = deepcopy(metainfo)
+
+      competition_cn_name = match_mediainfo.title
+      competition_en_name = match_mediainfo.en_title
+
+      org_str = metainfo.org_string
+      # 获取赛季信息
+      try:
+        season_name = metainfo.year
+        season = int(season_name)
+        season_shortname = season % 100
+        # 解析赛季信息
+        season_cn_name = f"{season_shortname:02d}-{(season_shortname + 1):02d} 赛季"
+        season_en_name = f"Season {season_shortname:02d}-{(season_shortname + 1):02d}"
+        logger.info(f"成功匹配到赛季信息：{season_cn_name}")
+      except Exception as err:
+        logger.warn("未成功匹配到赛季信息，跳过")
+        return None
+
+      # 分析主客场球队
+      try:
+        match_make = re.search( r'\d+\s+(.+?)\s+vs\s+(.+?)\s+\d+', org_str)
+        home_team = re.findall(r'\D+', match_make.group(1))
+        away_team =  re.findall(r'\D+', match_make.group(2))
+        logger.info(f"成功匹配到对阵信息：{home_team} vs {away_team}")
+      except Exception as err:
+        logger.warn("未成功匹配到对阵信息，跳过")
+        return None
+
+      # 获取比赛相关元数据
+      raw_matchdata = self.get_match_raw_metadata(competition_cn_name, season, home_team, away_team)
+      if not raw_matchdata:
+        logger.warn("未获取到比赛元数据，跳过")
+        return None
+
+      # 解析轮次信息
+      try:
+        round_info = raw_matchdata['matchday']
+        round_cn_name = f"第{self.number_to_chinese(round_info)}轮"
+        round_en_name = f"Round {round_info}"
+        logger.info(f"成功匹配到轮次信息：{round_cn_name}")
+      except Exception as err:
+        logger.warn("未成功匹配到轮次信息，跳过")
+        return None
+
+      # 解析对阵信息
+      home_team = raw_matchdata['homeTeam']['name']
+      away_team = raw_matchdata['awayTeam']['name']
+      matchmake_en_name = matchmake_cn_name = f"{home_team} vs {away_team}"
+
+      # 刮削比赛信息
+      match_metainfo.cn_name = " - ".join([competition_cn_name, season_cn_name, round_cn_name, matchmake_cn_name])
+      match_metainfo.en_name = " - ".join([competition_en_name, season_en_name, round_en_name, matchmake_en_name])
+      match_metainfo.set_season(season)
+      match_metainfo.set_episode(round_info)
+      match_metainfo.set_episodes(round_info,round_info)
+      match_metainfo.subtitle = ""
+      match_metainfo.title = competition_cn_name
+
+      return match_metainfo
+
+    def recognize_competition_mediainfo(self, torrent_info: TorrentInfo, meta_info: MetaVideo) -> MediaInfo | None:
+      """
+        根据自定义规则刮削赛事信息
+      """
+      competition_mediainfo = MediaInfo()
+
+      title = torrent_info.title
+
+      for match_parse in self.__match_parses:
+        if any(alia in title for alia in match_parse["names"]):
+          # 匹配任意一个别名，开始解析
+          self.scrape_competition(competition_mediainfo, match_parse)
+          competition_mediainfo.type = MediaType.TV
+          competition_mediainfo.season = meta_info.year
+          competition_mediainfo.category = self.__category
+          break
+        else:
+          continue
+
+      if not competition_mediainfo.title:
+        # 未成功刮削，返回空对象
+        logger.info(f"未识别到赛事信息")
+        return None
+
+      # 成功刮削，返回刮削后对象
+      logger.info(f"成功匹配到赛事信息：{competition_mediainfo.title}")
+      return competition_mediainfo
 
     @staticmethod
     def chinese_to_number(chinese_num: str) -> int:
@@ -1091,4 +1379,168 @@ class AutoSports(_PluginBase):
             result = result[1:]
 
         return result
+
+    @staticmethod
+    def __get_redict_url(url: str, proxies: str = None, ua: str = None, cookie: str = None) -> Optional[str]:
+      """
+      获取下载链接， url格式：[base64]url
+      """
+      # 获取[]中的内容
+      m = re.search(r"\[(.*)](.*)", url)
+      if m:
+        # 参数
+        base64_str = m.group(1)
+        # URL
+        url = m.group(2)
+        if not base64_str:
+          return url
+        # 解码参数
+        req_str = base64.b64decode(base64_str.encode('utf-8')).decode('utf-8')
+        req_params: Dict[str, dict] = json.loads(req_str)
+        # 是否使用cookie
+        if not req_params.get('cookie'):
+          cookie = None
+        # 请求头
+        if req_params.get('header'):
+          headers = req_params.get('header')
+        else:
+          headers = None
+        if req_params.get('method') == 'get':
+          # GET请求
+          res = RequestUtils(
+            ua=ua,
+            proxies=proxies,
+            cookies=cookie,
+            headers=headers
+          ).get_res(url, params=req_params.get('params'))
+        else:
+          # POST请求
+          res = RequestUtils(
+            ua=ua,
+            proxies=proxies,
+            cookies=cookie,
+            headers=headers
+          ).post_res(url, params=req_params.get('params'))
+        if not res:
+          return None
+        if not req_params.get('result'):
+          return res.text
+        else:
+          data = res.json()
+          for key in str(req_params.get('result')).split("."):
+            data = data.get(key)
+            if not data:
+              return None
+          logger.debug(f"获取到下载地址：{data}")
+          return data
+      return None
+
+    def __download(self, torrent: TorrentInfo) -> Optional[str]:
+        """
+        添加下载任务
+        """
+        if not torrent.enclosure:
+            logger.error(f"获取下载链接失败：{torrent.title}")
+            return None
+
+        # 保存地址
+        download_dir = self.__save_path or None
+        # 获取下载链接
+        torrent_content = torrent.enclosure
+        # proxies
+        proxies = settings.PROXY if torrent.site_proxy else None
+        # cookie
+        cookies = torrent.site_cookie
+        if torrent_content.startswith("["):
+            torrent_content = self.__get_redict_url(url=torrent_content,
+                                                    proxies=proxies,
+                                                    ua=torrent.site_ua,
+                                                    cookie=cookies)
+            # 目前馒头请求实际种子时，不能传入Cookie
+            cookies = None
+        if not torrent_content:
+            logger.error(f"获取下载链接失败：{torrent.title}")
+            return None
+
+        # TODO: 支持多下载器
+        downloader = self.__downloader
+        if not downloader:
+            return None
+
+        downloader_helper = DownloaderHelper()
+        if downloader_helper.is_downloader("qbittorrent", service=self.__service_info):
+            # 生成随机Tag
+            random_tag = StringUtils.generate_random_str(10)
+            # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
+            if not torrent_content.startswith("magnet"):
+                response = RequestUtils(cookies=cookies,
+                                        proxies=proxies,
+                                        ua=torrent.site_ua).get_res(url=torrent_content)
+                if response and response.ok:
+                    torrent_content = response.content
+                else:
+                    logger.error("尝试通过 MP 下载种子失败，继续尝试传递种子地址到下载器进行下载")
+            if torrent_content:
+                state = downloader.add_torrent(content=torrent_content,
+                                               download_dir=download_dir,
+                                               is_paused=True,  # 调试用
+                                               cookie=cookies,
+                                               category=self.__category,
+                                               tag=self.__tags + [random_tag], )
+                if not state:
+                    return None
+                else:
+                    # 获取种子Hash
+                    torrent_hash = downloader.get_torrent_id_by_tag(tags=random_tag)
+                    if not torrent_hash:
+                        logger.error(f"{self.__downloaders} 获取种子 Hash 失败")
+                        return None
+                    downloader.remove_torrents_tag([torrent_hash], random_tag)
+                    return torrent_hash
+            return None
+
+        elif downloader_helper.is_downloader("transmission", service=self.__service_info):
+            # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
+            if not torrent_content.startswith("magnet"):
+                response = RequestUtils(cookies=cookies,
+                                        proxies=proxies,
+                                        ua=torrent.site_ua).get_res(url=torrent_content)
+                if response and response.ok:
+                    torrent_content = response.content
+                else:
+                    logger.error("尝试通过 MP 下载种子失败，继续尝试传递种子地址到下载器进行下载")
+            if torrent_content:
+                torrent = downloader.add_torrent(content=torrent_content,
+                                                 download_dir=download_dir,
+                                                 is_paused=True,  # 调试用
+                                                 cookie=cookies,
+                                                 labels=self.__tags)
+                if not torrent:
+                    return None
+        return None
+
+    def __log_and_notify_error(self, message):
+      """
+      记录错误日志并发送系统通知
+      """
+      logger.error(message)
+      self.systemmessage.put(message, title="自定义订阅")
+
+    def __validate_and_fix_config(self, config: dict = None) -> bool:
+      """
+      检查并修正配置值
+      """
+      size_range = config.get("size_range")
+      if size_range and not self.__is_number_or_range(str(size_range)):
+        self.__log_and_notify_error(f"自定义订阅出错，种子大小设置错误：{size_range}")
+        config["size_range"] = None
+        return False
+      return True
+
+    @staticmethod
+    def __is_number_or_range(value):
+      """
+      检查字符串是否表示单个数字或数字范围（如'5', '5.5', '5-10' 或 '5.5-10.2'）
+      """
+      return bool(re.match(r"^\d+(\.\d+)?(-\d+(\.\d+)?)?$", value))
 
