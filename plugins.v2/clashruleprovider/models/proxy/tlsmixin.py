@@ -1,6 +1,19 @@
-from typing import List, Optional, Literal
+from enum import StrEnum
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
+
+
+class ClientFingerprint(StrEnum):
+    chrome = 'chrome'
+    firefox = 'firefox'
+    safari = 'safari'
+    ios = 'ios'
+    android = 'android'
+    edge = 'edge'
+    n360 = '360'
+    qq = 'qq'
+    random = 'random'
 
 
 class RealityOpts(BaseModel):
@@ -23,6 +36,6 @@ class TLSMixin(BaseModel):
     fingerprint: Optional[str] = None
     alpn: Optional[List[str]] = None
     skip_cert_verify: Optional[bool] = Field(None, alias='skip-cert-verify')
-    client_fingerprint: Optional[Literal['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', '360', 'qq', 'random']] = Field(None, alias='client-fingerprint')
+    client_fingerprint: Optional[ClientFingerprint] = Field(None, alias='client-fingerprint')
     reality_opts: Optional[RealityOpts] = Field(None, alias='reality-opts')
     ech_opts: Optional[EchOpts] = Field(None, alias='ech-opts')

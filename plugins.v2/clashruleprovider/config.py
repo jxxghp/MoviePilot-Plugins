@@ -1,6 +1,6 @@
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .models.api import ClashApi
 
@@ -8,10 +8,10 @@ from .models.api import ClashApi
 class SubscriptionConfig(BaseModel):
     url: str
     rules: Optional[bool] = True
-    rule_providers: Optional[bool] = Field(True, alias='rule-providers')
+    rule_providers: Optional[bool] = Field(default=True, alias='rule-providers')
     proxies: Optional[bool] = True
-    proxy_groups: Optional[bool] = Field(True, alias='proxy-groups')
-    proxy_providers: Optional[bool] = Field(True, alias='proxy-providers')
+    proxy_groups: Optional[bool] = Field(default=True, alias='proxy-groups')
+    proxy_providers: Optional[bool] = Field(default=True, alias='proxy-providers')
 
     @field_validator('url')
     @classmethod
@@ -23,10 +23,14 @@ class PluginConfig(BaseModel):
     """
     A dataclass to hold all the configuration of the ClashRuleProvider plugin.
     """
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+    )
+
     enabled: bool = False
     proxy: bool = False
     notify: bool = False
-    subscriptions_config: List[SubscriptionConfig] = Field(default_factory=list)
+    subscriptions_config: list[SubscriptionConfig] = Field(default_factory=list)
     movie_pilot_url: str = ''
     cron_string: str = '30 12 * * *'
     timeout: int = 10
@@ -46,6 +50,8 @@ class PluginConfig(BaseModel):
     apikey: Optional[str] = None
     clash_dashboards: List[ClashApi] = Field(default_factory=list)
     active_dashboard: Optional[int] = None
+    identifiers: list[str] = Field(default_factory=list)
+    cache_ttl: int = 3600
 
     @field_validator('clash_dashboards')
     @classmethod
@@ -61,32 +67,6 @@ class PluginConfig(BaseModel):
     @classmethod
     def validate_movie_pilot_url(cls, v: str):
         return v.rstrip('/')
-
-    @field_validator('ruleset_prefix')
-    @classmethod
-    def validate_ruleset_prefix(cls, v: str):
-        return v.strip()
-
-    @field_validator('acl4ssr_prefix')
-    @classmethod
-    def validate_acl4ssr_prefix(cls, v: str):
-        return v.strip()
-
-    @staticmethod
-    def upgrade_conf(conf: Dict[str, Any]) -> Dict[str, Any]:
-        if conf.get('sub_links'):
-            subscriptions_config = conf.get('subscriptions_config') or []
-            subscriptions_config.extend(
-                [{'url': url, 'rules': True, 'rule-providers': True, 'proxies': True, 'proxy-groups': True,
-                  'proxy-providers': True}
-                 for url in conf['sub_links']]
-            )
-            conf['subscriptions_config'] = subscriptions_config
-        if conf.get('clash_dashboard_url') and conf.get('clash_dashboard_secret'):
-            clash_dashboards = conf.get('clash_dashboards') or []
-            clash_dashboards.append({'url': conf.get('clash_dashboard_url'), 'secret': conf.get('clash_dashboard_secret')})
-            conf['clash_dashboards'] = clash_dashboards
-        return conf
 
     @property
     def sub_links(self) -> List[str]:
@@ -105,3 +85,6 @@ class PluginConfig(BaseModel):
         if self.active_dashboard is not None and self.active_dashboard in range(len(self.clash_dashboards)):
             dashboard_secret = self.clash_dashboards[self.active_dashboard].secret
         return dashboard_secret
+
+    def get_sub_conf(self, url: str) -> SubscriptionConfig:
+        return next((conf for conf in self.subscriptions_config if conf.url == url), SubscriptionConfig(url=url))

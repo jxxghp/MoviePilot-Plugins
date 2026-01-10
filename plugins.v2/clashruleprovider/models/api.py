@@ -1,48 +1,71 @@
-from typing import List, Optional, Union, Literal
+from typing import List
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, RootModel
+from simpleeval import simple_eval
 
-from .rule import RoutingRuleType, Action, AdditionalParam
-from .ruleproviders import RuleProvider
-
-class RuleData(BaseModel):
-    priority: int
-    type: RoutingRuleType
-    payload: Optional[str] = None
-    action: Union['Action', str]
-    additional_params: Optional[AdditionalParam] = None
-    conditions: Optional[List[str]] = None
-    condition: Optional[str] = None
-
-    model_config = ConfigDict(
-        use_enum_values=True
-    )
 
 class ClashApi(BaseModel):
     url: str
     secret: str
 
+
 class Connectivity(BaseModel):
     clash_apis: List[ClashApi] = Field(default_factory=list)
     sub_links: List[str] = Field(default_factory=list)
 
-class Subscription(BaseModel):
+
+class SubscriptionSetting(BaseModel):
     url: str
+    enabled: bool
 
-class RuleProviderData(BaseModel):
-    name: str
-    rule_provider: RuleProvider
 
-class SubscriptionInfo(BaseModel):
+class DataUsage(BaseModel):
+    upload: int = 0
+    download: int = 0
+    total: int = 0
+    expire: int = 0
+
+    @property
+    def header(self) -> str:
+        return f'upload={self.upload}; download={self.download}; total={self.total}; expire={self.expire};'
+
+
+class SubscriptionInfo(DataUsage):
+    last_update: int = Field(default=0)
+    proxy_num: int = Field(default=0)
+    enabled: bool = True
+
+    def update(self, setting: SubscriptionSetting):
+        self.enabled = setting.enabled
+
+
+class SubscriptionsInfo(RootModel[dict[str, SubscriptionInfo]]):
+    root: dict[str, SubscriptionInfo] = Field(default_factory=dict)
+
+    def update(self, urls: list[str]):
+        if not urls:
+            return
+
+        self.root.clear()
+        for url in urls:
+            self.root[url] = self.root.get(url, SubscriptionInfo())
+
+    def get(self, url: str) -> SubscriptionInfo:
+        return self.root.get(url, SubscriptionInfo())
+
+    def __setitem__(self, key: str, value: SubscriptionInfo):
+        self.root[key] = value
+
+    def set(self, setting: SubscriptionSetting):
+        if setting.url in self.root:
+            self.root[setting.url].update(setting)
+
+
+class ConfigRequest(BaseModel):
     url: str
-    field: Literal['name', 'enabled']
-    value: Union[bool, str]
+    client_host: str
+    identifier: str | None = None
+    user_agent : str | None = None
 
-class Host(BaseModel):
-    domain: str
-    value: List[str]
-    using_cloudflare: bool
-
-class HostData(BaseModel):
-    domain: str
-    value: Optional[Host] = None
+    def resolve(self, expr) -> bool:
+        return bool(simple_eval(expr=expr, names=self.model_dump()))

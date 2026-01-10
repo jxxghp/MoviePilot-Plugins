@@ -10,10 +10,8 @@ class HysteriaProxy(ProxyBase):
     auth_str: Optional[str] = Field(None, alias='auth-str')
     auth: Optional[str] = None
     protocol: Optional[Literal['udp','wechat-video', 'faketcp']] = None
-    up: Optional[str] = None
-    down: Optional[str] = None
-    up_speed: Optional[int] = Field(None, alias='up-speed')
-    down_speed: Optional[int] = Field(None, alias='down-speed')
+    up: Optional[int | str] = None
+    down: Optional[int | str] = None
     obfs: Optional[str] = None
     obfs_protocol: Optional[str] = Field(None, alias='obfs-protocol')
     recv_window_conn: Optional[int] = Field(None, alias='recv-window-conn')

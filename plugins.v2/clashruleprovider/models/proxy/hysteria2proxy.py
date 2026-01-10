@@ -10,8 +10,8 @@ class Hysteria2Proxy(ProxyBase):
     password: Optional[str] = None
     obfs: Optional[Literal['salamander']] = None
     obfs_password: Optional[str] = Field(None, alias='obfs-password')
-    up: Optional[str] = None
-    down: Optional[str] = None
+    up: Optional[int | str] = None
+    down: Optional[int | str] = None
     hop_interval: Optional[int] = Field(None, alias='hop-interval')
     ca: Optional[str] = None
     ca_str: Optional[str] = Field(None, alias='ca-str')

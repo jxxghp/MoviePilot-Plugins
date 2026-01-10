@@ -1,20 +1,29 @@
-from typing import List, Optional, Literal, Dict
+from typing import List, Optional, Literal
 
-from pydantic import BaseModel, Field, model_validator, HttpUrl, RootModel
+from pydantic import BaseModel, ConfigDict, Field, model_validator, HttpUrl
+
+from .generics import ResourceItem, ResourceList
+from .types import VehicleType
 
 
 class RuleProvider(BaseModel):
-    type: Literal["http", "file", "inline"] = Field(..., description="Provider type")
-    url: Optional[HttpUrl] = Field(None, description="Must be configured if the type is http")
-    path: Optional[str] = Field(None, description="Optional, file path, must be unique.")
-    interval: Optional[int] = Field(None, ge=0, description="The update interval for the provider, in seconds.")
-    proxy: Optional[str] = Field(None, description="Download/update through the specified proxy.")
+    """Rule Provider"""
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_assignment=True,
+    )
+
+    type: VehicleType = Field(..., description="Provider type")
+    url: Optional[HttpUrl] = Field(default=None, description="Must be configured if the type is http")
+    path: Optional[str] = Field(default=None, description="Optional, file path, must be unique.")
+    interval: Optional[int] = Field(default=None, ge=0, description="The update interval for the provider, in seconds.")
+    proxy: Optional[str] = Field(default=None, description="Download/update through the specified proxy.")
     behavior: Optional[Literal["domain", "ipcidr", "classical"]] = Field(None,
                                                                          description="Behavior of the rule provider")
     format: Literal["yaml", "text", "mrs"] = Field("yaml", description="Format of the rule provider file")
-    size_limit: int = Field(0, ge=0, description="The maximum size of downloadable files in bytes (0 for no limit)",
-                            alias="size-limit")
-    payload: Optional[List[str]] = Field(None, description="Content, only effective when type is inline")
+    size_limit: int = Field(default=0, ge=0, alias="size-limit",
+                            description="The maximum size of downloadable files in bytes (0 for no limit)")
+    payload: Optional[List[str]] = Field(default=None, description="Content, only effective when type is inline")
 
     @model_validator(mode="before")
     @classmethod
@@ -55,5 +64,11 @@ class RuleProvider(BaseModel):
         return values
 
 
-class RuleProviders(RootModel[Dict[str, RuleProvider]]):
-    root: Dict[str, RuleProvider]
+class RuleProviderData(ResourceItem[RuleProvider]):
+    """Rule Provider Data"""
+    pass
+
+
+class RuleProviders(ResourceList[RuleProviderData]):
+    """Rule Providers Collection"""
+    pass

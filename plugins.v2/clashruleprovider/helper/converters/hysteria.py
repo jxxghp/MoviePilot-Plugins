@@ -17,6 +17,7 @@ class HysteriaConverter(BaseConverter):
                 "type": "hysteria",
                 "server": parsed.hostname,
                 "port": parsed.port,
+                "udp": True
             }
 
             auth_str = query.get("auth")

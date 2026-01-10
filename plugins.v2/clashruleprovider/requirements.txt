@@ -1,3 +1,5 @@
 websockets
-sse_starlette~=2.3.6
+sse_starlette~=3.1.1
 PyYAML~=6.0.2
+jsonpatch~=1.33
+simpleeval~=1.0.3

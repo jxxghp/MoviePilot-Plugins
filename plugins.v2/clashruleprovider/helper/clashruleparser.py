@@ -10,20 +10,24 @@ class ClashRuleParser:
     """Parser for Clash routing rules"""
 
     @staticmethod
+    def parse(line: str) -> RuleType:
+        """Parse a single rule line"""
+        # Handle logic rules (AND, OR, NOT)
+        if line.startswith(('AND,', 'OR,', 'NOT,')):
+            return ClashRuleParser._parse_logic_rule(line)
+        elif line.startswith('MATCH'):
+            return ClashRuleParser._parse_match_rule(line)
+        elif line.startswith('SUB-RULE'):
+            return ClashRuleParser._parse_sub_rule(line)
+        # Handle regular rules
+        return ClashRuleParser._parse_regular_rule(line)
+
+    @staticmethod
     def parse_rule_line(line: str) -> Optional[RuleType]:
         """Parse a single rule line"""
         line = line.strip()
         try:
-            # Handle logic rules (AND, OR, NOT)
-            if line.startswith(('AND,', 'OR,', 'NOT,')):
-                return ClashRuleParser._parse_logic_rule(line)
-            elif line.startswith('MATCH'):
-                return ClashRuleParser._parse_match_rule(line)
-            elif line.startswith('SUB-RULE'):
-                return ClashRuleParser._parse_sub_rule(line)
-            # Handle regular rules
-            return ClashRuleParser._parse_regular_rule(line)
-
+            return ClashRuleParser.parse(line)
         except (ValidationError, TypeError, ValueError, RecursionError):
             return None
 
@@ -221,7 +225,7 @@ class ClashRuleParser:
         """
         Parse conditions within logic rules, supporting nested logic.
         The examples of conditions_str:
-            - (DOMAIN,baidu.com)`
+            - (DOMAIN,baidu.com)
             - (AND,(DOMAIN,baidu.com),(NETWORK,TCP))
         """
 
@@ -287,11 +291,6 @@ class ClashRuleParser:
                     except ValueError:
                         raise ValueError(f"Invalid rule format: {content}")
         return conditions
-
-
-    @staticmethod
-    def action_string(action: Union[Action, str]) -> str:
-        return action.value if isinstance(action, Action) else action
 
     @staticmethod
     def parse_rules(rules_text: str) -> List[Union[ClashRule, LogicRule, MatchRule]]:
