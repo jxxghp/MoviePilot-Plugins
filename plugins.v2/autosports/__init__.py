@@ -1,70 +1,47 @@
 import base64
+import datetime
 import json
 import math
-import os
+import re
 import threading
+import traceback
 from copy import deepcopy
 from dataclasses import fields, dataclass
 from pathlib import Path
-from platform import machine
-from re import match
 from threading import Lock
-from types import NoneType
-from typing import List, Tuple, Dict, Any, Union
+from typing import Optional, Any, List, Dict, Tuple
+from typing import Union
 from xml.dom import minidom
 
-from PIL import Image
-from cachetools import cached, TTLCache
-from docker.utils.config import home_dir
-from langsmith import expect
-from six import reraise
-
-from app.api.endpoints.dashboard import downloader
-from app.api.endpoints.media import seasons
-from app.chain.download import DownloadChain
-from app.chain.media import MediaChain
-from app.chain.search import SearchChain
-from app.chain.storage import StorageChain
-from app.chain.subscribe import SubscribeChain
-from app.chain.transfer import job_lock
-from app.core.config import settings
-from app.core.meta import MetaVideo, MetaBase
-from app.core.meta.words import WordsMatcher
-from app.core.metainfo import MetaInfo, MetaInfoPath
-from app.core.context import MediaInfo, Context, TorrentInfo
-from app.log import logger
-from app.modules.qbittorrent import Qbittorrent
-from app.modules.transmission import Transmission
-from app.plugins import _PluginBase
-from app.schemas import MediaType, ServiceInfo, TransferDirectoryConf, TmdbEpisode, TransferInfo, FileURI, FileItem
-import datetime
-import re
-import traceback
-from typing import Optional, Any, List, Dict, Tuple
-
 import pytz
+from PIL import Image
+from app.helper.sites import SitesHelper
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app import schemas
 from app.chain.download import DownloadChain
+from app.chain.media import MediaChain
+from app.chain.search import SearchChain
+from app.chain.storage import StorageChain
 from app.chain.subscribe import SubscribeChain
 from app.core.config import settings
-from app.core.context import MediaInfo, TorrentInfo, Context
-from app.core.metainfo import MetaInfo
-from app.helper.rss import RssHelper
+from app.core.context import MediaInfo, TorrentInfo
+from app.core.meta import MetaVideo, MetaBase
+from app.core.metainfo import MetaInfoPath
+from app.helper.directory import DirectoryHelper
+from app.helper.downloader import DownloaderHelper
 from app.log import logger
+from app.modules.qbittorrent import Qbittorrent
+from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
 from app.schemas import ExistMediaInfo
+from app.schemas import ServiceInfo, TransferDirectoryConf, TmdbEpisode, TransferInfo, FileItem
 from app.schemas.types import SystemConfigKey, MediaType
-from app.helper.sites import SitesHelper
-
 from app.utils.dom import DomUtils
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 from app.utils.system import SystemUtils
-from directory import DirectoryHelper
-from downloader import DownloaderHelper
 
 lock = Lock()
 ffmpeg_lock = threading.Lock()
@@ -1364,7 +1341,6 @@ class AutoSports(_PluginBase):
                         # continue
                     elif is_existed:
                         logger.info(f'{title} 已存在，种子 HASH 值为：{torrent_hash}')
-                        added_num += 1
                     else:
                         logger.info(f'{title} 下载成功，种子 HASH 值为：{torrent_hash}')
                         added_num += 1
