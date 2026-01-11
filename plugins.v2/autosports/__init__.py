@@ -52,7 +52,7 @@ class AutoSports(_PluginBase):
     # 插件描述
     plugin_desc = "根据设置的球队名自动下载最新比赛，进行文件整理及简单的刮削"
     # 插件图标
-    plugin_icon = "https://cdn-icons-png.flaticon.com/512/857/857492.png"
+    plugin_icon = "https://github.com/Sinterdial/MoviePilot-Plugins/blob/main/icons/autosports.png"
     # 插件版本
     plugin_version = "0.8.0"
     # 插件作者
