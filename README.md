@@ -2,9 +2,11 @@
 MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 
 ## 目录
-- [1. Sportscult 比赛自动下载及简单刮削](#1-Sportscult 比赛自动下载及简单刮削)
+- [1. Sportscult 比赛自动下载及简单刮削](#1-Sportscult比赛自动下载及简单刮削)
 - [2. ios快捷指令添加订阅修改版](#2-IOS快捷指令添加订阅修改版)
+
 ## 插件介绍
+
 ### 1. Sportscult 比赛自动下载及简单刮削
 [插件目录](./plugins.v2/autosports)
   #### **如何使用**：
