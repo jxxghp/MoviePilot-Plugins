@@ -1,15 +1,20 @@
 import base64
 import json
 import os
+import threading
 from copy import deepcopy
 from dataclasses import fields, dataclass
 from pathlib import Path
 from platform import machine
 from re import match
+from threading import Lock
 from types import NoneType
 from typing import List, Tuple, Dict, Any, Union
+from xml.dom import minidom
 
+from PIL import Image
 from cachetools import cached, TTLCache
+from docker.utils.config import home_dir
 from langsmith import expect
 from six import reraise
 
@@ -18,17 +23,19 @@ from app.api.endpoints.media import seasons
 from app.chain.download import DownloadChain
 from app.chain.media import MediaChain
 from app.chain.search import SearchChain
+from app.chain.storage import StorageChain
 from app.chain.subscribe import SubscribeChain
 from app.chain.transfer import job_lock
 from app.core.config import settings
 from app.core.meta import MetaVideo, MetaBase
+from app.core.meta.words import WordsMatcher
 from app.core.metainfo import MetaInfo, MetaInfoPath
 from app.core.context import MediaInfo, Context, TorrentInfo
 from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
-from app.schemas import MediaType, ServiceInfo, TransferDirectoryConf
+from app.schemas import MediaType, ServiceInfo, TransferDirectoryConf, TmdbEpisode, TransferInfo, FileURI, FileItem
 import datetime
 import re
 import traceback
@@ -51,12 +58,15 @@ from app.schemas import ExistMediaInfo
 from app.schemas.types import SystemConfigKey, MediaType
 from app.helper.sites import SitesHelper
 
+from app.utils.dom import DomUtils
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 from app.utils.system import SystemUtils
 from directory import DirectoryHelper
 from downloader import DownloaderHelper
 
+lock = Lock()
+ffmpeg_lock = threading.Lock()
 
 class AutoSports(_PluginBase):
     # 插件名称
@@ -103,6 +113,10 @@ class AutoSports(_PluginBase):
     __need_rename: bool = True
     __downloaders = None
     __scheduler: BackgroundScheduler = None
+    __timeline = "00:00:10"
+    __matches = {}
+    # 订阅缓存信息
+    __cached_matches = {}
 
     # 赛事刮削信息
     # 自定义映射关系
@@ -114,7 +128,7 @@ class AutoSports(_PluginBase):
             "en_title": "La Liga",
             "year": 1929,
             "overview": "西班牙足球甲级联赛（西班牙语：Primera División de España或La Liga，由于赞助原因，正式名称为LALIGA EA SPORTS），通常简称西甲或西甲联赛，是西班牙足球联赛系统的第 1 级别，亦是职业联赛的最高级别、联赛系统的最高级别和西班牙顶级足球联赛，目前有 20 支球队。皇家马德里是历史上夺得最多冠军的球队（36次），其次是巴塞罗那（28次），以及马德里竞技（11次）。 ",
-            "season_years": list(range(1929, 2101)),
+            "season_years": {x: x for x in range(1929, 2101)},
             "homepage": "https://www.laliga.com/en-GB",
             "languages": "Spanish",
             "origin_country": "Spain",
@@ -1105,6 +1119,12 @@ class AutoSports(_PluginBase):
                 logger.error(f"Sportscults站点未启用，请检查站点设置")
                 return
 
+        # 开始全量同步目录中所有体育比赛文件
+        # TODO：到这了
+        self.sync_all()
+        logger.info("文件同步结束")
+        return
+
         for team_info in self.__teams_info.split("\n"):
             # 在 SportsCult 搜索种子
             if not team_info:
@@ -1119,6 +1139,10 @@ class AutoSports(_PluginBase):
 
             # 保存搜索到且成功刮削的种子
             matchesinfo = []
+
+            # 清空比赛元数据缓存
+            if not self.__cached_matches:
+                self.__cached_matches = {}
 
             # 解析数据
             for result in results:
@@ -1159,7 +1183,7 @@ class AutoSports(_PluginBase):
                     if not gotten_match_mediainfo:
                         # 如果未识别成功，跳过
                         continue
-                    gotten_match_metainfo = self.recognized_match_metainfo(gotten_match_mediainfo, gotten_metainfo)
+                    gotten_match_metainfo, _ = self.recognized_match_metainfo(gotten_match_mediainfo, gotten_metainfo)
                     if not gotten_match_metainfo:
                         # 如果未识别成功，跳过
                         continue
@@ -1197,7 +1221,12 @@ class AutoSports(_PluginBase):
                 except Exception as err:
                     logger.error(f'自动下载体育数据出错：{str(err)} - {traceback.format_exc()}')
 
+            # 新增处理的比赛场数计数
+            added_num = 0
+
             for final_matchinfo in matchesinfo:
+                if added_num >= 1:
+                    break
                 torrentinfo = final_matchinfo.torrentinfo
                 match_mediainfo = final_matchinfo.mediainfo
                 match_metainfo = final_matchinfo.metainfo
@@ -1213,10 +1242,10 @@ class AutoSports(_PluginBase):
                         # continue
                     elif is_existed:
                         logger.info(f'{title} 已存在，种子 HASH 值为：{torrent_hash}')
+                        added_num += 1
                     else:
                         logger.info(f'{title} 下载成功，种子 HASH 值为：{torrent_hash}')
-                    # 调试用，找到就退出
-                    return
+                        added_num += 1
                 else:
                     # TODO: 支持订阅功能
                     logger.error(f'暂不支持订阅功能，请等待适配')
@@ -1247,33 +1276,64 @@ class AutoSports(_PluginBase):
                     "poster": match_mediainfo.get_poster_image(),
                     "overview": match_mediainfo.overview,
                     "tmdbid": match_mediainfo.tmdb_id,
-                    "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 })
             logger.info(f"体育比赛下载刷新完成")
         # 保存历史记录
         self.save_data('history', history)
 
-        # 开始全量同步目录中所有体育比赛文件
-        # TODO：到这了
-        # sync_all()
-
         # 缓存只清理一次
         self.__clearflag = False
+
+
+    @dataclass
+    class Matchinfo:
+        """
+          比赛相关信息
+        """
+        torrentinfo: TorrentInfo = None
+        mediainfo: MediaInfo = None
+        metainfo: MetaVideo = None
+        language: str = None
+        pix: int = 0
 
 
     def sync_all(self):
         """
         立即运行一次，全量同步目录中所有文件
         """
-        logger.info("开始全量同步体育比赛监控目录 ...")
-        # 遍历所有监控目录
-        for mon_path in self.__save_path:
-            # 遍历目录下所有文件
-            for file_path in SystemUtils.list_files(Path(mon_path), settings.RMT_MEDIAEXT):
-                self.__handle_file(is_directory=Path(file_path).is_dir(),
-                                   event_path=str(file_path),
-                                   source_dir=mon_path)
+        logger.info(f"开始全量同步体育比赛监控目录 {self.__save_path} ...")
+        # 遍历下载目录
+        for file_path in SystemUtils.list_files(Path(self.__save_path), settings.RMT_MEDIAEXT):
+            logger.info(f"开始处理文件 {file_path} ...")
+            self.__handle_file(is_directory=Path(file_path).is_dir(),
+                               event_path=str(file_path),
+                               source_dir=self.__save_path)
         logger.info("全量同步体育比赛监控目录完成！")
+
+
+    def gen_file_thumb(self, title: str, file_path: Path, rename_conf: bool):
+        """
+        处理一个文件
+        """
+        # 单线程处理
+        if rename_conf:
+            with ffmpeg_lock:
+                try:
+                    thumb_path = file_path.with_name(file_path.stem + "-thumb.jpg")
+                    if thumb_path.exists():
+                        logger.info(f"缩略图已存在：{thumb_path}")
+                        return
+                    self.get_thumb(video_path=str(file_path),
+                                   image_path=str(thumb_path),
+                                   frames=self.__timeline)
+                    if Path(thumb_path).exists():
+                        logger.info(f"{file_path} 缩略图已生成：{thumb_path}")
+                        return thumb_path
+                except Exception as err:
+                    logger.error(f"FFmpeg处理文件 {file_path} 时发生错误：{str(err)}")
+                    return None
+
 
     def scrape_competition(self, matchinfo: MediaInfo, match_parse: {}):
         """
@@ -1311,8 +1371,16 @@ class AutoSports(_PluginBase):
             "season": season
         }
 
-        resp = requests.get(url, headers=headers, params=params, timeout=timeout)
-        data = resp.json()
+        requests_key = competition_shortname + "_" + str(season)
+        # 判断当前订阅是否已经在缓存中，如果已经处理过，那么这里直接跳过
+        if requests_key in self.__cached_matches.keys():
+            data = self.__cached_matches.get(requests_key)
+            logger.info(f"从缓存 {requests_key} 中读取 football-data.org 赛事数据...")
+        else:
+            resp = requests.get(url, headers=headers, params=params, timeout=timeout)
+            logger.info(f"从 {url} 中读取 football-data.org 赛事数据...")
+            data = resp.json()
+            self.__cached_matches[requests_key] = data
 
         for match in data["matches"]:
             home = match["homeTeam"]["name"]
@@ -1324,11 +1392,12 @@ class AutoSports(_PluginBase):
         logger.error(f'未匹配到相关比赛，请检查输入信息，competition_name: {competition_name}，season: {season}, home_team: {home_team}, away_team: {away_team}')
         return None
 
-    def recognized_match_metainfo(self, match_mediainfo: MediaInfo, metainfo: MetaBase) -> MetaVideo | None:
+    def recognized_match_metainfo(self, match_mediainfo: MediaInfo, metainfo: MetaBase) -> (MetaVideo | None, TmdbEpisode | None) :
         """
           根据给定的规则刮削单场比赛信息
         """
         match_metainfo = deepcopy(metainfo)
+        episode_metainfo = TmdbEpisode()
 
         competition_cn_name = match_mediainfo.title
         competition_en_name = match_mediainfo.en_title
@@ -1347,14 +1416,17 @@ class AutoSports(_PluginBase):
                     season = match_date[0]
             else:
                 season = int(season_name)
+            # 年份信息回填赛事元数据
+            metainfo.year = str(season)
+
             season_shortname = season % 100
             # 解析赛季信息
-            season_cn_name = f"{season_shortname:02d}-{(season_shortname + 1):02d} 赛季"
+            season_cn_name = f"{season_shortname:02d}-{(season_shortname + 1):02d}赛季"
             season_en_name = f"Season {season_shortname:02d}-{(season_shortname + 1):02d}"
             logger.info(f"成功匹配到赛季信息：{season_cn_name}")
         except Exception as err:
             logger.warn("未成功匹配到赛季信息，跳过")
-            return None
+            return None, None
 
         # 分析主客场球队
         try:
@@ -1375,13 +1447,13 @@ class AutoSports(_PluginBase):
             logger.info(f"成功匹配到对阵信息：{home_team} vs {away_team}")
         except Exception as err:
             logger.warn("未成功匹配到对阵信息，跳过")
-            return None
+            return None, None
 
         # 获取比赛相关元数据
         raw_matchdata = self.get_match_raw_metadata(competition_cn_name, season, home_team, away_team)
         if not raw_matchdata:
             logger.warn("未获取到比赛元数据，跳过")
-            return None
+            return None, None
 
         # 解析轮次信息
         try:
@@ -1391,7 +1463,7 @@ class AutoSports(_PluginBase):
             logger.info(f"成功匹配到轮次信息：{round_cn_name}")
         except Exception as err:
             logger.warn("未成功匹配到轮次信息，跳过")
-            return None
+            return None, None
 
         # 解析对阵信息
         home_team = raw_matchdata['homeTeam']['name']
@@ -1399,30 +1471,47 @@ class AutoSports(_PluginBase):
         matchmake_en_name = matchmake_cn_name = f"{home_team} vs {away_team}"
 
         # 刮削比赛信息
-        match_metainfo.cn_name = " - ".join([competition_cn_name, season_cn_name, round_cn_name, matchmake_cn_name])
-        match_metainfo.en_name = " - ".join([competition_en_name, season_en_name, round_en_name, matchmake_en_name])
+        match_metainfo.cn_name = " - ".join([season_cn_name, round_cn_name, matchmake_cn_name])
+        match_metainfo.en_name = " - ".join([season_en_name, round_en_name, matchmake_en_name])
         match_metainfo.set_season(season)
         match_metainfo.set_episode(round_info)
-        match_metainfo.set_episodes(round_info,round_info)
         match_metainfo.subtitle = ""
         match_metainfo.title = competition_cn_name
 
-        return match_metainfo
+        # 刮削集信息
 
-    def recognize_competition_mediainfo(self, torrent_info: TorrentInfo, meta_info: MetaBase) -> MediaInfo | None:
+        match_date = raw_matchdata.get('utcDate')
+        if match_date:
+            match_date_utc = datetime.datetime.fromisoformat(match_date.replace("Z", "+00:00"))
+            match_date = match_date_utc.astimezone(tz=None)
+        episode_metainfo.air_date = match_date
+        episode_metainfo.episode_number = round_info
+        episode_metainfo.name = match_metainfo.cn_name
+        episode_metainfo.overview = match_metainfo.cn_name
+        episode_metainfo.runtime = 90
+        episode_metainfo.season_number = season
+
+        return match_metainfo, episode_metainfo
+
+    def recognize_competition_mediainfo(self, torrent_info: TorrentInfo = None, meta_info: MetaBase = None) -> MediaInfo | None:
         """
           根据自定义规则刮削赛事信息
         """
         competition_mediainfo = MediaInfo()
 
-        title = torrent_info.title
+        if torrent_info:
+            # 若传入了种子信息，从其中获取种子标题
+            title = torrent_info.title
+        else:
+            # 否则，从文件元数据中获取文件标题
+            title = meta_info.org_string
 
         for match_parse in self.__match_parses:
             if any(alia in title for alia in match_parse["names"]):
                 # 匹配任意一个别名，开始解析
                 self.scrape_competition(competition_mediainfo, match_parse)
                 competition_mediainfo.type = MediaType.TV
-                competition_mediainfo.season = meta_info.year
+                competition_mediainfo.season = int(meta_info.year)
                 competition_mediainfo.category = self.__category
                 break
             else:
@@ -1437,19 +1526,9 @@ class AutoSports(_PluginBase):
         logger.info(f"成功匹配到赛事信息：{competition_mediainfo.title}")
         return competition_mediainfo
 
-    @dataclass
-    class Matchinfo:
-        """
-          比赛相关信息
-        """
-        torrentinfo: TorrentInfo = None
-        mediainfo: MediaInfo = None
-        metainfo: MetaVideo = None
-        language: str = None
-        pix: int = 0
-
     @staticmethod
-    def find_best(force_en: bool = False, lowest_pix: int = 0, matchesinfo: list[Matchinfo] = None, new_matchinfo: Matchinfo = None):
+    def find_best(force_en: bool = False, lowest_pix: int = 0, matchesinfo: list[Matchinfo] = None,
+                  new_matchinfo: Matchinfo = None):
         """
           判断传入的种子是否比现有的优先级更高
         """
@@ -1462,17 +1541,39 @@ class AutoSports(_PluginBase):
             if new_matchinfo.metainfo.name == old_matchinfo.metainfo.name:
                 if new_matchinfo.language == "en" and old_matchinfo.language != "en":
                     matchesinfo[i] = new_matchinfo
-                    logger.info(f"新种子 ({new_matchinfo.torrentinfo.title}) 的解说语言为英语，而之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) 不是，替换")
+                    logger.info(
+                        f"新种子 ({new_matchinfo.torrentinfo.title}) 的解说语言为英语，而之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) 不是，替换")
                 elif new_matchinfo.pix > old_matchinfo.pix:
                     matchesinfo[i] = new_matchinfo
-                    logger.info(f"新种子 ({new_matchinfo.torrentinfo.title})的清晰度高于之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) ，替换")
+                    logger.info(
+                        f"新种子 ({new_matchinfo.torrentinfo.title})的清晰度高于之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) ，替换")
                 else:
-                    logger.info(f"新种子 ({new_matchinfo.torrentinfo.title}) 不如之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) ，不替换")
+                    logger.info(
+                        f"新种子 ({new_matchinfo.torrentinfo.title}) 不如之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) ，不替换")
                 return
 
         # 如果已有种子列表中没有该场比赛，则添加之
         matchesinfo.append(new_matchinfo)
         return
+
+
+    @staticmethod
+    def get_thumb(video_path: str, image_path: str, frames: str = None):
+        """
+        使用ffmpeg从视频文件中截取缩略图
+        """
+        if not frames:
+            frames = "00:00:10"
+        if not video_path or not image_path:
+            return False
+        cmd = 'ffmpeg -y -i "{video_path}" -ss {frames} -frames 1 "{image_path}"'.format(
+            video_path=video_path,
+            frames=frames,
+            image_path=image_path)
+        result = SystemUtils.execute(cmd)
+        if result:
+            return True
+        return False
 
 
     @staticmethod
@@ -1641,38 +1742,48 @@ class AutoSports(_PluginBase):
         :param event_path: 事件文件路径
         :param source_dir: 监控目录
         """
+
+        # 初始化媒体刮削工具类
+        storagechain = StorageChain()
+        mediachain = MediaChain()
+
         try:
             # 转移路径
-            dest_dir = self._dirconf.get(source_dir)
+            dest_dir = self.__dest_path
             # 是否重命名
-            rename_conf = self._renameconf.get(source_dir)
-            # # 封面比例
-            # cover_conf = self._coverconf.get(source_dir)
+            rename_conf = self.__need_rename
+
             # 元数据
             file_meta = MetaInfoPath(Path(event_path))
-            if not file_meta.name:
-                logger.error(f"{Path(event_path).name} 无法识别有效信息")
-                return
-            # 识别媒体信息
-            mediainfo: MediaInfo = self.chain.recognize_media(meta=file_meta)
 
+            if not file_meta.name:
+                logger.error(f"{Path(event_path).name} 无法根据文件名识别有效信息")
+                return
+
+            # 识别赛事信息
+            mediainfo: MediaInfo = self.recognize_competition_mediainfo(meta_info=file_meta)
+            # 识别比赛信息
+            file_meta, episode_info = self.recognized_match_metainfo(match_mediainfo=mediainfo, metainfo=file_meta)
+
+            # mediainfo: MediaInfo = self.chain.recognize_media(meta=file_meta)
             transfer_flag = False
             title = None
-            # 走tmdb刮削
-            if mediainfo:
+
+            # 进行转移
+            if mediainfo and episode_info:
                 try:
                     # 查询转移目的目录
-                    target_dir = DirectoryHelper().get_dir(mediainfo, src_path=Path(source_dir))
+                    target_dir = DirectoryHelper().get_dir(mediainfo, dest_path=dest_dir)
                     if not target_dir or not target_dir.library_path:
                         target_dir = TransferDirectoryConf()
                         target_dir.library_path = dest_dir
-                        target_dir.transfer_type = self._transfer_type
+                        target_dir.transfer_type = self.__transfer_type
                         target_dir.renaming = True
                         target_dir.notify = False
                         target_dir.overwrite_mode = 'never'
                         target_dir.library_storage = "local"
                     else:
-                        target_dir.transfer_type = self._transfer_type
+                        target_dir.transfer_type = self.__transfer_type
 
                     if not target_dir.library_path:
                         logger.error(f"未配置监控目录 {source_dir} 的目的目录")
@@ -1680,33 +1791,40 @@ class AutoSports(_PluginBase):
 
                     # 更新媒体图片
                     self.chain.obtain_images(mediainfo=mediainfo)
-                    episodes_info = self.tmdbchain.tmdb_episodes(tmdbid=mediainfo.tmdb_id,
-                                                                 season=file_meta.begin_season or 1)
+
+                    # episodes_info = self.tmdbchain.tmdb_episodes(tmdbid=mediainfo.tmdb_id,
+                    #                                              season=file_meta.begin_season or 1)
                     mediainfo.category = ""
                     # 转移
+                    episodes_info = [episode_info]
+                    source_path = Path(event_path)
+                    source_fileitem = FileItem.from_uri(event_path)
+                    source_fileitem.path = source_path.as_posix()
+                    source_fileitem.type = "file"
+                    source_fileitem.name = source_path.name
+                    source_fileitem.basename = source_path.stem
+                    source_fileitem.extension = source_path.suffix[1:]
+
                     transferinfo: TransferInfo = self.chain.transfer(mediainfo=mediainfo,
-                                                                     path=Path(event_path),
-                                                                     target=Path(dest_dir),
+                                                                     fileitem=source_fileitem,
+                                                                     target_directory=target_dir,
                                                                      meta=file_meta,
                                                                      episodes_info=episodes_info)
                     if not transferinfo:
                         logger.error("文件转移模块运行失败")
                         transfer_flag = False
                     else:
-                        self.chain.scrape_metadata(fileitem=transferinfo.target_diritem,
-                                                   meta=file_meta,
-                                                   mediainfo=mediainfo)
+                        # 重命名比赛文件
+                        # storagechain.rename_file(fileitem=transferinfo.target_diritem,
+                        #                          name=file_meta.title)
+                        # mediachain.scrape_metadata(fileitem=transferinfo.target_diritem,
+                        #                            meta=file_meta,
+                        #                            mediainfo=mediainfo)
                         transfer_flag = True
                 except Exception as e:
                     print(str(e))
                     transfer_flag = False
-                    logger.error(f"{event_path} tmdb刮削失败")
-                # 广播事件
-                # self.eventmanager.send_event(EventType.TransferComplete, {
-                #     'meta': file_meta,
-                #     'mediainfo': mediainfo,
-                #     'transferinfo': transferinfo
-                # })
+                    logger.error(f"{event_path} 体育比赛刮削失败")
             if not transfer_flag:
                 target_path = event_path.replace(source_dir, dest_dir)
 
@@ -1717,7 +1835,7 @@ class AutoSports(_PluginBase):
                     parent = Path(Path(target).parents[0])
                     last = target.replace(str(parent), "")
                     if rename_conf:
-                        # 自定义识别次
+                        # 自定义识别词
                         title, _ = WordsMatcher().prepare(str(parent))
                         target_path = Path(dest_dir).joinpath(title + last)
                     else:
@@ -1766,7 +1884,7 @@ class AutoSports(_PluginBase):
                     # 硬链接
                     retcode = self.__transfer_command(file_item=Path(event_path),
                                                       target_file=target_path,
-                                                      transfer_type=self._transfer_type)
+                                                      transfer_type=self.__transfer_type)
                     if retcode == 0:
                         logger.info(f"文件 {event_path} 硬链接完成")
                         # 生成 tvshow.nfo
@@ -1782,7 +1900,7 @@ class AutoSports(_PluginBase):
                             if thumb_path and Path(thumb_path).exists():
                                 self.__save_poster(input_path=thumb_path,
                                                    poster_path=target_path.parent / "poster.jpg",
-                                                   cover_conf=cover_conf)
+                                                   cover_conf="16:9")
                                 if (target_path.parent / "poster.jpg").exists():
                                     logger.info(f"{target_path.parent / 'poster.jpg'} 缩略图已生成")
                                 thumb_path.unlink()
@@ -1795,92 +1913,96 @@ class AutoSports(_PluginBase):
                                     for thumb in thumb_files:
                                         self.__save_poster(input_path=thumb,
                                                            poster_path=target_path.parent / "poster.jpg",
-                                                           cover_conf=cover_conf)
+                                                           cover_conf="16:9")
                                         break
                                     # 删除多余jpg
                                     for thumb in thumb_files:
                                         Path(thumb).unlink()
                     else:
                         logger.error(f"文件 {event_path} 硬链接失败，错误码：{retcode}")
-            if self._notify:
+            if self.__notify:
                 # 发送消息汇总
-                media_list = self._medias.get(mediainfo.title_year if mediainfo else title) or {}
-                if media_list:
-                    media_files = media_list.get("files") or []
-                    if media_files:
-                        if str(event_path) not in media_files:
-                            media_files.append(str(event_path))
+                matches_list = self.__matches.get(mediainfo.title_year if mediainfo else title) or {}
+                if matches_list:
+                    match_files = matches_list.get("files") or []
+                    if match_files:
+                        if str(event_path) not in match_files:
+                            match_files.append(str(event_path))
                     else:
-                        media_files = [str(event_path)]
-                    media_list = {
-                        "files": media_files,
+                        match_files = [str(event_path)]
+                    matches_list = {
+                        "files": match_files,
                         "time": datetime.datetime.now()
                     }
                 else:
-                    media_list = {
+                    matches_list = {
                         "files": [str(event_path)],
                         "time": datetime.datetime.now()
                     }
-                self._medias[mediainfo.title_year if mediainfo else title] = media_list
+                self.__matches[mediainfo.title_year if mediainfo else title] = matches_list
         except Exception as e:
             logger.error(f"event_handler_created error: {e}")
             print(str(e))
 
 
-    @staticmethod
-    def __get_redict_url(url: str, proxies: str = None, ua: str = None, cookie: str = None) -> Optional[str]:
+    def __save_poster(self, input_path, poster_path, cover_conf):
         """
-        获取下载链接， url格式：[base64]url
+        截取图片做封面
         """
-        # 获取[]中的内容
-        m = re.search(r"\[(.*)](.*)", url)
-        if m:
-            # 参数
-            base64_str = m.group(1)
-            # URL
-            url = m.group(2)
-            if not base64_str:
-                return url
-            # 解码参数
-            req_str = base64.b64decode(base64_str.encode('utf-8')).decode('utf-8')
-            req_params: Dict[str, dict] = json.loads(req_str)
-            # 是否使用cookie
-            if not req_params.get('cookie'):
-                cookie = None
-            # 请求头
-            if req_params.get('header'):
-                headers = req_params.get('header')
+        try:
+            image = Image.open(input_path)
+
+            # 需要截取的长宽比（比如 16:9）
+            if not cover_conf:
+                target_ratio = 2 / 3
             else:
-                headers = None
-            if req_params.get('method') == 'get':
-                # GET请求
-                res = RequestUtils(
-                    ua=ua,
-                    proxies=proxies,
-                    cookies=cookie,
-                    headers=headers
-                ).get_res(url, params=req_params.get('params'))
+                covers = cover_conf.split(":")
+                target_ratio = int(covers[0]) / int(covers[1])
+
+            # 获取原始图片的长宽比
+            original_ratio = image.width / image.height
+
+            # 计算截取后的大小
+            if original_ratio > target_ratio:
+                new_height = image.height
+                new_width = int(new_height * target_ratio)
             else:
-                # POST请求
-                res = RequestUtils(
-                    ua=ua,
-                    proxies=proxies,
-                    cookies=cookie,
-                    headers=headers
-                ).post_res(url, params=req_params.get('params'))
-            if not res:
-                return None
-            if not req_params.get('result'):
-                return res.text
-            else:
-                data = res.json()
-                for key in str(req_params.get('result')).split("."):
-                    data = data.get(key)
-                    if not data:
-                        return None
-                logger.debug(f"获取到下载地址：{data}")
-                return data
-        return None
+                new_width = image.width
+                new_height = int(new_width / target_ratio)
+
+            # 计算截取的位置
+            left = (image.width - new_width) // 2
+            top = (image.height - new_height) // 2
+            right = left + new_width
+            bottom = top + new_height
+
+            # 截取图片
+            cropped_image = image.crop((left, top, right, bottom))
+
+            # 保存截取后的图片
+            cropped_image.save(poster_path)
+        except Exception as e:
+            print(str(e))
+
+
+    def __gen_tv_nfo_file(self, dir_path: Path, title: str):
+        """
+        生成电视剧的NFO描述文件
+        :param dir_path: 电视剧根目录
+        """
+        # 开始生成XML
+        logger.info(f"正在生成电视剧NFO文件：{dir_path.name}")
+        doc = minidom.Document()
+        root = DomUtils.add_node(doc, doc, "tvshow")
+
+        # 标题
+        DomUtils.add_node(doc, root, "title", title)
+        DomUtils.add_node(doc, root, "originaltitle", title)
+        DomUtils.add_node(doc, root, "season", "-1")
+        DomUtils.add_node(doc, root, "episode", "-1")
+        # 保存
+        self.__save_nfo(doc, dir_path.joinpath("tvshow.nfo"))
+
 
     def __download(self, torrent: TorrentInfo) -> tuple[bool, Optional[str]]:
         """
@@ -1976,12 +2098,14 @@ class AutoSports(_PluginBase):
                     return None
         return None
 
+
     def __log_and_notify_error(self, message):
         """
         记录错误日志并发送系统通知
         """
         logger.error(message)
         self.systemmessage.put(message, title="自定义订阅")
+
 
     def __validate_and_fix_config(self, config: dict = None) -> bool:
         """
@@ -1993,6 +2117,91 @@ class AutoSports(_PluginBase):
             config["size_range"] = None
             return False
         return True
+
+    @staticmethod
+    def __transfer_command(file_item: Path, target_file: Path, transfer_type: str) -> int:
+        """
+        使用系统命令处理单个文件
+        :param file_item: 文件路径
+        :param target_file: 目标文件路径
+        :param transfer_type: RmtMode转移方式
+        """
+        with lock:
+
+            # 转移
+            if transfer_type == 'link':
+                # 硬链接
+                retcode, retmsg = SystemUtils.link(file_item, target_file)
+            elif transfer_type == 'softlink':
+                # 软链接
+                retcode, retmsg = SystemUtils.softlink(file_item, target_file)
+            elif transfer_type == 'move':
+                # 移动
+                retcode, retmsg = SystemUtils.move(file_item, target_file)
+            else:
+                # 复制
+                retcode, retmsg = SystemUtils.copy(file_item, target_file)
+
+        if retcode != 0:
+            logger.error(retmsg)
+
+        return retcode
+
+    @staticmethod
+    def __get_redict_url(url: str, proxies: str = None, ua: str = None, cookie: str = None) -> Optional[str]:
+        """
+        获取下载链接， url格式：[base64]url
+        """
+        # 获取[]中的内容
+        m = re.search(r"\[(.*)](.*)", url)
+        if m:
+            # 参数
+            base64_str = m.group(1)
+            # URL
+            url = m.group(2)
+            if not base64_str:
+                return url
+            # 解码参数
+            req_str = base64.b64decode(base64_str.encode('utf-8')).decode('utf-8')
+            req_params: Dict[str, dict] = json.loads(req_str)
+            # 是否使用cookie
+            if not req_params.get('cookie'):
+                cookie = None
+            # 请求头
+            if req_params.get('header'):
+                headers = req_params.get('header')
+            else:
+                headers = None
+            if req_params.get('method') == 'get':
+                # GET请求
+                res = RequestUtils(
+                    ua=ua,
+                    proxies=proxies,
+                    cookies=cookie,
+                    headers=headers
+                ).get_res(url, params=req_params.get('params'))
+            else:
+                # POST请求
+                res = RequestUtils(
+                    ua=ua,
+                    proxies=proxies,
+                    cookies=cookie,
+                    headers=headers
+                ).post_res(url, params=req_params.get('params'))
+            if not res:
+                return None
+            if not req_params.get('result'):
+                return res.text
+            else:
+                data = res.json()
+                for key in str(req_params.get('result')).split("."):
+                    data = data.get(key)
+                    if not data:
+                        return None
+                logger.debug(f"获取到下载地址：{data}")
+                return data
+        return None
+
 
     @staticmethod
     def __is_number_or_range(value):
