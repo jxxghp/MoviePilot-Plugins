@@ -54,7 +54,7 @@ class AutoSports(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/Sinterdial/MoviePilot-Plugins/blob/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "0.9.0"
+    plugin_version = "0.9.1"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -1228,13 +1228,15 @@ class AutoSports(_PluginBase):
         # sportscult_indexer: dict = {}
 
         for indexer in SitesHelper().get_indexers():
-            # 检查站点索引开关
-            if indexer.get("is_active"):
-                # sportscult_indexer = indexer
-                sportscult_indexer_id: int = indexer.get("id")
-            else:
-                logger.error(f"Sportscults站点未启用，请检查站点设置")
-                return
+            if indexer.get("name") == "Sportscult":
+                # 检查站点索引开关
+                if indexer.get("is_active"):
+                    # sportscult_indexer = indexer
+                    sportscult_indexer_id: int = indexer.get("id")
+                else:
+                    logger.error(f"Sportscults站点未启用，请检查站点设置")
+                    return
+            logger.error(f"Sportscults站点未正确添加，请检查站点设置")
 
         # 开始全量同步目录中所有体育比赛文件
         self.sync_all()
