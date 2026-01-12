@@ -102,7 +102,7 @@ class AutoSports(_PluginBase):
     # 自定义映射关系
     __competitions_parses = [
         {
-            "names": ["西甲", "La Liga", "LaLiga", "Laliga"],  # 别名
+            "names": ["西甲", "La Liga", "LaLiga", "Laliga","西班牙足球甲级联赛"],  # 别名
             "type": "LEAGUE",  # 赛事类型（联赛：league/杯赛：cup）
             "shortname": "PD",  # 缩写
             "title": "西班牙足球甲级联赛",  # 中文名
@@ -121,7 +121,7 @@ class AutoSports(_PluginBase):
             "offline_info": {},  # 本地刮削信息（空表示不进行本地刮削）
         },
         {
-            "names": ["欧洲冠军联赛", "Champions League", "UCL", "UEFA Champions League"],
+            "names": ["欧洲冠军联赛", "Champions League", "UCL", "UEFA Champions League", "UEFA"],
             "type": "CUP",  # 赛事类型（联赛：league/杯赛：cup）
             "shortname": "CL",  # 缩写
             "title": "欧洲冠军联赛",  # 中文名
@@ -143,7 +143,7 @@ class AutoSports(_PluginBase):
             "offline_info": {},  # 本地刮削信息（空表示不进行本地刮削）
         },
         {
-            "names": ["西班牙国王杯", "Copa Del Rey", "Campeonato de España – Copa de Su Majestad el Rey"],
+            "names": ["西班牙国王杯", "Copa Del Rey", "Campeonato de España – Copa de Su Majestad el Rey", "国王杯"],
             "type": "CUP",  # 赛事类型（联赛：league/杯赛：cup）
             "shortname": "CDR",  # 缩写
             "title": "西班牙国王杯",  # 中文名
@@ -167,7 +167,7 @@ class AutoSports(_PluginBase):
             },
         },
         {
-            "names": ["西班牙超级杯", "Supercopa de España", "Spanish Super Cup", "SuperCopa"],
+            "names": ["西班牙超级杯", "Supercopa de España", "Spanish Super Cup", "SuperCopa", "超级杯"],
             "type": "CUP",  # 赛事类型（联赛：league/杯赛：cup）
             "shortname": "SE",  # 缩写
             "title": "西班牙超级杯",  # 中文名
@@ -244,6 +244,7 @@ class AutoSports(_PluginBase):
     def add_site() -> dict:
         """
             添加 Sportscult 站点索引
+            TODO: 现在在 MP 里搜到之后不能直接下载，说是无法刮削信息，尝试用get_module重写识别方法失败，需要探求可行的方案
         """
         indexer: dict = {
             "id": "sportscult",
@@ -729,10 +730,11 @@ class AutoSports(_PluginBase):
                                         'component': 'VSelect',
                                         'props': {
                                             'model': 'action',
-                                            'label': '动作',
+                                            'label': '运行模式',
                                             'items': [
+                                                {'title': '下载（默认）', 'value': 'download'},
+                                                {'title': '整理', 'value': 'transfer'},
                                                 {'title': '订阅（暂不支持）', 'value': 'subscribe'},
-                                                {'title': '下载', 'value': 'download'}
                                             ]
                                         }
                                     }
@@ -969,7 +971,7 @@ class AutoSports(_PluginBase):
                                         'props': {
                                             'model': 'save_path',
                                             'label': '下载目录',
-                                            'placeholder': '下载时有效'
+                                            'placeholder': '必须是设置中已添加的目录设置的子集'
                                         }
                                     }
                                 ]
@@ -986,7 +988,7 @@ class AutoSports(_PluginBase):
                                         'props': {
                                             'model': 'dest_path',
                                             'label': '转移目录',
-                                            'placeholder': '下载时有效'
+                                            'placeholder': '必须是设置中已添加的目录设置的子集'
                                         }
                                     }
                                 ]
@@ -1129,6 +1131,23 @@ class AutoSports(_PluginBase):
                 'content': contents
             }
         ]
+
+
+    # 声明重新实现的方法
+    def get_module(self) -> Dict[str, Any]:
+        """
+        # 不知道为啥用不了
+            获取插件模块声明，用于胁持系统模块实现（方法名：方法实现）
+            {
+                "id1": self.xxx1,
+                "id2": self.xxx2,
+            }
+        """
+        return {
+            "media_exists": self.__match_exists,
+        }
+        pass
+
 
     def stop_service(self):
         """
@@ -1300,13 +1319,14 @@ class AutoSports(_PluginBase):
                             continue
 
                     # 判断媒体库是否已存在该场比赛
-                    exist_info: Optional[ExistMediaInfo] = self.chain.media_exists(mediainfo=gotten_match_mediainfo)
+                    logger.info(f"开始判断该场比赛是否已入库，若已入库，则不进行任何操作")
+                    exist_info: Optional[ExistMediaInfo] = self.__match_exists(mediainfo=gotten_match_mediainfo)
                     if exist_info:
                         exist_season = exist_info.seasons
                         if exist_season:
-                            exist_episodes = exist_season.get(gotten_metainfo.begin_season)
-                            if exist_episodes and set(gotten_metainfo.episode_list).issubset(set(exist_episodes)):
-                                logger.info(f'{gotten_match_mediainfo.title_year} {gotten_metainfo.season_episode} 己存在')
+                            exist_episodes = exist_season.get(gotten_match_metainfo.begin_season)
+                            if exist_episodes and set(gotten_match_metainfo.episode_list).issubset(set(exist_episodes)):
+                                logger.info(f'{gotten_match_metainfo.title_year} {gotten_match_metainfo.season_episode} 己入库，不再处理')
                                 continue
 
                     # 判断新搜索到的种子是否比之前的种子更好
@@ -1317,10 +1337,14 @@ class AutoSports(_PluginBase):
                     self.find_best(force_en=self.__force_en, lowest_pix=self.__lowest_pix, matchesinfo=matchesinfo,
                                    new_matchinfo=gotten_matchinfo)
                 except Exception as err:
-                    logger.error(f'自动下载体育比赛出错：{str(err)} - {traceback.format_exc()}')
+                    logger.error(f'自动寻找种子模块出错：{str(err)} - {traceback.format_exc()}')
 
             # 新增处理的比赛场数计数
             added_num = 0
+
+            if self.__action == "transfer":
+                # 仅作整理，不下载
+                logger.info(f"仅整理文件，不下载新种子")
 
             for final_matchinfo in matchesinfo:
                 if self.__max_download and added_num >= self.__max_download:
@@ -1341,6 +1365,7 @@ class AutoSports(_PluginBase):
                         # continue
                     elif is_existed:
                         logger.info(f'{title} 已存在，种子 HASH 值为：{torrent_hash}')
+                        added_num += 1
                     else:
                         logger.info(f'{title} 下载成功，种子 HASH 值为：{torrent_hash}')
                         added_num += 1
@@ -1478,7 +1503,7 @@ class AutoSports(_PluginBase):
                 double_start_num = offline_info.get("knockout_double")
                 if offline_info.get('knockout_double') < team_count:
                     # 还没到主客场淘汰赛阶段
-                    match["matchday"] = int(math.sqrt(single_start_num / team_count))
+                    match["matchday"] = int(math.log2(single_start_num / team_count)) + 1
                     match["round_cn_name"] = f"{self.number_to_chinese(team_count)}强赛"
                     match["round_en_name"] = f"R{self.number_to_chinese(team_count)}"
                     if team_count == 4:
@@ -1491,8 +1516,8 @@ class AutoSports(_PluginBase):
                         match["round_en_name"] = f"The Final"
                 else:
                     # 到了主客场双淘汰赛阶段
-                    match["matchday"] = (int(math.sqrt(single_start_num / double_start_num)) +
-                                         int(math.sqrt(double_start_num / team_count)) * 2 - 1)
+                    match["matchday"] = (int(math.log2(single_start_num / double_start_num)) + 1 +
+                                         int(math.log2(double_start_num / team_count)) * 2 + 1)
                     match["round_cn_name"] = f"{self.number_to_chinese(team_count)}强赛"
                     match["round_en_name"] = f"R{self.number_to_chinese(team_count)}"
                     if team_count == 4:
@@ -1623,8 +1648,9 @@ class AutoSports(_PluginBase):
                     season = match_date[0]
             else:
                 season = int(season_name)
-                if match_mediainfo.title == "西班牙超级杯":
-                    season -= 1
+                if match_mediainfo.title == "西班牙超级杯" and season == datetime.date.year:
+                    # 超级杯特殊处理
+                    match_mediainfo.season -= 1
             # 年份信息回填赛事元数据
             metainfo.year = str(season)
 
@@ -1726,6 +1752,9 @@ class AutoSports(_PluginBase):
         match_metainfo.set_episode(round_info)
         match_metainfo.subtitle = ""
         match_metainfo.title = competition_cn_name
+        match_metainfo.title_year = f"{competition_cn_name} ({season_cn_name})"
+        match_metainfo.begin_episode = round_info
+        match_metainfo.begin_season = season
 
         # 刮削集信息
 
@@ -1741,6 +1770,31 @@ class AutoSports(_PluginBase):
         episode_metainfo.season_number = season
 
         return match_metainfo, episode_metainfo
+
+    def recognized_saved_match_metainfo(self, match_mediainfo: MediaInfo, metainfo: MetaBase) -> (MetaVideo | None, TmdbEpisode | None) :
+        """
+          根据给定的规则刮削已入库的单场比赛的元数据
+        """
+        match_metainfo = deepcopy(metainfo)
+        episode_metainfo = TmdbEpisode()
+
+        competition_cn_name = metainfo.name
+
+        org_str = metainfo.org_string
+
+        # 解析集数信息
+        season_round_info = re.search(r'\bS(\d+)E(\d+)\b', org_str, re.I)
+        season = int(season_round_info.group(1))
+        round_info = int(season_round_info.group(2))
+        match_metainfo.set_season(season)
+        match_metainfo.set_episode(round_info)
+        match_metainfo.subtitle = ""
+        match_metainfo.title = competition_cn_name
+        match_metainfo.begin_episode = round_info
+        match_metainfo.begin_season = season
+
+        return match_metainfo, episode_metainfo
+
 
     def recognize_competition_mediainfo(self, torrent_info: TorrentInfo = None, meta_info: MetaBase = None) -> MediaInfo | None:
         """
@@ -1801,6 +1855,8 @@ class AutoSports(_PluginBase):
         """
         if (force_en and new_matchinfo.language != "en") or new_matchinfo.pix < lowest_pix:
             # 不满足约束条件，直接退出
+            logger.info(
+                f"不满足约束条件，直接退出")
             return
 
         # 判断之前是否已搜索到该场比赛的种子
@@ -1885,12 +1941,17 @@ class AutoSports(_PluginBase):
 
     @staticmethod
     def recognize_language(metainfo: MetaVideo) -> str:
-        if "EN" in metainfo.name:
+        if any(en in metainfo.name for en in ["EN", "English"]):
             return "en"
         elif "PL" in metainfo.name or "Polilsh" in metainfo.name:
             return "pl"
         elif "Spanish" in metainfo.name:
             return "sp"
+        elif "FRENCH" in metainfo.name:
+            return "fr"
+        elif "DUTCH" in metainfo.name:
+            return "dt"
+
         # 默认英语
         return "en"
 
@@ -2012,6 +2073,67 @@ class AutoSports(_PluginBase):
 
         return result
 
+
+    def __parse_file_metadata(self, filepath: str, saved: bool = False):
+        """
+        根据路径识别体育媒体信息
+        saved: 是否要刮削已入库的文件
+        """
+        match_filemeta = MetaInfoPath(Path(filepath))
+        if not match_filemeta.name:
+            logger.error(f"{Path(filepath).name} 无法根据文件名识别有效信息")
+            return None, None, None
+        match_mediainfo: MediaInfo = self.recognize_competition_mediainfo(meta_info=match_filemeta)
+        if saved:
+            match_filemeta, match_episode_info = self.recognized_saved_match_metainfo(match_mediainfo=match_mediainfo,
+                                                                              metainfo=match_filemeta)
+        else:
+            match_filemeta, match_episode_info = self.recognized_match_metainfo(match_mediainfo=match_mediainfo,
+                                                                              metainfo=match_filemeta)
+        return match_filemeta, match_mediainfo, match_episode_info
+
+
+    def __match_exists(self, mediainfo: MediaInfo, **kwargs) -> Optional[ExistMediaInfo]:
+       """
+       判断媒体文件是否存在于文件系统（网盘或本地文件），只支持标准媒体库结构
+       :param mediainfo:  识别的媒体信息
+       :return: 如不存在返回None，存在时返回信息，包括每季已存在所有集{type: movie/tv, seasons: {season: [episodes]}}
+       """
+       if not settings.LOCAL_EXISTS_SEARCH:
+           return None
+
+       logger.debug(f"正在本地媒体库中查找 {mediainfo.title_year}...")
+
+       # 检查媒体库
+       fileitems = self.chain.media_files(mediainfo)
+       if not fileitems:
+           logger.debug(f"{mediainfo.title_year} 不在本地媒体库中")
+           return None
+
+       if mediainfo.type == MediaType.MOVIE:
+           # 电影存在任何文件为存在
+           logger.info(f"{mediainfo.title_year} 在本地文件系统中找到了")
+           return ExistMediaInfo(type=MediaType.MOVIE)
+       else:
+           # 电视剧检索集数
+           seasons: Dict[int, list] = {}
+           for fileitem in fileitems:
+               # 刮削已入库比赛的元数据
+               file_meta, mediainfo, episode_info = self.__parse_file_metadata(fileitem.path, True)
+
+               season_index = file_meta.begin_season or 1
+               episode_index = file_meta.begin_episode
+               if not episode_index:
+                   continue
+               if season_index not in seasons:
+                   seasons[season_index] = []
+               if episode_index not in seasons[season_index]:
+                   seasons[season_index].append(episode_index)
+           # 返回剧集情况
+           logger.info(f"{mediainfo.title_year} 在本地文件系统中找到了这些季集：{seasons}")
+           return ExistMediaInfo(type=MediaType.TV, seasons=seasons)
+
+
     def __handle_file(self, is_directory: bool, event_path: str, source_dir: str):
         """
         同步一个文件
@@ -2030,17 +2152,10 @@ class AutoSports(_PluginBase):
             # 是否重命名
             rename_conf = self.__need_rename
 
-            # 元数据
-            file_meta = MetaInfoPath(Path(event_path))
-
-            if not file_meta.name:
+            file_meta, mediainfo, episode_info = self.__parse_file_metadata(event_path)
+            if not file_meta:
                 logger.error(f"{Path(event_path).name} 无法根据文件名识别有效信息")
                 return
-
-            # 识别赛事信息
-            mediainfo: MediaInfo = self.recognize_competition_mediainfo(meta_info=file_meta)
-            # 识别比赛信息
-            file_meta, episode_info = self.recognized_match_metainfo(match_mediainfo=mediainfo, metainfo=file_meta)
 
             # mediainfo: MediaInfo = self.chain.recognize_media(meta=file_meta)
             transfer_flag = False
@@ -2091,13 +2206,6 @@ class AutoSports(_PluginBase):
                         logger.error("文件整理/重命名模块运行失败")
                         transfer_flag = False
                     else:
-                        # 重命名比赛文件
-                        # storagechain.rename_file(fileitem=transferinfo.target_diritem,
-                        #                          name=file_meta.title)
-                        # mediachain.scrape_metadata(fileitem=transferinfo.target_diritem,
-                        #                            meta=file_meta,
-                        #                            mediainfo=mediainfo)
-                        # 转移后的文件路径
                         target_path_str = transferinfo.target_item.path
                         logger.info(f"文件整理/重命名模块运行成功：{event_path} -> {target_path_str}")
                         transfer_flag = True
@@ -2295,13 +2403,13 @@ class AutoSports(_PluginBase):
                             return True, torrent_hash
 
                 if self.__start_paused:
-                    logger.info("根据设置，添加下载任务后暂停")
-                state = downloader.add_torrent(content=torrent_content,
+                    state = downloader.add_torrent(content=torrent_content,
                                                download_dir=download_dir,
                                                is_paused=self.__start_paused,  # 调试用
                                                cookie=cookies,
                                                category=self.__category,
                                                tag=self.__tags + ["AutoSports"] + [random_tag], )
+                    logger.info("根据设置，添加下载任务后暂停")
                 if not state:
                     return False, None
                 else:
