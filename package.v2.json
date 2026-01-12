@@ -22,11 +22,12 @@
         "name": "Sportscult 比赛自动下载及简单刮削",
         "description": "添加 Sportscult 站点索引器，并可根据设置的球队名自动下载最新比赛，进行文件整理及简单的刮削，在使用前务必查看配置说明：https://github.com/Sinterdial/MoviePilot-Plugins/blob/main/README.md",
         "labels": "站点",
-        "version": "0.8.0",
+        "version": "0.9.0",
         "icon": "https://cdn-icons-png.flaticon.com/512/857/857492.png",
         "author": "Sinterdial",
         "level": 2,
         "history": {
+            "v0.9.0": "修复bug，增强识别精准度，能够正确比赛是否已入库",
             "v0.8.0": "支持西甲、欧冠、西班牙国王杯、西班牙超级杯比赛自动下载及刮削入库，未经过完备测试，下载前请阅读说明！！！",
             "v0.2.0": "支持西甲比赛自动下载和打标签，仅供调试",
             "v0.1.0": "初始版本，仅供调试"
