@@ -60,7 +60,7 @@ class LexiAnnot(_PluginBase):
     # 插件图标
     plugin_icon = "LexiAnnot.png"
     # 插件版本
-    plugin_version = "1.2.2"
+    plugin_version = "1.2.3"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -1904,7 +1904,7 @@ class LexiAnnot(_PluginBase):
                 segments=segments,
                 shutdown_event=self._shutdown_event,
                 context_window=self._context_window,
-                leaner_level=learner_level,
+                learner_level=learner_level,
                 media_context=mediainfo,
                 translate_sentences=self._sentence_translation
             )
