@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional, Tuple, Iterable, TypeVar
 import jsonpatch
 from fastapi import HTTPException
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from pydantic import HttpUrl
 
 from app.core.cache import cached
 from app.core.config import settings
@@ -106,7 +105,7 @@ class ClashRuleProviderService:
                 sub_url = (f"{self.state.config.movie_pilot_url}/api/v1/plugin/{self.plugin_id}/ruleset?"
                            f"name={path_name}&apikey={self.state.config.apikey or settings.API_TOKEN}")
                 auto_rule_provider[rule_provider_name] = RuleProvider(
-                    type=VehicleType.HTTP, behavior="classical", url=HttpUrl(sub_url), path=f"./CRP/{path_name}.yaml",
+                    type=VehicleType.HTTP, behavior="classical", url=sub_url, path=f"./CRP/{path_name}.yaml",
                     interval=3600, format="yaml"
                 )
         config.rule_providers = config.rule_providers | auto_rule_provider

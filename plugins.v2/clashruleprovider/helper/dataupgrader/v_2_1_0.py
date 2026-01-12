@@ -6,6 +6,7 @@ import jsonpatch
 from pydantic import ValidationError
 
 from app.db.plugindata_oper import PluginDataOper
+from app.log import logger
 
 from ..configconverter import Converter
 from ..utilsprovider import UtilsProvider
@@ -39,6 +40,7 @@ def upgrade(plugin_id: str):
                 new_pg.append(obj.model_dump(by_alias=True, exclude_none=True))
                 names.add(obj.name)
         except ValidationError:
+            logger.error(f"升级代理组失败: {pg}")
             invalid_pg.append(pg)
 
     data_oper.save(plugin_id, DataKey.PROXY_GROUPS, new_pg)
@@ -53,6 +55,7 @@ def upgrade(plugin_id: str):
             obj = RuleProviderData(meta=Metadata(source=DataSource.MANUAL), name=name, data=rp)
             new_rp.append(obj.model_dump(by_alias=True, exclude_none=True))
         except ValidationError:
+            logger.error(f"升级规则集失败: {rp}")
             invalid_rp.append(rp)
 
     data_oper.save(plugin_id, DataKey.RULE_PROVIDERS, new_rp)
@@ -83,6 +86,7 @@ def upgrade(plugin_id: str):
             all_proxies.append(p_data.data)
             names.add(p_data.name)
         except Exception:
+            logger.error(f"升级代理失败: {proxy}")
             invalid_proxies.append(proxy)
 
     data_oper.save(plugin_id, DataKey.PROXIES, new_proxies)
