@@ -52,9 +52,9 @@ class AutoSports(_PluginBase):
     # 插件描述
     plugin_desc = "根据设置的球队名自动下载最新比赛，进行文件整理及简单的刮削"
     # 插件图标
-    plugin_icon = "https://github.com/Sinterdial/MoviePilot-Plugins/blob/main/icons/autosports.png"
+    plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "0.9.1"
+    plugin_version = "0.9.2"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -1144,7 +1144,7 @@ class AutoSports(_PluginBase):
             }
         """
         return {
-            "media_exists": self.__match_exists,
+            "media_exists": self.__exists_match,
         }
         pass
 
@@ -1225,8 +1225,6 @@ class AutoSports(_PluginBase):
         downloadchain = DownloadChain()
         subscribechain = SubscribeChain()
 
-        # sportscult_indexer: dict = {}
-
         for indexer in SitesHelper().get_indexers():
             if indexer.get("name") == "Sportscult":
                 # 检查站点索引开关
@@ -1236,10 +1234,13 @@ class AutoSports(_PluginBase):
                 else:
                     logger.error(f"Sportscults站点未启用，请检查站点设置")
                     return
-            logger.error(f"Sportscults站点未正确添加，请检查站点设置")
+            else:
+                logger.error(f"Sportscults站点未正确添加，请检查站点设置")
 
+        # 识别本地已入库所有比赛的信息
+        exist_matches: Dict[str, Dict[int, list]] = self.__exists_match()
         # 开始全量同步目录中所有体育比赛文件
-        self.sync_all()
+        self.sync_all(exist_matches=exist_matches)
         logger.info("文件同步结束")
         # return
 
@@ -1321,15 +1322,15 @@ class AutoSports(_PluginBase):
                             continue
 
                     # 判断媒体库是否已存在该场比赛
-                    logger.info(f"开始判断该场比赛是否已入库，若已入库，则不进行任何操作")
-                    exist_info: Optional[ExistMediaInfo] = self.__match_exists(mediainfo=gotten_match_mediainfo)
-                    if exist_info:
-                        exist_season = exist_info.seasons
-                        if exist_season:
-                            exist_episodes = exist_season.get(gotten_match_metainfo.begin_season)
-                            if exist_episodes and set(gotten_match_metainfo.episode_list).issubset(set(exist_episodes)):
-                                logger.info(f'{gotten_match_metainfo.title_year} {gotten_match_metainfo.season_episode} 己入库，不再处理')
-                                continue
+                    is_in = self.is_match_in_vault(exist_matches, gotten_match_metainfo)
+                    if is_in:
+                        logger.info(
+                            f'处理搜索到的种子时，发现 '
+                            f'{gotten_match_metainfo.title_year} {gotten_match_metainfo.season_episode}己入库，不再处理')
+                        continue
+                    else:
+                        logger.info(
+                            f'{gotten_match_metainfo.title_year} {gotten_match_metainfo.season_episode} 未入库，继续处理')
 
                     # 判断新搜索到的种子是否比之前的种子更好
                     gotten_matchinfo = self.Matchinfo(gotten_torrentinfo, gotten_match_mediainfo, gotten_match_metainfo)
@@ -1423,7 +1424,7 @@ class AutoSports(_PluginBase):
         pix: int = 0
 
 
-    def sync_all(self):
+    def sync_all(self, exist_matches: Dict[str, Dict[int, list]] = None):
         """
         立即运行一次，全量同步目录中所有文件
         """
@@ -1433,7 +1434,8 @@ class AutoSports(_PluginBase):
             logger.info(f"开始处理文件 {file_path} ...")
             self.__handle_file(is_directory=Path(file_path).is_dir(),
                                event_path=str(file_path),
-                               source_dir=self.__save_path)
+                               source_dir=self.__save_path,
+                               exist_matches=exist_matches)
         logger.info("全量同步体育比赛监控目录完成！")
 
 
@@ -1650,9 +1652,11 @@ class AutoSports(_PluginBase):
                     season = match_date[0]
             else:
                 season = int(season_name)
-                if match_mediainfo.title == "西班牙超级杯" and season == datetime.date.year:
-                    # 超级杯特殊处理
-                    match_mediainfo.season -= 1
+
+            if match_mediainfo.title == "西班牙超级杯" and season == datetime.date.today().year:
+                # 超级杯特殊处理
+                season -= 1
+                match_mediainfo.season = season
             # 年份信息回填赛事元数据
             metainfo.year = str(season)
 
@@ -1824,6 +1828,7 @@ class AutoSports(_PluginBase):
                     season = match_date[0]
             else:
                 season = int(season_name)
+
             # 年份信息回填赛事元数据
             meta_info.year = str(season)
         except Exception as err:
@@ -1848,6 +1853,21 @@ class AutoSports(_PluginBase):
         # 成功刮削，返回刮削后对象
         logger.info(f"成功匹配到赛事信息：{competition_mediainfo.title}")
         return competition_mediainfo
+
+
+    @staticmethod
+    def is_match_in_vault(exist_matches: Dict[str, Dict[int, list]] = None, gotten_match_metainfo: MetaVideo = None) -> bool:
+        logger.info(f"开始判断该场比赛是否已入库，若已入库，则不进行任何操作")
+        if exist_matches:
+            exist_competitions = exist_matches.keys()
+            for exist_competition in exist_competitions:
+                exist_seasons = exist_matches.get(exist_competition)
+                if exist_seasons:
+                    exist_episodes = exist_seasons.get(gotten_match_metainfo.begin_season)
+                    if exist_episodes and set(gotten_match_metainfo.episode_list).issubset(set(exist_episodes)):
+                        return True
+
+        return False
 
     @staticmethod
     def find_best(force_en: bool = False, lowest_pix: int = 0, matchesinfo: list[Matchinfo] = None,
@@ -2095,48 +2115,43 @@ class AutoSports(_PluginBase):
         return match_filemeta, match_mediainfo, match_episode_info
 
 
-    def __match_exists(self, mediainfo: MediaInfo, **kwargs) -> Optional[ExistMediaInfo]:
-       """
-       判断媒体文件是否存在于文件系统（网盘或本地文件），只支持标准媒体库结构
-       :param mediainfo:  识别的媒体信息
-       :return: 如不存在返回None，存在时返回信息，包括每季已存在所有集{type: movie/tv, seasons: {season: [episodes]}}
-       """
-       if not settings.LOCAL_EXISTS_SEARCH:
-           return None
+    def __exists_match(self) -> Dict[str, Dict[int, list]]:
+        """
+        判断媒体文件是否存在于文件系统（网盘或本地文件），只支持标准媒体库结构
+         :param mediainfo:  识别的媒体信息
+        :return: 如不存在返回None，存在时返回信息，包括每季已存在所有集{type: movie/tv, seasons: {season: [episodes]}}
+        """
+        if not settings.LOCAL_EXISTS_SEARCH:
+            return {}
 
-       logger.debug(f"正在本地媒体库中查找 {mediainfo.title_year}...")
+        logger.info(f"正在转移目录中查找已入库所有比赛的信息...")
 
-       # 检查媒体库
-       fileitems = self.chain.media_files(mediainfo)
-       if not fileitems:
-           logger.debug(f"{mediainfo.title_year} 不在本地媒体库中")
-           return None
+        for file_path in SystemUtils.list_files(Path(self.__dest_path), settings.RMT_MEDIAEXT):
+            # 检索本地所有集数
+            matches: Dict[str, Dict[int, list]] = {}
+            # 刮削已入库比赛的元数据
+            file_meta, mediainfo, episode_info = self.__parse_file_metadata(Path(file_path).as_posix(), True)
 
-       if mediainfo.type == MediaType.MOVIE:
-           # 电影存在任何文件为存在
-           logger.info(f"{mediainfo.title_year} 在本地文件系统中找到了")
-           return ExistMediaInfo(type=MediaType.MOVIE)
-       else:
-           # 电视剧检索集数
-           seasons: Dict[int, list] = {}
-           for fileitem in fileitems:
-               # 刮削已入库比赛的元数据
-               file_meta, mediainfo, episode_info = self.__parse_file_metadata(fileitem.path, True)
+            competition_name = mediainfo.title
+            season_index = file_meta.begin_season or 1
+            episode_index = file_meta.begin_episode
+            if not competition_name:
+                continue
+            if not episode_index:
+                continue
+            matches.setdefault(competition_name, {})
+            matches[competition_name].setdefault(season_index, [])
+            if season_index not in matches[competition_name]:
+                matches[competition_name][season_index] = []
+            if episode_index not in matches[competition_name][season_index]:
+                matches[competition_name][season_index].append(episode_index)
+            # 返回剧集情况
+            logger.info(f"{mediainfo.title_year} 在本地文件系统中找到了这些季集：{matches[competition_name]}")
 
-               season_index = file_meta.begin_season or 1
-               episode_index = file_meta.begin_episode
-               if not episode_index:
-                   continue
-               if season_index not in seasons:
-                   seasons[season_index] = []
-               if episode_index not in seasons[season_index]:
-                   seasons[season_index].append(episode_index)
-           # 返回剧集情况
-           logger.info(f"{mediainfo.title_year} 在本地文件系统中找到了这些季集：{seasons}")
-           return ExistMediaInfo(type=MediaType.TV, seasons=seasons)
+        return matches
 
 
-    def __handle_file(self, is_directory: bool, event_path: str, source_dir: str):
+    def __handle_file(self, is_directory: bool, event_path: str, source_dir: str, exist_matches: Dict[str, Dict[int, list]] = None):
         """
         同步一个文件
         :event.is_directory
@@ -2199,18 +2214,29 @@ class AutoSports(_PluginBase):
                     source_fileitem.basename = source_path.stem
                     source_fileitem.extension = source_path.suffix[1:]
 
-                    transferinfo: TransferInfo = self.chain.transfer(mediainfo=mediainfo,
+                    is_in = self.is_match_in_vault(exist_matches=exist_matches, gotten_match_metainfo=file_meta)
+
+                    if not is_in:
+                        logger.info(
+                            f'{file_meta.title_year} {file_meta.season_episode} 己入库，继续整理')
+                        transferinfo: TransferInfo = self.chain.transfer(mediainfo=mediainfo,
                                                                      fileitem=source_fileitem,
                                                                      target_directory=target_dir,
                                                                      meta=file_meta,
                                                                      episodes_info=episodes_info)
-                    if not transferinfo:
-                        logger.error("文件整理/重命名模块运行失败")
-                        transfer_flag = False
+                        if not transferinfo:
+                            logger.error("文件整理/重命名模块运行失败")
+                            transfer_flag = False
+                        else:
+                            target_path_str = transferinfo.target_item.path
+                            logger.info(f"文件整理/重命名模块运行成功：{event_path} -> {target_path_str}")
+                            transfer_flag = True
                     else:
-                        target_path_str = transferinfo.target_item.path
-                        logger.info(f"文件整理/重命名模块运行成功：{event_path} -> {target_path_str}")
-                        transfer_flag = True
+                        # 该场比赛已入库，不进行处理
+                        logger.info(
+                            f'在进行文件转移时，发现 '
+                            f'{file_meta.title_year} {file_meta.season_episode} 己入库，不再处理')
+                        pass
                 except Exception as err:
                     print(str(err))
                     transfer_flag = False
