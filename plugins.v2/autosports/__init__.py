@@ -54,7 +54,7 @@ class AutoSports(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "0.9.3"
+    plugin_version = "0.9.4"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -1332,12 +1332,12 @@ class AutoSports(_PluginBase):
                     if is_in:
                         logger.info(
                             f'处理搜索到的种子时，发现 '
-                            f'{gotten_match_metainfo.title_year} {gotten_match_metainfo.season_episode}己入库，不再处理')
+                            f'{gotten_match_metainfo.title_year} {gotten_match_metainfo.season_episode} 己入库，不再处理')
                         continue
                     else:
                         logger.info(
                             f'处理搜索到的种子时，发现 '
-                            f'{gotten_match_metainfo.title_year} {gotten_match_metainfo.season_episode}未入库，继续处理')
+                            f'{gotten_match_metainfo.title_year} {gotten_match_metainfo.season_episode} 未入库，继续处理')
 
                     # 判断新搜索到的种子是否比之前的种子更好
                     gotten_matchinfo = self.Matchinfo(gotten_torrentinfo, gotten_match_mediainfo, gotten_match_metainfo)
@@ -1591,6 +1591,11 @@ class AutoSports(_PluginBase):
             data = resp.json()
             self.__cached_matches[requests_key] = data
 
+        if not data:
+            logger.warning(f"未在 football-data.org 上获取到比赛信息，请检查"
+                           f"输入信息，competition_shortname: {competition_shortname}，"
+                           f"season: {season}")
+
         for match in data["matches"]:
             home = match["homeTeam"]["name"]
             away = match["awayTeam"]["name"]
@@ -1667,6 +1672,11 @@ class AutoSports(_PluginBase):
                     season = match_date[0]
             else:
                 season = int(season_name)
+
+            if str(season) + "." + str(season) in org_str:
+                # 适配特殊格式的西甲比赛
+                season -= 1
+                match_mediainfo.season = season
 
             if match_mediainfo.title == "西班牙超级杯" and season == datetime.date.today().year:
                 # 超级杯特殊处理
@@ -2389,7 +2399,7 @@ class AutoSports(_PluginBase):
         :param dir_path: 电视剧根目录
         """
         # 开始生成XML
-        logger.info(f"正在生成电视剧NFO文件：{dir_path.name}")
+        logger.info(f"正在生成电视剧NFO文件：{file_meta.org_string.split('.')[0]}")
         doc = minidom.Document()
         root = DomUtils.add_node(doc, doc, "episodedetails")
 
@@ -2399,7 +2409,7 @@ class AutoSports(_PluginBase):
         DomUtils.add_node(doc, root, "season", file_meta.begin_season)
         DomUtils.add_node(doc, root, "episode", file_meta.begin_episode)
         # 保存
-        self.__save_nfo(doc, dir_path.joinpath(f"{dir_path.name}.nfo"))
+        self.__save_nfo(doc, dir_path.joinpath(f"{file_meta.org_string.split('.')[0]}.nfo"))
 
 
     def __download(self, torrent: TorrentInfo) -> tuple[bool, Optional[str]]:
