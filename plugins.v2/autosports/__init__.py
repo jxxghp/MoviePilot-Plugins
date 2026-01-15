@@ -1673,7 +1673,7 @@ class AutoSports(_PluginBase):
             else:
                 season = int(season_name)
 
-            if str(season) + "." + str(season) in org_str:
+            if str(season) + "." + str(season + 1) in org_str:
                 # 适配特殊格式的西甲比赛
                 season -= 1
                 match_mediainfo.season = season
