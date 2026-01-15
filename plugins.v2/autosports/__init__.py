@@ -54,7 +54,7 @@ class AutoSports(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "0.9.4"
+    plugin_version = "0.9.5"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -1673,7 +1673,7 @@ class AutoSports(_PluginBase):
             else:
                 season = int(season_name)
 
-            if str(season) + "." + str(season + 1) in org_str:
+            if (str(season-1) + "." + str(season)) in org_str:
                 # 适配特殊格式的西甲比赛
                 season -= 1
                 match_mediainfo.season = season
@@ -2287,7 +2287,7 @@ class AutoSports(_PluginBase):
                 target_file_name = target_file.name
                 title = str.split(target_file_name, ".")[0]
                 if not (target_file.parent / f"{title}.nfo").exists():
-                    self.__gen_match_nfo_file(dir_path=target_file.parent,
+                    self.__gen_match_nfo_file(dir_path=target_file.parent, title=title,
                                               matchinfo=mediainfo, file_meta=file_meta)
 
                 # 生成缩略图
@@ -2392,14 +2392,15 @@ class AutoSports(_PluginBase):
             print(str(e))
 
 
-    def __gen_match_nfo_file(self, dir_path: Path,
+    def __gen_match_nfo_file(self, dir_path: Path, title: str = '',
                              matchinfo: MediaInfo = None, file_meta: MetaBase = None):
         """
         生成电视剧的NFO描述文件
         :param dir_path: 电视剧根目录
         """
         # 开始生成XML
-        logger.info(f"正在生成电视剧NFO文件：{file_meta.org_string.split('.')[0]}")
+
+        logger.info(f"正在生成电视剧NFO文件：{title}")
         doc = minidom.Document()
         root = DomUtils.add_node(doc, doc, "episodedetails")
 
@@ -2409,7 +2410,7 @@ class AutoSports(_PluginBase):
         DomUtils.add_node(doc, root, "season", file_meta.begin_season)
         DomUtils.add_node(doc, root, "episode", file_meta.begin_episode)
         # 保存
-        self.__save_nfo(doc, dir_path.joinpath(f"{file_meta.org_string.split('.')[0]}.nfo"))
+        self.__save_nfo(doc, dir_path.joinpath(f"{title}.nfo"))
 
 
     def __download(self, torrent: TorrentInfo) -> tuple[bool, Optional[str]]:
