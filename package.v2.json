@@ -22,11 +22,12 @@
         "name": "Sportscult 比赛自动下载及简单刮削",
         "description": "添加 Sportscult 站点索引器，并可根据设置的球队名自动下载最新比赛，进行文件整理及简单的刮削，在使用前务必查看配置说明：https://github.com/Sinterdial/MoviePilot-Plugins/blob/main/README.md",
         "labels": "站点",
-        "version": "0.9.2",
+        "version": "0.9.3",
         "icon": "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png",
         "author": "Sinterdial",
         "level": 2,
         "history": {
+            "v0.9.3": "修复已入库比赛识别错误的bug，修复整理体育比赛时nfo文件信息错误的bug，优化代码，减少不必要的报错信息",
             "v0.9.2": "修复超级杯赛季识别不统一的问题，修复日志错误打印的问题，优化代码，判定比赛是否入库仅需一次扫盘，且仅扫设置的转移目录，节省资源",
             "v0.9.1": "修复站点添加的小问题",
             "v0.9.0": "修复bug，增强识别精准度，能够正确比赛是否已入库",

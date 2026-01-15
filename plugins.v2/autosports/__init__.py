@@ -54,7 +54,7 @@ class AutoSports(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "0.9.2"
+    plugin_version = "0.9.3"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -107,6 +107,7 @@ class AutoSports(_PluginBase):
             "shortname": "PD",  # 缩写
             "title": "西班牙足球甲级联赛",  # 中文名
             "en_title": "La Liga",  # 英文名
+            "original_title": "La Liga",  # 原名
             "year": 1929,  # 创办年份
             "overview": "西班牙足球甲级联赛（西班牙语：Primera División de España或La Liga，由于赞助原因，正式名称为LALIGA EA SPORTS），通常简称西甲或西甲联赛，是西班牙足球联赛系统的第 1 级别，亦是职业联赛的最高级别、联赛系统的最高级别和西班牙顶级足球联赛，目前有 20 支球队。皇家马德里是历史上夺得最多冠军的球队（36次），其次是巴塞罗那（28次），以及马德里竞技（11次）。 ",  # 赛事介绍
             "season_years": {x: x for x in range(1929, 2101)},  # 赛季
@@ -126,6 +127,7 @@ class AutoSports(_PluginBase):
             "shortname": "CL",  # 缩写
             "title": "欧洲冠军联赛",  # 中文名
             "en_title": "UEFA Champions League",  # 英文名
+            "original_title": "UEFA Champions League",  # 原名
             "year": 1955,  # 创办年份
             "overview": "欧洲冠军联赛（英语：UEFA Champions League，缩写：UCL；简称欧冠联赛、欧冠）是欧洲足联主办的年度俱乐部足球比赛，该赛事由欧洲顶级联赛的俱乐部队伍参加，通过联赛阶段和双回合淘汰赛，以及单场决赛的形式决出冠军。代表欧洲俱乐部足球最高荣誉，被誉为全世界最高竞技水平的俱乐部杯赛，估计每届赛事约有超过十亿电视观众观看赛事，现与欧洲联赛和欧协联并称“欧洲俱乐部三大杯”。 "
                         "欧洲冠军联赛始创于1955年，被称为“欧洲俱乐部冠军杯”（法语：Coupe des Clubs Champions Européens），通称欧洲冠军杯（英语：European Cup）。最初，该赛事以直接淘汰制形式进行，并仅对欧洲各国的联赛冠军开放。随后在1991年引入小组赛环节，并于1992年更为现名。自1997-98赛季起，部分国家可派出最多4支球队参赛。目前，大部分欧洲国家仅能派出其联赛冠军参赛，而实力较强的联赛最多可派出四支球队。未能晋级欧冠的俱乐部有资格参加欧洲联赛及自2021年起举办的欧洲协会联赛。"
@@ -148,6 +150,7 @@ class AutoSports(_PluginBase):
             "shortname": "CDR",  # 缩写
             "title": "西班牙国王杯",  # 中文名
             "en_title": "Copa Del Rey",  # 英文名
+            "original_title": "Copa Del Rey",  # 原名
             "year": 1903,  # 创办年份
             "overview": "西班牙冠军–国王陛下杯（西班牙语：Campeonato de España – Copa de Su Majestad el Rey），通称国王杯（Copa del Rey）或西班牙杯，是西班牙一项每年举办的淘汰制足球赛事。赛事开办起因于皇家马德里前主席卡洛斯·帕德罗斯提议举办一项足球赛事以庆祝西班牙国王阿方索十三世登基，而于1902年举行首届比赛。"
                         "赛事最早叫做“马德里市议会杯”（Copa del Ayuntamiento de Madrid），1905至1932年间称为“阿方索十三世杯”（Copa de S.M. El Rey Alfonso XIII），在西班牙第二共和国期间则称为“共和国总统杯”Copa del Presidente de la República），简称“西班牙杯” （Copa de España），在佛朗哥执政期间又改称为 “大元帅阁下杯”（Copa de Su Excelencia El Generalísimo） ，简称“大元帅杯”（Copa del Generalísimo)。",
@@ -172,6 +175,7 @@ class AutoSports(_PluginBase):
             "shortname": "SE",  # 缩写
             "title": "西班牙超级杯",  # 中文名
             "en_title": "Spanish Super Cup",  # 英文名
+            "original_title": "Supercopa de España",  # 原名
             "year": 1982,  # 创办年份
             "overview": "西班牙超级杯（西班牙语：Supercopa de España）是西班牙每年一度由甲级联赛冠军对国王杯盟主的足球锦标赛，如果有一支球队同时夺得联赛及国王杯冠军，对赛球队则由国王杯亚军补上，2019年起增设联赛及国王杯亚军席位，如果有一支球队同时夺得联赛及国王杯冠亚军，对赛球队则由联赛排名较佳一方补上，改制成单场淘汰赛模式。首届赛事于1940年举行，作为每年球季开始前的揭幕战。 "
                         "赛事早期曾经有过多个名称，首届赛事举行时名称为西班牙冠军杯（Copa de Campeones），但比赛直到1945年才又再举办，这时由于来自阿根廷的大使欲与西班牙打好友谊关系，遂以阿根廷金杯（Copa de Oro Argentina）为名举行比赛。1947年，为了庆祝胡安·裴隆成为阿根廷总统，而以其妻子伊娃·裴隆为名举行伊娃杯（Copa Eva Duarte）。可惜1953年之后球赛因为不受重视而停办，一直到1983年才又重新复办赛事，并正式将球赛命名为西班牙超级杯至今。 ",
@@ -231,11 +235,11 @@ class AutoSports(_PluginBase):
         """
         service = DownloaderHelper().get_service(name=self.__downloaders)
         if not service:
-            self.__log_and_notify_error("站点刷流任务出错，获取下载器实例失败，请检查配置")
+            self.__log_and_notify_error("自动下载/整理体育比赛任务出错，获取下载器实例失败，请检查配置")
             return None
 
         if service.instance.is_inactive():
-            self.__log_and_notify_error("站点刷流任务出错，下载器未连接")
+            self.__log_and_notify_error("自动下载/整理体育比赛任务出错，下载器未连接")
             return None
 
         return service
@@ -714,7 +718,7 @@ class AutoSports(_PluginBase):
                                         'props': {
                                             'model': 'cron',
                                             'label': '执行周期',
-                                            'placeholder': '5位cron表达式，留空自动'
+                                            'placeholder': '5位cron表达式，留空自动，设定的运行时间间隔不要小于1h'
                                         }
                                     }
                                 ]
@@ -1242,7 +1246,12 @@ class AutoSports(_PluginBase):
         # 开始全量同步目录中所有体育比赛文件
         self.sync_all(exist_matches=exist_matches)
         logger.info("文件同步结束")
-        # return
+
+        # 转移文件后，更新本地已入库比赛信息
+        exist_matches: Dict[str, Dict[int, list]] = self.__exists_match()
+
+        # 保存搜索到且成功刮削的种子
+        matchesinfo = []
 
         for team_info in self.__teams_info.split("\n"):
             # 在 SportsCult 搜索种子
@@ -1255,9 +1264,6 @@ class AutoSports(_PluginBase):
             if not results:
                 logger.error(f"未获取到该球队相关比赛种子，请更换关键词再试试：{team_info}")
                 return
-
-            # 保存搜索到且成功刮削的种子
-            matchesinfo = []
 
             # 清空比赛元数据缓存
             if not self.__cached_matches:
@@ -1330,7 +1336,8 @@ class AutoSports(_PluginBase):
                         continue
                     else:
                         logger.info(
-                            f'{gotten_match_metainfo.title_year} {gotten_match_metainfo.season_episode} 未入库，继续处理')
+                            f'处理搜索到的种子时，发现 '
+                            f'{gotten_match_metainfo.title_year} {gotten_match_metainfo.season_episode}未入库，继续处理')
 
                     # 判断新搜索到的种子是否比之前的种子更好
                     gotten_matchinfo = self.Matchinfo(gotten_torrentinfo, gotten_match_mediainfo, gotten_match_metainfo)
@@ -1408,6 +1415,14 @@ class AutoSports(_PluginBase):
         # 保存历史记录
         self.save_data('history', history)
 
+
+        # 30 分钟后分别尝试再次整理
+        # TODO: 支持添加多个 Pending 任务，且只要有一次成功整理后停止后续的任务
+        logger.info(f"等待 30 分钟后再次尝试进行比赛整理")
+        self.__scheduler.add_job(func=self.sync_all, trigger='date',
+                                 run_date=datetime.datetime.now(
+                                     tz=pytz.timezone(settings.TZ)) + datetime.timedelta(minutes=30)
+                                 )
         # 缓存只清理一次
         self.__clearflag = False
 
@@ -1424,7 +1439,7 @@ class AutoSports(_PluginBase):
         pix: int = 0
 
 
-    def sync_all(self, exist_matches: Dict[str, Dict[int, list]] = None):
+    def sync_all(self, exist_matches: Dict[str, Dict[int, list]] = {}):
         """
         立即运行一次，全量同步目录中所有文件
         """
@@ -1675,6 +1690,9 @@ class AutoSports(_PluginBase):
             # matchup = re.search( r"([A-Za-zÀ-ÿ. ]+?)\s+vs\s+([A-Za-zÀ-ÿ. ]+?)(?=\s*\||\s+\d|$)", org_str, re.IGNORECASE)
             # matchup = re.search( r"([A-Za-zÀ-ÿ. ]+?)\s+vs\s+([A-Za-zÀ-ÿ. ]+?)(?=\s*\||\s+\d|$)", org_str, re.IGNORECASE)
             matchup = re.search( r'([A-Za-zÀ-ÿ ]+?)\s+vs\s+([A-Za-zÀ-ÿ ]+?)(?=\s*\||\s+\d|\.|$)', org_str, re.IGNORECASE)
+            if not matchup:
+                # 适配种子名里有 '.' 的格式
+                matchup = re.search(r'([A-Za-zÀ-ÿ ]+?)\s*\.?\s*v\.?\s*s\.?\s*\.?\s*([A-Za-zÀ-ÿ ]+?)(?=\s*\||\s+\d|\.|$)', org_str, re.IGNORECASE)
 
             home_team = re.findall(r'\D+', matchup.group(1))
             away_team =  re.findall(r'\D+', matchup.group(2))
@@ -1712,7 +1730,7 @@ class AutoSports(_PluginBase):
             round_info = raw_matchdata['matchday']
             if raw_matchdata['stage'] == 'LEAGUE_STAGE':
                 # 小组赛阶段
-                round_cn_name = f"小组赛 第{self.number_to_chinese(round_info)}轮"
+                round_cn_name = f"联赛阶段 第{self.number_to_chinese(round_info)}轮"
                 round_en_name = f"Group Stage Round {round_info}"
             else:
                 # 淘汰赛阶段
@@ -1733,10 +1751,10 @@ class AutoSports(_PluginBase):
                 if competition_cn_name == "欧洲冠军联赛":
                     # 欧冠赛制特殊处理
                     if raw_matchdata['matchday'] == 9:
-                        round_cn_name = f"小组赛附加赛 首回合"
+                        round_cn_name = f"联赛阶段附加赛 首回合"
                         round_en_name = f"Play-off 1st Round"
                     elif raw_matchdata['matchday'] == 10:
-                        round_cn_name = f"小组赛附加赛 次回合"
+                        round_cn_name = f"联赛阶段附加赛 次回合"
                         round_en_name = f"Play-off 2nd Round"
                     else:
                         round_idx = raw_matchdata['matchday'] - 10 + 2 - 1
@@ -1754,6 +1772,7 @@ class AutoSports(_PluginBase):
         # 刮削比赛信息
         match_metainfo.cn_name = " - ".join([season_cn_name, round_cn_name, matchmake_cn_name])
         match_metainfo.en_name = " - ".join([season_en_name, round_en_name, matchmake_en_name])
+        match_metainfo.type = MediaType.TV
         match_metainfo.set_season(season)
         match_metainfo.set_episode(round_info)
         match_metainfo.subtitle = ""
@@ -1861,11 +1880,12 @@ class AutoSports(_PluginBase):
         if exist_matches:
             exist_competitions = exist_matches.keys()
             for exist_competition in exist_competitions:
-                exist_seasons = exist_matches.get(exist_competition)
-                if exist_seasons:
-                    exist_episodes = exist_seasons.get(gotten_match_metainfo.begin_season)
-                    if exist_episodes and set(gotten_match_metainfo.episode_list).issubset(set(exist_episodes)):
-                        return True
+                if exist_competition == gotten_match_metainfo.title:
+                    exist_seasons = exist_matches.get(exist_competition)
+                    if exist_seasons:
+                        exist_episodes = exist_seasons.get(gotten_match_metainfo.begin_season)
+                        if exist_episodes and set(gotten_match_metainfo.episode_list).issubset(set(exist_episodes)):
+                            return True
 
         return False
 
@@ -1883,7 +1903,10 @@ class AutoSports(_PluginBase):
 
         # 判断之前是否已搜索到该场比赛的种子
         for i, old_matchinfo in enumerate(matchesinfo):
-            if new_matchinfo.metainfo.name == old_matchinfo.metainfo.name:
+            if new_matchinfo.metainfo.title != old_matchinfo.metainfo.title:
+                # 如果赛事不匹配，直接跳过
+                continue
+            if new_matchinfo.metainfo.season_episode == old_matchinfo.metainfo.season_episode:
                 if new_matchinfo.language == "en" and old_matchinfo.language != "en":
                     matchesinfo[i] = new_matchinfo
                     logger.info(
@@ -1895,6 +1918,7 @@ class AutoSports(_PluginBase):
                 else:
                     logger.info(
                         f"新种子 ({new_matchinfo.torrentinfo.title}) 不如之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) ，不替换")
+
                 return
 
         # 如果已有种子列表中没有该场比赛，则添加之
@@ -1963,15 +1987,15 @@ class AutoSports(_PluginBase):
 
     @staticmethod
     def recognize_language(metainfo: MetaVideo) -> str:
-        if any(en in metainfo.name for en in ["EN", "English"]):
+        if any(lang in metainfo.name for lang in ["EN", "English"]):
             return "en"
-        elif "PL" in metainfo.name or "Polilsh" in metainfo.name:
+        elif any(lang in metainfo.name for lang in ["PL", "Polish", "POLISH"]):
             return "pl"
-        elif "Spanish" in metainfo.name:
+        elif any(lang in metainfo.name for lang in ["Spanish", "SPANISH", "spanish"]):
             return "sp"
-        elif "FRENCH" in metainfo.name:
+        elif any(lang in metainfo.name for lang in ["French", "FRENCH", "french"]):
             return "fr"
-        elif "DUTCH" in metainfo.name:
+        elif any(lang in metainfo.name for lang in ["Dutch", "DUTCH", "drench"]):
             return "dt"
 
         # 默认英语
@@ -2126,9 +2150,9 @@ class AutoSports(_PluginBase):
 
         logger.info(f"正在转移目录中查找已入库所有比赛的信息...")
 
+        # 检索本地所有集数
+        matches: Dict[str, Dict[int, list]] = {}
         for file_path in SystemUtils.list_files(Path(self.__dest_path), settings.RMT_MEDIAEXT):
-            # 检索本地所有集数
-            matches: Dict[str, Dict[int, list]] = {}
             # 刮削已入库比赛的元数据
             file_meta, mediainfo, episode_info = self.__parse_file_metadata(Path(file_path).as_posix(), True)
 
@@ -2146,7 +2170,10 @@ class AutoSports(_PluginBase):
             if episode_index not in matches[competition_name][season_index]:
                 matches[competition_name][season_index].append(episode_index)
             # 返回剧集情况
-            logger.info(f"{mediainfo.title_year} 在本地文件系统中找到了这些季集：{matches[competition_name]}")
+
+        if matches:
+            for competition_name in matches.keys():
+                logger.info(f"{competition_name} 在本地文件系统中找到了这些季集：{matches[competition_name]}")
 
         return matches
 
@@ -2218,14 +2245,15 @@ class AutoSports(_PluginBase):
 
                     if not is_in:
                         logger.info(
-                            f'{file_meta.title_year} {file_meta.season_episode} 己入库，继续整理')
+                            f'在进行文件转移时，发现 '
+                            f'{file_meta.title_year} {file_meta.season_episode} 未入库，继续整理')
                         transferinfo: TransferInfo = self.chain.transfer(mediainfo=mediainfo,
                                                                      fileitem=source_fileitem,
                                                                      target_directory=target_dir,
                                                                      meta=file_meta,
                                                                      episodes_info=episodes_info)
                         if not transferinfo:
-                            logger.error("文件整理/重命名模块运行失败")
+                            logger.warning("文件整理/重命名模块运行失败")
                             transfer_flag = False
                         else:
                             target_path_str = transferinfo.target_item.path
@@ -2249,8 +2277,8 @@ class AutoSports(_PluginBase):
                 target_file_name = target_file.name
                 title = str.split(target_file_name, ".")[0]
                 if not (target_file.parent / f"{title}.nfo").exists():
-                    self.__gen_tv_nfo_file(dir_path=target_file.parent,
-                                           title=title)
+                    self.__gen_match_nfo_file(dir_path=target_file.parent,
+                                              matchinfo=mediainfo, file_meta=file_meta)
 
                 # 生成缩略图
                 if not (target_file.parent / f"{title}_poster.jpg").exists():
@@ -2354,7 +2382,8 @@ class AutoSports(_PluginBase):
             print(str(e))
 
 
-    def __gen_tv_nfo_file(self, dir_path: Path, title: str):
+    def __gen_match_nfo_file(self, dir_path: Path,
+                             matchinfo: MediaInfo = None, file_meta: MetaBase = None):
         """
         生成电视剧的NFO描述文件
         :param dir_path: 电视剧根目录
@@ -2362,15 +2391,15 @@ class AutoSports(_PluginBase):
         # 开始生成XML
         logger.info(f"正在生成电视剧NFO文件：{dir_path.name}")
         doc = minidom.Document()
-        root = DomUtils.add_node(doc, doc, "tvshow")
+        root = DomUtils.add_node(doc, doc, "episodedetails")
 
         # 标题
-        DomUtils.add_node(doc, root, "title", title)
-        DomUtils.add_node(doc, root, "originaltitle", title)
-        DomUtils.add_node(doc, root, "season", "-1")
-        DomUtils.add_node(doc, root, "episode", "-1")
+        DomUtils.add_node(doc, root, "title", file_meta.cn_name)
+        DomUtils.add_node(doc, root, "originaltitle", file_meta.en_name)
+        DomUtils.add_node(doc, root, "season", file_meta.begin_season)
+        DomUtils.add_node(doc, root, "episode", file_meta.begin_episode)
         # 保存
-        self.__save_nfo(doc, dir_path.joinpath(f"{title}.nfo"))
+        self.__save_nfo(doc, dir_path.joinpath(f"{dir_path.name}.nfo"))
 
 
     def __download(self, torrent: TorrentInfo) -> tuple[bool, Optional[str]]:
