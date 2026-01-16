@@ -154,3 +154,20 @@ class ImdbapiListTitleAKAsResponse(BaseModel):
 
 class ImdbApiTitleImagesResponse(PagedResponse):
     images: List[ImdbapiImage] = Field(default_factory=list)
+
+
+class ImdbapiCompany(BaseModel):
+    id: str
+    name: str
+
+
+class ImdbapiCompanyCredit(BaseModel):
+    company: ImdbapiCompany
+    category: Optional[str] = Field(
+        default=None,
+        description="Category of the company credit, such as production, sales, distribution, etc."
+    )
+
+
+class ImdbapiCompanyCreditResponse(PagedResponse):
+    company_credits: List[ImdbapiCompanyCredit] = Field(default_factory=list, alias='companyCredits')

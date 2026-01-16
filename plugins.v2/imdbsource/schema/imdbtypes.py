@@ -4,6 +4,15 @@ from typing import Optional, List
 from pydantic import BaseModel, Field
 
 
+def format_number(n: int) -> str:
+    units = ["", "K", "M", "B", "T"]
+    idx = 0
+    while n >= 1000 and idx < len(units) - 1:
+        n //= 1000
+        idx += 1
+    return f"{n}{units[idx]}"
+
+
 class ImdbType(Enum):
     TV_SERIES = "tvSeries"
     TV_MINI_SERIES = "tvMiniSeries"
@@ -22,6 +31,25 @@ class ImdbType(Enum):
 
 class TitleType(BaseModel):
     id: ImdbType
+
+    @property
+    def text(self) -> str:
+        type_mapping = {
+            ImdbType.TV_SERIES: "TV Series",
+            ImdbType.TV_MINI_SERIES: "TV Mini Series",
+            ImdbType.MOVIE: "Movie",
+            ImdbType.TV_MOVIE: "TV Movie",
+            ImdbType.MUSIC_VIDEO: "Music Video",
+            ImdbType.TV_SHORT: "TV Short",
+            ImdbType.SHORT: "Short",
+            ImdbType.TV_EPISODE: "TV Episode",
+            ImdbType.TV_SPECIAL: "TV Special",
+            ImdbType.VIDEO_GAME: "Video Game",
+            ImdbType.VIDEO: "Video",
+            ImdbType.PODCAST_SERIES: "Podcast Series",
+            ImdbType.PODCAST_EPISODE: "Podcast Episode",
+        }
+        return type_mapping.get(self.id, "Unknown")
 
 
 class ReleaseYear(BaseModel):
@@ -89,6 +117,23 @@ class MeterRanking(BaseModel):
     meter_type: Optional[str] = Field(default=None, alias='meterType')
     rank_change: Optional[RankChange] = Field(default=None, alias='rankChange')
 
+    @property
+    def text(self) -> str:
+        if self.current_rank:
+            rank = self.current_rank
+            meter_rank = ""
+            if self.meter_type:
+                meter_rank = self.meter_type.replace("_", "").replace("METER", "Meter")
+                meter_rank = f" {meter_rank}"
+            return f"#{rank}{meter_rank}"
+        return ""
+
+    @property
+    def url(self) -> str:
+        if self.current_rank and self.meter_type:
+            return f"https://www.imdb.com/chart/{self.meter_type.replace("_", "").lower()}/"
+        return ""
+
 
 class RatingsSummary(BaseModel):
     aggregate_rating: Optional[float] = Field(default=None, alias='aggregateRating')
@@ -154,8 +199,24 @@ class ImdbTitle(BaseModel):
     @property
     def rating_text(self) -> str:
         if self.ratings_summary and self.ratings_summary.aggregate_rating:
-            return f"{self.ratings_summary.aggregate_rating:.1f}"
-        return "-"
+            votes = ""
+            if self.ratings_summary.vote_count:
+                votes = f" ({format_number(self.ratings_summary.vote_count)})"
+            return f"{self.ratings_summary.aggregate_rating:.1f}{votes}"
+        return "-/10"
+
+    @property
+    def meter_ranking_text(self) -> str:
+        if self.meter_ranking and self.meter_ranking.current_rank:
+            return self.meter_ranking.text
+        return ""
+
+    @property
+    def certificate_text(self) -> str:
+        if self.certificate and self.certificate.rating:
+            return self.certificate.rating
+        return ""
+
 
 class Thumbnail(BaseModel):
     url: str

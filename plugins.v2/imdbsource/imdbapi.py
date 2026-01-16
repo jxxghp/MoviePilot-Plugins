@@ -11,7 +11,7 @@ from app.utils.http import RequestUtils, AsyncRequestUtils
 from .schema.imdbapi import ImdbApiTitle, ImdbApiEpisode, ImdbApiCredit, ImdbapiImage
 from .schema.imdbapi import (ImdbApiSearchTitlesResponse, ImdbApiListTitlesResponse, ImdbApiListTitleEpisodesResponse,
                              ImdbApiListTitleSeasonsResponse, ImdbApiListTitleCreditsResponse,
-                             ImdbapiListTitleAKAsResponse, ImdbApiTitleImagesResponse)
+                             ImdbapiListTitleAKAsResponse, ImdbApiTitleImagesResponse, ImdbapiCompanyCreditResponse)
 from .schema.imdbtypes import ImdbType
 
 
@@ -769,3 +769,24 @@ class ImdbApiClient:
             page_token = response.next_page_token
             if not page_token:
                 break
+
+    async def company_credits(self, title_id: str, categories: list[str] | None = None
+                              ) -> Optional[ImdbapiCompanyCreditResponse]:
+        """
+        Retrieve the company credits associated with a specific title.
+
+        :param title_id: Required. IMDb title ID in the format "tt1234567".
+        :param categories: Optional. The categories of company credit to filter by.
+        :return: Company Credits.
+        """
+        path = "/titles/%s/companyCredits"
+        param: dict[str, Any] = {}
+        if categories:
+            param['categories'] = categories
+        try:
+            r = await self._async_free_imdb_api(path=path % title_id, params=param)
+            ret = ImdbapiCompanyCreditResponse.model_validate(r)
+        except Exception as e:
+            logger.debug(f"An error occurred while retrieving company credits: {e}")
+            return None
+        return ret

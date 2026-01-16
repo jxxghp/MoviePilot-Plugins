@@ -13,11 +13,11 @@ class ErrorType(Enum):
 
 class StaffPickEntry(BaseModel):
     name: str
-    ttconst: str
+    ttconst: str = Field(..., alias='id')
     rmconst: str
     detail: Optional[str] = ""
     description: Optional[str] = ""
-    relatedconst: List[str] = Field(default_factory=list)
+    relatedconst: List[str] = Field(default_factory=list, alias='relatedConst')
     viconst: Optional[str] = None
 
 
@@ -117,6 +117,7 @@ class SearchParams(BaseModel):
     award_constraint: Optional[Tuple[str, ...]] = None
     ranked: Optional[Tuple[str, ...]] = None
     interests: Optional[Tuple[str, ...]] = None
+    company: Optional[str] = None
 
     model_config = ConfigDict(
         frozen=True
