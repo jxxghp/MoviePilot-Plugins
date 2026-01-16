@@ -60,7 +60,7 @@ class LexiAnnot(_PluginBase):
     # 插件图标
     plugin_icon = "LexiAnnot.png"
     # 插件版本
-    plugin_version = "1.2.3"
+    plugin_version = "1.2.4"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页

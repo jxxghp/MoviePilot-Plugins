@@ -1,10 +1,10 @@
 import re
 import uuid
 from collections import Counter
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Literal, Generator, Iterator
 
-from pydantic import BaseModel, Field, RootModel, model_validator
+from pydantic import BaseModel, Field, RootModel, model_validator, field_validator
 
 from app.utils.singleton import Singleton
 
@@ -12,9 +12,8 @@ from app.utils.singleton import Singleton
 Cefr = Literal["C2", "C1", "B2", "B1", "A2", "A1"]
 
 
-class UniversalPos(str, Enum):
+class UniversalPos(StrEnum):
     """Universal Part-of-Speech tags"""
-
     ADJ = "ADJ"  # Adjective
     ADV = "ADV"  # Adverb
     INTJ = "INTJ"  # Interjection
@@ -34,9 +33,8 @@ class UniversalPos(str, Enum):
     X = "X"  # Other/unknown
 
 
-class LexicalFeatures(str, Enum):
+class LexicalFeatures(StrEnum):
     """Lexical features for words."""
-
     FORMAL = "formal"
     INFORMAL = "informal"
     SLANG = "slang"
@@ -332,6 +330,14 @@ class LlmWordEnrichment(BaseModel):
     translation: str | None = Field(default=None, description="Chinese translation of the word")
     usage_context: str | None = Field(default=None, description="Usage or Cultural Context")
     lexical_features: list[LexicalFeatures] = Field(default_factory=list, description="Lexical features")
+
+    @field_validator("lexical_features", mode="before")
+    @classmethod
+    def filter_invalid_lexical_features(cls, v):
+        if isinstance(v, list):
+            valid_values = {f.value for f in LexicalFeatures}
+            return [item for item in v if item in valid_values]
+        return v
 
 
 class LlmEnrichmentResult(BaseModel):
