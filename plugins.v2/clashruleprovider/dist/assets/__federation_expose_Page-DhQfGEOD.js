@@ -6007,13 +6007,28 @@ const _sfc_main$q = /* @__PURE__ */ _defineComponent$q({
               }, {
                 default: _withCtx$q(() => [
                   _createVNode$q(_component_v_btn_group, {
+                    class: "d-sm-none",
                     variant: "outlined",
                     rounded: "",
                     divided: ""
                   }, {
                     default: _withCtx$q(() => [
                       _createVNode$q(_component_v_btn, {
-                        class: "d-none d-sm-flex",
+                        icon: "mdi-plus",
+                        disabled: loading.value,
+                        onClick: openAddRuleDialog
+                      }, null, 8, ["disabled"])
+                    ]),
+                    _: 1
+                  }),
+                  _createVNode$q(_component_v_btn_group, {
+                    class: "d-none d-sm-flex",
+                    variant: "outlined",
+                    rounded: "",
+                    divided: ""
+                  }, {
+                    default: _withCtx$q(() => [
+                      _createVNode$q(_component_v_btn, {
                         icon: group.value ? "mdi-format-list-bulleted" : "mdi-format-list-group",
                         disabled: loading.value,
                         onClick: _cache[2] || (_cache[2] = ($event) => group.value = !group.value)
