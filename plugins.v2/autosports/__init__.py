@@ -54,7 +54,7 @@ class AutoSports(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "0.9.5"
+    plugin_version = "0.9.6"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -85,7 +85,7 @@ class AutoSports(_PluginBase):
     __category: str = ""
     __tags: list[str] = []
     __size_range: str = ""
-    __start_pause: bool = True  # 添加种子后暂停下载
+    __start_paused: bool = True  # 添加种子后暂停下载
     __max_download: int = 0  # 单次最多下多少场比赛
     # 转移与刮削相关
     __target_path: str = ""
@@ -1350,15 +1350,17 @@ class AutoSports(_PluginBase):
                     logger.error(f'自动寻找种子模块出错：{str(err)} - {traceback.format_exc()}')
 
             # 新增处理的比赛场数计数
-            added_num = 0
+            processed_num = 0
 
             if self.__action == "transfer":
                 # 仅作整理，不下载
                 logger.info(f"仅整理文件，不下载新种子")
+                self.__clearflag = False
+                return
 
             for final_matchinfo in matchesinfo:
-                if self.__max_download and added_num >= self.__max_download:
-                    logger.info(f"已添加种子数量超过最大限制 {self.__max_download}，不再添加新的种子")
+                if self.__max_download and processed_num >= self.__max_download:
+                    logger.info(f"已处理种子数量超过最大限制 {self.__max_download}，不再添加新的种子")
                     break
                 torrentinfo = final_matchinfo.torrentinfo
                 match_mediainfo = final_matchinfo.mediainfo
@@ -1366,19 +1368,21 @@ class AutoSports(_PluginBase):
                 title = torrentinfo.title
                 # 下载或订阅
                 if self.__action == "download":
+                    if match_metainfo.episode == 'E00':
+                        logger.warning(f"种子 {torrentinfo.title} 未识别到轮次，将以暂停状态添加该种")
+                        is_existed, torrent_hash = self.__download(torrentinfo, True)
                     # 添加下载
-                    is_existed, torrent_hash = self.__download(torrentinfo)
+                    else:
+                        is_existed, torrent_hash = self.__download(torrentinfo, self.__start_paused)
                     if not torrent_hash:
-                        logger.error(f'{title} 下载失败')
-                        # 调试用，找到就退出
-                        continue
-                        # continue
+                        logger.warning(f'{title} 下载失败')
+                        processed_num += 1
                     elif is_existed:
                         logger.info(f'{title} 已存在，种子 HASH 值为：{torrent_hash}')
-                        added_num += 1
+                        processed_num += 1
                     else:
                         logger.info(f'{title} 下载成功，种子 HASH 值为：{torrent_hash}')
-                        added_num += 1
+                        processed_num += 1
                 else:
                     # TODO: 支持订阅功能
                     logger.error(f'暂不支持订阅功能，请等待适配')
@@ -1411,6 +1415,9 @@ class AutoSports(_PluginBase):
                     "tmdbid": match_mediainfo.tmdb_id,
                     "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 })
+
+            if not processed_num:
+                logger.info(f"未找到任何种子或所有比赛已入库，不进行添加任何下载")
             logger.info(f"体育比赛下载刷新完成")
         # 保存历史记录
         self.save_data('history', history)
@@ -1418,11 +1425,11 @@ class AutoSports(_PluginBase):
 
         # 30 分钟后分别尝试再次整理
         # TODO: 支持添加多个 Pending 任务，且只要有一次成功整理后停止后续的任务
-        logger.info(f"等待 30 分钟后再次尝试进行比赛整理")
-        self.__scheduler.add_job(func=self.sync_all, trigger='date',
-                                 run_date=datetime.datetime.now(
-                                     tz=pytz.timezone(settings.TZ)) + datetime.timedelta(minutes=30)
-                                 )
+        # logger.info(f"等待 30 分钟后再次尝试进行比赛整理")
+        # self.__scheduler.add_job(func=self.sync_all, trigger='date',
+        #                          run_date=datetime.datetime.now(
+        #                              tz=pytz.timezone(settings.TZ)) + datetime.timedelta(minutes=30)
+        #                          )
         # 缓存只清理一次
         self.__clearflag = False
 
@@ -1554,6 +1561,7 @@ class AutoSports(_PluginBase):
 
         if match["matchday"] == 0:
             logger.warning(f"轮次未识别成功，建议手动修订: {metainfo.title}")
+
         logger.info(f"识别到轮次：{match["matchday"]}")
 
 
@@ -1591,10 +1599,11 @@ class AutoSports(_PluginBase):
             data = resp.json()
             self.__cached_matches[requests_key] = data
 
-        if not data:
+        if "matches" not in data:
             logger.warning(f"未在 football-data.org 上获取到比赛信息，请检查"
                            f"输入信息，competition_shortname: {competition_shortname}，"
                            f"season: {season}")
+            return None
 
         for match in data["matches"]:
             home = match["homeTeam"]["name"]
@@ -1644,7 +1653,7 @@ class AutoSports(_PluginBase):
         if match_result:
             return match_result
         else:
-            logger.error(f'未匹配到相关比赛，请检查输入信息，competition_name: {competition_name}，season: {season}, home_team: {home_team}, away_team: {away_team}')
+            logger.warning(f'未匹配到相关比赛，请检查输入信息，competition_name: {competition_name}，season: {season}, home_team: {home_team}, away_team: {away_team}')
             return None
 
 
@@ -1678,8 +1687,9 @@ class AutoSports(_PluginBase):
                 season -= 1
                 match_mediainfo.season = season
 
-            if match_mediainfo.title == "西班牙超级杯" and season == datetime.date.today().year:
-                # 超级杯特殊处理
+            if (match_mediainfo.title in ["西班牙超级杯", "西班牙国王杯"]
+                and season == datetime.date.today().year):
+                # 杯赛特殊处理
                 season -= 1
                 match_mediainfo.season = season
             # 年份信息回填赛事元数据
@@ -1773,6 +1783,7 @@ class AutoSports(_PluginBase):
                 else:
                     round_cn_name = raw_matchdata['round_cn_name']
                     round_en_name = raw_matchdata['round_en_name']
+            logger.info(f"成功匹配到轮次信息：{round_cn_name}")
 
         # 解析对阵信息
         home_team = raw_matchdata['homeTeam']['name']
@@ -1849,6 +1860,7 @@ class AutoSports(_PluginBase):
             season_name = meta_info.year
             if not season_name:
                 # 尝试在原标题中找到年份
+                # 适配 Copa.del.Rey.2025.12.16.CD.Guadalajara.vs.FC Barcelona.1080p25.x264.PL.ELEVEN
                 match_date = self.extract_date(title)
                 if match_date[1] < 7:
                     # 如果比赛日期在七月之前，是上一年开始的赛季
@@ -1886,7 +1898,7 @@ class AutoSports(_PluginBase):
 
     @staticmethod
     def is_match_in_vault(exist_matches: Dict[str, Dict[int, list]] = None, gotten_match_metainfo: MetaVideo = None) -> bool:
-        logger.info(f"开始判断该场比赛是否已入库，若已入库，则不进行任何操作")
+        logger.debug(f"开始判断该场比赛是否已入库")
         if exist_matches:
             exist_competitions = exist_matches.keys()
             for exist_competition in exist_competitions:
@@ -1921,15 +1933,16 @@ class AutoSports(_PluginBase):
                     matchesinfo[i] = new_matchinfo
                     logger.info(
                         f"新种子 ({new_matchinfo.torrentinfo.title}) 的解说语言为英语，而之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) 不是，替换")
+                    return
                 elif new_matchinfo.pix > old_matchinfo.pix:
                     matchesinfo[i] = new_matchinfo
                     logger.info(
                         f"新种子 ({new_matchinfo.torrentinfo.title})的清晰度高于之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) ，替换")
+                    return
                 else:
                     logger.info(
                         f"新种子 ({new_matchinfo.torrentinfo.title}) 不如之前搜索到的种子 ({old_matchinfo.torrentinfo.title}) ，不替换")
-
-                return
+                    return
 
         # 如果已有种子列表中没有该场比赛，则添加之
         matchesinfo.append(new_matchinfo)
@@ -1949,14 +1962,9 @@ class AutoSports(_PluginBase):
             video_path=video_path,
             frames=frames,
             image_path=image_path)
-        # 1573
+
         result = SystemUtils.execute(cmd)
-        # if not result:
-        #     import subprocess
-        #     proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
-        #     logger.debug(f"ffmpeg returncode={proc.returncode} stdout={proc.stdout[:1000]!r} stderr={proc.stderr[:1000]!r}")
-        #     # ffmpeg 常把信息写到 stderr，优先使用 stderr 再用 stdout
-        #     result = proc.stderr if proc.stderr else proc.stdout
+
         if result:
             return True
         return False
@@ -2263,7 +2271,7 @@ class AutoSports(_PluginBase):
                                                                      meta=file_meta,
                                                                      episodes_info=episodes_info)
                         if not transferinfo:
-                            logger.warning("文件整理/重命名模块运行失败")
+                            logger.error(f"文件整理/重命名模块运行失败：{event_path}，不进行刮削动作")
                             transfer_flag = False
                         else:
                             target_path_str = transferinfo.target_item.path
@@ -2274,7 +2282,7 @@ class AutoSports(_PluginBase):
                         logger.info(
                             f'在进行文件转移时，发现 '
                             f'{file_meta.title_year} {file_meta.season_episode} 己入库，不再处理')
-                        pass
+                        transfer_flag = False
                 except Exception as err:
                     print(str(err))
                     transfer_flag = False
@@ -2316,30 +2324,29 @@ class AutoSports(_PluginBase):
                             # 删除多余jpg
                             for thumb in thumb_files:
                                 Path(thumb).unlink()
-            else:
-                logger.error(f"文件 {event_path} 整理/重命名失败，不进行刮削动作")
-            if self.__notify:
-                # 发送消息汇总
-                matches_list = self.__matches.get(mediainfo.title_year if mediainfo else title) or {}
-                if matches_list:
-                    match_files = matches_list.get("files") or []
-                    if match_files:
-                        if str(event_path) not in match_files:
-                            match_files.append(str(event_path))
+
+                if self.__notify:
+                    # 发送消息汇总
+                    matches_list = self.__matches.get(mediainfo.title_year if mediainfo else title) or {}
+                    if matches_list:
+                        match_files = matches_list.get("files") or []
+                        if match_files:
+                            if str(event_path) not in match_files:
+                                match_files.append(str(event_path))
+                        else:
+                            match_files = [str(event_path)]
+                        matches_list = {
+                            "files": match_files,
+                            "time": datetime.datetime.now()
+                        }
                     else:
-                        match_files = [str(event_path)]
-                    matches_list = {
-                        "files": match_files,
-                        "time": datetime.datetime.now()
-                    }
-                else:
-                    matches_list = {
-                        "files": [str(event_path)],
-                        "time": datetime.datetime.now()
-                    }
-                self.__matches[mediainfo.title_year if mediainfo else title] = matches_list
+                        matches_list = {
+                            "files": [str(event_path)],
+                            "time": datetime.datetime.now()
+                        }
+                    self.__matches[mediainfo.title_year if mediainfo else title] = matches_list
         except Exception as e:
-            logger.error(f"event_handler_created error: {e}")
+            logger.error(f"文件整理/重命名模块运行错误，详细信息: {e}")
             print(str(e))
 
 
@@ -2413,11 +2420,11 @@ class AutoSports(_PluginBase):
         self.__save_nfo(doc, dir_path.joinpath(f"{title}.nfo"))
 
 
-    def __download(self, torrent: TorrentInfo) -> tuple[bool, Optional[str]]:
+    def __download(self, torrent: TorrentInfo, is_paused: bool) -> tuple[bool, Optional[str]]:
         """
         添加下载任务
-
-        return: (下载器中是否已存在，已存在/新创建的下载任务的 Hash 值)
+        torrent: TorrentInfo 要添加下载的种子的信息
+        is_paused: bool 是否以暂停状态添加种子
         """
         if not torrent.enclosure:
             logger.error(f"获取下载链接失败：{torrent.title}")
@@ -2459,6 +2466,52 @@ class AutoSports(_PluginBase):
                 if response and response.ok:
                     torrent_content = response.content
                 else:
+                    logger.warning("尝试通过 MP 下载种子失败，继续尝试传递种子地址到下载器进行下载")
+            if torrent_content:
+                existed_torrents = downloader.get_torrents(tags=["AutoSports"])
+                # 判断是否已添加该任务
+                if existed_torrents:
+                    for torrent_data in existed_torrents[0]:
+                        torrent_name = torrent_data.get("name")
+                        if torrent.title in torrent_name:
+                            torrent_hash = torrent_data.get("hash")
+                            return True, torrent_hash
+
+                state = downloader.add_torrent(content=torrent_content,
+                                           download_dir=download_dir,
+                                           is_paused=is_paused,  # 调试用
+                                           cookie=cookies,
+                                           category=self.__category,
+                                           tag=self.__tags + ["AutoSports"] + [random_tag], )
+
+                if not state:
+                    return False, None
+                else:
+                    # 获取种子Hash
+                    torrent_hash = downloader.get_torrent_id_by_tag(tags=random_tag)
+                    if not torrent_hash:
+                        logger.error(f"{self.__downloaders} 获取种子 Hash 失败")
+                        return False, None
+                    downloader.remove_torrents_tag([torrent_hash], random_tag)
+                    if is_paused:
+                        logger.info("根据设置，添加下载任务后暂停")
+                    else:
+                        logger.info("根据设置，添加下载任务后开始")
+                    return False, torrent_hash
+            return False, None
+
+        elif downloader_helper.is_downloader("transmission", service=self.__service_info):
+            # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
+            # 生成随机Tag
+            random_tag = StringUtils.generate_random_str(10)
+
+            if not torrent_content.startswith("magnet"):
+                response = RequestUtils(cookies=cookies,
+                                        proxies=proxies,
+                                        ua=torrent.site_ua).get_res(url=torrent_content)
+                if response and response.ok:
+                    torrent_content = response.content
+                else:
                     logger.error("尝试通过 MP 下载种子失败，继续尝试传递种子地址到下载器进行下载")
             if torrent_content:
                 existed_torrents = downloader.get_torrents(tags=["AutoSports"])
@@ -2470,14 +2523,12 @@ class AutoSports(_PluginBase):
                             torrent_hash = torrent_data.get("hash")
                             return True, torrent_hash
 
-                if self.__start_paused:
-                    state = downloader.add_torrent(content=torrent_content,
+                state = downloader.add_torrent(content=torrent_content,
                                                download_dir=download_dir,
-                                               is_paused=self.__start_paused,  # 调试用
+                                               is_paused=is_paused,  # 调试用
                                                cookie=cookies,
-                                               category=self.__category,
-                                               tag=self.__tags + ["AutoSports"] + [random_tag], )
-                    logger.info("根据设置，添加下载任务后暂停")
+                                               labels=self.__tags + ["AutoSports"] + [random_tag],)
+
                 if not state:
                     return False, None
                 else:
@@ -2487,28 +2538,13 @@ class AutoSports(_PluginBase):
                         logger.error(f"{self.__downloaders} 获取种子 Hash 失败")
                         return False, None
                     downloader.remove_torrents_tag([torrent_hash], random_tag)
+                    if is_paused:
+                        logger.info("根据设置，添加下载任务后暂停")
+                    else:
+                        logger.info("根据设置，添加下载任务后开始")
                     return False, torrent_hash
             return False, None
-
-        elif downloader_helper.is_downloader("transmission", service=self.__service_info):
-            # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
-            if not torrent_content.startswith("magnet"):
-                response = RequestUtils(cookies=cookies,
-                                        proxies=proxies,
-                                        ua=torrent.site_ua).get_res(url=torrent_content)
-                if response and response.ok:
-                    torrent_content = response.content
-                else:
-                    logger.error("尝试通过 MP 下载种子失败，继续尝试传递种子地址到下载器进行下载")
-            if torrent_content:
-                torrent = downloader.add_torrent(content=torrent_content,
-                                                 download_dir=download_dir,
-                                                 is_paused=True,  # 调试用
-                                                 cookie=cookies,
-                                                 labels=self.__tags)
-                if not torrent:
-                    return None
-        return None
+        return False, None
 
 
     def __log_and_notify_error(self, message):
