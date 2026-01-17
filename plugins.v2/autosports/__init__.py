@@ -23,21 +23,20 @@ from app import schemas
 from app.chain.download import DownloadChain
 from app.chain.media import MediaChain
 from app.chain.search import SearchChain
-from app.chain.storage import StorageChain
 from app.chain.subscribe import SubscribeChain
 from app.core.config import settings
-from app.core.context import MediaInfo, TorrentInfo
+from app.core.context import MediaInfo, TorrentInfo, Context
+from app.core.event import eventmanager, Event
 from app.core.meta import MetaVideo, MetaBase
-from app.core.metainfo import MetaInfoPath
+from app.core.metainfo import MetaInfoPath, MetaInfo
 from app.helper.directory import DirectoryHelper
 from app.helper.downloader import DownloaderHelper
 from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
-from app.schemas import ExistMediaInfo
 from app.schemas import ServiceInfo, TransferDirectoryConf, TmdbEpisode, TransferInfo, FileItem
-from app.schemas.types import SystemConfigKey, MediaType
+from app.schemas.types import SystemConfigKey, MediaType, ChainEventType
 from app.utils.dom import DomUtils
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
@@ -48,13 +47,13 @@ ffmpeg_lock = threading.Lock()
 
 class AutoSports(_PluginBase):
     # 插件名称
-    plugin_name = "Sportscult 比赛自动下载及简单刮削"
+    plugin_name = "AutoSports"
     # 插件描述
     plugin_desc = "根据设置的球队名自动下载最新比赛，进行文件整理及简单的刮削"
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "0.9.6"
+    plugin_version = "0.9.7"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -82,6 +81,7 @@ class AutoSports(_PluginBase):
     __clearflag: bool = False
     __action: str = "download"
     __save_path: str = ""
+    __dest_path: str = ""
     __category: str = ""
     __tags: list[str] = []
     __size_range: str = ""
@@ -92,7 +92,7 @@ class AutoSports(_PluginBase):
     __transfer_type: str = ""
     __need_rename: bool = True
     __downloaders = None
-    __scheduler: BackgroundScheduler = None
+    __scheduler: BackgroundScheduler | None = None
     __timeline = "00:00:10"
     __matches = {}
     # 订阅缓存信息
@@ -475,11 +475,14 @@ class AutoSports(_PluginBase):
             self.__clearflag = self.__clear
             # 关闭清理缓存开关
             self.__clear = False
-            # 保存设置
-            self.__update_config()
+
+        # 保存设置
+        self.__update_config()
+
 
     def get_state(self) -> bool:
         return self.__enabled
+
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -533,7 +536,7 @@ class AutoSports(_PluginBase):
                 "name": "自动下载体育比赛服务",
                 "trigger": "interval",
                 "func": self.check,
-                "kwargs": {"minutes": 30}
+                "kwargs": {"hours": 12}
             }]
         return []
 
@@ -1032,8 +1035,8 @@ class AutoSports(_PluginBase):
         拼装插件详情页面，需要返回页面配置，同时附带数据
         """
         # 查询同步详情
-        historys = self.get_data('history')
-        if not historys:
+        histories = self.get_data('history')
+        if not histories:
             return [
                 {
                     'component': 'div',
@@ -1044,10 +1047,10 @@ class AutoSports(_PluginBase):
                 }
             ]
         # 数据按时间降序排序
-        historys = sorted(historys, key=lambda x: x.get('time'), reverse=True)
+        histories = sorted(histories, key=lambda x: x.get('time'), reverse=True)
         # 拼装页面
         contents = []
-        for history in historys:
+        for history in histories:
             title = history.get("title")
             poster = history.get("poster")
             mtype = history.get("type")
@@ -1148,9 +1151,44 @@ class AutoSports(_PluginBase):
             }
         """
         return {
-            "media_exists": self.__exists_match,
+            # "media_exists": self.__exists_match,
+            "async_search_by_title": self.plugin_async_search_by_title,
         }
         pass
+
+
+    # 声明扩展 MP 内部的识别请求
+    @eventmanager.register(ChainEventType.NameRecognize)
+    def recognize(self, event: Event):
+        """
+        监听识别事件，使用ChatGPT辅助识别名称
+        """
+        if not event.event_data:
+            return
+        title = event.event_data.get("title")
+        if not title:
+            return
+
+
+        # 保底识别信息
+        match_metainfo = MetaInfo(title)
+
+        match_mediainfo = self.recognize_competition_mediainfo(meta_info=match_metainfo)
+
+        match_metainfo, match_episodeinfo = self.recognized_match_metainfo(match_mediainfo=match_mediainfo, metainfo=match_metainfo)
+
+        if match_mediainfo and match_metainfo:
+            # 成功获取结果
+            event.event_data = {
+                'title': title,
+                'name': match_mediainfo.title,
+                'year': match_mediainfo.year,
+                'season': match_metainfo.season,
+                'episode': match_metainfo.episode,
+            }
+            return
+        else:
+            logger.error(f"无法识别标题 {title}，请添加自定义赛事索引")
 
 
     def stop_service(self):
@@ -1166,19 +1204,17 @@ class AutoSports(_PluginBase):
         except Exception as e:
             logger.error("退出插件失败：%s" % str(e))
 
-    def delete_history(self, key: str, apikey: Optional[str]):
+    def delete_history(self, key: str):
         """
         删除同步历史记录
         """
-        # if apikey != settings.API_TOKEN:
-        #     return schemas.Response(success=False, message="API密钥错误")
         # 历史记录
-        historys = self.get_data('history')
-        if not historys:
+        histories = self.get_data('history')
+        if not histories:
             return schemas.Response(success=False, message="未找到历史记录")
         # 删除指定记录
-        historys = [h for h in historys if h.get("title") != key]
-        self.save_data('history', historys)
+        histories = [h for h in histories if h.get("title") != key]
+        self.save_data('history', histories)
         return schemas.Response(success=True, message="删除成功")
 
     def __update_config(self):
@@ -1201,7 +1237,7 @@ class AutoSports(_PluginBase):
             "save_path": self.__save_path,
             "dest_path": self.__dest_path,
             "category": self.__category,
-            "tags": self.__tags,
+            "tags": ",".join(self.__tags),
             "size_range": self.__size_range,
             "downloaders": self.__downloaders,
             "force_en": self.__force_en,
@@ -1226,32 +1262,23 @@ class AutoSports(_PluginBase):
             history: List[dict] = self.get_data('history') or []
 
         searchchain = SearchChain()
-        downloadchain = DownloadChain()
-        subscribechain = SubscribeChain()
 
-        for indexer in SitesHelper().get_indexers():
-            if indexer.get("name") == "Sportscult":
-                # 检查站点索引开关
-                if indexer.get("is_active"):
-                    # sportscult_indexer = indexer
-                    sportscult_indexer_id: int = indexer.get("id")
-                else:
-                    logger.error(f"Sportscults站点未启用，请检查站点设置")
-                    return
-            else:
-                logger.error(f"Sportscults站点未正确添加，请检查站点设置")
+        sportscult_indexer_id = self.get_sportscult_indexer()
+
+        if not sportscult_indexer_id:
+            logger.error("Sportscult 站点配置错误，不再继续执行插件相关功能")
+            return
 
         # 识别本地已入库所有比赛的信息
         exist_matches: Dict[str, Dict[int, list]] = self.__exists_match()
         # 开始全量同步目录中所有体育比赛文件
         self.sync_all(exist_matches=exist_matches)
         logger.info("文件同步结束")
+        if exist_matches:
+            logger.info(f"文件同步后，已入库媒体信息为:")
+            for competition_name in exist_matches.keys():
+                logger.info(f"{competition_name} {exist_matches[competition_name]}")
 
-        # 转移文件后，更新本地已入库比赛信息
-        exist_matches: Dict[str, Dict[int, list]] = self.__exists_match()
-
-        # 保存搜索到且成功刮削的种子
-        matchesinfo = []
 
         for team_info in self.__teams_info.split("\n"):
             # 在 SportsCult 搜索种子
@@ -1269,16 +1296,16 @@ class AutoSports(_PluginBase):
             if not self.__cached_matches:
                 self.__cached_matches = {}
 
+            # 初始化搜索到的比赛信息的储存对象
+            matchesinfo = []
+
             # 解析数据
             for result in results:
                 try:
                     title = result.torrent_info.title
                     logger.info(f"找到种子：{title}，开始处理......")
                     description = result.torrent_info.description
-                    enclosure = result.torrent_info.enclosure
-                    link = result.torrent_info.page_url
                     size = result.torrent_info.size
-                    pubdate: datetime.datetime = result.torrent_info.pubdate
                     # 检查是否处理过
                     if not title or title in [h.get("key") for h in history]:
                         logger.info("已处理过该种子，请清除记录后重试")
@@ -1385,25 +1412,26 @@ class AutoSports(_PluginBase):
                         processed_num += 1
                 else:
                     # TODO: 支持订阅功能
-                    logger.error(f'暂不支持订阅功能，请等待适配')
-                    # 保存历史记录
-                    self.save_data('history', history)
-                    # 缓存只清理一次
-                    self.__clearflag = False
-                    return
-                    # 检查是否在订阅中
-                    subflag = subscribechain.exists(mediainfo=match_mediainfo, meta=match_metainfo)
-                    if subflag:
-                        logger.info(f'{match_mediainfo.title_year} {metainfo.season} 正在订阅中')
-                        continue
-                    # 添加订阅
-                    subscribechain.add(title=match_mediainfo.title,
-                                       year=match_mediainfo.year,
-                                       mtype=match_mediainfo.type,
-                                       tmdbid=match_mediainfo.tmdb_id,
-                                       season=metainfo.begin_season,
-                                       exist_ok=True,
-                                       username="AutoSports")
+                    # logger.error(f'暂不支持订阅功能，请等待适配')
+                    # # 保存历史记录
+                    # self.save_data('history', history)
+                    # # 缓存只清理一次
+                    # self.__clearflag = False
+                    # return
+                    # # 检查是否在订阅中
+                    # subflag = subscribechain.exists(mediainfo=match_mediainfo, meta=match_metainfo)
+                    # if subflag:
+                    #     logger.info(f'{match_mediainfo.title_year} {metainfo.season} 正在订阅中')
+                    #     continue
+                    # # 添加订阅
+                    # subscribechain.add(title=match_mediainfo.title,
+                    #                    year=match_mediainfo.year,
+                    #                    mtype=match_mediainfo.type,
+                    #                    tmdbid=match_mediainfo.tmdb_id,
+                    #                    season=metainfo.begin_season,
+                    #                    exist_ok=True,
+                    #                    username="AutoSports")
+                    pass
                 # 存储历史记录
                 history.append({
                     "title": f"{match_mediainfo.title} {match_metainfo.season}",
@@ -1424,12 +1452,17 @@ class AutoSports(_PluginBase):
 
 
         # 30 分钟后分别尝试再次整理
-        # TODO: 支持添加多个 Pending 任务，且只要有一次成功整理后停止后续的任务
-        # logger.info(f"等待 30 分钟后再次尝试进行比赛整理")
-        # self.__scheduler.add_job(func=self.sync_all, trigger='date',
-        #                          run_date=datetime.datetime.now(
-        #                              tz=pytz.timezone(settings.TZ)) + datetime.timedelta(minutes=30)
-        #                          )
+        logger.info(f"等待 30 分钟后再次尝试进行比赛整理")
+        transfer_scheduler = BackgroundScheduler(timezone=settings.TZ)
+        transfer_scheduler.add_job(func=self.sync_all, trigger='date',
+                                 run_date=datetime.datetime.now(
+                                     tz=pytz.timezone(settings.TZ)) + datetime.timedelta(minutes=30)
+                                 )
+        # 挂载刮削任务
+        if transfer_scheduler.get_jobs():
+            transfer_scheduler.print_jobs()
+            transfer_scheduler.start()
+
         # 缓存只清理一次
         self.__clearflag = False
 
@@ -1446,18 +1479,19 @@ class AutoSports(_PluginBase):
         pix: int = 0
 
 
-    def sync_all(self, exist_matches: Dict[str, Dict[int, list]] = {}):
+    def sync_all(self, exist_matches: Dict[str, Dict[int, list]] = None):
         """
-        立即运行一次，全量同步目录中所有文件
+        全量同步目录中所有文件
         """
+        # 如果未传入已入库比赛信息，进行已入库媒体判断
+        if not exist_matches:
+            exist_matches = self.__exists_match()
+
         logger.info(f"开始全量同步体育比赛监控目录 {self.__save_path} ...")
         # 遍历下载目录
         for file_path in SystemUtils.list_files(Path(self.__save_path), settings.RMT_MEDIAEXT):
             logger.info(f"开始处理文件 {file_path} ...")
-            self.__handle_file(is_directory=Path(file_path).is_dir(),
-                               event_path=str(file_path),
-                               source_dir=self.__save_path,
-                               exist_matches=exist_matches)
+            self.__handle_file(event_path=str(file_path), exist_matches=exist_matches)
         logger.info("全量同步体育比赛监控目录完成！")
 
 
@@ -1471,31 +1505,69 @@ class AutoSports(_PluginBase):
                 try:
                     thumb_path = file_path.with_name(f"{title}_thumb.jpg")
                     if thumb_path.exists():
-                        logger.info(f"缩略图已存在：{title}_thumb.jpg")
+                        logger.debug(f"缩略图已存在：{title}_thumb.jpg")
                         return
                     self.get_thumb(video_path=str(file_path),
                                    image_path=str(thumb_path),
                                    frames=self.__timeline)
                     if Path(thumb_path).exists():
-                        logger.info(f"{file_path} 缩略图已生成：{title}_thumb.jpg")
+                        logger.debug(f"{file_path} 缩略图已生成：{title}_thumb.jpg")
                         return thumb_path
                 except Exception as err:
-                    logger.error(f"FFmpeg处理文件 {file_path} 时发生错误：{str(err)}")
+                    logger.error(f"FFmpeg 处理文件 {file_path} 时发生错误：{str(err)}")
                     return None
 
 
-    def scrape_competition(self, matchinfo: MediaInfo, competition_parse: {}):
+    async def plugin_async_search_by_title(self, title: str, page: Optional[int] = 0,
+                                    sites: List[int] = None, cache_local: Optional[bool] = False) -> List[Context]:
         """
-          根据给定的 JSON 规则刮削体育比赛
+        重载搜索种子方法，以正确识别 Sportscult 网站种子
+        :param title: 标题，为空时返回所有站点首页内容
+        :param page: 页码
+        :param sites: 站点ID列表
+        :param cache_local: 是否缓存到本地
         """
-        for f in fields(matchinfo):
-            if f.name in competition_parse:
-                setattr(matchinfo, f.name, competition_parse[f.name])
-        pass
+        self.searchchain = SearchChain()
+
+        if title:
+            logger.info(f'开始搜索资源，关键词：{title} ...')
+        else:
+            logger.info(f'开始浏览资源，站点：{sites} ...')
+        # 搜索
+        torrents = await self.searchchain.__async_search_all_sites(keyword=title, sites=sites, page=page) or []
+        if not torrents:
+            logger.warn(f'{title} 未搜索到资源')
+            return []
+        # 组装上下文
+        sportscult_indexer = self.get_sportscult_indexer()
+        if len(sites) == 1 and sportscult_indexer in sites:
+            logger.info("使用 AutoSports 插件重载的方法识别 Sportscult 站点资源")
+            contexts = []
+            for torrent in torrents:
+                raw_metainfo = MetaInfo(title=torrent.title, subtitle=torrent.description)
+                match_mediainfo = self.recognize_competition_mediainfo(meta_info=raw_metainfo)
+                if match_mediainfo:
+                    match_metainfo, match_episodeinfo = self.recognized_match_metainfo(match_mediainfo=match_mediainfo, metainfo=raw_metainfo)
+                    if match_metainfo and  match_episodeinfo:
+                        contexts.append(Context(meta_info=match_metainfo, torrent_info=torrent))
+                    else:
+                        contexts.append(Context(meta_info=raw_metainfo, torrent_info=torrent))
+                else:
+                    contexts.append(Context(meta_info=raw_metainfo, torrent_info=torrent))
+        else:
+            contexts = [Context(meta_info=MetaInfo(title=torrent.title, subtitle=torrent.description),
+                                torrent_info=torrent) for torrent in torrents]
+
+        # 如果是 Sportscult 站点，对得到的上下文进行精修
+
+        # 保存到本地文件
+        if cache_local:
+            await self.searchchain.async_save_cache(contexts, self.searchchain.__result_temp_file)
+        return contexts
 
 
     def get_match_raw_metadata_offline(self, metainfo: MetaVideo = None, matched_competition_parse: json = None,
-                                       season:int = 0, home_team: str = '', away_team: str = ''):
+                                       home_team: str = '', away_team: str = ''):
         """
             从本地定义的元数据中获取比赛信息
         """
@@ -1561,8 +1633,8 @@ class AutoSports(_PluginBase):
 
         if match["matchday"] == 0:
             logger.warning(f"轮次未识别成功，建议手动修订: {metainfo.title}")
-
-        logger.info(f"识别到轮次：{match["matchday"]}")
+        else:
+            logger.info(f"识别到轮次：{match["matchday"]}")
 
 
         # 包装对阵信息
@@ -1592,10 +1664,10 @@ class AutoSports(_PluginBase):
         # 判断当前订阅是否已经在缓存中，如果已经处理过，那么这里直接跳过
         if requests_key in self.__cached_matches.keys():
             data = self.__cached_matches.get(requests_key)
-            logger.info(f"从缓存 {requests_key} 中读取 football-data.org 赛事数据...")
+            logger.debug(f"从缓存 {requests_key} 中读取 football-data.org 赛事数据...")
         else:
             resp = requests.get(url, headers=headers, params=params, timeout=timeout)
-            logger.info(f"从 {url} 中读取 football-data.org 赛事数据...")
+            logger.debug(f"从 {url} 中读取 football-data.org 赛事数据...")
             data = resp.json()
             self.__cached_matches[requests_key] = data
 
@@ -1616,7 +1688,7 @@ class AutoSports(_PluginBase):
         return None
 
 
-    def get_match_raw_metadata(self, metainfo: MetaVideo = None, competition_name:str = '', season:int = 0, home_team: list[str] = '', away_team: list[str] = ''):
+    def get_match_raw_metadata(self, metainfo: MetaBase = None, competition_name:str = '', season:int = 0, home_team: list[str] = '', away_team: list[str] = ''):
         """
           刮削单场比赛元数据
         """
@@ -1643,12 +1715,12 @@ class AutoSports(_PluginBase):
         # 判断是进行在线刮削还是离线刮削
         if not competition_offline_info:
             # 未定义离线信息，在线刮削
-            logger.info(f"在线刮削赛事 {competition_name} 中的比赛")
+            logger.debug(f"在线刮削赛事 {competition_name} 中的比赛")
             match_result = self.get_match_raw_metadata_online(competition_shortname, season, home_team, away_team)
         else:
             # 定义离线信息，离线刮削
-            logger.info(f"离线刮削赛事 {competition_name} 中的比赛")
-            match_result = self.get_match_raw_metadata_offline(metainfo, matched_competition_parse, season, home_team[0], away_team[0])
+            logger.debug(f"离线刮削赛事 {competition_name} 中的比赛")
+            match_result = self.get_match_raw_metadata_offline(metainfo, matched_competition_parse, home_team[0], away_team[0])
 
         if match_result:
             return match_result
@@ -1657,7 +1729,7 @@ class AutoSports(_PluginBase):
             return None
 
 
-    def recognized_match_metainfo(self, match_mediainfo: MediaInfo, metainfo: MetaBase) -> (MetaVideo | None, TmdbEpisode | None) :
+    def recognized_match_metainfo(self, match_mediainfo: MediaInfo, metainfo: MetaBase) -> (MetaBase | None, TmdbEpisode | None) :
         """
           根据给定的规则刮削单场比赛信息
         """
@@ -1665,7 +1737,6 @@ class AutoSports(_PluginBase):
         episode_metainfo = TmdbEpisode()
 
         competition_cn_name = match_mediainfo.title
-        competition_en_name = match_mediainfo.en_title
 
         org_str = metainfo.org_string
         # 获取赛季信息
@@ -1700,15 +1771,13 @@ class AutoSports(_PluginBase):
             season_cn_name = f"{season_shortname:02d}-{(season_shortname + 1):02d}赛季"
             season_en_name = f"Season {season_shortname:02d}-{(season_shortname + 1):02d}"
             logger.info(f"成功匹配到赛季信息：{season_cn_name}")
-        except Exception as err:
+        except AttributeError:
             logger.warn("未成功匹配到赛季信息，跳过")
             return None, None
 
         # 分析主客场球队
         try:
             # 匹配对阵信息
-            # matchup = re.search( r"([A-Za-zÀ-ÿ. ]+?)\s+vs\s+([A-Za-zÀ-ÿ. ]+?)(?=\s*\||\s+\d|$)", org_str, re.IGNORECASE)
-            # matchup = re.search( r"([A-Za-zÀ-ÿ. ]+?)\s+vs\s+([A-Za-zÀ-ÿ. ]+?)(?=\s*\||\s+\d|$)", org_str, re.IGNORECASE)
             matchup = re.search( r'([A-Za-zÀ-ÿ ]+?)\s+vs\s+([A-Za-zÀ-ÿ ]+?)(?=\s*\||\s+\d|\.|$)', org_str, re.IGNORECASE)
             if not matchup:
                 # 适配种子名里有 '.' 的格式
@@ -1724,14 +1793,14 @@ class AutoSports(_PluginBase):
             home_team = [home_team_str_i for home_team_str_i in home_team if len(home_team_str_i) >= min_len]
             away_team = [away_team_str_i for away_team_str_i in away_team if len(away_team_str_i) >= min_len]
             logger.info(f"成功匹配到对阵信息：{home_team} vs {away_team}")
-        except Exception as err:
-            logger.warn("未成功匹配到对阵信息，跳过")
+        except AttributeError:
+            logger.warning("未成功匹配到对阵信息，跳过")
             return None, None
 
         # 获取比赛相关元数据
         raw_matchdata = self.get_match_raw_metadata(metainfo, competition_cn_name, season, home_team, away_team)
         if not raw_matchdata:
-            logger.warn("未获取到比赛元数据，跳过")
+            logger.warning("未获取到比赛元数据，跳过")
             return None, None
 
         # 解析轮次信息
@@ -1743,7 +1812,7 @@ class AutoSports(_PluginBase):
                 round_cn_name = f"第{self.number_to_chinese(round_info)}轮"
                 round_en_name = f"Round {round_info}"
                 logger.info(f"成功匹配到轮次信息：{round_cn_name}")
-            except Exception as err:
+            except AttributeError:
                 logger.warn("未成功匹配到轮次信息，跳过")
                 return None, None
         else:
@@ -1817,30 +1886,6 @@ class AutoSports(_PluginBase):
 
         return match_metainfo, episode_metainfo
 
-    def recognized_saved_match_metainfo(self, match_mediainfo: MediaInfo, metainfo: MetaBase) -> (MetaVideo | None, TmdbEpisode | None) :
-        """
-          根据给定的规则刮削已入库的单场比赛的元数据
-        """
-        match_metainfo = deepcopy(metainfo)
-        episode_metainfo = TmdbEpisode()
-
-        competition_cn_name = metainfo.name
-
-        org_str = metainfo.org_string
-
-        # 解析集数信息
-        season_round_info = re.search(r'\bS(\d+)E(\d+)\b', org_str, re.I)
-        season = int(season_round_info.group(1))
-        round_info = int(season_round_info.group(2))
-        match_metainfo.set_season(season)
-        match_metainfo.set_episode(round_info)
-        match_metainfo.subtitle = ""
-        match_metainfo.title = competition_cn_name
-        match_metainfo.begin_episode = round_info
-        match_metainfo.begin_season = season
-
-        return match_metainfo, episode_metainfo
-
 
     def recognize_competition_mediainfo(self, torrent_info: TorrentInfo = None, meta_info: MetaBase = None) -> MediaInfo | None:
         """
@@ -1897,6 +1942,24 @@ class AutoSports(_PluginBase):
 
 
     @staticmethod
+    def get_sportscult_indexer() -> int | None:
+        for indexer in SitesHelper().get_indexers():
+            if indexer.get("name") == "Sportscult":
+                # 检查站点索引开关
+                if indexer.get("is_active"):
+                    # sportscult_indexer = indexer
+                    sportscult_indexer_id: int = indexer.get("id")
+                    return sportscult_indexer_id
+                else:
+                    logger.error(f"Sportscult 站点未启用，请检查站点设置")
+                    return None
+
+        # 遍历所有站点没有找到，返回 None
+        logger.error(f"Sportscult 站点未正确添加，请检查站点设置")
+        return None
+
+
+    @staticmethod
     def is_match_in_vault(exist_matches: Dict[str, Dict[int, list]] = None, gotten_match_metainfo: MetaVideo = None) -> bool:
         logger.debug(f"开始判断该场比赛是否已入库")
         if exist_matches:
@@ -1908,8 +1971,29 @@ class AutoSports(_PluginBase):
                         exist_episodes = exist_seasons.get(gotten_match_metainfo.begin_season)
                         if exist_episodes and set(gotten_match_metainfo.episode_list).issubset(set(exist_episodes)):
                             return True
-
         return False
+
+
+    @staticmethod
+    def add_match_to_vault(exist_matches: Dict[str, Dict[int, list]] = None,
+                          gotten_match_metainfo: MetaVideo = None) -> bool:
+        logger.debug(f"开始添加已整理比赛到已入库列表中")
+
+        if exist_matches:
+            exist_competitions = exist_matches.keys()
+            if gotten_match_metainfo.title not in exist_competitions:
+                # 赛事不存在，添加该赛事的该赛季的该场比赛
+                exist_matches.update({gotten_match_metainfo.title: {gotten_match_metainfo.begin_season: gotten_match_metainfo.episode_list}})
+            elif gotten_match_metainfo.begin_season not in exist_matches.get(gotten_match_metainfo.title):
+                # 赛季不存在，添加该赛季的该场比赛
+                exist_matches[gotten_match_metainfo.title].update({gotten_match_metainfo.begin_season: gotten_match_metainfo.episode_list})
+            else:
+                # 比赛不存在，添加比赛
+                exist_matches[gotten_match_metainfo.title][gotten_match_metainfo.begin_season].extend(gotten_match_metainfo.episode_list)
+            return True
+        else:
+            return False
+
 
     @staticmethod
     def find_best(force_en: bool = False, lowest_pix: int = 0, matchesinfo: list[Matchinfo] = None,
@@ -1994,6 +2078,7 @@ class AutoSports(_PluginBase):
         if not m:
             return None
 
+        year, month, day = (2026, 1, 1)
         if m.group(1):  # YYYY MM DD
             year, month, day = m.group(1), m.group(2), m.group(3)
         elif m.group(2):  # DD MM YYYY
@@ -2018,6 +2103,43 @@ class AutoSports(_PluginBase):
 
         # 默认英语
         return "en"
+
+
+    @staticmethod
+    def scrape_competition(matchinfo: MediaInfo, competition_parse: {}):
+        """
+          根据给定的 JSON 规则刮削体育比赛
+        """
+        for f in fields(matchinfo):
+            if f.name in competition_parse:
+                setattr(matchinfo, f.name, competition_parse[f.name])
+        pass
+
+
+    @staticmethod
+    def recognized_saved_match_metainfo(metainfo: MetaBase) -> (MetaVideo | None, TmdbEpisode | None):
+        """
+          根据给定的规则刮削已入库的单场比赛的元数据
+        """
+        match_metainfo = deepcopy(metainfo)
+        episode_metainfo = TmdbEpisode()
+
+        competition_cn_name = metainfo.name
+
+        org_str = metainfo.org_string
+
+        # 解析集数信息
+        season_round_info = re.search(r'\bS(\d+)E(\d+)\b', org_str, re.I)
+        season = int(season_round_info.group(1))
+        round_info = int(season_round_info.group(2))
+        match_metainfo.set_season(season)
+        match_metainfo.set_episode(round_info)
+        match_metainfo.subtitle = ""
+        match_metainfo.title = competition_cn_name
+        match_metainfo.begin_episode = round_info
+        match_metainfo.begin_season = season
+
+        return match_metainfo, episode_metainfo
 
 
     @staticmethod
@@ -2149,8 +2271,7 @@ class AutoSports(_PluginBase):
             return None, None, None
         match_mediainfo: MediaInfo = self.recognize_competition_mediainfo(meta_info=match_filemeta)
         if saved:
-            match_filemeta, match_episode_info = self.recognized_saved_match_metainfo(match_mediainfo=match_mediainfo,
-                                                                              metainfo=match_filemeta)
+            match_filemeta, match_episode_info = self.recognized_saved_match_metainfo(metainfo=match_filemeta)
         else:
             match_filemeta, match_episode_info = self.recognized_match_metainfo(match_mediainfo=match_mediainfo,
                                                                               metainfo=match_filemeta)
@@ -2160,7 +2281,6 @@ class AutoSports(_PluginBase):
     def __exists_match(self) -> Dict[str, Dict[int, list]]:
         """
         判断媒体文件是否存在于文件系统（网盘或本地文件），只支持标准媒体库结构
-         :param mediainfo:  识别的媒体信息
         :return: 如不存在返回None，存在时返回信息，包括每季已存在所有集{type: movie/tv, seasons: {season: [episodes]}}
         """
         if not settings.LOCAL_EXISTS_SEARCH:
@@ -2196,18 +2316,12 @@ class AutoSports(_PluginBase):
         return matches
 
 
-    def __handle_file(self, is_directory: bool, event_path: str, source_dir: str, exist_matches: Dict[str, Dict[int, list]] = None):
+    def __handle_file(self, event_path: str, exist_matches: Dict[str, Dict[int, list]] = None):
         """
         同步一个文件
         :event.is_directory
         :param event_path: 事件文件路径
-        :param source_dir: 监控目录
         """
-
-        # 初始化媒体刮削工具类
-        storagechain = StorageChain()
-        mediachain = MediaChain()
-
         try:
             # 转移路径
             dest_dir = self.__dest_path
@@ -2221,13 +2335,13 @@ class AutoSports(_PluginBase):
 
             # mediainfo: MediaInfo = self.chain.recognize_media(meta=file_meta)
             transfer_flag = False
-            title = None
+            target_path_str = ''
 
             # 进行转移
             if mediainfo and episode_info:
                 try:
                     # 查询转移目的目录
-                    target_dir = DirectoryHelper().get_dir(mediainfo, dest_path=dest_dir)
+                    target_dir = DirectoryHelper().get_dir(mediainfo, dest_path=Path(dest_dir))
                     if not target_dir or not target_dir.library_path:
                         target_dir = TransferDirectoryConf()
                         target_dir.library_path = dest_dir
@@ -2271,11 +2385,13 @@ class AutoSports(_PluginBase):
                                                                      meta=file_meta,
                                                                      episodes_info=episodes_info)
                         if not transferinfo:
-                            logger.error(f"文件整理/重命名模块运行失败：{event_path}，不进行刮削动作")
+                            logger.error(f"单场比赛文件整理/重命名失败：{event_path}，不进行刮削动作")
                             transfer_flag = False
                         else:
                             target_path_str = transferinfo.target_item.path
-                            logger.info(f"文件整理/重命名模块运行成功：{event_path} -> {target_path_str}")
+                            logger.info(f"单场比赛文件整理/重命名成功：{event_path} -> {target_path_str}")
+                            # 添加新转移的媒体到已入库比赛列表中
+                            self.add_match_to_vault(exist_matches=exist_matches, gotten_match_metainfo=file_meta)
                             transfer_flag = True
                     else:
                         # 该场比赛已入库，不进行处理
@@ -2296,7 +2412,7 @@ class AutoSports(_PluginBase):
                 title = str.split(target_file_name, ".")[0]
                 if not (target_file.parent / f"{title}.nfo").exists():
                     self.__gen_match_nfo_file(dir_path=target_file.parent, title=title,
-                                              matchinfo=mediainfo, file_meta=file_meta)
+                                              file_meta=file_meta)
 
                 # 生成缩略图
                 if not (target_file.parent / f"{title}_poster.jpg").exists():
@@ -2308,7 +2424,7 @@ class AutoSports(_PluginBase):
                                            poster_path=target_file.parent / f"{title}_poster.jpg",
                                            cover_conf="16:9")
                         if (target_file.parent / f"{title}_poster.jpg").exists():
-                            logger.info(f"{target_file.parent / 'poster.jpg'} 缩略图已生成")
+                            logger.debug(f"{target_file.parent} / {title}_poster.jpg 缩略图已生成")
                         thumb_path.unlink()
                     else:
                         # 检查是否有缩略图
@@ -2321,6 +2437,8 @@ class AutoSports(_PluginBase):
                                                    poster_path=target_file.parent / f"{title}_poster.jpg",
                                                    cover_conf="16:9")
                                 break
+                            if (target_file.parent / f"{title}_poster.jpg").exists():
+                                logger.debug(f"{target_file.parent} / {title}_poster.jpg 缩略图已生成")
                             # 删除多余jpg
                             for thumb in thumb_files:
                                 Path(thumb).unlink()
@@ -2350,64 +2468,14 @@ class AutoSports(_PluginBase):
             print(str(e))
 
 
-    def __save_nfo(self, doc, file_path: Path):
-        """
-        保存NFO
-        """
-        xml_str = doc.toprettyxml(indent="  ", encoding="utf-8")
-        file_path.write_bytes(xml_str)
-        logger.info(f"NFO文件已保存：{file_path}")
-
-
-    def __save_poster(self, input_path, poster_path, cover_conf):
-        """
-        截取图片做封面
-        """
-        try:
-            image = Image.open(input_path)
-
-            # 需要截取的长宽比（比如 16:9）
-            if not cover_conf:
-                target_ratio = 2 / 3
-            else:
-                covers = cover_conf.split(":")
-                target_ratio = int(covers[0]) / int(covers[1])
-
-            # 获取原始图片的长宽比
-            original_ratio = image.width / image.height
-
-            # 计算截取后的大小
-            if original_ratio > target_ratio:
-                new_height = image.height
-                new_width = int(new_height * target_ratio)
-            else:
-                new_width = image.width
-                new_height = int(new_width / target_ratio)
-
-            # 计算截取的位置
-            left = (image.width - new_width) // 2
-            top = (image.height - new_height) // 2
-            right = left + new_width
-            bottom = top + new_height
-
-            # 截取图片
-            cropped_image = image.crop((left, top, right, bottom))
-
-            # 保存截取后的图片
-            cropped_image.save(poster_path)
-        except Exception as e:
-            print(str(e))
-
-
-    def __gen_match_nfo_file(self, dir_path: Path, title: str = '',
-                             matchinfo: MediaInfo = None, file_meta: MetaBase = None):
+    def __gen_match_nfo_file(self, dir_path: Path, title: str = '', file_meta: MetaBase = None):
         """
         生成电视剧的NFO描述文件
         :param dir_path: 电视剧根目录
         """
         # 开始生成XML
 
-        logger.info(f"正在生成电视剧NFO文件：{title}")
+        logger.debug(f"正在生成电视剧NFO文件：{title}")
         doc = minidom.Document()
         root = DomUtils.add_node(doc, doc, "episodedetails")
 
@@ -2565,6 +2633,58 @@ class AutoSports(_PluginBase):
             config["size_range"] = None
             return False
         return True
+
+
+    @staticmethod
+    def __save_nfo(doc, file_path: Path):
+        """
+        保存NFO
+        """
+        xml_str = doc.toprettyxml(indent="  ", encoding="utf-8")
+        file_path.write_bytes(xml_str)
+        logger.debug(f"NFO文件已保存：{file_path}")
+
+
+    @staticmethod
+    def __save_poster(input_path, poster_path, cover_conf):
+        """
+        截取图片做封面
+        """
+        try:
+            image = Image.open(input_path)
+
+            # 需要截取的长宽比（比如 16:9）
+            if not cover_conf:
+                target_ratio = 2 / 3
+            else:
+                covers = cover_conf.split(":")
+                target_ratio = int(covers[0]) / int(covers[1])
+
+            # 获取原始图片的长宽比
+            original_ratio = image.width / image.height
+
+            # 计算截取后的大小
+            if original_ratio > target_ratio:
+                new_height = image.height
+                new_width = int(new_height * target_ratio)
+            else:
+                new_width = image.width
+                new_height = int(new_width / target_ratio)
+
+            # 计算截取的位置
+            left = (image.width - new_width) // 2
+            top = (image.height - new_height) // 2
+            right = left + new_width
+            bottom = top + new_height
+
+            # 截取图片
+            cropped_image = image.crop((left, top, right, bottom))
+
+            # 保存截取后的图片
+            cropped_image.save(poster_path)
+        except Exception as e:
+            print(str(e))
+
 
     @staticmethod
     def __transfer_command(file_item: Path, target_file: Path, transfer_type: str) -> int:
