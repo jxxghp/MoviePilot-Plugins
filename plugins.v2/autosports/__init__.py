@@ -53,7 +53,7 @@ class AutoSports(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "0.9.7"
+    plugin_version = "0.9.8"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -65,6 +65,7 @@ class AutoSports(_PluginBase):
     # 可使用的用户级别
     auth_level = 1
 
+    name = "AutoSports"
     __enabled: bool = False
     __teams_info: str = ""
     __football_apikey: str = ""
@@ -507,7 +508,7 @@ class AutoSports(_PluginBase):
                 "path": "/delete_history",
                 "endpoint": self.delete_history,
                 "methods": ["GET"],
-                "summary": "删除自定义订阅历史记录"
+                "summary": "删除体育比赛自动下载整理历史记录"
             }
         ]
 
@@ -1051,9 +1052,9 @@ class AutoSports(_PluginBase):
         # 拼装页面
         contents = []
         for history in histories:
-            title = history.get("title")
-            poster = history.get("poster")
-            mtype = history.get("type")
+            competition_name = history.get("competition_name")
+            roundinfo = history.get("roundinfo")
+            matchmake = history.get("matchmake")
             time_str = history.get("time")
             contents.append(
                 {
@@ -1069,8 +1070,9 @@ class AutoSports(_PluginBase):
                                     'api': 'plugin/AutoSports/delete_history',
                                     'method': 'get',
                                     'params': {
-                                        'key': title,
-                                        'apikey': settings.API_TOKEN
+                                        'key': competition_name,
+                                        'roundinfo': roundinfo,
+                                        'apikey': settings.API_TOKEN,
                                     }
                                 }
                             },
@@ -1087,7 +1089,7 @@ class AutoSports(_PluginBase):
                                         {
                                             'component': 'VImg',
                                             'props': {
-                                                'src': poster,
+                                                'src': "https://media.posterlounge.com/img/products/760000/756250/756250_poster.jpg",
                                                 'height': 120,
                                                 'width': 80,
                                                 'aspect-ratio': '2/3',
@@ -1105,21 +1107,28 @@ class AutoSports(_PluginBase):
                                             'props': {
                                                 'class': 'pa-1 pe-5 break-words whitespace-break-spaces'
                                             },
-                                            'text': title
+                                            'text': competition_name,
+                                        },
+                                        {
+                                            'component': 'VCardTitle',
+                                            'props': {
+                                                'class': 'pa-0 px-2'
+                                            },
+                                            'text': f'轮次：{roundinfo}',
                                         },
                                         {
                                             'component': 'VCardText',
                                             'props': {
                                                 'class': 'pa-0 px-2'
                                             },
-                                            'text': f'类型：{mtype}'
+                                            'text': f'对阵：{matchmake}'
                                         },
                                         {
                                             'component': 'VCardText',
                                             'props': {
                                                 'class': 'pa-0 px-2'
                                             },
-                                            'text': f'时间：{time_str}'
+                                            'text': f'处理时间：{time_str}'
                                         }
                                     ]
                                 }
@@ -1204,16 +1213,18 @@ class AutoSports(_PluginBase):
         except Exception as e:
             logger.error("退出插件失败：%s" % str(e))
 
-    def delete_history(self, key: str):
+    def delete_history(self, key: str, roundinfo: str, apikey: str):
         """
         删除同步历史记录
         """
+        if apikey != settings.API_TOKEN:
+            return schemas.Response(success=False, message="API密钥错误")
         # 历史记录
         histories = self.get_data('history')
         if not histories:
             return schemas.Response(success=False, message="未找到历史记录")
         # 删除指定记录
-        histories = [h for h in histories if h.get("title") != key]
+        histories = [h for h in histories if (h.get("competition_name") != key and h.get("roundinfo") != roundinfo)]
         self.save_data('history', histories)
         return schemas.Response(success=True, message="删除成功")
 
@@ -1434,13 +1445,9 @@ class AutoSports(_PluginBase):
                     pass
                 # 存储历史记录
                 history.append({
-                    "title": f"{match_mediainfo.title} {match_metainfo.season}",
-                    "key": f"{title}",
-                    "type": match_mediainfo.type.value,
-                    "year": match_mediainfo.year,
-                    "poster": match_mediainfo.get_poster_image(),
-                    "overview": match_mediainfo.overview,
-                    "tmdbid": match_mediainfo.tmdb_id,
+                    "competition_name": match_metainfo.title,
+                    "roundinfo": match_metainfo.season_episode,
+                    "matchmake": match_metainfo.subtitle,
                     "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 })
 
@@ -1753,16 +1760,26 @@ class AutoSports(_PluginBase):
             else:
                 season = int(season_name)
 
-            if (str(season-1) + "." + str(season)) in org_str:
+            # 赛季数修正
+            if any(
+                season_str in org_str for season_str in
+                [
+                    str(season - 1) + "." + str(season),
+                    str(season - 1) + "/" + str(season)
+                ]):
                 # 适配特殊格式的西甲比赛
                 season -= 1
                 match_mediainfo.season = season
-
             if (match_mediainfo.title in ["西班牙超级杯", "西班牙国王杯"]
                 and season == datetime.date.today().year):
                 # 杯赛特殊处理
                 season -= 1
                 match_mediainfo.season = season
+            if season == datetime.date.today().year and datetime.date.today().month < 8:
+                # 联赛前九月视为上一个赛季
+                season -= 1
+                match_mediainfo.season = season
+
             # 年份信息回填赛事元数据
             metainfo.year = str(season)
 
@@ -1770,6 +1787,7 @@ class AutoSports(_PluginBase):
             # 解析赛季信息
             season_cn_name = f"{season_shortname:02d}-{(season_shortname + 1):02d}赛季"
             season_en_name = f"Season {season_shortname:02d}-{(season_shortname + 1):02d}"
+            match_mediainfo.season = int(metainfo.year)
             logger.info(f"成功匹配到赛季信息：{season_cn_name}")
         except AttributeError:
             logger.warn("未成功匹配到赛季信息，跳过")
@@ -1865,7 +1883,7 @@ class AutoSports(_PluginBase):
         match_metainfo.type = MediaType.TV
         match_metainfo.set_season(season)
         match_metainfo.set_episode(round_info)
-        match_metainfo.subtitle = ""
+        match_metainfo.subtitle = matchmake_cn_name
         match_metainfo.title = competition_cn_name
         match_metainfo.title_year = f"{competition_cn_name} ({season_cn_name})"
         match_metainfo.begin_episode = round_info
@@ -1900,32 +1918,31 @@ class AutoSports(_PluginBase):
             # 否则，从文件元数据中获取文件标题
             title = meta_info.org_string
 
-        # 获取赛季信息
-        try:
-            season_name = meta_info.year
-            if not season_name:
-                # 尝试在原标题中找到年份
-                # 适配 Copa.del.Rey.2025.12.16.CD.Guadalajara.vs.FC Barcelona.1080p25.x264.PL.ELEVEN
-                match_date = self.extract_date(title)
-                if match_date[1] < 7:
-                    # 如果比赛日期在七月之前，是上一年开始的赛季
-                    season = match_date[0] - 1
-                else:
-                    season = match_date[0]
-            else:
-                season = int(season_name)
-
-            # 年份信息回填赛事元数据
-            meta_info.year = str(season)
-        except Exception as err:
-            logger.error(f"解析种子 {title} 赛事的赛季时出现问题，{err}")
+        # # 获取赛季信息
+        # try:
+        #     season_name = meta_info.year
+        #     if not season_name:
+        #         # 尝试在原标题中找到年份
+        #         match_date = self.extract_date(title)
+        #         if match_date[1] < 7:
+        #             # 如果比赛日期在七月之前，是上一年开始的赛季
+        #             season = match_date[0] - 1
+        #         else:
+        #             season = match_date[0]
+        #     else:
+        #         season = int(season_name)
+        #
+        #     # 年份信息回填赛事元数据
+        #     meta_info.year = str(season)
+        # except Exception as err:
+        #     logger.error(f"解析种子 {title} 赛事的赛季时出现问题，{err}")
 
         for competition_parse in self.__competitions_parses:
             if any(alia.lower() in title.lower() for alia in competition_parse["names"]):
                 # 匹配任意一个别名，开始解析
                 self.scrape_competition(competition_mediainfo, competition_parse)
                 competition_mediainfo.type = MediaType.TV
-                competition_mediainfo.season = int(meta_info.year)
+                # competition_mediainfo.season = int(meta_info.year)
                 competition_mediainfo.category = self.__category
                 break
             else:

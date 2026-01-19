@@ -22,11 +22,12 @@
         "name": "Sportscult 比赛自动下载及简单刮削",
         "description": "添加 Sportscult 站点索引器，并可根据设置的球队名自动下载最新比赛，进行文件整理及简单的刮削，在使用前务必查看配置说明：https://github.com/Sinterdial/MoviePilot-Plugins/blob/main/README.md",
         "labels": "站点",
-        "version": "0.9.7",
+        "version": "0.9.8",
         "icon": "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png",
         "author": "Sinterdial",
         "level": 2,
         "history": {
+            "v0.9.8": "1. 支持识别其它格式，例如2025/2026\n2. 修复离线刮削赛季错误的bug\n3. 避免无意义的报错",
             "v0.9.7": "1. 尝试去掉get_module方法声明以规避exits_media()的相关报错\n2. 修复种子标签设置无法保存的bug\n3. 支持原生扩展识别源功能，可以直接下载mp中搜索到的种子（该功能还有点问题）\n4. 支持在插件运行完成后的30分钟后再次进行全量整理刮削操作\n5. 优化代码结构，减少冗余参数和变量声明",
             "v0.9.6": "优化报错信息可读性，修复bug",
             "v0.9.5": "修复nfo文件命名错误问题",
