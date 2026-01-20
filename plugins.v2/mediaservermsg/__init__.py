@@ -29,6 +29,7 @@ class MediaServerMsg(_PluginBase):
     # 常量定义
     DEFAULT_EXPIRATION_TIME = 600                  # 默认过期时间（秒）
     DEFAULT_AGGREGATE_TIME = 15                   # 默认聚合时间（秒）
+    DEDUPE_EXPIRATION_TIME = 30                    # 去重缓存过期时间（秒）
 
     # 插件基本信息
     plugin_name = "媒体库服务器通知"
@@ -462,11 +463,11 @@ class MediaServerMsg(_PluginBase):
                 # 使用 server_name + event_type + item_id 作为唯一标识
                 dedupe_key = f"{server_name}-{event_type}-{item_id}" if server_name else f"{event_type}-{item_id}"
                 # 检查是否已处理过该事件
-                if dedupe_key in self._webhook_msg_keys:
+                if dedupe_key in self.__get_elements():
                     logger.debug(f"检测到重复Webhook事件，已处理过: {dedupe_key}")
                     return
                 # 添加到去重缓存（30秒过期）
-                self.__add_element(dedupe_key, duration=30)
+                self.__add_element(dedupe_key, duration=self.DEDUPE_EXPIRATION_TIME)
 
             # TV剧集结入库聚合处理
             logger.debug("检查是否需要进行TV剧集聚合处理")
