@@ -37,7 +37,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.8.2.1"
+    plugin_version = "1.8.2.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -59,7 +59,8 @@ class MediaServerMsg(_PluginBase):
 
     # TV剧集消息聚合配置
     _aggregate_time = DEFAULT_AGGREGATE_TIME   # 聚合时间窗口（秒）
-    _pending_messages = {}                     # 待聚合的消息 {series_key: [event_info, ...]}
+    # 待聚合的消息 {series_key: [event_info, ...]}
+    _pending_messages = {}
     _aggregate_timers = {}                     # 聚合定时器 {series_key: timer}
 
     # Webhook事件映射配置
@@ -102,8 +103,8 @@ class MediaServerMsg(_PluginBase):
             self._mediaservers = config.get("mediaservers") or []
             self._add_play_link = config.get("add_play_link", False)
             self._aggregate_enabled = config.get("aggregate_enabled", False)
-            self._aggregate_time = int(config.get("aggregate_time", self.DEFAULT_AGGREGATE_TIME))
-
+            self._aggregate_time = int(config.get(
+                "aggregate_time", self.DEFAULT_AGGREGATE_TIME))
 
     def service_infos(self, type_filter: Optional[str] = None) -> Optional[Dict[str, ServiceInfo]]:
         """
@@ -119,7 +120,8 @@ class MediaServerMsg(_PluginBase):
             logger.warning("尚未配置媒体服务器，请检查配置")
             return None
 
-        services = MediaServerHelper().get_services(type_filter=type_filter, name_filters=self._mediaservers)
+        services = MediaServerHelper().get_services(
+            type_filter=type_filter, name_filters=self._mediaservers)
         if not services:
             logger.warning("获取媒体服务器实例失败，请检查配置")
             return None
@@ -454,6 +456,18 @@ class MediaServerMsg(_PluginBase):
                 logger.info(f"未开启媒体服务器类型 {channel} 的消息通知")
                 return
 
+            # 通用去重：构造去重键
+            item_id = getattr(event_info, 'item_id', '')
+            if item_id:
+                # 使用 server_name + event_type + item_id 作为唯一标识
+                dedupe_key = f"{server_name}-{event_type}-{item_id}" if server_name else f"{event_type}-{item_id}"
+                # 检查是否已处理过该事件
+                if dedupe_key in self._webhook_msg_keys:
+                    logger.debug(f"检测到重复Webhook事件，已处理过: {dedupe_key}")
+                    return
+                # 添加到去重缓存（30秒过期）
+                self.__add_element(dedupe_key, duration=30)
+
             # TV剧集结入库聚合处理
             logger.debug("检查是否需要进行TV剧集聚合处理")
 
@@ -549,7 +563,8 @@ class MediaServerMsg(_PluginBase):
             if overview:
                 message_texts.append(f"剧情：{overview}")
 
-            message_texts.append(f"时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}")
+            message_texts.append(
+                f"时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}")
 
             # 消息内容
             message_content = "\n".join(message_texts)
@@ -684,7 +699,8 @@ class MediaServerMsg(_PluginBase):
             # 设置新的定时器
             logger.debug(f"设置新的定时器，将在 {self._aggregate_time} 秒后触发")
             try:
-                timer = threading.Timer(self._aggregate_time, self._send_aggregated_message, [series_id])
+                timer = threading.Timer(
+                    self._aggregate_time, self._send_aggregated_message, [series_id])
                 self._aggregate_timers[series_id] = timer
                 timer.start()
             except Exception as e:
@@ -692,7 +708,8 @@ class MediaServerMsg(_PluginBase):
                 # 如果定时器设置失败，直接发送消息
                 self._send_aggregated_message(series_id)
 
-            logger.debug(f"已添加剧集 {series_id} 的消息到聚合队列，当前队列长度: {len(self._pending_messages.get(series_id, []))}，定时器将在 {self._aggregate_time} 秒后触发")
+            logger.debug(
+                f"已添加剧集 {series_id} 的消息到聚合队列，当前队列长度: {len(self._pending_messages.get(series_id, []))}，定时器将在 {self._aggregate_time} 秒后触发")
             logger.debug(f"完成聚合处理: series_id={series_id}")
         except Exception as e:
             logger.error(f"聚合处理过程中出现异常: {str(e)}", exc_info=True)
@@ -804,7 +821,8 @@ class MediaServerMsg(_PluginBase):
                                 # 确保索引在有效范围内
                                 if 0 <= ep_index < len(episodes):
                                     episode_info = episodes[ep_index]
-                                    episode_overview = episode_info.get('overview', '')
+                                    episode_overview = episode_info.get(
+                                        'overview', '')
 
                                     # 如果该集的概述存在且非空，则返回该集概述
                                     if episode_overview:
@@ -824,7 +842,8 @@ class MediaServerMsg(_PluginBase):
                     # 使用原有逻辑构造消息
                     message_title = f"📺 {self._webhook_actions.get(first_event.event)}剧集：{first_event.item_name}"
                     message_texts = []
-                    message_texts.append(f"⏰ 时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}")
+                    message_texts.append(
+                        f"⏰ 时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}")
 
                     # 收集集数信息
                     episode_details = []
@@ -832,17 +851,20 @@ class MediaServerMsg(_PluginBase):
                         if (hasattr(event, 'season_id') and event.season_id is not None and
                                 hasattr(event, 'episode_id') and event.episode_id is not None):
                             try:
-                                episode_details.append(f"S{int(event.season_id):02d}E{int(event.episode_id):02d}")
+                                episode_details.append(
+                                    f"S{int(event.season_id):02d}E{int(event.episode_id):02d}")
                             except (ValueError, TypeError):
                                 pass
 
                     if episode_details:
-                        message_texts.append(f"📺 季集：{', '.join(episode_details)}")
+                        message_texts.append(
+                            f"📺 季集：{', '.join(episode_details)}")
 
                     message_content = "\n".join(message_texts)
 
                     # 使用默认图片
-                    image_url = getattr(first_event, 'image_url', None) or self._webhook_images.get(getattr(first_event, 'channel', ''))
+                    image_url = getattr(first_event, 'image_url', None) or self._webhook_images.get(
+                        getattr(first_event, 'channel', ''))
 
                     # 处理播放链接
                     play_link = None
@@ -868,7 +890,8 @@ class MediaServerMsg(_PluginBase):
             except Exception as e:
                 logger.error(f"获取TMDB信息时出错: {str(e)}")
 
-            overview = safe_get_overview(tmdb_info, first_event, is_multiple_episodes)
+            overview = safe_get_overview(
+                tmdb_info, first_event, is_multiple_episodes)
 
             # 消息标题
             show_name = first_event.item_name
@@ -894,7 +917,8 @@ class MediaServerMsg(_PluginBase):
             # 消息内容
             message_texts = []
             # 时间信息放在最前面
-            message_texts.append(f"⏰ 时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}")
+            message_texts.append(
+                f"⏰ 时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}")
             # 添加每个集数的信息并合并连续集数
             episodes_detail = self._merge_continuous_episodes(events)
             message_texts.append(f"📺 季集：{episodes_detail}")
@@ -993,7 +1017,8 @@ class MediaServerMsg(_PluginBase):
                 play_link = self._get_play_link(first_event)
 
             # 发送聚合消息
-            logger.debug(f"准备发送消息 - 标题: {message_title}, 内容: {message_content}, 图片: {image_url}")
+            logger.debug(
+                f"准备发送消息 - 标题: {message_title}, 内容: {message_content}, 图片: {image_url}")
             self.post_message(mtype=NotificationType.MediaServer,
                               title=message_title, text=message_content, image=image_url, link=play_link)
 
@@ -1105,26 +1130,31 @@ class MediaServerMsg(_PluginBase):
                     else:
                         # 保存当前区间
                         if start == end:
-                            merged_details.append(f"S{season:02d}E{start:02d} {episode_names[0]}")
+                            merged_details.append(
+                                f"S{season:02d}E{start:02d} {episode_names[0]}")
                         else:
                             # 合并区间
-                            merged_details.append(f"S{season:02d}E{start:02d}-E{end:02d}")
+                            merged_details.append(
+                                f"S{season:02d}E{start:02d}-E{end:02d}")
                         # 开始新区间
                         start = end = current
                         episode_names = [episodes[i]["name"]]
 
                 # 添加最后一个区间
                 if start == end:
-                    merged_details.append(f"S{season:02d}E{start:02d} {episode_names[-1] if episode_names else ''}")
+                    merged_details.append(
+                        f"S{season:02d}E{start:02d} {episode_names[-1] if episode_names else ''}")
                 else:
-                    merged_details.append(f"S{season:02d}E{start:02d}-E{end:02d}")
+                    merged_details.append(
+                        f"S{season:02d}E{start:02d}-E{end:02d}")
         except Exception as e:
             logger.error(f"合并集数信息时出错: {str(e)}")
             # 出错时返回简单的集数列表
             simple_details = []
             for season in sorted(season_episodes.keys()):
                 for episode_info in season_episodes[season]:
-                    simple_details.append(f"S{season:02d}E{episode_info['episode']:02d}")
+                    simple_details.append(
+                        f"S{season:02d}E{episode_info['episode']:02d}")
             return ", ".join(simple_details)
 
         return ", ".join(merged_details)
@@ -1148,7 +1178,8 @@ class MediaServerMsg(_PluginBase):
         Args:
             key (str): 要移除的元素键值
         """
-        self._webhook_msg_keys = {k: v for k, v in self._webhook_msg_keys.items() if k != key}
+        self._webhook_msg_keys = {
+            k: v for k, v in self._webhook_msg_keys.items() if k != key}
 
     def __get_elements(self):
         """
@@ -1250,10 +1281,10 @@ class MediaServerMsg(_PluginBase):
         if mtype == MediaType.MOVIE:
             return self.chain.tmdb_info(tmdbid=tmdb_id, mtype=mtype)
         else:  # TV类型
-            tmdb_info = self.chain.tmdb_info(tmdbid=tmdb_id, mtype=mtype, season=season)
+            tmdb_info = self.chain.tmdb_info(
+                tmdbid=tmdb_id, mtype=mtype, season=season)
             tmdb_info2 = self.chain.tmdb_info(tmdbid=tmdb_id, mtype=mtype)
             return tmdb_info | tmdb_info2
-
 
     def stop_service(self):
         """
