@@ -191,7 +191,7 @@ class ClashRuleProviderService:
         except ValueError:
             final_action = action
         rules = self.state.ruleset_rules_manager.filter_rules_by_action(final_action)
-        return [rule.rule.condition_string() for rule in rules]
+        return [rule.rule.condition_string() for rule in rules if rule.meta.available()]
 
     def sync_ruleset(self):
         outbounds = set()
@@ -240,12 +240,12 @@ class ClashRuleProviderService:
         self.state.save_data(DataKey.TOP_RULES, self.state.top_rules_manager.export_rules())
 
     def clash_outbound(self) -> list[str]:
-        outbound = [pg_data.data.name for pg_data in self.state.proxy_groups_from_subs()]
+        outbound = [pg.data.name for pg in self.state.proxy_groups]
         if self.state.clash_template:
             outbound.extend(pg.name for pg in self.state.clash_template.proxy_groups)
         if self.state.config.group_by_region or self.state.config.group_by_country:
             outbound.extend(pg.name for pg in self.proxy_groups_by_region())
-        outbound.extend(pg.data.name for pg in self.state.proxy_groups)
+        outbound.extend(pg_data.data.name for pg_data in self.state.proxy_groups_from_subs())
         outbound.extend(pg.data.name for pg in self.get_proxies())
         return outbound
 

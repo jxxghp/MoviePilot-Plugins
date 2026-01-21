@@ -275,10 +275,35 @@ INTERESTS_ID: Final[Dict[str, Dict[str, str]]] = {
         "Western Epic": "in0000189"
     }
 }
+
+COMPANY_ID = {
+    "20th Century Fox": ["co0000756", "co0176225", "co0201557", "co0017497"],
+    "DreamWorks": ["co0067641", "co0040938", "co0252576", "co0003158"],
+    "MGM": ["co0007143", "co0026841"],
+    "Paramount": ["co0023400"],
+    "Sony": ["co0050868", "co0026545", "co0121181"],
+    "Universal": ["co0005073", "co0055277", "co0042399"],
+    "Walt Disney": ["co0008970", "co0017902", "co0098836", "co0059516", "co0092035", "co0049348"],
+    "Warner Bros.": ["co0002663", "co0005035", "co0863266", "co0072876", "co0080422", "co0046718"],
+    "HBO": ["co0008693", "co0754095", "co0306346", "co0148466", "co0909975", "co0638197", "co0391378"],
+    "Netflix": ["co0144901", "co0805756"],
+    "Hulu": ["co0218858", "co0381648"],
+    "Amazon Prime Video": ["co0476953", "co1160313", "co0939864", "co0931938"],
+    "Apple TV": ["co0931939", "co0546168"],
+    "British Broadcasting Corporation (BBC)": ['co0043107'],
+    "Tencent Video": ["co0487058"],
+    "Youku": ["co0264223"],
+    "iQIYI": ["co0493506", "co0691262"],
+    "China Central Television (CCTV)": ['co0001524'],
+    "Huayi Brothers Media": ["co0099734"],
+    "Beijing Enlight Pictures": ["co0208796"],
+    "Bona Film Group": ["co0452101"],
+}
+
 CACHE_LIFETIME: Final[int] = 86400
 IMDB_GRAPHQL_QUERY: Final[str] = dedent("""
     query VerticalListPageItems( $titles: [ID!]! $names: [ID!]! $images: [ID!]! $videos: [ID!]!) {
-      titles(ids: $titles) { ...TitleParts meterRanking { currentRank meterType rankChange {changeDirection difference} } ratingsSummary { aggregateRating } }
+      titles(ids: $titles) { ...TitleParts meterRanking { currentRank meterType rankChange {changeDirection difference} } ratingsSummary { aggregateRating voteCount} }
       names(ids: $names) { ...NameParts }
       videos(ids: $videos) { ...VideoParts }
       images(ids: $images) { ...ImageParts }
@@ -500,6 +525,12 @@ class OfficialApiClient:
                 if in_id:
                     constraints.append(in_id)
             variables["interestConstraint"] = {"allInterestIds": constraints, "excludeInterestIds": []}
+
+        if params.company:
+            company_ids = COMPANY_ID.get(params.company)
+            if company_ids:
+                variables["creditedCompanyConstraint"] = {"anyCompanyIds": company_ids, "excludeCompanyIds": []}
+
         if last_cursor:
             variables["after"] = last_cursor
 

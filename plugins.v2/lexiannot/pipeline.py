@@ -509,10 +509,6 @@ Your goal is two-fold:
     *   **Do NOT include** simple high-frequency words, common fillers ('gonna', 'gotta'), onomatopoeia, or basic swear words.
 
 -------------------------
-You MUST return output strictly matching the provided Pydantic schema. 
-Return ONLY valid JSON.
-
-**Here are the output format instructions you MUST follow strictly:**
 {format_instructions}
 """,
             ),
@@ -556,10 +552,6 @@ For each word (identified by `WORD_ID`), provide:
 **Your judgment should be based strictly on the provided subtitle context. DO NOT fabricate context or forced explanation.**
 
 -------------------------
-You MUST return output strictly matching the provided Pydantic schema.
-Return ONLY valid JSON. 
-
-**Here are the output format instructions you MUST follow strictly:**
 {format_instructions}
 """,
                 ),

@@ -113,7 +113,7 @@ class ImdbHelper:
             logger.error("Error getting staff picks")
             return None
         try:
-            data = StaffPickApiResponse.model_validate_json(res)
+            data = StaffPickApiResponse.model_validate_json(res, by_name=True)
         except (JSONDecodeError, ValidationError):
             return None
         return data
@@ -210,7 +210,8 @@ class ImdbHelper:
                 return key
         return ""
 
-    async def advanced_title_search_generator(self, params: SearchParams, first_page: bool = True) -> AsyncGenerator[TitleEdge, None]:
+    async def advanced_title_search_generator(self, params: SearchParams, first_page: bool = True
+                                              ) -> AsyncGenerator[TitleEdge, None]:
         await self._async_update_hash()
         sha256 = self._imdb_api_hash.advanced_title_search
         if not first_page and params in self._title_generators:
@@ -253,7 +254,7 @@ class ImdbHelper:
                 seasons_dict[s] = episode.release_date
         return seasons_dict
 
-    def match_by(self, name: str, mtype: Optional[MediaType] = None, year: Optional[str] = None) -> Optional[ImdbMediaInfo]:
+    def match_by(self, name: str, mtype: MediaType | None = None, year: str | None = None) -> ImdbMediaInfo | None:
         """
         根据名称同时查询电影和电视剧，没有类型也没有年份时使用
 

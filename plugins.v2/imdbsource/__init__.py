@@ -34,7 +34,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.6.6"
+    plugin_version = "1.6.7"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -223,7 +223,7 @@ class ImdbSource(_PluginBase):
         height = 335
         is_mobile = ImdbSource.is_mobile(kwargs.get('user_agent'))
         if is_mobile:
-            height *= 1.75
+            height *= 1.80
         # 全局配置
         attrs = {
             "border": False
@@ -320,7 +320,7 @@ class ImdbSource(_PluginBase):
                                         'href': f"https://www.imdb.com/name/{cs.id}",
                                         'target': '_blank',
                                         'rel': 'noopener noreferrer',
-                                        'class': 'text-h4 font-weight-bold mb-2 d-flex align-center',
+                                        'class': 'text-h4 font-weight-bold mb-1 d-flex align-center',
                                     },
                                     'content': [
                                         {
@@ -344,7 +344,6 @@ class ImdbSource(_PluginBase):
                                         },
                                     ]
                                 },
-
                                 {
                                     'component': 'span',
                                     'props': {
@@ -361,6 +360,7 @@ class ImdbSource(_PluginBase):
             poster_url = next((f"{title.primary_image.url if title.primary_image else ''}" for title in titles if
                                title.id == entry.ttconst), None)
             poster_url = f"{self._img_proxy_prefix}{quote(poster_url or '')}"
+            meter_ranking_url = imdb_title.meter_ranking.url if imdb_title.meter_ranking else None
             poster_com = {
                 'component': 'VImg',
                 'props': {
@@ -375,9 +375,9 @@ class ImdbSource(_PluginBase):
             }
 
             poster_ui = {
-                'component': 'div',
+                'component': 'VRow',
                 'props': {
-                    'class': 'd-flex justify-center mt-2'
+                    'align': 'center'
                 },
                 'content': [
                     {
@@ -394,11 +394,39 @@ class ImdbSource(_PluginBase):
                     },
                 ]
             }
-
+            meta_chips = [
+                {
+                    "component": "VChip",
+                    "props": {
+                        "append-icon": "mdi-trending-up",
+                        "size": "small",
+                        "href": meter_ranking_url,
+                        "target": "_blank"
+                    },
+                    "text": imdb_title.meter_ranking_text
+                },
+                {
+                    "component": "VChip",
+                    "props": {
+                        "size": "small",
+                    },
+                    "text": imdb_title.title_type.text
+                },
+            ]
+            if imdb_title.certificate_text:
+                meta_chips.append(
+                    {
+                        "component": "VChip",
+                        "props": {
+                            "size": "small"
+                        },
+                        "text": imdb_title.certificate_text
+                    }
+                )
             rating_ui = {
                 'component': 'div',
                 'props': {
-                    'class': 'mb-2 d-flex align-center',
+                    'class': 'd-flex align-center mb-1',
                 },
                 'content': [
                     {
@@ -418,21 +446,21 @@ class ImdbSource(_PluginBase):
                             {
                                 'component': 'span',
                                 'props': {
-                                    'class': 'text-body-2 ml-1',
+                                    'class': 'text-truncate text-body-2 ml-1',
                                     'style': 'color: rgba(231, 227, 252, 0.8);'
                                 },
-                                'text': f"{imdb_title.rating_text}/10",
+                                'text': f"{imdb_title.rating_text}",
                             },
                         ]
                     },
                     {
                         'component': 'span',
                         'props': {
-                            'class': 'text-warning font-weight-bold ml-4',
+                            'class': 'text-truncate text-warning font-weight-bold ml-4',
                             'color': 'warning'
                         },
                         'text': entry.detail,
-                    }
+                    },
                 ]
             }
 
@@ -455,7 +483,7 @@ class ImdbSource(_PluginBase):
                                 'component': 'span',
                                 'html': f"{entry.name}",
                                 'props': {
-                                    'class': 'line-clamp-2 overflow-hidden',
+                                    'class': 'text-truncate overflow-hidden',
                                 }
                             },
                             {
@@ -467,6 +495,13 @@ class ImdbSource(_PluginBase):
                                 'text': 'mdi-chevron-right'
                             }
                         ]
+                    },
+                    {
+                        "component": 'div',
+                        "props": {
+                            "class": "d-flex align-center gap-1 mb-2",
+                        },
+                        "content": meta_chips
                     },
                     rating_ui,
                     {
@@ -499,14 +534,16 @@ class ImdbSource(_PluginBase):
                     {
                         'component': 'VCardText',
                         'props': {
-                            'class': 'd-flex flex-row absolute pa-4 text-white',
+                            'class': 'd-flex flex-row absolute pa-4 text-white h-100',
                             'style': 'z-index: 2; bottom: 0; max-width: 100%;',
                         },
                         'content': [
                             {
                                 'component': 'VRow',
                                 'props': {
-                                    'class': 'w-100'
+                                    'class': 'w-100',
+                                    'align': "end",
+                                    'align-md': "center"
                                 },
                                 'content': [
                                     # 左图：海报
@@ -514,7 +551,8 @@ class ImdbSource(_PluginBase):
                                         'component': 'VCol',
                                         'props': {
                                             'cols': 12,
-                                            'md': 3
+                                            'md': 3,
+                                            'class': 'd-flex justify-center align-center'
                                         },
                                         'content': [
                                             poster_ui
@@ -1057,16 +1095,17 @@ class ImdbSource(_PluginBase):
         return res
 
     async def imdb_discover(self, mtype: str = "series",
-                            country: str = None,
-                            lang: str = None,
-                            genre: str = None,
+                            country: str | None = None,
+                            lang: str | None = None,
+                            genre: str | None = None,
+                            company: str | None = None,
                             sort_by: str = 'POPULARITY',
                             sort_order: str = 'DESC',
                             using_rating: bool = False,
                             user_rating: list[int] = Query(None, alias="user_rating[]"),
-                            year: str = None,
-                            award: str = None,
-                            ranked_list: str = None,
+                            year: str | None = None,
+                            award: str | None = None,
+                            ranked_list: str | None = None,
                             page: int = 1) -> List[schemas.MediaInfo]:
 
         if not self._imdb_helper:
@@ -1086,41 +1125,16 @@ class ImdbSource(_PluginBase):
         release_date_start = None
         release_date_end = None
         if year:
-            if year == "2025":
-                release_date_start = "2025-01-01"
-            elif year == "2024":
-                release_date_start = "2024-01-01"
-                release_date_end = "2024-12-31"
-            elif year == "2023":
-                release_date_start = "2023-01-01"
-                release_date_end = "2023-12-31"
-            elif year == "2022":
-                release_date_start = "2022-01-01"
-                release_date_end = "2022-12-31"
-            elif year == "2021":
-                release_date_start = "2021-01-01"
-                release_date_end = "2021-12-31"
-            elif year == "2020":
-                release_date_start = "2020-01-01"
-                release_date_end = "2020-12-31"
-            elif year == "2020s":
-                release_date_start = "2020-01-01"
-                release_date_end = "2029-12-31"
-            elif year == "2010s":
-                release_date_start = "2010-01-01"
-                release_date_end = "2019-12-31"
-            elif year == "2000s":
-                release_date_start = "2000-01-01"
-                release_date_end = "2009-12-31"
-            elif year == "1990s":
-                release_date_start = "1990-01-01"
-                release_date_end = "1999-12-31"
-            elif year == "1980s":
-                release_date_start = "1980-01-01"
-                release_date_end = "1989-12-31"
-            elif year == "1970s":
-                release_date_start = "1970-01-01"
-                release_date_end = "1979-12-31"
+            if year == f"{datetime.now().year}":
+                release_date_start = f"{datetime.now().year}-01-01"
+            elif year.endswith("s"):
+                decade = int(year[:-2])
+                release_date_start = f"{decade}0-01-01"
+                release_date_end = f"{decade}9-12-31"
+            else:
+                release_date_start = f"{year}-01-01"
+                release_date_end = f"{year}-12-31"
+
         if not release_date_end:
             release_date_end = datetime.now().date().strftime("%Y-%m-%d")
         if sort_by == 'POPULARITY':
@@ -1142,7 +1156,8 @@ class ImdbSource(_PluginBase):
             release_date_end=release_date_end,
             release_date_start=release_date_start,
             award_constraint=awards,
-            ranked=ranked_lists
+            ranked=ranked_lists,
+            company=company
         )
         results = await self._imdb_helper.async_advanced_title_search(search_params, first_page=first_page)
         res: List[schemas.MediaInfo] = []
@@ -1339,21 +1354,15 @@ class ImdbSource(_PluginBase):
             } for key, value in sort_order_dict.items()
         ]
 
-        year_dict = {
-            "2025": "2025",
-            "2024": "2024",
-            "2023": "2023",
-            "2022": "2022",
-            "2021": "2021",
-            "2020": "2020",
+        year_dict = {str(year): str(year) for year in range(datetime.now().year, 2019, -1)}
+        year_dict.update({
             "2020s": "2020s",
             "2010s": "2010s",
             "2000s": "2000s",
             "1990s": "1990s",
             "1980s": "1980s",
             "1970s": "1970s",
-        }
-
+        })
         year_ui = [
             {
                 "component": "VChip",
@@ -1394,12 +1403,12 @@ class ImdbSource(_PluginBase):
         ]
 
         ranked_list_dict = {
-            "TOP_RATED_MOVIES-100": "IMDb Top 100",
-            "TOP_RATED_MOVIES-250": "IMDb Top 250",
-            "TOP_RATED_MOVIES-1000": "IMDb Top 1000",
-            "LOWEST_RATED_MOVIES-100": "IMDb Bottom 100",
-            "LOWEST_RATED_MOVIES-250": "IMDb Bottom 250",
-            "LOWEST_RATED_MOVIES-1000": "IMDb Bottom 1000",
+            "TOP_RATED_MOVIES-100": "Top 100",
+            "TOP_RATED_MOVIES-250": "Top 250",
+            "TOP_RATED_MOVIES-1000": "Top 1000",
+            "LOWEST_RATED_MOVIES-100": "Bottom 100",
+            "LOWEST_RATED_MOVIES-250": "Bottom 250",
+            "LOWEST_RATED_MOVIES-1000": "Bottom 1000",
         }
 
         ranked_list_ui = [
@@ -1412,6 +1421,41 @@ class ImdbSource(_PluginBase):
                 },
                 "text": value
             } for key, value in ranked_list_dict.items()
+        ]
+
+        companies = {
+            "20th Century Fox": "20世纪福克斯",
+            "DreamWorks": "梦工厂",
+            "MGM": "米高梅",
+            "Paramount": "派拉蒙",
+            "Sony": "索尼",
+            "Universal": "环球",
+            "Walt Disney": "迪士尼",
+            "Warner Bros.": "华纳兄弟",
+            "HBO": "HBO",
+            "Netflix": "Netflix",
+            "Hulu": "Hulu",
+            "Amazon Prime Video": "Amazon Prime",
+            "Apple TV": "Apple TV",
+            "British Broadcasting Corporation (BBC)": "BBC",
+            "Tencent Video": "腾讯视频",
+            "Youku": "优酷",
+            "iQIYI": "爱奇艺",
+            "China Central Television (CCTV)": "CCTV",
+            "Huayi Brothers Media": "华谊兄弟",
+            "Beijing Enlight Pictures": "光线传媒",
+            "Bona Film Group": "博纳影业",
+        }
+        companies_ui = [
+            {
+                "component": "VChip",
+                "props": {
+                    "filter": True,
+                    "tile": True,
+                    "value": key
+                },
+                "text": value
+            } for key, value in companies.items()
         ]
 
         return [
@@ -1600,6 +1644,33 @@ class ImdbSource(_PluginBase):
                 "component": "div",
                 "props": {
                     "class": "flex justify-start items-center",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "props": {
+                            "class": "mr-5"
+                        },
+                        "content": [
+                            {
+                                "component": "VLabel",
+                                "text": "出品方"
+                            }
+                        ]
+                    },
+                    {
+                        "component": "VChipGroup",
+                        "props": {
+                            "model": "company"
+                        },
+                        "content": companies_ui
+                    }
+                ]
+            },
+            {
+                "component": "div",
+                "props": {
+                    "class": "flex justify-start items-center",
                     "show": "{{mtype == 'movies'}}"
                 },
                 "content": [
@@ -1750,7 +1821,7 @@ class ImdbSource(_PluginBase):
                 "user_rating": [1, 10],
                 "using_rating": False,
                 "award": None,
-                "ranked_list": None
+                "ranked_list": None,
             },
             depends={
                 "ranked_list": ["mtype"]
