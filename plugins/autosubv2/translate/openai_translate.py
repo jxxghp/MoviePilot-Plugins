@@ -92,7 +92,7 @@ class OpenAi:
                         "content": message
                     }
                 ]
-        return openai.ChatCompletion.create(
+        return self.client.chat.completions.create(
             model=self._model,
             user=user,
             messages=message,
