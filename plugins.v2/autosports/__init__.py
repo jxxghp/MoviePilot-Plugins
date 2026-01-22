@@ -53,7 +53,7 @@ class AutoSports(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "0.9.8"
+    plugin_version = "0.9.9"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -113,12 +113,12 @@ class AutoSports(_PluginBase):
             "overview": "西班牙足球甲级联赛（西班牙语：Primera División de España或La Liga，由于赞助原因，正式名称为LALIGA EA SPORTS），通常简称西甲或西甲联赛，是西班牙足球联赛系统的第 1 级别，亦是职业联赛的最高级别、联赛系统的最高级别和西班牙顶级足球联赛，目前有 20 支球队。皇家马德里是历史上夺得最多冠军的球队（36次），其次是巴塞罗那（28次），以及马德里竞技（11次）。 ",  # 赛事介绍
             "season_years": {x: x for x in range(1929, 2101)},  # 赛季
             "homepage": "https://www.laliga.com",  # 官网
-            "languages": "Spanish",  # 解说源语言
+            "languages": ["Spanish"],  # 解说源语言
             "origin_country": "Spain",  # 国家
             "original_name": "Primera División de España",  # 原名
-            "production_companies": "西班牙皇家足球协会 (RFEF)",  # 创办协会
-            "production_countries": "Spain",  # 国家
-            "spoken_languages": "Spanish",  # 语言
+            "production_companies": ["西班牙皇家足球协会 (RFEF)"],  # 创办协会
+            "production_countries": ["Spain"],  # 国家
+            "spoken_languages": ["Spanish"],  # 语言
             "runtime": 9000,  # 比赛时长
             "offline_info": {},  # 本地刮削信息（空表示不进行本地刮削）
         },
@@ -136,12 +136,12 @@ class AutoSports(_PluginBase):
                         "在欧冠历史上，西班牙俱乐部以20次冠军居于榜首，英格兰和意大利分别以15次和12次获胜紧随其后。英格兰拥有最多的获胜球队，共六家俱乐部赢得冠军。迄今为止，共有23家俱乐部夺冠，其中13家俱乐部多次夺冠，8家成功卫冕。皇家马德里是该赛事历史上最成功的俱乐部，共赢得了15次冠军，包括首五届赛事冠军和最近十一届中的六次。只有拜仁慕尼黑以全胜战绩（2019–20赛季）夺得冠军。巴黎圣日耳曼是现任冠军，他们在2025年5月31日决赛中以5–0击败国际米兰，首次赢得冠军。",
             "season_years": {x: x for x in range(1955, 2101)},  # 赛季
             "homepage": "https://www.uefa.com",  # 官网
-            "languages": "English",  # 解说源语言
+            "languages": ["English"],  # 解说源语言
             "origin_country": "Europa",  # 国家
             "original_name": "UEFA Champions League",  # 原名
-            "production_companies": "欧洲足球协会联盟 (UEFA)",  # 创办协会
-            "production_countries": "Europa",  # 国家
-            "spoken_languages": "English",  # 语言
+            "production_companies": ["欧洲足球协会联盟 (UEFA)"],  # 创办协会
+            "production_countries": ["Europa"],  # 国家
+            "spoken_languages": ["English"],  # 语言
             "runtime": 9000,  # 比赛时长
             "offline_info": {},  # 本地刮削信息（空表示不进行本地刮削）
         },
@@ -157,12 +157,12 @@ class AutoSports(_PluginBase):
                         "赛事最早叫做“马德里市议会杯”（Copa del Ayuntamiento de Madrid），1905至1932年间称为“阿方索十三世杯”（Copa de S.M. El Rey Alfonso XIII），在西班牙第二共和国期间则称为“共和国总统杯”Copa del Presidente de la República），简称“西班牙杯” （Copa de España），在佛朗哥执政期间又改称为 “大元帅阁下杯”（Copa de Su Excelencia El Generalísimo） ，简称“大元帅杯”（Copa del Generalísimo)。",
             "season_years": {x: x for x in range(1903, 2101)},  # 赛季
             "homepage": "https://www.laliga.com/en-GB/other-competitions/copa-del-rey",  # 官网
-            "languages": "Spanish",  # 解说源语言
+            "languages": ["Spanish"],  # 解说源语言
             "origin_country": "Spain",  # 国家
             "original_name": "Primera División de España",  # 原名
-            "production_companies": "西班牙皇家足球协会 (RFEF)",  # 创办协会
-            "production_countries": "Spain",  # 国家
-            "spoken_languages": "Spanish",  # 语言
+            "production_companies": ["西班牙皇家足球协会 (RFEF)"],  # 创办协会
+            "production_countries": ["Spain"],  # 国家
+            "spoken_languages": ["Spanish"],  # 语言
             "runtime": 9000,  # 比赛时长
             "offline_info": {  # 本地刮削信息（空表示不进行本地刮削）
                 "group": 0,  # 小组赛比赛场次
@@ -182,12 +182,12 @@ class AutoSports(_PluginBase):
                         "赛事早期曾经有过多个名称，首届赛事举行时名称为西班牙冠军杯（Copa de Campeones），但比赛直到1945年才又再举办，这时由于来自阿根廷的大使欲与西班牙打好友谊关系，遂以阿根廷金杯（Copa de Oro Argentina）为名举行比赛。1947年，为了庆祝胡安·裴隆成为阿根廷总统，而以其妻子伊娃·裴隆为名举行伊娃杯（Copa Eva Duarte）。可惜1953年之后球赛因为不受重视而停办，一直到1983年才又重新复办赛事，并正式将球赛命名为西班牙超级杯至今。 ",
             "season_years": {x: x for x in range(1982, 2101)},  # 赛季
             "homepage": "https://www.laliga.com/en-GB/other-competitions/supercopa-de-espana",  # 官网
-            "languages": "Spanish",  # 解说源语言
+            "languages": ["Spanish"],  # 解说源语言
             "origin_country": "Spain",  # 国家
             "original_name": "Primera División de España",  # 原名
-            "production_companies": "西班牙皇家足球协会 (RFEF)",  # 创办协会
-            "production_countries": "Spain",  # 国家
-            "spoken_languages": "Spanish",  # 语言
+            "production_companies": ["西班牙皇家足球协会 (RFEF)"],  # 创办协会
+            "production_countries": ["Spain"],  # 国家
+            "spoken_languages": ["Spanish"],  # 语言
             "runtime": 9000,  # 比赛时长
             "offline_info": {  # 本地刮削信息（空表示不进行本地刮削）
                 "group": 0,  # 小组赛比赛场次
@@ -1167,37 +1167,37 @@ class AutoSports(_PluginBase):
 
 
     # 声明扩展 MP 内部的识别请求
-    @eventmanager.register(ChainEventType.NameRecognize)
-    def recognize(self, event: Event):
-        """
-        监听识别事件，使用ChatGPT辅助识别名称
-        """
-        if not event.event_data:
-            return
-        title = event.event_data.get("title")
-        if not title:
-            return
-
-
-        # 保底识别信息
-        match_metainfo = MetaInfo(title)
-
-        match_mediainfo = self.recognize_competition_mediainfo(meta_info=match_metainfo)
-
-        match_metainfo, match_episodeinfo = self.recognized_match_metainfo(match_mediainfo=match_mediainfo, metainfo=match_metainfo)
-
-        if match_mediainfo and match_metainfo:
-            # 成功获取结果
-            event.event_data = {
-                'title': title,
-                'name': match_mediainfo.title,
-                'year': match_mediainfo.year,
-                'season': match_metainfo.season,
-                'episode': match_metainfo.episode,
-            }
-            return
-        else:
-            logger.error(f"无法识别标题 {title}，请添加自定义赛事索引")
+    # @eventmanager.register(ChainEventType.NameRecognize)
+    # def recognize(self, event: Event):
+    #     """
+    #     监听识别事件，使用ChatGPT辅助识别名称
+    #     """
+    #     if not event.event_data:
+    #         return
+    #     title = event.event_data.get("title")
+    #     if not title:
+    #         return
+    #
+    #
+    #     # 保底识别信息
+    #     match_metainfo = MetaInfo(title)
+    #
+    #     match_mediainfo = self.recognize_competition_mediainfo(meta_info=match_metainfo)
+    #
+    #     match_metainfo, match_episodeinfo = self.recognized_match_metainfo(match_mediainfo=match_mediainfo, metainfo=match_metainfo)
+    #
+    #     if match_mediainfo and match_metainfo:
+    #         # 成功获取结果
+    #         event.event_data = {
+    #             'title': title,
+    #             'name': match_mediainfo.title,
+    #             'year': match_mediainfo.year,
+    #             'season': match_metainfo.season,
+    #             'episode': match_metainfo.episode,
+    #         }
+    #         return
+    #     else:
+    #         logger.error(f"无法识别标题 {title}，请添加自定义赛事索引")
 
 
     def stop_service(self):
@@ -1290,7 +1290,6 @@ class AutoSports(_PluginBase):
             for competition_name in exist_matches.keys():
                 logger.info(f"{competition_name} {exist_matches[competition_name]}")
 
-
         for team_info in self.__teams_info.split("\n"):
             # 在 SportsCult 搜索种子
             if not team_info:
@@ -1318,7 +1317,7 @@ class AutoSports(_PluginBase):
                     description = result.torrent_info.description
                     size = result.torrent_info.size
                     # 检查是否处理过
-                    if not title or title in [h.get("key") for h in history]:
+                    if not title or title in [h.get("torrent_title") for h in history]:
                         logger.info("已处理过该种子，请清除记录后重试")
                         continue
                     # 检查规则
@@ -1445,6 +1444,7 @@ class AutoSports(_PluginBase):
                     pass
                 # 存储历史记录
                 history.append({
+                    "torrent_title": torrentinfo.title,
                     "competition_name": match_metainfo.title,
                     "roundinfo": match_metainfo.season_episode,
                     "matchmake": match_metainfo.subtitle,
@@ -1687,6 +1687,9 @@ class AutoSports(_PluginBase):
         for match in data["matches"]:
             home = match["homeTeam"]["name"]
             away = match["awayTeam"]["name"]
+            if not home or not away:
+                # 该比赛还未排期，后面的比赛也同样没排期，直接退出循环
+                break
 
             if any(home_team_i in home for home_team_i in home_team) and any(
                 away_team_i in away for away_team_i in away_team):
@@ -1917,25 +1920,6 @@ class AutoSports(_PluginBase):
         else:
             # 否则，从文件元数据中获取文件标题
             title = meta_info.org_string
-
-        # # 获取赛季信息
-        # try:
-        #     season_name = meta_info.year
-        #     if not season_name:
-        #         # 尝试在原标题中找到年份
-        #         match_date = self.extract_date(title)
-        #         if match_date[1] < 7:
-        #             # 如果比赛日期在七月之前，是上一年开始的赛季
-        #             season = match_date[0] - 1
-        #         else:
-        #             season = match_date[0]
-        #     else:
-        #         season = int(season_name)
-        #
-        #     # 年份信息回填赛事元数据
-        #     meta_info.year = str(season)
-        # except Exception as err:
-        #     logger.error(f"解析种子 {title} 赛事的赛季时出现问题，{err}")
 
         for competition_parse in self.__competitions_parses:
             if any(alia.lower() in title.lower() for alia in competition_parse["names"]):
@@ -2287,6 +2271,9 @@ class AutoSports(_PluginBase):
             logger.error(f"{Path(filepath).name} 无法根据文件名识别有效信息")
             return None, None, None
         match_mediainfo: MediaInfo = self.recognize_competition_mediainfo(meta_info=match_filemeta)
+        if not match_mediainfo:
+            # 未识别到赛事信息，返回 None
+            return None, None, None
         if saved:
             match_filemeta, match_episode_info = self.recognized_saved_match_metainfo(metainfo=match_filemeta)
         else:
@@ -2310,6 +2297,10 @@ class AutoSports(_PluginBase):
         for file_path in SystemUtils.list_files(Path(self.__dest_path), settings.RMT_MEDIAEXT):
             # 刮削已入库比赛的元数据
             file_meta, mediainfo, episode_info = self.__parse_file_metadata(Path(file_path).as_posix(), True)
+
+            if not file_meta or not mediainfo or not episode_info:
+                # 未识别到有效信息，跳过
+                continue
 
             competition_name = mediainfo.title
             season_index = file_meta.begin_season or 1
@@ -2346,7 +2337,7 @@ class AutoSports(_PluginBase):
             rename_conf = self.__need_rename
 
             file_meta, mediainfo, episode_info = self.__parse_file_metadata(event_path)
-            if not file_meta:
+            if not file_meta or not mediainfo or not episode_info:
                 logger.error(f"{Path(event_path).name} 无法根据文件名识别有效信息")
                 return
 
@@ -2427,9 +2418,13 @@ class AutoSports(_PluginBase):
                 target_file = Path(target_path_str)
                 target_file_name = target_file.name
                 title = str.split(target_file_name, ".")[0]
+                # 生成赛事的NFO文件
+                if not (target_file.parent.parent / "tvshow.nfo").exists():
+                    self.__gen_competition_nfo_file(dir_path=target_file.parent.parent, mediainfo=mediainfo)
+                # 生成单场比赛的NFO文件
                 if not (target_file.parent / f"{title}.nfo").exists():
                     self.__gen_match_nfo_file(dir_path=target_file.parent, title=title,
-                                              file_meta=file_meta)
+                                              file_meta=file_meta, episode_meta=episode_info)
 
                 # 生成缩略图
                 if not (target_file.parent / f"{title}_poster.jpg").exists():
@@ -2485,22 +2480,49 @@ class AutoSports(_PluginBase):
             print(str(e))
 
 
-    def __gen_match_nfo_file(self, dir_path: Path, title: str = '', file_meta: MetaBase = None):
+    def __gen_competition_nfo_file(self, dir_path: Path, mediainfo: MediaInfo = None):
         """
-        生成电视剧的NFO描述文件
-        :param dir_path: 电视剧根目录
+        生成赛事的NFO描述文件
+        @param dir_path: 目标目录
+        @param mediainfo: 赛事元数据
         """
         # 开始生成XML
+        logger.debug(f"正在生成赛事NFO文件：{mediainfo.title}")
+        doc = minidom.Document()
+        root = DomUtils.add_node(doc, doc, "tvshow")
 
-        logger.debug(f"正在生成电视剧NFO文件：{title}")
+        # 各种信息
+        DomUtils.add_node(doc, root, "title", mediainfo.title)
+        DomUtils.add_node(doc, root, "sorttitle", mediainfo.en_title)
+        DomUtils.add_node(doc, root, "status", 'Continuing')
+        DomUtils.add_node(doc, root, "originaltitle", mediainfo.original_name)
+        DomUtils.add_node(doc, root, "year", mediainfo.year)
+        DomUtils.add_node(doc, root, "plot", mediainfo.overview)
+        DomUtils.add_node(doc, root, "genre", 'Sport')
+        DomUtils.add_node(doc, root, "genre", 'Soccer')
+        for production_company in mediainfo.production_companies:
+            DomUtils.add_node(doc, root, "studio", production_company)
+        # 保存
+        self.__save_nfo(doc, dir_path.joinpath(f"tvshow.nfo"))
+
+
+    def __gen_match_nfo_file(self, dir_path: Path, title: str = '', file_meta: MetaBase = None,
+                             episode_meta: TmdbEpisode = None):
+        """
+        生成单场比赛的NFO描述文件
+        :param dir_path: 比赛根目录
+        """
+        # 开始生成XML
+        logger.debug(f"正在生成比赛NFO文件：{title}")
         doc = minidom.Document()
         root = DomUtils.add_node(doc, doc, "episodedetails")
 
-        # 标题
+        # 各种信息
         DomUtils.add_node(doc, root, "title", file_meta.cn_name)
         DomUtils.add_node(doc, root, "originaltitle", file_meta.en_name)
         DomUtils.add_node(doc, root, "season", file_meta.begin_season)
         DomUtils.add_node(doc, root, "episode", file_meta.begin_episode)
+        DomUtils.add_node(doc, root, "aired", episode_meta.air_date)
         # 保存
         self.__save_nfo(doc, dir_path.joinpath(f"{title}.nfo"))
 
