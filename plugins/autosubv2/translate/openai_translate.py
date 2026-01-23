@@ -17,10 +17,16 @@ class OpenAi:
                  compatible: bool = False):
         self._api_key = api_key
         self._api_url = api_url
-        openai.api_base = self._api_url if compatible else self._api_url + "/v1"
-        openai.api_key = self._api_key
+        base_url = self._api_url if compatible else self._api_url + "/v1"
+        
+        # 创建 OpenAI 客户端实例
         if proxy and proxy.get("https"):
-            openai.proxy = proxy.get("https")
+            import httpx
+            http_client = httpx.Client(proxies=proxy.get("https"))
+            self.client = openai.OpenAI(api_key=self._api_key, base_url=base_url, http_client=http_client)
+        else:
+            self.client = openai.OpenAI(api_key=self._api_key, base_url=base_url)
+        
         if model:
             self._model = model
 
