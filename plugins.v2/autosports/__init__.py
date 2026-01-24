@@ -18,6 +18,10 @@ from PIL import Image
 from app.helper.sites import SitesHelper
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from sqlalchemy import false
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 
 from app import schemas
 from app.chain.download import DownloadChain
@@ -36,7 +40,7 @@ from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
 from app.schemas import ServiceInfo, TransferDirectoryConf, TmdbEpisode, TransferInfo, FileItem
-from app.schemas.types import SystemConfigKey, MediaType, ChainEventType
+from app.schemas.types import SystemConfigKey, MediaType, ChainEventType, NotificationType
 from app.utils.dom import DomUtils
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
@@ -45,65 +49,27 @@ from app.utils.system import SystemUtils
 lock = Lock()
 ffmpeg_lock = threading.Lock()
 
-class AutoSports(_PluginBase):
-    # 插件名称
-    plugin_name = "AutoSports"
-    # 插件描述
-    plugin_desc = "根据设置的球队名自动下载最新比赛，进行文件整理及简单的刮削"
-    # 插件图标
-    plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
-    # 插件版本
-    plugin_version = "0.9.9"
-    # 插件作者
-    plugin_author = "Sinterdial"
-    # 作者主页
-    author_url = "https://github.com/Sinterdial"
-    # 插件配置项ID前缀
-    plugin_config_prefix = "AutoSports_"
-    # 加载顺序
-    plugin_order = 15
-    # 可使用的用户级别
-    auth_level = 1
 
-    name = "AutoSports"
-    __enabled: bool = False
-    __teams_info: str = ""
-    __football_apikey: str = ""
-    __cron: str = ""
-    __notify: bool = False
-    __onlyonce: bool = False
-    __include: str = ""
-    __exclude: str = ""
-    __proxy: bool = False
-    __filter: bool = False
-    __force_en: bool = False
-    __lowest_pix: int = 0
-    __clear: bool = False
-    __clearflag: bool = False
-    __action: str = "download"
-    __save_path: str = ""
-    __dest_path: str = ""
-    __category: str = ""
-    __tags: list[str] = []
-    __size_range: str = ""
-    __start_paused: bool = True  # 添加种子后暂停下载
-    __max_download: int = 0  # 单次最多下多少场比赛
-    # 转移与刮削相关
-    __target_path: str = ""
-    __transfer_type: str = ""
-    __need_rename: bool = True
-    __downloaders = None
-    __scheduler: BackgroundScheduler | None = None
-    __timeline = "00:00:10"
-    __matches = {}
-    # 订阅缓存信息
-    __cached_matches = {}
+class FileMonitorHandler(FileSystemEventHandler):
+    """
+    目录监控响应类
+    """
+    def __init__(self, watching_path: str, file_change: Any, **kwargs):
+        super(FileMonitorHandler, self).__init__(**kwargs)
+        self.__watch_path = watching_path
+        self.file_change = file_change
 
-    # 赛事刮削信息
-    # 自定义映射关系
-    __competitions_parses = [
+    def on_created(self, event):
+        self.file_change.event_handler(event=event, source_dir=self.__watch_path, event_path=event.src_path)
+
+    def on_moved(self, event):
+        self.file_change.event_handler(event=event, source_dir=self.__watch_path, event_path=event.dest_path)
+
+
+def get_raw_competitions_parse() -> list[dict]:
+    return [
         {
-            "names": ["西甲", "La Liga", "LaLiga", "Laliga","西班牙足球甲级联赛"],  # 别名
+            "names": ["西甲", "La Liga", "LaLiga", "Laliga", "西班牙足球甲级联赛"],  # 别名
             "type": "LEAGUE",  # 赛事类型（联赛：league/杯赛：cup）
             "shortname": "PD",  # 缩写
             "title": "西班牙足球甲级联赛",  # 中文名
@@ -130,10 +96,10 @@ class AutoSports(_PluginBase):
             "en_title": "UEFA Champions League",  # 英文名
             "original_title": "UEFA Champions League",  # 原名
             "year": 1955,  # 创办年份
-            "overview": "欧洲冠军联赛（英语：UEFA Champions League，缩写：UCL；简称欧冠联赛、欧冠）是欧洲足联主办的年度俱乐部足球比赛，该赛事由欧洲顶级联赛的俱乐部队伍参加，通过联赛阶段和双回合淘汰赛，以及单场决赛的形式决出冠军。代表欧洲俱乐部足球最高荣誉，被誉为全世界最高竞技水平的俱乐部杯赛，估计每届赛事约有超过十亿电视观众观看赛事，现与欧洲联赛和欧协联并称“欧洲俱乐部三大杯”。 "
-                        "欧洲冠军联赛始创于1955年，被称为“欧洲俱乐部冠军杯”（法语：Coupe des Clubs Champions Européens），通称欧洲冠军杯（英语：European Cup）。最初，该赛事以直接淘汰制形式进行，并仅对欧洲各国的联赛冠军开放。随后在1991年引入小组赛环节，并于1992年更为现名。自1997-98赛季起，部分国家可派出最多4支球队参赛。目前，大部分欧洲国家仅能派出其联赛冠军参赛，而实力较强的联赛最多可派出四支球队。未能晋级欧冠的俱乐部有资格参加欧洲联赛及自2021年起举办的欧洲协会联赛。"
-                        "现行赛制从六月下旬开始，包括三轮资格赛和一轮附加赛，均采用双回合制。六支晋级球队进入联赛阶段，与提前获得资格的30支球队会合。36支球队会透过以瑞士制为基础的联赛模式定出晋级淘汰赛阶段的球队（在联赛阶段取得首八名的球队直接晋级，余下八队会经淘汰附加赛决定）最终在五月底或六月初的决赛中决出冠军。赛事冠军将自动获得参加下一年度欧洲冠军联赛、欧洲超级杯及俱乐部世界杯的参赛资格。"
-                        "在欧冠历史上，西班牙俱乐部以20次冠军居于榜首，英格兰和意大利分别以15次和12次获胜紧随其后。英格兰拥有最多的获胜球队，共六家俱乐部赢得冠军。迄今为止，共有23家俱乐部夺冠，其中13家俱乐部多次夺冠，8家成功卫冕。皇家马德里是该赛事历史上最成功的俱乐部，共赢得了15次冠军，包括首五届赛事冠军和最近十一届中的六次。只有拜仁慕尼黑以全胜战绩（2019–20赛季）夺得冠军。巴黎圣日耳曼是现任冠军，他们在2025年5月31日决赛中以5–0击败国际米兰，首次赢得冠军。",
+            "overview": "欧洲冠军联赛（英语：UEFA Champions League，缩写：UCL；简称欧冠联赛、欧冠）是欧洲足联主办的年度俱乐部足球比赛，该赛事由欧洲顶级联赛的俱乐部队伍参加，通过联赛阶段和双回合淘汰赛，以及单场决赛的形式决出冠军。代表欧洲俱乐部足球最高荣誉，被誉为全世界最高竞技水平的俱乐部杯赛，估计每届赛事约有超过十亿电视观众观看赛事，现与欧洲联赛和欧协联并称“欧洲俱乐部三大杯”。\n"
+                        "欧洲冠军联赛始创于1955年，被称为“欧洲俱乐部冠军杯”（法语：Coupe des Clubs Champions Européens），通称欧洲冠军杯（英语：European Cup）。最初，该赛事以直接淘汰制形式进行，并仅对欧洲各国的联赛冠军开放。随后在1991年引入小组赛环节，并于1992年更为现名。自1997-98赛季起，部分国家可派出最多4支球队参赛。目前，大部分欧洲国家仅能派出其联赛冠军参赛，而实力较强的联赛最多可派出四支球队。未能晋级欧冠的俱乐部有资格参加欧洲联赛及自2021年起举办的欧洲协会联赛。\n"
+                        "现行赛制从六月下旬开始，包括三轮资格赛和一轮附加赛，均采用双回合制。六支晋级球队进入联赛阶段，与提前获得资格的30支球队会合。36支球队会透过以瑞士制为基础的联赛模式定出晋级淘汰赛阶段的球队（在联赛阶段取得首八名的球队直接晋级，余下八队会经淘汰附加赛决定）最终在五月底或六月初的决赛中决出冠军。赛事冠军将自动获得参加下一年度欧洲冠军联赛、欧洲超级杯及俱乐部世界杯的参赛资格。\n"
+                        "在欧冠历史上，西班牙俱乐部以20次冠军居于榜首，英格兰和意大利分别以15次和12次获胜紧随其后。英格兰拥有最多的获胜球队，共六家俱乐部赢得冠军。迄今为止，共有23家俱乐部夺冠，其中13家俱乐部多次夺冠，8家成功卫冕。皇家马德里是该赛事历史上最成功的俱乐部，共赢得了15次冠军，包括首五届赛事冠军和最近十一届中的六次。只有拜仁慕尼黑以全胜战绩（2019–20赛季）夺得冠军。",
             "season_years": {x: x for x in range(1955, 2101)},  # 赛季
             "homepage": "https://www.uefa.com",  # 官网
             "languages": ["English"],  # 解说源语言
@@ -153,7 +119,7 @@ class AutoSports(_PluginBase):
             "en_title": "Copa Del Rey",  # 英文名
             "original_title": "Copa Del Rey",  # 原名
             "year": 1903,  # 创办年份
-            "overview": "西班牙冠军–国王陛下杯（西班牙语：Campeonato de España – Copa de Su Majestad el Rey），通称国王杯（Copa del Rey）或西班牙杯，是西班牙一项每年举办的淘汰制足球赛事。赛事开办起因于皇家马德里前主席卡洛斯·帕德罗斯提议举办一项足球赛事以庆祝西班牙国王阿方索十三世登基，而于1902年举行首届比赛。"
+            "overview": "西班牙冠军–国王陛下杯（西班牙语：Campeonato de España – Copa de Su Majestad el Rey），通称国王杯（Copa del Rey）或西班牙杯，是西班牙一项每年举办的淘汰制足球赛事。赛事开办起因于皇家马德里前主席卡洛斯·帕德罗斯提议举办一项足球赛事以庆祝西班牙国王阿方索十三世登基，而于1902年举行首届比赛。\n"
                         "赛事最早叫做“马德里市议会杯”（Copa del Ayuntamiento de Madrid），1905至1932年间称为“阿方索十三世杯”（Copa de S.M. El Rey Alfonso XIII），在西班牙第二共和国期间则称为“共和国总统杯”Copa del Presidente de la República），简称“西班牙杯” （Copa de España），在佛朗哥执政期间又改称为 “大元帅阁下杯”（Copa de Su Excelencia El Generalísimo） ，简称“大元帅杯”（Copa del Generalísimo)。",
             "season_years": {x: x for x in range(1903, 2101)},  # 赛季
             "homepage": "https://www.laliga.com/en-GB/other-competitions/copa-del-rey",  # 官网
@@ -178,8 +144,8 @@ class AutoSports(_PluginBase):
             "en_title": "Spanish Super Cup",  # 英文名
             "original_title": "Supercopa de España",  # 原名
             "year": 1982,  # 创办年份
-            "overview": "西班牙超级杯（西班牙语：Supercopa de España）是西班牙每年一度由甲级联赛冠军对国王杯盟主的足球锦标赛，如果有一支球队同时夺得联赛及国王杯冠军，对赛球队则由国王杯亚军补上，2019年起增设联赛及国王杯亚军席位，如果有一支球队同时夺得联赛及国王杯冠亚军，对赛球队则由联赛排名较佳一方补上，改制成单场淘汰赛模式。首届赛事于1940年举行，作为每年球季开始前的揭幕战。 "
-                        "赛事早期曾经有过多个名称，首届赛事举行时名称为西班牙冠军杯（Copa de Campeones），但比赛直到1945年才又再举办，这时由于来自阿根廷的大使欲与西班牙打好友谊关系，遂以阿根廷金杯（Copa de Oro Argentina）为名举行比赛。1947年，为了庆祝胡安·裴隆成为阿根廷总统，而以其妻子伊娃·裴隆为名举行伊娃杯（Copa Eva Duarte）。可惜1953年之后球赛因为不受重视而停办，一直到1983年才又重新复办赛事，并正式将球赛命名为西班牙超级杯至今。 ",
+            "overview": "西班牙超级杯（西班牙语：Supercopa de España）是西班牙每年一度由甲级联赛冠军对国王杯盟主的足球锦标赛，如果有一支球队同时夺得联赛及国王杯冠军，对赛球队则由国王杯亚军补上，2019年起增设联赛及国王杯亚军席位，如果有一支球队同时夺得联赛及国王杯冠亚军，对赛球队则由联赛排名较佳一方补上，改制成单场淘汰赛模式。首届赛事于1940年举行，作为每年球季开始前的揭幕战。\n"
+                        "赛事早期曾经有过多个名称，首届赛事举行时名称为西班牙冠军杯（Copa de Campeones），但比赛直到1945年才又再举办，这时由于来自阿根廷的大使欲与西班牙打好友谊关系，遂以阿根廷金杯（Copa de Oro Argentina）为名举行比赛。1947年，为了庆祝胡安·裴隆成为阿根廷总统，而以其妻子伊娃·裴隆为名举行伊娃杯（Copa Eva Duarte）。可惜1953年之后球赛因为不受重视而停办，一直到1983年才又重新复办赛事，并正式将球赛命名为西班牙超级杯至今。",
             "season_years": {x: x for x in range(1982, 2101)},  # 赛季
             "homepage": "https://www.laliga.com/en-GB/other-competitions/supercopa-de-espana",  # 官网
             "languages": ["Spanish"],  # 解说源语言
@@ -196,7 +162,250 @@ class AutoSports(_PluginBase):
             },
 
         },
+        {
+            "names": ["英超", "Premier League", "PremierLeague", "Premier league", "英格兰足球超级联赛"],  # 别名
+            "type": "LEAGUE",  # 赛事类型（联赛：league/杯赛：cup）
+            "shortname": "PL",  # 缩写
+            "title": "英格兰足球超级联赛",  # 中文名
+            "en_title": "Premier League",  # 英文名
+            "original_title": "Premier League",  # 原名
+            "year": 1992,  # 创办年份
+            "overview": "英格兰足球超级联赛（英语：Premier League），通称“英超”，是英格兰足球最高等级的赛事类别亦是世上最顶级的足球联赛，由英格兰足球协会于1992年2月20日确立，首个赛季于1992–93年正式面世。作为英格兰足球联赛系统的组成部分，英超的每支球队均需与同级别的全部其它球队进行主客场制对赛。威尔士球队在英格兰足球联赛系统参赛，亦有资格成为英超球队，但不能再以威尔士国家地区身份参与欧洲赛事。\n"
+                        "虽然英超是1992创立，但英格兰早在1888年就已经成立世界上最早的足球联赛，100多年来已有24队夺得顶级联赛的冠军(包含1992年以前的英甲时代与英超)，详细可参考英格兰足球联赛与英格兰足球冠军的页面。\n"
+                        "英超共有20支参赛球队，运作模式为一所以20间俱乐部共同拥有的有限公司。赛季于每年8月至次年5月进行，每队共有38场比赛，20支球队相互对赛两次，其中主、客场各一次。每个赛季，英超共有380场比赛。大部分英超的比赛于周末下午开赛，亦有一部分在周中的傍晚举行。\n"
+                        "英超是全世界最多人观看的体育联赛。在全球各地，212个地区有电视转播英超赛事，潜在观众约有47亿人。2014–15赛季，英超俱乐部的球场平均入场人数超过3.6万人，仅次于德国足球甲级联赛的4.35万人。 欧洲足联于2018年1月初发表一份126页的欧洲各大俱乐部统计报告，记录不同联赛与及俱乐部的数据。而于2016/2017赛季最多人入场联赛的统计中，英超以累积超过1300万人次入场成为第一。\n"
+                        "自1992年成立以来，共有7队曾夺得联赛冠军，分别是曼联（13次）、曼城（8次）、切尔西（5次）、阿森纳（3次）、利物浦（2次）以及布莱克本流浪者和莱斯特城（各1次）。",  # 赛事介绍
+            "season_years": {x: x for x in range(1992, 2101)},  # 赛季
+            "homepage": "https://www.premierleague.com",  # 官网
+            "languages": ["English"],  # 解说源语言
+            "origin_country": "England",  # 国家
+            "original_name": "Premier League",  # 原名
+            "production_companies": ["英格兰足球协会 (The FA)"],  # 创办协会
+            "production_countries": ["England"],  # 国家
+            "spoken_languages": ["English"],  # 语言
+            "runtime": 9000,  # 比赛时长
+            "offline_info": {},  # 本地刮削信息（空表示不进行本地刮削）
+        },
+        {
+            "names": ["意甲", "Serie A", "SerieA", "serie A", "意大利足球甲级联赛"],  # 别名
+            "type": "LEAGUE",  # 赛事类型（联赛：league/杯赛：cup）
+            "shortname": "SA",  # 缩写
+            "title": "意大利足球甲级联赛",  # 中文名
+            "en_title": "Serie A",  # 英文名
+            "original_title": "Scudetto",  # 原名
+            "year": 1897,  # 创办年份
+            "overview": "意大利足球甲级联赛（意大利语：Serie A，简称“意甲”），昵称“小盾牌”（意大利语：Scudetto，因为意甲卫冕冠军徽章外型类似盾牌），是意大利足球联赛系统的第 1 级别 ，亦是职业联赛的最高级别，联赛系统的最高级别和意大利顶级足球联赛，由意大利足球协会（Federazione Italiana Gioco Calcio，FIGC）所管理，意甲职业联盟（Lega Nazionale Professionisti Serie A，Lega Serie A）营运。尤文图斯是最成功的俱乐部，获得（36 次）冠军，其次是国际米兰（20 次）和AC米兰（19 次）。",  # 赛事介绍
+            "season_years": {x: x for x in range(1897, 2101)},  # 赛季
+            "homepage": "https://www.legaseriea.it",  # 官网
+            "languages": ["Italian"],  # 解说源语言
+            "origin_country": "Italy",  # 国家
+            "original_name": "Scudetto",  # 原名
+            "production_companies": ["意大利足球协会 (FIGC)"],  # 创办协会
+            "production_countries": ["Italy"],  # 国家
+            "spoken_languages": ["Italian"],  # 语言
+            "runtime": 9000,  # 比赛时长
+            "offline_info": {},  # 本地刮削信息（空表示不进行本地刮削）
+        },
+        {
+            "names": ["德甲", "Bundesliga", "bundesliga", "Fußball-Bundesliga", "德国足球甲级联赛", "足球联邦联赛"],  # 别名
+            "type": "LEAGUE",  # 赛事类型（联赛：league/杯赛：cup）
+            "shortname": "BL1",  # 缩写
+            "title": "德国足球甲级联赛",  # 中文名
+            "en_title": "Bundesliga",  # 英文名
+            "original_title": "Bundesliga",  # 原名
+            "year": 1962,  # 创办年份
+            "overview": "足球联邦联赛（德语：Fußball-Bundesliga，简称Bundesliga [ˈbʊndəsˌliːɡa]），中文通称为德国足球甲级联赛，或简称德甲，是德国足球最高等级的赛事类别，由德国足球协会于1962年7月28日在多特蒙德确立，自1963–64赛季面世。德甲的每支球队均需与同级别的全部其它球队进行主客场制对赛，最终的德国足球冠军可获得欧洲冠军联赛的参赛资格；而排名最末的两支球队将降级至德国足球乙级联赛（德乙）。排名倒数第三的球队则需要与德乙第三名进行保级附加赛，胜者可获准留在德甲。此外，所有德甲球队都可直接入围德国足协杯比赛，两者冠军将参加德国超级杯的争夺。\n"
+                        "作为欧洲五大联赛之一，德甲在欧洲足联的联赛系数排名中目前位居全欧第4。德甲也是全球现场观战人数最高的足球联赛，其于2013年至2018年间的场均上座率高达43,302人次，同时还在全球209个国家和地区进行电视转播。拜仁慕尼黑是德甲最为成功的球队，共获得33次德国冠军。",  # 赛事介绍
+            "season_years": {x: x for x in range(1962, 2101)},  # 赛季
+            "homepage": "https://www.bundesliga.de",  # 官网
+            "languages": ["German"],  # 解说源语言
+            "origin_country": "Germany",  # 国家
+            "original_name": "Fußball-Bundesliga",  # 原名
+            "production_companies": ["德国足球协会 (DFB)"],  # 创办协会
+            "production_countries": ["Germany"],  # 国家
+            "spoken_languages": ["German"],  # 语言
+            "runtime": 9000,  # 比赛时长
+            "offline_info": {},  # 本地刮削信息（空表示不进行本地刮削）
+        },
+        {
+            "names": ["法甲", "Championnat de France de football", "Ligue 1", "Ligue1", "Ligue 1 McDonald's", "法国足球甲级联赛"],  # 别名
+            "type": "LEAGUE",  # 赛事类型（联赛：league/杯赛：cup）
+            "shortname": "FL1",  # 缩写
+            "title": "法国足球甲级联赛",  # 中文名
+            "en_title": "Ligue 1",  # 英文名
+            "original_title": "Ligue 1",  # 原名
+            "year": 1932,  # 创办年份
+            "overview": "法国足球甲级联赛（法语：Championnat de France de football [ʃɑ̃pjɔna də fʁɑ̃s də futbol]，简称Ligue 1 [liɡ œ̃]，因得到赞助商麦当劳冠名而又称为Ligue 1 McDonald's），简称法甲，是法国足球联赛系统的第1级别，亦是职业联赛的最高级别，联赛系统的最高级别和法国顶级足球联赛，由法国足球协会监管下的法国职业足球联赛所负责监督、组织及管理。截至2021年，法甲作为欧洲五大联赛之一，在欧洲足联的联赛系数排名中目前位居全欧第五，仅次于英格兰的英格兰足球超级联赛、西班牙的西班牙足球甲级联赛、意大利的意大利足球甲级联赛和德国的德国足球甲级联赛。\n"
+                        "法甲联赛于1932年9月11日成立，最初以“国家联赛”（National）的名称开始运作，一年后改名为“一级联赛”（Division 1）；直到2002年，联赛采用现在的名称。\n"
+                        "在 20 世纪时期，法甲联赛较少产生一支长期雄霸联赛的超级强队；即使是法国本土球星，亦是外流至其他欧洲豪门居多；但在九十年代，多支法甲俱乐部在欧洲赛场上冒起，如巴黎圣日耳曼于1996年赢过欧洲杯赛冠军杯，马赛更在1993年赢过欧冠杯。\n"
+                        "现在法甲联赛水准已大为提升，并成为了非洲和南美球员向欧洲发展的重要跳板之一。",  # 赛事介绍
+            "season_years": {x: x for x in range(1932, 2101)},  # 赛季
+            "homepage": "https://www.ligue1.com/",  # 官网
+            "languages": ["French"],  # 解说源语言
+            "origin_country": "France",  # 国家
+            "original_name": "Championnat de France de football",  # 原名
+            "production_companies": ["法国足球协会 (FFF)"],  # 创办协会
+            "production_countries": ["France"],  # 国家
+            "spoken_languages": ["French"],  # 语言
+            "runtime": 9000,  # 比赛时长
+            "offline_info": {},  # 本地刮削信息（空表示不进行本地刮削）
+        },
     ]
+
+
+def get_demo_competitions_config() -> str:
+    desc = (
+        "// 以下为配置示例，请参考：https://github.com/Sinterdial/MoviePilot-Plugins/blob/main/docs/Self_Defined_Competitions_Guide.md 进行配置\n"
+        "// 插件已内置五大联赛+欧冠+国王杯+西超杯，请勿重复配置\n"
+        "// 注意无关内容需使用 // 注释，但行内不要使用 // 注释\n"
+        "// 只有标注【必填】的字段是必须有的，其它可以省略\n"
+        "// 必须严格遵循 json 格式，最后一个字段后面不要有逗号\n")
+    config = """[{
+    // 示例一：在 football-data.org 有数据的联赛或杯赛（在线刮削）
+    // // 【必填】别名（区分大小写）
+    // "names": ["西甲", "La Liga", "LaLiga", "Laliga","西班牙足球甲级联赛"], 
+    // // 【必填】赛事类型（联赛：LEAGUE/杯赛：CUP）
+    // "type": "LEAGUE", 
+    // // 【在线刮削必填】唯一缩写 (需要与 football-data.org 上的缩写对应)，
+    // //              该项不要与插件内已有的重复（PD、CL、CDR、SE、PL、SA、BL1、FL1）
+    // "shortname": "PD",
+    // // 【必填】中文名
+    // "title": "西班牙足球甲级联赛",
+    // // 英文名
+    // "en_title": "La Liga", 
+    // // 原名
+    // "original_title": "La Liga",  
+    // // 创办年份
+    // "year": 1929, 
+    // // 赛事简介
+    // "overview": "赛事简介",
+    // // 官网
+    // "homepage": "www.laliga.com", 
+    // // 解说源语言
+    // "languages": ["Spanish"], 
+    // // 国家
+    // "origin_country": "Spain",  
+    // // 原名
+    // "original_name": "Primera División de España", 
+    // // 创办协会
+    // "production_companies": ["西班牙皇家足球协会 (RFEF)"],  
+    // // 国家
+    // "production_countries": ["Spain"], 
+    // // 语言
+    // "spoken_languages": ["Spanish"],  
+    // // 比赛时长
+    // "runtime": 9000,
+    // // 【离线刮削必填】本地刮削信息（空表示 football-data.org 上提供该赛事信息，不进行本地刮削)
+    // "offline_info": {}
+}, 
+{
+    // // 示例二：football-data.org 没有数据的杯赛（离线刮削）
+    // // 【必填】别名（区分大小写）
+    // "names": ["西班牙国王杯", "Copa Del Rey", "Campeonato de España – Copa de Su Majestad el Rey", "国王杯"], 
+    // // 【必填】赛事类型（联赛：LEAGUE/杯赛：CUP）
+    // "type": "CUP", 
+    // // 缩写
+    // "shortname": "CDR",
+    // // 【必填】中文名
+    // "title": "西班牙国王杯",
+    // // 英文名
+    // "en_title": "Copa Del Rey", 
+    // // 原名
+    // "original_title": "Copa Del Rey",  
+    // // 创办年份
+    // "year": 1903, 
+    // // 赛事简介
+    // "overview": "赛事简介",
+    // // 官网
+    // "homepage": "www.laliga.com/en-GB/other-competitions/copa-del-rey", 
+    // // 解说源语言
+    // "languages": ["Spanish"], 
+    // // 国家
+    // "origin_country": "Spain",  
+    // // 原名
+    // "original_name": "Primera División de España", 
+    // // 创办协会
+    // "production_companies": ["西班牙皇家足球协会 (RFEF)"],  
+    // // 国家
+    // "production_countries": ["Spain"], 
+    // // 语言
+    // "spoken_languages": ["Spanish"],  
+    // // 比赛时长
+    // "runtime": 9000,
+    // // 【必填】
+    // "offline_info": {
+            // // 【必填】 小组赛比赛场次
+            // "group": 0,  
+            // // 【必填】 单场淘汰赛起始轮次（例如 32 表示从 32 进 16 这一轮开始），0 表示没有
+            // "knockout_single": 32,
+            // // 【必填】 主客场淘汰赛起始轮次（例如 32 表示从 32 进 16 这一轮开始），0 表示没有
+            // "knockout_double": 4
+    // }
+}]"""
+
+    return desc + config
+
+
+class AutoSports(_PluginBase):
+    # 插件名称
+    plugin_name = "AutoSports"
+    # 插件描述
+    plugin_desc = "根据设置的球队名自动下载最新比赛，进行文件整理及简单的刮削"
+    # 插件图标
+    plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
+    # 插件版本
+    plugin_version = "1.0.0"
+    # 插件作者
+    plugin_author = "Sinterdial"
+    # 作者主页
+    author_url = "https://github.com/Sinterdial"
+    # 插件配置项ID前缀
+    plugin_config_prefix = "AutoSports_"
+    # 加载顺序
+    plugin_order = 15
+    # 可使用的用户级别
+    auth_level = 1
+
+    name = "AutoSports"
+    __enabled: bool = False
+    __teams_info: str = ""
+    __football_apikey: str = ""
+    __cron: str = "27 6-8 * * *"
+    __notify: bool = False
+    __onlyonce: bool = False
+    __include: str = ""
+    __exclude: str = ""
+    __proxy: bool = False
+    __filter: bool = False
+    __force_en: bool = False
+    __lowest_pix: int = 720
+    __clear: bool = False
+    __clearflag: bool = False
+    __action: str = "download"
+    __save_path: str = ""  # 下载路径
+    __dest_path: str = ""  # 媒体库路径
+    __category: str = ""
+    __tags: list[str] = []
+    __size_range: str = ""
+    __start_paused: bool = True  # 添加种子后暂停下载
+    __max_download: int = 2  # 单次最多下多少场比赛
+    # 转移与刮削相关
+    __sync_all: bool = False
+    __monitor_mode: str = 'normal'  # 增量监控目录模式
+    __observer: list[Observer | PollingObserver] = []  # 目录监控工具对象
+    __transfer_type: str = "link"
+    __need_rename: bool = True
+    __downloaders = None
+    __scheduler: BackgroundScheduler | None = None
+    __timeline = "00:00:10"
+    __matches = {}
+    __competitions_config = get_demo_competitions_config()  # 自定义赛事信息
+    # 订阅缓存信息
+    __cached_matches = {}
+
+    # 赛事刮削信息
+    # 自定义映射关系
+    __competitions_parses = get_raw_competitions_parse()
 
     knockout_parse = {  # 杯赛 -> 参赛球队数映射表
         # Final
@@ -221,6 +430,9 @@ class AutoSports(_PluginBase):
     searchchain: SearchChain = None
 
     torrents_list = []
+
+    def __init__(self):
+        super().__init__()
 
     @property
     def __downloader(self) -> Optional[Union[Qbittorrent, Transmission]]:
@@ -262,7 +474,7 @@ class AutoSports(_PluginBase):
             "search": {
                 "paths": [
                     {
-                        "path": "index.php?page=torrents&active=1&gold=0&search=barcelona&&order=3&by=2",
+                        "path": "index.php?page=torrents&active=1&gold=0&search={keyword}&&order=3&by=2",
                         "method": "get"
                     }
                 ]
@@ -429,6 +641,9 @@ class AutoSports(_PluginBase):
             self.__transfer_type = config.get("transfer_type") or "link"
             self.__start_paused = config.get("start_paused")
             self.__max_download = int(config.get("max_download")) if config.get("max_download") else 0
+            self.__competitions_config = config.get("competitions_config", "[]")
+            self.__monitor_mode = config.get("monitor_mode")
+            self.__sync_all = config.get("sync_all")
             if config.get("need_rename"):
                 self.__need_rename = config.get("need_rename")
             else:
@@ -452,9 +667,46 @@ class AutoSports(_PluginBase):
                 self.__tags = []
             self.__size_range = config.get("size_range")
 
-        if not self.__football_apikey:
+        if (self.__enabled or self.__onlyonce) and not self.__football_apikey:
             logger.error("无法对比赛进行刮削，请填入有效的 football-data.org API key")
             self.stop_service()
+
+        # 启用目录监控
+        if self.__enabled:
+            # 检查媒体库目录是不是下载目录的子目录
+            try:
+                if self.__dest_path and Path(self.__dest_path).is_relative_to(Path(self.__save_path)):
+                    logger.warn(f"{self.__dest_path} 是下载目录 {self.__save_path} 的子目录，无法监控")
+                    self.systemmessage.put(f"{self.__dest_path} 是下载目录 {self.__save_path} 的子目录，无法监控")
+            except Exception as e:
+                logger.debug(str(e))
+                pass
+
+            try:
+                if self.__monitor_mode == "compatibility":
+                    # 兼容模式，目录同步性能降低且NAS不能休眠，但可以兼容挂载的远程共享目录如SMB
+                    observer = PollingObserver(timeout=10)
+                else:
+                    # 内部处理系统操作类型选择最优解
+                    observer = Observer(timeout=10)
+                self.__observer.append(observer)
+                observer.schedule(FileMonitorHandler(self.__save_path, self), path=self.__save_path, recursive=True)
+                observer.daemon = True
+                observer.start()
+                logger.info(f"{self.__save_path} 的目录监控服务启动")
+            except Exception as e:
+                err_msg = str(e)
+                if "inotify" in err_msg and "reached" in err_msg:
+                    logger.warn(
+                        f"目录监控服务启动出现异常：{err_msg}，请在宿主机上（不是docker容器内）执行以下命令并重启："
+                        + """
+                                     echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf
+                                     echo fs.inotify.max_user_instances=524288 | sudo tee -a /etc/sysctl.conf
+                                     sudo sysctl -p
+                                     """)
+                else:
+                    logger.error(f"{self.__save_path} 启动目录监控失败：{err_msg}")
+                self.systemmessage.put(f"{self.__save_path} 启动目录监控失败：{err_msg}")
 
         if self.__onlyonce:
             self.__scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -556,7 +808,7 @@ class AutoSports(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -572,7 +824,7 @@ class AutoSports(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -585,10 +837,26 @@ class AutoSports(_PluginBase):
                                 ]
                             },
                             {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 3
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "dialog_opened",
+                                            "label": "自定义赛事元数据",
+                                        }
+                                    }
+                                ]
+                            },
+                            {
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -609,7 +877,7 @@ class AutoSports(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -624,14 +892,14 @@ class AutoSports(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4,
+                                    'md': 3,
                                 },
                                 'content': [
                                     {
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'filter',
-                                            'label': '使用订阅优先级规则',
+                                            'label': '(暂不支持)订阅优先级规则',
                                         }
                                     }
                                 ]
@@ -640,7 +908,23 @@ class AutoSports(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'monitor_mode',
+                                            'label': '是否启用兼容模式监控下载目录（远程目录需打开）',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -661,7 +945,7 @@ class AutoSports(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -677,7 +961,7 @@ class AutoSports(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -693,14 +977,30 @@ class AutoSports(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'sync_all',
+                                            'label': '是否进行下载目录全量扫描整理',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
                                 },
                                 'content': [
                                     {
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'start_paused',
-                                            'label': '以暂停状态添加种子（推荐首次使用时先看看有没有问题）',
+                                            'label': '以暂停状态添加种子',
                                         }
                                     }
                                 ]
@@ -740,8 +1040,8 @@ class AutoSports(_PluginBase):
                                             'model': 'action',
                                             'label': '运行模式',
                                             'items': [
-                                                {'title': '下载（默认）', 'value': 'download'},
-                                                {'title': '整理', 'value': 'transfer'},
+                                                {'title': '下载+整理（默认）', 'value': 'download'},
+                                                {'title': '仅（全量）整理', 'value': 'transfer'},
                                                 {'title': '订阅（暂不支持）', 'value': 'subscribe'},
                                             ]
                                         }
@@ -756,7 +1056,8 @@ class AutoSports(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12
+                                    'cols': 12,
+                                    # 'md': 6
                                 },
                                 'content': [
                                     {
@@ -786,7 +1087,7 @@ class AutoSports(_PluginBase):
                                         'component': 'VTextarea',
                                         'props': {
                                             'model': 'teams_info',
-                                            'label': '关注球队名，请输入关注球队的名称，只能输一个（英文，关键字即可）',
+                                            'label': '球队名关键词（英文），只支持单球队，一行一个',
                                             'rows': 3,
                                             'placeholder': 'Barcelona'
                                         }
@@ -917,8 +1218,8 @@ class AutoSports(_PluginBase):
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'tags',
-                                            'label': '种子额外标签，以逗号隔开，留空为不设置（默认有 AutoSports 标签）',
-                                            'placeholder': '如：Sportscult,Football'
+                                            'label': '种子除AutoSports外的额外标签，逗号分隔',
+                                            'placeholder': '如：Match,Football'
                                         }
                                     }
                                 ]
@@ -1003,6 +1304,98 @@ class AutoSports(_PluginBase):
                             },
                         ]
                     },
+                    {
+                        "component": "VDialog",
+                        "props": {
+                            "model": "dialog_opened",
+                            "max-width": "65rem",
+                            "overlay-class": "v-dialog--scrollable v-overlay--scroll-blocked",
+                            "content-class": "v-card v-card--density-default v-card--variant-elevated rounded-t"
+                        },
+                        "content": [
+                            {
+                                "component": "VCard",
+                                "props": {
+                                    "title": "设置自定义赛事"
+                                },
+                                "content": [
+                                    {
+                                        "component": "VDialogCloseBtn",
+                                        "props": {
+                                            "model": "dialog_opened"
+                                        }
+                                    },
+                                    {
+                                        "component": "VCardText",
+                                        "props": {},
+                                        "content": [
+                                            {
+                                                'component': 'VRow',
+                                                'content': [
+                                                    {
+                                                        'component': 'VCol',
+                                                        'props': {
+                                                            'cols': 12,
+                                                        },
+                                                        'content': [
+                                                            {
+                                                                'component': 'VAceEditor',
+                                                                'props': {
+                                                                    'modelvalue': 'competitions_config',
+                                                                    'lang': 'json',
+                                                                    'theme': 'monokai',
+                                                                    'style': 'height: 30rem',
+                                                                }
+                                                            }
+                                                        ]
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VRow',
+                                                'content': [
+                                                    {
+                                                        'component': 'VCol',
+                                                        'props': {
+                                                            'cols': 12,
+                                                        },
+                                                        'content': [
+                                                            {
+                                                                'component': 'VAlert',
+                                                                'props': {
+                                                                    'type': 'info',
+                                                                    'variant': 'tonal'
+                                                                },
+                                                                'content': [
+                                                                    {
+                                                                        'component': 'span',
+                                                                        'text': '该配置可以在插件内已有元数据的基础上新增自定义扩展，配置规则请参考：'
+                                                                    },
+                                                                    {
+                                                                        'component': 'a',
+                                                                        'props': {
+                                                                            'href': 'https://github.com/Sinterdial/MoviePilot-Plugins/blob/main/docs/Self_Defined_Competitions_Guide.md',
+                                                                            'target': '_blank'
+                                                                        },
+                                                                        'content': [
+                                                                            {
+                                                                                'component': 'u',
+                                                                                'text': 'README'
+                                                                            }
+                                                                        ]
+                                                                    }
+                                                                ]
+                                                            }
+                                                        ]
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    }
                 ]
             }
         ], {
@@ -1011,7 +1404,7 @@ class AutoSports(_PluginBase):
             "teams_info": "",
             "notify": True,
             "onlyonce": False,
-            "cron": "*/30 * * * *",
+            "cron": "27 6-8 * * *",
             "include": "",
             "exclude": "",
             "proxy": False,
@@ -1028,7 +1421,10 @@ class AutoSports(_PluginBase):
             "transfer_type": "link",
             "need_rename": True,
             "max_download": 3,
-            "start_paused": True
+            "start_paused": True,
+            "competitions_config": get_demo_competitions_config(),
+            "monitor_mode": "normal",
+            "sync_all": False
         }
 
     def get_page(self) -> List[dict]:
@@ -1213,6 +1609,15 @@ class AutoSports(_PluginBase):
         except Exception as e:
             logger.error("退出插件失败：%s" % str(e))
 
+        if self.__observer:
+            for observer in self.__observer:
+                try:
+                    observer.stop()
+                    observer.join()
+                except Exception as e:
+                    print(str(e))
+        self.__observer = []
+
     def delete_history(self, key: str, roundinfo: str, apikey: str):
         """
         删除同步历史记录
@@ -1224,7 +1629,8 @@ class AutoSports(_PluginBase):
         if not histories:
             return schemas.Response(success=False, message="未找到历史记录")
         # 删除指定记录
-        histories = [h for h in histories if (h.get("competition_name") != key and h.get("roundinfo") != roundinfo)]
+        histories = [h for h in histories if (
+            h.get("competition_name") != key or h.get("roundinfo") != roundinfo)]
         self.save_data('history', histories)
         return schemas.Response(success=True, message="删除成功")
 
@@ -1257,12 +1663,20 @@ class AutoSports(_PluginBase):
             "need_rename": self.__need_rename,
             "start_paused": self.__start_paused,
             "max_download": self.__max_download,
+            "competitions_config": self.__competitions_config,
+            "monitor_mode": self.__monitor_mode,
+            "sync_all": False,
         })
+
+        # 组装赛事识别器（内置加用户自定义）
+        self.__initialize_competition_config()
+
 
     def check(self):
         """
         自动下载 SportsCult 球队最新内容
         """
+
         if not self.__teams_info:
             logger.error(f"未输入球队名，不会进行任何操作，请输入球队名再试")
             return
@@ -1282,193 +1696,220 @@ class AutoSports(_PluginBase):
 
         # 识别本地已入库所有比赛的信息
         exist_matches: Dict[str, Dict[int, list]] = self.__exists_match()
-        # 开始全量同步目录中所有体育比赛文件
-        self.sync_all(exist_matches=exist_matches)
-        logger.info("文件同步结束")
-        if exist_matches:
-            logger.info(f"文件同步后，已入库媒体信息为:")
-            for competition_name in exist_matches.keys():
-                logger.info(f"{competition_name} {exist_matches[competition_name]}")
+        if self.__sync_all:
+            # 如果启用了全量扫描，开始全量同步目录中所有体育比赛文件
+            self.sync_all(exist_matches=exist_matches)
+            logger.info("文件同步结束")
+            if exist_matches:
+                logger.info(f"文件同步后，已入库媒体信息为:")
+                for competition_name in exist_matches.keys():
+                    logger.info(f"{competition_name} {exist_matches[competition_name]}")
 
+        elif self.__action == "transfer":
+            # 仅作整理，不下载
+            logger.info(f"仅整理文件，不下载新种子")
+            self.sync_all(exist_matches=exist_matches)
+            logger.info("文件同步结束")
+            if exist_matches:
+                logger.info(f"文件同步后，已入库媒体信息为:")
+                for competition_name in exist_matches.keys():
+                    logger.info(f"{competition_name} {exist_matches[competition_name]}")
+            self.__clearflag = False
+            # 保存历史记录
+            self.save_data('history', history)
+            return
+
+        # 搜索模块
+        results = []
         for team_info in self.__teams_info.split("\n"):
             # 在 SportsCult 搜索种子
             if not team_info:
                 continue
-            logger.info(f"开始在 Sportscult 搜索 {team_info} 的比赛...")
+            logger.info(f"开始在 Sportscult 以关键词 {team_info} 搜索比赛...")
 
-            results = searchchain.search_by_title(title=team_info, sites=[sportscult_indexer_id])
-
-            if not results:
+            search_results = searchchain.search_by_title(title=team_info, sites=[sportscult_indexer_id])
+            if not search_results:
                 logger.error(f"未获取到该球队相关比赛种子，请更换关键词再试试：{team_info}")
-                return
+                continue
+            else:
+                results.extend(search_results)
+        if not results:
+            logger.error(f"所有关键词 ({'/'.join(self.__teams_info.split('\n'))}) 都未搜索到任何结果，请检查球队关键词设置")
 
-            # 清空比赛元数据缓存
-            if not self.__cached_matches:
-                self.__cached_matches = {}
+        # 清空比赛元数据缓存
+        if not self.__cached_matches:
+            self.__cached_matches = {}
 
-            # 初始化搜索到的比赛信息的储存对象
-            matchesinfo = []
+        # 初始化搜索到的比赛信息的储存对象
+        matchesinfo = []
 
-            # 解析数据
-            for result in results:
-                try:
-                    title = result.torrent_info.title
-                    logger.info(f"找到种子：{title}，开始处理......")
-                    description = result.torrent_info.description
-                    size = result.torrent_info.size
-                    # 检查是否处理过
-                    if not title or title in [h.get("torrent_title") for h in history]:
-                        logger.info("已处理过该种子，请清除记录后重试")
-                        continue
-                    # 检查规则
-                    if self.__include and not re.search(r"%s" % self.__include,
-                                                        f"{title} {description}", re.IGNORECASE):
-                        logger.info(f"{title} - {description} 不符合包含规则")
-                        continue
-                    if self.__exclude and re.search(r"%s" % self.__exclude,
+        # 解析数据
+        for result in results:
+            try:
+                title = result.torrent_info.title
+                logger.info(f"找到种子：{title}，开始处理......")
+                description = result.torrent_info.description
+                size = result.torrent_info.size
+                # 检查是否处理过
+                if not title or title in [h.get("torrent_title") for h in history]:
+                    logger.info("已处理过该种子，请清除记录后重试")
+                    continue
+                # 检查规则
+                if self.__include and not re.search(r"%s" % self.__include,
                                                     f"{title} {description}", re.IGNORECASE):
-                        logger.info(f"{title} - {description} 不符合排除规则")
+                    logger.info(f"该种子不符合包含规则")
+                    continue
+                if self.__exclude and re.search(r"%s" % self.__exclude,
+                                                f"{title} {description}", re.IGNORECASE):
+                    logger.info(f"该种子不符合排除规则")
+                    continue
+                if self.__size_range:
+                    sizes = [float(_size) * 1024 ** 3 for _size in self.__size_range.split("-")]
+                    if len(sizes) == 1 and float(size) < sizes[0]:
+                        logger.info(f"该种子大小不符合条件")
                         continue
-                    if self.__size_range:
-                        sizes = [float(_size) * 1024 ** 3 for _size in self.__size_range.split("-")]
-                        if len(sizes) == 1 and float(size) < sizes[0]:
-                            logger.info(f"{title} - 种子大小不符合条件")
-                            continue
-                        elif len(sizes) > 1 and not sizes[0] <= float(size) <= sizes[1]:
-                            logger.info(f"{title} - 种子大小不在指定范围")
-                            continue
-
-                    # 种子
-                    gotten_torrentinfo = result.torrent_info
-                    gotten_metainfo = result.meta_info
-                    # 识别体育比赛信息
-                    gotten_match_mediainfo = self.recognize_competition_mediainfo(gotten_torrentinfo, gotten_metainfo)
-                    if not gotten_match_mediainfo:
-                        # 如果未识别成功，跳过
-                        continue
-                    gotten_match_metainfo, _ = self.recognized_match_metainfo(gotten_match_mediainfo, gotten_metainfo)
-                    if not gotten_match_metainfo:
-                        # 如果未识别成功，跳过
+                    elif len(sizes) > 1 and not sizes[0] <= float(size) <= sizes[1]:
+                        logger.info(f"该种子大小不在指定范围")
                         continue
 
-                    filter_groups = self.systemconfig.get(SystemConfigKey.SubscribeFilterRuleGroups)
+                # 种子
+                gotten_torrentinfo = result.torrent_info
+                gotten_metainfo = result.meta_info
+                # 识别体育比赛信息
+                gotten_match_mediainfo = self.recognize_competition_mediainfo(gotten_torrentinfo, gotten_metainfo)
+                if not gotten_match_mediainfo:
+                    # 如果未识别成功，跳过
+                    continue
+                gotten_match_metainfo, _ = self.recognized_match_metainfo(gotten_match_mediainfo, gotten_metainfo)
+                if not gotten_match_metainfo:
+                    # 如果未识别成功，跳过
+                    continue
 
-                    # 过滤种子
-                    if self.__filter:
-                        result = self.chain.filter_torrents(
-                            rule_groups=filter_groups,
-                            torrent_list=[gotten_torrentinfo],
-                            mediainfo=gotten_match_mediainfo
-                        )
-                        if not result:
-                            logger.info(f"{title} {description} 不匹配过滤规则")
-                            continue
+                filter_groups = self.systemconfig.get(SystemConfigKey.SubscribeFilterRuleGroups)
 
-                    # 判断媒体库是否已存在该场比赛
-                    is_in = self.is_match_in_vault(exist_matches, gotten_match_metainfo)
-                    if is_in:
-                        logger.info(
-                            f'处理搜索到的种子时，发现 '
-                            f'{gotten_match_metainfo.title_year} {gotten_match_metainfo.season_episode} 己入库，不再处理')
+                # 过滤种子
+                if self.__filter:
+                    result = self.chain.filter_torrents(
+                        rule_groups=filter_groups,
+                        torrent_list=[gotten_torrentinfo],
+                        mediainfo=gotten_match_mediainfo
+                    )
+                    if not result:
+                        logger.info(f"{title} 不匹配过滤规则")
                         continue
-                    else:
-                        logger.info(
-                            f'处理搜索到的种子时，发现 '
-                            f'{gotten_match_metainfo.title_year} {gotten_match_metainfo.season_episode} 未入库，继续处理')
 
-                    # 判断新搜索到的种子是否比之前的种子更好
-                    gotten_matchinfo = self.Matchinfo(gotten_torrentinfo, gotten_match_mediainfo, gotten_match_metainfo)
-                    gotten_matchinfo.language = self.recognize_language(gotten_match_metainfo)
-                    if gotten_metainfo.resource_pix:
-                        gotten_matchinfo.pix = int(gotten_metainfo.resource_pix[0:-1])
-                    self.find_best(force_en=self.__force_en, lowest_pix=self.__lowest_pix, matchesinfo=matchesinfo,
-                                   new_matchinfo=gotten_matchinfo)
-                except Exception as err:
-                    logger.error(f'自动寻找种子模块出错：{str(err)} - {traceback.format_exc()}')
-
-            # 新增处理的比赛场数计数
-            processed_num = 0
-
-            if self.__action == "transfer":
-                # 仅作整理，不下载
-                logger.info(f"仅整理文件，不下载新种子")
-                self.__clearflag = False
-                return
-
-            for final_matchinfo in matchesinfo:
-                if self.__max_download and processed_num >= self.__max_download:
-                    logger.info(f"已处理种子数量超过最大限制 {self.__max_download}，不再添加新的种子")
-                    break
-                torrentinfo = final_matchinfo.torrentinfo
-                match_mediainfo = final_matchinfo.mediainfo
-                match_metainfo = final_matchinfo.metainfo
-                title = torrentinfo.title
-                # 下载或订阅
-                if self.__action == "download":
-                    if match_metainfo.episode == 'E00':
-                        logger.warning(f"种子 {torrentinfo.title} 未识别到轮次，将以暂停状态添加该种")
-                        is_existed, torrent_hash = self.__download(torrentinfo, True)
-                    # 添加下载
-                    else:
-                        is_existed, torrent_hash = self.__download(torrentinfo, self.__start_paused)
-                    if not torrent_hash:
-                        logger.warning(f'{title} 下载失败')
-                        processed_num += 1
-                    elif is_existed:
-                        logger.info(f'{title} 已存在，种子 HASH 值为：{torrent_hash}')
-                        processed_num += 1
-                    else:
-                        logger.info(f'{title} 下载成功，种子 HASH 值为：{torrent_hash}')
-                        processed_num += 1
+                # 判断媒体库是否已存在该场比赛
+                is_in = self.is_match_in_vault(exist_matches, gotten_match_metainfo)
+                if is_in:
+                    logger.info(
+                        f'处理搜索到的种子时，发现 '
+                        f'{gotten_match_metainfo.title_year} {gotten_match_metainfo.season_episode} 己入库，不再处理')
+                    continue
                 else:
-                    # TODO: 支持订阅功能
-                    # logger.error(f'暂不支持订阅功能，请等待适配')
-                    # # 保存历史记录
-                    # self.save_data('history', history)
-                    # # 缓存只清理一次
-                    # self.__clearflag = False
-                    # return
-                    # # 检查是否在订阅中
-                    # subflag = subscribechain.exists(mediainfo=match_mediainfo, meta=match_metainfo)
-                    # if subflag:
-                    #     logger.info(f'{match_mediainfo.title_year} {metainfo.season} 正在订阅中')
-                    #     continue
-                    # # 添加订阅
-                    # subscribechain.add(title=match_mediainfo.title,
-                    #                    year=match_mediainfo.year,
-                    #                    mtype=match_mediainfo.type,
-                    #                    tmdbid=match_mediainfo.tmdb_id,
-                    #                    season=metainfo.begin_season,
-                    #                    exist_ok=True,
-                    #                    username="AutoSports")
-                    pass
-                # 存储历史记录
-                history.append({
-                    "torrent_title": torrentinfo.title,
-                    "competition_name": match_metainfo.title,
-                    "roundinfo": match_metainfo.season_episode,
-                    "matchmake": match_metainfo.subtitle,
-                    "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                })
+                    logger.info(
+                        f'处理搜索到的种子时，发现 '
+                        f'{gotten_match_metainfo.title_year} {gotten_match_metainfo.season_episode} 未入库，继续处理')
 
-            if not processed_num:
-                logger.info(f"未找到任何种子或所有比赛已入库，不进行添加任何下载")
-            logger.info(f"体育比赛下载刷新完成")
+                # 判断新搜索到的种子是否比之前的种子更好
+                gotten_matchinfo = self.Matchinfo(gotten_torrentinfo, gotten_match_mediainfo, gotten_match_metainfo)
+                gotten_matchinfo.language = self.recognize_language(gotten_match_metainfo)
+                if gotten_metainfo.resource_pix:
+                    if gotten_metainfo.resource_pix == '4k':
+                        gotten_matchinfo.pix = 2160
+                    elif gotten_metainfo.resource_pix == '2k':
+                        gotten_matchinfo.pix = 1440
+                    else:
+                        gotten_matchinfo.pix = int(gotten_metainfo.resource_pix[0:-1])
+                self.find_best(force_en=self.__force_en, lowest_pix=self.__lowest_pix, matchesinfo=matchesinfo,
+                               new_matchinfo=gotten_matchinfo)
+            except Exception as err:
+                logger.error(f'自动寻找种子模块出错：{str(err)} - {traceback.format_exc()}')
+
+        # 新增处理的比赛场数计数
+        processed_num = 0
+
+        for final_matchinfo in matchesinfo:
+            if self.__max_download and processed_num >= self.__max_download:
+                logger.info(f"已处理种子数量超过最大限制 {self.__max_download}，不再添加新的种子")
+                break
+            torrentinfo = final_matchinfo.torrentinfo
+            match_mediainfo = final_matchinfo.mediainfo
+            match_metainfo = final_matchinfo.metainfo
+            title = torrentinfo.title
+            # 下载或订阅
+            if self.__action == "download":
+                if match_metainfo.episode == 'E00':
+                    logger.warning(f"种子 {torrentinfo.title} 未识别到轮次，将以暂停状态添加该种")
+                    is_existed, torrent_hash = self.__download(torrentinfo, True)
+                # 添加下载
+                else:
+                    is_existed, torrent_hash = self.__download(torrentinfo, self.__start_paused)
+                if not torrent_hash:
+                    logger.warning(f'{title} 下载失败')
+                    processed_num += 1
+                elif is_existed:
+                    logger.info(f'{title} 已存在，种子 HASH 值为：{torrent_hash}')
+                    # 存储历史记录
+                    history.append({
+                        "torrent_title": torrentinfo.title,
+                        "competition_name": match_metainfo.title,
+                        "roundinfo": match_metainfo.season_episode,
+                        "matchmake": match_metainfo.subtitle,
+                        "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    })
+                    processed_num += 1
+                else:
+                    logger.info(f'{title} 下载成功，种子 HASH 值为：{torrent_hash}')
+                    # 存储历史记录
+                    history.append({
+                        "torrent_title": torrentinfo.title,
+                        "competition_name": match_metainfo.title,
+                        "roundinfo": match_metainfo.season_episode,
+                        "matchmake": match_metainfo.subtitle,
+                        "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    })
+                    processed_num += 1
+            else:
+                # TODO: 支持订阅功能
+                # logger.error(f'暂不支持订阅功能，请等待适配')
+                # # 保存历史记录
+                # self.save_data('history', history)
+                # # 缓存只清理一次
+                # self.__clearflag = False
+                # return
+                # # 检查是否在订阅中
+                # subflag = subscribechain.exists(mediainfo=match_mediainfo, meta=match_metainfo)
+                # if subflag:
+                #     logger.info(f'{match_mediainfo.title_year} {metainfo.season} 正在订阅中')
+                #     continue
+                # # 添加订阅
+                # subscribechain.add(title=match_mediainfo.title,
+                #                    year=match_mediainfo.year,
+                #                    mtype=match_mediainfo.type,
+                #                    tmdbid=match_mediainfo.tmdb_id,
+                #                    season=metainfo.begin_season,
+                #                    exist_ok=True,
+                #                    username="AutoSports")
+                pass
+
+        if not processed_num:
+            logger.info(f"未找到任何种子或所有比赛已入库，不进行添加任何下载")
+        logger.info(f"AutoSports 下载任务刷新完成")
         # 保存历史记录
         self.save_data('history', history)
 
 
-        # 30 分钟后分别尝试再次整理
-        logger.info(f"等待 30 分钟后再次尝试进行比赛整理")
-        transfer_scheduler = BackgroundScheduler(timezone=settings.TZ)
-        transfer_scheduler.add_job(func=self.sync_all, trigger='date',
-                                 run_date=datetime.datetime.now(
-                                     tz=pytz.timezone(settings.TZ)) + datetime.timedelta(minutes=30)
-                                 )
-        # 挂载刮削任务
-        if transfer_scheduler.get_jobs():
-            transfer_scheduler.print_jobs()
-            transfer_scheduler.start()
+        # 30 分钟后分别尝试再次整理 (已用增量监控目录服务替代)
+        # logger.info(f"等待 30 分钟后再次尝试进行比赛整理")
+        # transfer_scheduler = BackgroundScheduler(timezone=settings.TZ)
+        # transfer_scheduler.add_job(func=self.sync_all, trigger='date',
+        #                          run_date=datetime.datetime.now(
+        #                              tz=pytz.timezone(settings.TZ)) + datetime.timedelta(minutes=30)
+        #                          )
+        # # 挂载刮削任务
+        # if transfer_scheduler.get_jobs():
+        #     transfer_scheduler.print_jobs()
+        #     transfer_scheduler.start()
 
         # 缓存只清理一次
         self.__clearflag = False
@@ -1486,6 +1927,42 @@ class AutoSports(_PluginBase):
         pix: int = 0
 
 
+    def event_handler(self, event, source_dir: str, event_path: str):
+        """
+        处理文件变化
+        :param event: 事件
+        :param source_dir: 监控目录
+        :param event_path: 事件文件路径
+        """
+
+        # 回收站及隐藏的文件不处理
+        if (event_path.find("/@Recycle") != -1
+            or event_path.find("/#recycle") != -1
+            or event_path.find("/.") != -1
+            or event_path.find("/@eaDir") != -1):
+            logger.info(f"{event_path} 是回收站或隐藏的文件，跳过处理")
+            return
+
+        # 命中过滤关键字不处理
+        if self.__exclude:
+            for keyword in self.__exclude.split("\n"):
+                if keyword and re.findall(keyword, event_path):
+                    logger.info(f"{event_path} 命中过滤关键字 {keyword}，不处理")
+                    return
+
+        # 不是媒体文件不处理
+        if Path(event_path).suffix not in settings.RMT_MEDIAEXT:
+            logger.debug(f"{event_path} 不是媒体文件")
+            return
+
+        # 文件发生变化
+        logger.debug(f"变动类型 {event.event_type} 变动路径 {event_path}")
+
+        exist_matches = self.__exists_match()
+
+        self.__handle_file(event_path=event_path, exist_matches=exist_matches)
+
+
     def sync_all(self, exist_matches: Dict[str, Dict[int, list]] = None):
         """
         全量同步目录中所有文件
@@ -1494,12 +1971,12 @@ class AutoSports(_PluginBase):
         if not exist_matches:
             exist_matches = self.__exists_match()
 
-        logger.info(f"开始全量同步体育比赛监控目录 {self.__save_path} ...")
+        logger.info(f"开始全量整理体育比赛监控目录 {self.__save_path} ...")
         # 遍历下载目录
         for file_path in SystemUtils.list_files(Path(self.__save_path), settings.RMT_MEDIAEXT):
             logger.info(f"开始处理文件 {file_path} ...")
             self.__handle_file(event_path=str(file_path), exist_matches=exist_matches)
-        logger.info("全量同步体育比赛监控目录完成！")
+        logger.info("全量整理体育比赛监控目录完成！")
 
 
     def gen_file_thumb(self, title: str, file_path: Path, rename_conf: bool):
@@ -1685,14 +2162,23 @@ class AutoSports(_PluginBase):
             return None
 
         for match in data["matches"]:
+            # 全名 (优先匹配)
             home = match["homeTeam"]["name"]
             away = match["awayTeam"]["name"]
+            # 简称
+            home_short = match["homeTeam"]["shortName"]
+            away_short = match["awayTeam"]["shortName"]
             if not home or not away:
                 # 该比赛还未排期，后面的比赛也同样没排期，直接退出循环
                 break
 
             if any(home_team_i in home for home_team_i in home_team) and any(
                 away_team_i in away for away_team_i in away_team):
+                # 优先匹配全名
+                return match
+            elif any(home_short in home_team_i for home_team_i in home_team) and any(
+                away_short in away_team_i for away_team_i in away_team):
+                # 否则尝试匹配简称
                 return match
 
         return None
@@ -1755,11 +2241,14 @@ class AutoSports(_PluginBase):
             if not season_name:
                 # 尝试在原标题中找到年份
                 match_date = self.extract_date(org_str)
-                if match_date[1] < 7:
-                    # 如果比赛日期在七月之前，是上一年开始的赛季
-                    season = match_date[0] - 1
+                if not match_date:
+                    logger.warning("未获取到比赛日期")
                 else:
-                    season = match_date[0]
+                    if match_date[1] < 7:
+                        # 如果比赛日期在七月之前，是上一年开始的赛季
+                        season = match_date[0] - 1
+                    else:
+                        season = match_date[0]
             else:
                 season = int(season_name)
 
@@ -1804,13 +2293,41 @@ class AutoSports(_PluginBase):
                 # 适配种子名里有 '.' 的格式
                 matchup = re.search(r'([A-Za-zÀ-ÿ ]+?)\s*\.?\s*v\.?\s*s\.?\s*\.?\s*([A-Za-zÀ-ÿ ]+?)(?=\s*\||\s+\d|\.|$)', org_str, re.IGNORECASE)
 
-            home_team = re.findall(r'\D+', matchup.group(1))
-            away_team =  re.findall(r'\D+', matchup.group(2))
+            home_team: list[str] = re.findall(r'\D+', matchup.group(1))
+            away_team: list[str] =  re.findall(r'\D+', matchup.group(2))
+
+            # 组装名称中的非法字符排除器
+            illegal_fix = []
+            # 各赛事名
+            for competition_parse in self.__competitions_parses:
+                illegal_fix.extend(competition_parse.get("names"))
+            # 赛事阶段标识
+            illegal_fix.extend(["League Phase"])
+
+            # 处理主队名
             # 去掉多余的前后空格
             home_team = [home_team_str_i.strip() for home_team_str_i in home_team]
+            # 去掉多余的前缀
+            for p in illegal_fix:
+                for i, home_team_str_i in enumerate(home_team):
+                    if home_team_str_i.startswith(p):
+                        home_team[i] = home_team_str_i[len(p):]
+            # 去掉多余的前后空格
+            home_team = [home_team_str_i.strip() for home_team_str_i in home_team]
+
+            # 处理客队名
+            # 去掉多余的前后空格
             away_team = [away_team_str_i.strip() for away_team_str_i in away_team]
+            # 去掉多余的后缀
+            for p in illegal_fix:
+                for i, home_team_str_i in enumerate(home_team):
+                    if home_team_str_i.endswith(p):
+                        home_team[i] = home_team_str_i[:-len(p)]
+            # 去掉多余的前后空格
+            away_team = [away_team_str_i.strip() for away_team_str_i in away_team]
+
             # 去掉长度过短的字符串
-            min_len = 4
+            min_len = 3
             home_team = [home_team_str_i for home_team_str_i in home_team if len(home_team_str_i) >= min_len]
             away_team = [away_team_str_i for away_team_str_i in away_team if len(away_team_str_i) >= min_len]
             logger.info(f"成功匹配到对阵信息：{home_team} vs {away_team}")
@@ -1843,33 +2360,38 @@ class AutoSports(_PluginBase):
                 round_cn_name = f"联赛阶段 第{self.number_to_chinese(round_info)}轮"
                 round_en_name = f"Group Stage Round {round_info}"
             else:
-                # 淘汰赛阶段
-                round_cn_name_list = [
-                    "32强赛 首回合", "32强赛 次回合",
-                    "16强赛 首回合", "16强赛 次回合",
-                    "8强赛 首回合", "8强赛 次回合",
-                    "半决赛 首回合", "半决赛 次回合",
-                    "决赛"
-                ]
-                round_en_name_list = [
-                    "R32 1st Round", "R32 2nd Round",
-                    "R16 1st Round", "R16 2nd Round",
-                    "R8 1st Round", "R8 2nd Round",
-                    "Semi Finals 1st Round", "Semi Finals 2nd Round",
-                    "Final"
-                ]
                 if competition_cn_name == "欧洲冠军联赛":
                     # 欧冠赛制特殊处理
-                    if raw_matchdata['matchday'] == 9:
-                        round_cn_name = f"联赛阶段附加赛 首回合"
-                        round_en_name = f"Play-off 1st Round"
-                    elif raw_matchdata['matchday'] == 10:
-                        round_cn_name = f"联赛阶段附加赛 次回合"
-                        round_en_name = f"Play-off 2nd Round"
-                    else:
-                        round_idx = raw_matchdata['matchday'] - 10 + 2 - 1
-                        round_cn_name = round_cn_name_list[round_idx]
-                        round_en_name = round_en_name_list[round_idx]
+                    # football-data.org stage 字段映射
+                    stage_parse = {
+                        'PLAYOFFS': 0,
+                        'LAST_16': 1,
+                        'LAST_8': 2,
+                        'QUARTER_FINALS': 3,
+                        'SEMI_FINALS': 4,
+                        'FINAL': 5,
+                    }
+                    round_cn_name_list = [
+                        "联赛阶段附加赛 首回合", "联赛阶段附加赛 次回合",
+                        "32强赛 首回合", "32强赛 次回合",
+                        "16强赛 首回合", "16强赛 次回合",
+                        "8强赛 首回合", "8强赛 次回合",
+                        "半决赛 首回合", "半决赛 次回合",
+                        "决赛"
+                    ]
+                    round_en_name_list = [
+                        "联赛阶段附加赛 次回合", "联赛阶段附加赛 次回合",
+                        "R32 1st Round", "R32 2nd Round",
+                        "R16 1st Round", "R16 2nd Round",
+                        "R8 1st Round", "R8 2nd Round",
+                        "Semi Finals 1st Round", "Semi Finals 2nd Round",
+                        "Final"
+                    ]
+                    # 淘汰赛
+                    round_idx = stage_parse.get(raw_matchdata['stage']) * 2 + raw_matchdata.get('matchday', 0) - 1
+                    round_info = 8 + stage_parse.get(raw_matchdata['stage']) * 2 + raw_matchdata.get('matchday', 0)
+                    round_cn_name = round_cn_name_list[round_idx]
+                    round_en_name = round_en_name_list[round_idx]
                 else:
                     round_cn_name = raw_matchdata['round_cn_name']
                     round_en_name = raw_matchdata['round_en_name']
@@ -1892,8 +2414,13 @@ class AutoSports(_PluginBase):
         match_metainfo.begin_episode = round_info
         match_metainfo.begin_season = season
 
-        # 刮削集信息
+        # 解析清晰度信息
+        if any(pix_alia in org_str for pix_alia in ['4k', '4K', '2160p']):
+            match_metainfo.resource_pix = '2160p'
+        elif any(pix_alia in org_str for pix_alia in ['2k', '2K', '1440p']):
+            match_metainfo.resource_pix = '1440p'
 
+        # 刮削集信息
         match_date = raw_matchdata.get('utcDate')
         if match_date:
             match_date_utc = datetime.datetime.fromisoformat(match_date.replace("Z", "+00:00"))
@@ -2268,7 +2795,7 @@ class AutoSports(_PluginBase):
         """
         match_filemeta = MetaInfoPath(Path(filepath))
         if not match_filemeta.name:
-            logger.error(f"{Path(filepath).name} 无法根据文件名识别有效信息")
+            logger.warning(f"{Path(filepath).name} 无法根据文件名识别有效信息")
             return None, None, None
         match_mediainfo: MediaInfo = self.recognize_competition_mediainfo(meta_info=match_filemeta)
         if not match_mediainfo:
@@ -2284,16 +2811,17 @@ class AutoSports(_PluginBase):
 
     def __exists_match(self) -> Dict[str, Dict[int, list]]:
         """
-        判断媒体文件是否存在于文件系统（网盘或本地文件），只支持标准媒体库结构
+        判断比赛文件是否存在于文件系统（网盘或本地文件），只支持标准媒体库结构
         :return: 如不存在返回None，存在时返回信息，包括每季已存在所有集{type: movie/tv, seasons: {season: [episodes]}}
         """
         if not settings.LOCAL_EXISTS_SEARCH:
+            logger.info("MP 全局文件扫描设置未开启，无法进行本地比赛入库检查")
             return {}
 
         logger.info(f"正在转移目录中查找已入库所有比赛的信息...")
 
         # 检索本地所有集数
-        matches: Dict[str, Dict[int, list]] = {}
+        matches: Dict[str, Dict[int, list]] = dict()
         for file_path in SystemUtils.list_files(Path(self.__dest_path), settings.RMT_MEDIAEXT):
             # 刮削已入库比赛的元数据
             file_meta, mediainfo, episode_info = self.__parse_file_metadata(Path(file_path).as_posix(), True)
@@ -2315,11 +2843,21 @@ class AutoSports(_PluginBase):
                 matches[competition_name][season_index] = []
             if episode_index not in matches[competition_name][season_index]:
                 matches[competition_name][season_index].append(episode_index)
-            # 返回剧集情况
 
+        # 返回已入库比赛情况
         if matches:
             for competition_name in matches.keys():
-                logger.info(f"{competition_name} 在本地文件系统中找到了这些季集：{matches[competition_name]}")
+                # 赛季排序
+                matches[competition_name] = {
+                    k: v for k, v in sorted(matches[competition_name].items(), key=lambda item: item[0])
+                }
+                # 比赛轮次排序
+                for season in matches[competition_name].keys():
+                    # 比赛轮次排序
+                    matches[competition_name][season].sort()
+                logger.info(f"{competition_name} 在转移目录中找到了这些赛季/轮次：{matches[competition_name]}")
+        else:
+            logger.info(f"转移目录中未找到任何比赛的任何赛季/轮次")
 
         return matches
 
@@ -2456,25 +2994,13 @@ class AutoSports(_PluginBase):
                                 Path(thumb).unlink()
 
                 if self.__notify:
-                    # 发送消息汇总
-                    matches_list = self.__matches.get(mediainfo.title_year if mediainfo else title) or {}
-                    if matches_list:
-                        match_files = matches_list.get("files") or []
-                        if match_files:
-                            if str(event_path) not in match_files:
-                                match_files.append(str(event_path))
-                        else:
-                            match_files = [str(event_path)]
-                        matches_list = {
-                            "files": match_files,
-                            "time": datetime.datetime.now()
-                        }
-                    else:
-                        matches_list = {
-                            "files": [str(event_path)],
-                            "time": datetime.datetime.now()
-                        }
-                    self.__matches[mediainfo.title_year if mediainfo else title] = matches_list
+                    # 发送消息
+                    # TODO: 发送消息添加缓存机制
+                    # if title not in self.__cached_messages:
+                    self.post_message(mtype=NotificationType.Organize,
+                                  title=f" {title} 已入库",
+                                  text="类别：体育比赛")
+                        # self.__cached_messages.append(title)
         except Exception as e:
             logger.error(f"文件整理/重命名模块运行错误，详细信息: {e}")
             print(str(e))
@@ -2482,7 +3008,7 @@ class AutoSports(_PluginBase):
 
     def __gen_competition_nfo_file(self, dir_path: Path, mediainfo: MediaInfo = None):
         """
-        生成赛事的NFO描述文件
+        生成赛事的 NFO 描述文件
         @param dir_path: 目标目录
         @param mediainfo: 赛事元数据
         """
@@ -2493,15 +3019,16 @@ class AutoSports(_PluginBase):
 
         # 各种信息
         DomUtils.add_node(doc, root, "title", mediainfo.title)
-        DomUtils.add_node(doc, root, "sorttitle", mediainfo.en_title)
+        DomUtils.add_node(doc, root, "sorttitle", mediainfo.en_title or '')
         DomUtils.add_node(doc, root, "status", 'Continuing')
-        DomUtils.add_node(doc, root, "originaltitle", mediainfo.original_name)
-        DomUtils.add_node(doc, root, "year", mediainfo.year)
-        DomUtils.add_node(doc, root, "plot", mediainfo.overview)
+        DomUtils.add_node(doc, root, "originaltitle", mediainfo.original_name or '')
+        DomUtils.add_node(doc, root, "year", mediainfo.year or '')
+        DomUtils.add_node(doc, root, "plot", mediainfo.overview or '')
         DomUtils.add_node(doc, root, "genre", 'Sport')
         DomUtils.add_node(doc, root, "genre", 'Soccer')
-        for production_company in mediainfo.production_companies:
-            DomUtils.add_node(doc, root, "studio", production_company)
+        if mediainfo.production_companies:
+            for production_company in mediainfo.production_companies:
+                DomUtils.add_node(doc, root, "studio", production_company or '')
         # 保存
         self.__save_nfo(doc, dir_path.joinpath(f"tvshow.nfo"))
 
@@ -2509,7 +3036,7 @@ class AutoSports(_PluginBase):
     def __gen_match_nfo_file(self, dir_path: Path, title: str = '', file_meta: MetaBase = None,
                              episode_meta: TmdbEpisode = None):
         """
-        生成单场比赛的NFO描述文件
+        生成单场比赛的 NFO 描述文件
         :param dir_path: 比赛根目录
         """
         # 开始生成XML
@@ -2518,11 +3045,11 @@ class AutoSports(_PluginBase):
         root = DomUtils.add_node(doc, doc, "episodedetails")
 
         # 各种信息
-        DomUtils.add_node(doc, root, "title", file_meta.cn_name)
-        DomUtils.add_node(doc, root, "originaltitle", file_meta.en_name)
-        DomUtils.add_node(doc, root, "season", file_meta.begin_season)
-        DomUtils.add_node(doc, root, "episode", file_meta.begin_episode)
-        DomUtils.add_node(doc, root, "aired", episode_meta.air_date)
+        DomUtils.add_node(doc, root, "title", file_meta.cn_name or '')
+        DomUtils.add_node(doc, root, "originaltitle", file_meta.en_name or '')
+        DomUtils.add_node(doc, root, "season", file_meta.begin_season or '')
+        DomUtils.add_node(doc, root, "episode", file_meta.begin_episode or '')
+        DomUtils.add_node(doc, root, "aired", str(episode_meta.air_date).split(' ')[0] or '')
         # 保存
         self.__save_nfo(doc, dir_path.joinpath(f"{title}.nfo"))
 
@@ -2672,6 +3199,27 @@ class AutoSports(_PluginBase):
             config["size_range"] = None
             return False
         return True
+
+
+    def __initialize_competition_config(self):
+        """
+        整合自定义赛事信息和内置赛事信息
+        @return:
+        """
+        # 重置赛事元数据信息
+        self.__competitions_parses = get_raw_competitions_parse()
+
+        # 自定义赛事信息中去掉以//开始的行
+        selfdefined_competitions_config = re.sub(r'//.*?\n', '', self.__competitions_config).strip()
+        selfdefined_competitions_config = json.loads(selfdefined_competitions_config)
+        for selfdefined_config in selfdefined_competitions_config:
+            if not selfdefined_config:
+                # 自定义配置为空，跳过
+                continue
+            if selfdefined_config.get("homepage"):
+                # 用户自定义了赛事配置
+                selfdefined_config["homepage"] = f"https://{selfdefined_config["homepage"]}"
+            self.__competitions_parses.append(selfdefined_config)
 
 
     @staticmethod
