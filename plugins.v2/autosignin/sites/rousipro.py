@@ -57,10 +57,10 @@ class RousiPro(_ISiteSigninHandler):
             json=body
         )
 
-        if res is not None and res.status_code == 200 and "签到成功" in res.json().get("message", ""):
+        if res is not None and res.status_code == 200 and res.json().get("code", -1) == 0:
             logger.info(f"{site} 签到成功")
             return True, "签到成功"
-        elif res is not None and res.status_code == 400 and res.json().get("error", "") == "今日已签到":
+        elif res is not None and res.status_code == 400 and res.json().get("code", -1) == 1:
             logger.info(f"{site} 今日已签到")
             return True, "今日已签到"
         elif res is not None and res.status_code == 401:
@@ -100,7 +100,7 @@ class RousiPro(_ISiteSigninHandler):
             url="https://rousi.pro/api/points/attendance/stats"
         )
 
-        if res is not None and res.status_code == 200 and "attended_dates" in res.json():
+        if res is not None and res.status_code == 200 and res.json().get("code", -1) == 0:
             logger.info(f"{site} 模拟登录成功")
             return True, "模拟登录成功"
         elif res is not None and res.status_code == 401:
