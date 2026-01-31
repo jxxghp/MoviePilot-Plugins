@@ -28,6 +28,7 @@ from app.chain.download import DownloadChain
 from app.chain.media import MediaChain
 from app.chain.search import SearchChain
 from app.chain.subscribe import SubscribeChain
+from app.core.cache import TTLCache
 from app.core.config import settings
 from app.core.context import MediaInfo, TorrentInfo, Context
 from app.core.event import eventmanager, Event
@@ -354,7 +355,7 @@ class AutoSports(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -402,6 +403,7 @@ class AutoSports(_PluginBase):
     __competitions_config = get_demo_competitions_config()  # 自定义赛事信息
     # 订阅缓存信息
     __cached_matches = {}
+    __system_cache = None  # 系统缓存，默认12小时过期
 
     # 赛事刮削信息
     # 自定义映射关系
@@ -433,6 +435,7 @@ class AutoSports(_PluginBase):
 
     def __init__(self):
         super().__init__()
+
 
     @property
     def __downloader(self) -> Optional[Union[Qbittorrent, Transmission]]:
@@ -616,9 +619,10 @@ class AutoSports(_PluginBase):
         # 添加 SportsCult 站点
         # TODO: 如果已存在该站点，不再添加
         SitesHelper().add_indexer(domain="sportscult.org", indexer=sportscult_json)
+        # 创建缓存实例
+        self.__system_cache = TTLCache(region='autosports', maxsize=128, ttl=43200)
 
-
-        # 配置
+        # 载入配置
         if config:
             self.__validate_and_fix_config(config=config)
             self.__football_apikey = config.get("football_apikey")
@@ -707,6 +711,9 @@ class AutoSports(_PluginBase):
                 else:
                     logger.error(f"{self.__save_path} 启动目录监控失败：{err_msg}")
                 self.systemmessage.put(f"{self.__save_path} 启动目录监控失败：{err_msg}")
+        else:
+            # 未启用插件，关闭目录监控服务
+            self.stop_service()
 
         if self.__onlyonce:
             self.__scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -1450,6 +1457,7 @@ class AutoSports(_PluginBase):
         for history in histories:
             competition_name = history.get("competition_name")
             roundinfo = history.get("roundinfo")
+            round_cn_name = history.get("round_cn_name")
             matchmake = history.get("matchmake")
             time_str = history.get("time")
             contents.append(
@@ -1506,11 +1514,11 @@ class AutoSports(_PluginBase):
                                             'text': competition_name,
                                         },
                                         {
-                                            'component': 'VCardTitle',
+                                            'component': 'VCardText',
                                             'props': {
                                                 'class': 'pa-0 px-2'
                                             },
-                                            'text': f'轮次：{roundinfo}',
+                                            'text': f'轮次：{round_cn_name}',
                                         },
                                         {
                                             'component': 'VCardText',
@@ -1840,10 +1848,10 @@ class AutoSports(_PluginBase):
             if self.__action == "download":
                 if match_metainfo.episode == 'E00':
                     logger.warning(f"种子 {torrentinfo.title} 未识别到轮次，将以暂停状态添加该种")
-                    is_existed, torrent_hash = self.__download(torrentinfo, True)
+                    is_existed, torrent_hash = self.__download(torrentinfo, True, metainfo=match_metainfo)
                 # 添加下载
                 else:
-                    is_existed, torrent_hash = self.__download(torrentinfo, self.__start_paused)
+                    is_existed, torrent_hash = self.__download(torrentinfo, self.__start_paused, metainfo=match_metainfo)
                 if not torrent_hash:
                     logger.warning(f'{title} 下载失败')
                     processed_num += 1
@@ -1854,17 +1862,25 @@ class AutoSports(_PluginBase):
                         "torrent_title": torrentinfo.title,
                         "competition_name": match_metainfo.title,
                         "roundinfo": match_metainfo.season_episode,
+                        "round_cn_name": match_metainfo.cn_name.split(' - ')[0] + ' - ' + match_metainfo.cn_name.split(' - ')[1],
                         "matchmake": match_metainfo.subtitle,
                         "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     })
                     processed_num += 1
                 else:
                     logger.info(f'{title} 下载成功，种子 HASH 值为：{torrent_hash}')
+                    # 发送消息
+                    self.post_message(mtype=NotificationType.Download,
+                                      title=f"体育比赛种子【{title}】已开始下载",
+                                      text=f"赛事：{match_mediainfo.title}\n"
+                                           f"轮次: {match_metainfo.cn_name.split(' - ')[0] + ' - ' + match_metainfo.cn_name.split(' - ')[1]}\n"
+                                           f"对阵: {match_metainfo.subtitle}")
                     # 存储历史记录
                     history.append({
                         "torrent_title": torrentinfo.title,
                         "competition_name": match_metainfo.title,
                         "roundinfo": match_metainfo.season_episode,
+                        "round_cn_name": match_metainfo.cn_name.split(' - ')[0] + ' - ' + match_metainfo.cn_name.split(' - ')[1],
                         "matchmake": match_metainfo.subtitle,
                         "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     })
@@ -1925,6 +1941,25 @@ class AutoSports(_PluginBase):
         metainfo: MetaVideo = None
         language: str = None
         pix: int = 0
+
+
+    def process_data(self, key: str = '', value = None):
+        """
+        使用系统级缓存处理事件
+        @param key: 要保存到的键
+        @param value: 要保存的值
+        @return: 若查询到，返回查询到的值，否则返回空
+        """
+        # 检查缓存
+        if key in self.__system_cache:
+            # 若有值则返回查询到的值
+            return self.__system_cache[key]
+        # 如果对应key且未传入任何要缓存的value，则返回空
+        if not value:
+            return None
+        # 否则，存储传入的对象
+        self.__system_cache[key] = value
+        return value
 
 
     def event_handler(self, event, source_dir: str, event_path: str):
@@ -2797,6 +2832,17 @@ class AutoSports(_PluginBase):
         if not match_filemeta.name:
             logger.warning(f"{Path(filepath).name} 无法根据文件名识别有效信息")
             return None, None, None
+        # 提取文件名
+        filepath_name = match_filemeta.title
+        if not saved:
+            # 在缓存中查找文件名到种子名的映射关系
+            cache_result = self.process_data(filepath_name)
+            if cache_result:
+                # 如果查询到了任何值，则替换要处理的文件名
+                logger.debug(
+                    f"使用缓存的文件名到种子名映射关系，处理文件：{filepath_name} -> {cache_result}")
+                match_filemeta.org_string = cache_result
+
         match_mediainfo: MediaInfo = self.recognize_competition_mediainfo(meta_info=match_filemeta)
         if not match_mediainfo:
             # 未识别到赛事信息，返回 None
@@ -2997,9 +3043,12 @@ class AutoSports(_PluginBase):
                     # 发送消息
                     # TODO: 发送消息添加缓存机制
                     # if title not in self.__cached_messages:
+                    # 发送消息
                     self.post_message(mtype=NotificationType.Organize,
-                                  title=f" {title} 已入库",
-                                  text="类别：体育比赛")
+                                      title=f"体育比赛【{title}】已入库",
+                                      text=f"赛事：{file_meta.title}\n"
+                                           f"轮次: {file_meta.cn_name.split(' - ')[0] + file_meta.cn_name.split(' - ')[1]}\n"
+                                           f"对阵: {file_meta.subtitle}")
                         # self.__cached_messages.append(title)
         except Exception as e:
             logger.error(f"文件整理/重命名模块运行错误，详细信息: {e}")
@@ -3054,11 +3103,13 @@ class AutoSports(_PluginBase):
         self.__save_nfo(doc, dir_path.joinpath(f"{title}.nfo"))
 
 
-    def __download(self, torrent: TorrentInfo, is_paused: bool) -> tuple[bool, Optional[str]]:
+    def __download(self, torrent: TorrentInfo, is_paused: bool,
+                   metainfo: MetaBase = None) -> tuple[bool, Optional[str]]:
         """
         添加下载任务
         torrent: TorrentInfo 要添加下载的种子的信息
         is_paused: bool 是否以暂停状态添加种子
+        match_title: MetaBase 识别后的比赛元数据
         """
         if not torrent.enclosure:
             logger.error(f"获取下载链接失败：{torrent.title}")
@@ -3110,6 +3161,12 @@ class AutoSports(_PluginBase):
                         if torrent.title in torrent_name:
                             torrent_hash = torrent_data.get("hash")
                             return True, torrent_hash
+                        else:
+                            # 尝试从缓存中找替代名
+                            cached_name = self.process_data(torrent_name)
+                            if cached_name and metainfo.title + ' - ' + metainfo.cn_name == cached_name:
+                                torrent_hash = torrent_data.get("hash")
+                                return True, torrent_hash
 
                 state = downloader.add_torrent(content=torrent_content,
                                            download_dir=download_dir,
@@ -3127,6 +3184,14 @@ class AutoSports(_PluginBase):
                         logger.error(f"{self.__downloaders} 获取种子 Hash 失败")
                         return False, None
                     downloader.remove_torrents_tag([torrent_hash], random_tag)
+                    # 关联种子名和文件名并储存到缓存中
+                    torrent_files = downloader.get_files(torrent_hash)
+                    if len(torrent_files) <= 1:
+                        # 单文件，直接存储种子名-文件名映射关系到缓存中
+                        file_name_str = torrent_files[0].get("name")
+                        file_name = file_name_str.split('/')[-1]
+                        self.process_data(file_name, metainfo.title + ' - ' + metainfo.cn_name)
+                        logger.debug(f"在缓存中成功建立映射关系：{file_name} -> {metainfo.title + ' - ' + metainfo.cn_name}")
                     if is_paused:
                         logger.info("根据设置，添加下载任务后暂停")
                     else:
