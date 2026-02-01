@@ -3,7 +3,7 @@
     "name": "strm整理工具",
     "description": "扫描缺失STRM文件、批量删除STRM、从完整库复制STRM文件及目录结构（V2专属适配）",
     "labels": "STRM、整理、工具",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "icon": "world.png",
     "author": "Daveccx",
     "level": 1,
