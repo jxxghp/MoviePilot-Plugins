@@ -1,6 +1,7 @@
 import os
 import shutil
 import csv
+import threading  # 新增：导入Python标准线程库
 from pathlib import Path
 from typing import List, Tuple, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor
@@ -10,7 +11,7 @@ import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# V2适配：移除无效的app.types导入，保留其他必要导入
+# V2适配：保留必要导入，移除无效的app.types导入
 from app.core.config import settings
 from app.log import logger
 from app.plugins import _PluginBase
@@ -18,11 +19,11 @@ from app.utils.system import SystemUtils
 
 
 class STRMManager(_PluginBase):
-    # 插件基础信息
+    # 插件基础信息（确保与package.v2.json匹配）
     plugin_name = "strm整理工具"
-    plugin_desc = "扫描缺失STRM文件、批量删除STRM、从完整库复制STRM文件及目录结构"
+    plugin_desc = "扫描缺失STRM文件、批量删除STRM、从完整库复制STRM文件及目录结构（V2适配）"
     plugin_icon = "Docker_E.png"
-    plugin_version = "1.0.1"
+    plugin_version = "1.0"
     plugin_author = "Daveccx"
     author_url = "https://github.com/Daveccx/MoviePilot-Plugins"
     plugin_config_prefix = "strmmanager_"
@@ -43,7 +44,8 @@ class STRMManager(_PluginBase):
     _action: str = "scan"
     _meta_exts: tuple = (".jpg", ".png", ".nfo", ".srt", ".ass", ".ssa", ".webp")
     _strm_ext: str = ".strm"
-    _event: SystemUtils.ThreadEvent = SystemUtils.ThreadEvent()
+    # 修复：替换SystemUtils.ThreadEvent为Python标准threading.Event
+    _event: threading.Event = threading.Event()
 
     def init_plugin(self, config: dict = None):
         """初始化插件（读取配置+启动定时任务）"""
@@ -77,7 +79,7 @@ class STRMManager(_PluginBase):
                 except Exception as e:
                     err_msg = f"定时任务启动失败：{str(e)}"
                     logger.error(f"[STRM整理工具] {err_msg}")
-                    # 替换为字符串类型的消息类型
+                    # 兼容写法：字符串指定消息类型
                     self.send_system_message(
                         title="STRM整理工具",
                         content=err_msg,
@@ -93,7 +95,7 @@ class STRMManager(_PluginBase):
                     run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                     name="STRM整理立即任务"
                 )
-                # 关闭一次性开关
+                # 关闭一次性开关并保存配置
                 self._onlyonce = False
                 self.update_config({
                     "onlyonce": False,
@@ -119,7 +121,7 @@ class STRMManager(_PluginBase):
         return self._enabled
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """生成插件配置表单"""
+        """生成插件配置表单（确保Vuetify组件格式正确）"""
         form_config = [
             {
                 'component': 'VForm',
@@ -345,6 +347,7 @@ class STRMManager(_PluginBase):
                 ]
             }
         ]
+        # 表单默认值（确保与配置项匹配）
         default_config = {
             "enabled": False,
             "onlyonce": False,
@@ -361,14 +364,14 @@ class STRMManager(_PluginBase):
 
     def __run_strm_task(self):
         """执行STRM核心任务"""
-        # 前置校验
+        # 前置校验：路径有效性
         if not self._src_root or not Path(self._src_root).exists():
             err_msg = f"当前影视库路径无效：{self._src_root}（路径不存在或无权限）"
             logger.error(f"[STRM整理工具] {err_msg}")
             self.send_system_message(
                 title="STRM整理工具",
                 content=err_msg,
-                type="error"  # 替换为字符串
+                type="error"
             )
             return
 
@@ -387,6 +390,7 @@ class STRMManager(_PluginBase):
                 self.__delete_strm_batch(missing_dirs)
                 logger.info(f"[STRM整理工具] 删除模式执行完成，处理 {len(missing_dirs)} 个目录")
             elif self._action == "copy":
+                # 复制模式前置校验
                 if not self._full_root or not Path(self._full_root).exists():
                     err_msg = f"完整影视库路径无效：{self._full_root}"
                     logger.error(f"[STRM整理工具] {err_msg}")
@@ -412,7 +416,7 @@ class STRMManager(_PluginBase):
             self.send_system_message(
                 title="STRM整理工具",
                 content=f"{self._action}操作完成！\n- 处理目录数：{len(missing_dirs)}\n- 结果文件：{self._csv_file}",
-                type="info"  # 替换为字符串
+                type="info"
             )
         except Exception as e:
             err_msg = f"任务执行失败：{str(e)}"
@@ -424,44 +428,47 @@ class STRMManager(_PluginBase):
             )
 
     def __is_meta_only(self, files: list) -> bool:
-        """判断是否仅包含媒体元文件"""
+        """判断是否仅包含媒体元文件（无STRM/视频）"""
         if not files:
             return False
         return all(f.lower().endswith(self._meta_exts) for f in files)
 
     def __has_strm(self, files: list) -> bool:
-        """判断是否包含STRM文件"""
+        """判断目录是否包含STRM文件"""
         return any(f.lower().endswith(self._strm_ext) for f in files)
 
     def __is_final_media_dir(self, path: str) -> bool:
-        """判断是否为最终媒体目录"""
+        """判断是否为最终媒体目录（无子目录+仅元文件）"""
         try:
             path_obj = Path(path)
             if not path_obj.is_dir():
                 return False
+            # 区分文件和子目录
             files = [f.name for f in path_obj.iterdir() if f.is_file()]
             dirs = [d.name for d in path_obj.iterdir() if d.is_dir()]
+            # 无子目录 + 仅元文件 → 判定为最终媒体目录
             return not dirs and self.__is_meta_only(files)
         except Exception as e:
             logger.debug(f"[STRM整理工具] 判断媒体目录失败 {path}：{str(e)}")
             return False
 
     def __scan_missing_strm(self, root: str) -> list:
-        """扫描缺失STRM的目录"""
+        """扫描所有缺失STRM的最终媒体目录"""
         missing_dirs = []
+        # 遍历目录（跳过符号链接，避免循环）
         for cur, dirs, files in os.walk(root, followlinks=False):
             if self.__is_final_media_dir(cur) and not self.__has_strm(files):
                 missing_dirs.append(cur)
         return missing_dirs
 
     def __delete_strm(self, folder: str):
-        """删除单个目录的STRM文件"""
+        """删除单个目录中的所有STRM文件"""
         try:
             folder_obj = Path(folder)
             for file in folder_obj.iterdir():
                 if file.is_file() and file.name.lower().endswith(self._strm_ext):
                     if not self._dry_run:
-                        file.unlink(missing_ok=True)
+                        file.unlink(missing_ok=True)  # 兼容文件不存在的情况
                         logger.info(f"[STRM整理工具] 删除STRM文件：{file.absolute()}")
                     else:
                         logger.info(f"[STRM整理工具] [Dry-Run] 模拟删除STRM文件：{file.absolute()}")
@@ -469,15 +476,16 @@ class STRMManager(_PluginBase):
             logger.error(f"[STRM整理工具] 删除STRM失败 {folder}：{str(e)}")
 
     def __delete_strm_batch(self, dirs: list):
-        """批量删除STRM文件"""
+        """批量删除STRM文件（多线程）"""
         logger.info(f"[STRM整理工具] 开始批量删除STRM文件，共{len(dirs)}个目录，Dry-Run：{self._dry_run}")
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
             list(pool.map(self.__delete_strm, dirs))
         logger.info("[STRM整理工具] STRM文件批量删除完成")
 
     def __find_in_full_lib(self, target: str) -> Optional[str]:
-        """从完整库查找对应路径"""
+        """从完整库查找与目标目录对应的路径"""
         try:
+            # 计算相对路径 → 拼接完整库路径
             rel_path = os.path.relpath(target, start=self._src_root)
             full_path = os.path.join(self._full_root, rel_path)
             return full_path if Path(full_path).exists() else None
@@ -486,8 +494,9 @@ class STRMManager(_PluginBase):
             return None
 
     def __copy_with_structure(self, src: str):
-        """按结构复制STRM及元文件"""
+        """按相对目录结构复制STRM及元文件到输出路径"""
         try:
+            # 计算相对路径 → 拼接输出路径
             rel_path = os.path.relpath(src, start=self._full_root)
             dst_path = Path(self._out_root) / rel_path
             
@@ -495,19 +504,23 @@ class STRMManager(_PluginBase):
                 logger.info(f"[STRM整理工具] [Dry-Run] 模拟复制：{src} → {dst_path.absolute()}")
                 return
             
+            # 递归创建输出目录
             dst_path.mkdir(parents=True, exist_ok=True)
+            
+            # 复制STRM和元文件（保留文件元数据）
             src_obj = Path(src)
             for file in src_obj.iterdir():
                 if file.is_file() and (file.name.lower().endswith(self._strm_ext) or file.name.lower().endswith(self._meta_exts)):
                     dst_file = dst_path / file.name
-                    if not dst_file.exists():
+                    if not dst_file.exists():  # 跳过已存在的文件
                         shutil.copy2(file, dst_file)
                         logger.info(f"[STRM整理工具] 复制文件：{file.absolute()} → {dst_file.absolute()}")
         except Exception as e:
             logger.error(f"[STRM整理工具] 复制目录失败 {src}：{str(e)}")
 
     def __copy_strm_batch(self, dirs: list):
-        """批量复制STRM文件"""
+        """批量复制STRM及目录结构（多线程）"""
+        # 匹配完整库中的对应目录
         full_lib_dirs = []
         for target_dir in dirs:
             full_dir = self.__find_in_full_lib(target_dir)
@@ -522,9 +535,11 @@ class STRMManager(_PluginBase):
         logger.info("[STRM整理工具] STRM目录批量复制完成")
 
     def __write_csv(self, rows: list):
-        """写入CSV报告"""
+        """将缺失STRM的目录写入CSV报告（保存到插件数据目录）"""
         try:
+            # CSV文件路径（MoviePilot插件数据目录，避免权限问题）
             csv_path = Path(settings.PLUGIN_DATA_PATH) / self._csv_file
+            # 写入CSV（UTF-8 BOM兼容Excel）
             with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(["序号", "缺失STRM的目录路径"])
@@ -535,13 +550,15 @@ class STRMManager(_PluginBase):
             logger.error(f"[STRM整理工具] 写入CSV失败：{str(e)}")
 
     def stop_service(self):
-        """停止插件服务"""
+        """停止插件服务（调度器+线程事件）"""
         if self._scheduler:
-            self._scheduler.shutdown(wait=False)
+            self._scheduler.shutdown(wait=False)  # 非阻塞关闭
             self._scheduler = None
             logger.info("[STRM整理工具] 调度器已停止")
+        # 触发线程退出事件
         self._event.set()
 
+    # 以下为MoviePilot V2插件必需的空实现（确保插件注册成功）
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
         return []
@@ -553,6 +570,7 @@ class STRMManager(_PluginBase):
         return []
 
     def get_service(self) -> List[Dict[str, Any]]:
+        """注册定时任务服务（备用）"""
         if self._enabled and self._cron:
             return [{
                 "id": "STRMManager",
