@@ -1,14 +1,15 @@
 {
   "STRMManager": {
-    "name": "STRM管理工具",
-    "description": "扫描、删除、复制、替换STRM文件",
-    "labels": "工具,文件管理,STRM",
-    "version": "1.0.1",
-    "icon": "mdi-file-document-outline",
+    "name": "STRM文件管理器",
+    "description": "可视化管理STRM文件（扫描/删除/复制/替换）",
+    "labels": "工具,文件管理,STRM,可视化",
+    "version": "1.1.0",
+    "icon": "mdi-file-document-multiple-outline",
     "author": "Daveccx",
     "level": 1,
     "release": true,
     "history": {
+      "v1.1.0": "全UI可视化重构，支持进度展示、日志反馈、二次确认",
       "v1.0.0": "初始版本，修复插件显示问题"
     }
   }
