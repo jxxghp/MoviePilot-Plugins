@@ -1,0 +1,29 @@
+{
+  "type": "page",
+  "title": "STRM 文件管理",
+  "sections": [
+    {
+      "title": "操作区",
+      "fields": [
+        {
+          "type": "text",
+          "key": "MOVIEPILOT_STRM_ROOT",
+          "label": "STRM 根目录"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "扫描缺失 STRM",
+          "action": "api:get:/api/plugins/filemanagerstrm/scan_missing",
+          "output_type": "table",
+          "columns": ["missing_paths"]
+        },
+        {
+          "label": "导出扫描 CSV",
+          "action": "api:get:/api/plugins/filemanagerstrm/download_csv",
+          "output_type": "file"
+        }
+      ]
+    }
+  ]
+}
