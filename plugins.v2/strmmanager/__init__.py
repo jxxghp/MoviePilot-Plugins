@@ -21,7 +21,7 @@ class STRMManager(_PluginBase):
     plugin_version = "1.0.0"
     plugin_author = "Daveccx"
     plugin_config_prefix = "strmmanager"
-    plugin_icon = "Docker_E.png"
+    plugin_icon = "world.png"
     plugin_enabled = False
     plugin_cron = ""
 
