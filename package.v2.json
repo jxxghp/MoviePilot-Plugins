@@ -1,5 +1,4 @@
 {
-  #// 其他V2插件配置...
   "STRMManager": {
     "name": "STRM整理工具",
     "description": "扫描缺失STRM文件、批量删除STRM、从完整库复制STRM文件及目录结构（V2适配）",
