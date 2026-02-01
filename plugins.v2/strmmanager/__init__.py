@@ -18,7 +18,7 @@ class STRMManager(_PluginBase):
     plugin_type = "scheduler"  # 替换原PluginType.Scheduler，用字符串兼容所有版本
     plugin_name = "STRM整理工具"
     plugin_desc = "扫描缺失STRM文件、批量删除STRM、从完整库复制STRM文件及目录结构（V2适配）"
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     plugin_author = "Daveccx"
     plugin_config_prefix = "strmmanager"
     plugin_icon = "world.png"
