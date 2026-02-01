@@ -13,7 +13,7 @@
     "repository": "Daveccx/MoviePilot-Plugins",  // GitHub仓库地址（格式：用户名/仓库名）
     "tag_prefix": "STRMManager_v",               // 标签前缀（和Release标签匹配）
     "history": {
-      "v1.1.3": "支持更新检查，修复UI显示问题",
+      "v1.3.0": "支持更新检查，修复UI显示问题",
       "v1.1.0": "全UI可视化重构"
     }
   }
