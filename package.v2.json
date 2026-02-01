@@ -1,15 +1,13 @@
 {
-  "STRMManager": {
-    "name": "strm整理工具",
-    "description": "扫描缺失STRM文件、批量删除STRM、从完整库复制STRM文件及目录结构（V2适配）",
-    "labels": "工具,STRM,批量处理,V2",
-    "version": "1.0",
-    "icon": "world.png",
-    "author": "Daveccx",
-    "level": 1,
-    "history": {
-      "v1.0": "初始版本，适配MoviePilot V2，支持扫描/删除/复制STRM文件"
-    },
-    "release": true  // 必须为true，否则插件会被隐藏
-  }
+  "id": "strmmanager",
+  "name": "strm整理工具",
+  "description": "扫描缺失STRM文件、批量删除STRM、从完整库复制STRM文件及目录结构",
+  "version": "1.0",
+  "author": "Daveccx",
+  "icon": "world.png",
+  "homepage": "https://github.com/Daveccx/MoviePilot-Plugins",
+  "dependencies": {
+    "pytz": "*"
+  },
+  "entry": "strmmanager.py"
 }
