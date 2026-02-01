@@ -7,10 +7,12 @@
     "icon": "mdi-file-document-multiple-outline",
     "author": "Daveccx",
     "level": 1,
-    "release": true,
+    "release": false,  // 关键：设为false，跳过GitHub Release检查
+    "local": true,     // 关键：标记为本地插件
     "history": {
-      "v1.1.1": "全UI可视化重构，支持进度展示、日志反馈、二次确认",
-      "v1.0.0": "初始版本，修复插件显示问题"
+      "v1.1.3": "本地版本，修复安装失败问题",
+      "v1.1.0": "全UI可视化重构",
+      "v1.0.0": "初始版本"
     }
   }
 }
