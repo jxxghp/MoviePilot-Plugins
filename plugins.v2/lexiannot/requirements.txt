@@ -1,4 +1,0 @@
-pysubs2~=1.8.0
-langdetect~=1.0.9
-pymediainfo~=7.0.1
-spacy~=3.8.11
