@@ -1,17 +1,16 @@
 {
-  "name": "filemanagerstrm",
-  "title": "STRM 文件管理",
-  "description": "扫描缺失 STRM 并从完整库复制目录",
-  "version": "1.0.0",
-  "author": "你的名字",
-  "plugin_icon": "mdi-folder-search",
-  "level": 1,
-  "settings_schema": [
-    {
-      "key": "MOVIEPILOT_STRM_ROOT",
-      "label": "STRM 根目录",
-      "type": "string",
-      "default": ""
-    }
-  ]
+  // 其他V2插件配置...
+  "STRMManager": {
+    "name": "STRM整理工具",
+    "description": "扫描缺失STRM文件、批量删除STRM、从完整库复制STRM文件及目录结构（V2适配）",
+    "labels": "工具,STRM,批量处理,V2",
+    "version": "1.0",
+    "icon": "Docker_E.png",
+    "author": "Daveccx",
+    "level": 1,
+    "history": {
+      "v1.0": "初始版本，适配MoviePilot V2，支持扫描/删除/复制STRM文件"
+    },
+    "release": false
+  }
 }
