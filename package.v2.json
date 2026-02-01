@@ -1,16 +1,15 @@
 {
   "STRMManager": {
-    "name": "strm整理工具",
-    "description": "扫描缺失STRM文件、批量删除STRM、从完整库复制STRM文件及目录结构（V2适配）",
-    "labels": "工具,STRM,批量处理,V2",
-    "version": "1.1",
-    "icon": "Docker_E.png",
+    "name": "STRM管理工具",
+    "description": "扫描、删除、复制、替换STRM文件",
+    "labels": "工具,文件管理,STRM",
+    "version": "1.0.0",
+    "icon": "mdi-file-document-outline",
     "author": "Daveccx",
     "level": 1,
+    "release": true,
     "history": {
-      "v1.0": "初始版本，适配MoviePilot V2，支持扫描/删除/复制STRM文件"
-      "v1.1": "更新一些内容"
-    },
-    "release": true  // 必须为true，否则插件会被隐藏
+      "v1.0.0": "初始版本，修复插件显示问题"
+    }
   }
 }
