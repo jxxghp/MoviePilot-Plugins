@@ -24,7 +24,7 @@ class STRMManager(_PluginBase):
     plugin_name = "strm整理工具"
     plugin_desc = "扫描缺失STRM文件、批量删除STRM、从完整库复制STRM文件及目录结构"
     plugin_icon = "Docker_E.png"
-    plugin_version = "1.3"
+    plugin_version = "1.3.0"
     plugin_author = "Daveccx"
     author_url = "https://github.com/Daveccx/MoviePilot-Plugins"
     plugin_config_prefix = "strmmanager_"
