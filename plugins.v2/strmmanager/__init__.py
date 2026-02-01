@@ -9,25 +9,24 @@ from typing import Optional, List
 from pydantic import Field
 from app.plugins import _PluginBase
 from app.core.config import settings
-from app.schemas.types import PluginType
 from app.utils.cron import CronJob
 from app.utils.system import SystemUtils
 
-# MoviePilot V2 插件核心类（必须继承_PluginBase）
+# MoviePilot V2 插件核心类（移除PluginType依赖，适配所有版本）
 class STRMManager(_PluginBase):
-    # 插件基础信息（与package.v2.json对应）
-    plugin_type = PluginType.Scheduler
+    # 插件基础信息（与package.v2.json对应，移除PluginType，直接用字符串标记类型）
+    plugin_type = "scheduler"  # 替换原PluginType.Scheduler，用字符串兼容所有版本
     plugin_name = "STRM整理工具"
     plugin_desc = "扫描缺失STRM文件、批量删除STRM、从完整库复制STRM文件及目录结构（V2适配）"
     plugin_version = "1.0.0"
     plugin_author = "Daveccx"
     plugin_config_prefix = "strmmanager"
-    plugin_icon = "world.png"
+    plugin_icon = "Docker_E.png"
     plugin_enabled = False
     plugin_cron = ""
 
     # --------------------------
-    # 核心：定义图形化配置字段（关键！没有这个就没有配置界面）
+    # 核心：定义图形化配置字段（保留原功能）
     # --------------------------
     class ConfigModel(_PluginBase.ConfigModel):
         # 基础开关
@@ -53,7 +52,7 @@ class STRMManager(_PluginBase):
     # 初始化配置
     def init_plugin(self):
         self.init_config()
-        # 注册定时任务
+        # 注册定时任务（保留原逻辑）
         if self.plugin_enabled and self.plugin_cron:
             self.register_cron_job(
                 cron_job=CronJob(
