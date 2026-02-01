@@ -23,6 +23,8 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
      1. 请前往 [football-data.org](https://www.football-data.org/client/register) 获取 API key
      2. 添加球队识别词（根据种子站里常见的球队名和 football-data.org 上的球队名实际结果调整）
         ```
+        Kobenhavn => København
+        UCL Slavia Praha => UCL.Slavia Praha
         Villareal => Villarreal
         Barcelona => FC Barcelona
         FC FC Barcelona => FC Barcelona
