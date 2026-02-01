@@ -22,11 +22,11 @@ class STRMManager(_PluginBase):
     # 插件基础信息（确保与package.v2.json匹配）
     plugin_name = "strm整理工具"
     plugin_desc = "扫描缺失STRM文件、批量删除STRM、从完整库复制STRM文件及目录结构（V2适配）"
-    plugin_icon = "Docker_E.png"
+    plugin_icon = "world.png"
     plugin_version = "1.0"
     plugin_author = "Daveccx"
     author_url = "https://github.com/Daveccx/MoviePilot-Plugins"
-    plugin_config_prefix = "strmmanager_"
+    plugin_config_prefix = "strmmanager_V"
     plugin_order = 99
     user_level = 1
 
