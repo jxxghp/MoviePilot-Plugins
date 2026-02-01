@@ -20,7 +20,7 @@ from app.types import SystemMessageType  # V2的系统消息类型导入路径
 
 class STRMManager(_PluginBase):
     # 插件基础信息（V2新增/调整字段）
-    plugin_name = "STRM整理工具"
+    plugin_name = "strm整理工具"
     plugin_desc = "扫描缺失STRM文件、批量删除STRM、从完整库复制STRM文件及目录结构"
     plugin_icon = "Docker_E.png"
     plugin_version = "1.0"
