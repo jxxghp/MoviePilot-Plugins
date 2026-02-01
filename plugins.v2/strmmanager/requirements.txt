@@ -1,0 +1,2 @@
+# strmmanager/requirements.txt
+croniter>=1.4.1
