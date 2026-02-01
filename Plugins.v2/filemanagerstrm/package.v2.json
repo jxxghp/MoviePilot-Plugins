@@ -1,0 +1,17 @@
+{
+  "name": "filemanagerstrm",
+  "title": "STRM 文件管理",
+  "description": "扫描缺失 STRM 并从完整库复制目录",
+  "version": "1.0.0",
+  "author": "你的名字",
+  "plugin_icon": "mdi-folder-search",
+  "level": 1,
+  "settings_schema": [
+    {
+      "key": "MOVIEPILOT_STRM_ROOT",
+      "label": "STRM 根目录",
+      "type": "string",
+      "default": ""
+    }
+  ]
+}
