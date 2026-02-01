@@ -3,7 +3,7 @@
     "name": "strm整理工具",
     "description": "扫描缺失STRM文件、批量删除STRM、从完整库复制STRM文件及目录结构（V2适配）",
     "labels": "工具,STRM,批量处理,V2",
-    "version": "1.0",
+    "version": "1.0.1",
     "icon": "Docker_E.png",
     "author": "Daveccx",
     "level": 1,
