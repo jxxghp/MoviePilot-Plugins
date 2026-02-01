@@ -3,7 +3,7 @@
     "name": "STRM管理工具",
     "description": "扫描、删除、复制、替换STRM文件",
     "labels": "工具,文件管理,STRM",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "icon": "mdi-file-document-outline",
     "author": "Daveccx",
     "level": 1,
