@@ -18,7 +18,8 @@ from app.utils.system import SystemUtils
 from app.types import SystemMessageType  # V2的系统消息类型导入路径
 
 
-class strmmanager(_PluginBase):
+# 修复：类名改为大驼峰（PascalCase），符合MoviePilot插件规范
+class STRMManager(_PluginBase):
     # 插件基础信息（V2新增/调整字段）
     plugin_name = "strm整理工具"
     plugin_desc = "扫描缺失STRM文件、批量删除STRM、从完整库复制STRM文件及目录结构"
@@ -73,19 +74,25 @@ class strmmanager(_PluginBase):
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
             
             # 1. 定时任务（配置了cron才启动）
-        if self._cron and self._enabled:
-            logger.info(f"[STRM整理工具] 启动定时任务，周期：{self._cron}")
-            try:
-                self._scheduler.add_job(...)
-            except Exception as e:
-                err_msg = f"定时任务启动失败：{str(e)}"
-                logger.error(f"[STRM整理工具] {err_msg}")
-                # V2系统消息推送（与V1兼容）
-                self.send_system_message(
-                    title="STRM整理工具",
-                    content=err_msg,
-                    type=SystemMessageType.ERROR
-                )
+            # 修复：缩进错误修正，纳入外层if代码块
+            if self._cron and self._enabled:
+                logger.info(f"[STRM整理工具] 启动定时任务，周期：{self._cron}")
+                try:
+                    # 修复：替换占位符...为完整的定时任务参数
+                    self._scheduler.add_job(
+                        func=self.__run_strm_task,
+                        trigger=CronTrigger.from_crontab(self._cron),
+                        name="STRM整理定时任务"
+                    )
+                except Exception as e:
+                    err_msg = f"定时任务启动失败：{str(e)}"
+                    logger.error(f"[STRM整理工具] {err_msg}")
+                    # V2系统消息推送（统一使用send_system_message）
+                    self.send_system_message(
+                        title="STRM整理工具",
+                        content=err_msg,
+                        type=SystemMessageType.ERROR
+                    )
             
             # 2. 立即运行一次（onlyonce=True）
             if self._onlyonce:
@@ -367,33 +374,17 @@ class strmmanager(_PluginBase):
         }
         return form_config, default_config
 
-     def __run_strm_task(self):
+    def __run_strm_task(self):
+        """执行STRM核心任务（修复重复逻辑、统一消息调用）"""
+        # 前置校验：当前影视库路径必须有效
         if not self._src_root or not Path(self._src_root).exists():
-            err_msg = f"当前影视库路径无效：{self._src_root}"
+            err_msg = f"当前影视库路径无效：{self._src_root}（路径不存在或无权限）"
             logger.error(f"[STRM整理工具] {err_msg}")
             self.send_system_message(
                 title="STRM整理工具",
                 content=err_msg,
                 type=SystemMessageType.ERROR
             )
-            return
-        
-        try:
-            # 核心逻辑与V1一致...
-            self.send_system_message(
-                title="STRM整理工具",
-                content=f"{self._action}操作完成！\n- 处理目录数：{len(missing_dirs)}\n- 结果文件：{self._csv_file}",
-                type=SystemMessageType.INFO
-            )
-        except Exception as e:
-            err_msg = f"任务执行失败：{str(e)}"
-            logger.error(f"[STRM整理工具] {err_msg}", exc_info=True)
-            self.send_system_message(
-                title="STRM整理工具",
-                content=err_msg,
-                type=SystemMessageType.ERROR
-            )
-
             return
 
         try:
@@ -415,28 +406,36 @@ class strmmanager(_PluginBase):
                 if not self._full_root or not Path(self._full_root).exists():
                     err_msg = f"完整影视库路径无效：{self._full_root}"
                     logger.error(f"[STRM整理工具] {err_msg}")
-                    self.systemmessage.put(err_msg, "STRM整理工具", SystemMessageType.ERROR)
+                    self.send_system_message(
+                        title="STRM整理工具",
+                        content=err_msg,
+                        type=SystemMessageType.ERROR
+                    )
                     return
                 if not self._out_root:
                     err_msg = "复制输出路径未配置（仅复制模式需填）"
                     logger.error(f"[STRM整理工具] {err_msg}")
-                    self.systemmessage.put(err_msg, "STRM整理工具", SystemMessageType.ERROR)
+                    self.send_system_message(
+                        title="STRM整理工具",
+                        content=err_msg,
+                        type=SystemMessageType.ERROR
+                    )
                     return
                 self.__copy_strm_batch(missing_dirs)
                 logger.info(f"[STRM整理工具] 复制模式执行完成，处理 {len(missing_dirs)} 个目录")
 
             # 任务完成通知
-            self.systemmessage.put(
-                msg=f"{self._action}操作完成！\n- 处理目录数：{len(missing_dirs)}\n- 结果文件：{self._csv_file}",
+            self.send_system_message(
                 title="STRM整理工具",
+                content=f"{self._action}操作完成！\n- 处理目录数：{len(missing_dirs)}\n- 结果文件：{self._csv_file}",
                 type=SystemMessageType.INFO
             )
         except Exception as e:
             err_msg = f"任务执行失败：{str(e)}"
             logger.error(f"[STRM整理工具] {err_msg}", exc_info=True)
-            self.systemmessage.put(
-                msg=err_msg,
+            self.send_system_message(
                 title="STRM整理工具",
+                content=err_msg,
                 type=SystemMessageType.ERROR
             )
 
