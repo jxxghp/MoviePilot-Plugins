@@ -1,4 +1,0 @@
-iso639~=0.1.4
-srt~=3.5.3
-python-dotenv~=1.0.1
-faster-whisper~=1.0.1
