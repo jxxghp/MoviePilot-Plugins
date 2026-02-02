@@ -20,7 +20,7 @@ class StrmOrganizer(_PluginBase):
 
     plugin_name = "STRM 整理工具"
     plugin_desc = "扫描、删除、复制 STRM 文件（V2）"
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.6"
     plugin_author = "Daveccx"
     plugin_icon = "mdi-folder-refresh"
 
