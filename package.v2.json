@@ -2,7 +2,7 @@
   "name": "STRM Organizer Plugins",
   "description": "STRM 文件整理插件仓库（MoviePilot V2）",
   "author": "Daveccx",
-  "version": "1.0.0",
+  "version": "1.0.6",
   "plugins": [
     {
       "id": "StrmOrganizer",
