@@ -10,6 +10,5 @@
     "history": {
       "v1.0.1": "初始版本，适配MoviePilot V2，支持扫描/删除/复制STRM文件"
     },
-    "release": true  // 必须为true，否则插件会被隐藏
-  }
+    "release": true 
 }
