@@ -13,7 +13,7 @@
       "level": 1,
       "tags": ["STRM", "媒体整理", "工具"],
       "history": {
-        "v1.0.0": "首次发布，支持 scan / delete / copy，CSV 报告、定时任务、Dry-Run"
+        "v1.0.0": "首次发布，支持 scan / delete / copy，CSV 报告、定时任务、Dry-Run",
         "v1.0.6": "测试"
       }
     }
