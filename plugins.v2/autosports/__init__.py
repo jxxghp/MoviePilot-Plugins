@@ -355,7 +355,7 @@ class AutoSports(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -424,6 +424,21 @@ class AutoSports(_PluginBase):
 
         # Round of 32
         r"\br32\b|\bround\s+of\s+32\b": 32,
+
+        # Final
+        r"\b决赛\b": 2,
+
+        # Semi Final
+        r"\b半决赛\b": 4,
+
+        # Quarter Final
+        r"\b八强赛\b": 8,
+
+        # Round of 16
+        r"\b十六强赛\b": 16,
+
+        # Round of 32
+        r"\b三十二强赛\b": 32,
     }
 
     downloadchain: DownloadChain = None
@@ -3193,9 +3208,9 @@ class AutoSports(_PluginBase):
                         self.process_data(file_name, metainfo.title + ' - ' + metainfo.cn_name)
                         logger.debug(f"在缓存中成功建立映射关系：{file_name} -> {metainfo.title + ' - ' + metainfo.cn_name}")
                     if is_paused:
-                        logger.info("根据设置，添加下载任务后暂停")
+                        logger.info("根据设置，添加下载任务后即刻暂停")
                     else:
-                        logger.info("根据设置，添加下载任务后开始")
+                        logger.info("根据设置，添加下载任务后即刻开始")
                     return False, torrent_hash
             return False, None
 
