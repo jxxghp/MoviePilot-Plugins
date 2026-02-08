@@ -613,5 +613,17 @@
       "v1.4.2": "适配MoviePilot v2.8.8+",
       "v1.4.1": "MoviePilot V2 版本登录壁纸本地化插件"
     }
+  },
+  "DailySummary": {
+    "name": "活动总结",
+    "description": "定时发送每日/每周/每月活动总结通知，支持自定义报告模块、历史记录查看",
+    "labels": "通知",
+    "version": "2.0.0",
+    "icon": "Bark_A.png",
+    "author": "yuhoye",
+    "level": 1,
+    "history": {
+      "v2.0.0": "首次发布：可配置报告模块、历史记录页面、下载器通用化、存储路径可配置"
+    }
   }
 }
