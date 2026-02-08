@@ -339,75 +339,91 @@ class DailySummary(_PluginBase):
 
     # ─── 历史记录页面 ───
 
-    def get_page(self) -> Optional[List[dict]]:
+    def get_page(self) -> List[dict]:
         history = self.get_data("history") or []
+
+        if not history:
+            return [
+                {
+                    'component': 'div',
+                    'text': '暂无数据',
+                    'props': {
+                        'class': 'text-center',
+                    }
+                }
+            ]
 
         daily_count = sum(1 for r in history if r.get("type") == "daily")
         weekly_count = sum(1 for r in history if r.get("type") == "weekly")
         monthly_count = sum(1 for r in history if r.get("type") == "monthly")
 
+        # 表格数据
+        items = [
+            {
+                'time': r.get('time', ''),
+                'type_label': {'daily': '日报', 'weekly': '周报', 'monthly': '月报'}.get(r.get('type'), ''),
+                'title': r.get('title', ''),
+                'preview': (r.get('text', '')[:80] + '...') if len(r.get('text', '')) > 80 else r.get('text', ''),
+            }
+            for r in reversed(history)
+        ]
+
         return [
-            # 统计卡片
             {
-                "component": "VRow",
-                "content": [
-                    self._stat_card("📊 日报", f"{daily_count} 份"),
-                    self._stat_card("📈 周报", f"{weekly_count} 份"),
-                    self._stat_card("📅 月报", f"{monthly_count} 份"),
-                ],
-            },
-            # 历史记录表格
-            {
-                "component": "VRow",
-                "content": [
+                'component': 'VRow',
+                'content': [
+                    # 统计卡片
+                    self._stat_card('📊 日报', f'{daily_count} 份'),
+                    self._stat_card('📈 周报', f'{weekly_count} 份'),
+                    self._stat_card('📅 月报', f'{monthly_count} 份'),
+                    # 历史记录表格
                     {
-                        "component": "VCol",
-                        "props": {"cols": 12},
-                        "content": [
+                        'component': 'VCol',
+                        'props': {'cols': 12, 'class': 'd-none d-sm-block'},
+                        'content': [
                             {
-                                "component": "VDataTableVirtual",
-                                "props": {
-                                    "headers": [
-                                        {"title": "时间", "key": "time", "sortable": True, "width": "160px"},
-                                        {"title": "类型", "key": "type_label", "sortable": True, "width": "80px"},
-                                        {"title": "标题", "key": "title", "sortable": False},
-                                        {"title": "预览", "key": "preview", "sortable": False},
+                                'component': 'VDataTableVirtual',
+                                'props': {
+                                    'class': 'text-sm',
+                                    'headers': [
+                                        {'title': '时间', 'key': 'time', 'sortable': True},
+                                        {'title': '类型', 'key': 'type_label', 'sortable': True},
+                                        {'title': '标题', 'key': 'title', 'sortable': False},
+                                        {'title': '预览', 'key': 'preview', 'sortable': False},
                                     ],
-                                    "items": [
-                                        {
-                                            "time": r.get("time", ""),
-                                            "type_label": {"daily": "日报", "weekly": "周报", "monthly": "月报"}.get(r.get("type"), ""),
-                                            "title": r.get("title", ""),
-                                            "preview": (r.get("text", "")[:80] + "...") if len(r.get("text", "")) > 80 else r.get("text", ""),
-                                        }
-                                        for r in reversed(history)
-                                    ],
-                                    "height": 400,
-                                    "fixed-header": True,
-                                    "density": "compact",
-                                    "hover": True,
+                                    'items': items,
+                                    'height': '30rem',
+                                    'density': 'compact',
+                                    'fixed-header': True,
+                                    'hide-no-data': True,
+                                    'hover': True,
                                 },
                             }
                         ],
-                    }
+                    },
                 ],
-            },
+            }
         ]
 
     @staticmethod
     def _stat_card(title: str, value: str) -> dict:
         return {
-            "component": "VCol",
-            "props": {"cols": 12, "md": 4},
-            "content": [{
-                "component": "VCard",
-                "props": {"variant": "tonal"},
-                "content": [{
-                    "component": "VCardText",
-                    "props": {"class": "text-center"},
-                    "content": [
-                        {"component": "div", "props": {"class": "text-subtitle-2"}, "text": title},
-                        {"component": "div", "props": {"class": "text-h5 mt-1"}, "text": value},
+            'component': 'VCol',
+            'props': {'cols': 6, 'md': 4},
+            'content': [{
+                'component': 'VCard',
+                'props': {'variant': 'tonal'},
+                'content': [{
+                    'component': 'VCardText',
+                    'props': {'class': 'd-flex align-center'},
+                    'content': [
+                        {
+                            'component': 'div',
+                            'content': [
+                                {'component': 'span', 'props': {'class': 'text-subtitle-2'}, 'text': title},
+                                {'component': 'div', 'props': {'class': 'text-h6'}, 'text': value},
+                            ],
+                        },
                     ],
                 }],
             }],
