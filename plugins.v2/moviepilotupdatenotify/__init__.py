@@ -23,7 +23,7 @@ class MoviePilotUpdateNotify(_PluginBase):
     # 插件图标
     plugin_icon = "Moviepilot_A.png"
     # 插件版本
-    plugin_version = "2.3"
+    plugin_version = "2.3.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -83,7 +83,7 @@ class MoviePilotUpdateNotify(_PluginBase):
 
         # 本地版本
         local_version = SystemChain().get_server_local_version()
-        if local_version and release_version <= local_version:
+        if local_version and list(map(int, re.findall(r'\d+', release_version))) <= list(map(int, re.findall(r'\d+', local_version))):
             logger.info(f"当前后端版本：{local_version} 远程版本：{release_version} 停止运行")
             return False
 
@@ -108,7 +108,7 @@ class MoviePilotUpdateNotify(_PluginBase):
 
         # 本地版本
         local_version = SystemChain().get_frontend_version()
-        if local_version and release_version <= local_version:
+        if local_version and list(map(int, re.findall(r'\d+', release_version))) <= list(map(int, re.findall(r'\d+', local_version))):
             logger.info(f"当前前端版本：{local_version} 远程版本：{release_version} 停止运行")
             return False
 

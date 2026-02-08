@@ -385,11 +385,12 @@
     "name": "MoviePilot更新推送",
     "description": "MoviePilot推送release更新通知、自动重启。",
     "labels": "消息通知,自动更新",
-    "version": "2.3",
+    "version": "2.3.1",
     "icon": "Moviepilot_A.png",
     "author": "thsrite",
     "level": 1,
     "history": {
+      "v2.3.1": "修复版本号比较逻辑",
       "v2.3": "修复版本描述为空时的报错",
       "v2.2": "支持 MoviePilot v2.5.0+",
       "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
