@@ -342,22 +342,33 @@ class DailySummary(_PluginBase):
     def get_page(self) -> List[dict]:
         history = self.get_data("history") or []
 
+        # 模块配置摘要
+        def _module_names(modules):
+            return "、".join(MODULES.get(m, m) for m in (modules or []))
+
+        config_cards = [
+            self._config_card('📊 日报模块', _module_names(self._daily_modules), self._daily_cron),
+            self._config_card('📈 周报模块', _module_names(self._weekly_modules), self._weekly_cron),
+            self._config_card('📅 月报模块', _module_names(self._monthly_modules), self._monthly_cron),
+        ]
+
         if not history:
             return [
                 {
+                    'component': 'VRow',
+                    'content': config_cards,
+                },
+                {
                     'component': 'div',
-                    'text': '暂无数据',
-                    'props': {
-                        'class': 'text-center',
-                    }
-                }
+                    'text': '暂无发送记录',
+                    'props': {'class': 'text-center mt-4'},
+                },
             ]
 
         daily_count = sum(1 for r in history if r.get("type") == "daily")
         weekly_count = sum(1 for r in history if r.get("type") == "weekly")
         monthly_count = sum(1 for r in history if r.get("type") == "monthly")
 
-        # 表格数据
         items = [
             {
                 'time': r.get('time', ''),
@@ -371,11 +382,11 @@ class DailySummary(_PluginBase):
         return [
             {
                 'component': 'VRow',
-                'content': [
-                    # 统计卡片
-                    self._stat_card('📊 日报', f'{daily_count} 份'),
-                    self._stat_card('📈 周报', f'{weekly_count} 份'),
-                    self._stat_card('📅 月报', f'{monthly_count} 份'),
+                'content': config_cards + [
+                    # 发送统计
+                    self._stat_card('日报', f'{daily_count} 份'),
+                    self._stat_card('周报', f'{weekly_count} 份'),
+                    self._stat_card('月报', f'{monthly_count} 份'),
                     # 历史记录表格
                     {
                         'component': 'VCol',
@@ -406,24 +417,37 @@ class DailySummary(_PluginBase):
         ]
 
     @staticmethod
-    def _stat_card(title: str, value: str) -> dict:
+    def _config_card(title: str, modules_text: str, cron: str) -> dict:
         return {
             'component': 'VCol',
-            'props': {'cols': 6, 'md': 4},
+            'props': {'cols': 12, 'md': 4},
             'content': [{
                 'component': 'VCard',
                 'props': {'variant': 'tonal'},
                 'content': [{
                     'component': 'VCardText',
-                    'props': {'class': 'd-flex align-center'},
                     'content': [
-                        {
-                            'component': 'div',
-                            'content': [
-                                {'component': 'span', 'props': {'class': 'text-subtitle-2'}, 'text': title},
-                                {'component': 'div', 'props': {'class': 'text-h6'}, 'text': value},
-                            ],
-                        },
+                        {'component': 'div', 'props': {'class': 'text-subtitle-2 mb-1'}, 'text': f'{title}  ⏰ {cron}'},
+                        {'component': 'span', 'props': {'class': 'text-caption'}, 'text': modules_text},
+                    ],
+                }],
+            }],
+        }
+
+    @staticmethod
+    def _stat_card(title: str, value: str) -> dict:
+        return {
+            'component': 'VCol',
+            'props': {'cols': 4, 'md': 4},
+            'content': [{
+                'component': 'VCard',
+                'props': {'variant': 'tonal'},
+                'content': [{
+                    'component': 'VCardText',
+                    'props': {'class': 'text-center pa-2'},
+                    'content': [
+                        {'component': 'div', 'props': {'class': 'text-caption'}, 'text': title},
+                        {'component': 'div', 'props': {'class': 'text-h6'}, 'text': value},
                     ],
                 }],
             }],
