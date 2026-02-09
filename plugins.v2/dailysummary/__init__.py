@@ -108,6 +108,9 @@ class DailySummary(_PluginBase):
             self._signin_plugin_id = config.get("signin_plugin_id", "AutoSignIn")
             self._brush_plugin_ids = config.get("brush_plugin_ids", "BrushFlow")
             self._storage_paths = config.get("storage_paths", "")
+            # 旧版本配置缺少新字段时，回写完整配置让前端能读到默认值
+            if "daily_modules" not in config:
+                self._save_config()
         else:
             self._daily_modules = DEFAULT_DAILY_MODULES
             self._weekly_modules = DEFAULT_WEEKLY_MODULES
