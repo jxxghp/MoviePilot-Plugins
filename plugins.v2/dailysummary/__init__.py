@@ -89,10 +89,6 @@ class DailySummary(_PluginBase):
     _weekly_modules: list = None
     _monthly_modules: list = None
 
-    _signin_plugin_id: str = "AutoSignIn"
-    _brush_plugin_ids: str = "BrushFlow"
-    _storage_paths: str = ""
-
     def init_plugin(self, config: dict = None):
         if config:
             self._enabled = config.get("enabled", False)
@@ -105,9 +101,6 @@ class DailySummary(_PluginBase):
             self._daily_modules = config.get("daily_modules") or DEFAULT_DAILY_MODULES
             self._weekly_modules = config.get("weekly_modules") or DEFAULT_WEEKLY_MODULES
             self._monthly_modules = config.get("monthly_modules") or DEFAULT_MONTHLY_MODULES
-            self._signin_plugin_id = config.get("signin_plugin_id", "AutoSignIn")
-            self._brush_plugin_ids = config.get("brush_plugin_ids", "BrushFlow")
-            self._storage_paths = config.get("storage_paths", "")
         else:
             self._daily_modules = DEFAULT_DAILY_MODULES
             self._weekly_modules = DEFAULT_WEEKLY_MODULES
@@ -143,9 +136,6 @@ class DailySummary(_PluginBase):
             "daily_modules": self._daily_modules,
             "weekly_modules": self._weekly_modules,
             "monthly_modules": self._monthly_modules,
-            "signin_plugin_id": self._signin_plugin_id,
-            "brush_plugin_ids": self._brush_plugin_ids,
-            "storage_paths": self._storage_paths,
         })
 
     def get_state(self) -> bool:
@@ -214,109 +204,58 @@ class DailySummary(_PluginBase):
             {
                 "component": "VForm",
                 "content": [
+                    # ── 基本设置（VTabs 外面，避免弹出菜单被裁剪） ──
                     {
-                        "component": "VTabs",
-                        "props": {"model": "_tab", "style": "margin-top: -18px; margin-bottom: 12px;"},
-                        "content": [
-                            {"component": "VTab", "props": {"value": "basic"}, "text": "基本设置"},
-                            {"component": "VTab", "props": {"value": "modules"}, "text": "报告内容"},
-                            {"component": "VTab", "props": {"value": "advanced"}, "text": "高级设置"},
+                        'component': 'VRow',
+                        'content': [
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3},
+                             'content': [{'component': 'VSwitch', 'props': {'model': 'enabled', 'label': '启用插件'}}]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3},
+                             'content': [{'component': 'VSwitch', 'props': {'model': 'notify', 'label': '发送通知'}}]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3},
+                             'content': [{'component': 'VSwitch', 'props': {'model': 'onlyonce', 'label': '立即测试一次'}}]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3},
+                             'content': [{'component': 'VSelect', 'props': {'model': 'test_type', 'label': '测试类型', 'items': test_options}}]},
                         ],
                     },
                     {
-                        "component": "VWindow",
-                        "props": {"model": "_tab"},
+                        'component': 'VRow',
+                        'content': [
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                             'content': [{'component': 'VCronField', 'props': {'model': 'daily_cron', 'label': '每日周期', 'placeholder': '5位cron表达式'}}]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                             'content': [{'component': 'VCronField', 'props': {'model': 'weekly_cron', 'label': '每周周期', 'placeholder': '5位cron表达式'}}]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                             'content': [{'component': 'VCronField', 'props': {'model': 'monthly_cron', 'label': '每月周期', 'placeholder': '5位cron表达式'}}]},
+                        ],
+                    },
+                    # ── 报告内容 ──
+                    {
+                        "component": "VRow",
+                        "props": {"style": "margin-top: 8px;"},
                         "content": [
-                            # ── Tab 1: 基本设置 ──
-                            {
-                                "component": "VWindowItem",
-                                "props": {"value": "basic"},
-                                "content": [
-                                    {
-                                        "component": "VRow",
-                                        "content": [
-                                            {"component": "VCol", "props": {"cols": 12, "md": 4},
-                                             "content": [{"component": "VSwitch", "props": {"model": "enabled", "label": "启用插件"}}]},
-                                            {"component": "VCol", "props": {"cols": 12, "md": 4},
-                                             "content": [{"component": "VSwitch", "props": {"model": "notify", "label": "发送通知"}}]},
-                                            {"component": "VCol", "props": {"cols": 12, "md": 4},
-                                             "content": [{"component": "VSwitch", "props": {"model": "onlyonce", "label": "立即测试一次"}}]},
-                                        ],
-                                    },
-                                    {
-                                        "component": "VRow",
-                                        "content": [
-                                            {"component": "VCol", "props": {"cols": 12, "md": 3},
-                                             "content": [{"component": "VTextField", "props": {"model": "daily_cron", "label": "每日 Cron"}}]},
-                                            {"component": "VCol", "props": {"cols": 12, "md": 3},
-                                             "content": [{"component": "VTextField", "props": {"model": "weekly_cron", "label": "每周 Cron"}}]},
-                                            {"component": "VCol", "props": {"cols": 12, "md": 3},
-                                             "content": [{"component": "VTextField", "props": {"model": "monthly_cron", "label": "每月 Cron"}}]},
-                                            {"component": "VCol", "props": {"cols": 12, "md": 3},
-                                             "content": [{"component": "VSelect", "props": {"model": "test_type", "label": "测试类型", "items": test_options}}]},
-                                        ],
-                                    },
-                                ],
-                            },
-                            # ── Tab 2: 报告内容 ──
-                            {
-                                "component": "VWindowItem",
-                                "props": {"value": "modules"},
-                                "content": [
-                                    {
-                                        "component": "VRow",
-                                        "content": [
-                                            {"component": "VCol", "props": {"cols": 12},
-                                             "content": [{"component": "VAlert", "props": {"type": "info", "variant": "tonal", "text": "选择各报告中包含的信息模块，模块按选择顺序显示在报告中"}}]},
-                                        ],
-                                    },
-                                    {
-                                        "component": "VRow",
-                                        "content": [
-                                            {"component": "VCol", "props": {"cols": 12, "md": 4},
-                                             "content": [{"component": "VSelect", "props": {
-                                                 "model": "daily_modules", "label": "日报模块",
-                                                 "items": MODULE_OPTIONS, "multiple": True, "chips": True, "closable-chips": True,
-                                             }}]},
-                                            {"component": "VCol", "props": {"cols": 12, "md": 4},
-                                             "content": [{"component": "VSelect", "props": {
-                                                 "model": "weekly_modules", "label": "周报模块",
-                                                 "items": MODULE_OPTIONS, "multiple": True, "chips": True, "closable-chips": True,
-                                             }}]},
-                                            {"component": "VCol", "props": {"cols": 12, "md": 4},
-                                             "content": [{"component": "VSelect", "props": {
-                                                 "model": "monthly_modules", "label": "月报模块",
-                                                 "items": MODULE_OPTIONS, "multiple": True, "chips": True, "closable-chips": True,
-                                             }}]},
-                                        ],
-                                    },
-                                ],
-                            },
-                            # ── Tab 3: 高级设置 ──
-                            {
-                                "component": "VWindowItem",
-                                "props": {"value": "advanced"},
-                                "content": [
-                                    {
-                                        "component": "VRow",
-                                        "content": [
-                                            {"component": "VCol", "props": {"cols": 12},
-                                             "content": [{"component": "VAlert", "props": {"type": "info", "variant": "tonal", "text": "以下为高级配置，一般无需修改"}}]},
-                                        ],
-                                    },
-                                    {
-                                        "component": "VRow",
-                                        "content": [
-                                            {"component": "VCol", "props": {"cols": 12, "md": 4},
-                                             "content": [{"component": "VTextField", "props": {"model": "signin_plugin_id", "label": "签到插件 ID", "placeholder": "AutoSignIn"}}]},
-                                            {"component": "VCol", "props": {"cols": 12, "md": 4},
-                                             "content": [{"component": "VTextField", "props": {"model": "brush_plugin_ids", "label": "刷流插件 ID", "placeholder": "BrushFlow", "hint": "多个用逗号分隔"}}]},
-                                            {"component": "VCol", "props": {"cols": 12, "md": 4},
-                                             "content": [{"component": "VTextField", "props": {"model": "storage_paths", "label": "存储监控路径", "placeholder": "留空自动检测", "hint": "格式: /media:媒体盘,/downloads:下载盘"}}]},
-                                        ],
-                                    },
-                                ],
-                            },
+                            {"component": "VCol", "props": {"cols": 12},
+                             "content": [{"component": "VAlert", "props": {"type": "info", "variant": "tonal", "text": "选择各报告中包含的信息模块，模块按选择顺序显示在报告中"}}]},
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {"component": "VCol", "props": {"cols": 12, "md": 4},
+                             "content": [{"component": "VSelect", "props": {
+                                 "model": "daily_modules", "label": "日报模块",
+                                 "items": MODULE_OPTIONS, "multiple": True, "chips": True, "closable-chips": True,
+                             }}]},
+                            {"component": "VCol", "props": {"cols": 12, "md": 4},
+                             "content": [{"component": "VSelect", "props": {
+                                 "model": "weekly_modules", "label": "周报模块",
+                                 "items": MODULE_OPTIONS, "multiple": True, "chips": True, "closable-chips": True,
+                             }}]},
+                            {"component": "VCol", "props": {"cols": 12, "md": 4},
+                             "content": [{"component": "VSelect", "props": {
+                                 "model": "monthly_modules", "label": "月报模块",
+                                 "items": MODULE_OPTIONS, "multiple": True, "chips": True, "closable-chips": True,
+                             }}]},
                         ],
                     },
                 ],
@@ -332,9 +271,6 @@ class DailySummary(_PluginBase):
             "daily_modules": DEFAULT_DAILY_MODULES,
             "weekly_modules": DEFAULT_WEEKLY_MODULES,
             "monthly_modules": DEFAULT_MONTHLY_MODULES,
-            "signin_plugin_id": "AutoSignIn",
-            "brush_plugin_ids": "BrushFlow",
-            "storage_paths": "",
         }
 
     # ─── 历史记录页面 ───
@@ -342,22 +278,33 @@ class DailySummary(_PluginBase):
     def get_page(self) -> List[dict]:
         history = self.get_data("history") or []
 
+        # 模块配置摘要
+        def _module_names(modules):
+            return "、".join(MODULES.get(m, m) for m in (modules or []))
+
+        config_cards = [
+            self._config_card('📊 日报模块', _module_names(self._daily_modules), self._daily_cron),
+            self._config_card('📈 周报模块', _module_names(self._weekly_modules), self._weekly_cron),
+            self._config_card('📅 月报模块', _module_names(self._monthly_modules), self._monthly_cron),
+        ]
+
         if not history:
             return [
                 {
+                    'component': 'VRow',
+                    'content': config_cards,
+                },
+                {
                     'component': 'div',
-                    'text': '暂无数据',
-                    'props': {
-                        'class': 'text-center',
-                    }
-                }
+                    'text': '暂无发送记录',
+                    'props': {'class': 'text-center mt-4'},
+                },
             ]
 
         daily_count = sum(1 for r in history if r.get("type") == "daily")
         weekly_count = sum(1 for r in history if r.get("type") == "weekly")
         monthly_count = sum(1 for r in history if r.get("type") == "monthly")
 
-        # 表格数据
         items = [
             {
                 'time': r.get('time', ''),
@@ -371,11 +318,11 @@ class DailySummary(_PluginBase):
         return [
             {
                 'component': 'VRow',
-                'content': [
-                    # 统计卡片
-                    self._stat_card('📊 日报', f'{daily_count} 份'),
-                    self._stat_card('📈 周报', f'{weekly_count} 份'),
-                    self._stat_card('📅 月报', f'{monthly_count} 份'),
+                'content': config_cards + [
+                    # 发送统计
+                    self._stat_card('日报', f'{daily_count} 份'),
+                    self._stat_card('周报', f'{weekly_count} 份'),
+                    self._stat_card('月报', f'{monthly_count} 份'),
                     # 历史记录表格
                     {
                         'component': 'VCol',
@@ -406,24 +353,37 @@ class DailySummary(_PluginBase):
         ]
 
     @staticmethod
-    def _stat_card(title: str, value: str) -> dict:
+    def _config_card(title: str, modules_text: str, cron: str) -> dict:
         return {
             'component': 'VCol',
-            'props': {'cols': 6, 'md': 4},
+            'props': {'cols': 12, 'md': 4},
             'content': [{
                 'component': 'VCard',
                 'props': {'variant': 'tonal'},
                 'content': [{
                     'component': 'VCardText',
-                    'props': {'class': 'd-flex align-center'},
                     'content': [
-                        {
-                            'component': 'div',
-                            'content': [
-                                {'component': 'span', 'props': {'class': 'text-subtitle-2'}, 'text': title},
-                                {'component': 'div', 'props': {'class': 'text-h6'}, 'text': value},
-                            ],
-                        },
+                        {'component': 'div', 'props': {'class': 'text-subtitle-2 mb-1'}, 'text': f'{title}  ⏰ {cron}'},
+                        {'component': 'span', 'props': {'class': 'text-caption'}, 'text': modules_text},
+                    ],
+                }],
+            }],
+        }
+
+    @staticmethod
+    def _stat_card(title: str, value: str) -> dict:
+        return {
+            'component': 'VCol',
+            'props': {'cols': 4, 'md': 4},
+            'content': [{
+                'component': 'VCard',
+                'props': {'variant': 'tonal'},
+                'content': [{
+                    'component': 'VCardText',
+                    'props': {'class': 'text-center pa-2'},
+                    'content': [
+                        {'component': 'div', 'props': {'class': 'text-caption'}, 'text': title},
+                        {'component': 'div', 'props': {'class': 'text-h6'}, 'text': value},
                     ],
                 }],
             }],
@@ -477,7 +437,7 @@ class DailySummary(_PluginBase):
                 sections.append(result)
 
         header = self._make_header(report_type, tr)
-        text = header + "\n\n" + "\n\n".join(sections) if sections else header + "\n\n无数据"
+        text = "\n\n".join(sections) if sections else "无数据"
         return header, text
 
     def _calc_time_range(self, report_type: str) -> TimeRange:
@@ -581,7 +541,7 @@ class DailySummary(_PluginBase):
 
     def _section_signin(self, tr: TimeRange) -> str:
         pdo = PluginDataOper()
-        plugin_id = self._signin_plugin_id or "AutoSignIn"
+        plugin_id = "AutoSignIn"
         now = tr.end
         key = f"{now.month}月{now.day}日"
         data = pdo.get_data(plugin_id, key)
@@ -601,7 +561,7 @@ class DailySummary(_PluginBase):
 
     def _section_brush(self, tr: TimeRange) -> str:
         pdo = PluginDataOper()
-        plugin_ids = [pid.strip() for pid in (self._brush_plugin_ids or "BrushFlow").split(",") if pid.strip()]
+        plugin_ids = ["BrushFlow"]
 
         total_uploaded = 0
         total_downloaded = 0
@@ -741,19 +701,7 @@ class DailySummary(_PluginBase):
         return "\n".join(lines) if has_data else None
 
     def _parse_storage_paths(self) -> List[Tuple[str, str]]:
-        """解析用户配置的存储路径，或自动检测 MP 的 LIBRARY_PATH / DOWNLOAD_PATH"""
-        if self._storage_paths:
-            result = []
-            for item in self._storage_paths.split(","):
-                item = item.strip()
-                if ":" in item:
-                    path, label = item.split(":", 1)
-                    result.append((path.strip(), label.strip()))
-                elif item:
-                    result.append((item, item))
-            return result
-
-        # 自动检测
+        """自动检测 MP 的 LIBRARY_PATH / DOWNLOAD_PATH"""
         paths = []
         if hasattr(settings, "LIBRARY_PATH") and settings.LIBRARY_PATH:
             paths.append((settings.LIBRARY_PATH, "媒体库"))
