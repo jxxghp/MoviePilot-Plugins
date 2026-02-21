@@ -355,7 +355,7 @@ class AutoSports(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -2149,17 +2149,17 @@ class AutoSports(_PluginBase):
                 else:
                     # 到了主客场双淘汰赛阶段
                     match["matchday"] = (int(math.log2(single_start_num / double_start_num)) + 1 +
-                                         int(math.log2(double_start_num / team_count)) * 2 + 1)
+                                         int(math.log2(double_start_num / team_count)) * 2)
                     match["round_cn_name"] = f"{self.number_to_chinese(team_count)}强赛"
                     match["round_en_name"] = f"R{self.number_to_chinese(team_count)}"
                     if team_count == 4:
                         # 判断是否为半决赛
                         match["round_cn_name"] = f"半决赛 首回合"
-                        match["round_en_name"] = f"Semi Finals 1st Round"
+                        match["round_en_name"] = f"Semi Finals 1st Leg"
                         if re.search(pattern, r'\b(?:leg\s*(?:2|2nd)|(?:2|2nd)\s*leg)\b', re.IGNORECASE):
                             match["matchday"] += 1
                             match["round_cn_name"] = f"半决赛 次回合"
-                            match["round_en_name"] = f"Semi Finals 2st Round"
+                            match["round_en_name"] = f"Semi Finals 2nd Leg"
                     if team_count == 2:
                         # 决赛
                         match["round_cn_name"] = f"决赛"
@@ -2352,7 +2352,7 @@ class AutoSports(_PluginBase):
             for competition_parse in self.__competitions_parses:
                 illegal_fix.extend(competition_parse.get("names"))
             # 赛事阶段标识
-            illegal_fix.extend(["League Phase"])
+            illegal_fix.extend(["League Phase", "st leg", "st Leg"])
 
             # 处理主队名
             # 去掉多余的前后空格
