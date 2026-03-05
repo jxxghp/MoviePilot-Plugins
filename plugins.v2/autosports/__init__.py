@@ -355,7 +355,7 @@ class AutoSports(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.4"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -2156,7 +2156,7 @@ class AutoSports(_PluginBase):
                         # 判断是否为半决赛
                         match["round_cn_name"] = f"半决赛 首回合"
                         match["round_en_name"] = f"Semi Finals 1st Leg"
-                        if re.search(pattern, r'\b(?:leg\s*(?:2|2nd)|(?:2|2nd)\s*leg)\b', re.IGNORECASE):
+                        if re.search(r'\b(?:leg\s*(?:2|2nd)|(?:2|2nd)\s*leg)\b', match_org_title, re.IGNORECASE):
                             match["matchday"] += 1
                             match["round_cn_name"] = f"半决赛 次回合"
                             match["round_en_name"] = f"Semi Finals 2nd Leg"
@@ -2293,6 +2293,8 @@ class AutoSports(_PluginBase):
                 match_date = self.extract_date(org_str)
                 if not match_date:
                     logger.warning("未获取到比赛日期")
+                    logger.warning("未成功匹配到赛季信息，跳过")
+                    return None, None
                 else:
                     if match_date[1] < 7:
                         # 如果比赛日期在七月之前，是上一年开始的赛季
@@ -2646,6 +2648,10 @@ class AutoSports(_PluginBase):
                 (\d{1,2})\s+(\d{1,2})\s+((?:19|20)\d{2})   # DD MM YYYY
               |
                 (\d{2})\.(\d{2})\.(\d{4})   # DD MM YYYY  
+              |
+                ((?:19|20)\d{2})\s*(\d{1,2})\s*(\d{1,2})   # YYYY MM DD 忽略空格
+              |
+                (\d{1,2})\s*(\d{1,2})\s*((?:19|20)\d{2})   # DD MM YYYY 忽略空格
             )
             \b
             """,
