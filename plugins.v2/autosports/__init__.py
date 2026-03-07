@@ -355,7 +355,7 @@ class AutoSports(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "1.0.4"
+    plugin_version = "1.0.5"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -410,35 +410,35 @@ class AutoSports(_PluginBase):
     __competitions_parses = get_raw_competitions_parse()
 
     knockout_parse = {  # 杯赛 -> 参赛球队数映射表
-        # Final
-        r"\bfinal\b": 2,
-
-        # Semi Final
-        r"\bsemi[\s-]?final\b|\bsf\b": 4,
-
-        # Quarter Final
-        r"\bquarter[\s-]?final\b|\bqf\b": 8,
+        # Round of 32
+        r"\br32\b|\bround\s+of\s+32\b": 32,
 
         # Round of 16
         r"\br16\b|\bround\s+of\s+16\b": 16,
 
-        # Round of 32
-        r"\br32\b|\bround\s+of\s+32\b": 32,
-
-        # Final
-        r"\b决赛\b": 2,
+        # Quarter Final
+        r"\bquarter[\s-]?final\b|\bqf\b": 8,
 
         # Semi Final
-        r"\b半决赛\b": 4,
+        r"\bsemi[\s-]?final\b|\bsf\b": 4,
 
-        # Quarter Final
-        r"\b八强赛\b": 8,
+        # Final
+        r"\bfinal\b": 2,
+
+        # Round of 32
+        r"\b三十二强赛\b": 32,
 
         # Round of 16
         r"\b十六强赛\b": 16,
 
-        # Round of 32
-        r"\b三十二强赛\b": 32,
+        # Quarter Final
+        r"\b八强赛\b": 8,
+
+        # Semi Final
+        r"\b半决赛\b": 4,
+
+        # Final
+        r"\b决赛\b": 2,
     }
 
     downloadchain: DownloadChain = None
@@ -1777,14 +1777,19 @@ class AutoSports(_PluginBase):
                 if not title or title in [h.get("torrent_title") for h in history]:
                     logger.info("已处理过该种子，请清除记录后重试")
                     continue
+                # 默认排除篮球等其它比赛的关键词
+                not_football = ['basketball', 'baseball', 'hockey']
+                if any (x in f'{title.lower()} {description.lower()}' for x in not_football):
+                    logger.info(f"该种子不是足球比赛，跳过")
+                    continue
                 # 检查规则
                 if self.__include and not re.search(r"%s" % self.__include,
                                                     f"{title} {description}", re.IGNORECASE):
-                    logger.info(f"该种子不符合包含规则")
+                    logger.info(f"该种子不符合包含规则，跳过")
                     continue
                 if self.__exclude and re.search(r"%s" % self.__exclude,
                                                 f"{title} {description}", re.IGNORECASE):
-                    logger.info(f"该种子不符合排除规则")
+                    logger.info(f"该种子不符合排除规则，跳过")
                     continue
                 if self.__size_range:
                     sizes = [float(_size) * 1024 ** 3 for _size in self.__size_range.split("-")]
@@ -2151,7 +2156,7 @@ class AutoSports(_PluginBase):
                     match["matchday"] = (int(math.log2(single_start_num / double_start_num)) + 1 +
                                          int(math.log2(double_start_num / team_count)) * 2)
                     match["round_cn_name"] = f"{self.number_to_chinese(team_count)}强赛"
-                    match["round_en_name"] = f"R{self.number_to_chinese(team_count)}"
+                    match["round_en_name"] = f"R{team_count}"
                     if team_count == 4:
                         # 判断是否为半决赛
                         match["round_cn_name"] = f"半决赛 首回合"
@@ -2164,6 +2169,7 @@ class AutoSports(_PluginBase):
                         # 决赛
                         match["round_cn_name"] = f"决赛"
                         match["round_en_name"] = f"The Final"
+                break
 
         if match["matchday"] == 0:
             logger.warning(f"轮次未识别成功，建议手动修订: {metainfo.title}")
@@ -2344,6 +2350,9 @@ class AutoSports(_PluginBase):
             if not matchup:
                 # 适配种子名里有 '.' 的格式
                 matchup = re.search(r'([A-Za-zÀ-ÿ ]+?)\s*\.?\s*v\.?\s*s\.?\s*\.?\s*([A-Za-zÀ-ÿ ]+?)(?=\s*\||\s+\d|\.|$)', org_str, re.IGNORECASE)
+            if not matchup:
+                # 适配种子名里有 ',' 的格式
+                matchup = re.search(r'([A-Za-zÀ-ÿ ]+?)\s+vs\s+([A-Za-zÀ-ÿ ]+?)(?=\s*\||\s+\d|\.|,|$)', org_str, re.IGNORECASE)
 
             home_team: list[str] = re.findall(r'\D+', matchup.group(1))
             away_team: list[str] =  re.findall(r'\D+', matchup.group(2))
@@ -2940,6 +2949,8 @@ class AutoSports(_PluginBase):
             dest_dir = self.__dest_path
             # 是否重命名
             rename_conf = self.__need_rename
+
+            logger.info(f'检测到文件变更，开始处理文件：{Path(event_path).name}')
 
             file_meta, mediainfo, episode_info = self.__parse_file_metadata(event_path)
             if not file_meta or not mediainfo or not episode_info:
