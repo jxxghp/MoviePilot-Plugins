@@ -2,6 +2,7 @@ import asyncio
 import base64
 import ipaddress
 import json
+import re
 import socket
 import time
 from datetime import datetime, timedelta
@@ -62,7 +63,7 @@ class ToBypassTrackers(_PluginBase):
     # 插件图标
     plugin_icon = "Clash_A.png"
     # 插件版本
-    plugin_version = "1.5.2"
+    plugin_version = "1.5.3"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -715,7 +716,7 @@ class ToBypassTrackers(_PluginBase):
         tracker_file = Path(self.get_data_path() / "trackers.json")
         try:
             if tracker_file.exists():
-                trackers: dict[str, list[str]] = json.loads(tracker_file.read_text())
+                trackers = json.loads(tracker_file.read_text(encoding="utf-8"))
             else:
                 file = settings.ROOT_PATH / 'app' / 'plugins' / self.__class__.__name__.lower() / 'sites' / 'trackers'
                 with open(file, "r", encoding="utf-8") as f:
@@ -724,6 +725,63 @@ class ToBypassTrackers(_PluginBase):
         except Exception as e:
             logger.error(f"trackers 加载错误：{e}")
         return trackers
+
+    @staticmethod
+    def _get_redict_url(url: str, ua: str | None = None, cookie: str | None = None) -> str | None:
+        """
+        获取下载链接， url格式：[base64]url
+        """
+        # 获取[]中的内容
+        m = re.search(r"\[(.*)](.*)", url)
+        if m:
+            # 参数
+            base64_str = m.group(1)
+            # URL
+            url = m.group(2)
+            if not base64_str:
+                return url
+            # 解码参数
+            req_str = base64.b64decode(base64_str.encode('utf-8')).decode('utf-8')
+            req_params: Dict[str, dict] = json.loads(req_str)
+            # 是否使用cookie
+            if not req_params.get('cookie'):
+                cookie = None
+            # 代理
+            proxy = req_params.get('proxy')
+            # 请求头
+            if req_params.get('header'):
+                headers = req_params.get('header')
+            else:
+                headers = None
+            if req_params.get('method') == 'get':
+                # GET请求
+                res = RequestUtils(
+                    ua=ua,
+                    cookies=cookie,
+                    headers=headers,
+                    proxies=settings.PROXY if proxy else None
+                ).get_res(url, params=req_params.get('params'))
+            else:
+                # POST请求
+                res = RequestUtils(
+                    ua=ua,
+                    cookies=cookie,
+                    headers=headers,
+                    proxies=settings.PROXY if proxy else None
+                ).post_res(url, params=req_params.get('params'))
+            if not res:
+                return None
+            if not req_params.get('result'):
+                return res.text
+            else:
+                data = res.json()
+                for key in str(req_params.get('result')).split("."):
+                    data = data.get(key)
+                    if not data:
+                        return None
+                logger.info(f"获取到下载地址：{data}")
+                return data
+        return None
 
     def refresh_trackers(self):
         """更新 Tracker 服务器列表"""
@@ -735,7 +793,14 @@ class ToBypassTrackers(_PluginBase):
             torrents = torrents_chain.browse(domain=site.domain)
             if not torrents:
                 continue
-            torrent_url = torrents[0].enclosure
+            torrent_info = torrents[0]
+            torrent_url = torrent_info.enclosure
+            if torrent_url.startswith('['):
+                torrent_url = ToBypassTrackers._get_redict_url(
+                    url=torrent_url, ua=torrent_info.site_ua, cookie=torrent_info.site_cookie
+                )
+                if torrent_url is None:
+                    continue
             _, content, _, _, error_msg = TorrentHelper().download_torrent(
                 url=torrent_url,
                 cookie=site.cookie,
@@ -748,16 +813,17 @@ class ToBypassTrackers(_PluginBase):
             except BencodeDecodingError as e:
                 logger.error(f"解析 {site.name} 种子文件失败: {e}")
                 continue
-            servers: list[str] = []
-            for urls in torrent.announce_urls:
+            servers: set[str] = set()
+            for urls in torrent.announce_urls or []:
                 for url in urls:
                     parsed = urlparse(url)
                     if parsed.hostname:
-                        servers.append(parsed.hostname)
+                        servers.add(parsed.hostname)
             if servers:
-                trackers[site.domain] = servers
+                trackers[site.domain] = list(servers)
+                logger.info(f"更新 {site.name} trackers -> {trackers[site.domain]}")
         tracker_file = Path(self.get_data_path() / "trackers.json")
-        tracker_file.write_text(json.dumps(trackers, indent=4))
+        tracker_file.write_text(json.dumps(trackers, indent=4), encoding="utf-8")
         logger.info("已更新 Tracker 服务器列表")
 
     def bypassed_ips(self, protocol: Literal['4', '6']) -> Response:
@@ -941,7 +1007,7 @@ class ToBypassTrackers(_PluginBase):
                 for domain in site_domains:
                     domain_name_map[domain] = do_sites[site]
             else:
-                logger.warn(f"不支持的站点: {do_sites[site]}({site})")
+                logger.warn(f"不支持的站点: {do_sites[site]}({site})，请执行一次trackers更新。")
                 unsupported_msg.append(f'【{do_sites[site]}】不支持的站点')
         for custom_tracker in self._custom_trackers.split('\n'):
             if custom_tracker:
