@@ -10418,7 +10418,7 @@ const _sfc_main$d = /* @__PURE__ */ _defineComponent$d({
     async function deleteProxy(name) {
       loading.value = true;
       try {
-        await props.api.delete(`/plugin/ClashRuleProvider/proxies/${name}`);
+        await props.api.delete(`/plugin/ClashRuleProvider/proxies/${encodeURIComponent(name)}`);
         emit("refresh", ["proxies", "clash-outbounds"]);
       } catch (err) {
         if (err instanceof Error) {
