@@ -13,6 +13,7 @@ from typing import Any, List, Dict, Tuple, Optional
 from app.log import logger
 from app.schemas import NotificationType
 from app.utils.http import RequestUtils
+from app.helper.browser import PlaywrightHelper
 
 
 class InvitesSignin(_PluginBase):
@@ -23,7 +24,7 @@ class InvitesSignin(_PluginBase):
     # 插件图标
     plugin_icon = "invites.png"
     # 插件版本
-    plugin_version = "2.0.2"
+    plugin_version = "2.0.3"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -42,8 +43,9 @@ class InvitesSignin(_PluginBase):
     _cookie = None
     _onlyonce = False
     _notify = False
-    # 代理相关
+    # 代理 / 浏览器仿真
     _use_proxy = True  # 是否使用代理，默认启用
+    _use_browser_emulation = False  # 是否启用浏览器仿真（绕过CF防护）
     _history_days = None
     _username = None
     _user_password = None
@@ -54,6 +56,8 @@ class InvitesSignin(_PluginBase):
 
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
+    # 浏览器仿真实例缓存
+    _playwright: Optional[PlaywrightHelper] = None
 
     def init_plugin(self, config: dict = None):
         # 停止现有任务
@@ -66,11 +70,19 @@ class InvitesSignin(_PluginBase):
             self._notify = config.get("notify")
             self._onlyonce = config.get("onlyonce")
             self._use_proxy = config.get("use_proxy", True)
+            self._use_browser_emulation = config.get("use_browser_emulation", False)
             self._history_days = int(config.get("history_days") or 30)
             self._username = config.get("username")
             self._user_password = config.get("user_password")
             self._retry_count = int(config.get("retry_count") or 2)
             self._retry_interval = int(config.get("retry_interval") or 5)
+
+        if self._use_browser_emulation:
+            if not self._playwright:
+                self._playwright = PlaywrightHelper()
+        else:
+            self._playwright = None
+
         if self._onlyonce:
             # 定时服务
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -87,6 +99,7 @@ class InvitesSignin(_PluginBase):
                 "cookie": self._cookie,
                 "notify": self._notify,
                 "use_proxy": self._use_proxy,
+                "use_browser_emulation": self._use_browser_emulation,
                 "history_days": self._history_days,
                 "username": self._username,
                 "user_password": self._user_password,
@@ -98,6 +111,32 @@ class InvitesSignin(_PluginBase):
             if self._scheduler.get_jobs():
                 self._scheduler.print_jobs()
                 self._scheduler.start()
+
+    def _get_page_source(self, url: str, cookies=None) -> Optional[str]:
+        """
+        获取页面HTML源码。
+        若启用浏览器仿真，调用PlaywrightHelper（内部按 settings.BROWSER_EMULATION 使用
+        playwright 或 flaresolverr 引擎）；否则走普通HTTP请求。
+        """
+        proxies = self.__get_proxies()
+        proxy_server = settings.PROXY_SERVER if self._use_proxy else None
+
+        if self._use_browser_emulation:
+            logger.info(f"[浏览器仿真] 使用 {settings.BROWSER_EMULATION} 引擎请求: {url}")
+            if not self._playwright:
+                self._playwright = PlaywrightHelper()
+            return self._playwright.get_page_source(
+                url=url,
+                cookies=cookies,
+                proxies=proxy_server,
+                timeout=60
+            )
+
+        res = RequestUtils(cookies=cookies, proxies=proxies).get_res(url=url)
+        if res and res.status_code == 200:
+            return res.text
+        logger.error(f"普通请求失败: {url}, 状态码: {res.status_code if res else '无响应'}")
+        return None
 
     def __get_proxies(self):
         """
@@ -313,6 +352,7 @@ class InvitesSignin(_PluginBase):
                     "cookie": self._cookie,
                     "notify": self._notify,
                     "use_proxy": self._use_proxy,
+                    "use_browser_emulation": self._use_browser_emulation,
                     "history_days": self._history_days,
                     "username": self._username,
                     "user_password": self._user_password,
@@ -411,14 +451,14 @@ class InvitesSignin(_PluginBase):
             proxies = self.__get_proxies()
             
             # 4. 使用新cookie获取csrfToken和userId
-            res = RequestUtils(cookies=new_cookie, proxies=proxies).get_res(url="https://invites.fun")
-            if not res or res.status_code != 200:
+            page_html = self._get_page_source("https://invites.fun", cookies=new_cookie)
+            if not page_html:
                 logger.error("请求药丸错误")
                 return False
 
             # 获取csrfToken
             pattern = r'"csrfToken":"(.*?)"'
-            csrfToken = re.findall(pattern, res.text)
+            csrfToken = re.findall(pattern, page_html)
             if not csrfToken:
                 logger.error("请求csrfToken失败")
                 return False
@@ -428,7 +468,7 @@ class InvitesSignin(_PluginBase):
 
             # 获取userid
             pattern = r'"userId":(\d+)'
-            match = re.search(pattern, res.text)
+            match = re.search(pattern, page_html)
 
             if match:
                 userId = match.group(1)
@@ -641,6 +681,9 @@ class InvitesSignin(_PluginBase):
                                     {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'notify', 'label': '开启通知', 'color': 'info'}}]},
                                     {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'onlyonce', 'label': '立即运行一次', 'color': 'success'}}]},
                                 ]},
+                                {'component': 'VRow', 'content': [
+                                    {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'use_browser_emulation', 'label': '启用浏览器仿真', 'color': '#009688'}}]},
+                                ]},
                             ]}
                         ]
                     },
@@ -781,7 +824,18 @@ class InvitesSignin(_PluginBase):
                                                     {'component': 'VIcon', 'props': {'color': 'success', 'class': 'mt-1 mr-2'}, 'text': 'mdi-check-circle'},
                                                     {'component': 'div', 'props': {'class': 'text-subtitle-1 font-weight-regular mb-1', 'style': 'color: #444;'}, 'text': '功能特点'}
                                                 ]},
-                                                {'component': 'div', 'props': {'class': 'text-body-2 ml-8'}, 'text': '优先使用填写Cookie进行签到，自动刷新session，如果Cookie签到失败或未设置则尝试进行登陆签到，支持签到历史记录查看。'}
+                                                 {'component': 'div', 'props': {'class': 'text-body-2 ml-8'}, 'text': '优先使用填写Cookie进行签到，自动刷新session，如果Cookie签到失败或未设置则尝试进行登陆签到，支持签到历史记录查看。'}
+                                             ]
+                                         },
+                                         {
+                                             'component': 'VListItem',
+                                             'props': {'lines': 'two'},
+                                             'content': [
+                                                 {'component': 'div', 'props': {'class': 'd-flex align-items-start'}, 'content': [
+                                                     {'component': 'VIcon', 'props': {'color': '#009688', 'class': 'mt-1 mr-2'}, 'text': 'mdi-robot'},
+                                                     {'component': 'div', 'props': {'class': 'text-subtitle-1 font-weight-regular mb-1', 'style': 'color: #444;'}, 'text': '浏览器仿真说明'}
+                                                 ]},
+                                                 {'component': 'div', 'props': {'class': 'text-body-2 ml-8'}, 'text': '开启后将使用系统配置的 Playwright 或 FlareSolverr 引擎获取页面，可绕过 Cloudflare 防护。引擎须在 MoviePilot 系统设置中提前配置。'}
                                             ]
                                         }
                                     ]
@@ -796,6 +850,7 @@ class InvitesSignin(_PluginBase):
             "onlyonce": False,
             "notify": False,
             "use_proxy": True,
+            "use_browser_emulation": False,
             "cookie": "",
             "history_days": 30,
             "cron": "0 9 * * *",
