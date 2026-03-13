@@ -56,6 +56,8 @@ class InvitesSignin(_PluginBase):
 
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
+    # 浏览器仿真实例缓存
+    _playwright: Optional[PlaywrightHelper] = None
 
     def init_plugin(self, config: dict = None):
         # 停止现有任务
@@ -74,6 +76,13 @@ class InvitesSignin(_PluginBase):
             self._user_password = config.get("user_password")
             self._retry_count = int(config.get("retry_count") or 2)
             self._retry_interval = int(config.get("retry_interval") or 5)
+
+        if self._use_browser_emulation:
+            if not self._playwright:
+                self._playwright = PlaywrightHelper()
+        else:
+            self._playwright = None
+
         if self._onlyonce:
             # 定时服务
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -114,7 +123,9 @@ class InvitesSignin(_PluginBase):
 
         if self._use_browser_emulation:
             logger.info(f"[浏览器仿真] 使用 {settings.BROWSER_EMULATION} 引擎请求: {url}")
-            return PlaywrightHelper().get_page_source(
+            if not self._playwright:
+                self._playwright = PlaywrightHelper()
+            return self._playwright.get_page_source(
                 url=url,
                 cookies=cookies,
                 proxies=proxy_server,
