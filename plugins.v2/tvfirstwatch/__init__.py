@@ -19,7 +19,7 @@ from app.core.context import Context, MediaInfo, TorrentInfo
 from app.core.metainfo import MetaInfo
 from app.log import logger
 from app.plugins import _PluginBase
-from app.helper.event import eventmanager
+from app.core.event import eventmanager
 from app.schemas.types import MediaType, EventType
 
 lock = Lock()
