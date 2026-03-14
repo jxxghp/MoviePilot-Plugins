@@ -24,8 +24,6 @@ from app.schemas.types import MediaType, EventType
 
 lock = Lock()
 
-# ─── 集数正则（与独立脚本保持一致） ─────────────────────────────────────
-
 EPISODE_PATTERNS = [
     re.compile(r"[Ss]\d{1,2}[Ee](\d{1,3})", re.IGNORECASE),
     re.compile(r"\bEP?\.?(\d{1,3})\b", re.IGNORECASE),
@@ -41,41 +39,31 @@ TV_HINTS = re.compile(
 
 
 class TvFirstWatch(_PluginBase):
-    """
-    电视剧首播试看自动下载
-
-    定时抓取多个 RSS 源，仅下载电视剧前 N 集（默认 1-2 集），
-    通过 MoviePilot DownloadChain 触发下载（支持洗版、刮削）。
-    """
-
-    # ── 插件元信息 ──────────────────────────────────────────────────────
     plugin_name = "首播试看"
     plugin_desc = "定时抓取 RSS，只下载剧集前 N 集（首播试看），防重复推送。"
     plugin_icon = "rss.png"
-    plugin_version = "1.0"
+    plugin_version = "1.2"
     plugin_author = "Raymond38324"
     author_url = "https://github.com/Raymond38324"
     plugin_config_prefix = "tvfirstwatch_"
     plugin_order = 25
     auth_level = 2
 
-    # ── 私有变量 ─────────────────────────────────────────────────────────
     _scheduler: Optional[BackgroundScheduler] = None
     _downloadchain: Optional[DownloadChain] = None
     _history_path: Optional[Path] = None
 
-    # ── 配置属性 ─────────────────────────────────────────────────────────
     _enabled: bool = False
     _onlyonce: bool = False
     _notify: bool = False
-    _cron: str = "*/30 * * * *"  # cron 轮询周期
-    _rss_urls: str = ""  # 每行一个 RSS URL（含 Cookie 则用 "|" 分隔）
-    _max_episode: int = 2  # 最大集号
+    _cron: str = "*/30 * * * *"
+    _rss_urls: str = ""
+    _max_episode: int = 2
     _whitelist: str = "1080p,2160p,4K,HEVC,H.265"
     _blacklist: str = "720p,CAM,HDTS"
-    _save_path: str = ""  # 下载保存路径（留空 MP 默认）
-
-    # ─────────────────────────────────────────────────────────────────────
+    _save_path: str = ""
+    _max_storage_gb: int = 0
+    _default_size_gb: float = 2.0
 
     def init_plugin(self, config: dict = None) -> None:
         self._downloadchain = DownloadChain()
@@ -91,8 +79,9 @@ class TvFirstWatch(_PluginBase):
             self._whitelist = config.get("whitelist", "")
             self._blacklist = config.get("blacklist", "")
             self._save_path = config.get("save_path", "")
+            self._max_storage_gb = int(config.get("max_storage_gb", 0))
+            self._default_size_gb = float(config.get("default_size_gb", 2.0))
 
-        # 数据目录
         self._history_path = self.get_data_path() / "history.json"
 
         if self._onlyonce:
@@ -107,7 +96,6 @@ class TvFirstWatch(_PluginBase):
             if self._scheduler.get_jobs():
                 self._scheduler.start()
 
-            # 关闭一次性开关并保存
             self._onlyonce = False
             self.__update_config()
 
@@ -132,11 +120,16 @@ class TvFirstWatch(_PluginBase):
                 "endpoint": self._clear_history,
                 "methods": ["GET"],
                 "summary": "清空首播试看下载历史",
-            }
+            },
+            {
+                "path": "/storage_status",
+                "endpoint": self._storage_status,
+                "methods": ["GET"],
+                "summary": "获取存储空间使用情况",
+            },
         ]
 
     def get_service(self) -> List[Dict[str, Any]]:
-        """注册定时任务。"""
         if self._enabled and self._cron:
             return [
                 {
@@ -151,7 +144,6 @@ class TvFirstWatch(_PluginBase):
 
     @eventmanager.register(EventType.PluginAction)
     def _plugin_action(self, event):
-        """处理远程命令。"""
         if not self._enabled:
             return
         event_data = event.event_data
@@ -167,14 +159,11 @@ class TvFirstWatch(_PluginBase):
                 self._scheduler.shutdown()
             self._scheduler = None
 
-    # ─── 配置页面 ─────────────────────────────────────────────────────────
-
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
             {
                 "component": "VForm",
                 "content": [
-                    # 第一行：开关
                     {
                         "component": "VRow",
                         "content": [
@@ -183,29 +172,43 @@ class TvFirstWatch(_PluginBase):
                             _col(4, _switch("onlyonce", "立即运行一次")),
                         ],
                     },
-                    # 第二行：执行周期 + 最大集号
                     {
                         "component": "VRow",
                         "content": [
                             _col(
-                                8,
+                                4,
                                 _textfield(
                                     "cron",
                                     "执行周期（Cron）",
-                                    placeholder="5位cron，如 */30 * * * *",
+                                    placeholder="*/30 * * * *",
                                 ),
                             ),
                             _col(
-                                4,
+                                2,
                                 _textfield(
                                     "max_episode",
                                     "最大集号",
-                                    placeholder="默认 2（即下载 EP01-02）",
+                                    placeholder="默认 2",
+                                ),
+                            ),
+                            _col(
+                                3,
+                                _textfield(
+                                    "max_storage_gb",
+                                    "空间上限(GB)",
+                                    placeholder="0=不限制",
+                                ),
+                            ),
+                            _col(
+                                3,
+                                _textfield(
+                                    "default_size_gb",
+                                    "预估大小(GB)",
+                                    placeholder="RSS无大小默认值",
                                 ),
                             ),
                         ],
                     },
-                    # 第三行：RSS 地址
                     {
                         "component": "VRow",
                         "content": [
@@ -227,7 +230,6 @@ class TvFirstWatch(_PluginBase):
                             ),
                         ],
                     },
-                    # 第四行：白名单 / 黑名单
                     {
                         "component": "VRow",
                         "content": [
@@ -249,7 +251,6 @@ class TvFirstWatch(_PluginBase):
                             ),
                         ],
                     },
-                    # 第五行：保存路径
                     {
                         "component": "VRow",
                         "content": [
@@ -263,7 +264,6 @@ class TvFirstWatch(_PluginBase):
                             ),
                         ],
                     },
-                    # 说明
                     {
                         "component": "VRow",
                         "content": [
@@ -275,9 +275,9 @@ class TvFirstWatch(_PluginBase):
                                         "type": "info",
                                         "variant": "tonal",
                                         "text": (
-                                            "仅下载识别到集号 ≤ 最大集号 的电视剧资源，"
-                                            "下载记录保存在插件数据目录 history.json，"
-                                            "点击「清空历史」API 可重置。"
+                                            "仅下载集号 ≤ 最大集号的电视剧。"
+                                            "空间上限：设置后超出将停止下载，0表示不限制。"
+                                            "预估大小：当RSS不包含种子大小时使用此值计算空间。"
                                         ),
                                     },
                                 },
@@ -296,17 +296,34 @@ class TvFirstWatch(_PluginBase):
             "whitelist": "1080p,2160p,4K,HEVC,H.265",
             "blacklist": "720p,CAM,HDTS",
             "save_path": "",
+            "max_storage_gb": 0,
+            "default_size_gb": 2.0,
         }
 
     def get_page(self) -> List[dict]:
-        """详情页：展示最近下载记录。"""
         history = self._load_history()
+        total_bytes = self._calculate_total_size(history)
+        total_gb = total_bytes / (1024**3)
+        max_gb = self._max_storage_gb
+        usage_percent = (total_gb / max_gb * 100) if max_gb > 0 else 0
+
         if not history:
             return [
                 {
                     "component": "div",
                     "props": {"class": "text-center pa-4"},
-                    "content": [{"component": "p", "text": "暂无下载记录"}],
+                    "content": [
+                        {"component": "p", "text": "暂无下载记录"},
+                        {
+                            "component": "p",
+                            "text": f"已用空间: {total_gb:.2f} GB"
+                            + (
+                                f" / {max_gb} GB ({usage_percent:.1f}%)"
+                                if max_gb > 0
+                                else ""
+                            ),
+                        },
+                    ],
                 }
             ]
 
@@ -314,12 +331,14 @@ class TvFirstWatch(_PluginBase):
         for key, meta in sorted(
             history.items(), key=lambda x: x[1].get("added_at", ""), reverse=True
         ):
+            size_str = meta.get("size_str", "-")
             rows.append(
                 {
                     "component": "tr",
                     "content": [
                         {"component": "td", "text": meta.get("series_name", key)},
                         {"component": "td", "text": str(meta.get("episode", ""))},
+                        {"component": "td", "text": size_str},
                         {"component": "td", "text": meta.get("source", "")},
                         {"component": "td", "text": meta.get("added_at", "")},
                     ],
@@ -327,6 +346,22 @@ class TvFirstWatch(_PluginBase):
             )
 
         return [
+            {
+                "component": "div",
+                "props": {"class": "mb-4 pa-2"},
+                "content": [
+                    {
+                        "component": "p",
+                        "props": {"class": "text-h6"},
+                        "text": f"已用空间: {total_gb:.2f} GB"
+                        + (
+                            f" / {max_gb} GB ({usage_percent:.1f}%)"
+                            if max_gb > 0
+                            else ""
+                        ),
+                    },
+                ],
+            },
             {
                 "component": "VTable",
                 "props": {"hover": True},
@@ -339,6 +374,7 @@ class TvFirstWatch(_PluginBase):
                                 "content": [
                                     {"component": "th", "text": "剧名"},
                                     {"component": "th", "text": "集号"},
+                                    {"component": "th", "text": "大小"},
                                     {"component": "th", "text": "来源"},
                                     {"component": "th", "text": "下载时间"},
                                 ],
@@ -347,13 +383,10 @@ class TvFirstWatch(_PluginBase):
                     },
                     {"component": "tbody", "content": rows},
                 ],
-            }
+            },
         ]
 
-    # ─── 核心逻辑 ─────────────────────────────────────────────────────────
-
     def _check_all_feeds(self) -> None:
-        """轮询所有 RSS 源（定时任务入口）。"""
         if not self._rss_urls:
             logger.warning("[首播试看] 未配置任何 RSS 地址，跳过。")
             return
@@ -366,11 +399,6 @@ class TvFirstWatch(_PluginBase):
                 logger.error("[首播试看] 处理 RSS 源出错: %s — %s", line, exc)
 
     def _parse_feed_line(self, line: str) -> Tuple[str, dict]:
-        """
-        解析 RSS 行格式：
-          URL
-          URL|Cookie: xxx
-        """
         parts = line.split("|", 1)
         url = parts[0].strip()
         headers = {
@@ -382,7 +410,6 @@ class TvFirstWatch(_PluginBase):
         }
         if len(parts) == 2:
             cookie_part = parts[1].strip()
-            # 支持 "Cookie: xxx" 或直接是 cookie 字符串
             if cookie_part.lower().startswith("cookie:"):
                 headers["Cookie"] = cookie_part[7:].strip()
             else:
@@ -420,18 +447,15 @@ class TvFirstWatch(_PluginBase):
         if not title:
             return
 
-        # 1. 是否为电视剧
         if not self._is_tv(entry):
             logger.debug("[首播试看][跳过-非TV] %s", title)
             return
 
-        # 2. 提取集数
         episodes = _extract_episodes(title)
         if not episodes:
             logger.debug("[首播试看][跳过-无集数] %s", title)
             return
 
-        # 3. 集数范围
         eps_in_range = [ep for ep in episodes if ep <= self._max_episode]
         if not eps_in_range:
             logger.info(
@@ -442,13 +466,11 @@ class TvFirstWatch(_PluginBase):
             )
             return
 
-        # 4. 关键字过滤
         ok, reason = self._keyword_filter(title)
         if not ok:
             logger.info("[首播试看][跳过-关键字] %s | %s", title, reason)
             return
 
-        # 5. 去重检查
         series_name = _guess_series_name(title)
         with lock:
             history = self._load_history()
@@ -466,18 +488,35 @@ class TvFirstWatch(_PluginBase):
                 )
                 return
 
-            # 6. 触发下载
+            torrent_size, is_estimated = self._get_torrent_size(entry)
+            size_label = "预估" if is_estimated else "实际"
+            if self._max_storage_gb > 0:
+                current_total = self._calculate_total_size(history)
+                max_bytes = self._max_storage_gb * (1024**3)
+                if current_total + torrent_size > max_bytes:
+                    logger.warning(
+                        "[首播试看][跳过-空间不足] 已用 %.2f GB + 新增 %.2f GB(%s) > 上限 %d GB",
+                        current_total / (1024**3),
+                        torrent_size / (1024**3),
+                        size_label,
+                        self._max_storage_gb,
+                    )
+                    return
+
             logger.info(
-                "[首播试看][下载] %s | 剧名=%s | 集号=%s | 来源=%s",
+                "[首播试看][下载] %s | 剧名=%s | 集号=%s | 大小=%.2f GB(%s) | 来源=%s",
                 title,
                 series_name,
                 new_eps,
+                torrent_size / (1024**3),
+                size_label,
                 source,
             )
             success = self._do_download(entry, title, series_name)
 
             if success:
                 now = datetime.datetime.now().isoformat(timespec="seconds")
+                size_str = self._format_size(torrent_size, is_estimated)
                 for ep in new_eps:
                     key = _make_key(series_name, ep)
                     history[key] = {
@@ -486,6 +525,9 @@ class TvFirstWatch(_PluginBase):
                         "title": title,
                         "source": source,
                         "added_at": now,
+                        "size": torrent_size,
+                        "size_str": size_str,
+                        "is_estimated": is_estimated,
                     }
                 self._save_history(history)
 
@@ -494,12 +536,50 @@ class TvFirstWatch(_PluginBase):
                         f"📺 首播试看已推送下载\n"
                         f"剧名：{series_name}\n"
                         f"集号：{new_eps}\n"
+                        f"大小：{size_str}\n"
                         f"标题：{title}"
                     )
 
+    def _get_torrent_size(self, entry) -> Tuple[int, bool]:
+        """
+        获取种子大小。
+        返回: (大小字节数, 是否为预估大小)
+        """
+        try:
+            if hasattr(entry, "enclosures") and entry.enclosures:
+                for enc in entry.enclosures:
+                    length = enc.get("length")
+                    if length:
+                        return int(length), False
+            if hasattr(entry, "content_length"):
+                return int(entry.content_length), False
+        except Exception:
+            pass
+        default_bytes = int(self._default_size_gb * (1024**3))
+        return default_bytes, True
+
+    @staticmethod
+    def _format_size(size_bytes: int, is_estimated: bool = False) -> str:
+        label = "(预估)" if is_estimated else ""
+        if size_bytes == 0:
+            return "未知" + label
+        elif size_bytes < 1024:
+            return f"{size_bytes} B{label}"
+        elif size_bytes < 1024**2:
+            return f"{size_bytes / 1024:.1f} KB{label}"
+        elif size_bytes < 1024**3:
+            return f"{size_bytes / (1024**2):.1f} MB{label}"
+        else:
+            return f"{size_bytes / (1024**3):.2f} GB{label}"
+
+    @staticmethod
+    def _calculate_total_size(history: dict) -> int:
+        total = 0
+        for meta in history.values():
+            total += meta.get("size", 0)
+        return total
+
     def _do_download(self, entry, title: str, series_name: str) -> bool:
-        """通过 MoviePilot DownloadChain 触发下载。"""
-        # 构造 TorrentInfo
         torrent_url = ""
         for enc in getattr(entry, "enclosures", []):
             if enc.get("type", "").startswith("application/"):
@@ -530,7 +610,7 @@ class TvFirstWatch(_PluginBase):
         )
 
         try:
-            did, msg = self._downloadchain.download_single(
+            did = self._downloadchain.download_single(
                 context=context,
                 torrent_file=None,
                 save_path=self._save_path or None,
@@ -539,15 +619,11 @@ class TvFirstWatch(_PluginBase):
                 logger.info("[首播试看] ✅ DownloadChain 推送成功: %s", title)
                 return True
             else:
-                logger.error(
-                    "[首播试看] ❌ DownloadChain 推送失败 [%s]: %s", title, msg
-                )
+                logger.error("[首播试看] ❌ DownloadChain 推送失败 [%s]", title)
                 return False
         except Exception as exc:
             logger.error("[首播试看] ❌ 下载异常 [%s]: %s", title, exc)
             return False
-
-    # ─── 辅助：关键字过滤 ─────────────────────────────────────────────────
 
     def _keyword_filter(self, title: str) -> Tuple[bool, str]:
         title_lower = title.lower()
@@ -575,8 +651,6 @@ class TvFirstWatch(_PluginBase):
             return False
         return bool(TV_HINTS.search(entry.get("title", "")))
 
-    # ─── 历史记录操作 ─────────────────────────────────────────────────────
-
     def _load_history(self) -> dict:
         if self._history_path and self._history_path.exists():
             try:
@@ -596,12 +670,26 @@ class TvFirstWatch(_PluginBase):
         return _make_key(series_name, episode) in history
 
     def _clear_history(self, token: str = "") -> dict:
-        """API：清空下载历史。"""
         if token != settings.API_TOKEN:
             return {"success": False, "message": "认证失败"}
         self._save_history({})
         logger.info("[首播试看] 下载历史已清空。")
         return {"success": True, "message": "历史已清空"}
+
+    def _storage_status(self, token: str = "") -> dict:
+        if token != settings.API_TOKEN:
+            return {"success": False, "message": "认证失败"}
+        history = self._load_history()
+        total_bytes = self._calculate_total_size(history)
+        total_gb = total_bytes / (1024**3)
+        count = len(history)
+        return {
+            "success": True,
+            "total_bytes": total_bytes,
+            "total_gb": round(total_gb, 2),
+            "max_gb": self._max_storage_gb,
+            "count": count,
+        }
 
     def __update_config(self) -> None:
         self.update_config(
@@ -615,11 +703,10 @@ class TvFirstWatch(_PluginBase):
                 "whitelist": self._whitelist,
                 "blacklist": self._blacklist,
                 "save_path": self._save_path,
+                "max_storage_gb": self._max_storage_gb,
+                "default_size_gb": self._default_size_gb,
             }
         )
-
-
-# ─── 模块级工具函数 ───────────────────────────────────────────────────────
 
 
 def _extract_episodes(title: str) -> List[int]:
@@ -650,9 +737,6 @@ def _guess_series_name(title: str) -> str:
 def _make_key(series_name: str, episode: int) -> str:
     norm = re.sub(r"\W+", "", series_name.lower())
     return f"{norm}__ep{episode:03d}"
-
-
-# ─── Vuetify 组件快捷函数 ─────────────────────────────────────────────────
 
 
 def _col(md: int, *children) -> dict:
