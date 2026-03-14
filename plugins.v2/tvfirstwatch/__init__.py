@@ -438,7 +438,7 @@ class TvFirstWatch(_PluginBase):
             try:
                 self._process_entry(entry, source)
             except Exception as exc:
-                logger.exception(
+                logger.error(
                     "[首播试看] 处理条目异常 [%s]: %s", entry.get("title", ""), exc
                 )
 
