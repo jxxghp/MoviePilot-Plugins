@@ -47,7 +47,7 @@ class TvFirstWatch(_PluginBase):
     plugin_name = "首播试看"
     plugin_desc = "定时抓取 RSS，只下载剧集前 N 集（首播试看），防重复推送。"
     plugin_icon = "rss.png"
-    plugin_version = "1.5"
+    plugin_version = "1.5.1"
     plugin_author = "Raymond38324"
     author_url = "https://github.com/Raymond38324"
     plugin_config_prefix = "tvfirstwatch_"
@@ -476,11 +476,11 @@ class TvFirstWatch(_PluginBase):
                 self._process_entry(entry, source)
             except Exception as exc:
                 logger.error(
-                    "[首播试看] 处理条目异常 [%s]: %s", entry.get("title", ""), exc
+                    "[首播试看] 处理条目异常 [%s]: %s", entry.get("title") or "", exc
                 )
 
     def _process_entry(self, entry, source: str) -> None:
-        title = entry.get("title", "")
+        title = entry.get("title") or ""
         if not title:
             return
 
@@ -635,11 +635,12 @@ class TvFirstWatch(_PluginBase):
     def _do_download(self, entry, title: str, series_name: str) -> bool:
         torrent_url = ""
         for enc in getattr(entry, "enclosures", []):
-            if enc.get("type", "").startswith("application/"):
-                torrent_url = enc.get("href", "")
+            enc_type = enc.get("type") or ""
+            if enc_type.startswith("application/"):
+                torrent_url = enc.get("href") or ""
                 break
         if not torrent_url:
-            torrent_url = entry.get("link", "")
+            torrent_url = entry.get("link") or ""
 
         if not torrent_url:
             logger.error("[首播试看] 条目缺少种子 URL: %s", title)
@@ -697,10 +698,14 @@ class TvFirstWatch(_PluginBase):
     @staticmethod
     def _is_tv(entry) -> bool:
         cat = ""
-        if hasattr(entry, "tags") and entry.tags:
-            cat = entry.tags[0].get("term", "").lower()
-        elif hasattr(entry, "category"):
-            cat = (entry.category or "").lower()
+        try:
+            if hasattr(entry, "tags") and entry.tags:
+                term = entry.tags[0].get("term") or ""
+                cat = term.lower()
+            elif hasattr(entry, "category"):
+                cat = (entry.category or "").lower()
+        except Exception:
+            pass
 
         tv_cats = ("tv", "series", "drama", "television", "综艺", "剧集", "连续剧")
         movie_kw = ("movie", "film", "电影", "纪录片")
@@ -708,7 +713,7 @@ class TvFirstWatch(_PluginBase):
             return True
         if any(k in cat for k in movie_kw):
             return False
-        return bool(TV_HINTS.search(entry.get("title", "")))
+        return bool(TV_HINTS.search(entry.get("title") or ""))
 
     def _load_history(self) -> dict:
         if self._history_path and self._history_path.exists():
