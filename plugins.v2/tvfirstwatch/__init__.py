@@ -47,7 +47,7 @@ class TvFirstWatch(_PluginBase):
     plugin_name = "首播试看"
     plugin_desc = "定时抓取 RSS，只下载剧集前 N 集（首播试看），防重复推送。"
     plugin_icon = "rss.png"
-    plugin_version = "1.5.1"
+    plugin_version = "1.5.2"
     plugin_author = "Raymond38324"
     author_url = "https://github.com/Raymond38324"
     plugin_config_prefix = "tvfirstwatch_"
