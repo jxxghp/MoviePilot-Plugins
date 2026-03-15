@@ -60,7 +60,6 @@ class TvFirstWatch(_PluginBase):
 
     _enabled: bool = False
     _onlyonce: bool = False
-    _notify: bool = False
     _cron: str = "*/30 * * * *"
     _rss_urls: str = ""
     _max_episode: int = 2
@@ -76,18 +75,19 @@ class TvFirstWatch(_PluginBase):
         self.stop_service()
 
         if config:
-            self._enabled = config.get("enabled", False)
-            self._onlyonce = config.get("onlyonce", False)
-            self._notify = config.get("notify", False)
+            self._enabled = _to_bool(config.get("enabled", False), False)
+            self._onlyonce = _to_bool(config.get("onlyonce", False), False)
             self._cron = config.get("cron", "*/30 * * * *") or "*/30 * * * *"
             self._rss_urls = config.get("rss_urls", "")
-            self._max_episode = int(config.get("max_episode", 2))
+            self._max_episode = _to_int(config.get("max_episode", 2), 2)
             self._whitelist = config.get("whitelist", "")
             self._blacklist = config.get("blacklist", "")
             self._save_path = config.get("save_path", "")
-            self._max_storage_gb = int(config.get("max_storage_gb", 0))
-            self._default_size_gb = float(config.get("default_size_gb", 2.0))
-            self._max_single_size_gb = float(config.get("max_single_size_gb", 10.0))
+            self._max_storage_gb = _to_int(config.get("max_storage_gb", 0), 0)
+            self._default_size_gb = _to_float(config.get("default_size_gb", 2.0), 2.0)
+            self._max_single_size_gb = _to_float(
+                config.get("max_single_size_gb", 10.0), 10.0
+            )
 
         self._history_path = self.get_data_path() / "history.json"
 
@@ -175,7 +175,6 @@ class TvFirstWatch(_PluginBase):
                         "component": "VRow",
                         "content": [
                             _col(4, _switch("enabled", "启用插件")),
-                            _col(4, _switch("notify", "下载时通知")),
                             _col(4, _switch("onlyonce", "立即运行一次")),
                         ],
                     },
@@ -303,7 +302,6 @@ class TvFirstWatch(_PluginBase):
             }
         ], {
             "enabled": False,
-            "notify": False,
             "onlyonce": False,
             "cron": "*/30 * * * *",
             "rss_urls": "",
@@ -584,15 +582,6 @@ class TvFirstWatch(_PluginBase):
                     }
                 self._save_history(history)
 
-                if self._notify:
-                    self.systemmessage.put(
-                        f"📺 首播试看已推送下载\n"
-                        f"剧名：{series_name}\n"
-                        f"集号：{new_eps}\n"
-                        f"大小：{size_str}\n"
-                        f"标题：{title}"
-                    )
-
     def _get_torrent_size(self, entry) -> Tuple[int, bool]:
         """
         获取种子大小。
@@ -760,7 +749,6 @@ class TvFirstWatch(_PluginBase):
             {
                 "enabled": self._enabled,
                 "onlyonce": self._onlyonce,
-                "notify": self._notify,
                 "cron": self._cron,
                 "rss_urls": self._rss_urls,
                 "max_episode": self._max_episode,
@@ -802,6 +790,36 @@ def _guess_series_name(title: str) -> str:
 def _make_key(series_name: str, episode: int) -> str:
     norm = re.sub(r"\W+", "", series_name.lower())
     return f"{norm}__ep{episode:03d}"
+
+
+def _to_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("1", "true", "yes", "y", "on"):
+            return True
+        if v in ("0", "false", "no", "n", "off", ""):
+            return False
+    return default
+
+
+def _to_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _col(md: int, *children) -> dict:
