@@ -3,7 +3,7 @@ import threading
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
-from langchain.output_parsers import PydanticOutputParser
+from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import SecretStr
 
 from app.core.config import settings
@@ -39,7 +39,7 @@ _patterns = [
 filter_patterns: list[re.Pattern] = [re.compile(p) for p in _patterns]
 pos_interests = {"NOUN", "VERB", "ADJ", "ADV", "ADP", "CCONJ", "SCONJ"}
 
-UNIVERSAL_POS_MAP: dict[UniversalPos, str] = {
+UNIVERSAL_POS_MAP: dict[UniversalPos, str | None] = {
     UniversalPos.ADJ: "adj.",
     UniversalPos.ADV: "adv.",
     UniversalPos.INTJ: "int.",
