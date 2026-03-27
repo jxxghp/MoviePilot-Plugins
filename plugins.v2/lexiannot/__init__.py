@@ -60,7 +60,7 @@ class LexiAnnot(_PluginBase):
     # 插件图标
     plugin_icon = "LexiAnnot.png"
     # 插件版本
-    plugin_version = "1.2.4"
+    plugin_version = "1.2.5"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -126,7 +126,7 @@ class LexiAnnot(_PluginBase):
             self._send_notify = config.get("send_notify")
             self._onlyonce = config.get("onlyonce")
             self._show_vocabulary_detail = config.get("show_vocabulary_detail")
-            self._sentence_translation = config.get("sentence_translation")
+            self._sentence_translation = bool(config.get("sentence_translation"))
             self._in_place = config.get("in_place")
             self._enable_gemini = config.get("enable_gemini")
             self._gemini_model = config.get("gemini_model") or "gemini-2.5-flash"
@@ -1127,8 +1127,8 @@ class LexiAnnot(_PluginBase):
                     tasks_to_delete = [task_id]
                 else:
                     tasks_to_delete = []
-            for task_id in tasks_to_delete:
-                del self._tasks[task_id]
+            for t_id in tasks_to_delete:
+                del self._tasks[t_id]
         self.save_tasks()
 
     def task_interface(self, params: TasksApiParams) -> Response:
@@ -1748,7 +1748,7 @@ class LexiAnnot(_PluginBase):
         return ass
 
     @staticmethod
-    def hex_to_rgb(hex_color) -> Optional[Tuple]:
+    def hex_to_rgb(hex_color: str | None) -> tuple[int, ...] | None:
         if not hex_color:
             return None
         pattern = r"^#[0-9a-fA-F]{6}$"
@@ -1796,7 +1796,7 @@ class LexiAnnot(_PluginBase):
                 return track_lang in lang
             return track_lang == lang
 
-        supported_codec = ["S_TEXT/UTF8", "S_TEXT/ASS"]
+        supported_codec = ["S_TEXT/UTF8", "S_TEXT/ASS", "tx3g"]
         subtitles = []
         try:
             media_info: pymediainfo.MediaInfo = pymediainfo.MediaInfo.parse(video_path)
@@ -1893,7 +1893,7 @@ class LexiAnnot(_PluginBase):
                 provider=llm_provider,
                 model_name=llm_model_name,
                 base_url=llm_base_url,
-                api_key=llm_apikey,
+                api_key=llm_apikey or '',
                 temperature=model_temperature,
                 max_retries=self._max_retries,
                 proxy=self._use_proxy,
