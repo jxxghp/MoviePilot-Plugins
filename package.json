@@ -849,6 +849,16 @@
     "level": 1,
     "v2": true
   },
+  "AppPushMsg": {
+    "name": "App推送消息通知",
+    "description": "使用 App Push 接口发送消息通知，并提供测试按钮。",
+    "labels": "消息通知",
+    "version": "1.0",
+    "icon": "WxPusherMsg_A.png",
+    "author": "Codex",
+    "level": 1,
+    "v2": true
+  },
   "TmdbWallpaper": {
     "name": "登录壁纸本地化",
     "description": "将MoviePilot的登录壁纸下载到本地。",
