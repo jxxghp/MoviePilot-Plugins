@@ -1061,18 +1061,5 @@
     "author": "cddjr",
     "level": 1,
     "v2": true
-  },
-  "WeChat-ClawBot": {
-    "name": "WeChat-ClawBot消息推送",
-    "description": "支持使用微信(通过ClawBot)发送消息通知。",
-    "labels": "消息通知,微信",
-    "version": "0.1.0",
-    "icon": "WeChat_A.png",
-    "author": "mijjjj",
-    "level": 1,
-    "v2": true,
-    "history": {
-      "v0.1.0": "初始版本"
-    }
   }
 }
