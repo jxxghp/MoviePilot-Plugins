@@ -645,5 +645,18 @@
     "history": {
       "v1.0.0": "首次发布"
     }
+  },
+  "WechatClawBot": {
+    "name": "WechatClawBot消息推送",
+    "description": "支持使用微信(通过ClawBot)发送消息通知。",
+    "labels": "消息通知,微信",
+    "version": "0.1.0",
+    "icon": "Wechat_A.png",
+    "author": "mijjjj",
+    "level": 1,
+    "v2": true,
+    "history": {
+      "v0.1.0": "初始版本"
+    }
   }
 }
