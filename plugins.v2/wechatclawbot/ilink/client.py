@@ -1031,7 +1031,7 @@ class ILinkClient:
         if not text:
             text = self._pick_value(item, ["content", "message", "msg", "text", "body", "msg_content", "msgContent"])
         if not text:
-            text = self._find_first_value(message, ["content", "text", "message", "msg", "body", "cmd"]) 
+            text = self._find_first_value(message, ["content", "text", "message", "msg", "body", "cmd"])
 
         if not text:
             return None

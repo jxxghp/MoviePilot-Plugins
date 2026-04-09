@@ -31,7 +31,7 @@ class WechatClawBot(_PluginBase):
     plugin_author = "mijjjj"
     author_url = "https://github.com/mijjjj/MoviePilot-Plugins-WeChat-ClawBot"
     plugin_label = "微信,消息通知,clawBot"
-    plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/public/logo.png"
+    plugin_icon = "Wechat_A.png"
     plugin_order = 60
 
     _CREDENTIALS_KEY = "credentials"
