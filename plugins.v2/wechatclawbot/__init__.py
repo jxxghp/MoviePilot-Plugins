@@ -390,42 +390,37 @@ class WechatClawBot(_PluginBase):
             self._trigger_qrcode_prepare(force=need_prepare, reason="page_open")
             preparing, elapsed = self._qrcode_prepare_state()
 
-        status_items = [
-            ("启用状态", "已启用" if status.get("enabled") else "未启用"),
-            ("连接状态", "已连接" if connected else "未连接"),
-            ("账号ID", status.get("account_id") or "-"),
-            ("已互动用户数", str(status.get("known_users") or 0)),
-            ("二维码状态", status.get("qrcode_status") or "waiting"),
+        status_lines = [
+            f"启用状态：{'已启用' if status.get('enabled') else '未启用'}",
+            f"连接状态：{'已连接' if connected else '未连接'}",
+            f"账号ID：{status.get('account_id') or '-'}",
+            f"已互动用户数：{status.get('known_users') or 0}",
+            f"二维码状态：{status.get('qrcode_status') or 'waiting'}",
         ]
         if preparing:
-            status_items.append(("二维码任务", "生成中"))
+            status_lines.append("二维码任务：生成中")
 
-        alert_type = "success" if connected else "info"
-
-        # ── 状态信息行（每项独立一列，自动换行）──────────────────────────
-        status_cols = [
-            {
-                "component": "VCol",
-                "props": {"cols": 6, "md": 4},
-                "content": [
-                    {
-                        "component": "VAlert",
-                        "props": {
-                            "type": alert_type,
-                            "variant": "tonal",
-                            "title": label,
-                            "text": value,
-                        },
-                    }
-                ],
-            }
-            for label, value in status_items
-        ]
-
+        # ── 状态信息行 ─────────────────────────────────────────────────────
         content: List[dict] = [
             {
                 "component": "VRow",
-                "content": status_cols,
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "success" if connected else "info",
+                                    "variant": "tonal",
+                                    "text": "\n".join(status_lines),
+                                    "style": "white-space: pre-line;",
+                                },
+                            }
+                        ],
+                    }
+                ],
             }
         ]
 
