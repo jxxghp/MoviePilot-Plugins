@@ -26,8 +26,10 @@ class WechatClawBot(_PluginBase):
     """WeChat-ClawBot 插件（纯插件实现，不修改系统模块）。"""
 
     plugin_name = "WeChat-ClawBot"
-    plugin_desc = "基于 OpenClaw/ClawBot 协议接入个人微信，支持扫码登录、消息通知转发与命令控制。"
-    plugin_version = "0.1.0"
+    plugin_desc = (
+        "基于 OpenClaw/ClawBot 协议接入个人微信，支持扫码登录、消息通知转发与命令控制。"
+    )
+    plugin_version = "0.2.0"
     plugin_author = "mijjjj"
     author_url = "https://github.com/mijjjj/MoviePilot-Plugins-WeChat-ClawBot"
     plugin_label = "微信,消息通知,clawBot"
@@ -204,67 +206,169 @@ class WechatClawBot(_PluginBase):
             {
                 "component": "VForm",
                 "content": [
+                    # ── 行1：启用开关 + 强制生码开关 ──────────────────────────
                     {
-                        "component": "VSwitch",
-                        "props": {
-                            "model": "enabled",
-                            "label": "启用 WeChat-ClawBot",
-                        },
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "enabled",
+                                            "label": "启用 WeChat-ClawBot",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "force_generate_qrcode",
+                                            "label": "保存时强制刷新登录二维码",
+                                            "hint": "开启后保存配置会立即刷新二维码，随后自动关闭该开关。",
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
                     },
+                    # ── 行2：命令控制 + 通知转发开关 ──────────────────────────
                     {
-                        "component": "VTextField",
-                        "props": {
-                            "model": "base_url",
-                            "label": "ClawBot Base URL",
-                            "placeholder": "https://ilinkai.weixin.qq.com",
-                        },
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "command_enabled",
+                                            "label": "允许微信命令控制",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "notify_enabled",
+                                            "label": "启用系统通知转发",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
                     },
+                    # ── 行3：轮询超时 + 重连间隔 ──────────────────────────────
                     {
-                        "component": "VSwitch",
-                        "props": {
-                            "model": "force_generate_qrcode",
-                            "label": "保存时强制生成登录二维码（一次）",
-                            "hint": "开启后保存配置会立即刷新二维码，随后自动关闭该开关。",
-                            "persistent-hint": True,
-                        },
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "poll_timeout",
+                                            "label": "轮询超时（秒）",
+                                            "type": "number",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "reconnect_delay",
+                                            "label": "重连间隔（秒）",
+                                            "type": "number",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
                     },
+                    # ── 行4：ClawBot Base URL（全宽）─────────────────────────
                     {
-                        "component": "VTextarea",
-                        "props": {
-                            "model": "admins",
-                            "label": "管理员用户ID（逗号分隔）",
-                            "rows": 2,
-                        },
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "base_url",
+                                            "label": "ClawBot Base URL",
+                                            "placeholder": "https://ilinkai.weixin.qq.com",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
                     },
+                    # ── 行5：管理员用户ID（全宽）─────────────────────────────
                     {
-                        "component": "VSwitch",
-                        "props": {
-                            "model": "command_enabled",
-                            "label": "允许微信命令控制",
-                        },
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "admins",
+                                            "label": "管理员用户ID（逗号分隔）",
+                                            "rows": 2,
+                                            "placeholder": "多个ID用英文逗号分隔",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
                     },
+                    # ── 行6：使用说明提示 ─────────────────────────────────────
                     {
-                        "component": "VSwitch",
-                        "props": {
-                            "model": "notify_enabled",
-                            "label": "启用系统通知转发",
-                        },
-                    },
-                    {
-                        "component": "VTextField",
-                        "props": {
-                            "model": "poll_timeout",
-                            "label": "轮询超时（秒）",
-                            "type": "number",
-                        },
-                    },
-                    {
-                        "component": "VTextField",
-                        "props": {
-                            "model": "reconnect_delay",
-                            "label": "重连间隔（秒）",
-                            "type": "number",
-                        },
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": (
+                                                "启用插件后，请前往插件详情页扫码登录微信。"
+                                                "如需重新登录，可开启「保存时强制刷新登录二维码」后保存配置，或在详情页刷新二维码。"
+                                            ),
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
                     },
                 ],
             }
@@ -280,7 +384,9 @@ class WechatClawBot(_PluginBase):
         elapsed = 0
         if self._enabled and not connected:
             qrcode = self.get_data(self._QRCODE_KEY) or {}
-            need_prepare = (not qrcode.get("qrcode")) or self._qrcode_expired(qrcode.get("updated_at"))
+            need_prepare = (not qrcode.get("qrcode")) or self._qrcode_expired(
+                qrcode.get("updated_at")
+            )
             self._trigger_qrcode_prepare(force=need_prepare, reason="page_open")
             preparing, elapsed = self._qrcode_prepare_state()
 
@@ -290,6 +396,178 @@ class WechatClawBot(_PluginBase):
             f"账号ID: {status.get('account_id') or '-'}",
             f"已互动用户数: {status.get('known_users') or 0}",
             f"二维码状态: {status.get('qrcode_status') or 'waiting'}",
+        ]
+        if preparing:
+            status_lines.append("二维码任务: 生成中")
+
+        # ── 状态信息行 ─────────────────────────────────────────────────────
+        content: List[dict] = [
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "success" if connected else "info",
+                                    "variant": "tonal",
+                                    "text": "\n".join(status_lines),
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+
+        if not self._enabled:
+            content.append(
+                {
+                    "component": "VRow",
+                    "content": [
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12},
+                            "content": [
+                                {
+                                    "component": "VAlert",
+                                    "props": {
+                                        "type": "warning",
+                                        "variant": "outlined",
+                                        "text": "请先在插件配置中启用 WeChat-ClawBot 并保存，然后返回此页扫码登录。",
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                }
+            )
+            return [
+                {
+                    "component": "VCard",
+                    "props": {
+                        "title": "WeChat-ClawBot 登录",
+                        "variant": "outlined",
+                    },
+                    "content": content,
+                }
+            ]
+
+        if not connected:
+            refresh_after = self._QRCODE_REFRESH_HINT_SECONDS
+            if preparing:
+                refresh_after = max(1, self._QRCODE_REFRESH_HINT_SECONDS - elapsed)
+
+            # ── 扫码提示行 ─────────────────────────────────────────────────
+            content.append(
+                {
+                    "component": "VRow",
+                    "content": [
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12},
+                            "content": [
+                                {
+                                    "component": "VAlert",
+                                    "props": {
+                                        "type": "warning",
+                                        "variant": "outlined",
+                                        "text": (
+                                            "请使用微信扫一扫下方二维码完成登录。\n"
+                                            f"若二维码未显示或已失效，请在约 {refresh_after} 秒后刷新本页面。"
+                                        ),
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                }
+            )
+
+            if qrcode_image_src:
+                # ── 二维码图片居中行 ───────────────────────────────────────
+                content.append(
+                    {
+                        "component": "VRow",
+                        "props": {"justify": "center"},
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": "auto"},
+                                "content": [
+                                    {
+                                        "component": "VImg",
+                                        "props": {
+                                            "src": qrcode_image_src,
+                                            "width": 280,
+                                            "height": 280,
+                                            "maxWidth": 280,
+                                            "aspectRatio": 1,
+                                            "cover": False,
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                )
+            elif preparing:
+                content.append(
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "outlined",
+                                            "text": f"二维码正在后台生成中，请在约 {refresh_after} 秒后刷新本页面。",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                )
+            else:
+                content.append(
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "error",
+                                            "variant": "outlined",
+                                            "text": "二维码暂不可用，请检查 iLink 服务后刷新页面重试。",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                )
+
+        return [
+            {
+                "component": "VCard",
+                "props": {
+                    "title": "WeChat-ClawBot 登录",
+                    "variant": "outlined",
+                },
+                "content": content,
+            }
         ]
         if preparing:
             status_lines.append("二维码任务: 生成中")
@@ -492,7 +770,9 @@ class WechatClawBot(_PluginBase):
 
         qrcode_image_src = qrcode.get("qrcode_image_src")
         if not qrcode_image_src and qrcode_id:
-            qrcode_image_src = self._compose_qrcode_image_api_url(qrcode.get("updated_at"))
+            qrcode_image_src = self._compose_qrcode_image_api_url(
+                qrcode.get("updated_at")
+            )
 
         return {
             "enabled": self._enabled,
@@ -525,7 +805,9 @@ class WechatClawBot(_PluginBase):
     def _qrcode_prepare_state(self) -> Tuple[bool, int]:
         with self._qrcode_prepare_lock:
             if self._qrcode_prepare_thread and self._qrcode_prepare_thread.is_alive():
-                elapsed = max(0, int(time.time()) - int(self._qrcode_prepare_started_at or 0))
+                elapsed = max(
+                    0, int(time.time()) - int(self._qrcode_prepare_started_at or 0)
+                )
                 return True, elapsed
         return False, 0
 
@@ -550,7 +832,10 @@ class WechatClawBot(_PluginBase):
                 self._log("info", "后台二维码任务完成")
                 self._watch_login_status(reason=reason)
             else:
-                self._log("warning", f"后台二维码任务失败: {qr.get('message') or 'unknown error'}")
+                self._log(
+                    "warning",
+                    f"后台二维码任务失败: {qr.get('message') or 'unknown error'}",
+                )
         except Exception as err:
             self._log("error", f"后台二维码任务异常: {err}")
 
@@ -574,14 +859,23 @@ class WechatClawBot(_PluginBase):
             return
 
         qr_state = str(result.get("status") or "").lower()
-        if qr_state in {"expired", "timeout", "canceled", "cancelled", "not_initialized"}:
+        if qr_state in {
+            "expired",
+            "timeout",
+            "canceled",
+            "cancelled",
+            "not_initialized",
+        }:
             self._log("warning", f"后台登录状态监听结束: qrcode_status={qr_state}")
             return
         if qr_state == "watch_timeout":
             self._log("debug", "后台登录状态监听结束: 观察超时")
             return
         if qr_state == "error":
-            self._log("warning", f"后台登录状态监听异常: {result.get('message') or 'unknown error'}")
+            self._log(
+                "warning",
+                f"后台登录状态监听异常: {result.get('message') or 'unknown error'}",
+            )
             return
 
         self._log("debug", f"后台登录状态监听结束: status={qr_state or 'unknown'}")
@@ -621,7 +915,11 @@ class WechatClawBot(_PluginBase):
             if expected_qrcode:
                 current_qrcode = (self.get_data(self._QRCODE_KEY) or {}).get("qrcode")
                 if current_qrcode and str(current_qrcode) != str(expected_qrcode):
-                    return {"connected": False, "status": "replaced", **self._build_status()}
+                    return {
+                        "connected": False,
+                        "status": "replaced",
+                        **self._build_status(),
+                    }
 
             try:
                 result = self.get_status(force_qrcode_check=require_qrcode_scan)
@@ -645,8 +943,16 @@ class WechatClawBot(_PluginBase):
                 time.sleep(interval)
                 continue
 
-            qr_state = str(result.get("qrcode_status") or result.get("status") or "").lower()
-            if not result.get("success") and qr_state not in {"expired", "timeout", "canceled", "cancelled", "not_initialized"}:
+            qr_state = str(
+                result.get("qrcode_status") or result.get("status") or ""
+            ).lower()
+            if not result.get("success") and qr_state not in {
+                "expired",
+                "timeout",
+                "canceled",
+                "cancelled",
+                "not_initialized",
+            }:
                 retry_failures += 1
                 self._log(
                     "warning",
@@ -671,7 +977,13 @@ class WechatClawBot(_PluginBase):
             if result.get("connected"):
                 return {"connected": True, "status": "connected", **result}
 
-            if qr_state in {"expired", "timeout", "canceled", "cancelled", "not_initialized"}:
+            if qr_state in {
+                "expired",
+                "timeout",
+                "canceled",
+                "cancelled",
+                "not_initialized",
+            }:
                 return {"connected": False, "status": qr_state, **result}
 
             time.sleep(interval)
@@ -729,7 +1041,9 @@ class WechatClawBot(_PluginBase):
             raw = self._compose_qrcode_url(str(qrcode_id))
 
         if not raw:
-            return Response(content=b"qrcode not ready", media_type="text/plain", status_code=404)
+            return Response(
+                content=b"qrcode not ready", media_type="text/plain", status_code=404
+            )
 
         if str(raw).startswith("data:image/"):
             decoded, media_type = self._decode_data_image(str(raw))
@@ -737,12 +1051,18 @@ class WechatClawBot(_PluginBase):
                 return Response(
                     content=decoded,
                     media_type=media_type,
-                    headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+                    headers={
+                        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"
+                    },
                 )
 
         img = self._fetch_qrcode_png(str(raw))
         if not img:
-            return Response(content=b"qrcode image build failed", media_type="text/plain", status_code=502)
+            return Response(
+                content=b"qrcode image build failed",
+                media_type="text/plain",
+                status_code=502,
+            )
 
         return Response(
             content=img,
@@ -760,9 +1080,8 @@ class WechatClawBot(_PluginBase):
             return status
 
         qrcode = self.get_data(self._QRCODE_KEY) or {}
-        need_new_qr = (
-            not qrcode.get("qrcode")
-            or self._qrcode_expired(qrcode.get("updated_at"))
+        need_new_qr = not qrcode.get("qrcode") or self._qrcode_expired(
+            qrcode.get("updated_at")
         )
 
         if need_new_qr:
@@ -780,13 +1099,19 @@ class WechatClawBot(_PluginBase):
     def _ensure_qrcode(self, force: bool = False) -> Dict[str, Any]:
         """在可复用时优先返回现有二维码，必要时重新生成。"""
         qrcode = self.get_data(self._QRCODE_KEY) or {}
-        if not force and qrcode.get("qrcode") and not self._qrcode_expired(qrcode.get("updated_at")):
+        if (
+            not force
+            and qrcode.get("qrcode")
+            and not self._qrcode_expired(qrcode.get("updated_at"))
+        ):
             qrcode_id = qrcode.get("qrcode")
             qrcode_url = qrcode.get("qrcode_url")
             if not qrcode_url and qrcode_id:
                 qrcode["qrcode_url"] = self._compose_qrcode_url(str(qrcode_id))
             if not qrcode.get("qrcode_image_src") and qrcode_id:
-                qrcode["qrcode_image_src"] = self._compose_qrcode_image_api_url(qrcode.get("updated_at"))
+                qrcode["qrcode_image_src"] = self._compose_qrcode_image_api_url(
+                    qrcode.get("updated_at")
+                )
             self.save_data(self._QRCODE_KEY, qrcode)
             return {"success": True, "reused": True, **qrcode}
 
@@ -800,7 +1125,9 @@ class WechatClawBot(_PluginBase):
         client = ILinkClient(base_url=self._config.get("base_url"), log_func=self._log)
         qr = client.get_qrcode()
         if not qr.get("success"):
-            self._log("warning", f"获取二维码失败: {qr.get('message') or 'unknown error'}")
+            self._log(
+                "warning", f"获取二维码失败: {qr.get('message') or 'unknown error'}"
+            )
             return qr
 
         qrcode_id = qr.get("qrcode")
@@ -831,7 +1158,11 @@ class WechatClawBot(_PluginBase):
         qrcode_id = qrcode.get("qrcode")
         if not qrcode_id:
             self._log("warning", "状态查询失败：二维码尚未初始化")
-            return {"success": False, "status": "not_initialized", **self._build_status()}
+            return {
+                "success": False,
+                "status": "not_initialized",
+                **self._build_status(),
+            }
 
         client = ILinkClient(base_url=self._config.get("base_url"), log_func=self._log)
         status = client.get_qrcode_status(str(qrcode_id))
@@ -898,7 +1229,9 @@ class WechatClawBot(_PluginBase):
             try:
                 client = self._ensure_client()
                 timeout = int(self._config.get("poll_timeout") or 25)
-                messages, sync_buf, result = client.poll_updates(timeout_seconds=timeout)
+                messages, sync_buf, result = client.poll_updates(
+                    timeout_seconds=timeout
+                )
                 if sync_buf is not None:
                     self._save_credentials(sync_buf=sync_buf)
 
@@ -912,8 +1245,13 @@ class WechatClawBot(_PluginBase):
             except Exception as err:
                 attempt += 1
                 if attempt >= max_failures:
-                    self._log("error", f"轮询接口连续异常重试超过 {max_failures} 次，准备清理 token")
-                    self._invalidate_token(reason=f"轮询接口连续异常重试超过 {max_failures} 次")
+                    self._log(
+                        "error",
+                        f"轮询接口连续异常重试超过 {max_failures} 次，准备清理 token",
+                    )
+                    self._invalidate_token(
+                        reason=f"轮询接口连续异常重试超过 {max_failures} 次"
+                    )
                     break
                 delay = backoff[min(max(attempt - 1, 0), len(backoff) - 1)]
                 self._log("warning", f"轮询异常，{delay}s 后重试: {err}")
@@ -1019,7 +1357,9 @@ class WechatClawBot(_PluginBase):
         cmd = text.split()[0].strip().lower()
         return cmd == self._QRCODE_COMMAND.lower()
 
-    def _dispatch_to_official_message_chain(self, msg: ILinkIncomingMessage, text: str) -> bool:
+    def _dispatch_to_official_message_chain(
+        self, msg: ILinkIncomingMessage, text: str
+    ) -> bool:
         """将入站消息转交官方微信消息处理链，保持与默认微信通道一致。"""
         try:
             MessageChain().handle_message(
@@ -1038,7 +1378,9 @@ class WechatClawBot(_PluginBase):
             self._log("error", f"转交官方微信链路失败: user={msg.user_id}, err={err}")
             return False
 
-    def _send_direct_reply_for_ilink_user(self, source: str, userid: Any, title: str, text: str) -> bool:
+    def _send_direct_reply_for_ilink_user(
+        self, source: str, userid: Any, title: str, text: str
+    ) -> bool:
         """当命令来自 WeChat-ClawBot 用户时，直接回包，避免链路差异导致漏回。"""
         if source != self.__class__.__name__:
             return False
@@ -1054,7 +1396,9 @@ class WechatClawBot(_PluginBase):
             self._log("info", f"命令结果已直发 WeChat-ClawBot 用户: user={userid}")
         return sent
 
-    def _send_qrcode_image_for_ilink_user(self, source: str, userid: Any, qrcode_url: Optional[str]) -> bool:
+    def _send_qrcode_image_for_ilink_user(
+        self, source: str, userid: Any, qrcode_url: Optional[str]
+    ) -> bool:
         """给 WeChat-ClawBot 用户直发二维码图片（非链接）。"""
         if source != self.__class__.__name__:
             return False
@@ -1079,7 +1423,9 @@ class WechatClawBot(_PluginBase):
 
         client = self._ensure_client()
         context_token = self._get_user_context_token(str(userid))
-        sent = client.send_image_png(str(userid), image_bytes, context_token=context_token)
+        sent = client.send_image_png(
+            str(userid), image_bytes, context_token=context_token
+        )
         if sent:
             self._log("info", f"二维码图片已发送: user={userid}")
         return sent
@@ -1094,13 +1440,22 @@ class WechatClawBot(_PluginBase):
 
         is_command = text.startswith("/")
         if is_command and not self._config.get("command_enabled", True):
-            self._log("info", f"命令控制已关闭，忽略命令: user={msg.user_id}, text={text[:64]}")
+            self._log(
+                "info",
+                f"命令控制已关闭，忽略命令: user={msg.user_id}, text={text[:64]}",
+            )
             return
 
         if is_command and self._is_plugin_command(text):
             if not self._is_admin(msg.user_id):
-                self._log("warning", f"用户 {msg.user_id} 非管理员，拒绝插件命令: {text}")
-                self._send_text_with_retry(msg.user_id, "只有管理员才有权限执行此命令", context_token=msg.context_token)
+                self._log(
+                    "warning", f"用户 {msg.user_id} 非管理员，拒绝插件命令: {text}"
+                )
+                self._send_text_with_retry(
+                    msg.user_id,
+                    "只有管理员才有权限执行此命令",
+                    context_token=msg.context_token,
+                )
                 return
 
             self._record_incoming_message(msg, text)
@@ -1117,13 +1472,20 @@ class WechatClawBot(_PluginBase):
                 )
                 self._log("info", f"已执行插件命令: {cmd} (user={msg.user_id})")
             except Exception as err:
-                self._log("error", f"插件命令执行异常: cmd={cmd}, user={msg.user_id}, err={err}")
-                self._send_text_with_retry(msg.user_id, f"命令执行失败: {err}", context_token=msg.context_token)
+                self._log(
+                    "error",
+                    f"插件命令执行异常: cmd={cmd}, user={msg.user_id}, err={err}",
+                )
+                self._send_text_with_retry(
+                    msg.user_id, f"命令执行失败: {err}", context_token=msg.context_token
+                )
             return
 
         # 非插件内置命令全部转交官方 MessageChain 处理，以对齐默认微信通道行为。
         if not self._dispatch_to_official_message_chain(msg, text):
-            self._send_text_with_retry(msg.user_id, "消息处理异常，请稍后重试", context_token=msg.context_token)
+            self._send_text_with_retry(
+                msg.user_id, "消息处理异常，请稍后重试", context_token=msg.context_token
+            )
 
     @staticmethod
     def _compose_text(message: Notification) -> str:
@@ -1181,16 +1543,21 @@ class WechatClawBot(_PluginBase):
 
         return self._active_users()
 
-    def _notification_to_title_lines(self, message: Notification) -> Tuple[Optional[str], List[str]]:
+    def _notification_to_title_lines(
+        self, message: Notification
+    ) -> Tuple[Optional[str], List[str]]:
         """统一整理通知消息文案结构。"""
         title = str(message.title).strip() if message.title else None
-        if message.mtype:
-            mtype_name = getattr(message.mtype, "value", str(message.mtype))
-            title = f"【{mtype_name}】{title}" if title else f"【{mtype_name}】"
 
         lines: List[str] = []
         if message.text:
-            lines.extend([line.strip() for line in str(message.text).splitlines() if line.strip()])
+            lines.extend(
+                [
+                    line.strip()
+                    for line in str(message.text).splitlines()
+                    if line.strip()
+                ]
+            )
         if message.link:
             lines.append(f"查看详情：{message.link}")
 
@@ -1217,7 +1584,9 @@ class WechatClawBot(_PluginBase):
 
         try:
             # iLink 侧需要先拉取图片再上传 CDN，这里复用系统代理提升外链可达性。
-            resp = RequestUtils(timeout=20, proxies=settings.PROXY, ua=settings.USER_AGENT).get_res(image_value)
+            resp = RequestUtils(
+                timeout=20, proxies=settings.PROXY, ua=settings.USER_AGENT
+            ).get_res(image_value)
             if not resp or resp.status_code != 200 or not resp.content:
                 return None
 
@@ -1266,7 +1635,7 @@ class WechatClawBot(_PluginBase):
         value = str(text or "").replace("\n", " ").replace("\r", " ").strip()
         if len(value) <= max_len:
             return value
-        return f"{value[:max_len - 3]}..."
+        return f"{value[: max_len - 3]}..."
 
     def _is_ilink_wechat_message(self, message: Notification) -> bool:
         """仅处理来自 WechatClawBot 源的微信消息。"""
@@ -1343,7 +1712,9 @@ class WechatClawBot(_PluginBase):
                     image_ok = self._send_image_bytes_with_retry(user_id, image_bytes)
                     ok = ok and image_ok
                     if rich_text:
-                        text_ok = self._send_text_with_retry(user_id, rich_text, context_token=token)
+                        text_ok = self._send_text_with_retry(
+                            user_id, rich_text, context_token=token
+                        )
                         ok = ok and text_ok
 
             for chunk in user_chunks:
@@ -1386,7 +1757,9 @@ class WechatClawBot(_PluginBase):
 
         self._module_post_message(message)
 
-    def _module_post_message(self, message: Notification, **kwargs) -> Optional[MessageResponse]:
+    def _module_post_message(
+        self, message: Notification, **kwargs
+    ) -> Optional[MessageResponse]:
         if not self._enabled:
             return None
 
@@ -1416,7 +1789,9 @@ class WechatClawBot(_PluginBase):
 
         return MessageResponse(success=ok, source=self.__class__.__name__)
 
-    def _module_send_direct_message(self, message: Notification) -> Optional[MessageResponse]:
+    def _module_send_direct_message(
+        self, message: Notification
+    ) -> Optional[MessageResponse]:
         """处理直接发送消息接口，覆盖即时回包场景。"""
         if not self._enabled:
             return None
@@ -1446,7 +1821,9 @@ class WechatClawBot(_PluginBase):
             chat_id=users[0] if len(users) == 1 else None,
         )
 
-    def _module_post_medias_message(self, message: Notification, medias: List[Any]) -> Optional[MessageResponse]:
+    def _module_post_medias_message(
+        self, message: Notification, medias: List[Any]
+    ) -> Optional[MessageResponse]:
         """处理媒体列表回包（如“搜索 XXX”后的候选列表）。"""
         if not self._enabled:
             return None
@@ -1460,8 +1837,17 @@ class WechatClawBot(_PluginBase):
         lines: List[str] = []
 
         for idx, media in enumerate(medias or [], start=1):
-            title = self._truncate_text(getattr(media, "title_year", None) or getattr(media, "title", None) or "未知媒体", 80)
-            mtype = getattr(getattr(media, "type", None), "value", None) or getattr(media, "type", None) or "未知类型"
+            title = self._truncate_text(
+                getattr(media, "title_year", None)
+                or getattr(media, "title", None)
+                or "未知媒体",
+                80,
+            )
+            mtype = (
+                getattr(getattr(media, "type", None), "value", None)
+                or getattr(media, "type", None)
+                or "未知类型"
+            )
             score = getattr(media, "vote_average", None)
             if score:
                 lines.append(f"{idx}. {title}｜{mtype}｜评分 {score}")
@@ -1476,7 +1862,9 @@ class WechatClawBot(_PluginBase):
         )
         return MessageResponse(success=ok, source=self.__class__.__name__)
 
-    def _module_post_torrents_message(self, message: Notification, torrents: List[Any]) -> Optional[MessageResponse]:
+    def _module_post_torrents_message(
+        self, message: Notification, torrents: List[Any]
+    ) -> Optional[MessageResponse]:
         """处理种子列表回包（如资源选择页）。"""
         if not self._enabled:
             return None
@@ -1495,8 +1883,12 @@ class WechatClawBot(_PluginBase):
                 lines.append(f"{idx}. 未知资源")
                 continue
 
-            site_name = self._truncate_text(getattr(torrent, "site_name", None) or "未知站点", 20)
-            title = self._truncate_text(getattr(torrent, "title", None) or "未知标题", 80)
+            site_name = self._truncate_text(
+                getattr(torrent, "site_name", None) or "未知站点", 20
+            )
+            title = self._truncate_text(
+                getattr(torrent, "title", None) or "未知标题", 80
+            )
             seeders = getattr(torrent, "seeders", None)
             size = getattr(torrent, "size", None)
             size_text = (
@@ -1517,7 +1909,9 @@ class WechatClawBot(_PluginBase):
         )
         return MessageResponse(success=ok, source=self.__class__.__name__)
 
-    def _module_message_parser(self, source: str, body: Any, form: Any, args: Any) -> Optional[CommingMessage]:
+    def _module_message_parser(
+        self, source: str, body: Any, form: Any, args: Any
+    ) -> Optional[CommingMessage]:
         """纯插件方案下不接管 /api/v1/message 解析，返回 None 交由系统模块处理。"""
         return None
 
@@ -1553,7 +1947,10 @@ class WechatClawBot(_PluginBase):
                 qrcode_url = self._compose_qrcode_url(str(qrcode_id))
 
             title = "WeChat-ClawBot 登录二维码"
-            ilink_direct = source == self.__class__.__name__ and userid not in (None, "")
+            ilink_direct = source == self.__class__.__name__ and userid not in (
+                None,
+                "",
+            )
             lines = [
                 "已生成登录二维码。",
                 f"系统将在 {self._LOGIN_WATCH_SECONDS} 秒内等待扫码登录，登录成功后自动更新用户 token。",
@@ -1600,9 +1997,14 @@ class WechatClawBot(_PluginBase):
                 title="WeChat-ClawBot 登录二维码获取失败",
                 text=fail_text,
             )
-            self._log("warning", f"命令 {self._QRCODE_COMMAND} 执行失败: {result.get('message') or 'unknown error'}")
+            self._log(
+                "warning",
+                f"命令 {self._QRCODE_COMMAND} 执行失败: {result.get('message') or 'unknown error'}",
+            )
 
-    def _notify_command_feedback(self, channel: Any, source: str, userid: Any, title: str, text: str):
+    def _notify_command_feedback(
+        self, channel: Any, source: str, userid: Any, title: str, text: str
+    ):
         if not self._send_direct_reply_for_ilink_user(
             source=source,
             userid=userid,
@@ -1619,7 +2021,9 @@ class WechatClawBot(_PluginBase):
                 )
             )
 
-    def _start_command_login_wait(self, channel: Any, source: str, userid: Any, expected_qrcode: Optional[str]):
+    def _start_command_login_wait(
+        self, channel: Any, source: str, userid: Any, expected_qrcode: Optional[str]
+    ):
         user_id = str(userid or "").strip()
         if not user_id:
             self._log("debug", "命令扫码等待跳过：缺少 user id")
@@ -1665,7 +2069,10 @@ class WechatClawBot(_PluginBase):
                     title="WeChat-ClawBot 登录成功",
                     text=text,
                 )
-                self._log("info", f"命令扫码等待成功: user={user_id}, token_updated={token_updated}")
+                self._log(
+                    "info",
+                    f"命令扫码等待成功: user={user_id}, token_updated={token_updated}",
+                )
                 return
 
             wait_status = str(result.get("status") or "").lower()
@@ -1697,7 +2104,10 @@ class WechatClawBot(_PluginBase):
                 title="WeChat-ClawBot 登录状态",
                 text=text,
             )
-            self._log("info", f"命令扫码等待结束: user={user_id}, status={wait_status or 'unknown'}")
+            self._log(
+                "info",
+                f"命令扫码等待结束: user={user_id}, status={wait_status or 'unknown'}",
+            )
         finally:
             with self._command_login_wait_lock:
                 current = self._command_login_wait_threads.get(user_id)
