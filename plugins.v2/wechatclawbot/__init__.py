@@ -29,7 +29,7 @@ class WechatClawBot(_PluginBase):
     plugin_desc = (
         "基于 OpenClaw/ClawBot 协议接入个人微信，支持扫码登录、消息通知转发与命令控制。"
     )
-    plugin_version = "0.2.0"
+    plugin_version = "0.2.1"
     plugin_author = "mijjjj"
     author_url = "https://github.com/mijjjj/MoviePilot-Plugins-WeChat-ClawBot"
     plugin_label = "微信,消息通知,clawBot"
