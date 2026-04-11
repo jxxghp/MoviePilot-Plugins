@@ -355,7 +355,7 @@ class AutoSports(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "1.0.5"
+    plugin_version = "1.0.6"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
@@ -2353,6 +2353,13 @@ class AutoSports(_PluginBase):
             if not matchup:
                 # 适配种子名里有 ',' 的格式
                 matchup = re.search(r'([A-Za-zÀ-ÿ ]+?)\s+vs\s+([A-Za-zÀ-ÿ ]+?)(?=\s*\||\s+\d|\.|,|$)', org_str, re.IGNORECASE)
+            if not matchup:
+                # 匹配带有转播信息，压制信息等后缀的格式
+                matchup = re.search(
+                    r'(.+?)\s+vs\s+(.+?)(?=\s+(?:WEB|HDTV|UHD|BluRay|\d{3,4}p)|$)',
+                    org_str,
+                    re.IGNORECASE
+                )
 
             home_team: list[str] = re.findall(r'\D+', matchup.group(1))
             away_team: list[str] =  re.findall(r'\D+', matchup.group(2))
@@ -2363,7 +2370,7 @@ class AutoSports(_PluginBase):
             for competition_parse in self.__competitions_parses:
                 illegal_fix.extend(competition_parse.get("names"))
             # 赛事阶段标识
-            illegal_fix.extend(["League Phase", "st leg", "st Leg"])
+            illegal_fix.extend(["League Phase", "st leg", "st Leg", "WEB", "STAN"])
 
             # 处理主队名
             # 去掉多余的前后空格
@@ -2427,22 +2434,22 @@ class AutoSports(_PluginBase):
                     stage_parse = {
                         'PLAYOFFS': 0,
                         'LAST_16': 1,
-                        'LAST_8': 2,
-                        'QUARTER_FINALS': 3,
-                        'SEMI_FINALS': 4,
-                        'FINAL': 5,
+                        # 'LAST_8': 2,
+                        'QUARTER_FINALS': 2,
+                        'SEMI_FINALS': 3,
+                        'FINAL': 4,
                     }
                     round_cn_name_list = [
                         "联赛阶段附加赛 首回合", "联赛阶段附加赛 次回合",
-                        "32强赛 首回合", "32强赛 次回合",
-                        "16强赛 首回合", "16强赛 次回合",
-                        "8强赛 首回合", "8强赛 次回合",
+                        # "32强赛 首回合", "32强赛 次回合",
+                        "十六强赛 首回合", "十六强赛 次回合",
+                        "八强赛 首回合", "八强赛 次回合",
                         "半决赛 首回合", "半决赛 次回合",
                         "决赛"
                     ]
                     round_en_name_list = [
                         "联赛阶段附加赛 次回合", "联赛阶段附加赛 次回合",
-                        "R32 1st Round", "R32 2nd Round",
+                        # "R32 1st Round", "R32 2nd Round",
                         "R16 1st Round", "R16 2nd Round",
                         "R8 1st Round", "R8 2nd Round",
                         "Semi Finals 1st Round", "Semi Finals 2nd Round",
