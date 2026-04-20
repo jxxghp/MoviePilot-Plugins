@@ -250,7 +250,8 @@ yarn build
 
 推荐文档分工：
 
-- 本仓库 `README.md`：总览与 FAQ
+- 本仓库 `README.md`：总览与主入口
+- 本仓库 `docs/FAQ.md`：FAQ 索引与场景入口
 - 本仓库 `docs/Repository_Guide.md`：仓库维护与发布规则
 - 本仓库 `docs/V2_Plugin_Development.md`：V2 插件开发主文档
 - 前端仓库 `docs/module-federation-guide.md`：Vue 联邦远程组件开发规范
@@ -260,4 +261,4 @@ yarn build
 - 想知道“这个仓库该怎么维护、改哪个文件、怎么发布”：看本文档
 - 想直接开发一个 V2 插件：看 `docs/V2_Plugin_Development.md`
 - 想做 Vue 远程组件或侧栏全页：看前端仓库模块联邦文档
-- 想按功能场景抄现成模式：回到根目录 `README.md` 的 FAQ
+- 想按功能场景抄现成模式：看 `docs/FAQ.md` 和 `docs/faq/` 下的独立 FAQ 文档

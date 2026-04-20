@@ -5,7 +5,7 @@
 关联阅读：
 
 - [仓库指南](./Repository_Guide.md)
-- [根 README 中的 FAQ](../README.md)
+- [FAQ 索引](./FAQ.md)
 - [MoviePilot 前端模块联邦开发指南](https://github.com/jxxghp/MoviePilot-Frontend/blob/v2/docs/module-federation-guide.md)
 
 ## 1. 先理解 V2 插件的运行模型
