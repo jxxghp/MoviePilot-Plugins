@@ -3,10 +3,11 @@ import hmac
 import random
 import socket
 import string
+import urllib.error
 import urllib.parse
 import urllib.request
 from base64 import b64encode
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import pytz
@@ -69,15 +70,21 @@ class AliDnsDDNS(_PluginBase):
         if not self._enabled:
             return
 
-        self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+        record_count = len(_parse_records(self._records))
+        logger.info(
+            f"[AliDnsDDNS] 插件已启动 | 检测间隔: {self._interval}min | 记录数: {record_count}"
+        )
 
+        # 立即执行一次：用独立调度器触发，不与宿主调度器冲突
         if self._run_once:
+            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
             self._scheduler.add_job(
                 func=self.__update_dns,
                 trigger="date",
                 run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                 name="阿里云DDNS 立即执行",
             )
+            self._scheduler.start()
             self._run_once = False
             self.update_config({
                 "enabled": self._enabled,
@@ -88,22 +95,6 @@ class AliDnsDDNS(_PluginBase):
                 "notify": self._notify,
                 "run_once": False,
             })
-
-        self._scheduler.add_job(
-            func=self.__update_dns,
-            trigger=IntervalTrigger(minutes=self._interval),
-            name="阿里云DDNS 定时任务",
-        )
-
-        if self._scheduler.get_jobs():
-            self._scheduler.print_jobs()
-            self._scheduler.start()
-
-        record_count = len(_parse_records(self._records))
-        logger.info(
-            f"[AliDnsDDNS] 插件已启动 | 检测间隔: {self._interval}min | "
-            f"记录数: {record_count}"
-        )
 
     def get_state(self) -> bool:
         return self._enabled
@@ -560,7 +551,7 @@ class _AliDnsClient:
             "SignatureMethod":   "HMAC-SHA1",
             "SignatureVersion":  "1.0",
             "SignatureNonce":    nonce,
-            "Timestamp":        datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "Timestamp":        datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
     def _request(self, params: Dict[str, str]) -> dict:
@@ -570,8 +561,20 @@ class _AliDnsClient:
         req = urllib.request.Request(
             url, headers={"User-Agent": "MoviePilot-AliDnsDDNS/1.0"}
         )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            body = _json.loads(resp.read().decode())
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                body = _json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            # 读取响应体以获取阿里云返回的详细错误信息
+            try:
+                err_body = _json.loads(e.read().decode())
+                code = err_body.get("Code", str(e.code))
+                msg  = err_body.get("Message", e.reason)
+            except Exception:
+                code, msg = str(e.code), e.reason
+            raise RuntimeError(f"HTTP {e.code} — {code}: {msg}") from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"网络请求失败: {e.reason}") from e
         if body.get("Code"):
             raise RuntimeError(f"{body['Code']}: {body.get('Message', '')}")
         return body
@@ -600,8 +603,8 @@ class _AliDnsClient:
 
     def upsert(self, domain: str, rr: str, rec_type: str, new_ip: str) -> bool:
         """
-        创建或更新 DNS 记录。
-        返回 True 表示发生了变更，False 表示记录已是最新值。
+        创建或更新 DNS 记录，更新所有匹配的记录。
+        返回 True 表示发生了变更，False 表示所有记录均已是最新值。
         """
         records = self._list_records(domain, rr, rec_type)
         # API RRKeyWord 是模糊匹配，需精确过滤
@@ -611,9 +614,10 @@ class _AliDnsClient:
             self._add_record(domain, rr, rec_type, new_ip)
             return True
 
-        rec = matched[0]
-        if rec.get("Value") == new_ip:
-            return False  # 已是最新
-
-        self._update_record(rec["RecordId"], rr, rec_type, new_ip, domain)
-        return True
+        changed = False
+        for rec in matched:
+            if rec.get("Value") == new_ip:
+                continue  # 该条已是最新，跳过
+            self._update_record(rec["RecordId"], rr, rec_type, new_ip, domain)
+            changed = True
+        return changed
