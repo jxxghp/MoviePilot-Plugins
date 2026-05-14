@@ -1,3 +1,4 @@
 requests
 cloudscraper
 lark-oapi==1.5.3
+p115client==0.0.8.4.8

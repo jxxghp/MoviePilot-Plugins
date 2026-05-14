@@ -4,9 +4,9 @@ import re
 import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlparse, urlencode
-
-import requests
+from urllib.request import Request as UrlRequest, urlopen
 
 from app.log import logger
 
@@ -174,26 +174,37 @@ class QuarkTransferService:
         json_body: Optional[Dict[str, Any]] = None,
         allow_cookie_retry: bool = True,
     ) -> Tuple[bool, Dict[str, Any], str]:
+        final_url = url
+        if params:
+            query = urlencode([(key, "" if value is None else value) for key, value in params.items()])
+            final_url = f"{url}?{query}" if query else url
+
+        payload = None
+        if json_body is not None:
+            payload = json.dumps(json_body).encode("utf-8")
+
         try:
-            response = requests.request(
-                method=method.upper(),
-                url=url,
-                params=params or None,
-                json=json_body,
+            request = UrlRequest(
+                url=final_url,
+                data=payload,
                 headers=self._build_headers(),
-                timeout=self.timeout,
+                method=method.upper(),
             )
-            status_code = response.status_code
-            raw_body = response.text or ""
-        except requests.RequestException as exc:
-            return False, {}, f"请求失败: {exc}"
+            with urlopen(request, timeout=self.timeout) as response:
+                status_code = getattr(response, "status", 200)
+                raw_body = response.read()
+        except HTTPError as exc:
+            status_code = exc.code
+            raw_body = exc.read() if hasattr(exc, "read") else b""
+        except URLError as exc:
+            return False, {}, f"请求失败: {exc.reason}"
         except Exception as exc:
             return False, {}, f"请求失败: {exc}"
 
         try:
-            data = response.json()
+            data = json.loads(raw_body.decode("utf-8"))
         except Exception:
-            text = str(raw_body)[:300]
+            text = raw_body.decode("utf-8", errors="ignore")[:300]
             return False, {}, f"接口返回非 JSON: HTTP {status_code} {text}"
 
         if status_code in {401, 403} and allow_cookie_retry and self._refresh_cookie():

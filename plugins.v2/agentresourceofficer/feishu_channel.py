@@ -5,6 +5,8 @@ import importlib
 import json
 import re
 import sqlite3
+import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -17,12 +19,21 @@ try:
 except Exception:
     jieba = None
 
+for _site_path in (
+    "/usr/local/lib/python3.12/site-packages",
+    "/usr/local/lib/python3.11/site-packages",
+):
+    if Path(_site_path).exists() and _site_path not in sys.path:
+        sys.path.append(_site_path)
+
 try:
     import lark_oapi as lark
 except Exception:
     lark = None
 
 _LARK_IMPORT_LOCK = threading.Lock()
+_LARK_AUTO_INSTALL_ATTEMPTED = False
+_LARK_PACKAGE_SPEC = "lark-oapi==1.5.3"
 
 try:
     from app.chain.download import DownloadChain
@@ -83,11 +94,11 @@ except Exception:
     logger = _FallbackLogger()
 
 
-_EVENT_CACHE_FILE = Path(__file__).resolve().parent / ".feishu_event_cache.json"
+_EVENT_CACHE_FILE = Path("/config/plugins/AgentResourceOfficer/.feishu_event_cache.json")
 
 
 def ensure_lark_sdk(auto_install: bool = False) -> tuple[bool, str]:
-    global lark
+    global lark, _LARK_AUTO_INSTALL_ATTEMPTED
 
     if lark is not None:
         return True, ""
@@ -104,7 +115,48 @@ def ensure_lark_sdk(auto_install: bool = False) -> tuple[bool, str]:
         except Exception as exc:
             first_error = str(exc)
 
-        return False, f"缺少依赖 lark-oapi：{first_error}。请通过插件 requirements.txt 安装依赖后重启 MoviePilot。"
+        if not auto_install:
+            return False, f"缺少依赖 lark-oapi：{first_error}"
+
+        if _LARK_AUTO_INSTALL_ATTEMPTED:
+            return False, f"缺少依赖 lark-oapi：{first_error}"
+
+        _LARK_AUTO_INSTALL_ATTEMPTED = True
+        requirements_file = Path(__file__).with_name("requirements.txt")
+        install_cmds = []
+        if requirements_file.exists():
+            install_cmds.append([sys.executable, "-m", "pip", "install", "-r", str(requirements_file)])
+        install_cmds.append([sys.executable, "-m", "pip", "install", _LARK_PACKAGE_SPEC])
+
+        install_errors: list[str] = []
+        for cmd in install_cmds:
+            try:
+                logger.info(f"[AgentResourceOfficer][Feishu] 正在尝试安装依赖：{' '.join(cmd)}")
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=180,
+                )
+            except Exception as exc:
+                install_errors.append(str(exc))
+                continue
+            if proc.returncode == 0:
+                try:
+                    import lark_oapi as runtime_lark
+
+                    lark = runtime_lark
+                    logger.info("[AgentResourceOfficer][Feishu] 已自动安装并加载 lark-oapi")
+                    return True, ""
+                except Exception as exc:
+                    install_errors.append(str(exc))
+            else:
+                stderr = (proc.stderr or "").strip()
+                stdout = (proc.stdout or "").strip()
+                install_errors.append(stderr or stdout or f"returncode={proc.returncode}")
+
+        detail = " | ".join([msg for msg in install_errors if msg]) or first_error
+        return False, f"缺少依赖 lark-oapi，且自动安装失败：{detail}"
 
 
 class _FeishuLongConnectionRuntime:
@@ -115,7 +167,7 @@ class _FeishuLongConnectionRuntime:
         self._channel: Optional["FeishuChannel"] = None
 
     def start(self, channel: "FeishuChannel") -> None:
-        ok, message = ensure_lark_sdk(auto_install=False)
+        ok, message = ensure_lark_sdk(auto_install=True)
         if not ok:
             logger.error(f"[AgentResourceOfficer][Feishu] {message}")
             return
@@ -188,8 +240,6 @@ class FeishuChannel:
         "/quark_save",
         "/media_search",
         "/media_download",
-        "/media_subscribe",
-        "/media_subscribe_search",
     }
     _LEGACY_DEFAULT_ALIAS_KEYS = {
         "刮削",
@@ -198,7 +248,6 @@ class FeishuChannel:
         "原生搜索",
         "下载",
         "订阅",
-        "订阅搜索",
         "生成STRM",
         "全量STRM",
         "指定路径STRM",
@@ -206,8 +255,6 @@ class FeishuChannel:
         "夸克",
         "搜索资源",
         "下载资源",
-        "订阅媒体",
-        "订阅并搜索",
     }
 
     def __init__(self, plugin: Any) -> None:
@@ -249,7 +296,6 @@ class FeishuChannel:
         return (
             "搜索=/smart_entry\n"
             "找=/smart_entry\n"
-            "云盘搜索=/smart_entry\n"
             "MP搜索=/smart_entry\n"
             "PT搜索=/smart_entry\n"
             "原生搜索=/smart_entry\n"
@@ -267,7 +313,6 @@ class FeishuChannel:
             "夸克=/smart_entry\n"
             "下载=/smart_entry\n"
             "订阅=/smart_entry\n"
-            "订阅搜索=/smart_entry\n"
             "链接=/smart_entry\n"
             "处理=/smart_entry\n"
             "115登录=/smart_entry\n"
@@ -293,8 +338,6 @@ class FeishuChannel:
             "继续=/smart_pick\n"
             "搜索资源=/smart_entry\n"
             "下载资源=/smart_entry\n"
-            "订阅媒体=/smart_entry\n"
-            "订阅并搜索=/smart_entry\n"
             "版本=/version"
         )
 
@@ -508,7 +551,10 @@ class FeishuChannel:
         sender_open_id = str(getattr(sender_id, "open_id", "") or "").strip()
         chat_id = str(getattr(message, "chat_id", "") or "").strip()
         if self.debug:
-            logger.info(f"[AgentResourceOfficer][Feishu] event_id={event_id} chat_id={chat_id}")
+            logger.info(
+                f"[AgentResourceOfficer][Feishu] event_id={event_id} "
+                f"chat_id={chat_id} open_id={sender_open_id}"
+            )
 
         if not self._is_allowed(chat_id=chat_id, user_open_id=sender_open_id):
             self.reply_text(chat_id, sender_open_id, "该会话未在白名单中，命令已拒绝。")
@@ -550,19 +596,25 @@ class FeishuChannel:
 
         if cmd == "/media_download":
             if not arg or not arg.isdigit():
-                self.reply_text(chat_id, open_id, "用法：下载资源 序号\n示例：下载资源 1")
+                self.reply_text(chat_id, open_id, "用法：下载 序号\n示例：下载 1")
                 return True
-            self.reply_text(chat_id, open_id, f"正在生成第 {arg} 条资源的下载计划，请稍候。")
+            self.reply_text(chat_id, open_id, f"正在下载第 {arg} 条 PT 结果，请稍候。")
             self._run_thread("feishu-media-download", self._run_media_download, int(arg), chat_id, open_id)
             return True
 
         if cmd in {"/media_subscribe", "/media_subscribe_search"}:
             if not arg:
-                self.reply_text(chat_id, open_id, "用法：订阅媒体 片名\n示例：订阅媒体 流浪地球2")
+                self.reply_text(chat_id, open_id, "用法：订阅 片名\n示例：订阅 流浪地球2")
                 return True
-            immediate = cmd == "/media_subscribe_search"
-            self.reply_text(chat_id, open_id, f"正在{'订阅并搜索' if immediate else '订阅'}：{arg}")
-            self._run_thread("feishu-media-subscribe", self._run_media_subscribe, arg, immediate, chat_id, open_id)
+            if cmd == "/media_subscribe_search":
+                self.reply_text(
+                    chat_id,
+                    open_id,
+                    "“订阅并搜索 片名”旧命令已取消。\n请改用：订阅 片名\n如需立即看资源，再手动发 MP搜索 / 盘搜搜索 / 影巢搜索。",
+                )
+                return True
+            self.reply_text(chat_id, open_id, f"正在订阅：{arg}")
+            self._run_thread("feishu-media-subscribe", self._run_media_subscribe, arg, False, chat_id, open_id)
             return True
 
         if cmd == "/pansou_search":
@@ -649,7 +701,7 @@ class FeishuChannel:
 
     def _run_media_download(self, index: int, chat_id: str, open_id: str) -> None:
         result = self.plugin.feishu_assistant_route(
-            text=f"下载资源 {index}",
+            text=f"下载 {index}",
             session=self._cache_key(chat_id, open_id),
         )
         self._reply_result(chat_id, open_id, result)
@@ -676,7 +728,7 @@ class FeishuChannel:
             if not results:
                 return f"已识别 {self._format_media_label(mediainfo, season)}，但暂未搜索到资源。"
             self._set_search_cache(cache_key, keyword, mediainfo, results)
-            preview_limit = 20
+            preview_limit = 10
             preview_results = results[:preview_limit]
             lines = [
                 f"已识别：{self._format_media_label(mediainfo, season)}",
@@ -691,8 +743,8 @@ class FeishuChannel:
                 volume = torrent.volume_factor if getattr(torrent, "volume_factor", None) else "未知"
                 lines.append(f"{idx}. [{site}] {title}")
                 lines.append(f"   大小：{size} | 做种：{seeders} | 促销：{volume}")
-            lines.append("下一步：回复“下载资源 序号”会先生成下载计划，不会静默下载。")
-            lines.append("如需长期跟踪，回复“订阅媒体 片名”或“订阅并搜索 片名”。")
+            lines.append("下一步：回复“下载 序号”会直接下载当前 PT 结果。")
+            lines.append("如需长期跟踪，回复“订阅 片名”。")
             return "\n".join(lines)
         except Exception as exc:
             logger.error(f"[AgentResourceOfficer][Feishu] 搜索资源失败：{keyword} {exc}\n{traceback.format_exc()}")
@@ -1069,7 +1121,7 @@ class FeishuChannel:
                 filters = " / ".join(value for value in [item.get("resolution"), item.get("effect"), item.get("quality")] if value) or "默认规则"
                 lines.append(f"{item.get('index')}. #{item.get('id')} {item.get('name')} ({item.get('year') or '-'}){season}")
                 lines.append(f"   状态:{item.get('state') or '-'} | {lack_text} | 规则:{filters} | 下载器:{item.get('downloader') or '默认'}")
-            lines.append("写入操作需确认：可发“搜索订阅 1”“暂停订阅 1”“恢复订阅 1”“删除订阅 1”。")
+            lines.append("写入操作需确认：可发“刷新订阅 1”“暂停订阅 1”“恢复订阅 1”“删除订阅 1”。")
             return {"success": True, "message": "\n".join(lines), "items": items, "total": total, "status": status_name}
         except Exception as exc:
             logger.error(f"[AgentResourceOfficer][Feishu] 查询订阅失败：{exc}\n{traceback.format_exc()}")
@@ -1090,9 +1142,9 @@ class FeishuChannel:
             old_info = sub.to_dict() if hasattr(sub, "to_dict") else {}
             if action_name in {"search", "run"}:
                 if Scheduler is None:
-                    return {"success": False, "message": "搜索订阅失败：当前环境缺少调度器。"}
+                    return {"success": False, "message": "刷新订阅失败：当前环境缺少调度器。"}
                 Scheduler().start(job_id="subscribe_search", **{"sid": sid, "state": None, "manual": True})
-                return {"success": True, "message": f"已触发订阅搜索：#{sid} {getattr(sub, 'name', '')}", "subscribe_id": sid, "action": action_name}
+                return {"success": True, "message": f"已触发订阅刷新：#{sid} {getattr(sub, 'name', '')}", "subscribe_id": sid, "action": action_name}
             if action_name in {"pause", "stop"}:
                 updated = oper.update(sid, {"state": "S"})
                 label = "暂停"
@@ -1414,7 +1466,7 @@ class FeishuChannel:
                 lines.append("已触发一次订阅搜索。")
             return "\n".join(lines)
         except Exception as exc:
-            logger.error(f"[AgentResourceOfficer][Feishu] 订阅媒体失败：{keyword} {exc}\n{traceback.format_exc()}")
+            logger.error(f"[AgentResourceOfficer][Feishu] 订阅失败：{keyword} {exc}\n{traceback.format_exc()}")
             return f"订阅失败：{keyword}\n错误：{exc}"
 
     @staticmethod
@@ -1646,8 +1698,7 @@ class FeishuChannel:
     def _is_duplicate_event_cross_instance(event_id: str, now: float) -> bool:
         try:
             _EVENT_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            _EVENT_CACHE_FILE.touch(exist_ok=True)
-            with _EVENT_CACHE_FILE.open("r+", encoding="utf-8") as f:
+            with _EVENT_CACHE_FILE.open("a+", encoding="utf-8") as f:
                 fcntl.flock(f.fileno(), fcntl.LOCK_EX)
                 f.seek(0)
                 raw = f.read().strip()
@@ -1717,9 +1768,9 @@ class FeishuChannel:
     def _build_menu_text() -> str:
         return (
             "快捷菜单\n"
-            "1. 云盘搜索 片名\n"
-            "2. 盘搜搜索 片名\n"
-            "3. 影巢搜索 片名\n"
+            "1. 盘搜搜索 片名\n"
+            "2. 影巢搜索 片名\n"
+            "3. 搜索 片名\n"
             "4. MP搜索 片名 / PT搜索 片名\n"
             "5. 转存 片名（默认 115）\n"
             "6. 夸克转存 片名\n"

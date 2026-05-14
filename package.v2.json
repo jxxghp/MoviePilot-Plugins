@@ -691,13 +691,16 @@
   },
   "AgentResourceOfficer": {
     "name": "Agent影视助手",
-    "description": "统一承接影巢搜索/解锁、115 转存、夸克转存、飞书入口与智能体接口的资源工作流主插件。",
+    "description": "龙虾agent稳定控制 MP：飞书入口、盘搜/影巢搜索、115/夸克转存、智能评分推荐。",
     "labels": "Agent,影巢,HDHive,115,夸克,Quark,智能体,转存,解锁",
-    "version": "0.2.68",
+    "version": "0.2.71",
     "icon": "agentresourceofficer.png",
     "author": "liuyuexi1987",
     "level": 1,
     "history": {
+      "0.2.71": "新增流媒体推荐：聚合 Netflix、Disney+、Apple TV+、Prime Video 四大平台，基于 TMDB discover 按热度/评分推荐本月上新、近期热门电影和剧集；结果页改为只读列表，仅支持显式前缀触发。",
+      "0.2.70": "最后一轮主线收口：取消标题级云盘转存/云盘搜索入口，统一保留前缀搜索与编号续接；修复 PT 指定集/最新集筛选、下载路径透传、分页与旧别名拦截，并同步外部智能体 Skill/命令文档。",
+      "0.2.69": "修复外部智能体跨机器接入暴露的问题：补齐 115 直转依赖，Cookie 修复改为通过远端 MoviePilot API 安全写回，安装 Skill 时自动准备浏览器 Cookie 工具依赖，并增强 PanSou 跨机提示与 MP 推荐空结果回退。",
       "0.2.68": "收口云盘搜索/转存/影巢签到恢复链：固定“转存/下载/云盘搜索/更新检查”口径，补齐 115/夸克默认目录清理、影巢立即签到与 Cookie 一键修复命令，并同步主页与 Skill 文档。",
       "0.2.67": "收口外部智能体入口细节：隐藏 workbuddy_quickstart 旧 recipe 展示名，为 external-agent / commands 增加 deprecated alias 语义，并统一当前状态文档。",
       "0.2.66": "为 request_templates 增加三类入口的 entry_playbooks，直接给出 helper 命令、HTTP 端点、Tool 名称和推荐读取字段，进一步减少外部智能体与 MP 内置智能体的接入编排逻辑。",

@@ -67,18 +67,10 @@ class P115TransferService:
 
     @staticmethod
     def _ensure_helper_import_paths() -> None:
-        candidate_dirs = []
-        try:
-            plugin_parent = Path(__file__).resolve().parents[2]
-            candidate_dirs.append(str(plugin_parent))
-        except Exception:
-            pass
-        try:
-            app_plugins_spec = importlib.util.find_spec("app.plugins")
-            for location in app_plugins_spec.submodule_search_locations or []:
-                candidate_dirs.append(str(Path(location).resolve()))
-        except Exception:
-            pass
+        candidate_dirs = [
+            "/app/app/plugins",
+            "/config/plugins",
+        ]
         for base in candidate_dirs:
             path = Path(base)
             if path.exists():
@@ -156,7 +148,7 @@ class P115TransferService:
                 "valid": False,
                 "mode": "none",
                 "cookie_keys": [],
-                "message": "未配置独立 115 会话，将优先复用 P115StrmHelper 已登录客户端",
+                "message": "未配置独立 115 会话。新环境请先发“115登录”扫码；P115StrmHelper 仅作为旧环境兼容 fallback。",
             }
         cookie_ok, cookie_message = self.validate_client_cookie(self.cookie)
         return {
@@ -771,7 +763,10 @@ class P115TransferService:
         helper, helper_error = self.get_share_helper()
         if helper_error or not helper:
             direct_error = ((result.get("data") or {}).get("direct_fallback") or {}).get("message")
-            result["message"] = helper_error or direct_error or "P115StrmHelper 不可用"
+            result["message"] = (
+                "115 转存不可用：请先发“115登录”完成扫码，或检查 115 直转依赖。"
+                f" 直转状态：{direct_error or '未知'}；兼容 fallback：{helper_error or '不可用'}"
+            )
             return False, result, result["message"]
 
         try:
