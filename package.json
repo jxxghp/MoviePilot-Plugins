@@ -474,7 +474,6 @@
     "icon": "invites.png",
     "author": "thsrite",
     "level": 2,
-    "v2": true,
     "release": true,
     "history": {
       "v2.0.3": "增加启用浏览器仿真功能发送请求",
@@ -788,8 +787,7 @@
       "v1.4": "支持仪表板组件显示",
       "v1.3": "修复观众做种数据异常问题",
       "v1.2": "修复契约检查无数据返回的问题"
-    },
-    "v2": true
+    }
   },
   "FeiShuMsg": {
     "name": "飞书机器人消息通知",
@@ -979,7 +977,6 @@
     "icon": "Wecom_A.png",
     "author": "RamenRa",
     "level": 2,
-    "v2": true,
     "history": {
       "v1.7.3": "修复检测登录的元素",
       "v1.7.2": "||wan参数细分,修复使用||wan时立即检测一次实际不生效,修复v1第三方备用通知可能无效,调整验证码获取",
@@ -1108,7 +1105,6 @@
     "icon": "agentresourceofficer.png",
     "author": "liuyuexi1987",
     "level": 1,
-    "v2": true,
     "history": {
       "0.2.71": "新增流媒体推荐：聚合 Netflix、Disney+、Apple TV+、Prime Video 四大平台，基于 TMDB discover 按热度/评分推荐本月上新、近期热门电影和剧集；结果页改为只读列表，仅支持显式前缀触发。",
       "0.2.70": "最后一轮主线收口：取消标题级云盘转存/云盘搜索入口，统一保留前缀搜索与编号续接；修复 PT 指定集/最新集筛选、下载路径透传、分页与旧别名拦截，并同步外部智能体 Skill/命令文档。",
