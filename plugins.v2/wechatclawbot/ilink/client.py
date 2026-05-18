@@ -847,37 +847,17 @@ class ILinkClient:
             "events",
             "msg_list",
             "msgList",
-            "msgs",
             "add_msgs",
             "addMsgs",
             "records",
             "list",
         ]
 
-        candidates = [
-            data.get("msgs"),
-            data.get("updates"),
-            data.get("messages"),
-            data.get("items"),
-            data.get("events"),
-            data.get("msg_list"),
-            data.get("msgList"),
-            data.get("msgs"),
-            data.get("add_msgs"),
-            data.get("addMsgs"),
-            payload.get("msgs"),
-            payload.get("updates"),
-            payload.get("messages"),
-            payload.get("events"),
-            payload.get("msg_list"),
-            payload.get("msgList"),
-            payload.get("msgs"),
-            payload.get("add_msgs"),
-            payload.get("addMsgs"),
-        ]
-        for item in candidates:
-            if isinstance(item, list):
-                return item, sync_buf
+        for obj in [data, payload]:
+            for key in list_keys:
+                value = obj.get(key)
+                if isinstance(value, list):
+                    return value, sync_buf
 
         nested = self._find_first_list(data, prefer_keys=list_keys)
         if isinstance(nested, list):
