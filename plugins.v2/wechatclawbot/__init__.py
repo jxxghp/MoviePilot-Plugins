@@ -1,4 +1,6 @@
 import base64
+import hashlib
+import json
 from collections import deque
 import threading
 import time
@@ -44,6 +46,8 @@ class WechatClawBot(_PluginBase):
     _LOGIN_WATCH_SECONDS = 240
     _LOGIN_WATCH_INTERVAL_SECONDS = 3
     _MAX_API_RETRY_FAILURES = 10
+    _INCOMING_DEDUP_TTL_SECONDS = 120
+    _MAX_INCOMING_CACHE_ITEMS = 4096
 
     def __init__(self):
         super().__init__()
@@ -61,6 +65,9 @@ class WechatClawBot(_PluginBase):
         self._qrcode_prepare_lock = threading.Lock()
         self._command_login_wait_threads: Dict[str, threading.Thread] = {}
         self._command_login_wait_lock = threading.Lock()
+        self._incoming_seen_cache: Dict[str, int] = {}
+        self._incoming_seen_order = deque(maxlen=self._MAX_INCOMING_CACHE_ITEMS)
+        self._incoming_seen_lock = threading.Lock()
 
     def _log(self, level: str, message: str):
         """记录插件日志到内存并输出到全局日志。"""
@@ -1351,6 +1358,71 @@ class WechatClawBot(_PluginBase):
         except Exception as err:
             self._log("warning", f"入站消息写入记录失败: {err}")
 
+    def _cleanup_incoming_seen_cache_locked(self, now_ts: int) -> None:
+        """清理过期/溢出的入站消息去重缓存。"""
+        ttl = self._INCOMING_DEDUP_TTL_SECONDS
+
+        while self._incoming_seen_order:
+            key, ts = self._incoming_seen_order[0]
+            if (
+                now_ts - ts <= ttl
+                and len(self._incoming_seen_order) <= self._MAX_INCOMING_CACHE_ITEMS
+            ):
+                break
+            self._incoming_seen_order.popleft()
+            cached_ts = self._incoming_seen_cache.get(key)
+            if cached_ts == ts:
+                self._incoming_seen_cache.pop(key, None)
+
+    def _build_incoming_dedup_key(
+        self, msg: ILinkIncomingMessage, text: str
+    ) -> Optional[str]:
+        """构建入站消息去重 key。优先使用 message_id，缺失时退化为消息指纹。"""
+        user_id = str(msg.user_id or "").strip()
+        message_id = str(msg.message_id or "").strip()
+        if user_id and message_id:
+            return f"id:{user_id}:{message_id}"
+
+        if not user_id:
+            return None
+
+        raw_payload = msg.raw if isinstance(msg.raw, dict) else {"raw": str(msg.raw)}
+        payload = {
+            "user_id": user_id,
+            "chat_id": str(msg.chat_id or ""),
+            "context_token": str(msg.context_token or ""),
+            "text": text or "",
+            "raw": raw_payload,
+        }
+        try:
+            fingerprint = hashlib.sha1(
+                json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()
+        except Exception:
+            return None
+        return f"fp:{fingerprint}"
+
+    def _is_duplicate_incoming(self, msg: ILinkIncomingMessage, text: str) -> bool:
+        """判断入站消息是否为短时间内重复投递。"""
+        key = self._build_incoming_dedup_key(msg=msg, text=text)
+        if not key:
+            return False
+
+        now_ts = int(time.time())
+        with self._incoming_seen_lock:
+            self._cleanup_incoming_seen_cache_locked(now_ts)
+            last_ts = self._incoming_seen_cache.get(key)
+            if (
+                last_ts is not None
+                and now_ts - last_ts <= self._INCOMING_DEDUP_TTL_SECONDS
+            ):
+                return True
+
+            self._incoming_seen_cache[key] = now_ts
+            self._incoming_seen_order.append((key, now_ts))
+            self._cleanup_incoming_seen_cache_locked(now_ts)
+        return False
+
     def _is_plugin_command(self, text: str) -> bool:
         """判断是否为插件内置命令（需要插件自行处理）。"""
         if not text or not text.startswith("/"):
@@ -1434,6 +1506,12 @@ class WechatClawBot(_PluginBase):
     def _handle_incoming(self, msg: ILinkIncomingMessage):
         text = (msg.text or "").strip()
         if not text:
+            return
+        if self._is_duplicate_incoming(msg=msg, text=text):
+            self._log(
+                "warning",
+                f"检测到重复入站消息，已忽略: user={msg.user_id}, message_id={msg.message_id or '-'}",
+            )
             return
 
         self._log("info", f"收到入站消息: user={msg.user_id}, text={text[:64]}")
