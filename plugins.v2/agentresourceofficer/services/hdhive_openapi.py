@@ -720,9 +720,9 @@ class HDHiveOpenApiService:
             server_action_message = "未解析到登录 Action"
 
         try:
-            from playwright.sync_api import sync_playwright
+            from cloakbrowser import launch_context
         except Exception:
-            return False, "", server_action_message or "自动登录失败，且 Playwright 不可用"
+            return False, "", server_action_message or "自动登录失败，且 CloakBrowser 不可用"
 
         try:
             proxy = None
@@ -733,9 +733,9 @@ class HDHiveOpenApiService:
                     proxy = {"server": server}
             except Exception:
                 proxy = None
-            with sync_playwright() as pw:
-                browser = pw.chromium.launch(headless=True, proxy=proxy) if proxy else pw.chromium.launch(headless=True)
-                context = browser.new_context()
+            context = None
+            try:
+                context = launch_context(headless=True, proxy=proxy)
                 page = context.new_page()
                 page.goto(login_url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
                 for selector in [
@@ -780,15 +780,16 @@ class HDHiveOpenApiService:
                 except Exception:
                     pass
                 cookies = context.cookies()
-                context.close()
-                browser.close()
+            finally:
+                if context:
+                    context.close()
         except Exception as exc:
-            return False, "", f"Playwright 自动登录失败: {exc}"
+            return False, "", f"CloakBrowser 自动登录失败: {exc}"
 
         cookie_map = {str(item.get("name") or ""): str(item.get("value") or "") for item in cookies or []}
         cookie_string = self._cookie_string_from_mapping(cookie_map)
         if cookie_string:
-            return True, cookie_string, "Playwright 登录成功"
+            return True, cookie_string, "CloakBrowser 登录成功"
         return False, "", server_action_message or "自动登录失败，未获取到有效 Cookie"
 
     @classmethod

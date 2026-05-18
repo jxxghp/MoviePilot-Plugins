@@ -126,7 +126,7 @@ class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
     plugin_desc = "龙虾agent稳定控制 MP：飞书入口、盘搜/影巢搜索、115/夸克转存、智能评分推荐。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "0.2.71"
+    plugin_version = "0.2.72"
     request_templates_schema_version = "request_templates.v1"
     plugin_author = "liuyuexi1987"
     plugin_level = 1
@@ -1440,7 +1440,7 @@ class AgentResourceOfficer(_PluginBase):
         if not self._hdhive_checkin_auto_login:
             return False, "", "未启用影巢自动登录刷新 Cookie"
         service = self._ensure_hdhive_service()
-        # Playwright sync API cannot run inside MoviePilot's asyncio loop; keep login isolated.
+        # CloakBrowser 仍是同步浏览器调用，放在线程池中避免阻塞 MoviePilot 的 asyncio loop。
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(
                 service.login_for_cookie,
