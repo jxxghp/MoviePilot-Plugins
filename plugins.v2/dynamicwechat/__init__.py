@@ -31,7 +31,7 @@ class DynamicWeChat(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.0.1"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -116,9 +116,13 @@ class DynamicWeChat(_PluginBase):
     @staticmethod
     def _launch_browser_context(headless: bool = True):
         """
-        使用 CloakBrowser 启动企业微信页面上下文，统一注入中文语言参数。
+        使用 CloakBrowser 启动企业微信页面上下文，统一注入中文语言环境。
         """
-        return launch_context(headless=headless, args=['--lang=zh-CN'])
+        context = launch_context(headless=headless, args=['--lang=zh-CN'])
+        context.set_extra_http_headers({
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.1'
+        })
+        return context
 
     if hasattr(settings, 'VERSION_FLAG'):
         version = settings.VERSION_FLAG  # V2
