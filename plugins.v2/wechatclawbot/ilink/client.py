@@ -853,15 +853,11 @@ class ILinkClient:
             "list",
         ]
 
-        candidates = []
-        for key in list_keys:
-            for obj in [data, payload]:
+        for obj in [data, payload]:
+            for key in list_keys:
                 value = obj.get(key)
-                if value is not None and isinstance(value, list):
+                if isinstance(value, list):
                     return value, sync_buf
-        for item in candidates:
-            if isinstance(item, list):
-                return item, sync_buf
 
         nested = self._find_first_list(data, prefer_keys=list_keys)
         if isinstance(nested, list):

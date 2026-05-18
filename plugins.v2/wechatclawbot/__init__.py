@@ -66,7 +66,7 @@ class WechatClawBot(_PluginBase):
         self._command_login_wait_threads: Dict[str, threading.Thread] = {}
         self._command_login_wait_lock = threading.Lock()
         self._incoming_seen_cache: Dict[str, int] = {}
-        self._incoming_seen_order = deque(maxlen=self._MAX_INCOMING_CACHE_ITEMS)
+        self._incoming_seen_order = deque()
         self._incoming_seen_lock = threading.Lock()
 
     def _log(self, level: str, message: str):
