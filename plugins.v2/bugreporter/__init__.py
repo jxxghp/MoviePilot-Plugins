@@ -114,11 +114,44 @@ class SentrySanitizer:
         
         return False
 
+    TRACEBACK_PATTERN = re.compile(
+        r"Traceback \(most recent call last\):|"
+        r"File \"[^\"]+\", line \d+|"
+        r"^\s+raise \w+|"
+        r"^\w+Error:|^\w+Exception:",
+        re.MULTILINE
+    )
+
+    @classmethod
+    def has_stacktrace(cls, event) -> bool:
+        """
+        判断事件是否包含明确的异常堆栈信息（结构化异常或日志文本中的堆栈）
+        """
+        if "exception" in event:
+            for exc in event["exception"].get("values", []):
+                stacktrace = exc.get("stacktrace")
+                if stacktrace and stacktrace.get("frames"):
+                    return True
+
+        if "message" in event and cls.TRACEBACK_PATTERN.search(event["message"]):
+            return True
+
+        if "logentry" in event:
+            msg = event["logentry"].get("message", "") or event["logentry"].get("formatted", "")
+            if cls.TRACEBACK_PATTERN.search(msg):
+                return True
+
+        return False
+
     @classmethod
     def before_send(cls, event, hint):
         """
         在发送到 Sentry 之前脱敏和过滤
         """
+        # 只上报包含明确异常堆栈的事件，普通 error 日志不上报
+        if not cls.has_stacktrace(event):
+            return None
+
         # 如果是网络连接错误，直接返回 None 不上报
         if cls.is_network_error(event):
             return None
@@ -171,7 +204,7 @@ class BugReporter(_PluginBase):
     # 插件图标
     plugin_icon = "Alist_encrypt_A.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -240,7 +273,7 @@ class BugReporter(_PluginBase):
                                         'props': {
                                             'type': 'warning',
                                             'variant': 'tonal',
-                                            'text': '注意：开启插件即代表你同意将部分异常信息自动发送给开发者，以帮助改进软件；如果你不希望自动发送任何数据，请关闭或卸载此插件；仅上报系统异常信息，不会包含任何个人隐私信息或敏感数据；网络连接错误类异常不会上报；异常信息采集为使用开源项目解决方案：GlitchTip。',
+                                            'text': '注意：开启插件即代表你同意将部分异常信息自动发送给开发者，以帮助改进软件；如果你不希望自动发送任何数据，请关闭或卸载此插件；仅上报包含异常堆栈的系统错误，普通日志和网络连接错误不会上报；不会包含任何个人隐私信息或敏感数据；异常信息采集为使用开源项目解决方案：GlitchTip。',
                                         }
                                     }
                                 ]
