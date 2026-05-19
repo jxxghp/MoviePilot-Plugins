@@ -204,7 +204,7 @@ class BugReporter(_PluginBase):
     # 插件图标
     plugin_icon = "Alist_encrypt_A.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -221,7 +221,7 @@ class BugReporter(_PluginBase):
     def init_plugin(self, config: dict = None):
         self._enable = config.get("enable")
         if self._enable:
-            sentry_sdk.init("https://88da01ad33b4423cb0380620de53efa8@glitchtip.movie-pilot.org/1",
+            sentry_sdk.init("https://3999f6a035db46a588b03e5a92b9f592@glitchtip.movie-pilot.org/2",
                             before_send=SentrySanitizer.before_send,
                             release=APP_VERSION,
                             send_default_pii=False)

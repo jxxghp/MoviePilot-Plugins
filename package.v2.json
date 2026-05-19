@@ -603,11 +603,12 @@
     "name": "Bug反馈",
     "description": "自动上报异常，协助开发者发现和解决问题。",
     "labels": "开发",
-    "version": "1.4",
+    "version": "1.5",
     "icon": "Alist_encrypt_A.png",
     "author": "jxxghp",
     "level": 1,
     "history": {
+      "v1.5": "更换上报端点",
       "v1.4": "仅上报包含异常堆栈的错误，普通日志不再上报",
       "v1.3": "减少网络异常信息上送",
       "v1.2": "优化上报信息量",
