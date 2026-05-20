@@ -700,6 +700,7 @@
     "icon": "agentresourceofficer.png",
     "author": "liuyuexi1987",
     "level": 1,
+    "system_version": ">=2.12.0",
     "history": {
       "0.2.72": "影巢自动登录兜底流程改用 CloakBrowser，移除插件对 Playwright 浏览器调用的直接依赖。",
       "0.2.71": "新增流媒体推荐：聚合 Netflix、Disney+、Apple TV+、Prime Video 四大平台，基于 TMDB discover 按热度/评分推荐本月上新、近期热门电影和剧集；结果页改为只读列表，仅支持显式前缀触发。",
@@ -982,6 +983,7 @@
     "icon": "Wecom_A.png",
     "author": "RamenRa",
     "level": 2,
+    "system_version": ">=2.12.0",
     "history": {
       "v2.0.1": "修复企业微信后台页面语言未稳定切换为中文导致无法匹配配置按钮的问题。",
       "v2.0.0": "V2 专用大版本改用 CloakBrowser 启动企业微信浏览器流程，默认插件不再声明 V2 兼容。",
@@ -1006,6 +1008,7 @@
     "author": "thsrite",
     "level": 2,
     "release": true,
+    "system_version": ">=2.12.0",
     "history": {
       "v3.0.0": "V2 专用大版本的浏览器仿真改用 CloakBrowser 获取页面，默认插件不再声明 V2 兼容。",
       "v2.0.3": "增加启用浏览器仿真功能发送请求",
@@ -1024,6 +1027,7 @@
     "icon": "contract.png",
     "author": "DzAvril",
     "level": 1,
+    "system_version": ">=2.12.0",
     "history": {
       "v2.0.0": "V2 专用大版本的渲染模式改用 CloakBrowser 获取站点页面，默认插件不再声明 V2 兼容。",
       "v1.4.1": "增加站点猪猪",

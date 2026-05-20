@@ -42,6 +42,7 @@ MoviePilot-Plugins/
 - MoviePilot 会优先读取 `package.v2.json` 中与当前版本标识匹配的插件定义。
 - 如果某个插件不在 `package.v2.json` 中，但其 `package.json` 条目声明了 `"v2": true`，则会作为“兼容 V2 的默认插件”继续显示和安装。
 - `package.v2.json` 中的插件代码通常放在 `plugins.v2/<plugin_id_lower>/`；`package.json` 中的插件代码通常放在 `plugins/<plugin_id_lower>/`。
+- 插件如果依赖特定主系统版本，可在条目中增加 `system_version`，格式参考 pip 依赖版本范围，例如 `">=2.12.0,<3"`；未定义该字段时不做主系统版本检查。
 - 插件目录名必须是插件类名的小写形式，插件主类必须定义在对应目录的 `__init__.py` 中。
 - 插件市场里看到的版本、图标、作者、权限级别，都来自 `package.json` / `package.v2.json`；运行时真正生效的类属性来自插件代码中的 `plugin_*` 字段，两者必须保持同步。
 
@@ -100,6 +101,7 @@ MoviePilot-Plugins/
 - `package.json` / `package.v2.json` 中的 `version` 必须与插件类中的 `plugin_version` 保持一致，否则用户会看到错误的升级提示。
 - `name`、`description`、`icon`、`author`、`level` 建议与插件类属性保持一致，避免插件市场展示与实际运行信息不一致。
 - `history` 用于展示插件更新日志，建议每次发布都补齐一条可读变更说明。
+- `system_version` 用于声明插件可安装的 MoviePilot 主系统版本范围，格式参考 pip 依赖版本约束；例如插件依赖 v2.12.0 新增能力时填写 `">=2.12.0"`。
 - 需要走 GitHub Release 压缩包分发的插件，请在对应索引条目中增加 `"release": true`，并确保仓库中的发布工作流能够定位到对应目录。
 
 

@@ -177,10 +177,13 @@ class MyPlugin(_PluginBase):
     "version": "1.0.0",
     "icon": "Moviepilot_A.png",
     "author": "your-name",
+    "system_version": ">=2.12.0",
     "level": 1
   }
 }
 ```
+
+`system_version` 是可选字段。插件依赖某个 MoviePilot 主系统版本才提供的能力时再声明，格式参考 pip 依赖版本范围；不声明时宿主不会做主系统版本检查。
 
 ## 4. `_PluginBase` 的核心能力
 
