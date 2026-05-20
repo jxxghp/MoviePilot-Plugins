@@ -105,5 +105,5 @@ POST /api/v1/plugin/FeishuCommandBridgeLong/assistant/pick
 ## 依赖
 
 ```txt
-lark-oapi==1.5.3
+lark-oapi>=1.4.0
 ```

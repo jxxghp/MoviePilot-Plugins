@@ -33,7 +33,7 @@ except Exception:
 
 _LARK_IMPORT_LOCK = threading.Lock()
 _LARK_AUTO_INSTALL_ATTEMPTED = False
-_LARK_PACKAGE_SPEC = "lark-oapi==1.5.3"
+_LARK_PACKAGE_SPEC = "lark-oapi>=1.4.0"
 
 try:
     from app.chain.download import DownloadChain
