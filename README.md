@@ -83,7 +83,7 @@ MoviePilot-Plugins/
   - 详情页面和仪表板可通过 `events` 发起 API 调用。
 - Vue 联邦模式说明：
   - 插件后端需要实现 `get_render_mode()` 并返回 `("vue", "dist/assets")`。
-  - 如果需要在主界面左侧导航新增入口，还需要实现 `get_sidebar_nav()`。
+  - `get_page()` 对应插件管理中的详情弹窗；如果需要在主界面左侧导航新增全页入口，还需要实现 `get_sidebar_nav()` 并暴露 `AppPage` 远程组件。
   - 远程组件的构建、暴露名约定、侧栏多入口、静态资源打包方式，请参考 [模块联邦开发指南](https://github.com/jxxghp/MoviePilot-Frontend/blob/v2/docs/module-federation-guide.md)。
 
 ### 6. 开发与校验建议
@@ -125,6 +125,8 @@ MoviePilot-Plugins/
 - [14. 如何在插件中通过消息持续与用户交互？](./docs/faq/14-message-interaction.md)
 - [15. 如何在插件中使用系统级统一缓存？](./docs/faq/15-use-system-cache.md)
 - [16. 如何在插件中注册智能体工具？](./docs/faq/16-register-agent-tools.md)
+- [17. 如何将插件页面注册到主界面左侧导航栏？](./docs/faq/17-register-plugin-sidebar-nav.md)
+- [18. 如何限定插件可安装的 MoviePilot 主系统版本？](./docs/faq/18-limit-moviepilot-version.md)
 
 ## 版本发布
 

@@ -18,4 +18,5 @@
 - [14. 如何在插件中通过消息持续与用户交互？](./faq/14-message-interaction.md)
 - [15. 如何在插件中使用系统级统一缓存？](./faq/15-use-system-cache.md)
 - [16. 如何在插件中注册智能体工具？](./faq/16-register-agent-tools.md)
-- [17. 如何限定插件可安装的 MoviePilot 主系统版本？](./faq/17-limit-moviepilot-version.md)
+- [17. 如何将插件页面注册到主界面左侧导航栏？](./faq/17-register-plugin-sidebar-nav.md)
+- [18. 如何限定插件可安装的 MoviePilot 主系统版本？](./faq/18-limit-moviepilot-version.md)

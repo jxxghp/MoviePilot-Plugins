@@ -1,4 +1,4 @@
-# 17. 如何限定插件可安装的 MoviePilot 主系统版本？
+# 18. 如何限定插件可安装的 MoviePilot 主系统版本？
 
 如果插件依赖某个 MoviePilot 主程序版本才提供的后端接口、前端能力、事件字段或运行时模块，应在对应的 `package.json` / `package.v2.json` 条目中增加 `system_version` 字段。
 
