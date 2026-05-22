@@ -3,10 +3,9 @@ import threading
 import time
 import traceback
 from pathlib import Path
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 
-from watchdog.events import FileSystemEventHandler
-from watchdog.observers import Observer
+from watchfiles import Change, watch
 from app.db.transferhistory_oper import TransferHistoryOper
 from app.log import logger
 from app.plugins import _PluginBase
@@ -17,18 +16,192 @@ from app.schemas.types import EventType
 state_lock = threading.Lock()
 
 
-class FileMonitorHandler(FileSystemEventHandler):
+class WatchfilesEvent:
     """
-    目录监控处理
+    watchfiles 目录监控事件。
     """
 
-    def __init__(self, monpath: str, sync: Any, **kwargs):
-        super(FileMonitorHandler, self).__init__(**kwargs)
+    def __init__(self, src_path: str, is_directory: bool):
+        """
+        初始化目录监控事件。
+        :param src_path: 事件路径
+        :param is_directory: 是否为目录
+        """
+        self.src_path = src_path
+        self.dest_path = src_path
+        self.is_directory = is_directory
+
+
+class WatchfilesObserver:
+    """
+    基于 watchfiles 的目录监控适配器。
+    """
+
+    def __init__(self, timeout: int = 10, force_polling: Optional[bool] = None):
+        """
+        初始化目录监控适配器。
+        :param timeout: 兼容模式轮询间隔秒数
+        :param force_polling: 是否强制轮询，None 表示自动选择平台原生模式
+        """
+        self._force_polling = force_polling
+        self._poll_delay_ms = max(int(timeout * 1000), 300)
+        self._stop_event = threading.Event()
+        self._thread = None
+        self._handler = None
+        self._path = None
+        self._recursive = True
+
+    def schedule(self, handler: Any, path: str, recursive: bool = True):
+        """
+        设置监控处理器和路径。
+        :param handler: 事件处理器
+        :param path: 监控路径
+        :param recursive: 是否递归监控
+        """
+        self._handler = handler
+        self._path = path
+        self._recursive = recursive
+
+    def start(self):
+        """
+        启动目录监控线程。
+        """
+        if not self._handler or not self._path:
+            raise ValueError("目录监控处理器或路径未设置")
+        if not Path(self._path).exists():
+            raise FileNotFoundError(f"监控目录不存在：{self._path}")
+        if not Path(self._path).is_dir():
+            raise NotADirectoryError(f"监控路径不是目录：{self._path}")
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        """
+        停止目录监控线程。
+        """
+        self._stop_event.set()
+
+    def join(self, timeout: Optional[float] = None):
+        """
+        等待目录监控线程退出。
+        :param timeout: 最大等待秒数
+        """
+        if self._thread:
+            self._thread.join(timeout=timeout)
+
+    def _run(self):
+        """
+        运行 watchfiles 监控循环，快速模式异常时回退到轮询。
+        """
+        try:
+            self._run_watch(force_polling=self._force_polling)
+        except Exception as err:
+            if self._stop_event.is_set():
+                return
+            if self._force_polling is True:
+                logger.error(f"{self._path} 目录监控发生错误：{err}")
+                logger.debug(traceback.format_exc())
+                return
+            logger.warn(f"{self._path} 快速模式监控失败，自动切换到兼容模式：{err}")
+            try:
+                self._run_watch(force_polling=True)
+            except Exception as fallback_err:
+                if not self._stop_event.is_set():
+                    logger.error(f"{self._path} 兼容模式监控失败：{fallback_err}")
+                    logger.debug(traceback.format_exc())
+
+    def _run_watch(self, force_polling: Optional[bool]):
+        """
+        执行 watchfiles 监控。
+        :param force_polling: 是否强制轮询
+        """
+        for changes in watch(
+                self._path,
+                stop_event=self._stop_event,
+                rust_timeout=1000,
+                yield_on_timeout=True,
+                force_polling=force_polling,
+                poll_delay_ms=self._poll_delay_ms,
+                recursive=self._recursive,
+                ignore_permission_denied=True):
+            if self._stop_event.is_set():
+                break
+            if not changes:
+                continue
+            if hasattr(self._handler, "dispatch_changes"):
+                self._handler.dispatch_changes(changes=changes)
+            else:
+                for change_type, event_path in sorted(changes, key=lambda item: item[1]):
+                    self._handler.dispatch(change_type=change_type, event_path=event_path)
+
+
+class FileMonitorHandler:
+    """
+    目录监控处理。
+    """
+
+    def __init__(self, monpath: str, sync: Any):
+        """
+        初始化目录监控处理器。
+        :param monpath: 监控目录
+        :param sync: 插件实例
+        """
         self._watch_path = monpath
         self.sync = sync
 
+    def dispatch_changes(self, changes: set[tuple[Change, str]]):
+        """
+        批量分发 watchfiles 事件，避免同批次移动事件被误判为删除。
+        :param changes: watchfiles 事件集合
+        """
+        sorted_changes = sorted(changes, key=lambda item: item[1])
+        added_inodes = set()
+        for change_type, event_path in sorted_changes:
+            if change_type not in {Change.added, Change.modified}:
+                continue
+            self.dispatch(change_type=change_type, event_path=event_path)
+            inode = self.sync.state_set.get(str(Path(event_path)))
+            if inode:
+                added_inodes.add(inode)
+        for change_type, event_path in sorted_changes:
+            if change_type != Change.deleted:
+                continue
+            file_path = Path(event_path)
+            deleted_inode = self.sync.state_set.get(str(file_path))
+            if deleted_inode and deleted_inode in added_inodes:
+                logger.info(f"监测到文件移动：{file_path}，跳过删除联动")
+                with state_lock:
+                    self.sync.state_set.pop(str(file_path), None)
+                continue
+            self.dispatch(change_type=change_type, event_path=event_path)
+
+    def dispatch(self, change_type: Change, event_path: str):
+        """
+        分发 watchfiles 事件。
+        :param change_type: 事件类型
+        :param event_path: 事件路径
+        """
+        if change_type in {Change.added, Change.modified}:
+            path = Path(event_path)
+            if not path.exists():
+                return
+            event = WatchfilesEvent(src_path=event_path, is_directory=path.is_dir())
+            self.on_created(event)
+        elif change_type == Change.deleted:
+            event = WatchfilesEvent(
+                src_path=event_path,
+                is_directory=self.sync.is_known_directory(event_path)
+            )
+            self.on_deleted(event)
+
     def on_created(self, event):
+        """
+        处理新增或修改事件，维护文件 inode 状态。
+        :param event: 目录监控事件
+        """
         if event.is_directory:
+            self.sync.dir_state_set.add(str(Path(event.src_path)))
             return
         file_path = Path(event.src_path)
         if file_path.suffix in [".!qB", ".part", ".mp"]:
@@ -47,6 +220,10 @@ class FileMonitorHandler(FileSystemEventHandler):
                 logger.error(f"新增文件记录失败：{str(e)}")
 
     def on_moved(self, event):
+        """
+        处理移动事件，兼容旧事件调用语义。
+        :param event: 目录监控事件
+        """
         if event.is_directory:
             return
         file_path = Path(event.dest_path)
@@ -63,8 +240,13 @@ class FileMonitorHandler(FileSystemEventHandler):
             self.sync.state_set[str(file_path)] = file_path.stat().st_ino
 
     def on_deleted(self, event):
+        """
+        处理删除事件。
+        :param event: 目录监控事件
+        """
         file_path = Path(event.src_path)
         if event.is_directory:
+            self.sync.dir_state_set.discard(str(file_path))
             # 单独处理文件夹删除触发删除种子
             if self.sync._delete_torrents:
                 # 发送事件
@@ -86,15 +268,19 @@ class FileMonitorHandler(FileSystemEventHandler):
         self.sync.handle_deleted(file_path)
 
 
-def updateState(monitor_dirs: List[str]):
+def updateState(monitor_dirs: List[str]) -> Tuple[Dict[str, int], set[str]]:
     """
     更新监控目录的文件列表
     """
     # 记录开始时间
     start_time = time.time()
     state_set = {}
+    dir_state_set = set()
     for mon_path in monitor_dirs:
         for root, dirs, files in os.walk(mon_path):
+            dir_state_set.add(str(Path(root)))
+            for directory in dirs:
+                dir_state_set.add(str(Path(root) / directory))
             for file in files:
                 file = Path(root) / file
                 if not file.exists():
@@ -107,7 +293,7 @@ def updateState(monitor_dirs: List[str]):
     elapsed_time = end_time - start_time
     logger.info(f"更新文件列表完成，共计{len(state_set)}个文件，耗时：{elapsed_time}秒")
 
-    return state_set
+    return state_set, dir_state_set
 
 
 class RemoveLink(_PluginBase):
@@ -118,7 +304,7 @@ class RemoveLink(_PluginBase):
     # 插件图标
     plugin_icon = "Ombi_A.png"
     # 插件版本
-    plugin_version = "2.2"
+    plugin_version = "2.3"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
@@ -142,6 +328,8 @@ class RemoveLink(_PluginBase):
     _observer = []
     # 监控目录的文件列表
     state_set: Dict[str, int] = {}
+    # 监控目录的目录列表，用于删除事件识别目录
+    dir_state_set: set[str] = set()
 
     def init_plugin(self, config: dict = None):
         logger.info(f"Hello, RemoveLink! config {config}")
@@ -169,7 +357,7 @@ class RemoveLink(_PluginBase):
                 if not mon_path:
                     continue
                 try:
-                    observer = Observer(timeout=10)
+                    observer = WatchfilesObserver(timeout=10, force_polling=None)
                     self._observer.append(observer)
                     observer.schedule(
                         FileMonitorHandler(mon_path, self), mon_path, recursive=True
@@ -183,7 +371,7 @@ class RemoveLink(_PluginBase):
                     self.systemmessage.put(f"{mon_path} 启动目录监控失败：{err_msg}", title="清理硬链接")
             # 更新监控集合
             with state_lock:
-                self.state_set = updateState(monitor_dirs)
+                self.state_set, self.dir_state_set = updateState(monitor_dirs)
 
     def __update_config(self):
         """
@@ -437,6 +625,13 @@ class RemoveLink(_PluginBase):
             if exclude_dir and exclude_dir in str(file_path):
                 return True
         return False
+
+    def is_known_directory(self, event_path: str) -> bool:
+        """
+        判断删除事件路径是否为已知目录。
+        :param event_path: 事件路径
+        """
+        return str(Path(event_path)) in self.dir_state_set
 
     @staticmethod
     def scrape_files_left(path):

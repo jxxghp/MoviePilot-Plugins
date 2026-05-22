@@ -8,9 +8,7 @@ from typing import List, Tuple, Dict, Any, Optional
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from watchdog.events import FileSystemEventHandler
-from watchdog.observers import Observer
-from watchdog.observers.polling import PollingObserver
+from watchfiles import Change, watch
 
 from app import schemas
 from app.core.config import settings
@@ -24,23 +22,152 @@ from app.utils.system import SystemUtils
 lock = threading.Lock()
 
 
-class FileMonitorHandler(FileSystemEventHandler):
+class WatchfilesEvent:
     """
-    目录监控响应类
+    watchfiles 目录监控事件。
     """
 
-    def __init__(self, monpath: str, sync: Any, **kwargs):
-        super(FileMonitorHandler, self).__init__(**kwargs)
+    def __init__(self, src_path: str, is_directory: bool):
+        """
+        初始化目录监控事件。
+        :param src_path: 事件路径
+        :param is_directory: 是否为目录
+        """
+        self.src_path = src_path
+        self.dest_path = src_path
+        self.is_directory = is_directory
+
+
+class WatchfilesObserver:
+    """
+    基于 watchfiles 的目录监控适配器。
+    """
+
+    def __init__(self, timeout: int = 10, force_polling: Optional[bool] = None):
+        """
+        初始化目录监控适配器。
+        :param timeout: 兼容模式轮询间隔秒数
+        :param force_polling: 是否强制轮询，None 表示自动选择平台原生模式
+        """
+        self._force_polling = force_polling
+        self._poll_delay_ms = max(int(timeout * 1000), 300)
+        self._stop_event = threading.Event()
+        self._thread = None
+        self._handler = None
+        self._path = None
+        self._recursive = True
+
+    def schedule(self, handler: Any, path: str, recursive: bool = True):
+        """
+        设置监控处理器和路径。
+        :param handler: 事件处理器
+        :param path: 监控路径
+        :param recursive: 是否递归监控
+        """
+        self._handler = handler
+        self._path = path
+        self._recursive = recursive
+
+    def start(self):
+        """
+        启动目录监控线程。
+        """
+        if not self._handler or not self._path:
+            raise ValueError("目录监控处理器或路径未设置")
+        if not Path(self._path).exists():
+            raise FileNotFoundError(f"监控目录不存在：{self._path}")
+        if not Path(self._path).is_dir():
+            raise NotADirectoryError(f"监控路径不是目录：{self._path}")
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        """
+        停止目录监控线程。
+        """
+        self._stop_event.set()
+
+    def join(self, timeout: Optional[float] = None):
+        """
+        等待目录监控线程退出。
+        :param timeout: 最大等待秒数
+        """
+        if self._thread:
+            self._thread.join(timeout=timeout)
+
+    def _run(self):
+        """
+        运行 watchfiles 监控循环，快速模式异常时回退到轮询。
+        """
+        try:
+            self._run_watch(force_polling=self._force_polling)
+        except Exception as err:
+            if self._stop_event.is_set():
+                return
+            if self._force_polling is True:
+                logger.error(f"{self._path} 目录监控发生错误：{err}")
+                logger.debug(traceback.format_exc())
+                return
+            logger.warn(f"{self._path} 快速模式监控失败，自动切换到兼容模式：{err}")
+            try:
+                self._run_watch(force_polling=True)
+            except Exception as fallback_err:
+                if not self._stop_event.is_set():
+                    logger.error(f"{self._path} 兼容模式监控失败：{fallback_err}")
+                    logger.debug(traceback.format_exc())
+
+    def _run_watch(self, force_polling: Optional[bool]):
+        """
+        执行 watchfiles 监控。
+        :param force_polling: 是否强制轮询
+        """
+        for changes in watch(
+                self._path,
+                stop_event=self._stop_event,
+                rust_timeout=1000,
+                yield_on_timeout=True,
+                force_polling=force_polling,
+                poll_delay_ms=self._poll_delay_ms,
+                recursive=self._recursive,
+                ignore_permission_denied=True):
+            if self._stop_event.is_set():
+                break
+            if not changes:
+                continue
+            for change_type, event_path in sorted(changes, key=lambda item: item[1]):
+                self._handler.dispatch(change_type=change_type, event_path=event_path)
+
+
+class FileMonitorHandler:
+    """
+    目录监控响应类。
+    """
+
+    def __init__(self, monpath: str, sync: Any):
+        """
+        初始化目录监控响应类。
+        :param monpath: 监控目录
+        :param sync: 插件实例
+        """
         self._watch_path = monpath
         self.sync = sync
 
-    def on_created(self, event):
-        self.sync.event_handler(event=event, text="创建",
-                                mon_path=self._watch_path, event_path=event.src_path)
-
-    def on_moved(self, event):
-        self.sync.event_handler(event=event, text="移动",
-                                mon_path=self._watch_path, event_path=event.dest_path)
+    def dispatch(self, change_type: Change, event_path: str):
+        """
+        分发 watchfiles 事件。
+        :param change_type: 事件类型
+        :param event_path: 事件路径
+        """
+        if change_type not in {Change.added, Change.modified}:
+            return
+        path = Path(event_path)
+        if not path.exists():
+            return
+        event = WatchfilesEvent(src_path=event_path, is_directory=path.is_dir())
+        text = "修改" if change_type == Change.modified else "创建"
+        self.sync.event_handler(event=event, text=text,
+                                mon_path=self._watch_path, event_path=event_path)
 
 
 class LinkMonitor(_PluginBase):
@@ -51,7 +178,7 @@ class LinkMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "Linkace_C.png"
     # 插件版本
-    plugin_version = "1.6"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -149,10 +276,10 @@ class LinkMonitor(_PluginBase):
                     try:
                         if self._mode == "compatibility":
                             # 兼容模式，目录同步性能降低且NAS不能休眠，但可以兼容挂载的远程共享目录如SMB
-                            observer = PollingObserver(timeout=10)
+                            observer = WatchfilesObserver(timeout=10, force_polling=True)
                         else:
                             # 内部处理系统操作类型选择最优解
-                            observer = Observer(timeout=10)
+                            observer = WatchfilesObserver(timeout=10, force_polling=None)
                         self._observer.append(observer)
                         observer.schedule(FileMonitorHandler(mon_path, self), path=mon_path, recursive=True)
                         observer.daemon = True
