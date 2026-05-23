@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    import jieba
+    from jieba_next import cut as jieba_cut
 except Exception:
-    jieba = None
+    jieba_cut = None
 
 for _site_path in (
     "/usr/local/lib/python3.12/site-packages",
@@ -1350,9 +1350,9 @@ class FeishuChannel:
             status_bool = self._transfer_status_bool(status)
             title_text = str(title or "").strip()
             search_text = title_text
-            if title_text and jieba is not None:
+            if title_text and jieba_cut is not None:
                 try:
-                    search_text = "%".join(jieba.cut(title_text, HMM=False))
+                    search_text = "%".join(jieba_cut(title_text, HMM=False))
                 except Exception:
                     search_text = title_text
 
