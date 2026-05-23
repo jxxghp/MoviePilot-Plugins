@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Callable, Coroutine, Dict, Optional, List, Tuple
 from urllib.parse import quote
 
-import zhconv
+from zhconv_rs import zhconv as zhconv_convert
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Query
 
@@ -35,7 +35,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.6.8"
+    plugin_version = "1.6.9"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -1931,7 +1931,7 @@ class ImdbSource(_PluginBase):
                 meta.type = mtype
         info: Optional[ImdbMediaInfo] = None
         # 简体名称
-        zh_name = zhconv.convert(meta.cn_name, 'zh-hans') if meta.cn_name else None
+        zh_name = zhconv_convert(meta.cn_name, 'zh-hans') if meta.cn_name else None
         media_names = list(dict.fromkeys([k for k in [meta.cn_name, zh_name, meta.en_name] if k]))
         names: list[str] = [name for name in media_names if isinstance(name, str)]
         for name in names:
@@ -2003,7 +2003,7 @@ class ImdbSource(_PluginBase):
                 meta.type = mtype
         info: Optional[ImdbMediaInfo] = None
         # 简体名称
-        zh_name = zhconv.convert(meta.cn_name, 'zh-hans') if meta.cn_name else None
+        zh_name = zhconv_convert(meta.cn_name, 'zh-hans') if meta.cn_name else None
         media_names = list(dict.fromkeys([k for k in [meta.cn_name, zh_name, meta.en_name] if k]))
         names: list[str] = [name for name in media_names if isinstance(name, str)]
         for name in names:
