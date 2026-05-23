@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional
 
 import pytz
-import zhconv
+from zhconv_rs import zhconv as zhconv_convert
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from requests import RequestException
@@ -38,7 +38,7 @@ class PersonMeta(_PluginBase):
     # 插件图标
     plugin_icon = "actor.png"
     # 插件版本
-    plugin_version = "2.2.2"
+    plugin_version = "2.2.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -1092,8 +1092,8 @@ class PersonMeta(_PluginBase):
             if also_known_as:
                 for name in also_known_as:
                     if name and StringUtils.is_chinese(name):
-                        # 使用cn2an将繁体转化为简体
-                        return zhconv.convert(name, "zh-hans")
+                        # 将繁体别名统一转为简体，便于媒体库名称匹配。
+                        return zhconv_convert(name, "zh-hans")
         except Exception as err:
             logger.error(f"获取人物中文名失败：{err}")
         return ""
