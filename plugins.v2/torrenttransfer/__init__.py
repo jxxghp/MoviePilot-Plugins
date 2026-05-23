@@ -7,7 +7,7 @@ from typing import Any, List, Dict, Tuple, Optional, Union
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from bencode import bdecode, bencode
+from bencode import bdecode as fast_bdecode, bencode as fast_bencode
 from qbittorrentapi import TorrentDictionary
 
 from app.core.config import settings
@@ -28,7 +28,7 @@ class TorrentTransfer(_PluginBase):
     # 插件图标
     plugin_icon = "seed.png"
     # 插件版本
-    plugin_version = "1.10.3"
+    plugin_version = "1.10.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -823,7 +823,7 @@ class TorrentTransfer(_PluginBase):
                         continue
                     # 读取trackers
                     try:
-                        torrent_main = bdecode(content)
+                        torrent_main = fast_bdecode(content)
                         main_announce = torrent_main.get('announce')
                     except Exception as err:
                         logger.warn(f"解析种子文件 {torrent_file} 失败：{str(err)}")
@@ -842,7 +842,7 @@ class TorrentTransfer(_PluginBase):
                         try:
                             # 解析fastresume文件
                             fastresume = fastresume_file.read_bytes()
-                            torrent_fastresume = bdecode(fastresume)
+                            torrent_fastresume = fast_bdecode(fastresume)
                             # 读取trackers
                             fastresume_trackers = torrent_fastresume.get('trackers')
                             if isinstance(fastresume_trackers, list) \
@@ -856,7 +856,7 @@ class TorrentTransfer(_PluginBase):
                                 # 替换种子文件路径
                                 torrent_file = settings.TEMP_PATH / f"{torrent_item.get('hash')}.torrent"
                                 # 编码并保存到临时文件
-                                torrent_file.write_bytes(bencode(torrent_main))
+                                torrent_file.write_bytes(fast_bencode(torrent_main))
                         except Exception as err:
                             logger.error(f"解析fastresume文件 {fastresume_file} 出错：{str(err)}")
                             fail += 1
