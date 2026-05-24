@@ -136,6 +136,19 @@
       "v2.0": "适配MoviePilot V2 版本，采用链式事件机制"
     }
   },
+  "AgentTokens": {
+    "name": "Agent Tokens 管理",
+    "description": "管理多平台免费 Token 配额，按优先级自动切换 Agent LLM 供应商。",
+    "labels": "Agent,AI,系统",
+    "version": "1.0.0",
+    "icon": "agentresourceofficer.png",
+    "author": "jxxghp",
+    "level": 1,
+    "system_version": ">=2.13.0",
+    "history": {
+      "v1.0.0": "新增 Agent Tokens 配额管理、供应商优先级切换和用量展示"
+    }
+  },
   "TorrentTransfer": {
     "name": "自动转移做种",
     "description": "定期转移下载器中的做种任务到另一个下载器。",

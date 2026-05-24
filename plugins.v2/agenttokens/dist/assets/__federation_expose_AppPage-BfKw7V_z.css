@@ -1,0 +1,17 @@
+
+.agenttokens-page[data-v-732593d9] {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+.gap-2[data-v-732593d9] {
+  gap: 8px;
+}
+.progress-cell[data-v-732593d9] {
+  min-width: 140px;
+}
+.truncate-cell[data-v-732593d9] {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
