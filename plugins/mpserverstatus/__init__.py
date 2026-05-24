@@ -588,23 +588,27 @@ class MPServerStatus(_PluginBase):
                         {
                             'component': 'VCardText',
                             'props': {
-                                'class': 'd-flex align-center justify-space-between ga-3'
+                                'class': 'd-flex align-center ga-3'
                             },
                             'content': [
                                 {
                                     'component': 'div',
+                                    'props': {
+                                        'class': 'flex-grow-1',
+                                        'style': 'min-width: 0;'
+                                    },
                                     'content': [
                                         {
                                             'component': 'span',
                                             'props': {
-                                                'class': 'text-caption text-medium-emphasis'
+                                                'class': 'text-caption text-medium-emphasis text-truncate d-block'
                                             },
                                             'text': label
                                         },
                                         {
                                             'component': 'div',
                                             'props': {
-                                                'class': 'text-h6'
+                                                'class': 'text-h6 text-truncate'
                                             },
                                             'text': value
                                         },
@@ -621,7 +625,8 @@ class MPServerStatus(_PluginBase):
                                     'component': 'VIcon',
                                     'props': {
                                         'color': color,
-                                        'size': '28'
+                                        'size': '28',
+                                        'class': 'flex-shrink-0'
                                     },
                                     'text': icon
                                 }
