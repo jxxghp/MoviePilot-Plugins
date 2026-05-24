@@ -31,6 +31,29 @@ from app.utils.system import SystemUtils
 lock = threading.Lock()
 
 
+def _has_suffix_in(file_path: Path, extensions: List[str]) -> bool:
+    """
+    判断文件后缀是否命中给定扩展名列表。
+    """
+    if not file_path.suffix:
+        return False
+    return file_path.suffix.casefold() in {ext.casefold() for ext in extensions}
+
+
+def _is_download_tmp_file(file_path: Path) -> bool:
+    """
+    判断文件是否为下载器尚未完成的临时文件。
+    """
+    return _has_suffix_in(file_path, settings.DOWNLOAD_TMPEXT)
+
+
+def _is_monitor_media_file(file_path: Path) -> bool:
+    """
+    判断文件是否为目录监控可整理的媒体文件。
+    """
+    return not _is_download_tmp_file(file_path) and _has_suffix_in(file_path, settings.RMT_MEDIAEXT)
+
+
 class WatchfilesEvent:
     """
     watchfiles 目录监控事件。
@@ -173,7 +196,10 @@ class FileMonitorHandler:
         path = Path(event_path)
         if not path.exists():
             return
-        event = WatchfilesEvent(src_path=event_path, is_directory=path.is_dir())
+        is_directory = path.is_dir()
+        if not is_directory and not _is_monitor_media_file(path):
+            return
+        event = WatchfilesEvent(src_path=event_path, is_directory=is_directory)
         text = "修改" if change_type == Change.modified else "创建"
         self.sync.event_handler(event=event, text=text,
                                 mon_path=self._watch_path, event_path=event_path)
@@ -187,7 +213,7 @@ class DirMonitor(_PluginBase):
     # 插件图标
     plugin_icon = "directory.png"
     # 插件版本
-    plugin_version = "2.5"
+    plugin_version = "2.5.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -424,6 +450,8 @@ class DirMonitor(_PluginBase):
         try:
             if not file_path.exists():
                 return
+            if not _is_monitor_media_file(file_path):
+                return
             # 全程加锁
             with lock:
                 transfer_history = self.transferhis.get_by_src(event_path)
@@ -457,8 +485,7 @@ class DirMonitor(_PluginBase):
                             return
 
                 # 不是媒体文件不处理
-                if file_path.suffix.casefold() not in map(str.casefold, settings.RMT_MEDIAEXT):
-                    logger.debug(f"{event_path} 不是媒体文件")
+                if not _is_monitor_media_file(file_path):
                     return
 
                 # 判断是不是蓝光目录

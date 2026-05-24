@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Any, Optional
 
 from watchfiles import Change, watch
+from app.core.config import settings
 from app.db.transferhistory_oper import TransferHistoryOper
 from app.log import logger
 from app.plugins import _PluginBase
@@ -14,6 +15,22 @@ from app.core.event import eventmanager
 from app.schemas.types import EventType
 
 state_lock = threading.Lock()
+
+
+def _has_suffix_in(file_path: Path, extensions: List[str]) -> bool:
+    """
+    判断文件后缀是否命中给定扩展名列表。
+    """
+    if not file_path.suffix:
+        return False
+    return file_path.suffix.casefold() in {ext.casefold() for ext in extensions}
+
+
+def _is_download_tmp_file(file_path: Path) -> bool:
+    """
+    判断文件是否为下载器尚未完成的临时文件。
+    """
+    return _has_suffix_in(file_path, settings.DOWNLOAD_TMPEXT + [".mp"])
 
 
 class WatchfilesEvent:
@@ -204,7 +221,7 @@ class FileMonitorHandler:
             self.sync.dir_state_set.add(str(Path(event.src_path)))
             return
         file_path = Path(event.src_path)
-        if file_path.suffix in [".!qB", ".part", ".mp"]:
+        if _is_download_tmp_file(file_path):
             return
         logger.info(f"监测到新增文件：{file_path}")
         if self.sync.exclude_keywords:
@@ -227,7 +244,7 @@ class FileMonitorHandler:
         if event.is_directory:
             return
         file_path = Path(event.dest_path)
-        if file_path.suffix in [".!qB", ".part", ".mp"]:
+        if _is_download_tmp_file(file_path):
             return
         logger.info(f"监测到新增文件：{file_path}")
         if self.sync.exclude_keywords:
@@ -255,7 +272,7 @@ class FileMonitorHandler:
                     EventType.DownloadFileDeleted, {"src": str(file_path)}
                 )
             return
-        if file_path.suffix in [".!qB", ".part", ".mp"]:
+        if _is_download_tmp_file(file_path):
             return
         logger.info(f"监测到删除文件：{file_path}")
         # 命中过滤关键字不处理
@@ -304,7 +321,7 @@ class RemoveLink(_PluginBase):
     # 插件图标
     plugin_icon = "Ombi_A.png"
     # 插件版本
-    plugin_version = "2.3"
+    plugin_version = "2.3.1"
     # 插件作者
     plugin_author = "DzAvril"
     # 作者主页
