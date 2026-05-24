@@ -38,7 +38,7 @@ class PersonMeta(_PluginBase):
     # 插件图标
     plugin_icon = "actor.png"
     # 插件版本
-    plugin_version = "2.2.3"
+    plugin_version = "2.2.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -62,6 +62,10 @@ class PersonMeta(_PluginBase):
     _type = "all"
     _remove_nozh = False
     _mediaservers = []
+    _rt_lock = threading.Lock()
+    _rt_running_keys = set()
+    _rt_recent_keys: Dict[str, float] = {}
+    _rt_dedup_seconds = 600
 
     def init_plugin(self, config: dict = None):
 
@@ -297,7 +301,8 @@ class PersonMeta(_PluginBase):
             "cron": "",
             "type": "all",
             "delay": 30,
-            "remove_nozh": False
+            "remove_nozh": False,
+            "mediaservers": []
         }
 
     def get_page(self) -> List[dict]:
@@ -329,37 +334,97 @@ class PersonMeta(_PluginBase):
 
         return active_services
 
-    @eventmanager.register(EventType.TransferComplete)
+    def __try_lock_rt_item(self, key: str, title: str = "") -> bool:
+        """
+        登记实时刮削中的媒体项，避免同一媒体项在短时间内反复处理
+        """
+        now = time.time()
+        with self._rt_lock:
+            if self._rt_dedup_seconds > 0:
+                for item_key, timestamp in list(self._rt_recent_keys.items()):
+                    if now - timestamp >= self._rt_dedup_seconds:
+                        self._rt_recent_keys.pop(item_key, None)
+                recent_time = self._rt_recent_keys.get(key)
+                if recent_time and now - recent_time < self._rt_dedup_seconds:
+                    logger.info(f"{title or key} 最近已触发演职人员刮削，跳过重复处理")
+                    return False
+            if key in self._rt_running_keys:
+                logger.info(f"{title or key} 正在执行演职人员刮削，跳过重复处理")
+                return False
+            self._rt_running_keys.add(key)
+            return True
+
+    def __unlock_rt_item(self, key: str, completed: bool = True):
+        """
+        释放实时刮削占用，并在完成后记录防重时间
+        """
+        with self._rt_lock:
+            self._rt_running_keys.discard(key)
+            if completed and self._rt_dedup_seconds > 0:
+                self._rt_recent_keys[key] = time.time()
+
+    @eventmanager.register([EventType.MetadataScrape, EventType.TransferComplete])
     def scrap_rt(self, event: Event):
         """
-        根据事件实时刮削演员信息
+        根据刮削事件实时刮削演员信息
         """
         if not self._enabled:
             return
         # 事件数据
         if not event or not event.event_data:
-            logger.warn("TransferComplete事件数据为空")
+            logger.warn("演职人员刮削事件数据为空")
             return
-        mediainfo: MediaInfo = event.event_data.get("mediainfo")
-        meta: MetaBase = event.event_data.get("meta")
-        if not mediainfo or not meta:
+        event_data = event.event_data
+        # 已开启元数据刮削的整理事件由 MetadataScrape 统一处理，避免 TransferComplete 逐文件重复触发
+        if event.event_type == EventType.TransferComplete:
+            transferinfo = event_data.get("transferinfo")
+            if transferinfo and getattr(transferinfo, "need_scrape", False):
+                logger.debug("整理完成事件已开启元数据刮削，等待 MetadataScrape 事件处理演职人员")
+                return
+        mediainfo: MediaInfo = event_data.get("mediainfo")
+        meta: MetaBase = event_data.get("meta")
+        if not mediainfo:
             return
         # 延迟
         if self._delay:
             time.sleep(int(self._delay))
-        # 查询媒体服务器中的条目
-        existsinfo = self.chain.media_exists(mediainfo=mediainfo)
-        if not existsinfo or not existsinfo.itemid:
-            logger.warn(f"{mediainfo.title_year} 在媒体库中不存在")
+        # 查询已配置媒体服务器中的条目
+        service_infos = self.service_infos()
+        if not service_infos:
             return
-        # 查询条目详情
-        iteminfo = MediaServerChain().iteminfo(server=existsinfo.server, item_id=existsinfo.itemid)
-        if not iteminfo:
-            logger.warn(f"{mediainfo.title_year} 条目详情获取失败")
-            return
-        # 刮削演职人员信息
-        self.__update_item(server=existsinfo.server, server_type=existsinfo.server_type,
-                           item=iteminfo, mediainfo=mediainfo, season=meta.begin_season)
+        matched = False
+        season = getattr(meta, "begin_season", None)
+        mediaserverchain = MediaServerChain()
+        title = getattr(mediainfo, "title_year", None) or getattr(mediainfo, "title", "") or "未知媒体"
+        for server, service in service_infos.items():
+            try:
+                existsinfo = self.chain.media_exists(mediainfo=mediainfo, server=server)
+            except Exception as err:
+                logger.error(f"查询媒体服务器 {server} 中的 {title} 失败：{err}")
+                continue
+            if not existsinfo or not existsinfo.itemid:
+                continue
+            matched = True
+            exists_server = existsinfo.server or server
+            server_type = existsinfo.server_type or service.type
+            item_key = f"{exists_server}:{server_type}:{existsinfo.itemid}"
+            if not self.__try_lock_rt_item(item_key, title):
+                continue
+            completed = False
+            try:
+                # 查询条目详情
+                iteminfo = mediaserverchain.iteminfo(server=exists_server, item_id=existsinfo.itemid)
+                if not iteminfo:
+                    logger.warn(f"{title} 条目详情获取失败")
+                    continue
+                # 刮削演职人员信息
+                self.__update_item(server=exists_server, server_type=server_type,
+                                   item=iteminfo, mediainfo=mediainfo, season=season)
+                completed = True
+            finally:
+                self.__unlock_rt_item(item_key, completed=completed)
+        if not matched:
+            logger.warn(f"{title} 在已配置媒体服务器中不存在")
 
     def scrap_library(self):
         """
@@ -426,7 +491,7 @@ class PersonMeta(_PluginBase):
             elif not self._remove_nozh:
                 peoples.append(people)
         # 保存媒体项信息
-        if peoples:
+        if peoples or self._remove_nozh:
             iteminfo["People"] = peoples
             self.set_iteminfo(server=server, server_type=server_type,
                               itemid=itemid, iteminfo=iteminfo)
@@ -717,7 +782,10 @@ class PersonMeta(_PluginBase):
         获得媒体项详情
         """
 
-        service = self.service_infos(server_type).get(server)
+        services = self.service_infos(server_type)
+        if not services:
+            return {}
+        service = services.get(server)
         if not service:
             logger.warn(f"未找到媒体服务器 {server} 的实例")
             return {}
@@ -797,7 +865,10 @@ class PersonMeta(_PluginBase):
         """
         获得媒体的所有子媒体项
         """
-        service = self.service_infos(server_type).get(server)
+        services = self.service_infos(server_type)
+        if not services:
+            return {}
+        service = services.get(server)
         if not service:
             logger.warn(f"未找到媒体服务器 {server} 的实例")
             return {}
@@ -912,7 +983,10 @@ class PersonMeta(_PluginBase):
         更新媒体项详情
         """
 
-        service = self.service_infos(server_type).get(server)
+        services = self.service_infos(server_type)
+        if not services:
+            return {}
+        service = services.get(server)
         if not service:
             logger.warn(f"未找到媒体服务器 {server} 的实例")
             return {}
@@ -990,7 +1064,10 @@ class PersonMeta(_PluginBase):
         更新媒体项图片
         """
 
-        service = self.service_infos(server_type).get(server)
+        services = self.service_infos(server_type)
+        if not services:
+            return {}
+        service = services.get(server)
         if not service:
             logger.warn(f"未找到媒体服务器 {server} 的实例")
             return {}
