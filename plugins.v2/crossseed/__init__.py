@@ -179,7 +179,7 @@ class CrossSeed(_PluginBase):
     # 插件图标
     plugin_icon = "qingwa.png"
     # 插件版本
-    plugin_version = "3.0.2"
+    plugin_version = "3.0.3"
     # 插件作者
     plugin_author = "233@qingwa"
     # 作者主页
@@ -218,6 +218,8 @@ class CrossSeed(_PluginBase):
     _success_caches = []
     # 辅种缓存，出错的种子不再重复辅种，且无法清除。种子被删除404等情况
     _permanent_error_caches = []
+    # 辅种缓存最大保存条数，避免长期运行时配置缓存无限增长
+    _seed_cache_max_items = 10000
     _torrentpaths = []
     _site_cs_infos = []
     # 辅种计数
@@ -229,6 +231,11 @@ class CrossSeed(_PluginBase):
     cached = 0
 
     def init_plugin(self, config: dict = None):
+        self._error_caches = []
+        self._success_caches = []
+        self._permanent_error_caches = []
+        self._torrentpaths = []
+        self._site_cs_infos = []
 
         # 读取配置
         if config:
@@ -245,9 +252,14 @@ class CrossSeed(_PluginBase):
             self._nolabels = config.get("nolabels")
             self._nopaths = config.get("nopaths")
             self._clearcache = config.get("clearcache")
-            self._permanent_error_caches = [] if self._clearcache else config.get("permanent_error_caches") or []
-            self._error_caches = [] if self._clearcache else config.get("error_caches") or []
-            self._success_caches = [] if self._clearcache else config.get("success_caches") or []
+            self._permanent_error_caches = (
+                [] if self._clearcache else list(config.get("permanent_error_caches") or [])
+            )
+            self._error_caches = [] if self._clearcache else list(config.get("error_caches") or [])
+            self._success_caches = [] if self._clearcache else list(config.get("success_caches") or [])
+            self.__trim_seed_cache(self._permanent_error_caches)
+            self.__trim_seed_cache(self._error_caches)
+            self.__trim_seed_cache(self._success_caches)
 
             # 过滤掉已删除的站点
             inner_site_list = SiteOper().list_order_by_pri()
@@ -317,6 +329,8 @@ class CrossSeed(_PluginBase):
 
         # 停止现有任务
         self.stop_service()
+        # 重新初始化运行期校验队列，避免类级字典跨插件重载残留。
+        self._recheck_torrents = {}
 
         # 启动定时任务 & 立即运行一次
         if self.get_state() or self._onlyonce:
@@ -756,6 +770,32 @@ class CrossSeed(_PluginBase):
             "permanent_error_caches": self._permanent_error_caches
         })
 
+    def __trim_seed_cache(self, cache: list):
+        """
+        去重并限制辅种缓存大小，避免长期任务把配置缓存无限撑大。
+        """
+        if not cache:
+            return
+        unique_cache = []
+        seen = set()
+        for item in reversed(cache):
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            unique_cache.append(item)
+        unique_cache.reverse()
+        cache[:] = unique_cache[-self._seed_cache_max_items:]
+
+    def __append_seed_cache(self, cache: list, value: str):
+        """
+        写入辅种缓存并保持上限，重复值只保留一份。
+        """
+        if not value:
+            return
+        if value not in cache:
+            cache.append(value)
+        self.__trim_seed_cache(cache)
+
     def auto_seed(self):
         """
         开始辅种
@@ -1106,10 +1146,10 @@ class CrossSeed(_PluginBase):
             self.cached += 1
             # 加入失败缓存
             if error_msg and ('无法打开链接' in error_msg or '触发站点流控' in error_msg):
-                self._error_caches.append(tor.get_name_id_tag())
+                self.__append_seed_cache(self._error_caches, tor.get_name_id_tag())
             else:
                 # 种子不存在的情况
-                self._permanent_error_caches.append(tor.get_name_id_tag())
+                self.__append_seed_cache(self._permanent_error_caches, tor.get_name_id_tag())
             logger.error(f"下载种子文件失败：{tor.get_name_id_tag()}")
             return False
 
@@ -1120,7 +1160,7 @@ class CrossSeed(_PluginBase):
             tors, msg = downloader_obj.get_torrents(ids=[tmp_tor_info.info_hash])
             if tors:
                 self.exist += 1
-                self._success_caches.append(tor.get_name_id_tag())
+                self.__append_seed_cache(self._success_caches, tor.get_name_id_tag())
                 logger.info(f"下载的种子{tor.get_name_id_tag()}已存在, 跳过")
                 return True
         else:
@@ -1136,7 +1176,7 @@ class CrossSeed(_PluginBase):
             self.fail += 1
             self.cached += 1
             # 加入失败缓存
-            self._error_caches.append(tor.get_name_id_tag())
+            self.__append_seed_cache(self._error_caches, tor.get_name_id_tag())
             return False
         else:
             self.success += 1
@@ -1149,7 +1189,7 @@ class CrossSeed(_PluginBase):
             # 下载成功
             logger.info(f"成功添加辅种下载，站点种子：{tor.get_name_id_tag()}")
             # 成功也加入缓存，有一些改了路径校验不通过的，手动删除后，下一次又会辅上
-            self._success_caches.append(tor.get_name_id_tag())
+            self.__append_seed_cache(self._success_caches, tor.get_name_id_tag())
             return True
 
     def __add_recheck_torrents(self, service: ServiceInfo, download_id: str):

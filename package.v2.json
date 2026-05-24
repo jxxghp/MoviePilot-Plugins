@@ -263,11 +263,12 @@
     "name": "IYUU自动辅种",
     "description": "基于IYUU官方Api实现自动辅种。",
     "labels": "做种,IYUU",
-    "version": "2.15",
+    "version": "2.16",
     "icon": "IYUU.png",
     "author": "jxxghp,CKun",
     "level": 2,
     "history": {
+      "v2.16": "限制辅种缓存大小并重置运行期校验队列，避免长期运行缓存无限增长",
       "v2.15": "修复海豹不能辅种的问题",
       "v2.14": "修复馒头不能辅种的问题",
       "v2.13": "开启跳过校验后需手动开启自动开始",
@@ -290,11 +291,12 @@
     "name": "青蛙辅种助手",
     "description": "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙、AGSVPT、麒麟、UBits、聆音、憨憨等。",
     "labels": "做种",
-    "version": "3.0.2",
+    "version": "3.0.3",
     "icon": "qingwa.png",
     "author": "233@qingwa",
     "level": 2,
     "history": {
+      "v3.0.3": "限制辅种缓存大小并重置运行期校验队列，避免长期运行缓存无限增长",
       "v3.0.2": "更新依赖库",
       "v3.0.1": "遗漏了一个私有属性",
       "v3.0": "兼容MoviePilot V2 版本"
