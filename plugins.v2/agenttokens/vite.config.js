@@ -41,16 +41,6 @@ export default defineConfig({
             },
           },
         },
-        {
-          postcssPlugin: 'vuetify-filter',
-          Root(root) {
-            root.walkRules(rule => {
-              if (rule.selector && (rule.selector.includes('.v-') || rule.selector.includes('.mdi-'))) {
-                rule.remove()
-              }
-            })
-          },
-        },
       ],
     },
   },
