@@ -185,13 +185,20 @@ async function resetAllUsage() {
   }
 }
 
+defineExpose({
+  loadStatus,
+  saveConfig,
+  loading,
+  saving,
+})
+
 onMounted(loadStatus)
 </script>
 
 <template>
   <div class="agenttokens-page pa-4">
-    <div class="d-flex align-center gap-2 mb-4 flex-wrap">
-      <div v-if="!hideTitle" class="text-h5 font-weight-medium">Agent Tokens 管理</div>
+    <div v-if="!hideTitle" class="d-flex align-center gap-2 mb-4 flex-wrap">
+      <div class="text-h5 font-weight-medium">Agent Tokens 管理</div>
       <VSpacer />
       <VBtn icon="mdi-refresh" variant="text" :loading="loading" @click="loadStatus" />
       <VBtn icon="mdi-content-save" variant="text" color="primary" :loading="saving" @click="saveConfig" />
@@ -199,38 +206,32 @@ onMounted(loadStatus)
 
     <VAlert v-if="error" type="error" variant="tonal" class="mb-4">{{ error }}</VAlert>
 
+    <VRow class="mb-4">
+      <VCol cols="12" sm="auto">
+        <VSwitch v-if="status.config" v-model="status.config.enabled" color="primary" hide-details inset label="启用插件" />
+      </VCol>
+      <VCol cols="12" sm="auto">
+        <VSwitch v-if="status.config" v-model="status.config.show_sidebar_nav" color="primary" hide-details inset label="侧边栏入口" />
+      </VCol>
+    </VRow>
+
     <VRow class="mb-2">
-      <VCol cols="12" sm="6" md="3">
+      <VCol cols="12" sm="4">
         <VSheet border rounded class="pa-4 h-100">
           <div class="text-caption text-medium-emphasis">可用供应商</div>
           <div class="text-h5">{{ summary.available_count || 0 }} / {{ summary.enabled_count || 0 }}</div>
         </VSheet>
       </VCol>
-      <VCol cols="12" sm="6" md="3">
+      <VCol cols="12" sm="4">
         <VSheet border rounded class="pa-4 h-100">
           <div class="text-caption text-medium-emphasis">累计使用</div>
           <div class="text-h5">{{ formatTokens(summary.total_used) }}</div>
         </VSheet>
       </VCol>
-      <VCol cols="12" sm="6" md="3">
+      <VCol cols="12" sm="4">
         <VSheet border rounded class="pa-4 h-100">
           <div class="text-caption text-medium-emphasis">总额度</div>
           <div class="text-h5">{{ formatTokens(summary.total_limit) }}</div>
-        </VSheet>
-      </VCol>
-      <VCol cols="12" sm="6" md="3">
-        <VSheet border rounded class="pa-4 h-100 d-flex align-center">
-          <div class="d-flex flex-column">
-            <VSwitch v-model="status.config.enabled" color="primary" hide-details inset label="启用插件" />
-            <VSwitch
-              v-model="status.config.show_sidebar_nav"
-              color="primary"
-              hide-details
-              inset
-              density="compact"
-              label="侧边栏入口"
-            />
-          </div>
         </VSheet>
       </VCol>
     </VRow>
@@ -381,11 +382,6 @@ onMounted(loadStatus)
 </template>
 
 <style scoped>
-.agenttokens-page {
-  max-width: 1280px;
-  margin: 0 auto;
-}
-
 .gap-2 {
   gap: 8px;
 }

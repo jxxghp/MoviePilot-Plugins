@@ -1,4 +1,5 @@
 <script setup>
+import { ref } from 'vue'
 import AppPage from './AppPage.vue'
 
 defineProps({
@@ -8,17 +9,30 @@ defineProps({
   },
 })
 const emit = defineEmits(['close'])
+
+const pageRef = ref(null)
 </script>
 
 <template>
   <div class="agenttokens-page-wrapper">
-    <VToolbar density="comfortable" color="transparent">
-      <VToolbarTitle>Agent Tokens 数据</VToolbarTitle>
+    <VToolbar density="comfortable" class="sticky-toolbar">
+      <VToolbarTitle>Agent Tokens 管理</VToolbarTitle>
       <VSpacer />
+      <VBtn icon="mdi-refresh" variant="text" :loading="pageRef?.loading" @click="pageRef?.loadStatus()" />
+      <VBtn icon="mdi-content-save" variant="text" color="primary" :loading="pageRef?.saving" @click="pageRef?.saveConfig()" />
       <VBtn icon="mdi-close" variant="text" @click="emit('close')" />
     </VToolbar>
     <VDivider />
     
-    <AppPage :api="api" plugin-id="AgentTokens" hide-title />
+    <AppPage ref="pageRef" :api="api" plugin-id="AgentTokens" hide-title />
   </div>
 </template>
+
+<style scoped>
+.sticky-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgb(var(--v-theme-surface));
+}
+</style>

@@ -1,10 +1,13 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import AppPage from './__federation_expose_AppPage-CYUQYkoo.js';
+import AppPage from './__federation_expose_AppPage-B6aBDyER.js';
+import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
 const {createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "agenttokens-page-wrapper" };
+
+const {ref} = await importShared('vue');
 
 
 const _sfc_main = {
@@ -21,6 +24,8 @@ const _sfc_main = {
 
 const emit = __emit;
 
+const pageRef = ref(null);
+
 return (_ctx, _cache) => {
   const _component_VToolbarTitle = _resolveComponent("VToolbarTitle");
   const _component_VSpacer = _resolveComponent("VSpacer");
@@ -31,26 +36,41 @@ return (_ctx, _cache) => {
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
     _createVNode(_component_VToolbar, {
       density: "comfortable",
-      color: "transparent"
+      class: "sticky-toolbar"
     }, {
       default: _withCtx(() => [
         _createVNode(_component_VToolbarTitle, null, {
-          default: _withCtx(() => [...(_cache[1] || (_cache[1] = [
-            _createTextVNode("Agent Tokens 数据", -1)
+          default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
+            _createTextVNode("Agent Tokens 管理", -1)
           ]))]),
           _: 1
         }),
         _createVNode(_component_VSpacer),
         _createVNode(_component_VBtn, {
+          icon: "mdi-refresh",
+          variant: "text",
+          loading: pageRef.value?.loading,
+          onClick: _cache[0] || (_cache[0] = $event => (pageRef.value?.loadStatus()))
+        }, null, 8, ["loading"]),
+        _createVNode(_component_VBtn, {
+          icon: "mdi-content-save",
+          variant: "text",
+          color: "primary",
+          loading: pageRef.value?.saving,
+          onClick: _cache[1] || (_cache[1] = $event => (pageRef.value?.saveConfig()))
+        }, null, 8, ["loading"]),
+        _createVNode(_component_VBtn, {
           icon: "mdi-close",
           variant: "text",
-          onClick: _cache[0] || (_cache[0] = $event => (emit('close')))
+          onClick: _cache[2] || (_cache[2] = $event => (emit('close')))
         })
       ]),
       _: 1
     }),
     _createVNode(_component_VDivider),
     _createVNode(AppPage, {
+      ref_key: "pageRef",
+      ref: pageRef,
       api: __props.api,
       "plugin-id": "AgentTokens",
       "hide-title": ""
@@ -60,5 +80,6 @@ return (_ctx, _cache) => {
 }
 
 };
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e6d409da"]]);
 
-export { _sfc_main as default };
+export { Page as default };

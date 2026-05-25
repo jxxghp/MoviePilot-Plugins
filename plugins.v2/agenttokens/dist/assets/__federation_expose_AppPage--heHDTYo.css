@@ -1,0 +1,13 @@
+
+.gap-2[data-v-aeb955b6] {
+  gap: 8px;
+}
+.progress-cell[data-v-aeb955b6] {
+  min-width: 140px;
+}
+.truncate-cell[data-v-aeb955b6] {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

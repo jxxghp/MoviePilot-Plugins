@@ -1,0 +1,7 @@
+
+.sticky-toolbar[data-v-e6d409da] {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgb(var(--v-theme-surface));
+}
