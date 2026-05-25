@@ -63,28 +63,28 @@ class AgentTokens(_PluginBase):
         """
         return [
             {
-                "path": f"/{self.__class__.__name__}/status",
+                "path": f"/status",
                 "endpoint": self.get_status,
                 "methods": ["GET"],
                 "auth": "bear",
                 "summary": "获取 Agent Tokens 状态",
             },
             {
-                "path": f"/{self.__class__.__name__}/config",
+                "path": f"/config",
                 "endpoint": self.save_config_api,
                 "methods": ["POST"],
                 "auth": "bear",
                 "summary": "保存 Agent Tokens 配置",
             },
             {
-                "path": f"/{self.__class__.__name__}/usage/reset",
+                "path": f"/usage/reset",
                 "endpoint": self.reset_usage_api,
                 "methods": ["POST"],
                 "auth": "bear",
                 "summary": "重置指定供应商用量",
             },
             {
-                "path": f"/{self.__class__.__name__}/usage/reset_all",
+                "path": f"/usage/reset_all",
                 "endpoint": self.reset_all_usage_api,
                 "methods": ["POST"],
                 "auth": "bear",
