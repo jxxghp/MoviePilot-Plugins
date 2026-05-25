@@ -149,7 +149,7 @@ return (_ctx, _cache) => {
       color: "transparent"
     }, {
       default: _withCtx(() => [
-        _cache[14] || (_cache[14] = _createElementVNode("div", { class: "text-h6" }, "Agent Tokens 配置", -1)),
+        _cache[14] || (_cache[14] = _createElementVNode("div", { class: "text-h6 ms-3" }, "Agent Tokens 配置", -1)),
         _createVNode(_component_VSpacer),
         _createVNode(_component_VBtn, {
           icon: "mdi-close",
@@ -458,6 +458,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-69e932e2"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-22b1ab53"]]);
 
 export { Config as default };

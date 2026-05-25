@@ -109,7 +109,7 @@ onMounted(() => {
 <template>
   <div class="agenttokens-config">
     <VToolbar density="comfortable" color="transparent">
-      <div class="text-h6">Agent Tokens 配置</div>
+      <div class="text-h6 ms-3">Agent Tokens 配置</div>
       <VSpacer />
       <VBtn icon="mdi-close" variant="text" @click="emit('close')" />
     </VToolbar>
