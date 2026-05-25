@@ -33,28 +33,12 @@ const _sfc_main = {
     type: String,
     default: 'AgentTokens',
   },
-  navKey: {
-    type: String,
-    default: 'main',
-  },
 },
   setup(__props) {
 
 const props = __props;
 
-const loading = ref(false);
-const saving = ref(false);
-const error = ref('');
-const activeTab = ref('usage');
-const showEditor = ref(false);
-const editorIndex = ref(-1);
-const editedProvider = ref(createProvider());
-const status = ref({
-  config: { enabled: false, providers: [] },
-  providers: [],
-  summary: {},
-});
-
+// 构造 API 基础路径。
 const pluginBase = computed(() => `plugin/${props.pluginId || 'AgentTokens'}`);
 const config = computed(() => status.value.config || { enabled: false, providers: [] });
 const providerRows = computed(() => status.value.providers || []);
@@ -242,22 +226,22 @@ return (_ctx, _cache) => {
       _createVNode(_component_VBtn, {
         icon: "mdi-refresh",
         variant: "text",
-        loading: loading.value,
+        loading: _ctx.loading,
         onClick: loadStatus
       }, null, 8, ["loading"]),
       _createVNode(_component_VBtn, {
         "prepend-icon": "mdi-content-save",
         color: "primary",
-        loading: saving.value,
+        loading: _ctx.saving,
         onClick: saveConfig
       }, {
-        default: _withCtx(() => _cache[14] || (_cache[14] = [
-          _createTextVNode("保存")
-        ])),
+        default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
+          _createTextVNode("保存", -1)
+        ]))]),
         _: 1
       }, 8, ["loading"])
     ]),
-    (error.value)
+    (_ctx.error)
       ? (_openBlock(), _createBlock(_component_VAlert, {
           key: 0,
           type: "error",
@@ -265,7 +249,7 @@ return (_ctx, _cache) => {
           class: "mb-4"
         }, {
           default: _withCtx(() => [
-            _createTextVNode(_toDisplayString(error.value), 1)
+            _createTextVNode(_toDisplayString(_ctx.error), 1)
           ]),
           _: 1
         }))
@@ -346,16 +330,16 @@ return (_ctx, _cache) => {
               default: _withCtx(() => [
                 _createElementVNode("div", _hoisted_6, [
                   _createVNode(_component_VSwitch, {
-                    modelValue: status.value.config.enabled,
-                    "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((status.value.config.enabled) = $event)),
+                    modelValue: _ctx.status.config.enabled,
+                    "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((_ctx.status.config.enabled) = $event)),
                     color: "primary",
                     "hide-details": "",
                     inset: "",
                     label: "启用插件"
                   }, null, 8, ["modelValue"]),
                   _createVNode(_component_VSwitch, {
-                    modelValue: status.value.config.show_sidebar_nav,
-                    "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((status.value.config.show_sidebar_nav) = $event)),
+                    modelValue: _ctx.status.config.show_sidebar_nav,
+                    "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((_ctx.status.config.show_sidebar_nav) = $event)),
                     color: "primary",
                     "hide-details": "",
                     inset: "",
@@ -373,30 +357,30 @@ return (_ctx, _cache) => {
       _: 1
     }),
     _createVNode(_component_VTabs, {
-      modelValue: activeTab.value,
-      "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((activeTab).value = $event)),
+      modelValue: _ctx.activeTab,
+      "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((_ctx.activeTab) = $event)),
       density: "comfortable",
       class: "mb-3"
     }, {
       default: _withCtx(() => [
         _createVNode(_component_VTab, { value: "usage" }, {
-          default: _withCtx(() => _cache[19] || (_cache[19] = [
-            _createTextVNode("用量")
-          ])),
+          default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
+            _createTextVNode("用量", -1)
+          ]))]),
           _: 1
         }),
         _createVNode(_component_VTab, { value: "config" }, {
-          default: _withCtx(() => _cache[20] || (_cache[20] = [
-            _createTextVNode("配置")
-          ])),
+          default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
+            _createTextVNode("配置", -1)
+          ]))]),
           _: 1
         })
       ]),
       _: 1
     }, 8, ["modelValue"]),
     _createVNode(_component_VWindow, {
-      modelValue: activeTab.value,
-      "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((activeTab).value = $event))
+      modelValue: _ctx.activeTab,
+      "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((_ctx.activeTab) = $event))
     }, {
       default: _withCtx(() => [
         _createVNode(_component_VWindowItem, { value: "usage" }, {
@@ -461,12 +445,12 @@ return (_ctx, _cache) => {
                         ]))
                       }), 128)),
                       (!providerRows.value.length)
-                        ? (_openBlock(), _createElementBlock("tr", _hoisted_9, _cache[21] || (_cache[21] = [
+                        ? (_openBlock(), _createElementBlock("tr", _hoisted_9, [...(_cache[21] || (_cache[21] = [
                             _createElementVNode("td", {
                               colspan: "8",
                               class: "text-center text-medium-emphasis py-8"
                             }, "暂无供应商", -1)
-                          ])))
+                          ]))]))
                         : _createCommentVNode("", true)
                     ])
                   ]),
@@ -487,9 +471,9 @@ return (_ctx, _cache) => {
                 variant: "tonal",
                 onClick: addProvider
               }, {
-                default: _withCtx(() => _cache[23] || (_cache[23] = [
-                  _createTextVNode("新增")
-                ])),
+                default: _withCtx(() => [...(_cache[23] || (_cache[23] = [
+                  _createTextVNode("新增", -1)
+                ]))]),
                 _: 1
               }),
               _createVNode(_component_VBtn, {
@@ -498,9 +482,9 @@ return (_ctx, _cache) => {
                 variant: "tonal",
                 onClick: resetAllUsage
               }, {
-                default: _withCtx(() => _cache[24] || (_cache[24] = [
-                  _createTextVNode("重置用量")
-                ])),
+                default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
+                  _createTextVNode("重置用量", -1)
+                ]))]),
                 _: 1
               })
             ]),
@@ -563,12 +547,12 @@ return (_ctx, _cache) => {
                         ]))
                       }), 128)),
                       (!config.value.providers?.length)
-                        ? (_openBlock(), _createElementBlock("tr", _hoisted_13, _cache[25] || (_cache[25] = [
+                        ? (_openBlock(), _createElementBlock("tr", _hoisted_13, [...(_cache[25] || (_cache[25] = [
                             _createElementVNode("td", {
                               colspan: "9",
                               class: "text-center text-medium-emphasis py-8"
                             }, "暂无供应商", -1)
-                          ])))
+                          ]))]))
                         : _createCommentVNode("", true)
                     ])
                   ]),
@@ -584,8 +568,8 @@ return (_ctx, _cache) => {
       _: 1
     }, 8, ["modelValue"]),
     _createVNode(_component_VDialog, {
-      modelValue: showEditor.value,
-      "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((showEditor).value = $event)),
+      modelValue: _ctx.showEditor,
+      "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((_ctx.showEditor) = $event)),
       "max-width": "760"
     }, {
       default: _withCtx(() => [
@@ -593,7 +577,7 @@ return (_ctx, _cache) => {
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, null, {
               default: _withCtx(() => [
-                _createTextVNode(_toDisplayString(editorIndex.value >= 0 ? '编辑供应商' : '新增供应商'), 1)
+                _createTextVNode(_toDisplayString(_ctx.editorIndex >= 0 ? '编辑供应商' : '新增供应商'), 1)
               ]),
               _: 1
             }),
@@ -607,8 +591,8 @@ return (_ctx, _cache) => {
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
-                          modelValue: editedProvider.value.name,
-                          "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((editedProvider.value.name) = $event)),
+                          modelValue: _ctx.editedProvider.name,
+                          "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((_ctx.editedProvider.name) = $event)),
                           label: "名称",
                           variant: "outlined",
                           density: "comfortable"
@@ -622,8 +606,8 @@ return (_ctx, _cache) => {
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
-                          modelValue: editedProvider.value.priority,
-                          "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((editedProvider.value.priority) = $event)),
+                          modelValue: _ctx.editedProvider.priority,
+                          "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((_ctx.editedProvider.priority) = $event)),
                           modelModifiers: { number: true },
                           label: "优先级",
                           type: "number",
@@ -638,8 +622,8 @@ return (_ctx, _cache) => {
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VSelect, {
-                          modelValue: editedProvider.value.provider,
-                          "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((editedProvider.value.provider) = $event)),
+                          modelValue: _ctx.editedProvider.provider,
+                          "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((_ctx.editedProvider.provider) = $event)),
                           items: providerTypeOptions,
                           label: "类型",
                           variant: "outlined"
@@ -653,8 +637,8 @@ return (_ctx, _cache) => {
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
-                          modelValue: editedProvider.value.model,
-                          "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((editedProvider.value.model) = $event)),
+                          modelValue: _ctx.editedProvider.model,
+                          "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((_ctx.editedProvider.model) = $event)),
                           label: "模型",
                           variant: "outlined"
                         }, null, 8, ["modelValue"])
@@ -664,8 +648,8 @@ return (_ctx, _cache) => {
                     _createVNode(_component_VCol, { cols: "12" }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
-                          modelValue: editedProvider.value.base_url,
-                          "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((editedProvider.value.base_url) = $event)),
+                          modelValue: _ctx.editedProvider.base_url,
+                          "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((_ctx.editedProvider.base_url) = $event)),
                           label: "API 地址",
                           variant: "outlined"
                         }, null, 8, ["modelValue"])
@@ -675,8 +659,8 @@ return (_ctx, _cache) => {
                     _createVNode(_component_VCol, { cols: "12" }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
-                          modelValue: editedProvider.value.api_key,
-                          "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((editedProvider.value.api_key) = $event)),
+                          modelValue: _ctx.editedProvider.api_key,
+                          "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((_ctx.editedProvider.api_key) = $event)),
                           label: "API Key",
                           type: "password",
                           variant: "outlined"
@@ -690,8 +674,8 @@ return (_ctx, _cache) => {
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
-                          modelValue: editedProvider.value.token_limit,
-                          "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((editedProvider.value.token_limit) = $event)),
+                          modelValue: _ctx.editedProvider.token_limit,
+                          "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((_ctx.editedProvider.token_limit) = $event)),
                           modelModifiers: { number: true },
                           label: "Token 额度",
                           type: "number",
@@ -706,8 +690,8 @@ return (_ctx, _cache) => {
                     }, {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
-                          modelValue: editedProvider.value.used_tokens,
-                          "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((editedProvider.value.used_tokens) = $event)),
+                          modelValue: _ctx.editedProvider.used_tokens,
+                          "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((_ctx.editedProvider.used_tokens) = $event)),
                           modelModifiers: { number: true },
                           label: "初始已用",
                           type: "number",
@@ -727,20 +711,20 @@ return (_ctx, _cache) => {
                 _createVNode(_component_VSpacer),
                 _createVNode(_component_VBtn, {
                   variant: "text",
-                  onClick: _cache[12] || (_cache[12] = $event => (showEditor.value = false))
+                  onClick: _cache[12] || (_cache[12] = $event => (_ctx.showEditor = false))
                 }, {
-                  default: _withCtx(() => _cache[27] || (_cache[27] = [
-                    _createTextVNode("取消")
-                  ])),
+                  default: _withCtx(() => [...(_cache[27] || (_cache[27] = [
+                    _createTextVNode("取消", -1)
+                  ]))]),
                   _: 1
                 }),
                 _createVNode(_component_VBtn, {
                   color: "primary",
                   onClick: commitProvider
                 }, {
-                  default: _withCtx(() => _cache[28] || (_cache[28] = [
-                    _createTextVNode("确定")
-                  ])),
+                  default: _withCtx(() => [...(_cache[28] || (_cache[28] = [
+                    _createTextVNode("确定", -1)
+                  ]))]),
                   _: 1
                 })
               ]),
@@ -757,6 +741,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-732593d9"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-37f144a0"]]);
 
 export { AppPage as default };

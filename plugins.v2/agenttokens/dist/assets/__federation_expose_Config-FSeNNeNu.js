@@ -151,9 +151,9 @@ return (_ctx, _cache) => {
     }, {
       default: _withCtx(() => [
         _createVNode(_component_VToolbarTitle, null, {
-          default: _withCtx(() => _cache[14] || (_cache[14] = [
-            _createTextVNode("Agent Tokens 配置")
-          ])),
+          default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
+            _createTextVNode("Agent Tokens 配置", -1)
+          ]))]),
           _: 1
         }),
         _createVNode(_component_VSpacer),
@@ -190,9 +190,9 @@ return (_ctx, _cache) => {
           variant: "tonal",
           onClick: _cache[3] || (_cache[3] = $event => (emit('switch')))
         }, {
-          default: _withCtx(() => _cache[15] || (_cache[15] = [
-            _createTextVNode("用量")
-          ])),
+          default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
+            _createTextVNode("用量", -1)
+          ]))]),
           _: 1
         }),
         _createVNode(_component_VBtn, {
@@ -201,9 +201,9 @@ return (_ctx, _cache) => {
           variant: "tonal",
           onClick: addProvider
         }, {
-          default: _withCtx(() => _cache[16] || (_cache[16] = [
-            _createTextVNode("新增")
-          ])),
+          default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
+            _createTextVNode("新增", -1)
+          ]))]),
           _: 1
         })
       ]),
@@ -262,12 +262,12 @@ return (_ctx, _cache) => {
                   ]))
                 }), 128)),
                 (!localConfig.value.providers.length)
-                  ? (_openBlock(), _createElementBlock("tr", _hoisted_5, _cache[17] || (_cache[17] = [
+                  ? (_openBlock(), _createElementBlock("tr", _hoisted_5, [...(_cache[17] || (_cache[17] = [
                       _createElementVNode("td", {
                         colspan: "7",
                         class: "text-center text-medium-emphasis py-8"
                       }, "暂无供应商", -1)
-                    ])))
+                    ]))]))
                   : _createCommentVNode("", true)
               ])
             ]),
@@ -284,9 +284,9 @@ return (_ctx, _cache) => {
         color: "primary",
         onClick: saveConfig
       }, {
-        default: _withCtx(() => _cache[19] || (_cache[19] = [
-          _createTextVNode("保存")
-        ])),
+        default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
+          _createTextVNode("保存", -1)
+        ]))]),
         _: 1
       })
     ]),
@@ -436,18 +436,18 @@ return (_ctx, _cache) => {
                   variant: "text",
                   onClick: _cache[12] || (_cache[12] = $event => (showEditor.value = false))
                 }, {
-                  default: _withCtx(() => _cache[20] || (_cache[20] = [
-                    _createTextVNode("取消")
-                  ])),
+                  default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
+                    _createTextVNode("取消", -1)
+                  ]))]),
                   _: 1
                 }),
                 _createVNode(_component_VBtn, {
                   color: "primary",
                   onClick: commitProvider
                 }, {
-                  default: _withCtx(() => _cache[21] || (_cache[21] = [
-                    _createTextVNode("确定")
-                  ])),
+                  default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
+                    _createTextVNode("确定", -1)
+                  ]))]),
                   _: 1
                 })
               ]),

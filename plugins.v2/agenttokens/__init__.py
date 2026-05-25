@@ -24,7 +24,7 @@ class AgentTokens(_PluginBase):
     plugin_name = "Agent Tokens 管理"
     plugin_desc = "管理多平台免费 Token 配额，按优先级自动切换 Agent LLM 供应商。"
     plugin_icon = "agentresourceofficer.png"
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     plugin_author = "jxxghp"
     author_url = "https://github.com/jxxghp"
     plugin_config_prefix = "agenttokens_"
@@ -63,28 +63,28 @@ class AgentTokens(_PluginBase):
         """
         return [
             {
-                "path": f"/status",
+                "path": "/status",
                 "endpoint": self.get_status,
                 "methods": ["GET"],
                 "auth": "bear",
                 "summary": "获取 Agent Tokens 状态",
             },
             {
-                "path": f"/config",
+                "path": "/config",
                 "endpoint": self.save_config_api,
                 "methods": ["POST"],
                 "auth": "bear",
                 "summary": "保存 Agent Tokens 配置",
             },
             {
-                "path": f"/usage/reset",
+                "path": "/usage/reset",
                 "endpoint": self.reset_usage_api,
                 "methods": ["POST"],
                 "auth": "bear",
                 "summary": "重置指定供应商用量",
             },
             {
-                "path": f"/usage/reset_all",
+                "path": "/usage/reset_all",
                 "endpoint": self.reset_all_usage_api,
                 "methods": ["POST"],
                 "auth": "bear",

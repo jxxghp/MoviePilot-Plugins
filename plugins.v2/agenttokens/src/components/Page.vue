@@ -7,8 +7,17 @@ defineProps({
     default: () => ({}),
   },
 })
+const emit = defineEmits(['close'])
 </script>
 
 <template>
-  <AppPage :api="api" plugin-id="AgentTokens" />
+  <VCard>
+    <VCardTitle class="d-flex justify-space-between align-center">
+      <span>Agent Tokens 配置</span>
+      <VBtn icon="mdi-close" variant="text" @click="emit('close')" />
+    </VCardTitle>
+    <VCardText class="pa-0">
+      <AppPage :api="api" plugin-id="AgentTokens" />
+    </VCardText>
+  </VCard>
 </template>

@@ -10,25 +10,9 @@ const props = defineProps({
     type: String,
     default: 'AgentTokens',
   },
-  navKey: {
-    type: String,
-    default: 'main',
-  },
 })
 
-const loading = ref(false)
-const saving = ref(false)
-const error = ref('')
-const activeTab = ref('usage')
-const showEditor = ref(false)
-const editorIndex = ref(-1)
-const editedProvider = ref(createProvider())
-const status = ref({
-  config: { enabled: false, providers: [] },
-  providers: [],
-  summary: {},
-})
-
+// 构造 API 基础路径。
 const pluginBase = computed(() => `plugin/${props.pluginId || 'AgentTokens'}`)
 const config = computed(() => status.value.config || { enabled: false, providers: [] })
 const providerRows = computed(() => status.value.providers || [])
