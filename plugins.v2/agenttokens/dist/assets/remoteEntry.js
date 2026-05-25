@@ -3,16 +3,16 @@ const currentImports = {};
       let moduleMap = {
 "./Page":()=>{
       dynamicLoadingCss(["__federation_expose_Page-vwwFlnk-.css","__federation_expose_AppPage-CkqsO_0n.css"], false, './Page');
-      return __federation_import('./assets/__federation_expose_Page-HzVcafPU.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      return __federation_import('./__federation_expose_Page-HzVcafPU.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Config":()=>{
       dynamicLoadingCss(["__federation_expose_Config-C5yY6NwA.css"], false, './Config');
-      return __federation_import('./assets/__federation_expose_Config-C7PQoNCG.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      return __federation_import('./__federation_expose_Config-C7PQoNCG.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Dashboard":()=>{
       dynamicLoadingCss([], false, './Dashboard');
-      return __federation_import('./assets/__federation_expose_Dashboard-BPSul9jL.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      return __federation_import('./__federation_expose_Dashboard-BPSul9jL.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./AppPage":()=>{
       dynamicLoadingCss(["__federation_expose_AppPage-CkqsO_0n.css"], false, './AppPage');
-      return __federation_import('./assets/__federation_expose_AppPage-DgQuvLJ5.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
+      return __federation_import('./__federation_expose_AppPage-DgQuvLJ5.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
       const seen = {};
       const dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName) => {
         const metaUrl = import.meta.url;
@@ -22,7 +22,7 @@ const currentImports = {};
         }
 
         const curUrl = metaUrl.substring(0, metaUrl.lastIndexOf('remoteEntry.js'));
-        const base = './';
+        const base = '/';
         'assets';
 
         cssFilePaths.forEach(cssPath => {
