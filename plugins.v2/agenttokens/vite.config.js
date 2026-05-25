@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import federation from '@originjs/vite-plugin-federation'
 
 export default defineConfig({
+  base: './',
   plugins: [
     vue(),
     federation({
