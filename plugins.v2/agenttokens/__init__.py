@@ -24,7 +24,7 @@ class AgentTokens(_PluginBase):
     plugin_name = "Agent Tokens 管理"
     plugin_desc = "管理多平台免费 Token 配额，按优先级自动切换 Agent LLM 供应商。"
     plugin_icon = "agentresourceofficer.png"
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.4"
     plugin_author = "jxxghp"
     author_url = "https://github.com/jxxghp"
     plugin_config_prefix = "agenttokens_"
@@ -419,6 +419,10 @@ class AgentTokens(_PluginBase):
             logger.info("Agent Tokens 没有可用供应商，Agent 将使用系统 LLM 配置")
             return
 
+        provider_name = provider.get("name")
+        model = provider.get("model")
+        logger.info(f"Agent Tokens 分配 LLM 供应商：[{provider_name}] 模型：[{model}]")
+
         self._event_set(event.event_data, "provider", provider.get("provider") or "openai")
         self._event_set(event.event_data, "base_url", provider.get("base_url"))
         self._event_set(event.event_data, "api_key", provider.get("api_key"))
@@ -470,6 +474,10 @@ class AgentTokens(_PluginBase):
                 or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             )
             usage[provider_id] = record
+            
+            provider_name = self._clean_text(self._event_get(event.event_data, "selected_provider_name")) or provider_id
+            logger.info(f"Agent Tokens 更新用量记录：供应商 [{provider_name}] 本次消耗了 {total_tokens} Tokens")
+            
             self._save_usage(usage)
 
     @eventmanager.register(EventType.PluginReload)
