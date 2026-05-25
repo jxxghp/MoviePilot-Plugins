@@ -24,7 +24,7 @@ class AgentTokens(_PluginBase):
     plugin_name = "Agent Tokens 管理"
     plugin_desc = "管理多平台免费 Token 配额，按优先级自动切换 Agent LLM 供应商。"
     plugin_icon = "agentresourceofficer.png"
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     plugin_author = "jxxghp"
     author_url = "https://github.com/jxxghp"
     plugin_config_prefix = "agenttokens_"

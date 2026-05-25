@@ -16,6 +16,19 @@ const props = defineProps({
   },
 })
 
+const loading = ref(false)
+const saving = ref(false)
+const error = ref('')
+const activeTab = ref('usage')
+const showEditor = ref(false)
+const editorIndex = ref(-1)
+const editedProvider = ref(createProvider())
+const status = ref({
+  config: { enabled: false, providers: [] },
+  providers: [],
+  summary: {},
+})
+
 // 构造 API 基础路径。
 const pluginBase = computed(() => `plugin/${props.pluginId || 'AgentTokens'}`)
 const config = computed(() => status.value.config || { enabled: false, providers: [] })
@@ -181,7 +194,7 @@ onMounted(loadStatus)
       <div v-if="!hideTitle" class="text-h5 font-weight-medium">Agent Tokens 管理</div>
       <VSpacer />
       <VBtn icon="mdi-refresh" variant="text" :loading="loading" @click="loadStatus" />
-      <VBtn prepend-icon="mdi-content-save" color="primary" :loading="saving" @click="saveConfig">保存</VBtn>
+      <VBtn icon="mdi-content-save" variant="text" color="primary" :loading="saving" @click="saveConfig" />
     </div>
 
     <VAlert v-if="error" type="error" variant="tonal" class="mb-4">{{ error }}</VAlert>
