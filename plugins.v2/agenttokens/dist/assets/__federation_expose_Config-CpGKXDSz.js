@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
-const {createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createCommentVNode:_createCommentVNode} = await importShared('vue');
+const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createCommentVNode:_createCommentVNode} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "agenttokens-config" };
@@ -126,7 +126,6 @@ onMounted(() => {
 });
 
 return (_ctx, _cache) => {
-  const _component_VToolbarTitle = _resolveComponent("VToolbarTitle");
   const _component_VSpacer = _resolveComponent("VSpacer");
   const _component_VBtn = _resolveComponent("VBtn");
   const _component_VToolbar = _resolveComponent("VToolbar");
@@ -150,12 +149,7 @@ return (_ctx, _cache) => {
       color: "transparent"
     }, {
       default: _withCtx(() => [
-        _createVNode(_component_VToolbarTitle, null, {
-          default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
-            _createTextVNode("Agent Tokens 配置", -1)
-          ]))]),
-          _: 1
-        }),
+        _cache[14] || (_cache[14] = _createElementVNode("div", { class: "text-h6" }, "Agent Tokens 配置", -1)),
         _createVNode(_component_VSpacer),
         _createVNode(_component_VBtn, {
           icon: "mdi-close",
@@ -464,6 +458,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-961b3d8f"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-69e932e2"]]);
 
 export { Config as default };

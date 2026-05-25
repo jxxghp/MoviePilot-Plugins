@@ -16,7 +16,7 @@ const pageRef = ref(null)
 <template>
   <div class="agenttokens-page-wrapper">
     <VToolbar density="comfortable" class="sticky-toolbar">
-      <VToolbarTitle>Agent Tokens 管理</VToolbarTitle>
+      <div class="text-h6">Agent Tokens 管理</div>
       <VSpacer />
       <VBtn icon="mdi-refresh" variant="text" :loading="pageRef?.loading" @click="pageRef?.loadStatus()" />
       <VBtn icon="mdi-content-save" variant="text" color="primary" :loading="pageRef?.saving" @click="pageRef?.saveConfig()" />

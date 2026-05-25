@@ -1,8 +1,8 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import AppPage from './__federation_expose_AppPage-B6aBDyER.js';
+import AppPage from './__federation_expose_AppPage-B7K0b9vH.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
-const {createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
+const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "agenttokens-page-wrapper" };
@@ -27,7 +27,6 @@ const emit = __emit;
 const pageRef = ref(null);
 
 return (_ctx, _cache) => {
-  const _component_VToolbarTitle = _resolveComponent("VToolbarTitle");
   const _component_VSpacer = _resolveComponent("VSpacer");
   const _component_VBtn = _resolveComponent("VBtn");
   const _component_VToolbar = _resolveComponent("VToolbar");
@@ -39,12 +38,7 @@ return (_ctx, _cache) => {
       class: "sticky-toolbar"
     }, {
       default: _withCtx(() => [
-        _createVNode(_component_VToolbarTitle, null, {
-          default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
-            _createTextVNode("Agent Tokens 管理", -1)
-          ]))]),
-          _: 1
-        }),
+        _cache[3] || (_cache[3] = _createElementVNode("div", { class: "text-h6" }, "Agent Tokens 管理", -1)),
         _createVNode(_component_VSpacer),
         _createVNode(_component_VBtn, {
           icon: "mdi-refresh",
@@ -80,6 +74,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e6d409da"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0e17aad3"]]);
 
 export { Page as default };

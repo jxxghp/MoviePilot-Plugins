@@ -7,7 +7,7 @@ const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent
 const _hoisted_1 = { class: "agenttokens-page pa-4" };
 const _hoisted_2 = {
   key: 0,
-  class: "d-flex align-center gap-2 mb-4 flex-wrap"
+  class: "d-flex align-center gap-2 mb-4 flex-nowrap"
 };
 const _hoisted_3 = { class: "text-h5" };
 const _hoisted_4 = { class: "text-h5" };
@@ -248,7 +248,9 @@ return (_ctx, _cache) => {
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
     (!__props.hideTitle)
       ? (_openBlock(), _createElementBlock("div", _hoisted_2, [
-          _cache[14] || (_cache[14] = _createElementVNode("div", { class: "text-h5 font-weight-medium" }, "Agent Tokens 管理", -1)),
+          _cache[14] || (_cache[14] = _createElementVNode("h2", { class: "text-2xl font-bold leading-7 text-gray-100 truncate sm:text-3xl sm:leading-9" }, [
+            _createElementVNode("span", { class: "text-moviepilot" }, "Agent Tokens 管理")
+          ], -1)),
           _createVNode(_component_VSpacer),
           _createVNode(_component_VBtn, {
             icon: "mdi-refresh",
@@ -768,6 +770,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-aeb955b6"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f70e1bcb"]]);
 
 export { AppPage as default };

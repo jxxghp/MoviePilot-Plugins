@@ -197,8 +197,10 @@ onMounted(loadStatus)
 
 <template>
   <div class="agenttokens-page pa-4">
-    <div v-if="!hideTitle" class="d-flex align-center gap-2 mb-4 flex-wrap">
-      <div class="text-h5 font-weight-medium">Agent Tokens 管理</div>
+    <div v-if="!hideTitle" class="d-flex align-center gap-2 mb-4 flex-nowrap">
+      <h2 class="text-2xl font-bold leading-7 text-gray-100 truncate sm:text-3xl sm:leading-9">
+        <span class="text-moviepilot">Agent Tokens 管理</span>
+      </h2>
       <VSpacer />
       <VBtn icon="mdi-refresh" variant="text" :loading="loading" @click="loadStatus" />
       <VBtn icon="mdi-content-save" variant="text" color="primary" :loading="saving" @click="saveConfig" />
