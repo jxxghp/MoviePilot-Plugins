@@ -10,6 +10,10 @@ const props = defineProps({
     type: String,
     default: 'AgentTokens',
   },
+  hideTitle: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 // 构造 API 基础路径。
@@ -174,7 +178,7 @@ onMounted(loadStatus)
 <template>
   <div class="agenttokens-page pa-4">
     <div class="d-flex align-center gap-2 mb-4 flex-wrap">
-      <div class="text-h5 font-weight-medium">Agent Tokens 管理</div>
+      <div v-if="!hideTitle" class="text-h5 font-weight-medium">Agent Tokens 管理</div>
       <VSpacer />
       <VBtn icon="mdi-refresh" variant="text" :loading="loading" @click="loadStatus" />
       <VBtn prepend-icon="mdi-content-save" color="primary" :loading="saving" @click="saveConfig">保存</VBtn>

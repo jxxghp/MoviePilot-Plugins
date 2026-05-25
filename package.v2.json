@@ -1048,13 +1048,14 @@
     "name": "Agent Tokens 管理",
     "description": "管理多平台免费 Token 配额，按优先级自动切换 Agent LLM 供应商。",
     "labels": "Agent,AI,系统",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "icon": "agentresourceofficer.png",
     "author": "jxxghp",
     "level": 1,
     "system_version": ">=2.13.0",
     "release": true,
     "history": {
+      "v1.0.2": "修复UI界面显示不全及前端路由报错问题",
       "v1.0.1": "新增 Agent Tokens 配额管理、供应商优先级切换和用量展示"
     }
   }

@@ -11,13 +11,14 @@ const emit = defineEmits(['close'])
 </script>
 
 <template>
-  <VCard>
-    <VCardTitle class="d-flex justify-space-between align-center">
-      <span>Agent Tokens 配置</span>
+  <div class="agenttokens-page-wrapper">
+    <VToolbar density="comfortable" color="transparent">
+      <VToolbarTitle>Agent Tokens 数据</VToolbarTitle>
+      <VSpacer />
       <VBtn icon="mdi-close" variant="text" @click="emit('close')" />
-    </VCardTitle>
-    <VCardText class="pa-0">
-      <AppPage :api="api" plugin-id="AgentTokens" />
-    </VCardText>
-  </VCard>
+    </VToolbar>
+    <VDivider />
+    
+    <AppPage :api="api" plugin-id="AgentTokens" hide-title />
+  </div>
 </template>
