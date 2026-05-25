@@ -1,7 +1,7 @@
 {
   "name": "moviepilot-agenttokens-plugin",
   "private": true,
-  "version": "1.0.6",
+  "version": "1.0.7",
   "type": "module",
   "scripts": {
     "build": "vite build"

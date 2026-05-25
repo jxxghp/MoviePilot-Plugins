@@ -243,7 +243,7 @@ onMounted(loadStatus)
       <VTab value="config">配置</VTab>
     </VTabs>
 
-    <VWindow v-model="activeTab">
+    <VWindow v-model="activeTab" :touch="false">
       <VWindowItem value="usage">
         <VSheet border rounded>
           <VTable density="comfortable">

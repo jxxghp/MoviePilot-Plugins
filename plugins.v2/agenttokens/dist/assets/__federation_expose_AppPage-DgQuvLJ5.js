@@ -409,7 +409,8 @@ return (_ctx, _cache) => {
     }, 8, ["modelValue"]),
     _createVNode(_component_VWindow, {
       modelValue: activeTab.value,
-      "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((activeTab).value = $event))
+      "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((activeTab).value = $event)),
+      touch: false
     }, {
       default: _withCtx(() => [
         _createVNode(_component_VWindowItem, { value: "usage" }, {
@@ -770,6 +771,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f70e1bcb"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ff97075d"]]);
 
 export { AppPage as default };
