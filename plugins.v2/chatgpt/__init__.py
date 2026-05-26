@@ -43,7 +43,7 @@ class ChatGPT(_PluginBase):
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "3.0"
+    plugin_version = "3.0.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -271,6 +271,7 @@ class ChatGPT(_PluginBase):
             "base_url": getattr(settings, "LLM_BASE_URL", None),
             "base_url_preset": getattr(settings, "LLM_BASE_URL_PRESET", None),
             "user_agent": getattr(settings, "LLM_USER_AGENT", None),
+            "use_proxy": getattr(settings, "LLM_USE_PROXY", True),
             "thinking_level": getattr(settings, "LLM_THINKING_LEVEL", None),
             "source": "system",
         }
@@ -287,6 +288,7 @@ class ChatGPT(_PluginBase):
             base_url=getattr(settings, "LLM_BASE_URL", None),
             base_url_preset=getattr(settings, "LLM_BASE_URL_PRESET", None),
             user_agent=getattr(settings, "LLM_USER_AGENT", None),
+            use_proxy=getattr(settings, "LLM_USE_PROXY", True),
             thinking_level=None,
         )
         selected_event = eventmanager.send_event(ChainEventType.AgentLLMProvider, event_data)
@@ -301,6 +303,7 @@ class ChatGPT(_PluginBase):
             "base_url": self._event_get(resolved_data, "base_url"),
             "base_url_preset": self._event_get(resolved_data, "base_url_preset"),
             "user_agent": self._event_get(resolved_data, "user_agent"),
+            "use_proxy": self._event_get(resolved_data, "use_proxy"),
             "thinking_level": self._event_get(resolved_data, "thinking_level"),
             "selected_provider_id": self._event_get(resolved_data, "selected_provider_id"),
             "selected_provider_name": self._event_get(resolved_data, "selected_provider_name"),
@@ -319,6 +322,11 @@ class ChatGPT(_PluginBase):
             "base_url": self._clean_text(config.get("base_url")) or None,
             "base_url_preset": self._clean_text(config.get("base_url_preset")) or None,
             "user_agent": self._clean_text(config.get("user_agent")) or None,
+            "use_proxy": bool(
+                getattr(settings, "LLM_USE_PROXY", True)
+                if config.get("use_proxy") is None
+                else config.get("use_proxy")
+            ),
             "thinking_level": self._clean_text(config.get("thinking_level")) or None,
             "selected_provider_id": self._clean_text(config.get("selected_provider_id")) or None,
             "selected_provider_name": self._clean_text(config.get("selected_provider_name")) or None,
@@ -353,14 +361,16 @@ class ChatGPT(_PluginBase):
             model=model_config.get("model"),
             base_url_preset=model_config.get("base_url_preset"),
             user_agent=model_config.get("user_agent"),
+            use_proxy=model_config.get("use_proxy"),
             thinking_level=model_config.get("thinking_level"),
             customize_prompt=self._customize_prompt,
         )
         logger.info(
-            "ChatGPT 识别增强初始化 LLM 成功，来源：%s，Provider：%s，Model：%s",
+            "ChatGPT 识别增强初始化 LLM 成功，来源：%s，Provider：%s，Model：%s，UseProxy：%s",
             self._model_source,
             model_config.get("provider"),
             model_config.get("model"),
+            model_config.get("use_proxy"),
         )
         return True
 

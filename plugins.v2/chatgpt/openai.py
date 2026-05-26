@@ -24,6 +24,7 @@ class OpenAi:
             model: str = None,
             base_url_preset: str = None,
             user_agent: str = None,
+            use_proxy: bool = None,
             thinking_level: str = None,
             customize_prompt: str = None,
             **kwargs,
@@ -37,6 +38,7 @@ class OpenAi:
         self._model = model
         self._base_url_preset = base_url_preset
         self._user_agent = user_agent
+        self._use_proxy = use_proxy
         self._thinking_level = thinking_level
         self._prompt = customize_prompt or ""
         self._last_usage: Dict[str, int] = {}
@@ -147,6 +149,7 @@ class OpenAi:
             base_url=self._api_url,
             base_url_preset=self._base_url_preset,
             user_agent=self._user_agent,
+            use_proxy=self._use_proxy,
         )
         return self._run_async_compatible(llm)
 
