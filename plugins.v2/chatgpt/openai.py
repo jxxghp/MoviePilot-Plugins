@@ -1,235 +1,213 @@
+import asyncio
+import inspect
 import json
 import re
-import time
-from typing import List, Union
+import threading
+from typing import Any, Dict, Optional
 
-import openai
-from cacheout import Cache
-
-OpenAISessionCache = Cache(maxsize=100, ttl=3600, timer=time.time, default=None)
+from app.agent.llm import LLMHelper
+from langchain_core.messages import HumanMessage, SystemMessage
 
 
 class OpenAi:
-    _api_key: str = None
-    _api_url: str = None
-    _model: str = "gpt-3.5-turbo"
-    _prompt: str = '接下来我会给你一个电影或电视剧的文件名，你需要识别文件名中的名称、版本、分段、年份、分瓣率、季集等信息，并按以下JSON格式返回：{"name":string,"version":string,"part":string,"year":string,"resolution":string,"season":number|null,"episode":number|null}，特别注意返回结果需要严格附合JSON格式，不需要有任何其它的字符。如果中文电影或电视剧的文件名中存在谐音字或字母替代的情况，请还原最有可能的结果。'
-    _client: openai.OpenAI = None
+    """
+    Lightweight LLM recognition client kept under the original module name for plugin compatibility.
+    """
 
-    def __init__(self, api_key: str = None, api_url: str = None,
-                 proxy: dict = None, model: str = None,
-                 compatible: bool = False, customize_prompt: str = None):
+    _JSON_FENCE_PATTERN = re.compile(r"^```(?:json)?\s*([\s\S]*?)\s*```$", re.IGNORECASE)
+
+    def __init__(
+            self,
+            api_key: str = None,
+            api_url: str = None,
+            provider: str = None,
+            model: str = None,
+            base_url_preset: str = None,
+            user_agent: str = None,
+            thinking_level: str = None,
+            customize_prompt: str = None,
+            **kwargs,
+    ):
+        """
+        初始化用于媒体识别的 LLM 客户端运行参数。
+        """
         self._api_key = api_key
         self._api_url = api_url
-        if model:
-            self._model = model
-        if customize_prompt:
-            self._prompt = customize_prompt
-        
-        # 初始化 OpenAI 客户端
-        if self._api_key and self._api_url:
-            base_url = self._api_url if compatible else self._api_url + "/v1"
-            http_client = None
-            if proxy and proxy.get("https"):
-                import httpx
-                proxy_url = proxy.get("https")
-                # httpx 支持字符串格式的代理 URL
-                http_client = httpx.Client(proxies=proxy_url, timeout=60.0)
-            self._client = openai.OpenAI(
-                api_key=self._api_key,
-                base_url=base_url,
-                http_client=http_client
-            )
+        self._provider = provider or "openai"
+        self._model = model
+        self._base_url_preset = base_url_preset
+        self._user_agent = user_agent
+        self._thinking_level = thinking_level
+        self._prompt = customize_prompt or ""
+        self._last_usage: Dict[str, int] = {}
 
     def get_state(self) -> bool:
-        return True if self._api_key else False
+        """
+        返回当前客户端是否具备发起识别调用的必要模型配置。
+        """
+        return bool(self._api_key and self._model)
+
+    def get_last_usage(self) -> Dict[str, int]:
+        """
+        返回最近一次模型调用提取到的 token 用量。
+        """
+        return dict(self._last_usage or {})
 
     @staticmethod
-    def __save_session(session_id: str, message: str):
+    def _run_async_compatible(value: Any) -> Any:
         """
-        保存会话
-        :param session_id: 会话ID
-        :param message: 消息
-        :return:
+        在同步插件回调中兼容执行新版 MoviePilot 的异步 LLM 初始化。
         """
-        seasion = OpenAISessionCache.get(session_id)
-        if seasion:
-            seasion.append({
-                "role": "assistant",
-                "content": message
-            })
-            OpenAISessionCache.set(session_id, seasion)
+        if not inspect.isawaitable(value):
+            return value
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(value)
+
+        result: Dict[str, Any] = {}
+        error: Dict[str, BaseException] = {}
+
+        def _worker() -> None:
+            """
+            在独立线程中运行协程，避免嵌套事件循环。
+            """
+            try:
+                result["value"] = asyncio.run(value)
+            except BaseException as exc:  # noqa: BLE001
+                error["exc"] = exc
+
+        thread = threading.Thread(target=_worker, daemon=True)
+        thread.start()
+        thread.join()
+        if "exc" in error:
+            raise error["exc"]
+        return result.get("value")
 
     @staticmethod
-    def __get_session(session_id: str, message: str) -> List[dict]:
+    def _lookup_int(data: Any, key: str) -> Optional[int]:
         """
-        获取会话
-        :param session_id: 会话ID
-        :return: 会话上下文
+        从字典或对象字段中安全读取整数 token 统计。
         """
-        seasion = OpenAISessionCache.get(session_id)
-        if seasion:
-            seasion.append({
-                "role": "user",
-                "content": message
-            })
-        else:
-            seasion = [
-                {
-                    "role": "system",
-                    "content": "请在接下来的对话中请使用中文回复，并且内容尽可能详细。"
-                },
-                {
-                    "role": "user",
-                    "content": message
-                }]
-            OpenAISessionCache.set(session_id, seasion)
-        return seasion
+        if not data:
+            return None
+        value = data.get(key) if isinstance(data, dict) else getattr(data, key, None)
+        try:
+            return int(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
 
-    def __get_model(self, message: Union[str, List[dict]],
-                    prompt: str = None,
-                    user: str = "MoviePilot",
-                    **kwargs):
+    @classmethod
+    def _extract_usage(cls, response: Any) -> Dict[str, int]:
         """
-        获取模型
+        从 LangChain AIMessage 中提取 token 用量。
         """
-        if not self._client:
-            raise ValueError("OpenAI client not initialized. Please check API key and API URL.")
-        if not isinstance(message, list):
-            if prompt:
-                message = [
-                    {
-                        "role": "system",
-                        "content": prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": message
-                    }
-                ]
-            else:
-                message = [
-                    {
-                        "role": "user",
-                        "content": message
-                    }
-                ]
-        # 新版本 API 不支持 user 参数，需要从 kwargs 中移除
-        kwargs.pop('user', None)
-        return self._client.chat.completions.create(
-            model=self._model,
-            messages=message,
-            **kwargs
+        usage_metadata = getattr(response, "usage_metadata", None)
+        response_metadata = getattr(response, "response_metadata", None) or {}
+        token_usage = (
+                response_metadata.get("token_usage")
+                or response_metadata.get("usage")
+                or response_metadata.get("usage_metadata")
+                or {}
         )
 
-    @staticmethod
-    def __clear_session(session_id: str):
-        """
-        清除会话
-        :param session_id: 会话ID
-        :return:
-        """
-        if OpenAISessionCache.get(session_id):
-            OpenAISessionCache.delete(session_id)
+        input_tokens = (
+                cls._lookup_int(usage_metadata, "input_tokens")
+                or cls._lookup_int(token_usage, "input_tokens")
+                or cls._lookup_int(token_usage, "prompt_tokens")
+                or 0
+        )
+        output_tokens = (
+                cls._lookup_int(usage_metadata, "output_tokens")
+                or cls._lookup_int(token_usage, "output_tokens")
+                or cls._lookup_int(token_usage, "completion_tokens")
+                or 0
+        )
+        total_tokens = (
+                cls._lookup_int(usage_metadata, "total_tokens")
+                or cls._lookup_int(token_usage, "total_tokens")
+                or input_tokens + output_tokens
+        )
+        return {
+            "input_tokens": max(input_tokens, 0),
+            "output_tokens": max(output_tokens, 0),
+            "total_tokens": max(total_tokens, 0),
+        }
 
-    def get_media_name(self, filename: str):
+    def _get_llm(self) -> Any:
         """
-        从文件名中提取媒体名称等要素
-        :param filename: 文件名
-        :return: Json
+        按当前运行参数创建 MoviePilot LLM 实例。
         """
+        llm = LLMHelper.get_llm(
+            streaming=False,
+            provider=self._provider,
+            model=self._model,
+            thinking_level=self._thinking_level,
+            api_key=self._api_key,
+            base_url=self._api_url,
+            base_url_preset=self._base_url_preset,
+            user_agent=self._user_agent,
+        )
+        return self._run_async_compatible(llm)
+
+    @staticmethod
+    def _extract_response_text(response: Any) -> str:
+        """
+        从模型响应对象中提取文本内容。
+        """
+        content = getattr(response, "content", response)
+        return LLMHelper._extract_text_content(content).strip()
+
+    @classmethod
+    def _strip_json_fence(cls, text: str) -> str:
+        """
+        移除模型可能附加的 Markdown JSON 代码块包裹。
+        """
+        text = str(text or "").strip()
+        match = cls._JSON_FENCE_PATTERN.match(text)
+        return match.group(1).strip() if match else text
+
+    @classmethod
+    def _extract_json_text(cls, text: str) -> str:
+        """
+        从模型回复中提取第一个 JSON 对象文本。
+        """
+        text = cls._strip_json_fence(text)
+        if text.startswith("{") and text.endswith("}"):
+            return text
+
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            return text[start:end + 1]
+        return text
+
+    def get_media_name(self, filename: str) -> Dict[str, Any]:
+        """
+        从媒体文件名中提取结构化识别信息。
+        """
+        self._last_usage = {}
         if not self.get_state():
-            return None
+            return {"errorMsg": "LLM API Key or model is not configured"}
+
         result = ""
         try:
-            _filename_prompt = self._prompt
-            completion = self.__get_model(prompt=_filename_prompt, message=filename)
-            result = completion.choices[0].message.content
-            # 有些模型返回json数据时会使用 ```json ``` 包裹json对象 所以需要进行提取
-            # 定义正则表达式模式，匹配```json开头和```结尾的内容
-            pattern = r'^```json\s*([\s\S]*?)\s*```$'
-            # 使用正则表达式进行匹配
-            match = re.match(pattern, result.strip())
-            if match:
-                # 提取中间的JSON部分
-                result = match.group(1)
-            return json.loads(result)
-        except Exception as e:
+            llm = self._get_llm()
+            completion = llm.invoke(
+                [
+                    SystemMessage(content=self._prompt),
+                    HumanMessage(content=str(filename or "")),
+                ]
+            )
+            self._last_usage = self._extract_usage(completion)
+            result = self._extract_response_text(completion)
+            json_text = self._extract_json_text(result)
+            data = json.loads(json_text)
+            if not isinstance(data, dict):
+                raise ValueError("LLM response is not a JSON object")
+            return data
+        except Exception as exc:
             return {
                 "content": result,
-                "errorMsg": str(e)
+                "errorMsg": str(exc),
             }
-
-    def get_response(self, text: str, userid: str):
-        """
-        聊天对话，获取答案
-        :param text: 输入文本
-        :param userid: 用户ID
-        :return:
-        """
-        if not self.get_state():
-            return ""
-        try:
-            if not userid:
-                return "用户信息错误"
-            else:
-                userid = str(userid)
-            if text == "#清除":
-                self.__clear_session(userid)
-                return "会话已清除"
-            # 获取历史上下文
-            messages = self.__get_session(userid, text)
-            completion = self.__get_model(message=messages, user=userid)
-            result = completion.choices[0].message.content
-            if result:
-                self.__save_session(userid, text)
-            return result
-        except openai.RateLimitError as e:
-            return f"请求被ChatGPT拒绝了，{str(e)}"
-        except openai.APIConnectionError as e:
-            return f"ChatGPT网络连接失败：{str(e)}"
-        except openai.APITimeoutError as e:
-            return f"没有接收到ChatGPT的返回消息：{str(e)}"
-        except Exception as e:
-            return f"请求ChatGPT出现错误：{str(e)}"
-
-    def translate_to_zh(self, text: str):
-        """
-        翻译为中文
-        :param text: 输入文本
-        """
-        if not self.get_state():
-            return False, None
-        system_prompt = "You are a translation engine that can only translate text and cannot interpret it."
-        user_prompt = f"translate to zh-CN:\n\n{text}"
-        result = ""
-        try:
-            completion = self.__get_model(prompt=system_prompt,
-                                          message=user_prompt,
-                                          temperature=0,
-                                          top_p=1,
-                                          frequency_penalty=0,
-                                          presence_penalty=0)
-            result = completion.choices[0].message.content.strip()
-            return True, result
-        except Exception as e:
-            print(f"{str(e)}：{result}")
-            return False, str(e)
-
-    def get_question_answer(self, question: str):
-        """
-        从给定问题和选项中获取正确答案
-        :param question: 问题及选项
-        :return: Json
-        """
-        if not self.get_state():
-            return None
-        result = ""
-        try:
-            _question_prompt = "下面我们来玩一个游戏，你是老师，我是学生，你需要回答我的问题，我会给你一个题目和几个选项，你的回复必须是给定选项中正确答案对应的序号，请直接回复数字"
-            completion = self.__get_model(prompt=_question_prompt, message=question)
-            result = completion.choices[0].message.content
-            return result
-        except Exception as e:
-            print(f"{str(e)}：{result}")
-            return {}
