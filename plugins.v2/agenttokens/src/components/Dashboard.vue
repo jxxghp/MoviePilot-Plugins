@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { formatTokens, unwrapResponse } from '../provider'
 
 const props = defineProps({
   api: {
@@ -18,20 +19,6 @@ let timer = null
 
 const summary = computed(() => status.value.summary || {})
 const providers = computed(() => status.value.providers || [])
-
-// 兼容 MoviePilot API 包装器和原始响应两种返回形态。
-function unwrapResponse(response) {
-  if (response && Object.prototype.hasOwnProperty.call(response, 'data') && response.success !== undefined) {
-    return response.data
-  }
-  return response?.data ?? response
-}
-
-// 格式化 token 数字。
-function formatTokens(value) {
-  const numberValue = Number(value || 0)
-  return Number.isFinite(numberValue) ? numberValue.toLocaleString() : '0'
-}
 
 // 读取仪表板所需的精简状态。
 async function loadStatus() {

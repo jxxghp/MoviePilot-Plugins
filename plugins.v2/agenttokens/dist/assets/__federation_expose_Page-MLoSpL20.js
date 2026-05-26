@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import AppPage from './__federation_expose_AppPage-D9YbltXb.js';
-import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
+import _sfc_main$1 from './__federation_expose_AppPage-DVPoxkMN.js';
+import { _ as _export_sfc } from './AgentTokensManager-DnY91SQC.js';
 
 const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
 
@@ -62,7 +62,7 @@ return (_ctx, _cache) => {
       _: 1
     }),
     _createVNode(_component_VDivider),
-    _createVNode(AppPage, {
+    _createVNode(_sfc_main$1, {
       ref_key: "pageRef",
       ref: pageRef,
       api: __props.api,

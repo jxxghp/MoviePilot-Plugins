@@ -1,0 +1,100 @@
+export const PROVIDER_TYPE_OPTIONS = [
+  { title: 'OpenAI Compatible', value: 'openai' },
+  { title: 'DeepSeek', value: 'deepseek' },
+  { title: 'Google Gemini', value: 'google' },
+  { title: 'Anthropic Compatible', value: 'anthropic' },
+  { title: 'ChatGPT', value: 'chatgpt' },
+]
+
+// 构建一个新的供应商默认配置。
+export function createProvider() {
+  return {
+    id: '',
+    enabled: true,
+    name: '',
+    provider: 'openai',
+    base_url: '',
+    api_key: '',
+    user_agent: '',
+    model: '',
+    token_limit: 0,
+    used_tokens: 0,
+    priority: 1,
+  }
+}
+
+// 生成深拷贝配置，避免直接修改父组件传入对象。
+export function cloneConfig(config) {
+  return JSON.parse(JSON.stringify(config || { enabled: false, show_sidebar_nav: true, providers: [] }))
+}
+
+// 格式化 token 数字，保持表格和统计展示可读。
+export function formatTokens(value) {
+  const numberValue = Number(value || 0)
+  return Number.isFinite(numberValue) ? numberValue.toLocaleString() : '0'
+}
+
+// 兼容 MoviePilot API 包装器和原始响应两种返回形态。
+export function unwrapResponse(response) {
+  if (response && Object.prototype.hasOwnProperty.call(response, 'data') && response.success !== undefined) {
+    return response.data
+  }
+  return response?.data ?? response
+}
+
+// 计算新增供应商的下一个优先级。
+export function getNextProviderPriority(providers) {
+  return Math.max(0, ...(providers || []).map(item => Number(item.priority || 0))) + 1
+}
+
+// 标准化弹窗中写回的供应商数值字段。
+export function normalizeProvider(provider, fallbackPriority) {
+  return {
+    ...provider,
+    token_limit: Number(provider.token_limit || 0),
+    used_tokens: Number(provider.used_tokens || 0),
+    priority: Number(provider.priority || fallbackPriority),
+  }
+}
+
+// 按配置生成本地用量行，供配置弹窗复用管理页展示结构。
+export function buildProviderRow(provider) {
+  const tokenLimit = Number(provider.token_limit || 0)
+  const totalTokens = Number(provider.used_tokens || 0)
+  const remainingTokens = tokenLimit <= 0 ? null : Math.max(tokenLimit - totalTokens, 0)
+  const usagePercent = tokenLimit <= 0 ? 0 : Math.min((totalTokens * 100) / tokenLimit, 100)
+
+  return {
+    ...provider,
+    masked_api_key: provider.api_key ? '****' : '',
+    usage: {
+      total_tokens: totalTokens,
+      remaining_tokens: remainingTokens,
+      usage_percent: usagePercent,
+      exhausted: tokenLimit > 0 && remainingTokens === 0,
+    },
+  }
+}
+
+// 批量生成本地供应商用量行。
+export function buildProviderRows(providers) {
+  return (providers || []).map(provider => buildProviderRow(provider))
+}
+
+// 根据供应商行汇总用量统计。
+export function buildProviderSummary(rows) {
+  const providers = rows || []
+  const enabledRows = providers.filter(row => row.enabled)
+  const totalUsed = providers.reduce((sum, row) => sum + Number(row.usage?.total_tokens || row.used_tokens || 0), 0)
+  const totalLimit = providers.reduce((sum, row) => {
+    const tokenLimit = Number(row.token_limit || 0)
+    return tokenLimit > 0 ? sum + tokenLimit : sum
+  }, 0)
+
+  return {
+    available_count: enabledRows.filter(row => !row.usage?.exhausted && row.api_key && row.base_url && row.model).length,
+    enabled_count: enabledRows.length,
+    total_used: totalUsed,
+    total_limit: totalLimit,
+  }
+}

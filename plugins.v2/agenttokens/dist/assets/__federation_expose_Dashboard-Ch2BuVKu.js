@@ -1,6 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
+import { f as formatTokens, u as unwrapResponse } from './provider-BURm2Fqi.js';
 
-const {createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,resolveComponent:_resolveComponent,createVNode:_createVNode,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createTextVNode:_createTextVNode,withCtx:_withCtx,createBlock:_createBlock} = await importShared('vue');
+const {createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,resolveComponent:_resolveComponent,createVNode:_createVNode,unref:_unref,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createTextVNode:_createTextVNode,withCtx:_withCtx,createBlock:_createBlock} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "agenttokens-dashboard" };
@@ -10,7 +11,6 @@ const _hoisted_4 = { class: "text-caption text-medium-emphasis mb-3" };
 const _hoisted_5 = { class: "text-caption" };
 
 const {computed,onMounted,onUnmounted,ref} = await importShared('vue');
-
 
 
 const _sfc_main = {
@@ -35,20 +35,6 @@ let timer = null;
 
 const summary = computed(() => status.value.summary || {});
 const providers = computed(() => status.value.providers || []);
-
-// 兼容 MoviePilot API 包装器和原始响应两种返回形态。
-function unwrapResponse(response) {
-  if (response && Object.prototype.hasOwnProperty.call(response, 'data') && response.success !== undefined) {
-    return response.data
-  }
-  return response?.data ?? response
-}
-
-// 格式化 token 数字。
-function formatTokens(value) {
-  const numberValue = Number(value || 0);
-  return Number.isFinite(numberValue) ? numberValue.toLocaleString() : '0'
-}
 
 // 读取仪表板所需的精简状态。
 async function loadStatus() {
@@ -103,7 +89,7 @@ return (_ctx, _cache) => {
       rounded: "",
       class: "mb-3"
     }, null, 8, ["model-value"]),
-    _createElementVNode("div", _hoisted_4, _toDisplayString(formatTokens(summary.value.total_used)) + " / " + _toDisplayString(summary.value.total_limit ? formatTokens(summary.value.total_limit) : '不限'), 1),
+    _createElementVNode("div", _hoisted_4, _toDisplayString(_unref(formatTokens)(summary.value.total_used)) + " / " + _toDisplayString(summary.value.total_limit ? _unref(formatTokens)(summary.value.total_limit) : '不限'), 1),
     _createVNode(_component_VList, {
       density: "compact",
       class: "py-0"
@@ -127,7 +113,7 @@ return (_ctx, _cache) => {
               }, 1032, ["color"])
             ]),
             append: _withCtx(() => [
-              _createElementVNode("span", _hoisted_5, _toDisplayString(formatTokens(row.usage?.total_tokens)), 1)
+              _createElementVNode("span", _hoisted_5, _toDisplayString(_unref(formatTokens)(row.usage?.total_tokens)), 1)
             ]),
             _: 2
           }, 1032, ["title", "subtitle"]))
