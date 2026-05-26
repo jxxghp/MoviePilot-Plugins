@@ -52,6 +52,7 @@ function createProvider() {
     provider: 'openai',
     base_url: '',
     api_key: '',
+    user_agent: '',
     model: '',
     token_limit: 0,
     used_tokens: 0,
@@ -364,6 +365,9 @@ onMounted(loadStatus)
             </VCol>
             <VCol cols="12">
               <VTextField v-model="editedProvider.api_key" label="API Key" type="password" variant="outlined" />
+            </VCol>
+            <VCol cols="12">
+              <VTextField v-model="editedProvider.user_agent" label="User-Agent" variant="outlined" />
             </VCol>
             <VCol cols="12" md="6">
               <VTextField v-model.number="editedProvider.token_limit" label="Token 额度" type="number" variant="outlined" />

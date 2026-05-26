@@ -3,7 +3,6 @@ import vue from '@vitejs/plugin-vue'
 import federation from '@originjs/vite-plugin-federation'
 
 export default defineConfig({
-  base: './',
   plugins: [
     vue(),
     federation({
@@ -40,6 +39,16 @@ export default defineConfig({
                 atRule.remove()
               }
             },
+          },
+        },
+        {
+          postcssPlugin: 'vuetify-filter',
+          Root(root) {
+            root.walkRules(rule => {
+              if (rule.selector && (rule.selector.includes('.v-') || rule.selector.includes('.mdi-'))) {
+                rule.remove()
+              }
+            })
           },
         },
       ],

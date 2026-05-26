@@ -52,6 +52,7 @@ function createProvider() {
     provider: 'openai',
     base_url: '',
     api_key: '',
+    user_agent: '',
     model: '',
     token_limit: 0,
     used_tokens: 0,
@@ -149,7 +150,7 @@ return (_ctx, _cache) => {
       color: "transparent"
     }, {
       default: _withCtx(() => [
-        _cache[14] || (_cache[14] = _createElementVNode("div", { class: "text-h6 ms-3" }, "Agent Tokens 配置", -1)),
+        _cache[15] || (_cache[15] = _createElementVNode("div", { class: "text-h6 ms-3" }, "Agent Tokens 配置", -1)),
         _createVNode(_component_VSpacer),
         _createVNode(_component_VBtn, {
           icon: "mdi-close",
@@ -184,7 +185,7 @@ return (_ctx, _cache) => {
           variant: "tonal",
           onClick: _cache[3] || (_cache[3] = $event => (emit('switch')))
         }, {
-          default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
+          default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
             _createTextVNode("用量", -1)
           ]))]),
           _: 1
@@ -195,7 +196,7 @@ return (_ctx, _cache) => {
           variant: "tonal",
           onClick: addProvider
         }, {
-          default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
+          default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
             _createTextVNode("新增", -1)
           ]))]),
           _: 1
@@ -208,7 +209,7 @@ return (_ctx, _cache) => {
         default: _withCtx(() => [
           _createVNode(_component_VTable, { density: "comfortable" }, {
             default: _withCtx(() => [
-              _cache[18] || (_cache[18] = _createElementVNode("thead", null, [
+              _cache[19] || (_cache[19] = _createElementVNode("thead", null, [
                 _createElementVNode("tr", null, [
                   _createElementVNode("th", null, "启用"),
                   _createElementVNode("th", null, "优先级"),
@@ -256,7 +257,7 @@ return (_ctx, _cache) => {
                   ]))
                 }), 128)),
                 (!localConfig.value.providers.length)
-                  ? (_openBlock(), _createElementBlock("tr", _hoisted_5, [...(_cache[17] || (_cache[17] = [
+                  ? (_openBlock(), _createElementBlock("tr", _hoisted_5, [...(_cache[18] || (_cache[18] = [
                       _createElementVNode("td", {
                         colspan: "7",
                         class: "text-center text-medium-emphasis py-8"
@@ -278,7 +279,7 @@ return (_ctx, _cache) => {
         color: "primary",
         onClick: saveConfig
       }, {
-        default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
+        default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
           _createTextVNode("保存", -1)
         ]))]),
         _: 1
@@ -286,7 +287,7 @@ return (_ctx, _cache) => {
     ]),
     _createVNode(_component_VDialog, {
       modelValue: showEditor.value,
-      "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((showEditor).value = $event)),
+      "onUpdate:modelValue": _cache[14] || (_cache[14] = $event => ((showEditor).value = $event)),
       "max-width": "760"
     }, {
       default: _withCtx(() => [
@@ -385,6 +386,17 @@ return (_ctx, _cache) => {
                       ]),
                       _: 1
                     }),
+                    _createVNode(_component_VCol, { cols: "12" }, {
+                      default: _withCtx(() => [
+                        _createVNode(_component_VTextField, {
+                          modelValue: editedProvider.value.user_agent,
+                          "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((editedProvider.value.user_agent) = $event)),
+                          label: "User-Agent",
+                          variant: "outlined"
+                        }, null, 8, ["modelValue"])
+                      ]),
+                      _: 1
+                    }),
                     _createVNode(_component_VCol, {
                       cols: "12",
                       md: "6"
@@ -392,7 +404,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
                           modelValue: editedProvider.value.token_limit,
-                          "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((editedProvider.value.token_limit) = $event)),
+                          "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((editedProvider.value.token_limit) = $event)),
                           modelModifiers: { number: true },
                           label: "Token 额度",
                           type: "number",
@@ -408,7 +420,7 @@ return (_ctx, _cache) => {
                       default: _withCtx(() => [
                         _createVNode(_component_VTextField, {
                           modelValue: editedProvider.value.used_tokens,
-                          "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((editedProvider.value.used_tokens) = $event)),
+                          "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((editedProvider.value.used_tokens) = $event)),
                           modelModifiers: { number: true },
                           label: "初始已用",
                           type: "number",
@@ -428,9 +440,9 @@ return (_ctx, _cache) => {
                 _createVNode(_component_VSpacer),
                 _createVNode(_component_VBtn, {
                   variant: "text",
-                  onClick: _cache[12] || (_cache[12] = $event => (showEditor.value = false))
+                  onClick: _cache[13] || (_cache[13] = $event => (showEditor.value = false))
                 }, {
-                  default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
+                  default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
                     _createTextVNode("取消", -1)
                   ]))]),
                   _: 1
@@ -439,7 +451,7 @@ return (_ctx, _cache) => {
                   color: "primary",
                   onClick: commitProvider
                 }, {
-                  default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
+                  default: _withCtx(() => [...(_cache[22] || (_cache[22] = [
                     _createTextVNode("确定", -1)
                   ]))]),
                   _: 1
@@ -458,6 +470,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-22b1ab53"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ad13eb37"]]);
 
 export { Config as default };

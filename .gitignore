@@ -11,6 +11,8 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+!plugins.v2/agenttokens/dist/
+!plugins.v2/agenttokens/dist/**
 downloads/
 eggs/
 .eggs/
