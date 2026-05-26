@@ -1042,10 +1042,10 @@ class AutoSignIn(_PluginBase):
                         {
                             'component': 'VIcon',
                             'props': {
-                                'icon': icon,
                                 'size': 'x-small',
                                 'color': color
-                            }
+                            },
+                            'text': icon
                         },
                         {
                             'component': 'span',
@@ -1142,10 +1142,10 @@ class AutoSignIn(_PluginBase):
                         {
                             'component': 'VIcon',
                             'props': {
-                                'icon': icon,
                                 'size': 'small',
                                 'color': 'primary'
-                            }
+                            },
+                            'text': icon
                         },
                         {
                             'component': 'span',
@@ -1353,9 +1353,9 @@ class AutoSignIn(_PluginBase):
                 {
                     'component': 'VIcon',
                     'props': {
-                        'icon': status_meta.get("icon"),
                         'size': 'x-small'
-                    }
+                    },
+                    'text': status_meta.get("icon")
                 }
             ]
         }
