@@ -712,21 +712,25 @@ class AutoSignIn(_PluginBase):
                 .autosignin-stat {
                     min-width: 0;
                     padding: 10px 12px;
-                    border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-                    border-radius: 8px;
-                    background: rgb(var(--v-theme-surface));
                 }
                 .autosignin-stat__head {
                     display: flex;
                     align-items: center;
                     gap: 6px;
                     min-width: 0;
-                    color: rgba(var(--v-theme-on-surface), .68);
+                    color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
                     font-size: .75rem;
-                    line-height: 1.2;
+                    font-weight: 600;
+                    line-height: 1.25;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .autosignin-stat__head .v-icon {
+                    color: rgb(var(--app-card-accent-rgb));
                 }
                 .autosignin-stat__value {
-                    margin-top: 6px;
+                    margin-top: 8px;
                     font-size: 1.25rem;
                     font-weight: 700;
                     line-height: 1;
@@ -758,12 +762,26 @@ class AutoSignIn(_PluginBase):
                 }
                 .autosignin-table-wrap {
                     overflow-x: auto;
-                    border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+                    border: 1px solid rgba(var(--v-theme-on-surface), .08);
                     border-radius: 8px;
-                    background: rgb(var(--v-theme-surface));
                 }
                 .autosignin-table {
                     min-width: 620px;
+                }
+                html[data-theme="transparent"] .autosignin-table-wrap,
+                .v-theme--transparent .autosignin-table-wrap {
+                    backdrop-filter: blur(var(--transparent-blur, 10px));
+                    background-color: rgba(var(--v-theme-surface), 0) !important;
+                }
+                html[data-theme="transparent"] .autosignin-table,
+                html[data-theme="transparent"] .autosignin-table .v-table__wrapper,
+                html[data-theme="transparent"] .autosignin-table table,
+                html[data-theme="transparent"] .autosignin-table tbody tr,
+                .v-theme--transparent .autosignin-table,
+                .v-theme--transparent .autosignin-table .v-table__wrapper,
+                .v-theme--transparent .autosignin-table table,
+                .v-theme--transparent .autosignin-table tbody tr {
+                    background-color: transparent !important;
                 }
                 .autosignin-table th {
                     height: 34px !important;
@@ -1004,7 +1022,8 @@ class AutoSignIn(_PluginBase):
         return {
             'component': 'div',
             'props': {
-                'class': 'autosignin-stat'
+                'class': 'autosignin-stat app-card-shell app-card-colorful',
+                'style': f'--app-card-accent-rgb: var(--v-theme-{color});'
             },
             'content': [
                 {
