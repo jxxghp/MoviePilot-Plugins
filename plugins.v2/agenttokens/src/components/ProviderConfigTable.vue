@@ -35,6 +35,7 @@ function getMaskedApiKey(index) {
           <th>类型</th>
           <th v-if="showCredentials">地址</th>
           <th v-if="showCredentials">Key</th>
+          <th>代理</th>
           <th>模型</th>
           <th>额度</th>
           <th class="text-right">操作</th>
@@ -50,6 +51,11 @@ function getMaskedApiKey(index) {
           <td>{{ row.provider }}</td>
           <td v-if="showCredentials" class="truncate-cell">{{ row.base_url }}</td>
           <td v-if="showCredentials">{{ getMaskedApiKey(index) }}</td>
+          <td>
+            <VChip size="small" :color="row.use_proxy === false ? 'default' : 'primary'" variant="tonal">
+              {{ row.use_proxy === false ? '直连' : '代理' }}
+            </VChip>
+          </td>
           <td>{{ row.model }}</td>
           <td>{{ row.token_limit > 0 ? formatTokens(row.token_limit) : '不限' }}</td>
           <td class="text-right">
@@ -58,7 +64,7 @@ function getMaskedApiKey(index) {
           </td>
         </tr>
         <tr v-if="!providers.length">
-          <td :colspan="showCredentials ? 9 : 7" class="text-center text-medium-emphasis py-8">暂无供应商</td>
+          <td :colspan="showCredentials ? 10 : 8" class="text-center text-medium-emphasis py-8">暂无供应商</td>
         </tr>
       </tbody>
     </VTable>
@@ -71,7 +77,7 @@ function getMaskedApiKey(index) {
 }
 
 .provider-table-shell :deep(table) {
-  min-width: 880px;
+  min-width: 960px;
 }
 
 .truncate-cell {

@@ -24,7 +24,7 @@ class AgentTokens(_PluginBase):
     plugin_name = "Agent Tokens 管理"
     plugin_desc = "管理多平台免费 Token 配额，按优先级自动切换 Agent LLM 供应商。"
     plugin_icon = "agentresourceofficer.png"
-    plugin_version = "1.0.9"
+    plugin_version = "1.0.10"
     plugin_author = "jxxghp"
     author_url = "https://github.com/jxxghp"
     plugin_config_prefix = "agenttokens_"
@@ -213,6 +213,7 @@ class AgentTokens(_PluginBase):
             "base_url": cls._clean_text(provider.get("base_url")),
             "api_key": cls._clean_text(provider.get("api_key")),
             "user_agent": cls._clean_text(provider.get("user_agent")),
+            "use_proxy": bool(provider.get("use_proxy", True)),
             "model": cls._clean_text(provider.get("model")),
             "token_limit": token_limit,
             "used_tokens": used_tokens,
@@ -428,6 +429,7 @@ class AgentTokens(_PluginBase):
         self._event_set(event.event_data, "base_url", provider.get("base_url"))
         self._event_set(event.event_data, "api_key", provider.get("api_key"))
         self._event_set(event.event_data, "user_agent", provider.get("user_agent"))
+        self._event_set(event.event_data, "use_proxy", bool(provider.get("use_proxy", True)))
         self._event_set(event.event_data, "model", provider.get("model"))
         self._event_set(event.event_data, "base_url_preset", None)
         self._event_set(event.event_data, "selected_provider_id", provider.get("id"))

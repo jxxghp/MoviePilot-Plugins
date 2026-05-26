@@ -16,6 +16,7 @@ function createProvider() {
     base_url: '',
     api_key: '',
     user_agent: '',
+    use_proxy: true,
     model: '',
     token_limit: 0,
     used_tokens: 0,
@@ -51,6 +52,7 @@ function getNextProviderPriority(providers) {
 function normalizeProvider(provider, fallbackPriority) {
   return {
     ...provider,
+    use_proxy: provider.use_proxy !== false,
     token_limit: Number(provider.token_limit || 0),
     used_tokens: Number(provider.used_tokens || 0),
     priority: Number(provider.priority || fallbackPriority),

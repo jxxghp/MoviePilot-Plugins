@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { f as formatTokens, P as PROVIDER_TYPE_OPTIONS, d as createProvider, b as buildProviderRows, a as buildProviderSummary, g as getNextProviderPriority, n as normalizeProvider } from './provider-BURm2Fqi.js';
+import { f as formatTokens, P as PROVIDER_TYPE_OPTIONS, d as createProvider, b as buildProviderRows, a as buildProviderSummary, g as getNextProviderPriority, n as normalizeProvider } from './provider-DJcqUg7E.js';
 
 const _export_sfc = (sfc, props) => {
   const target = sfc.__vccOpts || sfc;
@@ -9,7 +9,7 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-const {createElementVNode:_createElementVNode$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$2,createCommentVNode:_createCommentVNode$2,renderList:_renderList$1,Fragment:_Fragment$1,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,toDisplayString:_toDisplayString$4,unref:_unref$4,withCtx:_withCtx$4,createBlock:_createBlock$4} = await importShared('vue');
+const {createElementVNode:_createElementVNode$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$2,createCommentVNode:_createCommentVNode$2,renderList:_renderList$1,Fragment:_Fragment$1,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,withCtx:_withCtx$4,unref:_unref$4,createBlock:_createBlock$4} = await importShared('vue');
 
 
 const _hoisted_1$3 = { key: 0 };
@@ -54,6 +54,7 @@ function getMaskedApiKey(index) {
 
 return (_ctx, _cache) => {
   const _component_VSwitch = _resolveComponent$4("VSwitch");
+  const _component_VChip = _resolveComponent$4("VChip");
   const _component_VBtn = _resolveComponent$4("VBtn");
   const _component_VTable = _resolveComponent$4("VTable");
   const _component_VSheet = _resolveComponent$4("VSheet");
@@ -78,9 +79,10 @@ return (_ctx, _cache) => {
               (__props.showCredentials)
                 ? (_openBlock$4(), _createElementBlock$2("th", _hoisted_2$3, "Key"))
                 : _createCommentVNode$2("", true),
-              _cache[4] || (_cache[4] = _createElementVNode$3("th", null, "模型", -1)),
-              _cache[5] || (_cache[5] = _createElementVNode$3("th", null, "额度", -1)),
-              _cache[6] || (_cache[6] = _createElementVNode$3("th", { class: "text-right" }, "操作", -1))
+              _cache[4] || (_cache[4] = _createElementVNode$3("th", null, "代理", -1)),
+              _cache[5] || (_cache[5] = _createElementVNode$3("th", null, "模型", -1)),
+              _cache[6] || (_cache[6] = _createElementVNode$3("th", null, "额度", -1)),
+              _cache[7] || (_cache[7] = _createElementVNode$3("th", { class: "text-right" }, "操作", -1))
             ])
           ]),
           _createElementVNode$3("tbody", null, [
@@ -106,6 +108,18 @@ return (_ctx, _cache) => {
                 (__props.showCredentials)
                   ? (_openBlock$4(), _createElementBlock$2("td", _hoisted_4$2, _toDisplayString$4(getMaskedApiKey(index)), 1))
                   : _createCommentVNode$2("", true),
+                _createElementVNode$3("td", null, [
+                  _createVNode$4(_component_VChip, {
+                    size: "small",
+                    color: row.use_proxy === false ? 'default' : 'primary',
+                    variant: "tonal"
+                  }, {
+                    default: _withCtx$4(() => [
+                      _createTextVNode$4(_toDisplayString$4(row.use_proxy === false ? '直连' : '代理'), 1)
+                    ]),
+                    _: 2
+                  }, 1032, ["color"])
+                ]),
                 _createElementVNode$3("td", null, _toDisplayString$4(row.model), 1),
                 _createElementVNode$3("td", null, _toDisplayString$4(row.token_limit > 0 ? _unref$4(formatTokens)(row.token_limit) : '不限'), 1),
                 _createElementVNode$3("td", _hoisted_5$2, [
@@ -128,7 +142,7 @@ return (_ctx, _cache) => {
             (!__props.providers.length)
               ? (_openBlock$4(), _createElementBlock$2("tr", _hoisted_6$2, [
                   _createElementVNode$3("td", {
-                    colspan: __props.showCredentials ? 9 : 7,
+                    colspan: __props.showCredentials ? 10 : 8,
                     class: "text-center text-medium-emphasis py-8"
                   }, "暂无供应商", 8, _hoisted_7$2)
                 ]))
@@ -144,7 +158,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ProviderConfigTable = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-74897f54"]]);
+const ProviderConfigTable = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-cd4337d8"]]);
 
 const {toDisplayString:_toDisplayString$3,createTextVNode:_createTextVNode$3,resolveComponent:_resolveComponent$3,withCtx:_withCtx$3,createVNode:_createVNode$3,unref:_unref$3,openBlock:_openBlock$3,createBlock:_createBlock$3} = await importShared('vue');
 
@@ -190,6 +204,7 @@ return (_ctx, _cache) => {
   const _component_VTextField = _resolveComponent$3("VTextField");
   const _component_VCol = _resolveComponent$3("VCol");
   const _component_VSelect = _resolveComponent$3("VSelect");
+  const _component_VSwitch = _resolveComponent$3("VSwitch");
   const _component_VRow = _resolveComponent$3("VRow");
   const _component_VCardText = _resolveComponent$3("VCardText");
   const _component_VSpacer = _resolveComponent$3("VSpacer");
@@ -200,7 +215,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock$3(), _createBlock$3(_component_VDialog, {
     modelValue: dialogVisible.value,
-    "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((dialogVisible).value = $event)),
+    "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((dialogVisible).value = $event)),
     "max-width": "760",
     "max-height": "85vh",
     scrollable: ""
@@ -312,6 +327,19 @@ return (_ctx, _cache) => {
                     ]),
                     _: 1
                   }),
+                  _createVNode$3(_component_VCol, { cols: "12" }, {
+                    default: _withCtx$3(() => [
+                      _createVNode$3(_component_VSwitch, {
+                        modelValue: __props.provider.use_proxy,
+                        "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((__props.provider.use_proxy) = $event)),
+                        color: "primary",
+                        label: "使用代理服务器",
+                        hint: "启用后，Agent 连接该供应商时会使用系统代理服务器",
+                        "persistent-hint": ""
+                      }, null, 8, ["modelValue"])
+                    ]),
+                    _: 1
+                  }),
                   _createVNode$3(_component_VCol, {
                     cols: "12",
                     md: "6"
@@ -319,7 +347,7 @@ return (_ctx, _cache) => {
                     default: _withCtx$3(() => [
                       _createVNode$3(_component_VTextField, {
                         modelValue: __props.provider.token_limit,
-                        "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((__props.provider.token_limit) = $event)),
+                        "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((__props.provider.token_limit) = $event)),
                         modelModifiers: { number: true },
                         label: "Token 额度",
                         type: "number",
@@ -335,7 +363,7 @@ return (_ctx, _cache) => {
                     default: _withCtx$3(() => [
                       _createVNode$3(_component_VTextField, {
                         modelValue: __props.provider.used_tokens,
-                        "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((__props.provider.used_tokens) = $event)),
+                        "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((__props.provider.used_tokens) = $event)),
                         modelModifiers: { number: true },
                         label: "初始已用",
                         type: "number",
@@ -355,9 +383,9 @@ return (_ctx, _cache) => {
               _createVNode$3(_component_VSpacer),
               _createVNode$3(_component_VBtn, {
                 variant: "text",
-                onClick: _cache[9] || (_cache[9] = $event => (dialogVisible.value = false))
+                onClick: _cache[10] || (_cache[10] = $event => (dialogVisible.value = false))
               }, {
-                default: _withCtx$3(() => [...(_cache[11] || (_cache[11] = [
+                default: _withCtx$3(() => [...(_cache[12] || (_cache[12] = [
                   _createTextVNode$3("取消", -1)
                 ]))]),
                 _: 1
@@ -366,7 +394,7 @@ return (_ctx, _cache) => {
                 color: "primary",
                 onClick: commitProvider
               }, {
-                default: _withCtx$3(() => [...(_cache[12] || (_cache[12] = [
+                default: _withCtx$3(() => [...(_cache[13] || (_cache[13] = [
                   _createTextVNode$3("确定", -1)
                 ]))]),
                 _: 1

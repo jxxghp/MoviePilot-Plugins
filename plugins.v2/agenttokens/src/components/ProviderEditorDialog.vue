@@ -57,6 +57,15 @@ function commitProvider() {
           <VCol cols="12">
             <VTextField v-model="provider.user_agent" label="User-Agent" variant="outlined" />
           </VCol>
+          <VCol cols="12">
+            <VSwitch
+              v-model="provider.use_proxy"
+              color="primary"
+              label="使用代理服务器"
+              hint="启用后，Agent 连接该供应商时会使用系统代理服务器"
+              persistent-hint
+            />
+          </VCol>
           <VCol cols="12" md="6">
             <VTextField v-model.number="provider.token_limit" label="Token 额度" type="number" variant="outlined" />
           </VCol>
