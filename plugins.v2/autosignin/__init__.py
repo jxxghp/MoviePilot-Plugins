@@ -828,23 +828,30 @@ class AutoSignIn(_PluginBase):
                     justify-content: center;
                     border-radius: 999px;
                     border: 1px solid transparent;
+                    font-weight: 700;
+                }
+                .autosignin-dot .v-icon {
+                    opacity: 1;
                 }
                 .autosignin-dot--success {
                     color: rgb(var(--v-theme-success));
-                    background: rgba(var(--v-theme-success), .10);
+                    background: rgba(var(--v-theme-success), .24);
+                    border-color: rgba(var(--v-theme-success), .38);
                 }
                 .autosignin-dot--warning {
                     color: rgb(var(--v-theme-warning));
-                    background: rgba(var(--v-theme-warning), .14);
+                    background: rgba(var(--v-theme-warning), .30);
+                    border-color: rgba(var(--v-theme-warning), .48);
                 }
                 .autosignin-dot--error {
                     color: rgb(var(--v-theme-error));
-                    background: rgba(var(--v-theme-error), .12);
+                    background: rgba(var(--v-theme-error), .26);
+                    border-color: rgba(var(--v-theme-error), .42);
                 }
                 .autosignin-dot--none {
-                    color: rgba(var(--v-theme-on-surface), .42);
-                    background: rgba(var(--v-theme-on-surface), .06);
-                    border-color: rgba(var(--v-theme-on-surface), .08);
+                    color: rgba(var(--v-theme-on-surface), .68);
+                    background: rgba(var(--v-theme-on-surface), .14);
+                    border-color: rgba(var(--v-theme-on-surface), .22);
                 }
                 @media (max-width: 720px) {
                     .autosignin-page {
