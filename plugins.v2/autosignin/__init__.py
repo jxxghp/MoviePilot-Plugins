@@ -581,6 +581,8 @@ class AutoSignIn(_PluginBase):
                 # 为所有已完成签到的站点创建记录
                 for site_id in done_sites:
                     site_name = self._get_site_display_name(site_id=site_id, sites_info=sites_info)
+                    if not site_name:
+                        continue
 
                     # 跳过需要重试的站点
                     if site_id in retry_sites:
@@ -605,6 +607,8 @@ class AutoSignIn(_PluginBase):
                 # 为所有已完成登录的站点创建记录
                 for site_id in done_sites:
                     site_name = self._get_site_display_name(site_id=site_id, sites_info=sites_info)
+                    if not site_name:
+                        continue
 
                     # 跳过需要重试的站点
                     if site_id in retry_sites:
@@ -673,9 +677,13 @@ class AutoSignIn(_PluginBase):
         # 补齐已配置但暂无历史记录的站点，详情页能直接看出未记录项。
         for site_id in self._sign_sites:
             site_name = self._get_site_display_name(site_id=site_id, sites_info=sites_info)
+            if not site_name:
+                continue
             signin_site_data.setdefault(site_name, [])
         for site_id in self._login_sites:
             site_name = self._get_site_display_name(site_id=site_id, sites_info=sites_info)
+            if not site_name:
+                continue
             login_site_data.setdefault(site_name, [])
 
         display_dates = date_list[:7]
@@ -934,12 +942,12 @@ class AutoSignIn(_PluginBase):
         return sites_info
 
     @staticmethod
-    def _get_site_display_name(site_id, sites_info: dict) -> str:
+    def _get_site_display_name(site_id, sites_info: dict) -> Optional[str]:
         """
-        根据站点ID获取详情页中展示的站点名称。
+        根据站点ID获取详情页中展示的站点名称，查不到时返回空值便于跳过。
         """
         site_id_str = str(site_id)
-        return sites_info.get(site_id_str) or sites_info.get(site_id) or f"站点ID: {site_id}"
+        return sites_info.get(site_id_str) or sites_info.get(site_id)
 
     @staticmethod
     def _status_meta(status_text: str) -> dict:
