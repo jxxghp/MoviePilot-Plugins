@@ -35,7 +35,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "2.9.0"
+    plugin_version = "2.9.1"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -549,18 +549,7 @@ class AutoSignIn(_PluginBase):
             "signin": [],  # 签到数据
             "login": []  # 登录数据
         }
-        sites_info = {}  # 记录站点信息
-
-        # 获取站点信息
-        site_indexers = SitesHelper().get_indexers()
-        for site in site_indexers:
-            if not site.get("public"):
-                sites_info[site.get("id")] = site.get("name")
-
-        # 自定义站点
-        custom_sites = self.__custom_sites()
-        for site in custom_sites:
-            sites_info[site.get("id")] = site.get("name")
+        sites_info = self._build_sites_info()
 
         # 获取常规日期格式数据
         for day in date_list:
@@ -907,6 +896,42 @@ class AutoSignIn(_PluginBase):
                 ]
             }
         ]
+
+    @staticmethod
+    def _add_site_info(sites_info: dict, site_id: Any, site_name: Any) -> None:
+        """
+        记录站点ID到名称的映射，兼容历史记录中ID类型不一致的情况。
+        """
+        if site_id is None or not site_name:
+            return
+        sites_info[site_id] = site_name
+        sites_info[str(site_id)] = site_name
+
+    def _build_sites_info(self) -> dict:
+        """
+        汇总系统站点、索引器站点和自定义站点名称，供详情页历史记录反查。
+        """
+        sites_info = {}
+        for site in SitesHelper().get_indexers():
+            if not site.get("public"):
+                self._add_site_info(
+                    sites_info=sites_info,
+                    site_id=site.get("id"),
+                    site_name=site.get("name")
+                )
+        for site in SiteOper().list_order_by_pri():
+            self._add_site_info(
+                sites_info=sites_info,
+                site_id=getattr(site, "id", None),
+                site_name=getattr(site, "name", None)
+            )
+        for site in self.__custom_sites():
+            self._add_site_info(
+                sites_info=sites_info,
+                site_id=site.get("id"),
+                site_name=site.get("name")
+            )
+        return sites_info
 
     @staticmethod
     def _get_site_display_name(site_id, sites_info: dict) -> str:
