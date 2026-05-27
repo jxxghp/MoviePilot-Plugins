@@ -43,7 +43,7 @@ class ChatGPT(_PluginBase):
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "3.0.1"
+    plugin_version = "3.0.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -148,12 +148,23 @@ class ChatGPT(_PluginBase):
                 "component": "VForm",
                 "content": [
                     {
-                        "component": "VAlert",
-                        "props": {
-                            "type": "info",
-                            "variant": "tonal",
-                            "text": "插件仅在 MoviePilot 原生识别失败后参与名称识别增强，不再处理聊天消息。模型配置可直接使用系统智能助手设置，或通过 Agent Tokens 管理插件动态分配。",
-                        },
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "插件仅在 MoviePilot 原生识别失败后参与名称识别增强，不再处理聊天消息。模型配置可直接使用系统智能助手设置，或通过 Agent Tokens 管理插件动态分配。",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
                     },
                     {
                         "component": "VRow",
@@ -215,12 +226,23 @@ class ChatGPT(_PluginBase):
                         ],
                     },
                     {
-                        "component": "VAlert",
-                        "props": {
-                            "type": "warning",
-                            "variant": "tonal",
-                            "text": "选择 Agent Tokens 管理插件时，请先启用该插件，并至少配置一个已启用、未耗尽且填写了模型地址、API Key 和模型 ID 的供应商。",
-                        },
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "warning",
+                                            "variant": "tonal",
+                                            "text": "选择 Agent Tokens 管理插件时，请先启用该插件，并至少配置一个已启用、未耗尽且填写了模型地址、API Key 和模型 ID 的供应商。",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
                     },
                     {
                         "component": "VRow",
@@ -258,7 +280,7 @@ class ChatGPT(_PluginBase):
         """
         当前插件不提供独立详情页。
         """
-        return []
+        pass
 
     def _resolve_system_model_config(self) -> Tuple[Optional[Dict[str, Any]], str]:
         """
