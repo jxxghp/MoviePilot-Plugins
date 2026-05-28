@@ -218,7 +218,7 @@ class AIRecognizerEnhancer(_PluginBase):
             title = str(getattr(event_data, "title", "") or getattr(event_data, "name", "") or getattr(event_data, "org_string", "") or "").strip()
             path = str(getattr(event_data, "path", "") or getattr(event_data, "file_path", "") or getattr(event_data, "org_string", "") or "").strip()
 
-        is_path_backed = bool(path) and path != title and "/" in path
+        is_path_backed = bool(path) and path != title and ("/" in path or "\\" in path)
         return {
             "sample_source_kind": "path_backed" if is_path_backed else "title_only",
             "sample_source_plugin": source_plugin,
@@ -293,7 +293,7 @@ class AIRecognizerEnhancer(_PluginBase):
         sample_path = self._sample_path()
         sample_path.parent.mkdir(parents=True, exist_ok=True)
         filtered = [row for row in rows if not str(row.get("reason") or "").startswith("llm_error:")]
-        trimmed = filtered[-self._max_failed_samples:]
+        trimmed = filtered[-self._failed_sample_cap():]
         with sample_path.open("w", encoding="utf-8") as f:
             for row in trimmed:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -327,13 +327,17 @@ class AIRecognizerEnhancer(_PluginBase):
             }
             existing = self._read_llm_errors(limit=1000)
             existing.reverse()
-            new_identity = json.dumps({"title": title, "path": path, "reason": entry["reason"]}, ensure_ascii=False, sort_keys=True)
-            existing = [row for row in existing if json.dumps(
-                {"title": row.get("title"), "path": row.get("path"), "reason": row.get("reason")},
-                ensure_ascii=False, sort_keys=True,
-            ) != new_identity]
+            new_identity = {"title": title, "path": path, "reason": entry["reason"]}
+            existing = [
+                row for row in existing
+                if {
+                    "title": row.get("title"),
+                    "path": row.get("path"),
+                    "reason": row.get("reason"),
+                } != new_identity
+            ]
             existing.append(entry)
-            trimmed = existing[-self._max_failed_samples:]
+            trimmed = existing[-self._failed_sample_cap():]
             with error_path.open("w", encoding="utf-8") as f:
                 for row in trimmed:
                     f.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -1492,7 +1496,8 @@ AI 识别增强结果：
         if not title:
             return {"success": False, "message": "标题为空"}
         provenance = provenance or {}
-        is_title_only = provenance.get("sample_source_kind") == "title_only"
+        sample_source_kind = provenance.get("sample_source_kind")
+        is_title_only = sample_source_kind == "title_only" if sample_source_kind else not path
         try:
             guess = self._invoke_llm(title, path)
         except Exception as exc:
