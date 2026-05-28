@@ -45,18 +45,22 @@ MoviePilot 原版智能体已经提供“整理失败后自动接管再试一次
 - 用当前 LLM 结构化判断标题、年份、类型、季集
 - 回写 `name / year / season / episode`
 - 交回 MoviePilot 原生链路继续二次识别
-- 保存低置信度失败样本
+- 保存低置信度失败样本（可处理）
+- 保存 LLM 调用错误诊断记录（独立存储，不污染可处理样本池）
+- 失败样本和 LLM 诊断记录附带来源标注（`sample_source_kind` / `sample_source_plugin`）
+- 可配置是否保存仅标题样本（无真实文件路径），默认关闭以减少噪音
 - 提供失败样本工作清单、洞察、重放、删除和清空能力
 - 生成并应用 `CustomIdentifiers` 建议
+- 设置页提供“保存时清空失败样本（一次性）”开关，可在保存配置时顺手重置失败样本池
 
 ## 主要接口
 
-- `GET /api/v1/plugin/AIRecognizerEnhancer/health`
-  - 查看插件状态、LLM 提供方、模型、阈值和超时配置
-- `POST /api/v1/plugin/AIRecognizerEnhancer/recognize`
-  - 对单个标题做一次本地结构化识别测试
+### 可处理失败样本接口
+
+这些接口只返回因置信度不足或名称为空而落盘的识别失败记录，可用于生成识别词建议、复查和出队。
+
 - `GET /api/v1/plugin/AIRecognizerEnhancer/failed_samples`
-  - 查看最近保存的失败样本
+  - 查看最近保存的可处理失败样本
 - `GET /api/v1/plugin/AIRecognizerEnhancer/sample_worklist`
   - 返回适合继续处理的失败样本摘要列表
 - `GET /api/v1/plugin/AIRecognizerEnhancer/sample_insights`
@@ -68,12 +72,23 @@ MoviePilot 原版智能体已经提供“整理失败后自动接管再试一次
 - `POST /api/v1/plugin/AIRecognizerEnhancer/apply_suggested_identifier`
   - 把建议规则写入系统 `CustomIdentifiers`
 
+### LLM 诊断错误接口
+
+这些接口返回因 LLM 调用异常（如超时、网络错误、模型不可用）而产生的诊断记录。它们不参与识别词生成流程，仅供排查 LLM 问题使用。
+
+- `GET /api/v1/plugin/AIRecognizerEnhancer/llm_errors`
+  - 查看 LLM 调用失败的诊断记录
+- `POST /api/v1/plugin/AIRecognizerEnhancer/clear_llm_errors`
+  - 清空 LLM 错误诊断记录
+
 其余批量接口和清理接口可以按需要继续使用，详细路径以插件 `get_api()` 暴露结果为准。
 
 ## 配置建议
 
 - 先确认 MoviePilot 本身已经配置好可用的 LLM
-- 建议保持“保存失败样本”开启
+- 建议保持”保存失败样本”开启
+- 默认情况下”保存仅标题样本”是关闭的，这可以减少没有真实文件路径的低价值噪音；如果你的使用场景以纯标题匹配为主，可以在设置中手动开启
+- 如果失败样本池已经积累了大量历史噪音，可在设置页勾选“一次性清空”后保存
 - 如果你经常处理历史资源或网盘资源，建议定期查看：
   - `failed_samples`
   - `sample_worklist`
@@ -81,9 +96,9 @@ MoviePilot 原版智能体已经提供“整理失败后自动接管再试一次
 
 ## 已验证情况
 
-当前版本：`0.1.12`
+当前版本：`0.1.13`
 
-当前 Release：https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.2.68
+当前 Release：https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.2.73
 
 这版已经验证过：
 

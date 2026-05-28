@@ -53,7 +53,7 @@ class AIRecognizerEnhancer(_PluginBase):
     plugin_name = "AI识别增强"
     plugin_desc = "直接复用 MoviePilot 当前 LLM 配置，在原生识别失败后做本地结构化识别兜底，并交回原生链路继续二次识别。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/airecognizerenhancer.png"
-    plugin_version = "0.1.12"
+    plugin_version = "0.1.13"
     plugin_author = "liuyuexi1987"
     plugin_level = 1
     author_url = "https://github.com/liuyuexi1987"
@@ -67,8 +67,10 @@ class AIRecognizerEnhancer(_PluginBase):
     _request_timeout = 25
     _max_retries = 2
     _save_failed_samples = True
+    _save_title_only_samples = False
     _max_failed_samples = 200
     _auto_remove_applied_sample = True
+    _clear_failed_samples_once = False
     _systemconfig: Optional[SystemConfigOper] = None
 
     def init_plugin(self, config: Optional[Dict[str, Any]] = None):
@@ -79,10 +81,17 @@ class AIRecognizerEnhancer(_PluginBase):
         self._request_timeout = self._safe_int(config.get("request_timeout"), 25)
         self._max_retries = max(1, min(5, self._safe_int(config.get("max_retries"), 2)))
         self._save_failed_samples = bool(config.get("save_failed_samples", True))
+        self._save_title_only_samples = bool(config.get("save_title_only_samples", False))
         self._max_failed_samples = max(20, min(1000, self._safe_int(config.get("max_failed_samples"), 200)))
         self._auto_remove_applied_sample = bool(config.get("auto_remove_applied_sample", True))
+        self._clear_failed_samples_once = bool(config.get("clear_failed_samples_once", False))
         self._systemconfig = SystemConfigOper()
         self._register_events()
+        if self._clear_failed_samples_once:
+            cleared = self._clear_failed_samples()
+            self._clear_failed_samples_once = False
+            self.update_config(self._build_config({"clear_failed_samples_once": False}))
+            logger.info(f"[AI识别增强] 已按配置清空失败样本 {cleared} 条")
 
     def get_state(self) -> bool:
         return self._enabled
@@ -117,11 +126,28 @@ class AIRecognizerEnhancer(_PluginBase):
         if header.lower().startswith("bearer "):
             return header.split(" ", 1)[1].strip()
         if body:
-            for key in ("apikey", "api_key"):
+            for key in ("apikey", "api_key", "token"):
                 token = str(body.get(key) or "").strip()
                 if token:
                     return token
-        return str(request.query_params.get("apikey") or "").strip()
+        return str(request.query_params.get("apikey") or request.query_params.get("token") or "").strip()
+
+    def _build_config(self, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        config = {
+            "enabled": self._enabled,
+            "debug": self._debug,
+            "confidence_threshold": self._confidence_threshold,
+            "request_timeout": self._request_timeout,
+            "max_retries": self._max_retries,
+            "save_failed_samples": self._save_failed_samples,
+            "save_title_only_samples": self._save_title_only_samples,
+            "max_failed_samples": self._max_failed_samples,
+            "auto_remove_applied_sample": self._auto_remove_applied_sample,
+            "clear_failed_samples_once": self._clear_failed_samples_once,
+        }
+        if overrides:
+            config.update(overrides)
+        return config
 
     def _check_api_access(self, request: Request, body: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
         expected = str(getattr(settings, "API_TOKEN", "") or "").strip()
@@ -174,6 +200,30 @@ class AIRecognizerEnhancer(_PluginBase):
             )
         return str(title or "").strip(), str(path or "").strip()
 
+    @staticmethod
+    def _extract_provenance(event_data: Any) -> Dict[str, str]:
+        """Extract lightweight provenance metadata from event data for sample recording."""
+        source_plugin = ""
+        if isinstance(event_data, dict):
+            source_plugin = str(event_data.get("source_plugin") or "").strip()
+        else:
+            source_plugin = str(getattr(event_data, "source_plugin", "") or "").strip()
+
+        title = ""
+        path = ""
+        if isinstance(event_data, dict):
+            title = str(event_data.get("title") or event_data.get("name") or event_data.get("org_string") or "").strip()
+            path = str(event_data.get("path") or event_data.get("file_path") or event_data.get("org_string") or "").strip()
+        else:
+            title = str(getattr(event_data, "title", "") or getattr(event_data, "name", "") or getattr(event_data, "org_string", "") or "").strip()
+            path = str(getattr(event_data, "path", "") or getattr(event_data, "file_path", "") or getattr(event_data, "org_string", "") or "").strip()
+
+        is_path_backed = bool(path) and path != title and "/" in path
+        return {
+            "sample_source_kind": "path_backed" if is_path_backed else "title_only",
+            "sample_source_plugin": source_plugin,
+        }
+
     def _build_meta_hint(self, raw_text: str) -> Dict[str, Any]:
         try:
             meta = MetaInfo(raw_text)
@@ -221,6 +271,12 @@ class AIRecognizerEnhancer(_PluginBase):
     def _sample_path(self) -> Path:
         return self.get_data_path() / "failed_samples.jsonl"
 
+    def _llm_errors_path(self) -> Path:
+        return self.get_data_path() / "llm_errors.jsonl"
+
+    def _failed_sample_cap(self) -> int:
+        return max(20, min(1000, self._safe_int(self._max_failed_samples, 200)))
+
     @staticmethod
     def _sample_identity(payload: Dict[str, Any]) -> str:
         return json.dumps(
@@ -236,7 +292,8 @@ class AIRecognizerEnhancer(_PluginBase):
     def _write_failed_samples(self, rows: List[Dict[str, Any]]) -> None:
         sample_path = self._sample_path()
         sample_path.parent.mkdir(parents=True, exist_ok=True)
-        trimmed = rows[-self._max_failed_samples:]
+        filtered = [row for row in rows if not str(row.get("reason") or "").startswith("llm_error:")]
+        trimmed = filtered[-self._max_failed_samples:]
         with sample_path.open("w", encoding="utf-8") as f:
             for row in trimmed:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -253,6 +310,65 @@ class AIRecognizerEnhancer(_PluginBase):
             self._write_failed_samples(filtered)
         except Exception as exc:
             logger.warning(f"[AI识别增强] 写入失败样本失败: {exc}")
+
+    def _record_llm_error(self, title: str, path: str, meta_hint: Dict[str, Any], error: Any, provenance: Optional[Dict[str, str]] = None) -> None:
+        try:
+            error_path = self._llm_errors_path()
+            error_path.parent.mkdir(parents=True, exist_ok=True)
+            provenance = provenance or {}
+            entry = {
+                "title": title,
+                "path": path,
+                "meta_hint": meta_hint,
+                "reason": f"llm_error:{error}",
+                "timestamp": __import__("datetime").datetime.now().isoformat(),
+                "sample_source_kind": provenance.get("sample_source_kind", "unknown"),
+                "sample_source_plugin": provenance.get("sample_source_plugin", ""),
+            }
+            existing = self._read_llm_errors(limit=1000)
+            existing.reverse()
+            new_identity = json.dumps({"title": title, "path": path, "reason": entry["reason"]}, ensure_ascii=False, sort_keys=True)
+            existing = [row for row in existing if json.dumps(
+                {"title": row.get("title"), "path": row.get("path"), "reason": row.get("reason")},
+                ensure_ascii=False, sort_keys=True,
+            ) != new_identity]
+            existing.append(entry)
+            trimmed = existing[-self._max_failed_samples:]
+            with error_path.open("w", encoding="utf-8") as f:
+                for row in trimmed:
+                    f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except Exception as exc:
+            logger.warning(f"[AI识别增强] 写入 LLM 错误诊断记录失败: {exc}")
+
+    def _read_llm_errors(self, limit: int = 20) -> List[Dict[str, Any]]:
+        error_path = self._llm_errors_path()
+        if not error_path.exists():
+            return []
+        rows: List[Dict[str, Any]] = []
+        try:
+            with error_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rows.append(json.loads(line))
+                    except Exception:
+                        continue
+        except Exception as exc:
+            logger.warning(f"[AI识别增强] 读取 LLM 错误诊断记录失败: {exc}")
+            return []
+        if limit > 0:
+            rows = rows[-limit:]
+        rows.reverse()
+        return rows
+
+    def _clear_llm_errors(self) -> int:
+        rows = self._read_llm_errors(limit=10000)
+        error_path = self._llm_errors_path()
+        if error_path.exists():
+            error_path.unlink()
+        return len(rows)
 
     def _read_failed_samples(self, limit: int = 20) -> List[Dict[str, Any]]:
         sample_path = self._sample_path()
@@ -353,7 +469,7 @@ class AIRecognizerEnhancer(_PluginBase):
         sample_index: Optional[Any] = None,
         limit: int = 100,
     ) -> Tuple[Optional[int], Optional[Dict[str, Any]], str]:
-        samples = self._read_failed_samples(limit=max(1, min(limit, 200)))
+        samples = self._read_failed_samples(limit=max(1, min(limit, self._failed_sample_cap())))
         if not samples:
             return None, None, "暂无失败样本"
         index = self._safe_int(sample_index, 0)
@@ -369,9 +485,13 @@ class AIRecognizerEnhancer(_PluginBase):
         self,
         sample_indexes: Optional[List[Any]] = None,
         limit: int = 10,
-        pool_limit: int = 200,
+        pool_limit: int = 0,
     ) -> Tuple[List[int], List[Dict[str, Any]], str]:
-        current_samples = self._inject_sample_indices(self._read_failed_samples(limit=max(1, min(pool_limit, 1000))))
+        if pool_limit <= 0:
+            pool_limit = self._failed_sample_cap()
+        current_samples = self._inject_sample_indices(
+            self._read_failed_samples(limit=max(1, min(pool_limit, self._failed_sample_cap())))
+        )
         if not current_samples:
             return [], [], "暂无失败样本"
         if isinstance(sample_indexes, list) and sample_indexes:
@@ -414,6 +534,8 @@ class AIRecognizerEnhancer(_PluginBase):
             "title": sample.get("title"),
             "path": sample.get("path"),
             "reason": sample.get("reason"),
+            "sample_source_kind": sample.get("sample_source_kind", ""),
+            "sample_source_plugin": sample.get("sample_source_plugin", ""),
             "guess_name": guess.get("name"),
             "guess_confidence": self._safe_float(guess.get("confidence"), 0.0),
             "verified_title": verified.get("title"),
@@ -551,7 +673,10 @@ class AIRecognizerEnhancer(_PluginBase):
             label = self._sample_display_name(summary)
             confidence = round(self._safe_float(summary.get("guess_confidence"), 0.0), 2)
             can_suggest = "可建议" if summary.get("can_auto_suggest") else "需人工"
-            lines.append(f"{summary.get('sample_index')}. {label} | 置信度 {confidence} | {can_suggest}")
+            source_tag = "有路径" if summary.get("sample_source_kind") == "path_backed" else "仅标题"
+            source_plugin = summary.get("sample_source_plugin") or ""
+            source_info = f" | {source_tag}" + (f" ({source_plugin})" if source_plugin else "")
+            lines.append(f"{summary.get('sample_index')}. {label} | 置信度 {confidence} | {can_suggest}{source_info}")
         lines.append("下一步：可直接调用批量建议或批量复查接口。")
         return "\n".join(lines)
 
@@ -937,7 +1062,7 @@ AI 识别增强结果：
         selected_indexes, _, message = self._select_failed_sample_indexes(
             sample_indexes=body.get("sample_indexes"),
             limit=limit,
-            pool_limit=200,
+            pool_limit=self._failed_sample_cap(),
         )
         if not selected_indexes:
             return {"success": False, "message": message}
@@ -1006,7 +1131,7 @@ AI 识别增强结果：
         selected_indexes, _, message = self._select_failed_sample_indexes(
             sample_indexes=body.get("sample_indexes"),
             limit=limit,
-            pool_limit=200,
+            pool_limit=self._failed_sample_cap(),
         )
         if not selected_indexes:
             return {"success": False, "message": message}
@@ -1102,7 +1227,7 @@ AI 识别增强结果：
         selected_indexes, _, message = self._select_failed_sample_indexes(
             sample_indexes=body.get("sample_indexes"),
             limit=limit,
-            pool_limit=200,
+            pool_limit=self._failed_sample_cap(),
         )
         if not selected_indexes:
             return {"success": False, "message": message}
@@ -1356,40 +1481,48 @@ AI 识别增强结果：
                 logger.warning(f"[AI识别增强] 二次校验失败: {exc}")
             return None
 
-    def _recognize(self, title: str, path: str = "", record_failed_sample: bool = True) -> Dict[str, Any]:
+    def _recognize(
+        self, title: str, path: str = "", record_failed_sample: bool = True,
+        provenance: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
         title = str(title or "").strip()
         path = str(path or "").strip()
         if not title and path:
             title = Path(path).name
         if not title:
             return {"success": False, "message": "标题为空"}
+        provenance = provenance or {}
+        is_title_only = provenance.get("sample_source_kind") == "title_only"
         try:
             guess = self._invoke_llm(title, path)
         except Exception as exc:
             if record_failed_sample:
-                self._record_failed_sample(
-                    {
-                        "title": title,
-                        "path": path,
-                        "meta_hint": self._build_meta_hint(path or title),
-                        "reason": f"llm_error:{exc}",
-                    }
-                )
+                if is_title_only and not self._save_title_only_samples:
+                    if self._debug:
+                        logger.info(f"[AI识别增强] 跳过保存仅标题 LLM 错误: {title} (save_title_only_samples=False)")
+                else:
+                    self._record_llm_error(title, path, self._build_meta_hint(path or title), exc, provenance=provenance)
             return {"success": False, "message": f"LLM 调用失败: {exc}"}
 
         verified = self._verify_guess(title, path, guess)
         passed = bool(guess.name and guess.confidence >= self._confidence_threshold)
         if not passed and record_failed_sample:
-            self._record_failed_sample(
-                {
-                    "title": title,
-                    "path": path,
-                    "meta_hint": self._build_meta_hint(path or title),
-                    "guess": guess.model_dump(),
-                    "verified_media_info": self._compact_verified_summary(verified),
-                    "reason": "low_confidence_or_empty_name",
-                }
-            )
+            if is_title_only and not self._save_title_only_samples:
+                if self._debug:
+                    logger.info(f"[AI识别增强] 跳过保存仅标题样本: {title} (save_title_only_samples=False)")
+            else:
+                self._record_failed_sample(
+                    {
+                        "title": title,
+                        "path": path,
+                        "meta_hint": self._build_meta_hint(path or title),
+                        "guess": guess.model_dump(),
+                        "verified_media_info": self._compact_verified_summary(verified),
+                        "reason": "low_confidence_or_empty_name",
+                        "sample_source_kind": provenance.get("sample_source_kind", "unknown"),
+                        "sample_source_plugin": provenance.get("sample_source_plugin", ""),
+                    }
+                )
         return {
             "success": passed,
             "message": "success" if passed else "识别结果置信度不足，已放弃注入",
@@ -1404,7 +1537,8 @@ AI 识别增强结果：
         title, path = self._extract_title_path(event_data)
         if not title and not path:
             return
-        result = self._recognize(title=title, path=path)
+        provenance = self._extract_provenance(event_data)
+        result = self._recognize(title=title, path=path, provenance=provenance)
         if not result.get("success"):
             if self._debug:
                 logger.info(f"[AI识别增强] 跳过注入: {title or path} - {result.get('message')}")
@@ -1496,7 +1630,7 @@ AI 识别增强结果：
         if not ok:
             return {"success": False, "message": message}
         limit = self._safe_int(request.query_params.get("limit"), 50)
-        limit = max(1, min(limit, 200))
+        limit = max(1, min(limit, self._failed_sample_cap()))
         top = self._safe_int(request.query_params.get("top"), 10)
         top = max(1, min(top, 20))
         samples = self._inject_sample_indices(self._read_failed_samples(limit=limit))
@@ -1512,7 +1646,7 @@ AI 识别增强结果：
             return {"success": False, "message": message}
         limit = self._safe_int(request.query_params.get("limit"), 5)
         limit = max(1, min(limit, 20))
-        samples = self._inject_sample_indices(self._read_failed_samples(limit=100))
+        samples = self._inject_sample_indices(self._read_failed_samples(limit=self._failed_sample_cap()))
         return {
             "success": True,
             "data": {
@@ -1550,6 +1684,34 @@ AI 识别增强结果：
         if not ok:
             return {"success": False, "message": message}
         cleared = self._clear_failed_samples()
+        return {
+            "success": True,
+            "message": "success",
+            "data": {
+                "cleared_count": cleared,
+            },
+        }
+
+    async def api_llm_errors(self, request: Request):
+        ok, message = self._check_api_access(request)
+        if not ok:
+            return {"success": False, "message": message}
+        limit = self._safe_int(request.query_params.get("limit"), 20)
+        limit = max(1, min(limit, 100))
+        errors = self._read_llm_errors(limit=limit)
+        return {
+            "success": True,
+            "data": {
+                "count": len(errors),
+                "errors": errors,
+            },
+        }
+
+    async def api_clear_llm_errors(self, request: Request):
+        ok, message = self._check_api_access(request)
+        if not ok:
+            return {"success": False, "message": message}
+        cleared = self._clear_llm_errors()
         return {
             "success": True,
             "message": "success",
@@ -1698,6 +1860,18 @@ AI 识别增强结果：
                 "summary": "清空失败样本文件",
             },
             {
+                "path": "/llm_errors",
+                "endpoint": self.api_llm_errors,
+                "methods": ["GET"],
+                "summary": "查看 LLM 调用失败的诊断记录",
+            },
+            {
+                "path": "/clear_llm_errors",
+                "endpoint": self.api_clear_llm_errors,
+                "methods": ["POST"],
+                "summary": "清空 LLM 错误诊断记录",
+            },
+            {
                 "path": "/remove_failed_sample",
                 "endpoint": self.api_remove_failed_sample,
                 "methods": ["POST"],
@@ -1731,7 +1905,8 @@ AI 识别增强结果：
 
     def get_page(self) -> List[dict]:
         llm_ready = bool(getattr(settings, "LLM_API_KEY", None))
-        failed_samples_count = len(self._read_failed_samples(limit=200))
+        failed_samples_count = len(self._read_failed_samples(limit=self._failed_sample_cap()))
+        llm_errors_count = len(self._read_llm_errors(limit=self._max_failed_samples))
         custom_identifiers_count = len(self._get_custom_identifiers())
         llm_provider = getattr(settings, "LLM_PROVIDER", "—")
         llm_model = getattr(settings, "LLM_MODEL", "—")
@@ -1784,22 +1959,27 @@ AI 识别增强结果：
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12, "sm": 6, "md": 2},
                                 "content": [stat_card("当前状态", "已启用" if self._enabled else "未启用")],
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12, "sm": 6, "md": 2},
                                 "content": [stat_card("LLM 可用", "是" if llm_ready else "否", f"{llm_provider} / {llm_model}")],
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
-                                "content": [stat_card("失败样本", f"{failed_samples_count} 条", f"上限 {self._max_failed_samples} 条")],
+                                "props": {"cols": 12, "sm": 6, "md": 3},
+                                "content": [stat_card("可处理失败样本", f"{failed_samples_count} 条", f"上限 {self._max_failed_samples} 条")],
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12, "sm": 6, "md": 2},
+                                "content": [stat_card("LLM 错误", f"{llm_errors_count} 条", "诊断记录")],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "sm": 6, "md": 3},
                                 "content": [stat_card("自定义识别词", f"{custom_identifiers_count} 条", "系统 CustomIdentifiers")],
                             },
                         ],
@@ -1810,34 +1990,7 @@ AI 识别增强结果：
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
-                                "content": [
-                                    {
-                                        "component": "VCard",
-                                        "props": {"variant": "outlined", "class": "pa-4 h-100"},
-                                        "content": [
-                                            {
-                                                "component": "div",
-                                                "props": {"class": "text-subtitle-1 font-weight-bold mb-2"},
-                                                "text": "识别兜底",
-                                            },
-                                            {
-                                                "component": "div",
-                                                "props": {"class": "text-body-2 text-medium-emphasis"},
-                                                "text": "在 Chain NameRecognize 阶段回写 name / year / season / episode，供 MoviePilot 继续原生二次识别。",
-                                            },
-                                            {
-                                                "component": "div",
-                                                "props": {"class": "text-caption text-medium-emphasis mt-3"},
-                                                "text": f"置信度阈值：{self._confidence_threshold}；请求超时：{self._request_timeout} 秒",
-                                            },
-                                        ],
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 12},
                                 "content": [
                                     {
                                         "component": "VCard",
@@ -1873,6 +2026,7 @@ AI 识别增强结果：
         return "vuetify", None
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        failed_samples_count = len(self._read_failed_samples(limit=self._failed_sample_cap()))
         form = [
             {
                 "component": "VForm",
@@ -1890,6 +2044,25 @@ AI 识别增强结果：
                                             "type": "info",
                                             "variant": "tonal",
                                             "text": "当前版本已改为直接复用 MoviePilot 当前启用的 LLM 配置，在原生识别失败后做本地结构化兜底。",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "warning",
+                                            "variant": "tonal",
+                                            "text": f"当前累计 {failed_samples_count} 条失败样本。如需重置噪音数据，请勾选下方“一次性清空”开关后点击保存。该操作只清空失败样本，不会删除已写入的 CustomIdentifiers。",
                                         },
                                     }
                                 ],
@@ -1926,6 +2099,19 @@ AI 识别增强结果：
                                     {
                                         "component": "VSwitch",
                                         "props": {"model": "save_failed_samples", "label": "保存低置信度样本"},
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "save_title_only_samples",
+                                            "label": "保存仅标题样本",
+                                        },
                                     }
                                 ],
                             },
@@ -2020,6 +2206,24 @@ AI 识别增强结果：
                                     {
                                         "component": "VSwitch",
                                         "props": {
+                                            "model": "clear_failed_samples_once",
+                                            "label": "保存时清空失败样本（一次性）",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
                                             "model": "auto_remove_applied_sample",
                                             "label": "写入识别词后自动移除对应失败样本",
                                         },
@@ -2038,6 +2242,8 @@ AI 识别增强结果：
             "request_timeout": 25,
             "max_retries": 2,
             "save_failed_samples": True,
+            "save_title_only_samples": False,
             "max_failed_samples": 200,
             "auto_remove_applied_sample": True,
+            "clear_failed_samples_once": False,
         }
