@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -36,6 +37,11 @@ class ChatGPT(_PluginBase):
     MODEL_SOURCE_SYSTEM = "system"
     MODEL_SOURCE_AGENT_TOKENS = "agent_tokens"
 
+    # 缓存数据 key
+    _CACHE_DATA_KEY = "recognize_cache"
+    # 内存缓存，避免频繁读取数据库
+    _recognize_cache: Dict[str, dict] = {}
+
     # 插件名称
     plugin_name = "ChatGPT"
     # 插件描述
@@ -43,7 +49,7 @@ class ChatGPT(_PluginBase):
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "3.0.2"
+    plugin_version = "3.0.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -80,7 +86,23 @@ class ChatGPT(_PluginBase):
         self._notify = bool(config.get("notify"))
         self._customize_prompt = self._clean_text(config.get("customize_prompt")) or DEFAULT_RECOGNIZE_PROMPT
         self.openai = None
+
+        # 初始化时从数据库加载缓存到内存
+        self._load_cache_from_db()
+
         self._sync_event_handler_state()
+
+    def _load_cache_from_db(self) -> None:
+        """
+        从数据库加载识别缓存到内存。
+        """
+        try:
+            db_cache = self.get_data(self._CACHE_DATA_KEY)
+            self._recognize_cache = db_cache if isinstance(db_cache, dict) else {}
+            logger.info(f"ChatGPT 识别缓存已加载，共 {len(self._recognize_cache)} 条记录")
+        except Exception as exc:
+            logger.warning(f"ChatGPT 识别缓存加载失败: {exc}")
+            self._recognize_cache = {}
 
     def _sync_event_handler_state(self) -> None:
         """
@@ -93,6 +115,53 @@ class ChatGPT(_PluginBase):
                 eventmanager.disable_event_handler(self.recognize)
         except Exception as exc:
             logger.debug(f"同步 ChatGPT 识别事件处理器状态失败: {exc}")
+
+    def _get_cache_key(self, title: str) -> str:
+        """
+        生成缓存 key，使用标题的 MD5 哈希。
+        """
+        return hashlib.md5(title.encode("utf-8")).hexdigest()
+
+    def _get_cached_result(self, title: str) -> Optional[dict]:
+        """
+        从内存缓存获取识别结果。
+        """
+        cache_key = self._get_cache_key(title)
+        return self._recognize_cache.get(cache_key)
+
+    def _cache_result(self, title: str, result: dict) -> None:
+        """
+        缓存识别结果，同时写入内存和数据库。
+        """
+        cache_key = self._get_cache_key(title)
+        cache_entry = {
+            "title": title,
+            "name": result.get("name"),
+            "year": result.get("year"),
+            "season": result.get("season"),
+            "episode": result.get("episode"),
+        }
+        # 写入内存
+        self._recognize_cache[cache_key] = cache_entry
+        # 写入数据库
+        try:
+            self.save_data(self._CACHE_DATA_KEY, self._recognize_cache)
+        except Exception as exc:
+            logger.warning(f"ChatGPT 识别缓存保存失败: {exc}")
+
+    def clear_cache(self) -> dict:
+        """
+        清除识别缓存，同时清除内存和数据库。
+        """
+        # 清除内存
+        self._recognize_cache = {}
+        # 清除数据库
+        try:
+            self.save_data(self._CACHE_DATA_KEY, {})
+        except Exception as exc:
+            logger.warning(f"ChatGPT 识别缓存清除失败: {exc}")
+        logger.info("ChatGPT 识别缓存已清除")
+        return {"success": True, "message": "识别缓存已清除"}
 
     @staticmethod
     def _clean_text(value: Any) -> str:
@@ -135,9 +204,28 @@ class ChatGPT(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         """
-        当前插件不注册额外 API。
+        注册插件 API。
         """
-        return []
+        return [
+            {
+                "path": "/clear_cache",
+                "method": "GET",
+                "func": self.clear_cache,
+                "summary": "清除识别缓存",
+            },
+            {
+                "path": "/cache_stats",
+                "method": "GET",
+                "func": self.get_cache_stats,
+                "summary": "获取缓存统计",
+            },
+        ]
+
+    def get_cache_stats(self) -> dict:
+        """
+        获取缓存统计信息。
+        """
+        return {"count": len(self._recognize_cache)}
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -267,6 +355,74 @@ class ChatGPT(_PluginBase):
                             }
                         ],
                     },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "识别缓存可避免相同标题重复调用 LLM API，点击按钮可清除已缓存的识别结果。",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VBtn",
+                                        "props": {
+                                            "color": "warning",
+                                            "block": True,
+                                            "onClick": {
+                                                "action": "fetch",
+                                                "url": "/plugin/ChatGPT/clear_cache",
+                                                "method": "GET",
+                                                "then": {
+                                                    "action": "refresh",
+                                                },
+                                            },
+                                        },
+                                        "text": "清除识别缓存",
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "cache_count",
+                                            "label": "当前缓存数量",
+                                            "readonly": True,
+                                            "hint": "点击刷新按钮更新",
+                                            "persistent-hint": True,
+                                            "append-inner-icon": "mdi-refresh",
+                                            "onClick:append-inner": {
+                                                "action": "fetch",
+                                                "url": "/plugin/ChatGPT/cache_stats",
+                                                "method": "GET",
+                                            },
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
                 ],
             }
         ], {
@@ -274,6 +430,7 @@ class ChatGPT(_PluginBase):
             "model_source": self.MODEL_SOURCE_SYSTEM,
             "notify": False,
             "customize_prompt": DEFAULT_RECOGNIZE_PROMPT,
+            "cache_count": str(len(self._recognize_cache)),
         }
 
     def get_page(self) -> List[dict]:
@@ -469,6 +626,13 @@ class ChatGPT(_PluginBase):
         if not title:
             return
 
+        # 检查内存缓存
+        cached = self._get_cached_result(title)
+        if cached:
+            logger.info(f"ChatGPT 识别缓存命中：{title}")
+            self._write_recognition_result(event.event_data, cached)
+            return
+
         model_config, error = self._resolve_model_config()
         if error:
             self._notify_error(f"ChatGPT 识别增强不可用：{error}")
@@ -489,6 +653,9 @@ class ChatGPT(_PluginBase):
         if not isinstance(response, dict) or not response.get("name"):
             self._notify_error(f"ChatGPT 识别增强未返回有效名称：{title}")
             return
+
+        # 缓存识别结果到内存和数据库
+        self._cache_result(title, response)
 
         self._write_recognition_result(event.event_data, response)
 
