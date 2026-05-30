@@ -209,14 +209,16 @@ class ChatGPT(_PluginBase):
         return [
             {
                 "path": "/clear_cache",
-                "method": "GET",
-                "func": self.clear_cache,
+                "endpoint": self.clear_cache,
+                "methods": ["GET"],
+                "auth": "bear",
                 "summary": "清除识别缓存",
             },
             {
                 "path": "/cache_stats",
-                "method": "GET",
-                "func": self.get_cache_stats,
+                "endpoint": self.get_cache_stats,
+                "methods": ["GET"],
+                "auth": "bear",
                 "summary": "获取缓存统计",
             },
         ]
