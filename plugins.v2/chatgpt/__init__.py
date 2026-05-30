@@ -340,6 +340,97 @@ class ChatGPT(_PluginBase):
                                 "props": {"cols": 12},
                                 "content": [
                                     {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "识别缓存可避免相同标题重复调用 LLM API，点击按钮可清除已缓存的识别结果。",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 8},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "cache_count",
+                                            "label": "当前缓存数量",
+                                            "readonly": True,
+                                            "hint": "点击右侧按钮清除缓存",
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VBtn",
+                                        "props": {
+                                            "color": "warning",
+                                            "block": True,
+                                            "height": "56",
+                                            "onClick": {
+                                                "action": "fetch",
+                                                "url": "/plugin/ChatGPT/clear_cache",
+                                                "method": "GET",
+                                                "then": {
+                                                    "action": "refresh",
+                                                },
+                                            },
+                                        },
+                                        "text": "清除识别缓存",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "rows": 8,
+                                            "auto-grow": True,
+                                            "model": "customize_prompt",
+                                            "label": "识别增强系统提示词",
+                                            "hint": "用于约束模型只返回 MoviePilot 可消费的 JSON 识别结果",
+                                            "clearable": True,
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
                                         "component": "VTextarea",
                                         "props": {
                                             "rows": 8,
