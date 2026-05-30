@@ -160,7 +160,19 @@ class ChatGPT(_PluginBase):
         except Exception as exc:
             logger.warning(f"ChatGPT 识别缓存清除失败: {exc}")
         logger.info("ChatGPT 识别缓存已清除")
-        return {"success": True, "message": "识别缓存已清除"}
+        return {"success": True, "message": "识别缓存已清除", "count": 0}
+
+    def _get_cache_count(self) -> int:
+        """
+        获取缓存数量，优先从数据库读取。
+        """
+        try:
+            cache = self.get_data(self._CACHE_DATA_KEY)
+            if isinstance(cache, dict):
+                return len(cache)
+        except Exception:
+            pass
+        return len(self._recognize_cache)
 
     @staticmethod
     def _clean_text(value: Any) -> str:
@@ -226,7 +238,7 @@ class ChatGPT(_PluginBase):
         """
         获取缓存统计信息。
         """
-        return {"count": len(self._recognize_cache)}
+        return {"count": self._get_cache_count()}
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -345,58 +357,8 @@ class ChatGPT(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "识别缓存可避免相同标题重复调用 LLM API，点击按钮可清除已缓存的识别结果。",
+                                            "text": f"识别缓存可避免相同标题重复调用 LLM API。当前已缓存 {self._get_cache_count()} 条记录，可前往插件详情页管理缓存。",
                                         },
-                                    }
-                                ],
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 8},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "cache_count",
-                                            "label": "当前缓存数量",
-                                            "readonly": True,
-                                            "hint": "点击右侧按钮刷新或清除缓存",
-                                            "persistent-hint": True,
-                                            "append-inner-icon": "mdi-refresh",
-                                            "onClick:append-inner": {
-                                                "action": "fetch",
-                                                "url": "/plugin/ChatGPT/cache_stats",
-                                                "method": "GET",
-                                            },
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VBtn",
-                                        "props": {
-                                            "color": "warning",
-                                            "block": True,
-                                            "height": "56",
-                                            "onClick": {
-                                                "action": "fetch",
-                                                "url": "/plugin/ChatGPT/clear_cache",
-                                                "method": "GET",
-                                                "then": {
-                                                    "action": "refresh",
-                                                },
-                                            },
-                                        },
-                                        "text": "清除识别缓存",
                                     }
                                 ],
                             }
@@ -432,14 +394,88 @@ class ChatGPT(_PluginBase):
             "model_source": self.MODEL_SOURCE_SYSTEM,
             "notify": False,
             "customize_prompt": DEFAULT_RECOGNIZE_PROMPT,
-            "cache_count": str(len(self._recognize_cache)),
         }
 
     def get_page(self) -> List[dict]:
         """
-        当前插件不提供独立详情页。
+        插件详情页，展示识别缓存管理。
         """
-        pass
+        count = self._get_cache_count()
+        return [
+            {
+                "component": "div",
+                "props": {"class": "pa-4"},
+                "content": [
+                    {
+                        "component": "h2",
+                        "props": {"class": "text-h5 mb-2"},
+                        "text": "识别缓存管理",
+                    },
+                    {
+                        "component": "p",
+                        "props": {"class": "text-body-1 mb-4"},
+                        "text": f"当前已缓存 {count} 条识别记录。缓存可避免相同标题重复调用 LLM API，减少 Token 消耗。",
+                    },
+                    {
+                        "component": "VAlert",
+                        "props": {
+                            "type": "info",
+                            "variant": "tonal",
+                            "class": "mb-4",
+                            "text": "缓存以标题 MD5 为 key 持久化存储于数据库，重启后仍然有效。",
+                        },
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VBtn",
+                                        "props": {
+                                            "color": "primary",
+                                            "block": True,
+                                            "variant": "tonal",
+                                            "prepend-icon": "mdi-refresh",
+                                        },
+                                        "text": "刷新缓存数量",
+                                        "events": {
+                                            "click": {
+                                                "api": f"plugin/ChatGPT/cache_stats?apikey={settings.API_TOKEN}",
+                                                "method": "get",
+                                            }
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VBtn",
+                                        "props": {
+                                            "color": "warning",
+                                            "block": True,
+                                            "prepend-icon": "mdi-delete-circle",
+                                        },
+                                        "text": "清除所有缓存",
+                                        "events": {
+                                            "click": {
+                                                "api": f"plugin/ChatGPT/clear_cache?apikey={settings.API_TOKEN}",
+                                                "method": "get",
+                                            }
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            }
+        ]
 
     def _resolve_system_model_config(self) -> Tuple[Optional[Dict[str, Any]], str]:
         """
