@@ -39,8 +39,6 @@ class ChatGPT(_PluginBase):
 
     # 缓存数据 key
     _CACHE_DATA_KEY = "recognize_cache"
-    # 内存缓存，避免频繁读取数据库
-    _recognize_cache: Dict[str, dict] = {}
 
     # 插件名称
     plugin_name = "ChatGPT"
@@ -66,6 +64,7 @@ class ChatGPT(_PluginBase):
     _model_source = MODEL_SOURCE_SYSTEM
     _notify = False
     _customize_prompt = DEFAULT_RECOGNIZE_PROMPT
+    _recognize_cache: Dict[str, dict] = {}
 
     def init_plugin(self, config: dict = None):
         """
