@@ -364,8 +364,14 @@ class ChatGPT(_PluginBase):
                                             "model": "cache_count",
                                             "label": "当前缓存数量",
                                             "readonly": True,
-                                            "hint": "点击右侧按钮清除缓存",
+                                            "hint": "点击右侧按钮刷新或清除缓存",
                                             "persistent-hint": True,
+                                            "append-inner-icon": "mdi-refresh",
+                                            "onClick:append-inner": {
+                                                "action": "fetch",
+                                                "url": "/plugin/ChatGPT/cache_stats",
+                                                "method": "GET",
+                                            },
                                         },
                                     }
                                 ],
