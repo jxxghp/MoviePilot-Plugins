@@ -39,6 +39,8 @@ class ChatGPT(_PluginBase):
 
     # 缓存数据 key
     _CACHE_DATA_KEY = "recognize_cache"
+    # Token 用量统计数据 key
+    _USAGE_STATS_KEY = "usage_stats"
 
     # 插件名称
     plugin_name = "ChatGPT"
@@ -47,7 +49,7 @@ class ChatGPT(_PluginBase):
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "3.0.4"
+    plugin_version = "3.0.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -65,6 +67,7 @@ class ChatGPT(_PluginBase):
     _notify = False
     _customize_prompt = DEFAULT_RECOGNIZE_PROMPT
     _recognize_cache: Dict[str, dict] = {}
+    _usage_stats: Dict[str, Any] = {}
 
     def init_plugin(self, config: dict = None):
         """
@@ -88,6 +91,7 @@ class ChatGPT(_PluginBase):
 
         # 初始化时从数据库加载缓存到内存
         self._load_cache_from_db()
+        self._load_usage_stats_from_db()
 
         self._sync_event_handler_state()
 
@@ -102,6 +106,18 @@ class ChatGPT(_PluginBase):
         except Exception as exc:
             logger.warning(f"ChatGPT 识别缓存加载失败: {exc}")
             self._recognize_cache = {}
+
+    def _load_usage_stats_from_db(self) -> None:
+        """
+        从数据库加载 Token 用量统计到内存。
+        """
+        try:
+            stats = self.get_data(self._USAGE_STATS_KEY)
+            self._usage_stats = self._normalize_usage_stats(stats if isinstance(stats, dict) else {})
+            logger.info(f"ChatGPT Token 用量统计已加载，累计 {self._usage_stats.get('total_tokens')} tokens")
+        except Exception as exc:
+            logger.warning(f"ChatGPT Token 用量统计加载失败: {exc}")
+            self._usage_stats = self._empty_usage_stats()
 
     def _sync_event_handler_state(self) -> None:
         """
@@ -175,6 +191,118 @@ class ChatGPT(_PluginBase):
         return len(self._recognize_cache)
 
     @staticmethod
+    def _safe_int(value: Any, default: int = 0) -> int:
+        """
+        将输入值安全转换为非负整数。
+        """
+        try:
+            return max(int(value), 0)
+        except (TypeError, ValueError):
+            return default
+
+    @classmethod
+    def _empty_usage_stats(cls) -> Dict[str, Any]:
+        """
+        构建空的 Token 用量统计结构。
+        """
+        return {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "model_call_count": 0,
+            "success_count": 0,
+            "failed_count": 0,
+            "last_used_at": "",
+        }
+
+    @classmethod
+    def _normalize_usage_stats(cls, stats: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        标准化持久化读取到的 Token 用量统计结构。
+        """
+        normalized = cls._empty_usage_stats()
+        if not isinstance(stats, dict):
+            return normalized
+        for key in (
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "model_call_count",
+                "success_count",
+                "failed_count",
+        ):
+            normalized[key] = cls._safe_int(stats.get(key))
+        normalized["last_used_at"] = str(stats.get("last_used_at") or "").strip()
+        return normalized
+
+    @staticmethod
+    def _format_number(value: Any) -> str:
+        """
+        使用千分位格式化数字。
+        """
+        try:
+            return f"{int(value):,}"
+        except (TypeError, ValueError):
+            return "0"
+
+    def _get_usage_stats(self) -> Dict[str, Any]:
+        """
+        获取 Token 用量统计，优先读取数据库中的最新值。
+        """
+        try:
+            stats = self.get_data(self._USAGE_STATS_KEY)
+            if isinstance(stats, dict):
+                self._usage_stats = self._normalize_usage_stats(stats)
+        except Exception as exc:
+            logger.debug(f"读取 ChatGPT Token 用量统计失败: {exc}")
+        if not self._usage_stats:
+            self._usage_stats = self._empty_usage_stats()
+        return dict(self._usage_stats)
+
+    def _save_usage_stats(self) -> None:
+        """
+        将当前 Token 用量统计保存到数据库。
+        """
+        try:
+            self.save_data(self._USAGE_STATS_KEY, self._usage_stats)
+        except Exception as exc:
+            logger.warning(f"ChatGPT Token 用量统计保存失败: {exc}")
+
+    def _record_usage_stats(self, usage: Dict[str, int], success: bool) -> None:
+        """
+        累计记录本次模型调用的 Token 用量。
+        """
+        stats = self._get_usage_stats()
+        usage = usage or {}
+        input_tokens = self._safe_int(usage.get("input_tokens"))
+        output_tokens = self._safe_int(usage.get("output_tokens"))
+        total_tokens = self._safe_int(usage.get("total_tokens"))
+        if total_tokens <= 0:
+            total_tokens = input_tokens + output_tokens
+
+        stats["input_tokens"] = self._safe_int(stats.get("input_tokens")) + input_tokens
+        stats["output_tokens"] = self._safe_int(stats.get("output_tokens")) + output_tokens
+        stats["total_tokens"] = self._safe_int(stats.get("total_tokens")) + total_tokens
+        stats["model_call_count"] = self._safe_int(stats.get("model_call_count")) + 1
+        if success:
+            stats["success_count"] = self._safe_int(stats.get("success_count")) + 1
+        else:
+            stats["failed_count"] = self._safe_int(stats.get("failed_count")) + 1
+        stats["last_used_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        self._usage_stats = self._normalize_usage_stats(stats)
+        self._save_usage_stats()
+
+    def clear_usage_stats(self) -> dict:
+        """
+        清除 Token 用量统计。
+        """
+        self._usage_stats = self._empty_usage_stats()
+        self._save_usage_stats()
+        logger.info("ChatGPT Token 用量统计已清除")
+        return {"success": True, "message": "Token 用量统计已清除", "data": self._usage_stats}
+
+    @staticmethod
     def _clean_text(value: Any) -> str:
         """
         清理配置或事件中的文本字段。
@@ -232,6 +360,20 @@ class ChatGPT(_PluginBase):
                 "auth": "bear",
                 "summary": "获取缓存统计",
             },
+            {
+                "path": "/usage_stats",
+                "endpoint": self.get_usage_stats,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "获取 Token 用量统计",
+            },
+            {
+                "path": "/clear_usage_stats",
+                "endpoint": self.clear_usage_stats,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "清除 Token 用量统计",
+            },
         ]
 
     def get_cache_stats(self) -> dict:
@@ -239,6 +381,12 @@ class ChatGPT(_PluginBase):
         获取缓存统计信息。
         """
         return {"count": self._get_cache_count()}
+
+    def get_usage_stats(self) -> dict:
+        """
+        获取 Token 用量统计信息。
+        """
+        return self._get_usage_stats()
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -357,7 +505,7 @@ class ChatGPT(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": f"识别缓存可避免相同标题重复调用 LLM API。当前已缓存 {self._get_cache_count()} 条记录，可前往插件详情页管理缓存。",
+                                            "text": f"识别缓存可减少重复识别请求。当前已缓存 {self._format_number(self._get_cache_count())} 条记录，可前往插件详情页查看和清理。",
                                         },
                                     }
                                 ],
@@ -398,9 +546,10 @@ class ChatGPT(_PluginBase):
 
     def get_page(self) -> List[dict]:
         """
-        插件详情页，展示识别缓存管理。
+        插件详情页，展示识别缓存和 Token 用量统计。
         """
         count = self._get_cache_count()
+        stats = self._get_usage_stats()
         return [
             {
                 "component": "div",
@@ -409,28 +558,87 @@ class ChatGPT(_PluginBase):
                     {
                         "component": "h2",
                         "props": {"class": "text-h5 mb-2"},
-                        "text": "识别缓存管理",
+                        "text": "识别增强统计",
                     },
                     {
                         "component": "p",
                         "props": {"class": "text-body-1 mb-4"},
-                        "text": f"当前已缓存 {count} 条识别记录。缓存可避免相同标题重复调用 LLM API，减少 Token 消耗。",
+                        "text": "这里汇总插件发起的识别请求用量和缓存数量，便于观察模型消耗并按需清理。",
                     },
                     {
-                        "component": "VAlert",
-                        "props": {
-                            "type": "info",
-                            "variant": "tonal",
-                            "class": "mb-4",
-                            "text": "缓存以标题 MD5 为 key 持久化存储于数据库，重启后仍然有效。",
-                        },
+                        "component": "VRow",
+                        "props": {"class": "mb-2"},
+                        "content": [
+                            self._build_stat_card(
+                                "累计 Token",
+                                self._format_number(stats.get("total_tokens")),
+                                "mdi-counter",
+                                "primary",
+                                "输入与输出合计",
+                            ),
+                            self._build_stat_card(
+                                "输入 Token",
+                                self._format_number(stats.get("input_tokens")),
+                                "mdi-login",
+                                "info",
+                                "累计请求内容",
+                            ),
+                            self._build_stat_card(
+                                "输出 Token",
+                                self._format_number(stats.get("output_tokens")),
+                                "mdi-logout",
+                                "success",
+                                "累计模型回复",
+                            ),
+                            self._build_stat_card(
+                                "识别缓存",
+                                self._format_number(count),
+                                "mdi-database-check-outline",
+                                "secondary",
+                                "已保存结果",
+                            ),
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "props": {"class": "mb-2"},
+                        "content": [
+                            self._build_stat_card(
+                                "模型调用",
+                                self._format_number(stats.get("model_call_count")),
+                                "mdi-creation",
+                                "primary",
+                                "实际请求次数",
+                            ),
+                            self._build_stat_card(
+                                "成功调用",
+                                self._format_number(stats.get("success_count")),
+                                "mdi-check-circle-outline",
+                                "success",
+                                "模型返回正常",
+                            ),
+                            self._build_stat_card(
+                                "失败调用",
+                                self._format_number(stats.get("failed_count")),
+                                "mdi-alert-circle-outline",
+                                "warning",
+                                "模型调用异常",
+                            ),
+                            self._build_stat_card(
+                                "最近调用",
+                                stats.get("last_used_at") or "-",
+                                "mdi-clock-outline",
+                                "info",
+                                "最后一次请求",
+                            ),
+                        ],
                     },
                     {
                         "component": "VRow",
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VBtn",
@@ -440,10 +648,10 @@ class ChatGPT(_PluginBase):
                                             "variant": "tonal",
                                             "prepend-icon": "mdi-refresh",
                                         },
-                                        "text": "刷新缓存数量",
+                                        "text": "刷新统计",
                                         "events": {
                                             "click": {
-                                                "api": f"plugin/ChatGPT/cache_stats?apikey={settings.API_TOKEN}",
+                                                "api": f"plugin/ChatGPT/usage_stats?apikey={settings.API_TOKEN}",
                                                 "method": "get",
                                             }
                                         },
@@ -452,7 +660,7 @@ class ChatGPT(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VBtn",
@@ -471,11 +679,85 @@ class ChatGPT(_PluginBase):
                                     }
                                 ],
                             },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VBtn",
+                                        "props": {
+                                            "color": "error",
+                                            "block": True,
+                                            "variant": "tonal",
+                                            "prepend-icon": "mdi-chart-line-variant-remove",
+                                        },
+                                        "text": "清除用量统计",
+                                        "events": {
+                                            "click": {
+                                                "api": f"plugin/ChatGPT/clear_usage_stats?apikey={settings.API_TOKEN}",
+                                                "method": "get",
+                                            }
+                                        },
+                                    }
+                                ],
+                            },
                         ],
                     },
                 ],
             }
         ]
+
+    @staticmethod
+    def _build_stat_card(label: str, value: str, icon: str, color: str, subtitle: str = "") -> dict:
+        """
+        构建详情页单个统计卡片。
+        """
+        return {
+            "component": "VCol",
+            "props": {"cols": 12, "sm": 6, "md": 3},
+            "content": [
+                {
+                    "component": "VCard",
+                    "props": {"variant": "tonal"},
+                    "content": [
+                        {
+                            "component": "VCardText",
+                            "props": {"class": "d-flex align-center ga-3"},
+                            "content": [
+                                {
+                                    "component": "div",
+                                    "props": {"class": "flex-grow-1", "style": "min-width: 0;"},
+                                    "content": [
+                                        {
+                                            "component": "span",
+                                            "props": {
+                                                "class": "text-caption text-medium-emphasis text-truncate d-block"
+                                            },
+                                            "text": label,
+                                        },
+                                        {
+                                            "component": "div",
+                                            "props": {"class": "text-h6 text-truncate"},
+                                            "text": value,
+                                        },
+                                        {
+                                            "component": "div",
+                                            "props": {"class": "text-caption text-medium-emphasis text-truncate"},
+                                            "text": subtitle or "-",
+                                        },
+                                    ],
+                                },
+                                {
+                                    "component": "VIcon",
+                                    "props": {"color": color, "size": "28", "class": "flex-shrink-0"},
+                                    "text": icon,
+                                },
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
 
     def _resolve_system_model_config(self) -> Tuple[Optional[Dict[str, Any]], str]:
         """
@@ -683,6 +965,7 @@ class ChatGPT(_PluginBase):
         logger.info(f"ChatGPT 识别增强返回结果：{response}")
         is_error, error_msg = self.is_api_error(response)
         usage = self.openai.get_last_usage() if self.openai else {}
+        self._record_usage_stats(usage, success=not is_error)
         self._record_agent_tokens_usage(model_config, usage, success=not is_error, error=error_msg)
 
         if is_error:
