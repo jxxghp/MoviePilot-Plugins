@@ -286,7 +286,7 @@ class ChatGPT(_PluginBase):
                                         },
                                     }
                                 ],
-                            },
+                            }
                         ],
                     },
                     {
@@ -390,34 +390,6 @@ class ChatGPT(_PluginBase):
                                             },
                                         },
                                         "text": "清除识别缓存",
-                                    }
-                                ],
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12},
-                                "content": [
-                                    {
-                                        "component": "VTextarea",
-                                        "props": {
-                                            "rows": 8,
-                                            "auto-grow": True,
-                                            "model": "customize_prompt",
-                                            "label": "识别增强系统提示词",
-                                            "hint": "用于约束模型只返回 MoviePilot 可消费的 JSON 识别结果",
-                                            "clearable": True,
-                                            "persistent-hint": True,
-                                        },
-                                    }
-                                ],
-                            }
-                        ],
-                    },
                                     }
                                 ],
                             }
