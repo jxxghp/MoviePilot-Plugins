@@ -39,7 +39,8 @@ def _resolve_backend_path() -> Path:
     )
 
 
-# 导入副作用：定位后端并前置到 ``sys.path``，使后续 ``import app.*`` / ``app.testing.bootstrap`` 可用
+# 模块导入时即定位同级 MoviePilot 后端并前置到 ``sys.path``，使下面的 ``import app.testing.bootstrap``
+# 与各用例的 ``import app.*`` 能被解析（不可消除：导入主程序共享引导前，须先让 app.* 可被找到）。
 _BACKEND_PATH = _resolve_backend_path()
 if str(_BACKEND_PATH) not in sys.path:
     sys.path.insert(0, str(_BACKEND_PATH))

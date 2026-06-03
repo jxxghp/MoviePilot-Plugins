@@ -4,15 +4,12 @@
 插件包：通过共享引导隔离 CONFIG_DIR 并把后端、plugins.v2 注入 sys.path，再以
 顶层包名导入插件。
 """
-import sys
-from pathlib import Path
 from unittest.mock import patch
 
-# 将仓库根置于 sys.path，使共享引导可被导入（兼容 pytest 与直接 python 运行）
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from tests._bootstrap import prepare_v2_backend  # noqa: E402
+# tests 为包，相对导入同包引导（避免绝对 ``tests`` 在多仓工作区里指向其它仓）；prepare_v2_backend
+# 会隔离 CONFIG_DIR 并注入后端 + plugins.v2，必须在 import app.* / 插件包之前调用
+from .._bootstrap import prepare_v2_backend
 
-# 隔离 CONFIG_DIR 并注入后端 + plugins.v2，必须在 import app.* / 插件包之前完成
 prepare_v2_backend()
 
 from agenttokens import AgentTokens  # noqa: E402
