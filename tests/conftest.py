@@ -1,31 +1,39 @@
-"""pytest 全局引导。
+"""pytest 全局引导：按本次运行目标选择 v1/v2 插件环境并装载网络守卫。
 
-在收集任何用例之前隔离 ``CONFIG_DIR``，确保后续 ``import app.*`` 不会连到主程序
-真实库。``sys.path`` 的后端 / 插件目录注入交由各用例按 v1/v2 显式引导
-（见 :mod:`tests._bootstrap`），不在收集阶段引入任一代插件包，以规避 v1/v2 同名包冲突。
+``tests/run.py`` 会把 v1/v2 放到独立 pytest 进程中运行；这里据本次目标路径只注入对应
+插件目录，避免同一进程同时加载 ``plugins`` 与 ``plugins.v2`` 的同名包。
 """
-import sys
+
+from __future__ import annotations
+
 from pathlib import Path
 
-import pytest
-
-# 将仓库根置于 sys.path，使共享引导 tests._bootstrap 可被导入（兼容 pytest 与直接运行）
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from tests._bootstrap import isolate_config_dir  # noqa: E402
-
-# conftest 早于测试模块收集执行，保证 CONFIG_DIR 在首个 import app.* 之前生效
-isolate_config_dir()
+# 相对导入本仓薄壳，先定位同级 MoviePilot 后端并加入 ``sys.path``，再复用主程序共享引导。
+from ._bootstrap import (
+    block_real_network,  # noqa: F401  导入即注册主程序共享 autouse 网络守卫
+    prepare_v1_backend,
+    prepare_v2_backend,
+)
 
 
-def pytest_collection_modifyitems(config, items):
-    """按所在目录自动为用例打 v1/v2 marker，支持 ``pytest -m v2`` 选择运行。
+def _selected_generation(config) -> str:
+    """根据 pytest 本次目标路径判断插件代际，禁止同一进程混跑 v1/v2。"""
+    generations = set()
+    for arg in config.args:
+        file_part = arg.split("::", 1)[0]
+        path = Path(file_part).resolve().as_posix().replace("\\", "/")
+        if "tests/v2" in path:
+            generations.add("v2")
+        elif "tests/v1" in path:
+            generations.add("v1")
+    if len(generations) == 1:
+        return next(iter(generations))
+    raise RuntimeError("插件仓单测必须按 tests/run.py 分 v1/v2 独立会话运行，避免同名插件包冲突")
 
-    避免每个用例手动标注；与按目录运行（``pytest tests/v2``）二选一皆可。
-    """
-    for item in items:
-        path = str(item.fspath).replace("\\", "/")
-        if "/tests/v2/" in path:
-            item.add_marker(pytest.mark.v2)
-        elif "/tests/v1/" in path:
-            item.add_marker(pytest.mark.v1)
+
+def pytest_configure(config) -> None:
+    """收集用例前隔离 CONFIG_DIR、建表并注入对应代际插件目录。"""
+    if _selected_generation(config) == "v2":
+        prepare_v2_backend()
+    else:
+        prepare_v1_backend()
