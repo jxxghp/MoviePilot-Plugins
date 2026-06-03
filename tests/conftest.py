@@ -20,7 +20,8 @@ def _selected_generation(config) -> str:
     """根据 pytest 本次目标路径判断插件代际，禁止同一进程混跑 v1/v2。"""
     generations = set()
     for arg in config.args:
-        path = Path(arg).as_posix().replace("\\", "/")
+        file_part = arg.split("::", 1)[0]
+        path = Path(file_part).resolve().as_posix().replace("\\", "/")
         if "tests/v2" in path:
             generations.add("v2")
         elif "tests/v1" in path:
