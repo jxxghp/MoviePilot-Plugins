@@ -7,8 +7,8 @@
 
 ```
 tests/
-├─ _bootstrap.py   共享引导：隔离 CONFIG_DIR + 注入后端/插件目录到 sys.path
-├─ conftest.py     pytest 引导：收集前隔离 CONFIG_DIR，按目录自动打 v1/v2 marker
+├─ _bootstrap.py   薄壳 shim：定位同级 MoviePilot 后端入 sys.path，引导逻辑委托主程序 app/testing.bootstrap
+├─ conftest.py     pytest 引导：收集前隔离 CONFIG_DIR，复用主程序 app/testing 的网络守卫与 v1/v2 marker
 ├─ v2/             v2 插件（plugins.v2/）单测
 └─ v1/             v1 插件（plugins/）单测（当前预留骨架）
 ```
@@ -29,8 +29,10 @@ tests/
 
 `tests/run.py` 把 v1/v2 放在独立子进程依次运行、无用例的代自动跳过——两代存在同名
 插件包（如 `brushflowlowfreq`、`torrentclassifier`），同一解释器进程无法同时加载、混跑
-会相互覆盖。后端依赖（`app.*`）由 `_bootstrap.py` 注入 `sys.path`，并隔离临时 `CONFIG_DIR`
-且建表；主程序 `app/testing` 的共享 harness（`stub_modules` 等）在 bootstrap 后可直接复用。
+会相互覆盖。隔离 `CONFIG_DIR`、建表、`app.helper.sites` 垫片、插件目录注入、v1/v2 marker、
+autouse 网络守卫等引导逻辑统一在主程序 `app/testing`（`bootstrap` / `network_guard`）维护一处；
+本仓 `tests/_bootstrap.py` 仅是「定位后端入 `sys.path`」的薄壳 shim，故后端需为含 `app/testing/bootstrap`
+的较新 MoviePilot。共享 harness（`stub_modules` 等）在 bootstrap 后可直接复用。
 
 ## 提 PR / push 前
 
