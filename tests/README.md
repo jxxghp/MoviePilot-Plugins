@@ -8,9 +8,9 @@
 ```
 tests/
 ├─ _bootstrap.py   薄壳 shim：定位同级 MoviePilot 后端入 sys.path，引导逻辑委托主程序 app/testing.bootstrap
-├─ conftest.py     pytest 引导：收集前隔离 CONFIG_DIR，复用主程序 app/testing 的网络守卫与 v1/v2 marker
+├─ conftest.py     pytest 引导：按本次运行目标选择 v1/v2 插件环境并注册网络守卫
 ├─ v2/             v2 插件（plugins.v2/）单测
-└─ v1/             v1 插件（plugins/）单测（当前预留骨架）
+└─ v1/             v1 插件（plugins/）单测
 ```
 
 ## 运行
@@ -41,6 +41,5 @@ autouse 网络守卫等引导逻辑统一在主程序 `app/testing`（`bootstrap
 ## 新增用例
 
 1. 放到对应代际目录（`tests/v2/` 或 `tests/v1/`），文件名 `test_*.py`；
-2. 顶部调用 `prepare_v2_backend()` / `prepare_v1_backend()`（见 `_bootstrap.py`），
-   必须早于首个 `import app.*` 或插件包导入；
+2. 直接导入 `app.*` 与对应代际插件包；根 conftest 会按本次运行目标在用例导入前完成后端与插件目录注入；
 3. 优先用 `object.__new__` 绕过插件 `__init__`，只测纯逻辑方法，避免依赖完整运行时。

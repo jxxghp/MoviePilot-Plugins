@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
+from importlib import import_module
 from pathlib import Path
 
 # ``tests/`` 的父级即插件仓根；其同级 ``MoviePilot`` 为后端默认位置（工作区多仓同级布局）
@@ -39,13 +40,14 @@ def _resolve_backend_path() -> Path:
     )
 
 
-# 模块导入时即定位同级 MoviePilot 后端并前置到 ``sys.path``，使下面的 ``import app.testing.bootstrap``
-# 与各用例的 ``import app.*`` 能被解析（不可消除：导入主程序共享引导前，须先让 app.* 可被找到）。
+# 模块导入时即定位同级 MoviePilot 后端并前置到 ``sys.path``；随后用动态导入加载
+# ``app.testing``，避免 IDE 在插件仓内按静态导入误判 ``app`` 包不存在。
 _BACKEND_PATH = _resolve_backend_path()
 if str(_BACKEND_PATH) not in sys.path:
     sys.path.insert(0, str(_BACKEND_PATH))
 
-from app.testing import bootstrap as _bootstrap  # noqa: E402  后端就绪后引导逻辑全部复用主程序实现
+_bootstrap = import_module("app.testing.bootstrap")
+block_real_network = import_module("app.testing.network_guard").block_real_network
 
 
 def isolate_config_dir() -> str:
