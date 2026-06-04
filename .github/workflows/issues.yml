@@ -6,8 +6,6 @@ on:
     types: [opened, edited]
 
   schedule:
-    # Github Action 只支持 UTC 时间。
-    # '0 18 * * *' 对应 UTC 时间的 18:00，也就是中国时区 (UTC+8) 的第二天凌晨 02:00。
     - cron: "0 18 * * *"
 
 jobs:
@@ -37,17 +35,12 @@ jobs:
               {
                 label: 'bug',
                 titlePrefix: '[错误报告]:',
-                markers: ['### 当前程序版本', '### 运行环境', '### 问题类型', '### 问题描述'],
+                markers: ['### 当前程序版本', '### 运行环境', '### 问题描述'],
               },
               {
                 label: 'feature request',
                 titlePrefix: '[Feature Request]:',
-                markers: ['### 当前程序版本', '### 运行环境', '### 功能改进类型', '### 功能改进'],
-              },
-              {
-                label: 'RFC',
-                titlePrefix: '[RFC]',
-                markers: ['### 背景 or 问题', '### 目标 & 方案简述'],
+                markers: ['### 当前程序版本', '### 运行环境', '### 功能改进'],
               },
             ];
 
@@ -81,17 +74,12 @@ jobs:
               {
                 label: 'bug',
                 titlePrefix: '[错误报告]:',
-                markers: ['### 当前程序版本', '### 运行环境', '### 问题类型', '### 问题描述'],
+                markers: ['### 当前程序版本', '### 运行环境', '### 问题描述'],
               },
               {
                 label: 'feature request',
                 titlePrefix: '[Feature Request]:',
-                markers: ['### 当前程序版本', '### 运行环境', '### 功能改进类型', '### 功能改进'],
-              },
-              {
-                label: 'RFC',
-                titlePrefix: '[RFC]',
-                markers: ['### 背景 or 问题', '### 目标 & 方案简述'],
+                markers: ['### 当前程序版本', '### 运行环境', '### 功能改进'],
               },
             ];
 
@@ -152,7 +140,5 @@ jobs:
           # 忽略所有的 Pull Request，只处理 Issue
           days-before-pr-stale: -1
           days-before-pr-close: -1
-          # 排除带有RFC标签的issue
-          exempt-issue-labels: "RFC"
           operations-per-run: 500
           repo-token: ${{ secrets.GITHUB_TOKEN }}

@@ -51,17 +51,6 @@ body:
         - Windows
     validations:
       required: true
-  - type: dropdown
-    id: type
-    attributes:
-      label: 问题类型
-      description: 你在以下哪个部分碰到了问题
-      options:
-        - 插件问题
-        - 主程序运行问题
-        - 其他问题
-    validations:
-      required: true
   - type: textarea
     id: what-happened
     attributes:
