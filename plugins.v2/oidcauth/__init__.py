@@ -26,9 +26,10 @@ class OidcAuth(_PluginBase):
 
     plugin_name = "OIDC 认证"
     plugin_desc = "通过 OpenID Connect Provider 为 MoviePilot 提供插件化登录与账号绑定。"
-    plugin_icon = "mdi-openid"
+    plugin_icon = "Authelia_A.png"
     plugin_version = "0.1.0"
-    plugin_author = "jxxghp"
+    plugin_author = "ui-beam-9,jxxghp"
+    author_url = "https://github.com/ui-beam-9"
     plugin_label = "认证,OIDC,SSO"
     plugin_order = 36
 
