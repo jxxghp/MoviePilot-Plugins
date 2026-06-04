@@ -9,8 +9,9 @@
 tests/
 ├─ _bootstrap.py   薄壳 shim：定位同级 MoviePilot 后端入 sys.path，引导逻辑委托主程序 app/testing.bootstrap
 ├─ conftest.py     pytest 引导：按本次运行目标选择 v1/v2 插件环境并注册网络守卫
-├─ v2/             v2 插件（plugins.v2/）单测
-└─ v1/             v1 插件（plugins/）单测
+├─ v2/             v2 插件（plugins.v2/）单测；每个插件按插件 ID 建子目录
+│  └─ agenttokens/
+└─ v1/             v1 插件（plugins/）单测；每个插件按插件 ID 建子目录
 ```
 
 ## 运行
@@ -40,6 +41,12 @@ autouse 网络守卫等引导逻辑统一在主程序 `app/testing`（`bootstrap
 
 ## 新增用例
 
-1. 放到对应代际目录（`tests/v2/` 或 `tests/v1/`），文件名 `test_*.py`；
+1. 放到对应代际的插件独立目录：`tests/<v1|v2>/<plugin_id>/`，例如
+   `tests/v2/agenttokens/`；所有插件都按插件 ID 建目录，不把用例文件直接平铺在
+   `tests/v1/` 或 `tests/v2/` 下；文件名使用 `test_*.py`，在插件独立目录内不再重复插件名前缀；
 2. 直接导入 `app.*` 与对应代际插件包；根 conftest 会按本次运行目标在用例导入前完成后端与插件目录注入；
-3. 优先用 `object.__new__` 绕过插件 `__init__`，只测纯逻辑方法，避免依赖完整运行时。
+3. 使用 pytest 风格编写测试：普通函数或测试类均可，断言使用 `assert`；不要新增
+   `unittest.TestCase`、`unittest.main()` 或 `if __name__ == "__main__"` 入口；
+4. `unittest.mock` 可以继续作为 mock 工具使用；“不用 unittest”指测试组织与执行入口不使用
+   `unittest` runner；
+5. 优先用 `object.__new__` 绕过插件 `__init__`，只测纯逻辑方法，避免依赖完整运行时。
