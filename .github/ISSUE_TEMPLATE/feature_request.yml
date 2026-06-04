@@ -1,0 +1,51 @@
+name: 功能改进
+description: Feature Request
+title: "[Feature Request]: "
+labels: ["feature request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请说明你希望添加的功能。
+  - type: input
+    id: version
+    attributes:
+      label: 当前程序版本
+      description: 目前使用的 MoviePilot 程序版本
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 当前程序运行环境
+      options:
+        - Docker
+        - Windows
+    validations:
+      required: true
+  - type: dropdown
+    id: type
+    attributes:
+      label: 功能改进类型
+      description: 你需要在下面哪个方面改进功能
+      options:
+        - 插件
+        - 主程序
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: feature-request
+    attributes:
+      label: 功能改进
+      description: 请详细描述需要改进或者添加的功能。
+      placeholder: "功能改进"
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: 参考资料
+      description: 可以列举一些参考资料，但是不要引用同类但商业化软件的任何内容。
+      placeholder: "参考资料"
