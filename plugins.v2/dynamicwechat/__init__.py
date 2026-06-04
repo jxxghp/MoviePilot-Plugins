@@ -20,7 +20,7 @@ from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import EventType
 
-from .helper import PyCookieCloud, MySender, IpLocationParser
+from .helper import PyCookieCloud, MySender, IpLocationParser, JsonFieldManager
 
 
 class DynamicWeChat(_PluginBase):
@@ -31,7 +31,7 @@ class DynamicWeChat(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "2.0.1"
+    plugin_version = "2.1.1"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -73,13 +73,13 @@ class DynamicWeChat(_PluginBase):
     _notification_token = ''
     # 标记企业微信通知可用
     _wechat_available = True
-    # 标记IP变动后 是否发送通知
+    # 仅标记IP变动后 通知发送过了没有
     _send_notification = False
 
     # 匹配ip地址的正则
     _ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
     # 获取ip地址的网址列表
-    _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip", "https://ip.3322.net", "https://4.ipw.cn"]
+    _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip", "https://ip.3322.net", "https://r.inews.qq.com/api/ip2city", "https://uapis.cn/api/v1/network/myip"]
     # 当前ip地址
     _current_ip_address = '0.0.0.0'
     # 企业微信登录
@@ -131,6 +131,7 @@ class DynamicWeChat(_PluginBase):
 
     def init_plugin(self, config: dict = None):
         # 清空配置
+        self._last_code = ""
         self._notification_token = ''
         self._cron = '*/10 * * * *'
         self._ip_changed = True
@@ -140,13 +141,14 @@ class DynamicWeChat(_PluginBase):
         self._input_id_list = ''
         self._cookie_header = ""
         self._settings_file_path = self.get_data_path() / "settings.json"
+        self.cfg = JsonFieldManager(self._settings_file_path)
+        self._qr_running = False
         if config:
             self._enabled = config.get("enabled")
             self._notification_token = config.get("notification_token")
             self._cron = config.get("cron")
             self._onlyonce = config.get("onlyonce")
             self._input_id_list = config.get("input_id_list")
-            # self._current_ip_address = config.get("current_ip_address")
             self._forced_update = config.get("forced_update")
             self._local_scan = config.get("local_scan")
             self._use_cookiecloud = config.get("use_cookiecloud")
@@ -170,7 +172,9 @@ class DynamicWeChat(_PluginBase):
             self._current_ip_address = self.wan2.read_ips("ips")  # 从文件中读取
         else:
             self.wan2 = None
-            _, self._current_ip_address = self.get_ip_from_url()  # 直接从网页获取
+            # _, self._current_ip_address = self.get_ip_from_url()  # 直接从网页获取 返回URL和IP
+            self._current_ip_address = self.cfg.get("WECHAT_NOW_IP")  # 应对MP/NAS长时间关闭后公网IP和可信IP不一致
+
         # 停止现有任务
         self.stop_service()
         if (self._enabled or self._onlyonce) and self._input_id_list:
@@ -240,14 +244,33 @@ class DynamicWeChat(_PluginBase):
 
     def _send_cookie_false(self):
         self._cookie_valid = False
-        if self._my_send and not self._await_ip:  # 不启用“IP变动后通知”
+        if self._my_send and not self._await_ip and self._wechat_available:  # 配置了通知 且 不启用“IP变动后通知 且 微信通知有效
             error = self._my_send.send(
                 title="cookie已失效,请及时更新",
-                content="请在企业微信应用发送/push_qr, 如有验证码以'？'结束发送到企业微信应用。 如果使用’微信通知‘请确保公网IP还没有变动",
+                content="请在企业微信应用发送/push_qr, 验证码以'？'结束发送到企业微信应用。 如果使用’微信通知‘请确保公网IP还没有变动",
                 image=None, force_send=False
             )
             if error:
                 logger.info(f"cookie失效通知发送失败,原因：{error}")
+            return None
+        elif self._my_send and not self._wechat_available and self._my_send.other_channel: #  self._my_send 防止空对象
+            '''
+             # 微信通知无效（IP已不一致） 且 配置了第三方通知 
+            '''
+            for channel, token in self._my_send.other_channel:
+                # logger.info(f"正常尝试：{channel} {token}")
+                error = self._my_send.send(
+                    title="cookie已失效,且微信通知失效",
+                    content="请在企业微信应用发送/push_qr, 验证码以'？'结束发送到企业微信应用。",
+                    image=None, force_send=False, diy_channel=channel, diy_token=token
+                )
+                if error:
+                    logger.error(f"通道 {channel} 发送失败，原因：{error}")
+                else:
+                    return None
+        else:
+            # logger.error(f"通道 {self._my_send} 发送失败，原因：{error}")
+            return None
 
     @eventmanager.register(EventType.PluginAction)
     def forced_change(self, event: Event = None):
@@ -302,7 +325,8 @@ class DynamicWeChat(_PluginBase):
             page = context.new_page()
             page.goto(self._wechatUrl)
             time.sleep(3)  # 页面加载等待时间
-            if self.find_qrc(page):
+            img, _ = self.find_qrc(page)
+            if img:
                 current_time = datetime.now()
                 future_time = current_time + timedelta(seconds=110)
                 self._future_timestamp = int(future_time.timestamp())
@@ -370,36 +394,26 @@ class DynamicWeChat(_PluginBase):
             if not event_data or event_data.get("action") != "dynamicwechat":
                 return
 
+        # 情况1：cookie有效
         if self._cookie_valid:
             logger.info("开始检测公网IP")
             if self.CheckIP():
                 self.ChangeIP()
                 self.__update_config()
             logger.info("----------------------本次任务结束----------------------")
-        elif self._await_ip and not self._send_notification:
-            # logger.info("cookie已失效。但配置了第三方通知，继续检测公网IP。当IP变动企业微信通知彻底无法使用时通知用户")
+            return
+
+        # 情况2：cookie失效 + 启用IP变动后通知（有第三方通知）
+        if self._await_ip:
             logger.info("开始检测公网IP,等待IP变动后发送通知")
             if self.CheckIP(func="public"):
-                # logger.info(f"配置的第三方通知{self._my_send.other_channel}")
-                for channel, token in self._my_send.other_channel:
-                    # logger.info(f"正常尝试：{channel} {token}")
-                    error = self._my_send.send(
-                        title="公网IP与企业微信IP不一致",
-                        content="请在企业微信应用发送/push_qr, 如有验证码以'？'结束发送到企业微信应用。",
-                        image=None, force_send=False, diy_channel=channel, diy_token=token
-                    )
-                    if error:
-                        logger.error(f"通道 {channel} 发送失败，原因：{error}")
-                    else:
-                        self._send_notification = True
-                        break  # 发送成功后退出循环
-                self._wechat_available = False  # 标记不可用
+                self._send_cookie_false()
             logger.info("----------------------本次任务结束----------------------")
-        else:
-            if self._send_notification:
-                logger.info("企业微信可信IP和公网IP不一致，微信通知可能已经无法使用。第三方通知已经发送。")
-            else:
-                logger.info("cookie已失效请及时更新,本次不检查公网IP")
+            return
+
+        # 情况3：cookie失效 + 不等待IP变化
+        logger.info("Cookie已失效，本次不检查IP")
+        self._send_cookie_false()
 
     def CheckIP(self, func=None):
         if self.wan2:
@@ -408,7 +422,7 @@ class DynamicWeChat(_PluginBase):
         else:
             url, ip_address = self.get_ip_from_url()
 
-        if ip_address == "获取IP失败" or not url:
+        if not ip_address or ip_address == "获取IP失败" or not url:
             logger.error("获取IP失败 不操作可信IP")
             return False
 
@@ -438,6 +452,7 @@ class DynamicWeChat(_PluginBase):
             # 检查 IP 是否变化
             if ip_address != self._current_ip_address:
                 logger.info("检测到IP变化")
+                self._wechat_available = False
                 return True
         return False
 
@@ -470,7 +485,6 @@ class DynamicWeChat(_PluginBase):
             urls = self._input_id_list
         else:
             urls = self._ip_urls
-
         # 随机化 URL 列表
         random.shuffle(urls)
         if not self.wan2:
@@ -546,7 +560,7 @@ class DynamicWeChat(_PluginBase):
             time.sleep(3)
             img_src, refuse_time = self.find_qrc(page)
             if img_src:
-                if self._my_send:   # 统一逻辑,只有用户发送'/push_qr'才会发生二维码
+                if self._my_send:   # 统一逻辑,只有用户发送'/push_qr'才会发送二维码
                     self._ip_changed = False
                     self._send_cookie_false()
                     logger.info("已尝试发送cookie失效通知")
@@ -599,7 +613,7 @@ class DynamicWeChat(_PluginBase):
                         formatted_cookies[domain] = []
                     formatted_cookies[domain].append(cookie)
                 if self._cc_server.update_cookie(formatted_cookies):
-                    logger.info("更新 CookieCloud 成功")
+                    logger.info("更新 CookieCloud 成功，如没有CC服务器同步cookie请不要在其他地方登录企业微信")
                     self._cookie_valid = True
                     self._is_special_upload = True
                 else:
@@ -621,7 +635,7 @@ class DynamicWeChat(_PluginBase):
                     self._is_special_upload = False
                     return
                 else:
-                    logger.info("更新本地 Cookie成功")
+                    logger.info("更新本地 Cookie成功，请不要在其他地方登录企业微信")
                     self._is_special_upload = True
                     self._saved_cookie = current_cookies  # 保存
                     self._cookie_valid = True
@@ -630,16 +644,24 @@ class DynamicWeChat(_PluginBase):
                 logger.error(f"更新本地 cookie 发生错误: {e}")
 
     def get_cookie(self):
+        """
+        获取企业微信 Cookie。
+        获取优先级：
+            1. 本地内存缓存（_saved_cookie 且标记有效）
+            2. CookieCloud 中 .work.weixin.qq.com 域名的 cookie
+        Returns:
+            Playwright 格式的 Cookie 字典列表；获取失败或未启用时返回 None。
+        """
         if self._saved_cookie and self._cookie_valid:
             return self._saved_cookie
         try:
             cookie_header = ''
             if not self._use_cookiecloud:
-                return
+                return None
             cookies, msg = self._cookiecloud.download()
             if not cookies:  # CookieCloud获取cookie失败
                 logger.error(f"CookieCloud获取cookie失败,失败原因：{msg}")
-                return
+                return None
             for domain, cookie in cookies.items():
                 if domain == ".work.weixin.qq.com":
                     cookie_header = cookie
@@ -650,7 +672,7 @@ class DynamicWeChat(_PluginBase):
             return cookie
         except Exception as e:
             logger.error(f"从CookieCloud获取cookie错误,错误原因:{e}")
-            return
+            return None
 
     # @staticmethod
     def parse_cookie_header(self, cookie_header):
@@ -675,17 +697,17 @@ class DynamicWeChat(_PluginBase):
             context = self._launch_browser_context(headless=True)
             cookie_used = False
             if self._saved_cookie:
-                # logger.info("尝试使用本地保存的 cookie")
+                # logger.info("尝试使用内存保存的 cookie")
                 context.add_cookies(self._saved_cookie)
                 page = context.new_page()
                 page.goto(self._wechatUrl)
                 time.sleep(3)
                 if self.check_login_status(page, task='refresh_cookie'):
-                    # logger.info("本地保存的 cookie 有效")
+                    # logger.info("本地内存保存的 cookie 有效")
                     self._cookie_valid = True
                     cookie_used = True
                 else:
-                    # logger.warning("本地保存的 cookie 无效")
+                    # logger.warning("本地内存保存的 cookie 无效")
                     self._cookie_valid = False
                     self._saved_cookie = None  # 清空无效的 cookie
 
@@ -780,7 +802,7 @@ class DynamicWeChat(_PluginBase):
                         except:
                             continue
                 else:
-                    logger.error("未收到短信验证码")
+                    logger.error("未收到短信验证码，请以问号结尾发送到企业微信应用。如：510010? 使用全局AI助手需使用/wxcode 510010的格式发送验证码")
                     return False
         except Exception as e:
             # logger.debug(str(e))  # 基于bug运行,请不要将错误输出到日志
@@ -845,10 +867,16 @@ class DynamicWeChat(_PluginBase):
             if self._ip_changed:
                 self._wechat_available = True    # 标记微信通知重新有效
                 self._send_notification = False  # 重置第三方通知已发送标记
+                self.cfg.update("WECHAT_NOW_IP", self._current_ip_address)
+                '''
+                将填入企业微信的IP写入settings.json 
+                应对MP/NAS长时间关闭后公网IP和可信IP不一致
+                '''
+                # self.wan2 = IpLocationParser(self._settings_file_path, max_ips=1)
                 masked_ips = [self.mask_ip(ip) for ip in self._current_ip_address.split(';')]
                 masked_ip_string = ";".join(masked_ips)
                 logger.info(f"应用: {app_id} 输入IP：" + self._current_ip_address)
-                if self._my_send:
+                if self._my_send and not self._my_send.quiet_flag:  # 没有开启安静模式才发通知
                     self._my_send.send(title="更新可信IP成功",
                                        content='应用: ' + app_id + ' 输入IP：' + masked_ip_string,
                                        force_send=True, diy_channel="WeChat")
@@ -1255,6 +1283,11 @@ class DynamicWeChat(_PluginBase):
             event_data = event.event_data
             if not event_data or event_data.get("action") != "push_qrcode":
                 return
+        if self._qr_running:
+            # logger.warning("二维码任务正在执行，忽略重复触发")
+            return
+        self._qr_running = True
+
         context = None
         try:
             context = self._launch_browser_context(headless=True)
@@ -1264,7 +1297,7 @@ class DynamicWeChat(_PluginBase):
             image_src, refuse_time = self.find_qrc(page)
             if image_src:
                 if self._my_send:
-                    if not self._wechat_available and self._my_send.other_channel:     # 微信通知已经无法使用
+                    if not self._wechat_available and self._my_send.other_channel:     # 微信通知已经无法使用,但是配置了第三方通知
                         for channel, token in self._my_send.other_channel:
                             # logger.info(f"正常尝试：{channel} {token}")
                             error = self._my_send.send(
@@ -1275,19 +1308,27 @@ class DynamicWeChat(_PluginBase):
                                 logger.warning(f"通道 {channel} 推送二维码失败，原因：{error}")
                             else:
                                 break  # 发送成功后退出循环
-                    else:  # 硬发
+                    else:  # 只配置了微信通知 硬发
                         error = self._my_send.send("企业微信登录二维码", image=image_src)
                         if error:
                             logger.info(f"远程推送任务: 二维码发送失败,原因：{error}")
                             logger.info("----------------------本次任务结束----------------------")
                             return
-                    logger.info("远程推送任务: 二维码发送成功,等待用户 90 秒内扫码登录。V2'微信通知'的用户,此消息并不准确")
+                    logger.info("远程推送任务: 二维码发送成功,等待用户 80 秒内扫码登录。V2'微信通知'的用户,此消息并不准确")
                     # logger.info("远程推送任务: 如收到短信验证码请以？结束,发送到<企业微信应用> 如： 110301？")
-                    time.sleep(90)
-                    if self.check_login_status(page, 'push_qr_code'):
-                        self._update_cookie(page, context)  # 刷新cookie
-                        # logger.info("远程推送任务: 没有可用的CookieCloud服务器,只修改可信IP")
-                        self.click_app_management_buttons(page)
+                    # time.sleep(90)
+                    max_attempts = 4
+                    attempt = 0
+                    time.sleep(20)
+                    while attempt < max_attempts:
+                        attempt += 1
+                        if self.check_login_status(page, 'push_qr_code'):
+                            self._update_cookie(page, context)  # 刷新cookie
+                            # logger.info("远程推送任务: 没有可用的CookieCloud服务器,只修改可信IP")
+                            self.click_app_management_buttons(page)
+                            break
+                        else:
+                            logger.info("用户可能没有扫码或登录失败")
                 else:
                     logger.warning("远程推送任务: 没有找到可用的通知方式")
             else:
@@ -1298,6 +1339,43 @@ class DynamicWeChat(_PluginBase):
         finally:
             if context:
                 context.close()
+            self._qr_running = False
+
+    @eventmanager.register(EventType.PluginAction)
+    def receive_code(self, event: Event = None):
+        """
+        接收企业微信验证码
+        """
+        if not self._enabled or not event:
+            return
+
+        event_data = event.event_data or {}
+
+        if event_data.get("action") != "wxcode":
+            return
+        if not self._qr_running:
+            return
+        raw = event_data.get("arg_str") or ""
+
+        # 去掉无效日志噪音（只在调试时保留）
+        # logger.info(f"完整event_data: {event_data}")
+        # logger.info(f"原始内容: {raw}")
+
+        match = re.search(r"\d{6}", raw)
+        if not match:
+            logger.warning(f"收到无效验证码: {raw}")
+            return
+
+        code = match.group(0)
+
+        # 防重复接收（关键优化）
+        if getattr(self, "_last_code", None) == code:
+            return
+
+        self._last_code = code
+        self._verification_code = code
+
+        logger.info(f"收到验证码：{code}")
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -1309,6 +1387,15 @@ class DynamicWeChat(_PluginBase):
                 "category": "",
                 "data": {
                     "action": "push_qrcode"
+                }
+            },
+            {
+                "cmd": "/wxcode",
+                "event": EventType.PluginAction,
+                "desc": "提交企业微信验证码",
+                "category": "",
+                "data": {
+                    "action": "wxcode"
                 }
             }
         ]
@@ -1323,12 +1410,18 @@ class DynamicWeChat(_PluginBase):
         """
         if not self._enabled:
             return
+        if not self._qr_running:
+            return
         self.text = event.event_data.get("text")
         if len(self.text) == 7 and re.fullmatch(r".*\d{6}.*", self.text):
             match = re.search(r"\d{6}", self.text)
             if match:
-                self._verification_code = match.group(0)
-                logger.info(f"收到验证码：{self._verification_code}")
+                code = match.group(0)
+                # self._verification_code = match.group(0)
+                if code != self._last_code:
+                    self._verification_code = code
+                    self._last_code = code
+                    logger.info(f"收到验证码：{code}")
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
