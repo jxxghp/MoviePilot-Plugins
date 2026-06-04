@@ -1319,8 +1319,8 @@ class DynamicWeChat(_PluginBase):
                     # time.sleep(90)
                     max_attempts = 4
                     attempt = 0
-                    time.sleep(20)
                     while attempt < max_attempts:
+                        time.sleep(20)
                         attempt += 1
                         if self.check_login_status(page, 'push_qr_code'):
                             self._update_cookie(page, context)  # 刷新cookie
