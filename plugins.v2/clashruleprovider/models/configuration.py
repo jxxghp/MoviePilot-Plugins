@@ -7,7 +7,6 @@ from app.log import logger
 from .proxy import Proxy
 from .proxygroups import ProxyGroup
 from .proxyproviders import ProxyProvider
-from .proxy.tlsmixin import ClientFingerprint
 from .ruleproviders import RuleProvider
 from .rule import RuleType, Action, RoutingRuleType
 from ..helper.clashruleparser import ClashRuleParser
