@@ -70,8 +70,7 @@ class ClashConfig(BaseModel):
     interface_name: str | None = Field(default=None, alias="interface-name")
     routing_mark: int | None = Field(default=None, alias="routing-mark")
     tls: dict[str, Any] | None = Field(default=None, alias="tls")
-    global_client_fingerprint: ClientFingerprint | None = Field(default=ClientFingerprint.chrome,
-                                                                alias="global-client-fingerprint")
+
     geodata_mode: bool | None = Field(default=None, alias="geodata-mode")
     geodata_loader: Literal["memconservative", "standard"] = Field(default="memconservative", alias="geodata-loader")
     geo_auto_update: bool = Field(default=False, alias="geo-auto-update")
