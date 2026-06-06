@@ -24,7 +24,7 @@ class AgentTokens(_PluginBase):
     plugin_name = "Agent Tokens 管理"
     plugin_desc = "管理多平台免费 Token 配额，按优先级自动切换 Agent LLM 供应商。"
     plugin_icon = "agentresourceofficer.png"
-    plugin_version = "1.0.10"
+    plugin_version = "1.0.11"
     plugin_author = "jxxghp"
     author_url = "https://github.com/jxxghp"
     plugin_config_prefix = "agenttokens_"
@@ -117,21 +117,21 @@ class AgentTokens(_PluginBase):
         """
         return [{"key": "usage", "name": "Agent Tokens 管理"}] if self.get_state() else []
 
-    def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+    def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], Optional[List[dict]]]]:
         """
         返回 Vue 仪表板组件的布局与标题配置。
         """
         if not self.get_state():
             return None
         return (
-            {"cols": 12, "md": 6},
+            {"cols": 12, "sm": 6, "md": 4},
             {
                 "title": "Agent Tokens 管理",
                 "subtitle": "LLM 配额使用情况",
                 "refresh": 30,
                 "border": True,
             },
-            [],
+            None,
         )
 
     def get_sidebar_nav(self) -> List[Dict[str, Any]]:

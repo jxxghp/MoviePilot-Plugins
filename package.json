@@ -877,12 +877,13 @@
     "name": "MoviePilot服务器监控",
     "description": "在仪表板中实时显示MoviePilot公共服务器状态。",
     "labels": "仪表板",
-    "version": "1.3",
+    "version": "1.4",
     "icon": "Duplicati_A.png",
     "author": "jxxghp",
     "level": 1,
     "v2": true,
     "history": {
+      "v1.4": "重新设计仪表板，仅展示响应延迟、连接状态和速率等关键卡片",
       "v1.3": "增加HTTP/DNS/TLS探测、请求速率、连接占比和异常兜底展示",
       "v1.2": "优化数量示",
       "v1.1": "增加详情界面显示"

@@ -20,7 +20,7 @@ class MPServerStatus(_PluginBase):
     # 插件图标
     plugin_icon = "Duplicati_A.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -114,8 +114,20 @@ class MPServerStatus(_PluginBase):
                     }
                 }
             ]
-        _, _, elements = self.get_dashboard()
-        return elements
+        metrics, probe, dns_info, tls_info, error_message = self._load_status_snapshot()
+        if error_message or not metrics:
+            return self._build_unavailable_elements(
+                probe=probe,
+                dns_info=dns_info,
+                tls_info=tls_info,
+                message=error_message or "无法连接服务器"
+            )
+        return self._build_status_elements(
+            metrics=metrics,
+            probe=probe,
+            dns_info=dns_info,
+            tls_info=tls_info
+        )
 
     def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
         """
@@ -123,43 +135,20 @@ class MPServerStatus(_PluginBase):
         """
         cols = {
             "cols": 12,
-            "md": 10
+            "md": 8
         }
         attrs = {
             "refresh": 10
         }
 
-        response, seconds, request_error = self._request_server_status()
-        probe = self._build_http_probe(response=response, seconds=seconds, request_error=request_error)
-        dns_info = self._get_dns_info()
-        tls_info = self._get_tls_info()
-
-        if request_error or not response:
-            elements = self._build_unavailable_elements(
+        metrics, probe, _, _, error_message = self._load_status_snapshot(include_network_details=False)
+        if error_message or not metrics:
+            elements = self._build_dashboard_unavailable_elements(
                 probe=probe,
-                dns_info=dns_info,
-                tls_info=tls_info,
-                message=request_error or "无法连接服务器"
+                message=error_message or "无法连接服务器"
             )
-            return cols, attrs, elements
-
-        try:
-            status = self._parse_status_text(response.text)
-            metrics = self._build_metrics(status=status, seconds=seconds)
-            elements = self._build_status_elements(
-                metrics=metrics,
-                probe=probe,
-                dns_info=dns_info,
-                tls_info=tls_info
-            )
-        except Exception as err:
-            logger.warn(f"解析服务器状态失败：{err}")
-            elements = self._build_unavailable_elements(
-                probe=probe,
-                dns_info=dns_info,
-                tls_info=tls_info,
-                message=f"服务器状态格式异常：{err}"
-            )
+        else:
+            elements = self._build_dashboard_elements(metrics=metrics, probe=probe)
         return cols, attrs, elements
 
     def get_state(self) -> bool:
@@ -173,6 +162,29 @@ class MPServerStatus(_PluginBase):
         停止插件服务。
         """
         pass
+
+    def _load_status_snapshot(
+            self,
+            include_network_details: bool = True
+    ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], Dict[str, Any], Dict[str, Any], Optional[str]]:
+        """
+        拉取服务状态并按页面需要整理为统一快照。
+        """
+        response, seconds, request_error = self._request_server_status()
+        probe = self._build_http_probe(response=response, seconds=seconds, request_error=request_error)
+        dns_info = self._get_dns_info() if include_network_details else {}
+        tls_info = self._get_tls_info() if include_network_details else {}
+
+        if request_error or not response:
+            return None, probe, dns_info, tls_info, request_error or "无法连接服务器"
+
+        try:
+            status = self._parse_status_text(response.text)
+            metrics = self._build_metrics(status=status, seconds=seconds)
+            return metrics, probe, dns_info, tls_info, None
+        except Exception as err:
+            logger.warn(f"解析服务器状态失败：{err}")
+            return None, probe, dns_info, tls_info, f"服务器状态格式异常：{err}"
 
     def _request_server_status(self) -> Tuple[Optional[Any], float, Optional[str]]:
         """
@@ -431,6 +443,98 @@ class MPServerStatus(_PluginBase):
                     return value
         return "-"
 
+    def _build_dashboard_elements(self, metrics: Dict[str, Any], probe: Dict[str, Any]) -> List[dict]:
+        """
+        拼装状态正常时的轻量仪表板元素。
+        """
+        return [
+            self._build_summary_alert(probe=probe, message="服务状态正常", alert_type="success"),
+            {
+                'component': 'VRow',
+                'content': self._build_dashboard_cards(metrics=metrics, probe=probe)
+            }
+        ]
+
+    def _build_dashboard_unavailable_elements(self, probe: Dict[str, Any], message: str) -> List[dict]:
+        """
+        拼装状态不可用时的轻量仪表板元素。
+        """
+        return [
+            self._build_summary_alert(probe=probe, message=message, alert_type="error"),
+            {
+                'component': 'VRow',
+                'content': self._build_dashboard_cards(metrics=None, probe=probe)
+            }
+        ]
+
+    def _build_dashboard_cards(self, metrics: Optional[Dict[str, Any]], probe: Dict[str, Any]) -> List[dict]:
+        """
+        构建仪表板需要展示的核心监控卡片。
+        """
+        sample_caption = self._format_sample_caption(metrics.get("sample_seconds")) if metrics else "暂无采样"
+        return [
+            self._build_stat_card(
+                "响应延迟",
+                self._format_seconds(probe.get("seconds")),
+                "mdi-speedometer",
+                self._latency_color(probe.get("seconds"), probe.get("ok")),
+                f"HTTP {probe.get('status_code') or '-'}",
+                cols=12,
+                sm=6,
+                md=4
+            ),
+            self._build_stat_card(
+                "活跃连接",
+                self._format_integer(metrics.get("active_connections")) if metrics else "-",
+                "mdi-lan-connect",
+                "primary",
+                f"忙碌 {self._format_percent(metrics.get('busy_percent'))}" if metrics else "暂无连接数据",
+                cols=12,
+                sm=6,
+                md=4
+            ),
+            self._build_stat_card(
+                "等待连接",
+                self._format_integer(metrics.get("waiting")) if metrics else "-",
+                "mdi-timer-sand",
+                "warning",
+                f"{self._format_percent(metrics.get('waiting_percent'))} 空闲" if metrics else "暂无连接数据",
+                cols=12,
+                sm=6,
+                md=4
+            ),
+            self._build_stat_card(
+                "处理中连接",
+                self._format_integer(metrics.get("busy")) if metrics else "-",
+                "mdi-swap-horizontal",
+                "warning",
+                f"读 {metrics.get('reading', 0)} / 写 {metrics.get('writing', 0)}" if metrics else "暂无连接数据",
+                cols=12,
+                sm=6,
+                md=4
+            ),
+            self._build_stat_card(
+                "请求速率",
+                self._format_rate(metrics.get("requests_rate"), "次/秒") if metrics else "-",
+                "mdi-chart-timeline-variant",
+                "primary",
+                sample_caption,
+                cols=12,
+                sm=6,
+                md=4
+            ),
+            self._build_stat_card(
+                "连接速度",
+                self._format_rate(metrics.get("accepts_rate"), "个/秒") if metrics else "-",
+                "mdi-connection",
+                "info",
+                sample_caption,
+                cols=12,
+                sm=6,
+                md=4
+            ),
+        ]
+
     def _build_status_elements(
             self,
             metrics: Dict[str, Any],
@@ -439,7 +543,7 @@ class MPServerStatus(_PluginBase):
             tls_info: Dict[str, Any]
     ) -> List[dict]:
         """
-        拼装状态正常时的仪表盘元素。
+        拼装状态正常时的详情页元素。
         """
         cards = [
             self._build_stat_card("HTTP状态", str(probe.get("status_code") or "-"), "mdi-web-check", "success",
@@ -516,7 +620,7 @@ class MPServerStatus(_PluginBase):
             message: str
     ) -> List[dict]:
         """
-        拼装状态不可用或解析失败时的仪表盘元素。
+        拼装状态不可用或解析失败时的详情页元素。
         """
         return [
             self._build_summary_alert(probe=probe, message=message, alert_type="error"),
@@ -568,21 +672,34 @@ class MPServerStatus(_PluginBase):
         }
 
     @staticmethod
-    def _build_stat_card(label: str, value: str, icon: str, color: str, subtitle: str = "") -> dict:
+    def _build_stat_card(
+            label: str,
+            value: str,
+            icon: str,
+            color: str,
+            subtitle: str = "",
+            cols: int = 6,
+            sm: Optional[int] = None,
+            md: int = 3
+    ) -> dict:
         """
         构建单个统计指标卡片。
         """
+        col_props = {
+            'cols': cols,
+            'md': md
+        }
+        if sm:
+            col_props['sm'] = sm
         return {
             'component': 'VCol',
-            'props': {
-                'cols': 6,
-                'md': 3
-            },
+            'props': col_props,
             'content': [
                 {
                     'component': 'VCard',
                     'props': {
                         'variant': 'tonal',
+                        'class': 'h-100',
                     },
                     'content': [
                         {
@@ -867,6 +984,21 @@ class MPServerStatus(_PluginBase):
         if value <= warning:
             return "warning"
         return "success"
+
+    @staticmethod
+    def _latency_color(value: Optional[float], ok: bool) -> str:
+        """
+        根据 HTTP 探测耗时返回响应延迟卡片颜色。
+        """
+        if not ok:
+            return "error"
+        if value is None:
+            return "secondary"
+        if value < 1:
+            return "success"
+        if value < 3:
+            return "warning"
+        return "error"
 
     @staticmethod
     def _tls_color(tls_info: Dict[str, Any]) -> str:
