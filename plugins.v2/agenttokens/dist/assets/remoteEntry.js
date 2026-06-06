@@ -8,8 +8,8 @@ const currentImports = {};
       dynamicLoadingCss(["AgentTokensManager-9miSzH4d.css"], false, './Config');
       return __federation_import('./__federation_expose_Config-CpvEDTaR.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Dashboard":()=>{
-      dynamicLoadingCss(["__federation_expose_Dashboard-P4ydnnXH.css"], false, './Dashboard');
-      return __federation_import('./__federation_expose_Dashboard-HhEWi8U6.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      dynamicLoadingCss(["__federation_expose_Dashboard-CMoy7CAI.css"], false, './Dashboard');
+      return __federation_import('./__federation_expose_Dashboard-DdqUAuX4.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./AppPage":()=>{
       dynamicLoadingCss(["AgentTokensManager-9miSzH4d.css"], false, './AppPage');
       return __federation_import('./__federation_expose_AppPage-EV4Kchio.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
