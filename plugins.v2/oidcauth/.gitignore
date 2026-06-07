@@ -1,2 +1,8 @@
+# oidcauth plugin - source only
+src/
+package.json
 package-lock.json
+vite.config.js
 node_modules/
+index.dev.html
+dist/

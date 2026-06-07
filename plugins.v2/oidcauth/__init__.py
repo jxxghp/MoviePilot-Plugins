@@ -25,9 +25,11 @@ class OidcAuth(_PluginBase):
     """
 
     plugin_name = "OIDC 认证"
-    plugin_desc = "通过 OpenID Connect Provider 为 MoviePilot 提供插件化登录与账号绑定。"
-    plugin_icon = "Authelia_A.png"
-    plugin_version = "0.1.0"
+    plugin_desc = (
+        "通过 OpenID Connect Provider 为 MoviePilot 提供插件化登录与账号绑定。"
+    )
+    plugin_icon = "Oidcauth_A.png"
+    plugin_version = "0.3.0"
     plugin_author = "ui-beam-9,jxxghp"
     author_url = "https://github.com/ui-beam-9"
     plugin_label = "认证,OIDC,SSO"
@@ -144,7 +146,7 @@ class OidcAuth(_PluginBase):
 
         :return: 渲染模式与构建产物路径
         """
-        return "vue", "dist/assets"
+        return "vue", "assets"
 
     def get_auth_providers(self) -> List[Dict[str, Any]]:
         """
@@ -183,6 +185,7 @@ class OidcAuth(_PluginBase):
     def get_sidebar_nav(self) -> List[Dict[str, Any]]:
         """
         声明插件侧栏管理入口。
+        不设置 permission 限制，所有登录用户均可访问。
 
         :return: 侧栏导航项
         """
@@ -194,7 +197,6 @@ class OidcAuth(_PluginBase):
                 "title": "OIDC 认证",
                 "icon": "mdi-openid",
                 "section": "system",
-                "permission": "admin",
                 "order": 47,
             }
         ]
@@ -231,7 +233,9 @@ class OidcAuth(_PluginBase):
         self._ensure_login_ready()
         state = self._create_state(action="login")
         redirect_uri = self._callback_url(request)
-        authorize_url = await self._build_authorize_url(redirect_uri=redirect_uri, state=state)
+        authorize_url = await self._build_authorize_url(
+            redirect_uri=redirect_uri, state=state
+        )
         return RedirectResponse(authorize_url)
 
     async def callback(
@@ -255,26 +259,36 @@ class OidcAuth(_PluginBase):
         if error:
             return self._callback_html(False, "oidc_error", error_description or error)
         if not code or not state:
-            return self._callback_html(False, "oidc_invalid_callback", "OIDC 回调参数不完整")
+            return self._callback_html(
+                False, "oidc_invalid_callback", "OIDC 回调参数不完整"
+            )
         state_data = self._pop_state(state)
         if not state_data:
-            return self._callback_html(False, "oidc_invalid_state", "OIDC state 无效或已过期")
+            return self._callback_html(
+                False, "oidc_invalid_state", "OIDC state 无效或已过期"
+            )
         try:
             redirect_uri = self._callback_url(request)
             token_data = await self._exchange_code(code=code, redirect_uri=redirect_uri)
             userinfo = await self._fetch_userinfo(token_data)
             sub = str(userinfo.get("sub") or "")
             if not sub:
-                return self._callback_html(False, "oidc_no_sub", "OIDC 用户信息缺少 sub")
+                return self._callback_html(
+                    False, "oidc_no_sub", "OIDC 用户信息缺少 sub"
+                )
             action = state_data.get("action")
             if action == "bind":
-                return self._handle_bind_callback(state_data=state_data, userinfo=userinfo, sub=sub)
+                return self._handle_bind_callback(
+                    state_data=state_data, userinfo=userinfo, sub=sub
+                )
             return self._handle_login_callback(userinfo=userinfo, sub=sub)
         except Exception as err:
             logger.error(f"OIDC 回调处理失败: {err}", exc_info=True)
             return self._callback_html(False, "oidc_error", str(err))
 
-    def status(self, current_user: User = Depends(get_current_active_user)) -> schemas.Response:
+    def status(
+        self, current_user: User = Depends(get_current_active_user)
+    ) -> schemas.Response:
         """
         查询当前用户绑定状态和管理员配置。
 
@@ -290,17 +304,22 @@ class OidcAuth(_PluginBase):
             },
             "binding": {
                 "bound": bool(binding),
+                "sub": (binding or {}).get("sub"),
                 "masked_sub": self._mask_sub((binding or {}).get("sub")),
                 "username": (binding or {}).get("username"),
                 "email": (binding or {}).get("email"),
+                "local_username": current_user.name,
             },
+            "plugin_version": self.plugin_version,
             "is_superuser": bool(current_user.is_superuser),
         }
         if current_user.is_superuser:
             data["config"] = self._config.copy()
         return schemas.Response(success=True, data=data)
 
-    def save_config_api(self, config: dict, current_user: User = Depends(get_current_active_user)) -> schemas.Response:
+    def save_config_api(
+        self, config: dict, current_user: User = Depends(get_current_active_user)
+    ) -> schemas.Response:
         """
         保存 OIDC 插件配置。
 
@@ -314,9 +333,12 @@ class OidcAuth(_PluginBase):
         self._config = normalized
         self._enabled = bool(normalized.get("enabled"))
         self.update_config(normalized)
+
         return schemas.Response(success=True, data={"config": normalized})
 
-    async def test_api(self, body: dict, current_user: User = Depends(get_current_active_user)) -> schemas.Response:
+    async def test_api(
+        self, body: dict, current_user: User = Depends(get_current_active_user)
+    ) -> schemas.Response:
         """
         测试 OIDC Provider 发现文档。
 
@@ -331,11 +353,17 @@ class OidcAuth(_PluginBase):
             discovery = await self._get_discovery(test_config)
             missing = [
                 key
-                for key in ("authorization_endpoint", "token_endpoint", "userinfo_endpoint")
+                for key in (
+                    "authorization_endpoint",
+                    "token_endpoint",
+                    "userinfo_endpoint",
+                )
                 if not discovery.get(key)
             ]
             if missing:
-                return schemas.Response(success=False, message=f"发现文档缺少端点: {', '.join(missing)}")
+                return schemas.Response(
+                    success=False, message=f"发现文档缺少端点: {', '.join(missing)}"
+                )
             return schemas.Response(success=True, message="OIDC Provider 连接正常")
         except Exception as err:
             return schemas.Response(success=False, message=str(err))
@@ -357,20 +385,27 @@ class OidcAuth(_PluginBase):
             return schemas.Response(success=False, message="当前用户已绑定 OIDC 账号")
         state = self._create_state(action="bind", user_id=current_user.id)
         redirect_uri = self._callback_url(request)
-        authorize_url = await self._build_authorize_url(redirect_uri=redirect_uri, state=state)
+        authorize_url = await self._build_authorize_url(
+            redirect_uri=redirect_uri, state=state
+        )
         return schemas.Response(success=True, data={"authorize_url": authorize_url})
 
-    def unbind(self, current_user: User = Depends(get_current_active_user)) -> schemas.Response:
+    def unbind(
+        self, current_user: User = Depends(get_current_active_user)
+    ) -> schemas.Response:
         """
         解绑当前用户的 OIDC 账号。
 
         :param current_user: 当前登录用户
         :return: 解绑结果
         """
+        self._ensure_login_ready()
         binding = self._get_user_binding(current_user.id)
         if not binding:
             return schemas.Response(success=False, message="当前用户未绑定 OIDC 账号")
-        self.del_data(self._sub_key(binding.get("issuer") or "", binding.get("sub") or ""))
+        self.del_data(
+            self._sub_key(binding.get("issuer") or "", binding.get("sub") or "")
+        )
         self.del_data(self._user_key(current_user.id))
         return schemas.Response(success=True)
 
@@ -389,9 +424,13 @@ class OidcAuth(_PluginBase):
             "client_secret": str(config.get("client_secret") or ""),
             "scopes": str(config.get("scopes") or "openid profile email").strip(),
             "redirect_uri": str(config.get("redirect_uri") or "").strip(),
-            "username_claim": str(config.get("username_claim") or "preferred_username").strip(),
+            "username_claim": str(
+                config.get("username_claim") or "preferred_username"
+            ).strip(),
             "email_claim": str(config.get("email_claim") or "email").strip(),
-            "allow_auto_bind_by_username": bool(config.get("allow_auto_bind_by_username")),
+            "allow_auto_bind_by_username": bool(
+                config.get("allow_auto_bind_by_username")
+            ),
         }
 
     def _is_login_ready(self) -> bool:
@@ -430,7 +469,9 @@ class OidcAuth(_PluginBase):
             if issuer.endswith("/.well-known/openid-configuration")
             else f"{issuer}/.well-known/openid-configuration"
         )
-        async with httpx.AsyncClient(timeout=10.0, proxy=settings.PROXY_HOST) as client:
+        async with httpx.AsyncClient(
+            timeout=10.0, proxy=settings.PROXY_HOST or None
+        ) as client:
             response = await client.get(discovery_url)
             response.raise_for_status()
             return response.json()
@@ -468,7 +509,9 @@ class OidcAuth(_PluginBase):
         token_endpoint = discovery.get("token_endpoint")
         if not token_endpoint:
             raise ValueError("OIDC 发现文档缺少 token_endpoint")
-        async with httpx.AsyncClient(timeout=10.0, proxy=settings.PROXY_HOST) as client:
+        async with httpx.AsyncClient(
+            timeout=10.0, proxy=settings.PROXY_HOST or None
+        ) as client:
             response = await client.post(
                 token_endpoint,
                 data={
@@ -497,8 +540,12 @@ class OidcAuth(_PluginBase):
         userinfo_endpoint = discovery.get("userinfo_endpoint")
         if not userinfo_endpoint:
             raise ValueError("OIDC 发现文档缺少 userinfo_endpoint")
-        async with httpx.AsyncClient(timeout=10.0, proxy=settings.PROXY_HOST) as client:
-            response = await client.get(userinfo_endpoint, headers={"Authorization": f"Bearer {access_token}"})
+        async with httpx.AsyncClient(
+            timeout=10.0, proxy=settings.PROXY_HOST or None
+        ) as client:
+            response = await client.get(
+                userinfo_endpoint, headers={"Authorization": f"Bearer {access_token}"}
+            )
             response.raise_for_status()
             return response.json()
 
@@ -512,11 +559,15 @@ class OidcAuth(_PluginBase):
         """
         issuer = self._config.get("issuer") or ""
         binding = self.get_data(self._sub_key(issuer, sub))
-        user = User.get(db=None, rid=(binding or {}).get("user_id")) if binding else None
+        user = (
+            User.get(db=None, rid=(binding or {}).get("user_id")) if binding else None
+        )
         if not user and self._config.get("allow_auto_bind_by_username"):
             user = self._auto_bind_by_username(userinfo=userinfo, sub=sub)
         if not user:
-            return self._callback_html(False, "oidc_unbound", "该 OIDC 账号尚未绑定 MoviePilot 用户")
+            return self._callback_html(
+                False, "oidc_unbound", "该 OIDC 账号尚未绑定 MoviePilot 用户"
+            )
         if not user.is_active:
             return self._callback_html(False, "user_inactive", "用户已被禁用")
         ticket = create_plugin_auth_ticket(
@@ -526,7 +577,9 @@ class OidcAuth(_PluginBase):
         )
         return self._callback_html(True, data={"ticket": ticket})
 
-    def _handle_bind_callback(self, state_data: dict, userinfo: dict, sub: str) -> HTMLResponse:
+    def _handle_bind_callback(
+        self, state_data: dict, userinfo: dict, sub: str
+    ) -> HTMLResponse:
         """
         处理 OIDC 绑定回调。
 
@@ -538,17 +591,34 @@ class OidcAuth(_PluginBase):
         user_id = state_data.get("user_id")
         user = User.get(db=None, rid=user_id) if user_id else None
         if not user or not user.is_active:
-            return self._callback_html(False, "bind_user_invalid", "绑定用户不存在或已禁用", event_type="oidcauth_bind_callback")
+            return self._callback_html(
+                False,
+                "bind_user_invalid",
+                "绑定用户不存在或已禁用",
+                event_type="oidcauth_bind_callback",
+            )
         issuer = self._config.get("issuer") or ""
         existing = self.get_data(self._sub_key(issuer, sub))
         if existing and existing.get("user_id") != user.id:
-            return self._callback_html(False, "bind_conflict", "该 OIDC 账号已绑定其他用户", event_type="oidcauth_bind_callback")
+            return self._callback_html(
+                False,
+                "bind_conflict",
+                "该 OIDC 账号已绑定其他用户",
+                event_type="oidcauth_bind_callback",
+            )
         if self._get_user_binding(user.id):
-            return self._callback_html(False, "already_bound", "当前用户已绑定 OIDC 账号", event_type="oidcauth_bind_callback")
+            return self._callback_html(
+                False,
+                "already_bound",
+                "当前用户已绑定 OIDC 账号",
+                event_type="oidcauth_bind_callback",
+            )
         binding = self._binding_payload(user_id=user.id, userinfo=userinfo, sub=sub)
         self.save_data(self._user_key(user.id), binding)
         self.save_data(self._sub_key(issuer, sub), binding)
-        return self._callback_html(True, data={"bound": True}, event_type="oidcauth_bind_callback")
+        return self._callback_html(
+            True, data={"bound": True}, event_type="oidcauth_bind_callback"
+        )
 
     def _auto_bind_by_username(self, userinfo: dict, sub: str) -> Optional[User]:
         """
@@ -558,7 +628,10 @@ class OidcAuth(_PluginBase):
         :param sub: OIDC subject
         :return: 绑定成功的用户
         """
-        username = str(userinfo.get(self._config.get("username_claim") or "preferred_username") or "").strip()
+        username = str(
+            userinfo.get(self._config.get("username_claim") or "preferred_username")
+            or ""
+        ).strip()
         if not username:
             return None
         user = User.get_by_name(db=None, name=username)
@@ -583,7 +656,9 @@ class OidcAuth(_PluginBase):
             "user_id": user_id,
             "issuer": self._config.get("issuer") or "",
             "sub": sub,
-            "username": userinfo.get(self._config.get("username_claim") or "preferred_username"),
+            "username": userinfo.get(
+                self._config.get("username_claim") or "preferred_username"
+            ),
             "email": userinfo.get(self._config.get("email_claim") or "email"),
             "updated_at": int(time.time()),
         }
@@ -655,7 +730,10 @@ class OidcAuth(_PluginBase):
 
         :return: 回调地址或默认路径
         """
-        return self._config.get("redirect_uri") or f"{settings.API_V1_STR}/plugin/{self._PLUGIN_ID}/callback"
+        return (
+            self._config.get("redirect_uri")
+            or f"{settings.API_V1_STR}/plugin/{self._PLUGIN_ID}/callback"
+        )
 
     def _get_user_binding(self, user_id: int) -> Optional[dict]:
         """
@@ -729,16 +807,28 @@ class OidcAuth(_PluginBase):
         payload_json = json.dumps(payload, ensure_ascii=False)
         html = f"""<!doctype html>
 <html>
-<head><meta charset="utf-8"><title>OIDC Callback</title></head>
+<head>
+<meta charset="utf-8">
+<title>OIDC Callback</title>
+<style>
+  * {{ margin:0; padding:0; box-sizing:border-box; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; display: flex; align-items: center; justify-content: center; }}
+  .close-btn {{ position: fixed; top: 12px; right: 16px; width: 36px; height: 36px; border: none; background: rgba(0,0,0,0.06); border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 20px; color: #666; transition: background 0.2s, color 0.2s; }}
+  .close-btn:hover {{ background: rgba(0,0,0,0.12); color: #333; }}
+  .msg {{ padding: 24px; text-align: center; color: #333; font-size: 16px; }}
+</style>
+</head>
 <body>
+<button class="close-btn" onclick="window.close()" title="关闭">&#x2715;</button>
+<div class="msg" id="msg"></div>
 <script>
 (function() {{
   var payload = {payload_json};
   if (window.opener && !window.opener.closed) {{
     window.opener.postMessage(payload, window.location.origin);
-    window.close();
+    setTimeout(function() {{ window.close(); }}, 200);
   }} else {{
-    document.body.innerText = payload.success ? '认证成功，请关闭此窗口' : (payload.message || '认证失败');
+    document.getElementById('msg').innerText = payload.success ? '认证成功，请关闭此窗口' : (payload.message || '认证失败');
   }}
 }})();
 </script>
