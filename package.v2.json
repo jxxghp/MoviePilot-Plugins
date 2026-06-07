@@ -1059,14 +1059,17 @@
     "name": "OIDC 认证",
     "description": "通过 OpenID Connect Provider 为 MoviePilot 提供插件化登录与账号绑定。",
     "labels": "认证,OIDC,SSO",
-    "version": "0.1.0",
-    "icon": "Authelia_A.png",
+    "version": "0.3.1",
+    "icon": "Oidcauth_A.png",
     "author": "ui-beam-9,jxxghp",
     "level": 1,
     "system_version": ">=2.13.5",
     "release": true,
     "history": {
-      "v0.1.0": "新增插件化 OIDC 登录、账号绑定、Provider 配置与联邦认证界面。"
+      "v0.1.0": "新增插件化 OIDC 登录、账号绑定、Provider 配置与联邦认证界面。",
+      "v0.2.0": "AuthPage 自动跳转 OIDC 授权，新增加载动画与错误重试；修复弹窗拦截提示及 PROXY_HOST 空值崩溃，补充配置表单指南。",
+      "v0.3.0": "重构双栏布局与动态背景，支持深浅主题自适应；新增绑定可视化、详情卡片及解绑确认；升级通信机制，新增特性介绍与底部信息栏，统一图标风格。",
+      "v0.3.1": "修复回调事件类型不匹配导致前端错误提示不准确；移除解绑方法多余检查，允许 OIDC 关闭状态下正常解绑。"
     }
   },
   "AgentTokens": {
