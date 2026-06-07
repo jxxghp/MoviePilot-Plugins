@@ -1,5 +1,14 @@
 # OidcAuth 更新日志
 
+## v0.3.1
+
+### 后端 `__init__.py`（Code Review 修复）
+
+- 修复回调事件类型不匹配：绑定流程错误时 `event_type` 动态设为 `oidcauth_bind_callback`，避免前端仅显示通用提示
+- 移除解绑方法中多余的 `_ensure_login_ready()` 检查，允许 OIDC 关闭状态下正常解绑
+
+---
+
 ## v0.3.0
 
 ### 前端 `AppPage.vue`（完全重构）

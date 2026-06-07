@@ -29,7 +29,7 @@ class OidcAuth(_PluginBase):
         "通过 OpenID Connect Provider 为 MoviePilot 提供插件化登录与账号绑定。"
     )
     plugin_icon = "Oidcauth_A.png"
-    plugin_version = "0.3.0"
+    plugin_version = "0.3.1"
     plugin_author = "ui-beam-9,jxxghp"
     author_url = "https://github.com/ui-beam-9"
     plugin_label = "认证,OIDC,SSO"
@@ -267,6 +267,8 @@ class OidcAuth(_PluginBase):
             return self._callback_html(
                 False, "oidc_invalid_state", "OIDC state 无效或已过期"
             )
+        action = state_data.get("action")
+        event_type = "oidcauth_bind_callback" if action == "bind" else "oidcauth_callback"
         try:
             redirect_uri = self._callback_url(request)
             token_data = await self._exchange_code(code=code, redirect_uri=redirect_uri)
@@ -274,9 +276,8 @@ class OidcAuth(_PluginBase):
             sub = str(userinfo.get("sub") or "")
             if not sub:
                 return self._callback_html(
-                    False, "oidc_no_sub", "OIDC 用户信息缺少 sub"
+                    False, "oidc_no_sub", "OIDC 用户信息缺少 sub", event_type=event_type
                 )
-            action = state_data.get("action")
             if action == "bind":
                 return self._handle_bind_callback(
                     state_data=state_data, userinfo=userinfo, sub=sub
@@ -284,7 +285,7 @@ class OidcAuth(_PluginBase):
             return self._handle_login_callback(userinfo=userinfo, sub=sub)
         except Exception as err:
             logger.error(f"OIDC 回调处理失败: {err}", exc_info=True)
-            return self._callback_html(False, "oidc_error", str(err))
+            return self._callback_html(False, "oidc_error", str(err), event_type=event_type)
 
     def status(
         self, current_user: User = Depends(get_current_active_user)
@@ -399,7 +400,6 @@ class OidcAuth(_PluginBase):
         :param current_user: 当前登录用户
         :return: 解绑结果
         """
-        self._ensure_login_ready()
         binding = self._get_user_binding(current_user.id)
         if not binding:
             return schemas.Response(success=False, message="当前用户未绑定 OIDC 账号")
