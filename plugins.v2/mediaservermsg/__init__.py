@@ -38,7 +38,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.8.2.2"
+    plugin_version = "1.8.2.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -67,6 +67,7 @@ class MediaServerMsg(_PluginBase):
     # Webhook事件映射配置
     _webhook_actions = {
         "library.new": "新入库",
+        "ItemAdded": "新入库",
         "system.notificationtest": "测试",
         "playback.start": "开始播放",
         "playback.stop": "停止播放",
@@ -77,6 +78,11 @@ class MediaServerMsg(_PluginBase):
         "PlaybackStart": "开始播放",
         "PlaybackStop": "停止播放",
         "item.rate": "标记了"
+    }
+
+    # Jellyfin Webhook 新增媒体事件使用 ItemAdded，与通用入库事件按同一类型处理。
+    _webhook_event_aliases = {
+        "ItemAdded": "library.new"
     }
 
     # 媒体服务器默认图标
@@ -188,7 +194,7 @@ class MediaServerMsg(_PluginBase):
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
         types_options = [
-            {"title": "新入库", "value": "library.new"},
+            {"title": "新入库", "value": "library.new|ItemAdded"},
             {"title": "开始播放", "value": "playback.start|media.play|PlaybackStart"},
             {"title": "停止播放", "value": "playback.stop|media.stop|PlaybackStop"},
             {"title": "用户标记", "value": "item.rate"},
@@ -427,7 +433,9 @@ class MediaServerMsg(_PluginBase):
 
             # 检查事件类型是否在支持范围内
             event_type = getattr(event_info, 'event', None)
-            if not event_type or not self._webhook_actions.get(event_type):
+            event_action_type = self._get_event_action_type(event_type)
+            event_match_types = self._get_event_match_types(event_type)
+            if not event_type or not self._webhook_actions.get(event_action_type):
                 logger.debug(f"事件类型 {event_type} 不在支持范围内")
                 return
 
@@ -437,7 +445,7 @@ class MediaServerMsg(_PluginBase):
             for _type in self._types:
                 allowed_types.update(_type.split("|"))
 
-            if event_type not in allowed_types:
+            if not event_match_types.intersection(allowed_types):
                 logger.debug(f"事件类型 {event_type} 不在用户配置的允许范围内{allowed_types}")
                 logger.info(f"未开启 {event_type} 类型的消息通知")
                 return
@@ -460,8 +468,8 @@ class MediaServerMsg(_PluginBase):
             # 通用去重：构造去重键
             item_id = getattr(event_info, 'item_id', '')
             if item_id:
-                # 使用 server_name + event_type + item_id 作为唯一标识
-                dedupe_key = f"{server_name}-{event_type}-{item_id}" if server_name else f"{event_type}-{item_id}"
+                # 使用标准化后的事件类型去重，避免同类事件别名造成重复通知。
+                dedupe_key = f"{server_name}-{event_action_type}-{item_id}" if server_name else f"{event_action_type}-{item_id}"
                 # 检查是否已处理过该事件
                 if dedupe_key in self.__get_elements():
                     logger.debug(f"检测到重复Webhook事件，已处理过: {dedupe_key}")
@@ -477,7 +485,7 @@ class MediaServerMsg(_PluginBase):
                 if not self._aggregate_enabled:
                     return False
 
-                if event_type != "library.new":
+                if event_action_type != "library.new":
                     return False
 
                 item_type = getattr(event_info, 'item_type', None)
@@ -520,7 +528,7 @@ class MediaServerMsg(_PluginBase):
             item_name = getattr(event_info, 'item_name', '')
 
             message_title = ""
-            event_action = self._webhook_actions.get(event_type, event_type)
+            event_action = self._webhook_actions.get(event_action_type, event_type)
             if item_type in ["TV", "SHOW"]:
                 message_title = f"{event_action}剧集 {item_name}"
             elif item_type == "MOV":
@@ -841,7 +849,7 @@ class MediaServerMsg(_PluginBase):
                 if not first_event.tmdb_id:
                     logger.debug("tmdb_id为空，使用原有逻辑发送消息")
                     # 使用原有逻辑构造消息
-                    message_title = f"📺 {self._webhook_actions.get(first_event.event)}剧集：{first_event.item_name}"
+                    message_title = f"📺 {self._get_event_action(first_event.event)}剧集：{first_event.item_name}"
                     message_texts = []
                     message_texts.append(
                         f"⏰ 时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}")
@@ -908,7 +916,7 @@ class MediaServerMsg(_PluginBase):
             except Exception as e:
                 logger.error(f"从json_object提取SeriesName时出错: {str(e)}")
 
-            message_title = f"📺 {self._webhook_actions.get(first_event.event, '新入库')}剧集：{show_name}"
+            message_title = f"📺 {self._get_event_action(first_event.event) or '新入库'}剧集：{show_name}"
 
             if is_multiple_episodes:
                 message_title += f" {events_count}个文件"
@@ -1214,6 +1222,29 @@ class MediaServerMsg(_PluginBase):
         except Exception as e:
             logger.error(f"获取有效元素时出错: {str(e)}")
             return []
+
+    def _get_event_action_type(self, event_type: Optional[str]) -> Optional[str]:
+        """
+        获取用于消息文案和去重的标准事件类型。
+        """
+        if event_type is None:
+            return None
+        return self._webhook_event_aliases.get(str(event_type), str(event_type))
+
+    def _get_event_match_types(self, event_type: Optional[str]) -> set:
+        """
+        获取配置匹配时允许命中的事件类型，兼容历史配置和媒体服务器原始事件。
+        """
+        if event_type is None:
+            return set()
+        normalized_type = self._get_event_action_type(event_type)
+        return {str(event_type), normalized_type}
+
+    def _get_event_action(self, event_type: Optional[str]) -> Optional[str]:
+        """
+        获取事件对应的消息动作文案。
+        """
+        return self._webhook_actions.get(self._get_event_action_type(event_type))
 
     def _get_play_link(self, event_info: WebhookEventInfo) -> Optional[str]:
         """

@@ -253,11 +253,12 @@
     "name": "媒体库服务器通知",
     "description": "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。",
     "labels": "消息通知,媒体库",
-    "version": "1.3",
+    "version": "1.4",
     "icon": "mediaplay.png",
     "author": "jxxghp",
     "level": 1,
     "history": {
+      "v1.4": "兼容Jellyfin ItemAdded入库Webhook事件",
       "v1.3": "兼容处理Emby部分客户端暂停重复推送停止播放webhook的场景",
       "v1.2": "播放通知增加超链接跳转（需要v1.9.4+）"
     }
