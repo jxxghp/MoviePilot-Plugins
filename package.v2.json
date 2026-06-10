@@ -1099,5 +1099,17 @@
       "v1.0.2": "修复UI界面显示不全及前端路由报错问题",
       "v1.0.1": "新增 Agent Tokens 配额管理、供应商优先级切换和用量展示"
     }
+  },
+  "TraktCleaner": {
+    "name": "Trakt 观看清理",
+    "description": "根据 Trakt 播放记录，自动清理下载器中已观看的种子。",
+    "labels": "Trakt,清理",
+    "version": "1.0",
+    "icon": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/trakt.png",
+    "author": "Guoyin-Wen",
+    "level": 1,
+    "history": {
+      "v1.0": "初始版本：根据 Trakt 播放记录自动清理下载器中已观看的种子"
+    }
   }
 }
