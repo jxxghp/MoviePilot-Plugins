@@ -20,7 +20,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -45,6 +45,7 @@ class MediaServerMsg(_PluginBase):
     # 拼装消息内容
     _webhook_actions = {
         "library.new": "新入库",
+        "ItemAdded": "新入库",
         "system.webhooktest": "测试",
         "playback.start": "开始播放",
         "playback.stop": "停止播放",
@@ -55,6 +56,10 @@ class MediaServerMsg(_PluginBase):
         "PlaybackStart": "开始播放",
         "PlaybackStop": "停止播放",
         "item.rate": "标记了"
+    }
+    # Jellyfin Webhook 新增媒体事件使用 ItemAdded，与通用入库事件按同一类型处理。
+    _webhook_event_aliases = {
+        "ItemAdded": "library.new"
     }
     _webhook_images = {
         "emby": "https://emby.media/notificationicon.png",
@@ -86,7 +91,7 @@ class MediaServerMsg(_PluginBase):
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
         types_options = [
-            {"title": "新入库", "value": "library.new"},
+            {"title": "新入库", "value": "library.new|ItemAdded"},
             {"title": "开始播放", "value": "playback.start|media.play|PlaybackStart"},
             {"title": "停止播放", "value": "playback.stop|media.stop|PlaybackStop"},
             {"title": "用户标记", "value": "item.rate"},
@@ -185,36 +190,40 @@ class MediaServerMsg(_PluginBase):
         if not event_info:
             return
 
+        event_type = str(event_info.event)
+        event_action_type = self.__get_event_action_type(event_type)
+        event_match_types = self.__get_event_match_types(event_type)
+
         # 不在支持范围不处理
-        if not self._webhook_actions.get(event_info.event):
+        if not self._webhook_actions.get(event_action_type):
             return
 
         # 不在选中范围不处理
         msgflag = False
         for _type in self._types:
-            if event_info.event in _type.split("|"):
+            if event_match_types.intersection(_type.split("|")):
                 msgflag = True
                 break
         if not msgflag:
-            logger.info(f"未开启 {event_info.event} 类型的消息通知")
+            logger.info(f"未开启 {event_type} 类型的消息通知")
             return
 
         expiring_key = f"{event_info.item_id}-{event_info.client}-{event_info.user_name}"
         # 过滤停止播放重复消息
-        if str(event_info.event) == "playback.stop" and expiring_key in self._webhook_msg_keys.keys():
+        if event_type == "playback.stop" and expiring_key in self._webhook_msg_keys.keys():
             # 刷新过期时间
             self.__add_element(expiring_key)
             return
 
         # 消息标题
         if event_info.item_type in ["TV", "SHOW"]:
-            message_title = f"{self._webhook_actions.get(event_info.event)}剧集 {event_info.item_name}"
+            message_title = f"{self._webhook_actions.get(event_action_type)}剧集 {event_info.item_name}"
         elif event_info.item_type == "MOV":
-            message_title = f"{self._webhook_actions.get(event_info.event)}电影 {event_info.item_name}"
+            message_title = f"{self._webhook_actions.get(event_action_type)}电影 {event_info.item_name}"
         elif event_info.item_type == "AUD":
-            message_title = f"{self._webhook_actions.get(event_info.event)}有声书 {event_info.item_name}"
+            message_title = f"{self._webhook_actions.get(event_action_type)}有声书 {event_info.item_name}"
         else:
-            message_title = f"{self._webhook_actions.get(event_info.event)}"
+            message_title = f"{self._webhook_actions.get(event_action_type)}"
 
         # 消息内容
         message_texts = []
@@ -263,10 +272,10 @@ class MediaServerMsg(_PluginBase):
         else:
             play_link = None
 
-        if str(event_info.event) == "playback.stop":
+        if event_type == "playback.stop":
             # 停止播放消息，添加到过期字典
             self.__add_element(expiring_key)
-        if str(event_info.event) == "playback.start":
+        if event_type == "playback.start":
             # 开始播放消息，删除过期字典
             self.__remove_element(expiring_key)
 
@@ -287,6 +296,18 @@ class MediaServerMsg(_PluginBase):
         # 过滤掉过期的元素
         self._webhook_msg_keys = {k: v for k, v in self._webhook_msg_keys.items() if v > current_time}
         return list(self._webhook_msg_keys.keys())
+
+    def __get_event_action_type(self, event_type: str) -> str:
+        """
+        获取用于消息文案的标准事件类型。
+        """
+        return self._webhook_event_aliases.get(event_type, event_type)
+
+    def __get_event_match_types(self, event_type: str) -> set:
+        """
+        获取配置匹配时允许命中的事件类型，兼容历史配置和媒体服务器原始事件。
+        """
+        return {event_type, self.__get_event_action_type(event_type)}
 
     def stop_service(self):
         """

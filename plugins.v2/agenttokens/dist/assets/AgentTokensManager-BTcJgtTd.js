@@ -1,13 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { f as formatTokens, P as PROVIDER_TYPE_OPTIONS, d as createProvider, b as buildProviderRows, a as buildProviderSummary, g as getNextProviderPriority, n as normalizeProvider } from './provider-DJcqUg7E.js';
-
-const _export_sfc = (sfc, props) => {
-  const target = sfc.__vccOpts || sfc;
-  for (const [key, val] of props) {
-    target[key] = val;
-  }
-  return target;
-};
+import { _ as _export_sfc, f as formatTokens, P as PROVIDER_TYPE_OPTIONS, d as createProvider, b as buildProviderRows, a as buildProviderSummary, g as getNextProviderPriority, n as normalizeProvider } from './_plugin-vue_export-helper-B_eZRIX_.js';
 
 const {createElementVNode:_createElementVNode$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$2,createCommentVNode:_createCommentVNode$2,renderList:_renderList$1,Fragment:_Fragment$1,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,withCtx:_withCtx$4,unref:_unref$4,createBlock:_createBlock$4} = await importShared('vue');
 
@@ -988,4 +980,4 @@ return (_ctx, _cache) => {
 };
 const AgentTokensManager = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a6c1ea54"]]);
 
-export { AgentTokensManager as A, _export_sfc as _ };
+export { AgentTokensManager as A };

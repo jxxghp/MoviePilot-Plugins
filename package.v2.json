@@ -99,11 +99,12 @@
     "name": "媒体库服务器通知",
     "description": "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。",
     "labels": "消息通知,媒体库",
-    "version": "1.8.2.2",
+    "version": "1.8.2.3",
     "icon": "mediaplay.png",
     "author": "jxxghp",
     "level": 1,
     "history": {
+      "v1.8.2.3": "兼容Jellyfin ItemAdded入库Webhook事件",
       "v1.8.2.2": "修复emby多条相同新入库消息推送多次的问题",
       "v1.8.2.1": "修复多集时有概率图片获取失败的问题；修复emby测试通知类型接收失败的问题",
       "v1.8.1": "修复单集剧情信息有概率获取失败的问题",
@@ -273,11 +274,12 @@
     "name": "IYUU自动辅种",
     "description": "基于IYUU官方Api实现自动辅种。",
     "labels": "做种,IYUU",
-    "version": "2.16",
+    "version": "2.17",
     "icon": "IYUU.png",
     "author": "jxxghp,CKun",
     "level": 2,
     "history": {
+      "v2.17": "修复由于站点哈希值过期导致辅种失败的问题，并优化代码逻辑",
       "v2.16": "限制辅种缓存大小并重置运行期校验队列，避免长期运行缓存无限增长",
       "v2.15": "修复海豹不能辅种的问题",
       "v2.14": "修复馒头不能辅种的问题",
@@ -535,12 +537,13 @@
     "name": "Clash Rule Provider",
     "description": "随时为Clash添加一些额外的规则。",
     "labels": "工具",
-    "version": "2.1.6",
+    "version": "2.1.7",
     "icon": "Mihomo_Meta_A.png",
     "author": "wumode",
     "level": 1,
     "release": true,
     "history": {
+      "v2.1.7": "移除全局 TLS 指纹配置，请在代理节点中直接设置 client-fingerprint",
       "v2.1.6": "修复依赖冲突",
       "v2.1.5": "优化仪表盘连接鉴权；优化订阅更新提示",
       "v2.1.4": "支持 xhttp 协议",
@@ -685,13 +688,14 @@
     "name": "药丸签到",
     "description": "药丸论坛签到。",
     "labels": "站点",
-    "version": "3.0.0",
+    "version": "3.0.1",
     "icon": "invites.png",
     "author": "thsrite",
     "level": 2,
     "release": true,
     "system_version": ">=2.12.0",
     "history": {
+      "v3.0.1": "切换药丸真实签到接口并校验站点实时签到状态，修复失败误报成功问题",
       "v3.0.0": "V2 专用大版本的浏览器仿真改用 CloakBrowser 获取页面，默认插件不再声明 V2 兼容。",
       "v2.0.3": "增加启用浏览器仿真功能发送请求",
       "v2.0.2": "增加签到检测机制防止重复签到，增强代码健壮性。",
@@ -1058,27 +1062,32 @@
     "name": "OIDC 认证",
     "description": "通过 OpenID Connect Provider 为 MoviePilot 提供插件化登录与账号绑定。",
     "labels": "认证,OIDC,SSO",
-    "version": "0.1.0",
-    "icon": "Authelia_A.png",
+    "version": "0.3.1",
+    "icon": "Oidcauth_A.png",
     "author": "ui-beam-9,jxxghp",
     "level": 1,
     "system_version": ">=2.13.5",
     "release": true,
     "history": {
-      "v0.1.0": "新增插件化 OIDC 登录、账号绑定、Provider 配置与联邦认证界面。"
+      "v0.1.0": "新增插件化 OIDC 登录、账号绑定、Provider 配置与联邦认证界面。",
+      "v0.2.0": "AuthPage 自动跳转 OIDC 授权，新增加载动画与错误重试；修复弹窗拦截提示及 PROXY_HOST 空值崩溃，补充配置表单指南。",
+      "v0.3.0": "重构双栏布局与动态背景，支持深浅主题自适应；新增绑定可视化、详情卡片及解绑确认；升级通信机制，新增特性介绍与底部信息栏，统一图标风格。",
+      "v0.3.1": "修复回调事件类型不匹配导致前端错误提示不准确；移除解绑方法多余检查，允许 OIDC 关闭状态下正常解绑。"
     }
   },
   "AgentTokens": {
     "name": "Agent Tokens 管理",
     "description": "管理多平台免费 Token 配额，按优先级自动切换 Agent LLM 供应商。",
     "labels": "Agent,AI,系统",
-    "version": "1.0.10",
+    "version": "1.0.12",
     "icon": "agentresourceofficer.png",
     "author": "jxxghp",
     "level": 1,
     "system_version": ">=2.13.2",
     "release": true,
     "history": {
+      "v1.0.12": "优化仪表板组件主题 token 适配和手动调整大小后的紧凑自适应布局",
+      "v1.0.11": "重设计仪表板组件，改为紧凑卡片式配额概览并对齐主仪表板视觉风格",
       "v1.0.10": "新增供应商使用代理服务器配置，分配 Agent LLM 供应商时按配置传递代理开关",
       "v1.0.9": "统一配置页和管理页内容，新增总使用进度图表卡片并优化大小屏布局",
       "v1.0.8": "支持为 Agent LLM 供应商配置并传递 User-Agent",
@@ -1089,6 +1098,38 @@
       "v1.0.3": "修复因组件导出导致的界面空白问题、统一图标样式并去除全局样式污染",
       "v1.0.2": "修复UI界面显示不全及前端路由报错问题",
       "v1.0.1": "新增 Agent Tokens 配额管理、供应商优先级切换和用量展示"
+    }
+  },
+  "TraktCleaner": {
+    "name": "Trakt 观看清理",
+    "description": "根据 Trakt 播放记录，自动清理下载器中已观看的种子。",
+    "labels": "Trakt,清理",
+    "version": "1.0",
+    "icon": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/trakt.png",
+    "author": "Guoyin-Wen",
+    "level": 1,
+    "history": {
+      "v1.0": "初始版本：根据 Trakt 播放记录自动清理下载器中已观看的种子"
+    }
+  },
+  "UpdateWeChatIp": {
+    "name": "动态企微可信IP",
+    "description": "修改企微应用可信IP,可本地扫码刷新Cookie,直接调用接口更稳定",
+    "labels": "消息通知",
+    "version": "1.0.7",
+    "icon": "Wecom_A.png",
+    "author": "书小白",
+    "level": 2,
+    "v2": true,
+    "history": {
+      "1.0.7": "插件初始化时调用一下check确定登录状态",
+      "1.0.6": "修复未登录时_party_cache_data为空导致UI崩溃的BUG\n图片地址优先使用MP_DOMAIN获取,如果未配置使用127.0.0.1地址\n回调解析qrcode_key时判断是否存在,不存在发送错误\n优化请求企微接口的参数",
+      "1.0.5": "根据Code Review结果优化代码",
+      "1.0.4": "增加IP更新记录查询",
+      "1.0.3": "cookie保活输出返回值",
+      "1.0.2": "支持多个应用ID",
+      "1.0.1": "IP更新时发送通知,增加API接口,指定更新的IP",
+      "1.0.0": "初始化"
     }
   }
 }

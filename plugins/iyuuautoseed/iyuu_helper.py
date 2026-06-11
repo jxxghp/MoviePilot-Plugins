@@ -90,6 +90,15 @@ class IyuuHelper(object):
             return result.get('sid_sha1')
         return None
 
+    def __reseed_index(self, json_data: str, sha1: str) -> Tuple[Optional[dict], str]:
+        return self.__request_iyuu(url='/reseed/index/index', method='post', params={
+            'hash': json_data,
+            'sha1': sha1,
+            'sid_sha1': self._sid_sha1,
+            'timestamp': int(time.time()),
+            'version': self._version
+        })
+
     def get_seed_info(self, info_hashs: list) -> Tuple[Optional[dict], str]:
         """
         返回info_hash对应的站点id、种子id
@@ -101,13 +110,10 @@ class IyuuHelper(object):
         info_hashs.sort()
         json_data = json.dumps(info_hashs, separators=(',', ':'), ensure_ascii=False)
         sha1 = self.get_sha1(json_data)
-        result, msg = self.__request_iyuu(url='/reseed/index/index', method='post', params={
-            'hash': json_data,
-            'sha1': sha1,
-            'sid_sha1': self._sid_sha1,
-            'timestamp': int(time.time()),
-            'version': self._version
-        })
+        result, msg = self.__reseed_index(json_data, sha1)
+        if msg and "站点哈希值 require" in msg:
+            self._sid_sha1 = self.__report_existing()
+            result, msg = self.__reseed_index(json_data, sha1)
         return result, msg
 
     @staticmethod
