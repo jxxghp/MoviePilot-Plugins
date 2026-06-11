@@ -27,7 +27,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v2.json 中保持一致
-    plugin_version = "1.0.6"
+    plugin_version = "1.0.7"
     # 作者信息
     plugin_author = "书小白"
     author_url = "https://github.com/thshu/MoviePilot-Plugins"
@@ -87,6 +87,7 @@ class UpdateWeChatIp(_PluginBase):
 
         self._se = requests.Session()
         self._se.cookies.set('wwrtx.sid', self._wwrtx_sid)
+        self.check()
 
     def _save_current_config(self):
         self._login_success()
