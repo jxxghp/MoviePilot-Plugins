@@ -31,7 +31,7 @@ class DynamicWeChat(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "2.1.1"
+    plugin_version = "2.1.2"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -320,6 +320,7 @@ class DynamicWeChat(_PluginBase):
             if not event_data or event_data.get("action") != "dynamicwechat":
                 return
         context = None
+        self._qr_running = True
         try:
             context = self._launch_browser_context(headless=True)
             page = context.new_page()
@@ -349,6 +350,7 @@ class DynamicWeChat(_PluginBase):
         except Exception as e:
             logger.error(f"本地扫码任务: 本地扫码失败: {e}")
         finally:
+            self._qr_running = False
             if context:
                 context.close()
 
