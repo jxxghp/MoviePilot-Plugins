@@ -1111,5 +1111,23 @@
     "history": {
       "v1.0": "初始版本：根据 Trakt 播放记录自动清理下载器中已观看的种子"
     }
+  },
+  "UpdateWeChatIp": {
+    "name": "动态企微可信IP",
+    "description": "修改企微应用可信IP,可本地扫码刷新Cookie,直接调用接口更稳定",
+    "labels": "消息通知",
+    "version": "1.0.4",
+    "icon": "Wecom_A.png",
+    "author": "书小白",
+    "level": 2,
+    "v2": true,
+    "history": {
+      "1.0.5": "根据Code Review结果优化代码",
+      "1.0.4": "增加IP更新记录查询",
+      "1.0.3": "cookie保活输出返回值",
+      "1.0.2": "支持多个应用ID",
+      "1.0.1": "IP更新时发送通知,增加API接口,指定更新的IP",
+      "1.0.0": "初始化"
+    }
   }
 }
