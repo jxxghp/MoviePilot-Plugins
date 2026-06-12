@@ -27,7 +27,7 @@ class UpdateWeChatIp(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本，必须和 package.v2.json 中保持一致
-    plugin_version = "1.0.6"
+    plugin_version = "1.0.8"
     # 作者信息
     plugin_author = "书小白"
     author_url = "https://github.com/thshu/MoviePilot-Plugins"
@@ -526,6 +526,7 @@ class UpdateWeChatIp(_PluginBase):
         pass
 
     def _get_key(self):
+        logger.info("开始获取登录二维码key")
         url = "https://work.weixin.qq.com/wework_admin/wwqrlogin/mng/get_key"
         current_ts = int(time.time() * 1000)
         params = {
@@ -536,23 +537,29 @@ class UpdateWeChatIp(_PluginBase):
             'crossorigin': "1"
         }
         response = self._se.get(url, params=params, headers=self._headers)
+        logger.info(f"获取登录二维码key成功,返回值:{response.text}")
 
         return response.json().get('data', {}).get('qrcode_key')
 
     def _qrcode(self, key) -> str:
+        logger.info("开始获取登录二维码图片")
         url = "https://work.weixin.qq.com/wework_admin/wwqrlogin/mng/qrcode"
         params = {
             'qrcode_key': key,
             'login_type': "login_admin"
         }
         response = self._se.get(url, params=params, headers=self._headers)
+        logger.info("登录二维码图片获取成功")
         img_path: Path = self.get_data_path() / f"WeChatQr.jpg"
         img_path.write_bytes(response.content)
+        logger.info(f"登录二维码已写入文件,路径:{img_path}")
         uri = f"/api/v1/plugin/{self.__class__.__name__}/img/{uuid.uuid4().__str__().replace('-', '')}?apikey={settings.API_TOKEN}"
         img_url = settings.MP_DOMAIN(uri) or f"http://127.0.0.1:{settings.PORT}{uri}"
+        logger.info(f"构建二维码地址为:{img_url}")
         return img_url
 
     def _check(self, key) -> Dict:
+        logger.info(f"开始获取扫码结果")
         for _ in range(2):
             url = "https://work.weixin.qq.com/wework_admin/wwqrlogin/mng/check"
             params = {
@@ -561,12 +568,15 @@ class UpdateWeChatIp(_PluginBase):
             }
             response = self._se.get(url, params=params, headers=self._headers)
             data = response.json().get('data', {})
+            logger.info(f"扫码结果获取完成:{response.text}")
             if data.get("status") == "QRCODE_SCAN_SUCC":
                 return data
             time.sleep(1)
+        logger.info(f"获取扫码结果超时")
         return None
 
     def _loginpage_wx(self, key, code) -> requests.Response:
+        logger.info(f"开始登录")
         url = "https://work.weixin.qq.com/wework_admin/loginpage_wx"
         params = {
             '_r': "234",
@@ -581,19 +591,23 @@ class UpdateWeChatIp(_PluginBase):
             'confirm_type': "0"
         }
         response = self._se.get(url, params=params, headers=self._headers)
+        logger.info(f"登录完成,返回值:{response.text}")
         return response
 
     def _confirm_captcha(self, tl_key, captcha):
+        logger.info(f"开始提交验证码")
         _url = "https://work.weixin.qq.com/wework_admin/mobile_confirm/confirm_captcha?ajax=1&f=json&d2st="
         _data = {
             "captcha": captcha,
             "tl_key": tl_key
         }
         res = self._se.post(_url, json=_data, headers=self._headers)
-        self._se.get(f"https://work.weixin.qq.com/wework_admin/login/choose_corp?tl_key={tl_key}")
-        logger.info("提交验证码")
+        logger.info(f"提交验证码返回值:{res.text}")
+        res = self._se.get(f"https://work.weixin.qq.com/wework_admin/login/choose_corp?tl_key={tl_key}")
+        logger.info(f"choose_corp接口返回值:{res.text}")
 
     def _party_cache(self):
+        logger.info(f"开始获取企业信息,判断是否登录成功")
         if not self._wwrtx_sid:
             return False
         url = "https://work.weixin.qq.com/wework_admin/contacts/party/cache"
@@ -622,11 +636,13 @@ class UpdateWeChatIp(_PluginBase):
         return False
 
     def _login(self, channel, userid):
+        logger.info(f"触发登录回调,开始执行登录步骤")
         check_data = self._check(self._qrcode_key)
         if check_data:
             code = check_data.get('auth_code')
             res = self._loginpage_wx(self._qrcode_key, code)
             if 'tl_key' in res.url:
+                logger.info(f"返回值中获取到tl_key,触发短信验证码")
                 self.post_message(
                     channel=channel,
                     title="短信验证码",
@@ -646,6 +662,7 @@ class UpdateWeChatIp(_PluginBase):
             else:
                 self._wwrtx_sid = self._se.cookies.get_dict().get('wwrtx.sid')
                 if self._party_cache():
+                    logger.info(f"登录成功")
                     self._login_success()
                     self.post_message(
                         channel=channel,
@@ -654,6 +671,7 @@ class UpdateWeChatIp(_PluginBase):
                         text=f"成功登录企业:{self._party_cache_data.get('party_list', {}).get('list', [{}])[0].get('name')}",
                     )
                 else:
+                    logger.error(f"登录失败,返回值:{self._party_cache_data}")
                     self.post_message(
                         channel=channel,
                         title="登录失败",
@@ -731,6 +749,7 @@ class UpdateWeChatIp(_PluginBase):
         return "获取IP失败"
 
     def _get_corp_app_v2(self):
+        logger.info(f"开始获取企业应用配置")
         if not self._app_id:
             logger.error("未配置应用ID")
             return {}
