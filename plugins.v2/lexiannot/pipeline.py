@@ -4,9 +4,7 @@ import threading
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
-from pydantic import SecretStr
 
-from app.core.config import settings
 from app.schemas import Context
 from app.schemas.types import MediaType
 from app.log import logger
@@ -58,59 +56,6 @@ UNIVERSAL_POS_MAP: dict[UniversalPos, str | None] = {
     UniversalPos.SYM: None,
     UniversalPos.X: None,
 }
-
-
-def initialize_llm(
-    provider: str,
-    api_key: str,
-    model_name: str,
-    base_url: str | None,
-    temperature: float = 0.1,
-    max_retries: int = 3,
-    proxy: bool = False,
-) -> BaseChatModel:
-    """初始化 LLM"""
-
-    if provider == "google":
-        if proxy:
-            from langchain_openai import ChatOpenAI
-
-            return ChatOpenAI(
-                model=settings.LLM_MODEL,
-                api_key=SecretStr(api_key),
-                max_retries=3,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai",
-                temperature=settings.LLM_TEMPERATURE,
-                openai_proxy=settings.PROXY_HOST,
-            )
-        from langchain_google_genai import ChatGoogleGenerativeAI
-
-        return ChatGoogleGenerativeAI(
-            model=model_name,
-            google_api_key=api_key,  # noqa
-            max_retries=max_retries,
-            temperature=temperature,
-        )
-    elif provider == "deepseek":
-        from langchain_deepseek import ChatDeepSeek
-
-        return ChatDeepSeek(
-            model=model_name,
-            api_key=SecretStr(api_key),
-            max_retries=max_retries,
-            temperature=temperature,
-        )
-    else:
-        from langchain_openai import ChatOpenAI
-
-        return ChatOpenAI(
-            model=model_name,
-            api_key=SecretStr(api_key),
-            max_retries=max_retries,
-            base_url=base_url,
-            temperature=temperature,
-            openai_proxy=settings.PROXY_HOST if proxy else None,
-        )
 
 
 def convert_pos_to_spacy(pos: str):
@@ -727,5 +672,4 @@ def llm_process_chain(
                 lexi, llm, context, start, end, learner_level, media_name, translate_sentences
             )
         )
-
     return SegmentList(root=segments_list)

@@ -365,3 +365,12 @@ class VocabularyAnnotatingToolInput(BaseModel):
 class QueryAnnotationTasksToolInput(BaseModel):
     count: int = Field(default=5, description="The maximum number of returned annotation tasks")
     explanation: str = Field(..., description="This is a tool for querying the latest annotation tasks in AnnotLexi")
+
+
+class LLMConfig(BaseModel):
+    apikey: str
+    provider: str
+    model_name: str
+    thinking_level: str | None = Field(default=None)
+    base_url: str | None = Field(default=None)
+    use_proxy: bool = Field(default=False)

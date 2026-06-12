@@ -1,55 +1,39 @@
+import asyncio
 import copy
-import os
 import json
+import os
 import queue
-import re
 import subprocess
 import sys
 import threading
-from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Optional, Literal
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
-import pymediainfo
-from langdetect import detect
 from langchain_community.callbacks import get_openai_callback
-from pysubs2 import SSAFile, SSAEvent, SSAStyle, Color, Alignment
+from pysubs2 import Alignment, Color, SSAEvent, SSAStyle, SSAFile
 
-from app.core.config import settings
+from app.agent.llm.helper import LLMHelper
+from app.chain.media import MediaChain
+from app.core.cache import cached
+from app.core.config import global_vars, settings
+from app.core.context import MediaInfo
+from app.core.event import Event, eventmanager
 from app.helper.directory import DirectoryHelper
 from app.log import logger
 from app.plugins import _PluginBase
-from app.core.cache import cached
-from app.core.event import eventmanager, Event
-from app.schemas import Response
-from app.schemas.types import NotificationType, MediaType
+from app.schemas import Context, Response, TransferInfo
+from app.schemas.types import EventType, MediaType, NotificationType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
-from app.schemas import TransferInfo, Context
-from app.schemas.types import EventType
-from app.core.context import MediaInfo
-from app.chain.media import MediaChain
 
 from .agenttool import QueryAnnotationTasksTool, VocabularyAnnotatingTool
 from .lexicon import Lexicon
-from .schemas import (
-    IDGenerator,
-    TaskStatus,
-    Task,
-    TasksApiParams,
-    ProcessResult,
-    SegmentList,
-    TaskParams, SegmentStatistics,
-)
+from .pipeline import UNIVERSAL_POS_MAP, extract_advanced_words, llm_process_chain
+from .schemas import IDGenerator, ProcessResult, SegmentList, SegmentStatistics, Task, TaskParams, TasksApiParams, \
+    TaskStatus, LLMConfig
 from .spacyworker import SpacyWorker
-from .subtitle import SubtitleProcessor, style_text
-from .pipeline import (
-    extract_advanced_words,
-    llm_process_chain,
-    initialize_llm,
-    UNIVERSAL_POS_MAP,
-)
+from .subtitle import SubtitleHelper, SubtitleProcessor, style_text
 
 
 class LexiAnnot(_PluginBase):
@@ -60,7 +44,7 @@ class LexiAnnot(_PluginBase):
     # 插件图标
     plugin_icon = "LexiAnnot.png"
     # 插件版本
-    plugin_version = "1.2.5"
+    plugin_version = "1.2.6"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -91,7 +75,6 @@ class LexiAnnot(_PluginBase):
     _ffmpeg_path: str = "ffmpeg"
     _english_only = False
     _when_file_trans = False
-    _model_temperature = ""
     _custom_files = ""
     _accent_color = ""
     _font_scaling = ""
@@ -102,6 +85,8 @@ class LexiAnnot(_PluginBase):
     _libraries: List[str] = []
     _use_mp_agent: bool = False
     _use_proxy: bool = False
+    _test_llm: bool = False
+    _thinking_level: str = None
 
     # protected variables
     _lexicon_repo = "https://raw.githubusercontent.com/wumode/LexiAnnot/"
@@ -137,7 +122,6 @@ class LexiAnnot(_PluginBase):
             self._ffmpeg_path = config.get("ffmpeg_path") or "ffmpeg"
             self._english_only = config.get("english_only")
             self._when_file_trans = config.get("when_file_trans")
-            self._model_temperature = config.get("model_temperature") or "0.3"
             self._show_phonetics = config.get("show_phonetics")
             self._custom_files = config.get("custom_files") or ""
             self._accent_color = config.get("accent_color")
@@ -151,6 +135,8 @@ class LexiAnnot(_PluginBase):
             self._llm_provider = config.get("llm_provider") or "google"
             self._use_mp_agent = config.get("use_mp_agent") or False
             self._use_proxy = config.get("use_proxy") or False
+            self._test_llm = config.get("test_llm") or False
+            self._thinking_level = config.get("thinking_level") or "off"
 
             libraries = [
                 library.name for library in DirectoryHelper().get_library_dirs()
@@ -158,7 +144,7 @@ class LexiAnnot(_PluginBase):
             self._libraries = [
                 library for library in self._libraries if library in libraries
             ]
-            self._accent_color_rgb = LexiAnnot.hex_to_rgb(self._accent_color) or (255, 255, 0,)
+            self._accent_color_rgb = SubtitleHelper.hex_to_rgb(self._accent_color) or (255, 255, 0,)
             self._color_alpha = int(self._opacity) if self._opacity and len(self._opacity) else 0
         if self._delete_data:
             # 删除不再保存在数据库的数据
@@ -193,6 +179,9 @@ class LexiAnnot(_PluginBase):
                         continue
                     self.add_media_file(file_path)
                 self._onlyonce = False
+            if self._test_llm:
+                asyncio.run_coroutine_threadsafe(self.test_llm(), global_vars.loop)
+                self._test_llm = False
         self.__update_config()
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -679,14 +668,17 @@ class LexiAnnot(_PluginBase):
                                                             "model": "gemini_model",
                                                             "disabled": "use_mp_agent",
                                                             "label": "模型名称",
+                                                            "hint": "支持手动输入",
+                                                            "persistent-hint": True,
                                                             "items": [
-                                                                "gemini-2.5-flash",
-                                                                "gemini-2.5-flash-lite",
+                                                                "gemini-3.5-flash",
+                                                                "gemini-3.1-flash-lite",
                                                                 "gemini-2.5-pro",
-                                                                "gemini-2.0-flash",
-                                                                "gemini-2.0-flash-lite",
-                                                                "deepseek-ai/DeepSeek-V3.2",
-                                                                "deepseek-ai/DeepSeek-R1"
+                                                                "gemini-2.5-flash-lite",
+                                                                "deepseek-ai/DeepSeek-V4-Pro",
+                                                                "deepseek-ai/DeepSeek-V4-Flash",
+                                                                "deepseek-v4-flash",
+                                                                "deepseek-v4-pro"
                                                             ],
                                                         },
                                                     }
@@ -737,28 +729,6 @@ class LexiAnnot(_PluginBase):
                                             },
                                             {
                                                 "component": "VCol",
-                                                "props": {"cols": 12, "md": 4},
-                                                "content": [
-                                                    {
-                                                        "component": "VSelect",
-                                                        "props": {
-                                                            "model": "model_temperature",
-                                                            "label": "模型温度",
-                                                            "items": [
-                                                                {"title": "0", "value": "0"},
-                                                                {"title": "0.1", "value": "0.1"},
-                                                                {"title": "0.2", "value": "0.2"},
-                                                                {"title": "0.3", "value": "0.3"},
-                                                                {"title": "0.4", "value": "0.4"},
-                                                                {"title": "0.5", "value": "0.5"},
-                                                                {"title": "1.0", "value": "1.0"},
-                                                            ],
-                                                        },
-                                                    }
-                                                ],
-                                            },
-                                            {
-                                                "component": "VCol",
                                                 "props": {
                                                     "cols": 12,
                                                     "md": 4,
@@ -777,8 +747,55 @@ class LexiAnnot(_PluginBase):
                                                     }
                                                 ],
                                             },
+                                            {
+                                                "component": "VCol",
+                                                "props": {"cols": 12, "md": 4},
+                                                "content": [
+                                                    {
+                                                        "component": "VSelect",
+                                                        "props": {
+                                                            "model": "thinking_level",
+                                                            "label": "思考模式",
+                                                            "disabled": "use_mp_agent",
+                                                            "items": [
+                                                                {"title": "关闭 (off)", "value": "off"},
+                                                                {"title": "自动 (auto)", "value": "auto"},
+                                                                {"title": "最小 (minimal)", "value": "minimal"},
+                                                                {"title": "低 (low)", "value": "low"},
+                                                                {"title": "中 (medium)", "value": "medium"},
+                                                                {"title": "高 (high)", "value": "high"},
+                                                                {"title": "极高 (max)", "value": "max"},
+                                                                {"title": "超高 (xhigh)", "value": "xhigh"},
+                                                            ],
+                                                        },
+                                                    }
+                                                ],
+                                            },
                                         ],
                                     },
+                                    {
+                                        "component": "VRow",
+                                        "content": [
+                                            {
+                                                "component": "VCol",
+                                                "props": {
+                                                    "cols": 12,
+                                                    "md": 12,
+                                                },
+                                                "content": [
+                                                    {
+                                                        "component": "VSwitch",
+                                                        "props": {
+                                                            "model": "test_llm",
+                                                            "label": "测试调用",
+                                                            "hint": "启用后，请在插件日志查看测试结果",
+                                                            "persistent-hint": True
+                                                        },
+                                                    }
+                                                ],
+                                            },
+                                        ]
+                                    }
                                 ],
                             },
                         ],
@@ -883,7 +900,6 @@ class LexiAnnot(_PluginBase):
             "ffmpeg_path": "",
             "english_only": True,
             "when_file_trans": True,
-            "model_temperature": "0.3",
             "custom_files": "",
             "accent_color": "",
             "font_scaling": "1",
@@ -896,6 +912,8 @@ class LexiAnnot(_PluginBase):
             "llm_base_url": "",
             "use_mp_agent": False,
             "use_proxy": False,
+            "test_llm": False,
+            "thinking_level": "off"
         }
 
     def get_api(self) -> List[Dict[str, Any]]:
@@ -1046,6 +1064,25 @@ class LexiAnnot(_PluginBase):
         else:
             logger.debug("ℹ️ No running worker thread to stop.")
 
+    async def test_llm(self):
+        model_config = self.get_model_config()
+        try:
+            logger.info("测试 LLM 调用...")
+            result = await LLMHelper.test_current_settings(
+                provider=model_config.provider,
+                model=model_config.model_name,
+                thinking_level=model_config.thinking_level,
+                use_proxy=model_config.use_proxy,
+                base_url=model_config.base_url,
+                api_key=model_config.apikey
+            )
+            if not result.get("reply_preview"):
+                logger.warning("LLM 响应为空")
+            else:
+                logger.info(f"LLM 返回: {result['reply_preview']}")
+        except Exception as err:
+            logger.error(f"LLM 调用出错: {str(err)}")
+
     def delete_data(self):
         # 删除词典
         data_path = self.get_data_path()
@@ -1156,7 +1193,6 @@ class LexiAnnot(_PluginBase):
                     "ffmpeg_path": self._ffmpeg_path,
                     "english_only": self._english_only,
                     "when_file_trans": self._when_file_trans,
-                    "model_temperature": self._model_temperature,
                     "show_phonetics": self._show_phonetics,
                     "custom_files": self._custom_files,
                     "accent_color": self._accent_color,
@@ -1170,6 +1206,8 @@ class LexiAnnot(_PluginBase):
                     "llm_base_url": self._llm_base_url,
                     "use_mp_agent": self._use_mp_agent,
                     "use_proxy": self._use_proxy,
+                    "test_llm": self._test_llm,
+                    "thinking_level": self._thinking_level
                 }
             )
 
@@ -1310,7 +1348,7 @@ class LexiAnnot(_PluginBase):
 
         ffmpeg_path = self._ffmpeg_path if self._ffmpeg_path else "ffmpeg"
         eng_mark = ["en", "en-US", "eng", "en-GB", "english", "en-AU"]
-        embedded_subtitles = LexiAnnot._extract_subtitles_by_lang(path, eng_mark, ffmpeg_path)
+        embedded_subtitles = SubtitleHelper.extract_subtitles_by_lang(path, eng_mark, ffmpeg_path)
         if not embedded_subtitles:
             return ProcessResult(
                 status=TaskStatus.CANCELED, message="未找到嵌入式英文文本字幕"
@@ -1332,7 +1370,7 @@ class LexiAnnot(_PluginBase):
                     return ProcessResult(status=TaskStatus.CANCELED, message="任务已取消")
                 ass_subtitle = SSAFile.from_string(embedded_subtitle["subtitle"], format_="ass")
                 if embedded_subtitle.get("codec_id") == "S_TEXT/UTF8":
-                    ass_subtitle = LexiAnnot.set_srt_style(ass_subtitle)
+                    ass_subtitle = SubtitleHelper.set_srt_style(ass_subtitle)
                 ass_subtitle = self.__set_style(ass_subtitle)
                 ass_subtitle, stat = self.process_subtitles(ass_subtitle, lexi, spacy_worker, mediainfo)
                 if self._shutdown_event.is_set():
@@ -1498,170 +1536,6 @@ class LexiAnnot(_PluginBase):
         for new_path in transfer_info.file_list_new or []:
             self.add_media_file(new_path)
 
-    @staticmethod
-    def format_duration(ms):
-        total_seconds, milliseconds = divmod(ms, 1000)
-        hours, remainder = divmod(total_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        hundredths = milliseconds // 10
-        return f"{hours}:{minutes:02}:{seconds:02}.{hundredths:02}"
-
-    @staticmethod
-    def _remove_substring(replacements: list[dict]):
-        new_list = []
-        replacements.sort(key=lambda x: x["end"] - x["start"], reverse=True)
-        for r in replacements:
-            if any((r["start"] >= new["start"] and r["end"] <= new["end"]) for new in new_list):
-                continue
-            new_list.append(r)
-        return new_list
-
-    @staticmethod
-    def replace_by_plaintext_positions(line: SSAEvent, replacements: List[dict]):
-        """
-        使用 replacements 中的 plaintext 位置信息, 替换 line.text 中的内容。
-        :param line: SSAEvent line
-        :param replacements: [{'start': int, 'end': int, 'old_text': str, 'new_text': str}, ...]
-        """
-        text = line.text
-        tag_pattern = re.compile(r"{.*?}")  # 匹配 {xxx} 格式控制符
-        special_pattern = re.compile(r"\\[Nh]")
-        # 构建 plaintext 位置到 text 索引的映射
-        mapping = {}  # plaintext_index -> text_index
-        p_index = 0  # 当前 plaintext 索引
-        t_index = 0  # 当前 text 索引
-
-        while t_index < len(text):
-            if text[t_index] == "{":
-                # 跳过格式标签
-                match = tag_pattern.match(text, t_index)
-                if match:
-                    t_index = match.end()
-                    continue
-            elif text[t_index] == "\\":
-                match = special_pattern.match(text, t_index)
-                if match:
-                    t_index = match.end() - 1
-                    continue
-            # 非格式字符
-            mapping[p_index] = t_index
-            p_index += 1
-            t_index += 1
-        replacements = LexiAnnot._remove_substring(replacements)
-        # 按照 mapping 执行替换（倒序替换防止位置错位）
-        new_text = text
-        for r in sorted(replacements, key=lambda x: x["start"], reverse=True):
-            start = mapping.get(r["start"])
-            end = mapping.get(r["end"] - 1)
-            if start is None or end is None:
-                continue
-            end += 1
-            new_text = new_text[:start] + r["new_text"] + new_text[end:]
-
-        line.text = new_text
-
-    @staticmethod
-    def analyze_ass_language(ass_file: SSAFile):
-
-        def _replace_with_spaces(_text):
-            """
-            使用等长的空格替换文本中的 (xxx) 模式。
-            例如："(Hi)" 会被替换成 "    " (4个空格)
-            """
-            pattern = r"(\([^()]*\)|\[[^\[\]]*\])"
-            return re.sub(pattern, lambda match: " " * len(match.group(1)), _text)
-
-        styles = {}
-        for style in ass_file.styles:
-            styles[style] = {"text": [], "duration": 0, "text_size": 0, "times": 0}
-        for dialogue in ass_file:
-            style = dialogue.style
-            text = _replace_with_spaces(dialogue.plaintext)
-            sub_text = text.split("\n")
-            if style not in styles or not text:
-                continue
-            styles[style]["text"].extend(sub_text)
-            styles[style]["duration"] += dialogue.duration
-            styles[style]["text_size"] += len(text)
-            styles[style]["times"] += 1
-        style_language_analysis = {}
-        for style_name, data in styles.items():
-            all_text = " ".join(data["text"])
-            if not all_text.strip():
-                style_language_analysis[style_name] = None
-                continue
-
-            languages = []
-            # 对每个文本片段进行语言检测
-            for text_fragment in data["text"]:
-                try:
-                    lang = detect(text_fragment)
-                    languages.append(lang)
-                except Exception as e:
-                    # 无法检测的文本
-                    logger.debug(e)
-                    pass
-
-            if languages:
-                language_counts = Counter(languages)
-                most_common_language = language_counts.most_common(1)[0]
-                style_language_analysis[style_name] = {
-                    "main_language": most_common_language[0],
-                    "proportion": most_common_language[1] / len(languages),
-                    "duration": data["duration"],
-                    "text_size": data["text_size"],
-                    "times": data["times"],
-                }
-            else:
-                style_language_analysis[style_name] = None
-
-        return style_language_analysis
-
-    @staticmethod
-    def select_main_style_weighted(analysis: Dict[str, Any], known_language: str, weights = None):
-        """
-        根据语言分析结果和已知的字幕语言，使用加权评分选择主要样式
-
-        :params analysis: `analyze_ass_language` 函数的输出结果
-        :params known_language: 已知的字幕语言代码
-        :params weights: 各个维度的权重，权重之和应为 1
-        :returns: 主要字幕的样式名称，如果没有匹配的样式则返回 None
-        """
-        if weights is None:
-            weights = {"times": 0.5, "text_size": 0.4, "duration": 0.1}
-        matching_styles = []
-        max_times = max([analysis.get("times", 0) for _, analysis in analysis.items() if analysis] or [0]) or 1
-        max_text_size = max([analysis.get("text_size", 0) for _, analysis in analysis.items() if analysis] or [0]) or 1
-        max_duration = max([analysis.get("duration", 0) for _, analysis in analysis.items() if analysis] or [0]) or 1
-        for style, analysis in analysis.items():
-            if not analysis:
-                continue
-            if analysis.get("main_language") == known_language:
-                # 跳过多语言
-                if analysis.get("proportion", 0) < 0.5:
-                    continue
-                score = 0
-                score += analysis.get("times", 0) * weights.get("times", 0) / max_times
-                score += analysis.get("text_size", 0) * weights.get("text_size", 0) / max_text_size
-                score +=  analysis.get("duration", 0) * weights.get("duration", 0) / max_duration
-                matching_styles.append((style, score))
-
-        if not matching_styles:
-            return None
-
-        sorted_styles = sorted(matching_styles, key=lambda item: item[1], reverse=True)
-        return sorted_styles[0][0]
-
-    @staticmethod
-    def set_srt_style(ass: SSAFile) -> SSAFile:
-        ass.info["ScaledBorderAndShadow"] = "no"
-        play_res_y = int(ass.info["PlayResY"])
-        if "Default" in ass.styles:
-            ass.styles["Default"].marginv = play_res_y // 16
-            ass.styles["Default"].fontname = "Microsoft YaHei"
-            ass.styles["Default"].fontsize = play_res_y // 16
-        return ass
-
     def __set_style(self, ass: SSAFile) -> SSAFile:
         font_scaling = (
             float(self._font_scaling)
@@ -1747,107 +1621,25 @@ class LexiAnnot(_PluginBase):
         ass.styles["Annotation EXAM"] = cefr_style
         return ass
 
-    @staticmethod
-    def hex_to_rgb(hex_color: str | None) -> tuple[int, ...] | None:
-        if not hex_color:
-            return None
-        pattern = r"^#[0-9a-fA-F]{6}$"
-        if re.match(pattern, hex_color) is None:
-            return None
-        hex_color = hex_color.lstrip("#")  # 去掉前面的 #
-        return tuple(int(hex_color[i: i + 2], 16) for i in (0, 2, 4))
-
-    @staticmethod
-    def __extract_subtitle(
-            video_path: str,
-            subtitle_stream_index: str,
-            ffmpeg_path: str = "ffmpeg",
-            sub_format="ass",
-    ) -> Optional[str]:
-        if sub_format not in ["srt", "ass"]:
-            raise ValueError("Invalid subtitle format")
-        try:
-            map_parameter = f"0:s:{subtitle_stream_index}"
-            command = [ffmpeg_path, "-i", video_path, "-map", map_parameter, "-f", sub_format, "-"]
-            result = subprocess.run(
-                command, capture_output=True, text=True, encoding="utf-8", check=True
+    def get_model_config(self) -> LLMConfig:
+        if self._use_mp_agent:
+            return LLMConfig(
+                apikey=settings.LLM_API_KEY,
+                base_url=settings.LLM_BASE_URL,
+                model_name=settings.LLM_MODEL,
+                thinking_level=settings.LLM_THINKING_LEVEL,
+                provider=settings.LLM_PROVIDER.lower(),
+                use_proxy=settings.LLM_USE_PROXY
             )
-            return result.stdout
-        except FileNotFoundError:
-            logger.warn(f"错误：找不到视频文件 '{video_path}'")
-            return None
-        except subprocess.CalledProcessError as e:
-            logger.warn(f"错误：提取字幕失败。\n错误信息：{e}")
-            logger.warn(
-                f"FFmpeg 输出 (stderr):\n{e.stderr.decode('utf-8', errors='ignore')}"
+        else:
+            return LLMConfig(
+                apikey=self._gemini_apikey,
+                base_url=self._llm_base_url,
+                model_name=self._gemini_model,
+                thinking_level=self._thinking_level,
+                provider=self._llm_provider.lower(),
+                use_proxy=self._use_proxy
             )
-            return None
-
-    @staticmethod
-    def _extract_subtitles_by_lang(
-            video_path: str, lang: str | list = "en", ffmpeg: str = "ffmpeg"
-    ) -> list[dict]:
-        """
-        提取视频文件中的内嵌英文字幕，使用 MediaInfo 查找字幕流。
-        """
-
-        def check_lang(track_lang: str) -> bool:
-            if isinstance(lang, list):
-                return track_lang in lang
-            return track_lang == lang
-
-        supported_codec = ["S_TEXT/UTF8", "S_TEXT/ASS", "tx3g"]
-        subtitles = []
-        try:
-            media_info: pymediainfo.MediaInfo = pymediainfo.MediaInfo.parse(video_path)
-            for track in media_info.tracks:
-                if (
-                        track.track_type == "Text"
-                        and check_lang(track_lang=track.language)
-                        and track.codec_id in supported_codec
-                ):
-                    subtitle_stream_index = (
-                        track.stream_identifier
-                    )  # MediaInfo 的 stream_id 从 1 开始，ffmpeg 从 0 开始
-                    extracted_subtitle = LexiAnnot.__extract_subtitle(
-                        video_path, subtitle_stream_index, ffmpeg
-                    )
-                    duration = 0
-                    if hasattr(track, "duration"):
-                        try:
-                            duration = int(float(track.duration))
-                        except (ValueError, TypeError):
-                            pass
-                    if extracted_subtitle:
-                        subtitles.append(
-                            {
-                                "title": track.title or "",
-                                "subtitle": extracted_subtitle,
-                                "codec_id": track.codec_id,
-                                "stream_id": subtitle_stream_index,
-                                "duration": duration,
-                            }
-                        )
-            if subtitles:
-                # remove outliers with abnormally short duration
-                if len(subtitles) > 1:
-                    durations = [sub["duration"] for sub in subtitles if sub["duration"] > 0]
-                    if durations:
-                        avg_duration = sum(durations) / len(durations)
-                        subtitles = [
-                            sub for sub in subtitles if sub["duration"] >= avg_duration * 0.2
-                        ]
-            if not subtitles:
-                logger.warn("未找到标记为英语的文本字幕流")
-
-        except FileNotFoundError:
-            logger.error(f"找不到视频文件 '{video_path}'")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"错误：提取字幕失败。\n错误信息：{e}")
-            logger.error(f"FFmpeg 输出 (stderr):\n{e.stderr}")
-        except Exception as e:
-            logger.error(f"使用 MediaInfo 提取字幕时发生错误：{e}")
-        return subtitles
 
     def _process_chain(
             self,
@@ -1867,7 +1659,6 @@ class LexiAnnot(_PluginBase):
         CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
         simple_vocabulary = set(filter(lambda x: x < self._annot_level, CEFR_LEVELS))
         learner_level = max(simple_vocabulary)
-        model_temperature = float(self._model_temperature) if self._model_temperature else 0.3
         logger.info("通过 spaCy 分词...")
         for seg in segments:
             if self._shutdown_event.is_set():
@@ -1879,25 +1670,19 @@ class LexiAnnot(_PluginBase):
                 simple_level=simple_vocabulary
             )
         if self._gemini_available:
-            if self._use_mp_agent:
-                llm_apikey = settings.LLM_API_KEY
-                llm_base_url = settings.LLM_BASE_URL
-                llm_model_name = settings.LLM_MODEL
-                llm_provider = settings.LLM_PROVIDER.lower()
-            else:
-                llm_apikey = self._gemini_apikey
-                llm_base_url = self._llm_base_url
-                llm_model_name = self._gemini_model
-                llm_provider = self._llm_provider.lower()
-            llm = initialize_llm(
-                provider=llm_provider,
-                model_name=llm_model_name,
-                base_url=llm_base_url,
-                api_key=llm_apikey or '',
-                temperature=model_temperature,
-                max_retries=self._max_retries,
-                proxy=self._use_proxy,
-            )
+            llm_config = self.get_model_config()
+            llm = asyncio.run_coroutine_threadsafe(
+                LLMHelper.get_llm(
+                    provider=llm_config.provider,
+                    model=llm_config.model_name,
+                    thinking_level=llm_config.thinking_level,
+                    api_key=llm_config.apikey,
+                    base_url=llm_config.base_url,
+                    use_proxy=llm_config.use_proxy
+                ),
+                global_vars.loop
+            ).result()
+
             segments = llm_process_chain(
                 lexi=lexi,
                 llm=llm,
@@ -1926,8 +1711,8 @@ class LexiAnnot(_PluginBase):
             f"{self._accent_color_rgb[1]:02x}{self._accent_color_rgb[0]:02x}&"
         )  # &H00FFFFFF&
 
-        statistical_res = LexiAnnot.analyze_ass_language(ass_file)
-        main_style: str | None = LexiAnnot.select_main_style_weighted(statistical_res, lang)
+        statistical_res = SubtitleHelper.analyze_ass_language(ass_file)
+        main_style: str | None = SubtitleHelper.select_main_style_weighted(statistical_res, lang)
         if not main_style:
             logger.error("无法确定主要字幕样式")
             return None, None
@@ -2004,7 +1789,7 @@ class LexiAnnot(_PluginBase):
                         "new_text": new_text,
                     }
                     replacements.append(replacement)
-                LexiAnnot.replace_by_plaintext_positions(
+                SubtitleHelper.replace_by_plaintext_positions(
                     main_processor[seg.index], replacements
                 )
             if self._sentence_translation:
