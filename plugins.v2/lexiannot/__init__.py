@@ -1671,7 +1671,7 @@ class LexiAnnot(_PluginBase):
             )
         if self._gemini_available:
             llm_config = self.get_model_config()
-            llm = asyncio.run(
+            llm = asyncio.run_coroutine_threadsafe(
                 LLMHelper.get_llm(
                     provider=llm_config.provider,
                     model=llm_config.model_name,
@@ -1679,8 +1679,9 @@ class LexiAnnot(_PluginBase):
                     api_key=llm_config.apikey,
                     base_url=llm_config.base_url,
                     use_proxy=llm_config.use_proxy
-                )
-            )
+                ),
+                global_vars.loop
+            ).result()
 
             segments = llm_process_chain(
                 lexi=lexi,

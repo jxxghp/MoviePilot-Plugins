@@ -96,17 +96,17 @@ class SubtitleHelper:
         max_times = max([analysis.get("times", 0) for _, analysis in analysis.items() if analysis] or [0]) or 1
         max_text_size = max([analysis.get("text_size", 0) for _, analysis in analysis.items() if analysis] or [0]) or 1
         max_duration = max([analysis.get("duration", 0) for _, analysis in analysis.items() if analysis] or [0]) or 1
-        for style, analysis in analysis.items():
-            if not analysis:
+        for style, info in analysis.items():
+            if not info:
                 continue
-            if analysis.get("main_language") == known_language:
+            if info.get("main_language") == known_language:
                 # 跳过多语言
-                if analysis.get("proportion", 0) < 0.5:
+                if info.get("proportion", 0) < 0.5:
                     continue
                 score = 0
-                score += analysis.get("times", 0) * weights.get("times", 0) / max_times
-                score += analysis.get("text_size", 0) * weights.get("text_size", 0) / max_text_size
-                score +=  analysis.get("duration", 0) * weights.get("duration", 0) / max_duration
+                score += info.get("times", 0) * weights.get("times", 0) / max_times
+                score += info.get("text_size", 0) * weights.get("text_size", 0) / max_text_size
+                score +=  info.get("duration", 0) * weights.get("duration", 0) / max_duration
                 matching_styles.append((style, score))
 
         if not matching_styles:
