@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from jieba_next import cut as jieba_cut
+    import jieba
 except Exception:
-    jieba_cut = None
+    jieba = None
 
 for _site_path in (
     "/usr/local/lib/python3.12/site-packages",
@@ -35,49 +35,39 @@ _LARK_IMPORT_LOCK = threading.Lock()
 _LARK_AUTO_INSTALL_ATTEMPTED = False
 _LARK_PACKAGE_SPEC = "lark-oapi>=1.4.0"
 
-try:
-    from app.chain.download import DownloadChain
-    from app.chain.media import MediaChain
-    from app.chain.search import SearchChain
-    from app.chain.subscribe import SubscribeChain
-    from app.core.event import eventmanager
-    from app.core.metainfo import MetaInfo
-    from app.db.downloadhistory_oper import DownloadHistoryOper
-    from app.db.models.downloadhistory import DownloadHistory
-    from app.db.models.transferhistory import TransferHistory
-    from app.db.site_oper import SiteOper
-    from app.db.subscribe_oper import SubscribeOper
-    from app.db.systemconfig_oper import SystemConfigOper
-    from app.helper.subscribe import SubscribeHelper
-    from app.core.plugin import PluginManager
-    from app.log import logger
-    from app.scheduler import Scheduler
-    from app.schemas.types import EventType, SystemConfigKey, TorrentStatus, media_type_to_agent
-    from app.utils.http import RequestUtils
-    from app.utils.string import StringUtils
-except Exception:
-    DownloadChain = None
-    DownloadHistoryOper = None
-    DownloadHistory = None
-    TransferHistory = None
-    MediaChain = None
-    SearchChain = None
-    SiteOper = None
-    SubscribeChain = None
-    SubscribeHelper = None
-    SubscribeOper = None
-    SystemConfigOper = None
-    eventmanager = None
-    MetaInfo = None
-    PluginManager = None
-    Scheduler = None
-    EventType = None
-    SystemConfigKey = None
-    TorrentStatus = None
-    media_type_to_agent = None
-    RequestUtils = None
-    StringUtils = None
+def _optional_import(module_name: str, attr_name: str) -> Any:
+    try:
+        module = importlib.import_module(module_name)
+        return getattr(module, attr_name)
+    except Exception:
+        return None
 
+
+DownloadChain = _optional_import("app.chain.download", "DownloadChain")
+DownloadHistoryOper = _optional_import("app.db.downloadhistory_oper", "DownloadHistoryOper")
+DownloadHistory = _optional_import("app.db.models.downloadhistory", "DownloadHistory")
+TransferHistory = _optional_import("app.db.models.transferhistory", "TransferHistory")
+MediaChain = _optional_import("app.chain.media", "MediaChain")
+SearchChain = _optional_import("app.chain.search", "SearchChain")
+SiteOper = _optional_import("app.db.site_oper", "SiteOper")
+SubscribeChain = _optional_import("app.chain.subscribe", "SubscribeChain")
+SubscribeHelper = _optional_import("app.helper.subscribe", "SubscribeHelper")
+SubscribeOper = _optional_import("app.db.subscribe_oper", "SubscribeOper")
+SystemConfigOper = _optional_import("app.db.systemconfig_oper", "SystemConfigOper")
+eventmanager = _optional_import("app.core.event", "eventmanager")
+MetaInfo = _optional_import("app.core.metainfo", "MetaInfo")
+PluginManager = _optional_import("app.core.plugin", "PluginManager")
+Scheduler = _optional_import("app.scheduler", "Scheduler")
+EventType = _optional_import("app.schemas.types", "EventType")
+SystemConfigKey = _optional_import("app.schemas.types", "SystemConfigKey")
+TorrentStatus = _optional_import("app.schemas.types", "TorrentStatus")
+media_type_to_agent = _optional_import("app.schemas.types", "media_type_to_agent")
+RequestUtils = _optional_import("app.utils.http", "RequestUtils")
+StringUtils = _optional_import("app.utils.string", "StringUtils")
+
+try:
+    from app.log import logger
+except Exception:
     class _FallbackLogger:
         @staticmethod
         def info(message: str) -> None:
@@ -1350,9 +1340,9 @@ class FeishuChannel:
             status_bool = self._transfer_status_bool(status)
             title_text = str(title or "").strip()
             search_text = title_text
-            if title_text and jieba_cut is not None:
+            if title_text and jieba is not None:
                 try:
-                    search_text = "%".join(jieba_cut(title_text, HMM=False))
+                    search_text = "%".join(jieba.cut(title_text, HMM=False))
                 except Exception:
                     search_text = title_text
 
@@ -1449,18 +1439,33 @@ class FeishuChannel:
             return "订阅失败：当前环境缺少 MoviePilot 订阅依赖。"
         meta = MetaInfo(keyword)
         try:
+            save_path = ""
+            if self.plugin is not None:
+                save_path = str(getattr(self.plugin, "_mp_download_save_path", "") or "").strip()
+            subscribe_kwargs = {
+                "title": keyword,
+                "year": meta.year,
+                "mtype": meta.type,
+                "season": meta.begin_season,
+                "username": "agentresourceofficer-feishu",
+                "exist_ok": True,
+                "message": False,
+            }
+            if save_path:
+                subscribe_kwargs["save_path"] = save_path
             sid, message = SubscribeChain().add(
-                title=keyword,
-                year=meta.year,
-                mtype=meta.type,
-                season=meta.begin_season,
-                username="agentresourceofficer-feishu",
-                exist_ok=True,
-                message=False,
+                **subscribe_kwargs,
             )
             if not sid:
                 return f"订阅失败：{keyword}\n原因：{message}"
+            if save_path and SubscribeOper is not None:
+                try:
+                    SubscribeOper().update(sid, {"save_path": save_path})
+                except Exception as exc:
+                    logger.warning(f"[AgentResourceOfficer][Feishu] 同步订阅保存路径失败：sid={sid} {exc}")
             lines = [f"已创建订阅：{keyword}", f"订阅ID：{sid}", f"结果：{message}"]
+            if save_path:
+                lines.append(f"保存路径：{save_path}")
             if immediate_search and Scheduler is not None:
                 Scheduler().start(job_id="subscribe_search", **{"sid": sid, "state": None, "manual": True})
                 lines.append("已触发一次订阅搜索。")
@@ -1775,7 +1780,7 @@ class FeishuChannel:
             "5. 转存 片名（默认 115）\n"
             "6. 夸克转存 片名\n"
             "7. 下载 片名\n"
-            "8. 更新检查 片名\n"
+            "8. 订阅 片名\n"
             "9. 选择 序号 / 详情 序号 / n\n"
             "10. 115登录 / 115状态 / 115任务\n"
             "11. 影巢签到 / 影巢签到日志"

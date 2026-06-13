@@ -9,6 +9,11 @@ from zoneinfo import ZoneInfo
 import requests
 
 try:
+    from app.helper.browser import PlaywrightHelper
+except Exception:
+    PlaywrightHelper = None
+
+try:
     from app.chain.media import MediaChain
 except Exception:
     MediaChain = None
@@ -32,17 +37,35 @@ class HDHiveOpenApiService:
     _login_action_router_state = '%5B%22%22%2C%7B%22children%22%3A%5B%22(auth)%22%2C%7B%22children%22%3A%5B%22login%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2C%22%2Flogin%22%2C%22refresh%22%5D%7D%5D%7D%2Cnull%2Cnull%2Ctrue%5D%7D%2Cnull%2Cnull%2Ctrue%5D'
     _login_action_fallback = "602b5a3af7ab2e93be6a14001ca83c1be491ccecea"
 
+    # Meta endpoints that only require app-level X-API-Key auth.
+    _META_ENDPOINT_PREFIXES: Tuple[str, ...] = (
+        "/api/open/ping",
+        "/api/open/quota",
+        "/api/open/usage",
+        "/api/open/usage/today",
+    )
+    # Refresh endpoint path per HDHive documented OpenAPI contract.
+    _REFRESH_ENDPOINT = "/api/public/openapi/oauth/refresh"
+
     def __init__(
         self,
         *,
         api_key: str = "",
         base_url: str = "https://hdhive.com",
         timeout: int = 30,
+        openapi_user_token: str = "",
+        openapi_refresh_token: str = "",
     ) -> None:
         self.api_key = self.normalize_text(api_key)
         self.base_url = (self.normalize_text(base_url) or "https://hdhive.com").rstrip("/")
         self.timeout = self.safe_int(timeout, 30)
+        self.openapi_user_token = self.normalize_text(openapi_user_token)
+        self.openapi_refresh_token = self.normalize_text(openapi_refresh_token)
         self._login_action_id = ""
+        self._in_refresh_retry = False
+
+    def _is_meta_endpoint(self, path: str) -> bool:
+        return any(path.startswith(prefix) for prefix in self._META_ENDPOINT_PREFIXES)
 
     @staticmethod
     def safe_int(value: Any, default: int) -> int:
@@ -187,15 +210,29 @@ class HDHiveOpenApiService:
         params: Optional[Dict[str, Any]] = None,
         payload: Optional[Dict[str, Any]] = None,
         timeout: Optional[int] = None,
+        require_user_auth: Optional[bool] = None,
     ) -> Tuple[bool, Dict[str, Any], str, int]:
         if not self.api_key:
             return False, {}, "未配置影巢 API Key", 400
+
+        # Auto-detect: meta endpoints don't need user auth; business endpoints do.
+        needs_user_auth = require_user_auth if require_user_auth is not None else not self._is_meta_endpoint(path)
+        if needs_user_auth and not self.openapi_user_token:
+            return False, {}, (
+                "当前影巢 OpenAPI 业务接口需要用户授权令牌（Bearer Token），"
+                "但未配置 hdhive_openapi_user_token。请先在插件配置中填入 OpenAPI 用户 Access Token，"
+                "或通过 OAuth 流程获取后填入。"
+            ), 401
+
+        headers = self.base_headers()
+        if needs_user_auth and self.openapi_user_token:
+            headers["Authorization"] = f"Bearer {self.openapi_user_token}"
 
         try:
             response = requests.request(
                 method=method.upper(),
                 url=self.api_url(path),
-                headers=self.base_headers(),
+                headers=headers,
                 params=params,
                 json=payload if payload is not None else None,
                 timeout=timeout or self.timeout,
@@ -216,6 +253,25 @@ class HDHiveOpenApiService:
         if response.ok and isinstance(result, dict) and result.get("success", True):
             return True, result, "", response.status_code
 
+        # If a business request fails with 401/403 and we have a refresh token, try once.
+        if (
+            needs_user_auth
+            and response.status_code in (401, 403)
+            and self.openapi_refresh_token
+            and not self._in_refresh_retry
+        ):
+            refresh_ok = self._try_refresh_user_token()
+            if refresh_ok:
+                self._in_refresh_retry = True
+                try:
+                    return self.request(
+                        method, path,
+                        params=params, payload=payload, timeout=timeout,
+                        require_user_auth=True,
+                    )
+                finally:
+                    self._in_refresh_retry = False
+
         message = ""
         if isinstance(result, dict):
             message = (
@@ -227,6 +283,40 @@ class HDHiveOpenApiService:
         if not message:
             message = f"HTTP {response.status_code}"
         return False, result if isinstance(result, dict) else {}, message, response.status_code
+
+    def _try_refresh_user_token(self) -> bool:
+        if not self.openapi_refresh_token:
+            return False
+        try:
+            response = requests.post(
+                url=self.api_url(self._REFRESH_ENDPOINT),
+                headers=self.base_headers(),
+                json={"refresh_token": self.openapi_refresh_token},
+                timeout=self.timeout,
+                proxies=getattr(settings, "PROXY", None) if settings is not None else None,
+            )
+            if response.status_code != 200:
+                return False
+            data = response.json()
+            if not isinstance(data, dict) or not data.get("success", True):
+                return False
+            meta = data.get("data") if isinstance(data.get("data"), dict) else {}
+            new_access = self.normalize_text(meta.get("access_token") or meta.get("token"))
+            new_refresh = self.normalize_text(meta.get("refresh_token")) or self.openapi_refresh_token
+            if not new_access:
+                return False
+            self.openapi_user_token = new_access
+            self.openapi_refresh_token = new_refresh
+            return True
+        except Exception:
+            return False
+
+    def auth_status(self) -> Dict[str, Any]:
+        return {
+            "api_key_configured": bool(self.api_key),
+            "user_token_configured": bool(self.openapi_user_token),
+            "refresh_token_configured": bool(self.openapi_refresh_token),
+        }
 
     def resource_sort_key(self, item: Dict[str, Any]) -> Tuple[int, int, int, int, str]:
         pan = str(item.get("pan_type") or "").lower()
@@ -533,13 +623,21 @@ class HDHiveOpenApiService:
 
     @staticmethod
     def _cookie_string_from_mapping(cookies: Dict[str, str]) -> str:
-        token_cookie = str((cookies or {}).get("token") or "").strip()
-        csrf_cookie = str((cookies or {}).get("csrf_access_token") or "").strip()
+        normalized = {str(key or "").strip(): str(value or "").strip() for key, value in (cookies or {}).items()}
+        token_cookie = normalized.get("token", "")
         if not token_cookie:
             return ""
-        cookie_items = [f"token={token_cookie}"]
-        if csrf_cookie:
-            cookie_items.append(f"csrf_access_token={csrf_cookie}")
+        preferred_order = ["hdh_sa_token", "token", "refresh_token", "csrf_access_token", "hdh_uid"]
+        cookie_items: List[str] = []
+        seen: set[str] = set()
+        for name in preferred_order:
+            value = normalized.get(name, "")
+            if value:
+                cookie_items.append(f"{name}={value}")
+                seen.add(name)
+        for name, value in normalized.items():
+            if name and value and name not in seen:
+                cookie_items.append(f"{name}={value}")
         return "; ".join(cookie_items)
 
     @classmethod
@@ -719,77 +817,92 @@ class HDHiveOpenApiService:
         else:
             server_action_message = "未解析到登录 Action"
 
-        try:
-            from cloakbrowser import launch_context
-        except Exception:
-            return False, "", server_action_message or "自动登录失败，且 CloakBrowser 不可用"
+        if PlaywrightHelper is None:
+            return False, "", server_action_message or "自动登录失败，且 MoviePilot PlaywrightHelper 不可用"
 
-        try:
-            proxy = None
-            try:
-                proxy_config = getattr(settings, "PROXY", None) if settings is not None else None
-                server = (proxy_config or {}).get("http") or (proxy_config or {}).get("https")
-                if server:
-                    proxy = {"server": server}
-            except Exception:
-                proxy = None
-            context = None
-            try:
-                context = launch_context(headless=True, proxy=proxy)
-                page = context.new_page()
-                page.goto(login_url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
-                for selector in [
-                    "input[name='username']",
-                    "input[name='email']",
-                    "input[type='email']",
-                    "input[placeholder*='邮箱']",
-                    "input[placeholder*='email']",
-                    "input[placeholder*='用户名']",
-                ]:
-                    try:
-                        if page.query_selector(selector):
-                            page.fill(selector, username)
-                            break
-                    except Exception:
-                        continue
-                for selector in [
-                    "input[name='password']",
-                    "input[type='password']",
-                    "input[placeholder*='密码']",
-                ]:
-                    try:
-                        if page.query_selector(selector):
-                            page.fill(selector, password)
-                            break
-                    except Exception:
-                        continue
+        def _login_with_page(page: Any) -> List[Dict[str, Any]]:
+            for selector in [
+                "input[name='username']",
+                "input[name='email']",
+                "input[type='email']",
+                "input[placeholder*='邮箱']",
+                "input[placeholder*='email']",
+                "input[placeholder*='用户名']",
+            ]:
                 try:
-                    button = (
-                        page.query_selector("button[type='submit']")
-                        or page.query_selector("button:has-text('登录')")
-                        or page.query_selector("button:has-text('Login')")
-                    )
-                    if button:
-                        button.click()
-                    else:
-                        page.keyboard.press("Enter")
+                    if page.query_selector(selector):
+                        page.fill(selector, username)
+                        break
                 except Exception:
-                    page.keyboard.press("Enter")
+                    continue
+            for selector in [
+                "input[name='password']",
+                "input[type='password']",
+                "input[placeholder*='密码']",
+            ]:
                 try:
-                    page.wait_for_load_state("networkidle", timeout=10000)
+                    if page.query_selector(selector):
+                        page.fill(selector, password)
+                        break
+                except Exception:
+                    continue
+            try:
+                button = (
+                    page.query_selector("button[type='submit']")
+                    or page.query_selector("button:has-text('登录')")
+                    or page.query_selector("button:has-text('Login')")
+                )
+                if button:
+                    button.click()
+                else:
+                    page.click("button")
+            except Exception:
+                try:
+                    page.click("button")
                 except Exception:
                     pass
-                cookies = context.cookies()
-            finally:
-                if context:
-                    context.close()
+            try:
+                page.wait_for_load_state("networkidle", timeout=10000)
+            except Exception:
+                pass
+            deadline = self.tz_now().timestamp() + 15
+            while self.tz_now().timestamp() < deadline:
+                try:
+                    cookies = page.context.cookies()
+                    if any(str(item.get("name") or "") == "token" and item.get("value") for item in cookies):
+                        return cookies
+                except Exception:
+                    pass
+                try:
+                    if "/login" not in (page.url or ""):
+                        page.wait_for_timeout(1000)
+                except Exception:
+                    pass
+                try:
+                    page.wait_for_timeout(500)
+                except Exception:
+                    break
+            try:
+                return page.context.cookies()
+            except Exception:
+                return []
+
+        try:
+            proxy_config = getattr(settings, "PROXY", None) if settings is not None else None
+            cookies = PlaywrightHelper().action(
+                login_url,
+                callback=_login_with_page,
+                proxies=proxy_config,
+                headless=True,
+                timeout=max(30, self.timeout),
+            ) or []
         except Exception as exc:
-            return False, "", f"CloakBrowser 自动登录失败: {exc}"
+            return False, "", f"PlaywrightHelper 自动登录失败: {exc}"
 
         cookie_map = {str(item.get("name") or ""): str(item.get("value") or "") for item in cookies or []}
         cookie_string = self._cookie_string_from_mapping(cookie_map)
         if cookie_string:
-            return True, cookie_string, "CloakBrowser 登录成功"
+            return True, cookie_string, "PlaywrightHelper 登录成功"
         return False, "", server_action_message or "自动登录失败，未获取到有效 Cookie"
 
     @classmethod
