@@ -42,7 +42,7 @@ class MaoyanRank(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg"
     # 插件版本
-    plugin_version = "3.0"
+    plugin_version = "3.1"
     # 插件作者
     plugin_author = "逗猫"
     # 作者主页
@@ -582,121 +582,262 @@ class MaoyanRank(_PluginBase):
         拼装插件详情页面，需要返回页面配置，同时附带数据
         """
         # 查询历史记录
-        historys = self.get_data('history')
+        historys = self.get_data('history') or []
         if not historys:
             return [
                 {
                     'component': 'div',
-                    'text': '暂无数据',
+                    'text': '暂无订阅历史',
                     'props': {
-                        'class': 'text-center',
+                        'class': 'text-center pa-6 text-medium-emphasis',
                     }
                 }
             ]
-        # 数据按时间降序排序
-        historys = sorted(historys, key=lambda x: x.get('time'), reverse=True)
-        # 拼装页面
-        contents = []
-        for history in historys:
-            title = history.get("title")
-            poster = history.get("poster")
-            mtype = history.get("type")
-            time_str = history.get("time")
-            tmdb_id = history.get("tmdbid")
-            release_info = history.get("releaseInfo")
-            platform = history.get("platformDesc")
-            if mtype == MediaType.TV.value:
-                href = f"https://www.themoviedb.org/tv/{tmdb_id}"
-            else:
-                href = f"https://www.themoviedb.org/movie/{tmdb_id}"
-            contents.append(
-                {
-                    'component': 'VCard',
-                    'content': [
-                        {
-                            'component': 'div',
-                            'props': {
-                                'class': 'd-flex justify-space-start flex-nowrap flex-row',
-                            },
-                            'content': [
-                                {
-                                    'component': 'div',
-                                    'content': [
-                                        {
-                                            'component': 'VImg',
-                                            'props': {
-                                                'src': poster,
-                                                'height': 120,
-                                                'width': 80,
-                                                'aspect-ratio': '2/3',
-                                                'class': 'object-cover shadow ring-gray-500',
-                                                'cover': True
-                                            }
-                                        }
-                                    ]
+        if not isinstance(historys, list):
+            historys = [historys]
+
+        def safe_text(value, default: str = "—") -> str:
+            """
+            统一处理历史记录里的空值，避免详情页直接显示 None。
+            """
+            if value is None:
+                return default
+            text = str(value).strip()
+            if not text or text.lower() == "none":
+                return default
+            return text
+
+        def tmdb_href(media_type: str, tmdb_id) -> str:
+            """
+            根据媒体类型生成 TMDB 链接，缺少 ID 时显示占位。
+            """
+            clean_id = safe_text(tmdb_id, "")
+            if not clean_id:
+                return ""
+            if media_type == MediaType.TV.value:
+                return f"https://www.themoviedb.org/tv/{clean_id}"
+            return f"https://www.themoviedb.org/movie/{clean_id}"
+
+        # 数据按时间降序排序，并兼容旧历史中 time 为空的情况。
+        historys = sorted(historys, key=lambda x: x.get('time') or "", reverse=True)
+        items = []
+        for index, history in enumerate(historys, start=1):
+            media_type = safe_text(history.get("type"), "未知")
+            platform = safe_text(history.get("platformDesc"), "未知")
+            items.append({
+                "index": index,
+                "title": safe_text(history.get("title"), "未命名"),
+                "release_info": safe_text(history.get("releaseInfo"), "暂无上线信息"),
+                "platform": platform,
+                "type": media_type,
+                "time": safe_text(history.get("time"), "未知时间"),
+                "poster": safe_text(history.get("poster"), ""),
+                "tmdb_href": tmdb_href(media_type, history.get("tmdbid")),
+            })
+
+        movie_count = sum(1 for item in items if item.get("type") == MediaType.MOVIE.value)
+        tv_count = sum(1 for item in items if item.get("type") == MediaType.TV.value)
+        platform_count = len({item.get("platform") for item in items if item.get("platform") != "未知"})
+
+        def stat_card(title: str, value: str, color: str) -> dict:
+            """
+            顶部统计卡片，帮助快速掌握历史记录规模。
+            """
+            return {
+                'component': 'VCol',
+                'props': {
+                    'cols': 12,
+                    'md': 3
+                },
+                'content': [
+                    {
+                        'component': 'VCard',
+                        'props': {
+                            'variant': 'tonal',
+                            'color': color,
+                            'class': 'pa-2'
+                        },
+                        'content': [
+                            {
+                                'component': 'VCardSubtitle',
+                                'props': {
+                                    'class': 'pb-0'
                                 },
-                                {
-                                    'component': 'div',
-                                    'content': [
-                                        {
-                                            'component': 'VCardSubtitle',
-                                            'props': {
-                                                'class': 'pa-2 font-bold break-words whitespace-break-spaces'
-                                            },
-                                            'content': [
-                                                {
-                                                    'component': 'a',
-                                                    'props': {
-                                                        'href': href,
-                                                        'target': '_blank'
-                                                    },
-                                                    'text': title
-                                                }
-                                            ]
-                                        },
-                                        {
-                                            'component': 'VCardText',
-                                            'props': {
-                                                'class': 'pa-0 px-2'
-                                            },
-                                            'text': f'{release_info}'
-                                        },
-                                        {
-                                            'component': 'VCardText',
-                                            'props': {
-                                                'class': 'pa-0 px-2'
-                                            },
-                                            'text': f'平台：{platform}'
-                                        },
-                                        {
-                                            'component': 'VCardText',
-                                            'props': {
-                                                'class': 'pa-0 px-2'
-                                            },
-                                            'text': f'类型：{mtype}'
-                                        },
-                                        {
-                                            'component': 'VCardText',
-                                            'props': {
-                                                'class': 'pa-0 px-2'
-                                            },
-                                            'text': f'订阅时间：{time_str}'
-                                        }
-                                    ]
-                                }
-                            ]
-                        }
-                    ]
+                                'text': title
+                            },
+                            {
+                                'component': 'VCardTitle',
+                                'props': {
+                                    'class': 'text-h6 pt-1'
+                                },
+                                'text': value
+                            }
+                        ]
+                    }
+                ]
+            }
+
+        def history_card(item: dict) -> dict:
+            """
+            订阅历史卡片，保留海报和关键信息，同时压缩卡片高度。
+            """
+            title_node = {
+                'component': 'a' if item.get("tmdb_href") else 'span',
+                'props': {
+                    'href': item.get("tmdb_href"),
+                    'target': '_blank',
+                    'class': 'text-decoration-none'
+                } if item.get("tmdb_href") else {},
+                'text': item.get("title")
+            }
+            poster_node = {
+                'component': 'VImg',
+                'props': {
+                    'src': item.get("poster"),
+                    'height': 132,
+                    'width': 88,
+                    'aspect-ratio': '2/3',
+                    'class': 'rounded flex-shrink-0',
+                    'cover': True
                 }
-            )
+            } if item.get("poster") else {
+                'component': 'div',
+                'props': {
+                    'class': 'd-flex align-center justify-center rounded bg-grey-lighten-3 text-caption text-medium-emphasis flex-shrink-0',
+                    'style': {
+                        'width': '88px',
+                        'height': '132px'
+                    }
+                },
+                'text': '无海报'
+            }
+
+            return {
+                'component': 'VCard',
+                'props': {
+                    'variant': 'outlined',
+                    'class': 'h-100'
+                },
+                'content': [
+                    {
+                        'component': 'div',
+                        'props': {
+                            'class': 'd-flex flex-nowrap ga-3 pa-3'
+                        },
+                        'content': [
+                            poster_node,
+                            {
+                                'component': 'div',
+                                'props': {
+                                    'class': 'min-w-0 flex-grow-1'
+                                },
+                                'content': [
+                                    {
+                                        'component': 'div',
+                                        'props': {
+                                            'class': 'text-subtitle-2 font-weight-bold text-truncate mb-2'
+                                        },
+                                        'content': [title_node]
+                                    },
+                                    {
+                                        'component': 'div',
+                                        'props': {
+                                            'class': 'd-flex flex-wrap ga-1 mb-2'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VChip',
+                                                'props': {
+                                                    'size': 'x-small',
+                                                    'variant': 'tonal',
+                                                    'color': 'indigo'
+                                                },
+                                                'text': item.get("type")
+                                            },
+                                            {
+                                                'component': 'VChip',
+                                                'props': {
+                                                    'size': 'x-small',
+                                                    'variant': 'tonal',
+                                                    'color': 'teal'
+                                                },
+                                                'text': item.get("platform")
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'component': 'div',
+                                        'props': {
+                                            'class': 'text-body-2 mb-1'
+                                        },
+                                        'text': item.get("release_info")
+                                    },
+                                    {
+                                        'component': 'div',
+                                        'props': {
+                                            'class': 'text-caption text-medium-emphasis'
+                                        },
+                                        'text': f"订阅时间：{item.get('time')}"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+
+        page_size = 8
+        pages = [items[index:index + page_size] for index in range(0, len(items), page_size)]
+        page_items = []
+        for page_index, page_records in enumerate(pages, start=1):
+            page_items.append({
+                'component': 'VWindowItem',
+                'content': [
+                    {
+                        'component': 'div',
+                        'props': {
+                            'class': 'd-flex justify-space-between align-center mb-2 text-caption text-medium-emphasis'
+                        },
+                        'content': [
+                            {
+                                'component': 'span',
+                                'text': f"第 {page_index} / {len(pages)} 页"
+                            },
+                            {
+                                'component': 'span',
+                                'text': f"本页 {len(page_records)} 条"
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'div',
+                        'props': {
+                            'class': 'grid gap-3 grid-info-card'
+                        },
+                        'content': [history_card(item) for item in page_records]
+                    }
+                ]
+            })
 
         return [
             {
-                'component': 'div',
+                'component': 'VRow',
                 'props': {
-                    'class': 'grid gap-3 grid-info-card',
+                    'class': 'mb-2'
                 },
-                'content': contents
+                'content': [
+                    stat_card("订阅记录", f"{len(items)} 条", "primary"),
+                    stat_card("电影", f"{movie_count} 条", "deep-orange"),
+                    stat_card("剧集/综艺", f"{tv_count} 条", "indigo"),
+                    stat_card("来源平台", f"{platform_count} 个", "teal"),
+                ]
+            },
+            {
+                'component': 'VWindow',
+                'props': {
+                    'show-arrows': 'hover'
+                },
+                'content': page_items
             }
         ]
 
