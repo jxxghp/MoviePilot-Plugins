@@ -885,6 +885,7 @@
     "color": "#fefefe",
     "author": "逗猫",
     "level": 1,
+    "system_version": ">=2.12.0",
     "history": {
       "v3.1": "优化详情页UI，增加分页卡片与空值兜底，避免历史记录显示None",
       "v3.0": "适配MoviePilot浏览器助手，修复Playwright浏览器可执行文件路径失配问题",
