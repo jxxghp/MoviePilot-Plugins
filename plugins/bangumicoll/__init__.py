@@ -21,7 +21,7 @@ from app.db.models.subscribehistory import SubscribeHistory
 from app.db.site_oper import SiteOper
 from app.db.subscribe_oper import SubscribeOper
 from app.db import db_query
-from app.helper.subscribe import SubscribeHelper
+from app.helper.server import MoviePilotServerHelper
 from app.log import logger
 from app.modules.themoviedb import TmdbApi
 from app.plugins import _PluginBase
@@ -37,7 +37,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "bangumi_b.png"
     # 插件版本
-    plugin_version = "1.5.8"
+    plugin_version = "1.5.9"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页
@@ -951,7 +951,8 @@ class BangumiColl(_PluginBase):
             try:
                 if subscribe := subscribeoper.get(subscribe_id):
                     subscribeoper.delete(subscribe_id)
-                    SubscribeHelper().sub_done_async(
+                    # 订阅统计同步入口已迁移到 MoviePilotServerHelper，避免依赖已移除的 app.helper.subscribe。
+                    MoviePilotServerHelper.sub_done_async(
                         {"tmdbid": subscribe.tmdbid, "doubanid": subscribe.doubanid}
                     )
                     self.post_message(
