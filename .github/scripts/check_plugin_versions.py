@@ -29,20 +29,28 @@ def _plugin_dir(package_file: Path, plugin_id: str) -> Path | None:
     """按 package 文件定位对应插件目录，避免 v1/v2 同名插件互相串线。"""
     plugin_id_lc = plugin_id.lower()
     base_dir = Path("plugins.v2") if package_file.name == "package.v2.json" else Path("plugins")
-    candidate = base_dir / plugin_id_lc
+    candidate = package_file.parent / base_dir / plugin_id_lc
     return candidate if candidate.is_dir() else None
 
 
+def _expected_plugin_dir(package_file: Path, plugin_id: str) -> Path:
+    """返回 package 条目对应的插件目录，用于缺失目录时输出可定位错误。"""
+    plugin_id_lc = plugin_id.lower()
+    base_dir = Path("plugins.v2") if package_file.name == "package.v2.json" else Path("plugins")
+    return package_file.parent / base_dir / plugin_id_lc
+
+
 def _plugin_version(init_file: Path) -> str | None:
-    """从 __init__.py 顶层类属性中提取 plugin_version 字面量。"""
+    """从 __init__.py 类级属性中提取 plugin_version 字面量。"""
     tree = ast.parse(init_file.read_text(encoding="utf-8"), filename=str(init_file))
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign):
-            continue
-        if not any(isinstance(target, ast.Name) and target.id == "plugin_version" for target in node.targets):
-            continue
-        if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-            return node.value.value
+    for class_node in (node for node in tree.body if isinstance(node, ast.ClassDef)):
+        for node in class_node.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            if not any(isinstance(target, ast.Name) and target.id == "plugin_version" for target in node.targets):
+                continue
+            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                return node.value.value
     return None
 
 
@@ -56,6 +64,7 @@ def check_package(path: Path) -> list[str]:
         package_version = str(meta.get("version") or "").strip()
         plugin_dir = _plugin_dir(path, plugin_id)
         if not plugin_dir:
+            errors.append(f"{path}: {plugin_id} 缺少插件目录 {_expected_plugin_dir(path, plugin_id)}")
             continue
         init_file = plugin_dir / "__init__.py"
         if not init_file.exists():
@@ -63,7 +72,7 @@ def check_package(path: Path) -> list[str]:
             continue
         source_version = _plugin_version(init_file)
         if not source_version:
-            errors.append(f"{path}: {plugin_id} 未在 {init_file} 中声明 plugin_version")
+            errors.append(f"{path}: {plugin_id} 未在 {init_file} 中声明类级 plugin_version")
             continue
         if package_version != source_version:
             errors.append(
