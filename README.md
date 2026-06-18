@@ -93,6 +93,7 @@ MoviePilot-Plugins/
 - 对 Python 插件代码，建议在宿主仓库环境中执行最小校验，例如：
   - `python3 -m py_compile <touched_files>`
   - `python3 -m compileall <touched_plugin_dirs>`
+  - `python3 .github/scripts/check_plugin_versions.py package.json package.v2.json`
   - `git diff --check`
 - 如果插件带有 Vue 远程组件，建议在对应前端工程中执行：
   - `yarn typecheck`
@@ -105,6 +106,8 @@ MoviePilot-Plugins/
 - `history` 用于展示插件更新日志，建议每次发布都补齐一条可读变更说明。
 - `system_version` 用于声明插件可安装的 MoviePilot 主系统版本范围，格式参考 pip 依赖版本约束；例如插件依赖 v2.12.0 新增能力时填写 `">=2.12.0"`。
 - 需要走 GitHub Release 压缩包分发的插件，请在对应索引条目中增加 `"release": true`，并确保仓库中的发布工作流能够定位到对应目录。
+- 本仓库提供可选的本地 pre-push hook，用于在推送前检查索引版本与插件 `plugin_version` 是否一致。Git 不会自动启用仓库内 hook；需要本地执行一次 `git config core.hooksPath .githooks`。
+- 本地 hook 只作为提前发现问题的辅助，不能替代 GitHub Actions。PR 门禁和 Release 打包前门禁会继续执行同一版本一致性检查。
 
 
 ## 常见问题
@@ -152,6 +155,8 @@ MoviePilot-Plugins/
 - 新增加的插件建议追加在索引文件末尾，便于在插件市场中作为较新的条目出现。
 - 如果插件目录文件较多，或你希望用户直接下载压缩包安装，可以在对应索引条目中增加 `"release": true`。
 - 当前仓库的 GitHub Actions 发布工作流只会在 `package.json` 或 `package.v2.json` 发生变更时触发，并且只处理声明了 `"release": true` 的插件。
+- PR 会运行 `Plugin release gate`，用于提前发现 `package.json` / `package.v2.json` 中的 `version` 与插件 `__init__.py` 中 `plugin_version` 不一致的问题。
+- Release 工作流会在打包前再次运行版本门禁；即使变更通过直接推送进入目标分支，版本不一致也会在打包前失败，不会继续生成错误版本的压缩包。
 - 发布工作流会按下面的规则打包与创建 Release：
   - 插件目录优先在 `plugins/<plugin_id_lower>` 和 `plugins.v2/<plugin_id_lower>` 中查找
   - Tag 格式为 `插件ID_v插件版本号`

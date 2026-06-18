@@ -1,0 +1,20 @@
+name: Plugin Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  plugin-release-gate:
+    name: Plugin release gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check plugin versions
+        run: python .github/scripts/check_plugin_versions.py package.json package.v2.json

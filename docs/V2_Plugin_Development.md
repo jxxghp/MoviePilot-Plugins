@@ -610,8 +610,21 @@ def run_with_downloader(self, name: str):
 ```bash
 python3 -m py_compile plugins.v2/myplugin/__init__.py
 python3 -m compileall plugins.v2/myplugin
+python3 .github/scripts/check_plugin_versions.py package.json package.v2.json
 git diff --check
 ```
+
+版本门禁只检查索引中 `"release": true` 的插件，并按索引文件定位对应目录：
+`package.json` 对应 `plugins/`，`package.v2.json` 对应 `plugins.v2/`。索引里的
+`version` 必须与插件 `__init__.py` 中的 `plugin_version` 一致。
+
+如果希望在本地推送前提前发现版本不一致，可以启用仓库提供的 pre-push hook：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Git 不会自动启用仓库内 hook；本地 hook 只是开发辅助，PR 门禁和 Release 打包前门禁仍会在 GitHub Actions 中执行。
 
 ### 9.2 API 层
 
@@ -639,8 +652,9 @@ git diff --check
 4. 索引里的 `version` 与代码里的 `plugin_version` 一致
 5. `history` 已补齐本次变更说明
 6. 若使用 Release 分发，条目已声明 `"release": true`
-7. Python 代码完成最小语法校验
-8. 若有 Vue 远程组件，构建产物已更新
+7. `python3 .github/scripts/check_plugin_versions.py package.json package.v2.json` 已通过
+8. Python 代码完成最小语法校验
+9. 若有 Vue 远程组件，构建产物已更新
 
 ## 11. 什么时候还要回去看宿主源码
 
