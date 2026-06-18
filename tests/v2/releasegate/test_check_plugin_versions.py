@@ -107,3 +107,19 @@ def test_check_package_reads_class_level_plugin_version_only(tmp_path):
     assert errors == [
         f"{package_file}: NestedOnly 未在 {plugin_dir / '__init__.py'} 中声明类级 plugin_version"
     ]
+
+
+def test_check_package_accepts_annotated_class_level_plugin_version(tmp_path):
+    """类级注解赋值的 plugin_version 也是有效插件版本声明。"""
+    module = _load_module()
+    plugin_dir = tmp_path / "plugins.v2" / "annotated"
+    plugin_dir.mkdir(parents=True)
+    package_file = tmp_path / "package.v2.json"
+    _write_package(package_file, "Annotated")
+    (plugin_dir / "__init__.py").write_text(
+        "class Annotated:\n"
+        "    plugin_version: str = '1.2.3'\n",
+        encoding="utf-8",
+    )
+
+    assert module.check_package(package_file) == []
