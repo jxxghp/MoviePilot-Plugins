@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+
+python .github/scripts/check_plugin_versions.py package.json package.v2.json

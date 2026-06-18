@@ -23,6 +23,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq zip
 
+      - name: Check plugin versions
+        run: python .github/scripts/check_plugin_versions.py package.json package.v2.json
+
       - name: Build and release changed plugins
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -109,5 +112,4 @@ jobs:
 
           process_package "package.json"
           process_package "package.v2.json"
-
 
