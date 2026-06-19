@@ -881,13 +881,14 @@
   "MaoyanRank": {
     "name": "猫眼榜单订阅",
     "description": "监控猫眼数据，自动添加订阅。",
-    "version": "3.1",
+    "version": "3.2",
     "icon": "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg",
     "color": "#fefefe",
     "author": "逗猫",
     "level": 1,
     "system_version": ">=2.12.0",
     "history": {
+      "v3.2": "修复剧集订阅季号识别，标题含季号时优先使用标题季号，否则按TMDB最新季订阅",
       "v3.1": "优化详情页UI，增加分页卡片与空值兜底，避免历史记录显示None",
       "v3.0": "适配MoviePilot浏览器助手，修复Playwright浏览器可执行文件路径失配问题",
       "v2.7": "增加优酷平台获取",

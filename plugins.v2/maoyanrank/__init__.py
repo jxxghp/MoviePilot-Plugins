@@ -11,6 +11,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.chain.download import DownloadChain
 from app.chain.subscribe import SubscribeChain
+from app.chain.tmdb import TmdbChain
 from app.core.config import settings
 from app.core.context import MediaInfo
 from app.helper.browser import BrowserPage, PlaywrightHelper
@@ -42,7 +43,7 @@ class MaoyanRank(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg"
     # 插件版本
-    plugin_version = "3.1"
+    plugin_version = "3.2"
     # 插件作者
     plugin_author = "逗猫"
     # 作者主页
@@ -992,6 +993,9 @@ class MaoyanRank(_PluginBase):
         logger.info(f"猫眼订阅刷新完成")
 
     def set_sub(self, addr_list, history, mtype):
+        """
+        将猫眼榜单条目识别为媒体信息，并添加到 MoviePilot 订阅。
+        """
         # 获取当前日期时间
         current_time = datetime.datetime.now()
         for addr in addr_list:
@@ -1027,7 +1031,8 @@ class MaoyanRank(_PluginBase):
                     logger.info(f'{mediainfo.title_year} 订阅已存在')
                     continue
                 # 添加订阅
-                season = meta.begin_season if mtype == MediaType.TV else None
+                season = self.__resolve_tv_subscribe_season(title=title, meta=meta, mediainfo=mediainfo) \
+                    if mtype == MediaType.TV else None
                 self.subscribechain.add(title=mediainfo.title,
                                         year=mediainfo.year,
                                         mtype=mediainfo.type,
@@ -1050,6 +1055,89 @@ class MaoyanRank(_PluginBase):
                 })
             except Exception as e:
                 logger.error(str(e))
+
+    @staticmethod
+    def __safe_int(value) -> int | None:
+        """
+        将季号字段安全转换为整数，转换失败时返回空值。
+        """
+        try:
+            if value is None or value == "":
+                return None
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def __get_season_number(cls, season_info) -> int | None:
+        """
+        从 TMDB 季信息对象或字典中提取有效季号。
+        """
+        if isinstance(season_info, dict):
+            return cls.__safe_int(season_info.get("season_number"))
+        return cls.__safe_int(getattr(season_info, "season_number", None))
+
+    @classmethod
+    def __latest_season_from_info(cls, season_infos) -> int | None:
+        """
+        从 TMDB 季列表中过滤第 0 季后取最新季号。
+        """
+        seasons = []
+        for season_info in season_infos or []:
+            season = cls.__get_season_number(season_info)
+            if season is not None and season > 0:
+                seasons.append(season)
+        return max(seasons) if seasons else None
+
+    @classmethod
+    def __latest_season_from_media_seasons(cls, seasons) -> int | None:
+        """
+        从 MediaInfo.seasons 的季号键中过滤第 0 季后取最新季号。
+        """
+        season_numbers = []
+        for season in (seasons or {}).keys():
+            season_number = cls.__safe_int(season)
+            if season_number is not None and season_number > 0:
+                season_numbers.append(season_number)
+        return max(season_numbers) if season_numbers else None
+
+    def __latest_tmdb_season(self, mediainfo: MediaInfo) -> int | None:
+        """
+        查询 TMDB 或识别结果中的季信息，返回最新的有效季号。
+        """
+        tmdbid = getattr(mediainfo, "tmdb_id", None)
+        if tmdbid:
+            try:
+                latest_season = self.__latest_season_from_info(TmdbChain().tmdb_seasons(tmdbid=tmdbid))
+                if latest_season:
+                    return latest_season
+            except Exception as err:
+                logger.warn(f"查询 TMDB 季信息失败，标题：{getattr(mediainfo, 'title', '')}，错误：{err}")
+
+        latest_season = self.__latest_season_from_info(getattr(mediainfo, "season_info", None))
+        if latest_season:
+            return latest_season
+
+        latest_season = self.__latest_season_from_media_seasons(getattr(mediainfo, "seasons", None))
+        if latest_season:
+            return latest_season
+
+        return self.__safe_int(getattr(mediainfo, "number_of_seasons", None))
+
+    def __resolve_tv_subscribe_season(self, title: str, meta: MetaInfo, mediainfo: MediaInfo) -> int | None:
+        """
+        决定猫眼剧集订阅季号：标题显式季号优先，否则使用 TMDB 最新季。
+        """
+        if meta.begin_season:
+            return meta.begin_season
+
+        latest_season = self.__latest_tmdb_season(mediainfo=mediainfo)
+        if latest_season:
+            meta.begin_season = latest_season
+            logger.info(f"猫眼标题 {title} 未指定季号，按 TMDB 最新季 S{latest_season:02d} 订阅")
+            return latest_season
+
+        return None
 
     def __get_url_info(self, movie_url, tv_urls, web_movie_url, num=10):
         """
