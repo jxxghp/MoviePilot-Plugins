@@ -24,7 +24,7 @@ class AgentTokens(_PluginBase):
     plugin_name = "Agent Tokens 管理"
     plugin_desc = "管理多平台免费 Token 配额，按优先级自动切换 Agent LLM 供应商。"
     plugin_icon = "agentresourceofficer.png"
-    plugin_version = "1.0.12"
+    plugin_version = "1.0.13"
     plugin_author = "jxxghp"
     author_url = "https://github.com/jxxghp"
     plugin_config_prefix = "agenttokens_"
@@ -321,7 +321,7 @@ class AgentTokens(_PluginBase):
 
     def _summary(self) -> Dict[str, Any]:
         """
-        汇总当前供应商数量和 token 使用情况。
+        汇总当前供应商数量以及限量/不限量 token 使用情况。
         """
         rows = self._provider_status_rows()
         enabled_rows = [row for row in rows if row.get("enabled")]
@@ -332,13 +332,34 @@ class AgentTokens(_PluginBase):
             and row.get("model")
             and row.get("base_url")
         ]
+        limited_rows = [
+            row for row in rows
+            if row["usage"].get("token_limit", 0) > 0
+        ]
+        unlimited_rows = [
+            row for row in rows
+            if row["usage"].get("token_limit", 0) <= 0
+        ]
+        limited_total = sum(row["usage"]["token_limit"] for row in limited_rows)
+        limited_used = sum(row["usage"]["total_tokens"] for row in limited_rows)
+        unlimited_used = sum(row["usage"]["total_tokens"] for row in unlimited_rows)
+        limited_remaining = None if limited_total <= 0 else max(limited_total - limited_used, 0)
+        limited_usage_percent = 0
+        if limited_total > 0:
+            limited_usage_percent = min(round(limited_used * 100 / limited_total, 2), 100)
         return {
             "enabled": self.get_state(),
             "provider_count": len(rows),
             "enabled_count": len(enabled_rows),
             "available_count": len(available_rows),
-            "total_limit": sum(row["usage"]["token_limit"] for row in rows),
-            "total_used": sum(row["usage"]["total_tokens"] for row in rows),
+            "limited_provider_count": len(limited_rows),
+            "unlimited_provider_count": len(unlimited_rows),
+            "total_limit": limited_total,
+            "total_used": limited_used + unlimited_used,
+            "limited_used": limited_used,
+            "unlimited_used": unlimited_used,
+            "limited_remaining": limited_remaining,
+            "limited_usage_percent": limited_usage_percent,
         }
 
     def _select_provider(self) -> Optional[dict]:

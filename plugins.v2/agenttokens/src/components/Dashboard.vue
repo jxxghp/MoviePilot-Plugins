@@ -34,15 +34,24 @@ let resizeObserver = null
 const attrs = computed(() => props.config?.attrs || {})
 const summary = computed(() => status.value.summary || {})
 const providers = computed(() => status.value.providers || [])
+// 总调用量用于累计展示，包含限量和不限量模型。
 const totalUsed = computed(() => Number(summary.value.total_used || 0))
+// 限量调用量只用于配额进度，避免不限量模型推高使用率。
+const limitedUsed = computed(() => Number(summary.value.limited_used ?? summary.value.total_used ?? 0))
+// 不限量调用量单独展示为调用统计。
+const unlimitedUsed = computed(() => Number(summary.value.unlimited_used || 0))
 const totalLimit = computed(() => Number(summary.value.total_limit || 0))
 const remainingTokens = computed(() => {
+  if (summary.value.limited_remaining !== undefined) return summary.value.limited_remaining
   if (totalLimit.value <= 0) return null
-  return Math.max(totalLimit.value - totalUsed.value, 0)
+  return Math.max(totalLimit.value - limitedUsed.value, 0)
 })
 const usagePercent = computed(() => {
+  if (summary.value.limited_usage_percent !== undefined) {
+    return Number(summary.value.limited_usage_percent || 0)
+  }
   if (totalLimit.value <= 0) return 0
-  return Math.min((totalUsed.value * 100) / totalLimit.value, 100)
+  return Math.min((limitedUsed.value * 100) / totalLimit.value, 100)
 })
 const usagePercentText = computed(() => (totalLimit.value > 0 ? `${Math.round(usagePercent.value)}%` : '不限'))
 const progressColor = computed(() => {
@@ -209,10 +218,10 @@ onUnmounted(() => {
             </VProgressCircular>
 
             <div class="agenttokens-dashboard-summary__body">
-              <div class="text-caption text-medium-emphasis">可用供应商</div>
+              <div class="text-caption text-medium-emphasis">限量模型使用进度</div>
               <div class="agenttokens-dashboard-summary__count">
-                {{ summary.available_count || 0 }}
-                <span>/ {{ summary.enabled_count || 0 }}</span>
+                {{ formatTokens(limitedUsed) }}
+                <span>/ {{ totalLimit > 0 ? formatTokens(totalLimit) : '不限' }}</span>
               </div>
               <VProgressLinear
                 :model-value="usagePercent"
@@ -229,8 +238,8 @@ onUnmounted(() => {
               <strong>{{ formatTokens(totalUsed) }}</strong>
             </div>
             <div class="agenttokens-dashboard-metric">
-              <span>额度</span>
-              <strong>{{ totalLimit > 0 ? formatTokens(totalLimit) : '不限' }}</strong>
+              <span>不限量</span>
+              <strong>{{ formatTokens(unlimitedUsed) }}</strong>
             </div>
             <div class="agenttokens-dashboard-metric">
               <span>剩余</span>

@@ -59,6 +59,8 @@ const displayProviderRows = computed(() => (
 const displaySummary = computed(() => (
   Object.keys(props.summary || {}).length ? props.summary : buildProviderSummary(displayProviderRows.value)
 ))
+const limitedUsed = computed(() => Number(displaySummary.value.limited_used ?? displaySummary.value.total_used ?? 0))
+const unlimitedUsed = computed(() => Number(displaySummary.value.unlimited_used || 0))
 
 // 打开新增供应商弹窗。
 function addProvider() {
@@ -141,12 +143,15 @@ function resetAllUsage() {
         <div>
           <div class="text-caption text-medium-emphasis">累计使用</div>
           <div class="agenttokens-stat-card__value">{{ formatTokens(displaySummary.total_used) }}</div>
+          <div class="agenttokens-stat-card__hint">
+            限量 {{ formatTokens(limitedUsed) }} / 不限量 {{ formatTokens(unlimitedUsed) }}
+          </div>
         </div>
       </VSheet>
       <VSheet border rounded class="agenttokens-stat-card">
         <VIcon icon="mdi-database-outline" color="info" />
         <div>
-          <div class="text-caption text-medium-emphasis">总额度</div>
+          <div class="text-caption text-medium-emphasis">限量总额度</div>
           <div class="agenttokens-stat-card__value">
             {{ displaySummary.total_limit ? formatTokens(displaySummary.total_limit) : '不限' }}
           </div>
@@ -245,6 +250,14 @@ function resetAllUsage() {
   margin-block-start: 2px;
   font-size: 1.35rem;
   font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.agenttokens-stat-card__hint {
+  margin-block-start: 2px;
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
+  font-size: 0.78rem;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }

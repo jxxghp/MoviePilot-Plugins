@@ -83,21 +83,35 @@ function buildProviderRows(providers) {
   return (providers || []).map(provider => buildProviderRow(provider))
 }
 
-// 根据供应商行汇总用量统计。
+// 根据供应商行汇总限量配额进度和不限量调用量。
 function buildProviderSummary(rows) {
   const providers = rows || [];
   const enabledRows = providers.filter(row => row.enabled);
-  const totalUsed = providers.reduce((sum, row) => sum + Number(row.usage?.total_tokens || row.used_tokens || 0), 0);
-  const totalLimit = providers.reduce((sum, row) => {
-    const tokenLimit = Number(row.token_limit || 0);
-    return tokenLimit > 0 ? sum + tokenLimit : sum
-  }, 0);
+  const limitedRows = providers.filter(row => Number(row.usage?.token_limit || row.token_limit || 0) > 0);
+  const unlimitedRows = providers.filter(row => Number(row.usage?.token_limit || row.token_limit || 0) <= 0);
+  const totalLimit = limitedRows.reduce((sum, row) => sum + Number(row.usage?.token_limit || row.token_limit || 0), 0);
+  const limitedUsed = limitedRows.reduce(
+    (sum, row) => sum + Number(row.usage?.total_tokens || row.used_tokens || 0),
+    0,
+  );
+  const unlimitedUsed = unlimitedRows.reduce(
+    (sum, row) => sum + Number(row.usage?.total_tokens || row.used_tokens || 0),
+    0,
+  );
+  const limitedRemaining = totalLimit > 0 ? Math.max(totalLimit - limitedUsed, 0) : null;
+  const limitedUsagePercent = totalLimit > 0 ? Math.min((limitedUsed * 100) / totalLimit, 100) : 0;
 
   return {
     available_count: enabledRows.filter(row => !row.usage?.exhausted && row.api_key && row.base_url && row.model).length,
     enabled_count: enabledRows.length,
-    total_used: totalUsed,
+    limited_provider_count: limitedRows.length,
+    unlimited_provider_count: unlimitedRows.length,
+    total_used: limitedUsed + unlimitedUsed,
     total_limit: totalLimit,
+    limited_used: limitedUsed,
+    unlimited_used: unlimitedUsed,
+    limited_remaining: limitedRemaining,
+    limited_usage_percent: limitedUsagePercent,
   }
 }
 

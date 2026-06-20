@@ -9,14 +9,19 @@ const props = defineProps({
   },
 })
 
-const totalUsed = computed(() => Number(props.summary.total_used || 0))
+// 读取限量模型用量，兼容旧接口缺少 limited_used 的情况。
+const totalUsed = computed(() => Number(props.summary.limited_used ?? props.summary.total_used ?? 0))
 const totalLimit = computed(() => Number(props.summary.total_limit || 0))
 const usagePercent = computed(() => {
+  if (props.summary.limited_usage_percent !== undefined) {
+    return Number(props.summary.limited_usage_percent || 0)
+  }
   if (totalLimit.value <= 0) return 0
   return Math.min((totalUsed.value * 100) / totalLimit.value, 100)
 })
 const usagePercentText = computed(() => `${Math.round(usagePercent.value)}%`)
 const remainingTokens = computed(() => {
+  if (props.summary.limited_remaining !== undefined) return props.summary.limited_remaining
   if (totalLimit.value <= 0) return null
   return Math.max(totalLimit.value - totalUsed.value, 0)
 })
@@ -44,7 +49,7 @@ const progressColor = computed(() => {
       </div>
 
       <div class="usage-overview-card__body">
-        <div class="text-caption text-medium-emphasis">总使用进度</div>
+        <div class="text-caption text-medium-emphasis">限量模型使用进度</div>
         <div class="usage-overview-card__headline">
           {{ formatTokens(totalUsed) }}
           <span class="text-medium-emphasis">/ {{ totalLimit > 0 ? formatTokens(totalLimit) : '不限' }}</span>

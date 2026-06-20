@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, f as formatTokens, P as PROVIDER_TYPE_OPTIONS, d as createProvider, b as buildProviderRows, a as buildProviderSummary, g as getNextProviderPriority, n as normalizeProvider } from './_plugin-vue_export-helper-B_eZRIX_.js';
+import { _ as _export_sfc, f as formatTokens, P as PROVIDER_TYPE_OPTIONS, d as createProvider, b as buildProviderRows, a as buildProviderSummary, g as getNextProviderPriority, n as normalizeProvider } from './_plugin-vue_export-helper-hPgBDeLJ.js';
 
 const {createElementVNode:_createElementVNode$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$2,createCommentVNode:_createCommentVNode$2,renderList:_renderList$1,Fragment:_Fragment$1,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,withCtx:_withCtx$4,unref:_unref$4,createBlock:_createBlock$4} = await importShared('vue');
 
@@ -558,14 +558,19 @@ const _sfc_main$1 = {
 
 const props = __props;
 
-const totalUsed = computed$1(() => Number(props.summary.total_used || 0));
+// 读取限量模型用量，兼容旧接口缺少 limited_used 的情况。
+const totalUsed = computed$1(() => Number(props.summary.limited_used ?? props.summary.total_used ?? 0));
 const totalLimit = computed$1(() => Number(props.summary.total_limit || 0));
 const usagePercent = computed$1(() => {
+  if (props.summary.limited_usage_percent !== undefined) {
+    return Number(props.summary.limited_usage_percent || 0)
+  }
   if (totalLimit.value <= 0) return 0
   return Math.min((totalUsed.value * 100) / totalLimit.value, 100)
 });
 const usagePercentText = computed$1(() => `${Math.round(usagePercent.value)}%`);
 const remainingTokens = computed$1(() => {
+  if (props.summary.limited_remaining !== undefined) return props.summary.limited_remaining
   if (totalLimit.value <= 0) return null
   return Math.max(totalLimit.value - totalUsed.value, 0)
 });
@@ -603,7 +608,7 @@ return (_ctx, _cache) => {
           }, 8, ["model-value", "color"])
         ]),
         _createElementVNode$1("div", _hoisted_4$1, [
-          _cache[0] || (_cache[0] = _createElementVNode$1("div", { class: "text-caption text-medium-emphasis" }, "总使用进度", -1)),
+          _cache[0] || (_cache[0] = _createElementVNode$1("div", { class: "text-caption text-medium-emphasis" }, "限量模型使用进度", -1)),
           _createElementVNode$1("div", _hoisted_5$1, [
             _createTextVNode$1(_toDisplayString$1(_unref$1(formatTokens)(totalUsed.value)) + " ", 1),
             _createElementVNode$1("span", _hoisted_6$1, "/ " + _toDisplayString$1(totalLimit.value > 0 ? _unref$1(formatTokens)(totalLimit.value) : '不限'), 1)
@@ -628,7 +633,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const UsageOverviewCard = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-f9b76345"]]);
+const UsageOverviewCard = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-43629aae"]]);
 
 const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,createVNode:_createVNode,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,createBlock:_createBlock,unref:_unref} = await importShared('vue');
 
@@ -642,9 +647,10 @@ const _hoisted_3 = { class: "agenttokens-control-panel__switches" };
 const _hoisted_4 = { class: "agenttokens-overview-grid" };
 const _hoisted_5 = { class: "agenttokens-stat-card__value" };
 const _hoisted_6 = { class: "agenttokens-stat-card__value" };
-const _hoisted_7 = { class: "agenttokens-stat-card__value" };
-const _hoisted_8 = { class: "agenttokens-tabs-row" };
-const _hoisted_9 = { class: "agenttokens-table-actions" };
+const _hoisted_7 = { class: "agenttokens-stat-card__hint" };
+const _hoisted_8 = { class: "agenttokens-stat-card__value" };
+const _hoisted_9 = { class: "agenttokens-tabs-row" };
+const _hoisted_10 = { class: "agenttokens-table-actions" };
 
 const {computed,ref} = await importShared('vue');
 
@@ -701,6 +707,8 @@ const displayProviderRows = computed(() => (
 const displaySummary = computed(() => (
   Object.keys(props.summary || {}).length ? props.summary : buildProviderSummary(displayProviderRows.value)
 ));
+const limitedUsed = computed(() => Number(displaySummary.value.limited_used ?? displaySummary.value.total_used ?? 0));
+const unlimitedUsed = computed(() => Number(displaySummary.value.unlimited_used || 0));
 
 // 打开新增供应商弹窗。
 function addProvider() {
@@ -855,7 +863,8 @@ return (_ctx, _cache) => {
           }),
           _createElementVNode("div", null, [
             _cache[9] || (_cache[9] = _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "累计使用", -1)),
-            _createElementVNode("div", _hoisted_6, _toDisplayString(_unref(formatTokens)(displaySummary.value.total_used)), 1)
+            _createElementVNode("div", _hoisted_6, _toDisplayString(_unref(formatTokens)(displaySummary.value.total_used)), 1),
+            _createElementVNode("div", _hoisted_7, " 限量 " + _toDisplayString(_unref(formatTokens)(limitedUsed.value)) + " / 不限量 " + _toDisplayString(_unref(formatTokens)(unlimitedUsed.value)), 1)
           ])
         ]),
         _: 1
@@ -871,8 +880,8 @@ return (_ctx, _cache) => {
             color: "info"
           }),
           _createElementVNode("div", null, [
-            _cache[10] || (_cache[10] = _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "总额度", -1)),
-            _createElementVNode("div", _hoisted_7, _toDisplayString(displaySummary.value.total_limit ? _unref(formatTokens)(displaySummary.value.total_limit) : '不限'), 1)
+            _cache[10] || (_cache[10] = _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "限量总额度", -1)),
+            _createElementVNode("div", _hoisted_8, _toDisplayString(displaySummary.value.total_limit ? _unref(formatTokens)(displaySummary.value.total_limit) : '不限'), 1)
           ])
         ]),
         _: 1
@@ -884,7 +893,7 @@ return (_ctx, _cache) => {
       class: "agenttokens-content-panel"
     }, {
       default: _withCtx(() => [
-        _createElementVNode("div", _hoisted_8, [
+        _createElementVNode("div", _hoisted_9, [
           _createVNode(_component_VTabs, {
             modelValue: activeTab.value,
             "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((activeTab).value = $event)),
@@ -926,7 +935,7 @@ return (_ctx, _cache) => {
             }),
             _createVNode(_component_VWindowItem, { value: "config" }, {
               default: _withCtx(() => [
-                _createElementVNode("div", _hoisted_9, [
+                _createElementVNode("div", _hoisted_10, [
                   _createVNode(_component_VBtn, {
                     "prepend-icon": "mdi-plus",
                     color: "primary",
@@ -978,6 +987,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AgentTokensManager = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a6c1ea54"]]);
+const AgentTokensManager = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0ad3e3fe"]]);
 
 export { AgentTokensManager as A };

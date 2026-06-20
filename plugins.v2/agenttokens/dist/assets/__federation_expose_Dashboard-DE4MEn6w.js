@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, f as formatTokens, u as unwrapResponse } from './_plugin-vue_export-helper-B_eZRIX_.js';
+import { _ as _export_sfc, f as formatTokens, u as unwrapResponse } from './_plugin-vue_export-helper-hPgBDeLJ.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,createBlock:_createBlock,createElementVNode:_createElementVNode,unref:_unref,renderList:_renderList,Fragment:_Fragment,normalizeClass:_normalizeClass} = await importShared('vue');
 
@@ -84,15 +84,24 @@ let resizeObserver = null;
 const attrs = computed(() => props.config?.attrs || {});
 const summary = computed(() => status.value.summary || {});
 const providers = computed(() => status.value.providers || []);
+// 总调用量用于累计展示，包含限量和不限量模型。
 const totalUsed = computed(() => Number(summary.value.total_used || 0));
+// 限量调用量只用于配额进度，避免不限量模型推高使用率。
+const limitedUsed = computed(() => Number(summary.value.limited_used ?? summary.value.total_used ?? 0));
+// 不限量调用量单独展示为调用统计。
+const unlimitedUsed = computed(() => Number(summary.value.unlimited_used || 0));
 const totalLimit = computed(() => Number(summary.value.total_limit || 0));
 const remainingTokens = computed(() => {
+  if (summary.value.limited_remaining !== undefined) return summary.value.limited_remaining
   if (totalLimit.value <= 0) return null
-  return Math.max(totalLimit.value - totalUsed.value, 0)
+  return Math.max(totalLimit.value - limitedUsed.value, 0)
 });
 const usagePercent = computed(() => {
+  if (summary.value.limited_usage_percent !== undefined) {
+    return Number(summary.value.limited_usage_percent || 0)
+  }
   if (totalLimit.value <= 0) return 0
-  return Math.min((totalUsed.value * 100) / totalLimit.value, 100)
+  return Math.min((limitedUsed.value * 100) / totalLimit.value, 100)
 });
 const usagePercentText = computed(() => (totalLimit.value > 0 ? `${Math.round(usagePercent.value)}%` : '不限'));
 const progressColor = computed(() => {
@@ -321,10 +330,10 @@ return (_ctx, _cache) => {
                           _: 1
                         }, 8, ["model-value", "color", "size", "width"]),
                         _createElementVNode("div", _hoisted_5, [
-                          _cache[0] || (_cache[0] = _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "可用供应商", -1)),
+                          _cache[0] || (_cache[0] = _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "限量模型使用进度", -1)),
                           _createElementVNode("div", _hoisted_6, [
-                            _createTextVNode(_toDisplayString(summary.value.available_count || 0) + " ", 1),
-                            _createElementVNode("span", null, "/ " + _toDisplayString(summary.value.enabled_count || 0), 1)
+                            _createTextVNode(_toDisplayString(_unref(formatTokens)(limitedUsed.value)) + " ", 1),
+                            _createElementVNode("span", null, "/ " + _toDisplayString(totalLimit.value > 0 ? _unref(formatTokens)(totalLimit.value) : '不限'), 1)
                           ]),
                           _createVNode(_component_VProgressLinear, {
                             "model-value": usagePercent.value,
@@ -341,8 +350,8 @@ return (_ctx, _cache) => {
                               _createElementVNode("strong", null, _toDisplayString(_unref(formatTokens)(totalUsed.value)), 1)
                             ]),
                             _createElementVNode("div", _hoisted_9, [
-                              _cache[2] || (_cache[2] = _createElementVNode("span", null, "额度", -1)),
-                              _createElementVNode("strong", null, _toDisplayString(totalLimit.value > 0 ? _unref(formatTokens)(totalLimit.value) : '不限'), 1)
+                              _cache[2] || (_cache[2] = _createElementVNode("span", null, "不限量", -1)),
+                              _createElementVNode("strong", null, _toDisplayString(_unref(formatTokens)(unlimitedUsed.value)), 1)
                             ]),
                             _createElementVNode("div", _hoisted_10, [
                               _cache[3] || (_cache[3] = _createElementVNode("span", null, "剩余", -1)),
@@ -424,6 +433,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-cd87a760"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-fd0fbf83"]]);
 
 export { Dashboard as default };
