@@ -154,12 +154,50 @@ class OpenAi:
         return self._run_async_compatible(llm)
 
     @staticmethod
+    def _extract_text_content(content: Any) -> str:
+        """
+        兼容 MoviePilot 不同版本的 LLMHelper 文本提取接口。
+        """
+        extractor = getattr(LLMHelper, "extract_text_content", None)
+        if callable(extractor):
+            return extractor(content)
+
+        legacy_extractor = getattr(LLMHelper, "_extract_text_content", None)
+        if callable(legacy_extractor):
+            return legacy_extractor(content)
+
+        # 极旧版本缺少统一提取方法时，只保留常见 LangChain 文本块，避免把推理内容写入 JSON 解析。
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            text_parts = []
+            for block in content:
+                if isinstance(block, str):
+                    text_parts.append(block)
+                elif isinstance(block, dict):
+                    block_type = block.get("type")
+                    if block.get("thought") or block_type in {"thinking", "reasoning_content", "reasoning", "thought"}:
+                        continue
+                    if block_type == "text" or (not block_type and isinstance(block.get("text"), str)):
+                        text_parts.append(block.get("text", ""))
+            return "".join(text_parts)
+        if isinstance(content, dict):
+            block_type = content.get("type")
+            if content.get("thought") or block_type in {"thinking", "reasoning_content", "reasoning", "thought"}:
+                return ""
+            if block_type == "text" or (not block_type and isinstance(content.get("text"), str)):
+                return content.get("text", "")
+        return ""
+
+    @staticmethod
     def _extract_response_text(response: Any) -> str:
         """
         从模型响应对象中提取文本内容。
         """
         content = getattr(response, "content", response)
-        return LLMHelper._extract_text_content(content).strip()
+        return OpenAi._extract_text_content(content).strip()
 
     @classmethod
     def _strip_json_fence(cls, text: str) -> str:
