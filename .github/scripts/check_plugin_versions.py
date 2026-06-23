@@ -45,12 +45,18 @@ def _plugin_version(init_file: Path) -> str | None:
     tree = ast.parse(init_file.read_text(encoding="utf-8"), filename=str(init_file))
     for class_node in (node for node in tree.body if isinstance(node, ast.ClassDef)):
         for node in class_node.body:
-            if not isinstance(node, ast.Assign):
-                continue
-            if not any(isinstance(target, ast.Name) and target.id == "plugin_version" for target in node.targets):
-                continue
-            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-                return node.value.value
+            value_node = None
+            if isinstance(node, ast.Assign):
+                if any(isinstance(target, ast.Name) and target.id == "plugin_version" for target in node.targets):
+                    value_node = node.value
+            elif (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == "plugin_version"
+            ):
+                value_node = node.value
+            if isinstance(value_node, ast.Constant) and isinstance(value_node.value, str):
+                return value_node.value
     return None
 
 

@@ -1,4 +1,8 @@
 #!/bin/sh
+# 在对象上传前复用发布版本校验，避免市场元数据与插件自报版本分离。
 set -eu
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
 
 python3 .github/scripts/check_plugin_versions.py package.json package.v2.json
