@@ -26,7 +26,7 @@ class TorrentRemover(_PluginBase):
     # 插件图标
     plugin_icon = "delete.jpg"
     # 插件版本
-    plugin_version = "2.2"
+    plugin_version = "2.3"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -59,6 +59,7 @@ class TorrentRemover(_PluginBase):
     _trackerkeywords = None
     _errorkeywords = None
     _torrentstates = None
+    _trtorrentstates = None
     _torrentcategorys = None
 
     def init_plugin(self, config: dict = None):
@@ -81,6 +82,7 @@ class TorrentRemover(_PluginBase):
             self._trackerkeywords = config.get("trackerkeywords") or ""
             self._errorkeywords = config.get("errorkeywords") or ""
             self._torrentstates = config.get("torrentstates") or ""
+            self._trtorrentstates = config.get("trtorrentstates") or ""
             self._torrentcategorys = config.get("torrentcategorys") or ""
 
         self.stop_service()
@@ -114,6 +116,7 @@ class TorrentRemover(_PluginBase):
                     "trackerkeywords": self._trackerkeywords,
                     "errorkeywords": self._errorkeywords,
                     "torrentstates": self._torrentstates,
+                    "trtorrentstates": self._trtorrentstates,
                     "torrentcategorys": self._torrentcategorys
 
                 })
@@ -419,6 +422,24 @@ class TorrentRemover(_PluginBase):
                                     {
                                         'component': 'VTextField',
                                         'props': {
+                                            'model': 'trtorrentstates',
+                                            'label': '任务状态（TR）',
+                                            'placeholder': '例如：6 或 seeding；多个用英文逗号分隔',
+                                            'hint': 'TR状态：0/stopped停止，1/check_pending校验队列，2/checking校验中，3/download_pending下载队列，4/downloading下载中，5/seed_pending做种队列，6/seeding做种，error错误',
+                                            'persistent-hint': True
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
                                             'model': 'torrentcategorys',
                                             'label': '任务分类',
                                             'placeholder': '用,分隔多个分类'
@@ -562,6 +583,7 @@ class TorrentRemover(_PluginBase):
             "trackerkeywords": "",
             "errorkeywords": "",
             "torrentstates": "",
+            "trtorrentstates": "",
             "torrentcategorys": ""
         }
 
@@ -732,30 +754,53 @@ class TorrentRemover(_PluginBase):
         """
         检查TR下载任务是否符合条件
         """
+        # TR状态
+        if self._trtorrentstates:
+            tr_state_map = {
+                "0": "stopped",
+                "1": "check_pending",
+                "2": "checking",
+                "3": "download_pending",
+                "4": "downloading",
+                "5": "seed_pending",
+                "6": "seeding",
+            }
+            tr_states = [item.strip().lower() for item in self._trtorrentstates.split(",") if item.strip()]
+            expected_states = {tr_state_map.get(state, state) for state in tr_states}
+            torrent_status = str(getattr(torrent, "status", "")).lower()
+            torrent_error = bool(getattr(torrent, "error", 0) or getattr(torrent, "error_string", ""))
+            # TR 没有失败状态，失败通过 error/error_string 判断。
+            if torrent_status not in expected_states and not ("error" in expected_states and torrent_error):
+                return None
         # 完成时间
-        date_done = torrent.date_done or torrent.date_added
+        date_done = getattr(torrent, "done_date", None) or getattr(torrent, "date_done", None) \
+            or getattr(torrent, "added_date", None) or getattr(torrent, "date_added", None)
         # 现在时间
         date_now = int(time.mktime(datetime.now().timetuple()))
         # 做种时间
         torrent_seeding_time = date_now - int(time.mktime(date_done.timetuple())) if date_done else 0
-        # 上传量
-        torrent_uploaded = torrent.ratio * torrent.total_size
-        # 平均上传速茺
+        # 分享率
+        torrent_ratio = getattr(torrent, "upload_ratio", None)
+        if torrent_ratio is None:
+            torrent_ratio = getattr(torrent, "ratio", 0)
+        torrent_size = getattr(torrent, "total_size", 0)
+        torrent_uploaded = torrent_ratio * torrent_size
+        # 平均上传速度
         torrent_upload_avs = torrent_uploaded / torrent_seeding_time if torrent_seeding_time else 0
         # 大小 单位：GB
-        sizes = self._size.split('-') if self._size else []
+        sizes = self._size.split("-") if self._size else []
         minsize = float(sizes[0]) * 1024 * 1024 * 1024 if sizes else 0
         maxsize = float(sizes[-1]) * 1024 * 1024 * 1024 if sizes else 0
         # 分享率
-        if self._ratio and torrent.ratio <= float(self._ratio):
+        if self._ratio and torrent_ratio <= float(self._ratio):
             return None
         if self._time and torrent_seeding_time <= float(self._time) * 3600:
             return None
-        if self._size and (torrent.total_size >= int(maxsize) or torrent.total_size <= int(minsize)):
+        if self._size and (torrent_size >= int(maxsize) or torrent_size <= int(minsize)):
             return None
         if self._upspeed and torrent_upload_avs >= float(self._upspeed) * 1024:
             return None
-        if self._pathkeywords and not re.findall(self._pathkeywords, torrent.download_dir, re.I):
+        if self._pathkeywords and not re.findall(self._pathkeywords, getattr(torrent, "download_dir", ""), re.I):
             return None
         if self._trackerkeywords:
             if not torrent.trackers:
