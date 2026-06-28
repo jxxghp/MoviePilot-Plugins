@@ -3460,18 +3460,20 @@ class BrushFlow(_PluginBase):
             torrent_id = torrent.hashString
             # 标题
             torrent_title = torrent.name
-            # 做种时间
-            if (not torrent.date_done
-                    or torrent.date_done.timestamp() < 1):
+            # 做种时间 — 兼容 transmission-rpc v7(done_date) 与旧版(date_done)
+            done_date = getattr(torrent, "done_date", None) or getattr(torrent, "date_done", None)
+            if (not done_date
+                    or done_date.timestamp() < 1):
                 seeding_time = 0
             else:
-                seeding_time = date_now - int(torrent.date_done.timestamp())
-            # 下载耗时
-            if (not torrent.date_added
-                    or torrent.date_added.timestamp() < 1):
+                seeding_time = date_now - int(done_date.timestamp())
+            # 下载耗时 — 兼容 v7(added_date) 与旧版(date_added)
+            added_date = getattr(torrent, "added_date", None) or getattr(torrent, "date_added", None)
+            if (not added_date
+                    or added_date.timestamp() < 1):
                 dltime = 0
             else:
-                dltime = date_now - int(torrent.date_added.timestamp())
+                dltime = date_now - int(added_date.timestamp())
             # 下载量
             downloaded = int(torrent.total_size * torrent.progress / 100)
             # 分享率
@@ -3483,21 +3485,23 @@ class BrushFlow(_PluginBase):
                 avg_upspeed = int(uploaded / dltime)
             else:
                 avg_upspeed = uploaded
-            # 未活动时间
-            if (not torrent.date_active
-                    or torrent.date_active.timestamp() < 1):
+            # 未活动时间 — 兼容 v7(activity_date) 与旧版(date_active)
+            activity_date = getattr(torrent, "activity_date", None) or getattr(torrent, "date_active", None)
+            if (not activity_date
+                    or activity_date.timestamp() < 1):
                 iatime = 0
             else:
-                iatime = date_now - int(torrent.date_active.timestamp())
+                iatime = date_now - int(activity_date.timestamp())
             # 种子大小
             total_size = torrent.total_size
             # 添加时间
-            add_on = (torrent.date_added.timestamp() if torrent.date_added else 0)
+            add_on = (added_date.timestamp() if added_date else 0)
             add_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(add_on))
-            # 种子标签
-            tags = torrent.get("tags")
-            # tracker
-            tracker = torrent.get("tracker")
+            # 种子标签 — v7(labels) 与旧版(labels) 均为属性
+            tags = getattr(torrent, "labels", None) or ""
+            # tracker — 兼容 v7(tracker_list) 与旧版(tracker_list)
+            tracker_list = getattr(torrent, "tracker_list", None)
+            tracker = tracker_list[0] if tracker_list else ""
 
         return {
             "hash": torrent_id,
@@ -3985,11 +3989,21 @@ class BrushFlow(_PluginBase):
         """
         trackers = []
         try:
-            tracker_url = torrent.get("tracker")
+            # 兼容 QB(dict) 和 TR(object) 两种种子类型：先尝试 dict 访问，再尝试属性
+            tracker_url = None
+            try:
+                tracker_url = torrent.get("tracker")
+            except (AttributeError, TypeError):
+                tracker_list = getattr(torrent, "tracker_list", None)
+                tracker_url = tracker_list[0] if tracker_list else None
             if tracker_url:
                 trackers.append(tracker_url)
 
-            magnet_link = torrent.get("magnet_uri")
+            magnet_link = None
+            try:
+                magnet_link = torrent.get("magnet_uri")
+            except (AttributeError, TypeError):
+                magnet_link = getattr(torrent, "magnet_link", None)
             if magnet_link:
                 query_params: dict = parse_qs(urlparse(magnet_link).query)
                 encoded_tracker_urls = query_params.get('tr', [])
