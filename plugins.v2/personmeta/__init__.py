@@ -38,7 +38,7 @@ class PersonMeta(_PluginBase):
     # 插件图标
     plugin_icon = "actor.png"
     # 插件版本
-    plugin_version = "2.2.4"
+    plugin_version = "2.2.5"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -66,8 +66,13 @@ class PersonMeta(_PluginBase):
     _rt_running_keys = set()
     _rt_recent_keys: Dict[str, float] = {}
     _rt_dedup_seconds = 600
+    # 单轮刮削缓存：避免长剧集按每集反复查询/更新同一人物
+    _person_detail_cache = None
+    _processed_person_images = None
+    _processed_person_infos = None
 
     def init_plugin(self, config: dict = None):
+        self.__reset_people_cache()
 
         if config:
             self._enabled = config.get("enabled")
@@ -111,6 +116,14 @@ class PersonMeta(_PluginBase):
             "remove_nozh": self._remove_nozh,
             "mediaservers": self._mediaservers
         })
+
+    def __reset_people_cache(self):
+        """
+        重置单轮人物刮削缓存
+        """
+        self._person_detail_cache = {}
+        self._processed_person_images = set()
+        self._processed_person_infos = set()
 
     def get_state(self) -> bool:
         return self._enabled
@@ -418,6 +431,8 @@ class PersonMeta(_PluginBase):
                     logger.warn(f"{title} 条目详情获取失败")
                     continue
                 # 刮削演职人员信息
+                # 每次实时事件独立缓存；电视剧命中 Series，缓存覆盖本次 Series 的季/集处理
+                self.__reset_people_cache()
                 self.__update_item(server=exists_server, server_type=server_type,
                                    item=iteminfo, mediainfo=mediainfo, season=season)
                 completed = True
@@ -434,6 +449,8 @@ class PersonMeta(_PluginBase):
         service_infos = self.service_infos()
         if not service_infos:
             return
+        # 全库任务内共享缓存，同一人物跨集/跨季只处理一次
+        self.__reset_people_cache()
         mediaserverchain = MediaServerChain()
         for server, service in service_infos.items():
             # 扫描所有媒体库
@@ -640,8 +657,13 @@ class PersonMeta(_PluginBase):
 
             # 从TMDB信息中更新人物信息
             person_tmdbid, person_imdbid = __get_peopleid(personinfo)
+            # 优先用 TMDB/IMDB ID 去重，避免同一演员在多集重复刮削
+            person_key = f"{server}:{person_tmdbid or person_imdbid or people.get('Id') or people.get('Name')}"
             if person_tmdbid:
-                person_detail = TmdbChain().person_detail(int(person_tmdbid))
+                person_detail = self._person_detail_cache.get(person_tmdbid)
+                if person_tmdbid not in self._person_detail_cache:
+                    person_detail = TmdbChain().person_detail(int(person_tmdbid))
+                    self._person_detail_cache[person_tmdbid] = person_detail
                 if person_detail:
                     cn_name = self.__get_chinese_name(person_detail)
                     # 图片优先从TMDB获取
@@ -727,8 +749,14 @@ class PersonMeta(_PluginBase):
 
             # 更新人物图片
             if profile_path:
-                logger.debug(f"更新人物 {people.get('Name')} 的图片：{profile_path}")
-                self.set_item_image(server=server, server_type=server_type, itemid=people.get("Id"), imageurl=profile_path)
+                # 图片下载和上传成本最高，同一轮同一人物只执行一次
+                if person_key not in self._processed_person_images:
+                    logger.debug(f"更新人物 {people.get('Name')} 的图片：{profile_path}")
+                    self._processed_person_images.add(person_key)
+                    self.set_item_image(server=server, server_type=server_type,
+                                        itemid=people.get("Id"), imageurl=profile_path)
+                else:
+                    logger.debug(f"人物 {people.get('Name')} 的图片本轮已更新，跳过")
 
             # 锁定人物信息
             if updated_name:
@@ -744,10 +772,16 @@ class PersonMeta(_PluginBase):
 
             # 更新人物信息
             if updated_name or updated_overview or update_character:
-                logger.debug(f"更新人物 {people.get('Name')} 的信息：{personinfo}")
-                ret = self.set_iteminfo(server=server, server_type=server_type,
-                                        itemid=people.get("Id"), iteminfo=personinfo)
-                if ret:
+                # 人物详情是全局对象，同一轮已写入后无需按每集重复写
+                if person_key not in self._processed_person_infos:
+                    logger.debug(f"更新人物 {people.get('Name')} 的信息：{personinfo}")
+                    ret = self.set_iteminfo(server=server, server_type=server_type,
+                                            itemid=people.get("Id"), iteminfo=personinfo)
+                    if ret:
+                        self._processed_person_infos.add(person_key)
+                        return ret_people
+                else:
+                    logger.debug(f"人物 {people.get('Name')} 的信息本轮已更新，跳过")
                     return ret_people
             else:
                 logger.debug(f"人物 {people.get('Name')} 未找到中文数据")
