@@ -914,5 +914,17 @@
       "v0.2": "电视剧电影以及综艺的分类",
       "v0.1": "初始化版本猫眼订阅功能"
     }
+  },
+  "WxPusher": {
+    "name": "WxPusher消息通知",
+    "description": "支持使用 WxPusher 将通知推送到微信及全平台 App（极简推送 SPT / 标准推送 AppToken）。",
+    "labels": "消息通知",
+    "version": "1.1.2",
+    "icon": "WxPusher_A.png",
+    "author": "zjiecode",
+    "level": 1,
+    "history": {
+      "v1.1.2": "WxPusher 消息通知，支持极简推送 SPT（可多个）与标准推送 AppToken"
+    }
   }
 }
