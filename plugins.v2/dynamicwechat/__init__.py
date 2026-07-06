@@ -145,14 +145,30 @@ class DynamicWeChat(_PluginBase):
     def _safe_run_coro(self, coro):
         """
         安全地运行协程。
-        如果主事件循环正在运行，使用 run_coroutine_threadsafe 提交；
-        否则使用 asyncio.run 同步执行（兜底）。
+        优先检测当前线程是否有运行中的事件循环，如果有则直接创建任务。
+        否则，尝试使用初始化时缓存的循环，若缓存循环也未运行，则使用 asyncio.run 兜底。
         """
+        try:
+            # 1. 优先检测当前线程是否有运行中的事件循环
+            loop = asyncio.get_running_loop()
+            # 当前线程有运行中的循环，直接创建任务
+            loop.create_task(coro)
+            return
+        except RuntimeError:
+            # 当前线程没有运行中的循环
+            pass
+
+        # 2. 尝试使用初始化时缓存的循环
         if self._loop and self._loop.is_running():
             asyncio.run_coroutine_threadsafe(coro, self._loop)
-        else:
-            # 兜底：使用 asyncio.run
+            return
+
+        # 3. 兜底方案：使用 asyncio.run 同步执行
+        # 注意：这会在当前线程创建一个新的事件循环并运行，可能会阻塞调用者
+        try:
             asyncio.run(coro)
+        except RuntimeError as e:
+            logger.error(f"执行协程失败: {e}")
 
     if hasattr(settings, 'VERSION_FLAG'):
         version = settings.VERSION_FLAG  # V2
@@ -174,11 +190,11 @@ class DynamicWeChat(_PluginBase):
         self.cfg = JsonFieldManager(self._settings_file_path)
         self._qr_running = False
 
-        # 获取事件循环（不主动创建未启动的循环）
+        # 获取事件循环（仅用于跨线程提交任务，不强制要求当前有运行中的循环）
         try:
             self._loop = asyncio.get_running_loop()
         except RuntimeError:
-            # 当前不在异步上下文中，使用 get_event_loop
+            # 当前不在异步上下文中，获取默认事件循环
             self._loop = asyncio.get_event_loop()
 
         self._qr_lock = asyncio.Lock()
@@ -227,83 +243,117 @@ class DynamicWeChat(_PluginBase):
             return
 
         if (self._enabled or self._onlyonce) and self._input_id_list:
-            # 定时服务 (改为异步调度器)
-            self._scheduler = AsyncIOScheduler(timezone=settings.TZ)
+            # 延迟初始化调度器：仅在确认有运行中的事件循环时才创建
+            # 如果当前没有运行中的循环，调度器将无法工作，记录警告
+            try:
+                loop = asyncio.get_running_loop()
+                loop_is_running = True
+            except RuntimeError:
+                loop_is_running = False
+                logger.warning("当前没有运行中的 asyncio 事件循环，定时任务将无法执行。"
+                               "请确保插件在 asyncio 环境中初始化。")
 
-            # 运行一次定时服务
-            if self._onlyonce:
-                if self.wan2:
-                    if not self._forced_update or not self._local_scan:
-                        logger.info("多网络出口检查需要时间较长，预计25秒内完成")
+            if loop_is_running:
+                self._scheduler = AsyncIOScheduler(timezone=settings.TZ)
+
+                # 运行一次定时服务
+                if self._onlyonce:
+                    if self.wan2:
+                        if not self._forced_update or not self._local_scan:
+                            logger.info("多网络出口检查需要时间较长，预计25秒内完成")
+                            self._scheduler.add_job(
+                                func=self.write_wan2_ip,
+                                trigger='date',
+                                run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+                                name="多网络出口获取IP"
+                            )
+                            self._scheduler.add_job(
+                                func=self.check,
+                                trigger='date',
+                                run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=20),
+                                name="多网络出口检查IP"
+                            )
+                    else:
+                        if not self._forced_update or not self._local_scan:
+                            self._scheduler.add_job(
+                                func=self.check,
+                                trigger='date',
+                                run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+                                name="检测公网IP"
+                            )
+                    self._onlyonce = False
+
+                if self._forced_update:
+                    if not self._local_scan:
+                        logger.info("使用Cookie,强制更新公网IP")
                         self._scheduler.add_job(
-                            func=self.write_wan2_ip,
+                            func=self.forced_change,
                             trigger='date',
                             run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                            name="多网络出口获取IP"
+                            name="强制更新公网IP"
                         )
-                        self._scheduler.add_job(
-                            func=self.check,
-                            trigger='date',
-                            run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=20),
-                            name="多网络出口检查IP"
-                        )
-                else:
-                    if not self._forced_update or not self._local_scan:
-                        self._scheduler.add_job(
-                            func=self.check,
-                            trigger='date',
-                            run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                            name="检测公网IP"
-                        )
-                self._onlyonce = False
+                    self._forced_update = False
 
-            if self._forced_update:
-                if not self._local_scan:
-                    logger.info("使用Cookie,强制更新公网IP")
+                if self._local_scan:
+                    logger.info("使用本地扫码登陆")
                     self._scheduler.add_job(
-                        func=self.forced_change,
+                        func=self.local_scanning,
                         trigger='date',
                         run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                        name="强制更新公网IP"
+                        name="本地扫码登陆"
                     )
-                self._forced_update = False
+                    self._local_scan = False
 
-            if self._local_scan:
-                logger.info("使用本地扫码登陆")
-                self._scheduler.add_job(
-                    func=self.local_scanning,
-                    trigger='date',
-                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                    name="本地扫码登陆"
-                )
-                self._local_scan = False
-
-            # 固定半小时周期请求一次地址,防止cookie失效
-            try:
-                self._scheduler.add_job(
-                    func=self.refresh_cookie,
-                    trigger=CronTrigger.from_crontab(self._refresh_cron),
-                    name="延续企业微信cookie有效时间"
-                )
-            except Exception as err:
-                logger.error(f"定时任务配置错误：{err}")
-                self.systemmessage.put(f"执行周期配置错误：{err}")
-
-            if self.wan2:
+                # 固定半小时周期请求一次地址,防止cookie失效
                 try:
                     self._scheduler.add_job(
-                        func=self.get_ip_from_url,
-                        trigger=CronTrigger.from_crontab(self._cron),
-                        name="多wan口公网IP检测"
+                        func=self.refresh_cookie,
+                        trigger=CronTrigger.from_crontab(self._refresh_cron),
+                        name="延续企业微信cookie有效时间"
                     )
                 except Exception as err:
-                    logger.error(f"多wan口公网IP检测定时任务配置错误：{err}")
+                    logger.error(f"定时任务配置错误：{err}")
                     self.systemmessage.put(f"执行周期配置错误：{err}")
 
-            # 启动任务
-            if self._scheduler.get_jobs():
-                self._scheduler.print_jobs()
-                self._scheduler.start()
+                if self.wan2:
+                    try:
+                        self._scheduler.add_job(
+                            func=self.get_ip_from_url,
+                            trigger=CronTrigger.from_crontab(self._cron),
+                            name="多wan口公网IP检测"
+                        )
+                    except Exception as err:
+                        logger.error(f"多wan口公网IP检测定时任务配置错误：{err}")
+                        self.systemmessage.put(f"执行周期配置错误：{err}")
+
+                # 启动任务
+                if self._scheduler.get_jobs():
+                    self._scheduler.print_jobs()
+                    self._scheduler.start()
+            else:
+                # 没有运行中的事件循环，仅执行一次性任务（如果启用）
+                # 注意：这里的一次性任务通过 _safe_run_coro 执行，可能阻塞
+                if self._onlyonce:
+                    if self.wan2:
+                        if not self._forced_update or not self._local_scan:
+                            logger.info("多网络出口检查需要时间较长，预计25秒内完成（同步执行）")
+                            self._safe_run_coro(self.write_wan2_ip())
+                            self._safe_run_coro(self.check())
+                    else:
+                        if not self._forced_update or not self._local_scan:
+                            self._safe_run_coro(self.check())
+                    self._onlyonce = False
+
+                if self._forced_update:
+                    if not self._local_scan:
+                        logger.info("使用Cookie,强制更新公网IP（同步执行）")
+                        self._safe_run_coro(self.forced_change())
+                    self._forced_update = False
+
+                if self._local_scan:
+                    logger.info("使用本地扫码登陆（同步执行）")
+                    self._safe_run_coro(self.local_scanning())
+                    self._local_scan = False
 
         self.__update_config()
 
@@ -791,7 +841,6 @@ class DynamicWeChat(_PluginBase):
         """
         同步获取 Cookie（兼容旧调用，实际使用应改用 get_cookie_async）
         """
-        # 保留此方法仅用于非异步上下文，内部不再使用阻塞等待
         if self._saved_cookie and self._cookie_valid:
             return self._saved_cookie
 
