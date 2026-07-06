@@ -174,16 +174,13 @@ class DynamicWeChat(_PluginBase):
         self.cfg = JsonFieldManager(self._settings_file_path)
         self._qr_running = False
 
-        # 初始化事件循环和锁
+        # 获取事件循环（不主动创建未启动的循环）
         try:
             self._loop = asyncio.get_running_loop()
         except RuntimeError:
-            # 如果没有运行中的循环，获取当前事件循环或创建新的
-            try:
-                self._loop = asyncio.get_event_loop()
-            except RuntimeError:
-                self._loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._loop)
+            # 当前不在异步上下文中，使用 get_event_loop
+            self._loop = asyncio.get_event_loop()
+
         self._qr_lock = asyncio.Lock()
 
         if config:
@@ -365,7 +362,7 @@ class DynamicWeChat(_PluginBase):
         context = None
         try:
             context = await self._launch_browser_context_async(headless=True)
-            cookie = self.get_cookie()
+            cookie = await self.get_cookie_async()
             if cookie:
                 await context.add_cookies(cookie)
             page = await context.new_page()
@@ -448,7 +445,6 @@ class DynamicWeChat(_PluginBase):
             try:
                 context = await self._launch_browser_context_async(headless=url != "https://ip.skk.moe/multi")
                 page = await context.new_page()
-                # IpLocationParser.get_ipv4 已是异步方法
                 china_ips = await self.wan2.get_ipv4(page, url)
                 if china_ips:
                     self.wan2.overwrite_ips("url_ip", china_ips)
@@ -568,7 +564,6 @@ class DynamicWeChat(_PluginBase):
 
         # 异步检查连接
         try:
-            import aiohttp
             async with aiohttp.ClientSession() as session:
                 async with session.get(self._cc_server.url, timeout=aiohttp.ClientTimeout(total=3)) as resp:
                     if resp.status != 200:
@@ -577,12 +572,6 @@ class DynamicWeChat(_PluginBase):
         except Exception as e:
             self._cc_server = None
             logger.error(f"CookieCloud连接失败: {e}")
-
-    def try_connect_cc(self):
-        """同步版本（兼容旧调用，实际执行异步）"""
-        # 由于在异步环境中不应有同步调用，此方法作为过渡
-        # 实际调用已改为 try_connect_cc_async
-        asyncio.run_coroutine_threadsafe(self.try_connect_cc_async(), self._loop)
 
     async def get_ip_from_url(self) -> (str, str):
         """从URL获取IP地址"""
@@ -669,7 +658,7 @@ class DynamicWeChat(_PluginBase):
         context = None
         try:
             context = await self._launch_browser_context_async(headless=True)
-            cookie = self.get_cookie()
+            cookie = await self.get_cookie_async()
             if cookie:
                 await context.add_cookies(cookie)
             page = await context.new_page()
@@ -765,14 +754,9 @@ class DynamicWeChat(_PluginBase):
                 self._send_cookie_false()
                 logger.error(f"更新本地 cookie 发生错误: {e}")
 
-    def get_cookie(self):
+    async def get_cookie_async(self):
         """
-        获取企业微信 Cookie。
-        获取优先级：
-            1. 本地内存缓存（_saved_cookie 且标记有效）
-            2. CookieCloud 中 .work.weixin.qq.com 域名的 cookie
-        Returns:
-            Playwright 格式的 Cookie 字典列表；获取失败或未启用时返回 None。
+        异步获取企业微信 Cookie（非阻塞版本）
         """
         if self._saved_cookie and self._cookie_valid:
             return self._saved_cookie
@@ -781,13 +765,41 @@ class DynamicWeChat(_PluginBase):
             if not self._use_cookiecloud:
                 return None
 
-            # 使用线程池执行同步的 CookieCloud 下载
-            import asyncio
-            cookies, msg = asyncio.run_coroutine_threadsafe(
-                asyncio.to_thread(self._cookiecloud.download),
-                self._loop
-            ).result(timeout=5)
+            # 在线程池中执行同步操作，不阻塞事件循环
+            cookies, msg = await asyncio.to_thread(self._cookiecloud.download)
 
+            if not cookies:
+                logger.error(f"CookieCloud获取cookie失败,失败原因：{msg}")
+                return None
+
+            cookie_header = ''
+            for domain, cookie in cookies.items():
+                if domain == ".work.weixin.qq.com":
+                    cookie_header = cookie
+                    break
+
+            if cookie_header == '':
+                cookie_header = self._cookie_header
+
+            cookie = self.parse_cookie_header(cookie_header)
+            return cookie
+        except Exception as e:
+            logger.error(f"从CookieCloud获取cookie错误,错误原因:{e}")
+            return None
+
+    def get_cookie(self):
+        """
+        同步获取 Cookie（兼容旧调用，实际使用应改用 get_cookie_async）
+        """
+        # 保留此方法仅用于非异步上下文，内部不再使用阻塞等待
+        if self._saved_cookie and self._cookie_valid:
+            return self._saved_cookie
+
+        try:
+            if not self._use_cookiecloud:
+                return None
+
+            cookies, msg = self._cookiecloud.download()
             if not cookies:
                 logger.error(f"CookieCloud获取cookie失败,失败原因：{msg}")
                 return None
@@ -844,7 +856,7 @@ class DynamicWeChat(_PluginBase):
                     self._saved_cookie = None
 
             if not cookie_used and self._use_cookiecloud:
-                cookie = self.get_cookie()
+                cookie = await self.get_cookie_async()
                 if not cookie:
                     self._send_cookie_false()
                     return
@@ -1364,10 +1376,11 @@ class DynamicWeChat(_PluginBase):
         """同步入口：强制修改IP"""
         if not self._enabled:
             return
-        if event:
-            event_data = event.event_data
-            if event_data and event_data.get("action") != "dynamicwechat":
-                return
+        if not event:
+            return
+        event_data = event.event_data
+        if not event_data or event_data.get("action") != "dynamicwechat":
+            return
         self._safe_run_coro(self.forced_change(event))
 
     @eventmanager.register(EventType.PluginAction)
@@ -1375,10 +1388,11 @@ class DynamicWeChat(_PluginBase):
         """同步入口：本地扫码"""
         if not self._enabled:
             return
-        if event:
-            event_data = event.event_data
-            if event_data and event_data.get("action") != "dynamicwechat":
-                return
+        if not event:
+            return
+        event_data = event.event_data
+        if not event_data or event_data.get("action") != "dynamicwechat":
+            return
         self._safe_run_coro(self.local_scanning(event))
 
     @eventmanager.register(EventType.PluginAction)
@@ -1386,10 +1400,11 @@ class DynamicWeChat(_PluginBase):
         """同步入口：多WAN口IP写入"""
         if not self._enabled:
             return
-        if event:
-            event_data = event.event_data
-            if event_data and event_data.get("action") != "dynamicwechat":
-                return
+        if not event:
+            return
+        event_data = event.event_data
+        if not event_data or event_data.get("action") != "dynamicwechat":
+            return
         self._safe_run_coro(self.write_wan2_ip(event))
 
     @eventmanager.register(EventType.PluginAction)
@@ -1397,10 +1412,11 @@ class DynamicWeChat(_PluginBase):
         """同步入口：检测任务"""
         if not self._enabled:
             return
-        if event:
-            event_data = event.event_data
-            if event_data and event_data.get("action") != "dynamicwechat":
-                return
+        if not event:
+            return
+        event_data = event.event_data
+        if not event_data or event_data.get("action") != "dynamicwechat":
+            return
         self._safe_run_coro(self.check(event))
 
     @eventmanager.register(EventType.PluginAction)
@@ -1408,15 +1424,15 @@ class DynamicWeChat(_PluginBase):
         """同步入口：推送二维码"""
         if not self._enabled:
             return
-        if event:
-            event_data = event.event_data
-            if not event_data or event_data.get("action") != "push_qrcode":
-                return
+        if not event:
+            return
+        event_data = event.event_data
+        if not event_data or event_data.get("action") != "push_qrcode":
+            return
         self._safe_run_coro(self._push_qr_code_with_lock(event))
 
     async def _push_qr_code_with_lock(self, event: Event = None):
         """带锁的二维码推送"""
-        # 尝试获取锁，若已被占用则直接返回
         if self._qr_lock.locked():
             logger.info("二维码推送任务正在执行，忽略重复触发")
             return
