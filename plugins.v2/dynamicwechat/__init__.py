@@ -276,10 +276,10 @@ class DynamicWeChat(_PluginBase):
             # logger.error(f"通道 {self._my_send} 发送失败，原因：{error}")
             return None
 
-    @eventmanager.register(EventType.PluginAction)
+    # ---------- 异步核心方法 ----------
     async def forced_change(self, event: Event = None):
         """
-        强制修改IP
+        强制修改IP (异步)
         """
         if not self._enabled:
             logger.error("插件未开启")
@@ -311,10 +311,9 @@ class DynamicWeChat(_PluginBase):
 
         logger.info("----------------------本次任务结束----------------------")
 
-    @eventmanager.register(EventType.PluginAction)
     async def local_scanning(self, event: Event = None):
         """
-        本地扫码
+        本地扫码 (异步)
         """
         if not self._enabled:
             logger.error("插件未开启")
@@ -340,7 +339,6 @@ class DynamicWeChat(_PluginBase):
                 attempt = 0
                 while attempt < max_attempts:
                     attempt += 1
-                    # logger.info(f"第 {attempt} 次检查登录状态...")
                     await asyncio.sleep(20)  # 每20秒检查一次
                     if await self.check_login_status(page, task='local_scanning'):
                         await self._update_cookie(page, context)  # 刷新cookie
@@ -358,7 +356,6 @@ class DynamicWeChat(_PluginBase):
             if context:
                 await context.close()
 
-    @eventmanager.register(EventType.PluginAction)
     async def write_wan2_ip(self, event: Event = None):
         if not self._enabled:
             logger.error("插件未开启")
@@ -375,7 +372,8 @@ class DynamicWeChat(_PluginBase):
             try:
                 context = await self._launch_browser_context_async(headless=url != "https://ip.skk.moe/multi")
                 page = await context.new_page()
-                china_ips = self.wan2.get_ipv4(page, url)
+                # 注意：wan2.get_ipv4 需要异步化，请在 helper 中修改为 async def
+                china_ips = await self.wan2.get_ipv4(page, url)
                 if china_ips:
                     self.wan2.overwrite_ips("url_ip", china_ips)  # 将获取到的IP写入文件 覆盖写入
                     self.wan2_url = url
@@ -386,10 +384,9 @@ class DynamicWeChat(_PluginBase):
                 if context:
                     await context.close()
 
-    @eventmanager.register(EventType.PluginAction)
     async def check(self, event: Event = None):
         """
-        检测函数
+        检测函数 (异步)
         """
         if not self._enabled:
             logger.error("插件未开启")
@@ -515,7 +512,8 @@ class DynamicWeChat(_PluginBase):
                 try:
                     context = await self._launch_browser_context_async(headless=url != "https://ip.skk.moe/multi")
                     page = await context.new_page()
-                    china_ips = self.wan2.get_ipv4(page, url)
+                    # 注意：wan2.get_ipv4 需要异步化，请在 helper 中修改为 async def
+                    china_ips = await self.wan2.get_ipv4(page, url)
                     if china_ips:
                         self.wan2_url = url
                         self.wan2.overwrite_ips("url_ip", china_ips)  # 将获取到的IP写入文件 覆盖写入
@@ -1282,19 +1280,41 @@ class DynamicWeChat(_PluginBase):
 
         return base_content
 
+    # ---------- 同步事件入口（用于 PluginAction 回调） ----------
     @eventmanager.register(EventType.PluginAction)
-    async def push_qr_code(self, event: Event = None):
-        """
-        立即发送二维码
-        """
+    def forced_change_event(self, event: Event = None):
+        """同步入口：强制修改IP"""
+        asyncio.create_task(self.forced_change(event))
+
+    @eventmanager.register(EventType.PluginAction)
+    def local_scanning_event(self, event: Event = None):
+        """同步入口：本地扫码"""
+        asyncio.create_task(self.local_scanning(event))
+
+    @eventmanager.register(EventType.PluginAction)
+    def write_wan2_ip_event(self, event: Event = None):
+        """同步入口：多WAN口IP写入"""
+        asyncio.create_task(self.write_wan2_ip(event))
+
+    @eventmanager.register(EventType.PluginAction)
+    def check_event(self, event: Event = None):
+        """同步入口：检测任务"""
+        asyncio.create_task(self.check(event))
+
+    @eventmanager.register(EventType.PluginAction)
+    def push_qr_code_event(self, event: Event = None):
+        """同步入口：推送二维码"""
         if not self._enabled:
             return
         if event:
             event_data = event.event_data
             if not event_data or event_data.get("action") != "push_qrcode":
                 return
+        asyncio.create_task(self._push_qr_code_async(event))
+
+    async def _push_qr_code_async(self, event: Event = None):
+        """异步执行推送二维码"""
         if self._qr_running:
-            # logger.warning("二维码任务正在执行，忽略重复触发")
             return
         self._qr_running = True
 
@@ -1307,9 +1327,8 @@ class DynamicWeChat(_PluginBase):
             image_src, refuse_time = await self.find_qrc(page)
             if image_src:
                 if self._my_send:
-                    if not self._wechat_available and self._my_send.other_channel:     # 微信通知已经无法使用,但是配置了第三方通知
+                    if not self._wechat_available and self._my_send.other_channel:
                         for channel, token in self._my_send.other_channel:
-                            # logger.info(f"正常尝试：{channel} {token}")
                             error = self._my_send.send(
                                 title="企业微信登录二维码",
                                 image=image_src, diy_channel=channel, diy_token=token
@@ -1317,24 +1336,21 @@ class DynamicWeChat(_PluginBase):
                             if error:
                                 logger.warning(f"通道 {channel} 推送二维码失败，原因：{error}")
                             else:
-                                break  # 发送成功后退出循环
-                    else:  # 只配置了微信通知 硬发
+                                break
+                    else:
                         error = self._my_send.send("企业微信登录二维码", image=image_src)
                         if error:
                             logger.info(f"远程推送任务: 二维码发送失败,原因：{error}")
                             logger.info("----------------------本次任务结束----------------------")
                             return
                     logger.info("远程推送任务: 二维码发送成功,等待用户 80 秒内扫码登录。V2'微信通知'的用户,此消息并不准确")
-                    # logger.info("远程推送任务: 如收到短信验证码请以？结束,发送到<企业微信应用> 如： 110301？")
-                    # time.sleep(90)
                     max_attempts = 4
                     attempt = 0
                     while attempt < max_attempts:
                         await asyncio.sleep(20)
                         attempt += 1
                         if await self.check_login_status(page, 'push_qr_code'):
-                            await self._update_cookie(page, context)  # 刷新cookie
-                            # logger.info("远程推送任务: 没有可用的CookieCloud服务器,只修改可信IP")
+                            await self._update_cookie(page, context)
                             await self.click_app_management_buttons(page)
                             break
                         else:
@@ -1351,6 +1367,7 @@ class DynamicWeChat(_PluginBase):
                 await context.close()
             self._qr_running = False
 
+    # ---------- 事件接收 ----------
     @eventmanager.register(EventType.PluginAction)
     def receive_code(self, event: Event = None):
         """
@@ -1367,10 +1384,6 @@ class DynamicWeChat(_PluginBase):
             return
         raw = event_data.get("arg_str") or ""
 
-        # 去掉无效日志噪音（只在调试时保留）
-        # logger.info(f"完整event_data: {event_data}")
-        # logger.info(f"原始内容: {raw}")
-
         match = re.search(r"\d{6}", raw)
         if not match:
             logger.warning(f"收到无效验证码: {raw}")
@@ -1378,7 +1391,6 @@ class DynamicWeChat(_PluginBase):
 
         code = match.group(0)
 
-        # 防重复接收（关键优化）
         if getattr(self, "_last_code", None) == code:
             return
 
@@ -1427,7 +1439,6 @@ class DynamicWeChat(_PluginBase):
             match = re.search(r"\d{6}", self.text)
             if match:
                 code = match.group(0)
-                # self._verification_code = match.group(0)
                 if code != self._last_code:
                     self._verification_code = code
                     self._last_code = code
@@ -1436,13 +1447,6 @@ class DynamicWeChat(_PluginBase):
     def get_service(self) -> List[Dict[str, Any]]:
         """
         注册插件公共服务
-        [{
-            "id": "服务ID",
-            "name": "服务名称",
-            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
-            "func": self.xxx,
-            "kwargs": {} # 定时器参数
-        }]
         """
         if self._enabled and self._cron:
             if not self.wan2:
@@ -1453,7 +1457,7 @@ class DynamicWeChat(_PluginBase):
                 "id": self.__class__.__name__,
                 "name": f"{self.plugin_name}服务",
                 "trigger": CronTrigger.from_crontab(self._cron),
-                "func": self.check,
+                "func": self.check,  # 异步函数
                 "kwargs": {}
             }]
 

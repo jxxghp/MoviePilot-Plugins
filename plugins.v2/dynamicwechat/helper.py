@@ -452,20 +452,25 @@ class IpLocationParser:
         return IpLocationParser._remove_duplicates(ipv4_addresses, locations)
 
     @staticmethod
-    def get_ipv4(page, url: str) -> str:
-        """返回多个中国 IP 地址，逗号分隔"""
+    async def get_ipv4(page, url: str) -> str:
+        """
+        返回多个中国 IP 地址，逗号分隔（异步版本）
+        :param page: CloakBrowser 异步 Page 对象
+        :param url: 目标 URL
+        :return: 分号分隔的 IPv4 地址字符串
+        """
         # 导航到目标页面
-        page.goto(url)
+        await page.goto(url)
         # 等待一段时间，让所有动态渲染的内容加载完成
-        page.wait_for_timeout(8000)  # 等待 8 秒钟
-        # 调用解析器解析数据
+        await page.wait_for_timeout(8000)  # 等待 8 秒钟
+        # 调用解析器解析数据（解析器方法保持同步，使用同步 API）
         ipv4_addresses, locations = IpLocationParser._parse(page, url)
         # 筛选出属于中国的 IP 地址
         china_ips = [
             ip for ip, location in zip(ipv4_addresses, locations)
             if 'China' in location or '中国' in location
         ]
-        # 返回逗号分隔的字符串
+        # 返回分号分隔的字符串
         return ';'.join(china_ips)
 
     def _limit_and_deduplicate_ips(self, ips):
@@ -547,7 +552,6 @@ class IpLocationParser:
 
         # 写入更新后的 IP 地址
         self.overwrite_ips(field, updated_ips)
-
 
 
 class JsonFieldManager:
