@@ -1,5 +1,6 @@
 import asyncio
 import io
+import os
 import random
 import re
 import base64
@@ -32,7 +33,7 @@ class DynamicWeChat(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "2.1.4"
+    plugin_version = "2.1.5"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -121,45 +122,71 @@ class DynamicWeChat(_PluginBase):
     _scheduler_thread: Optional[threading.Thread] = None
     _scheduler_stop_event: Optional[threading.Event] = None
 
-    @staticmethod
-    async def _launch_browser_context_async(headless: bool = True):
+    async def _launch_browser_context_with_retry(self, headless: bool = True, max_retries: int = 3, delay: float = 2.0):
         """
-        使用 CloakBrowser 异步启动企业微信页面上下文，统一注入中文语言环境。
-        返回 BrowserContext 对象。
+        使用 CloakBrowser 异步启动企业微信页面上下文，支持重试机制。
+        启动失败时不会影响 cookie 有效状态，仅记录日志。
+        通过临时设置环境变量 DBUS_SESSION_BUS_ADDRESS='' 抑制 Docker 容器中的 D-Bus 错误。
         """
-        try:
-            context = await asyncio.wait_for(
-                launch_context_async(
-                    headless=headless,
-                    args=['--lang=zh-CN'],
-                    extra_http_headers={
-                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.1'
-                    }
-                ),
-                timeout=30.0
-            )
-            return context
-        except asyncio.TimeoutError:
-            logger.error("浏览器启动超时（30秒）")
-            raise
-        except Exception as e:
-            logger.error(f"浏览器启动失败: {e}")
-            raise
+        last_exception = None
+        # 备份原环境变量
+        original_dbus = os.environ.get('DBUS_SESSION_BUS_ADDRESS')
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                # 设置环境变量，忽略 D-Bus 连接尝试
+                os.environ['DBUS_SESSION_BUS_ADDRESS'] = ''
+
+                context = await asyncio.wait_for(
+                    launch_context_async(
+                        headless=headless,
+                        args=['--lang=zh-CN'],
+                        extra_http_headers={
+                            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.1'
+                        }
+                    ),
+                    timeout=30.0
+                )
+                if attempt > 1:
+                    logger.info(f"浏览器启动成功 (第 {attempt} 次尝试)")
+                return context
+            except asyncio.TimeoutError:
+                last_exception = Exception("浏览器启动超时（30秒）")
+                logger.warning(f"浏览器启动超时 (尝试 {attempt}/{max_retries})")
+            except Exception as e:
+                last_exception = e
+                logger.warning(f"浏览器启动失败 (尝试 {attempt}/{max_retries}): {e}")
+            finally:
+                # 恢复原环境变量（每次尝试后恢复）
+                if original_dbus is not None:
+                    os.environ['DBUS_SESSION_BUS_ADDRESS'] = original_dbus
+                else:
+                    os.environ.pop('DBUS_SESSION_BUS_ADDRESS', None)
+
+            if attempt < max_retries:
+                await asyncio.sleep(delay)
+                logger.info(f"等待 {delay} 秒后重试...")
+
+        # 如果所有重试都失败，确保环境变量已恢复（最后一次循环可能未执行 finally，但这里再次恢复）
+        if original_dbus is not None:
+            os.environ['DBUS_SESSION_BUS_ADDRESS'] = original_dbus
+        else:
+            os.environ.pop('DBUS_SESSION_BUS_ADDRESS', None)
+
+        logger.error(f"浏览器启动失败，已重试 {max_retries} 次: {last_exception}")
+        raise last_exception
 
     def _safe_run_coro(self, coro):
         """
-        安全地运行协程。
-        优先检测当前线程是否有运行中的事件循环，如果有则直接创建任务。
-        否则，尝试使用初始化时缓存的循环，若缓存循环也未运行，则使用 asyncio.run 兜底。
+        安全地运行协程，绝不阻塞当前线程。
+        优先在当前线程的运行中循环创建任务，否则使用缓存循环，最后启动后台线程执行。
         """
         try:
-            # 1. 优先检测当前线程是否有运行中的事件循环
+            # 1. 当前线程有运行中的事件循环，直接创建任务
             loop = asyncio.get_running_loop()
-            # 当前线程有运行中的循环，直接创建任务
             loop.create_task(coro)
             return
         except RuntimeError:
-            # 当前线程没有运行中的循环
             pass
 
         # 2. 尝试使用初始化时缓存的循环
@@ -167,12 +194,14 @@ class DynamicWeChat(_PluginBase):
             asyncio.run_coroutine_threadsafe(coro, self._loop)
             return
 
-        # 3. 兜底方案：使用 asyncio.run 同步执行
-        # 注意：这会在当前线程创建一个新的事件循环并运行，可能会阻塞调用者
-        try:
-            asyncio.run(coro)
-        except RuntimeError as e:
-            logger.error(f"执行协程失败: {e}")
+        # 3. 兜底：启动一个后台守护线程运行协程，绝不阻塞
+        def run_in_thread():
+            try:
+                asyncio.run(coro)
+            except Exception as e:
+                logger.error(f"后台协程执行失败: {e}")
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
 
     def _get_or_create_event_loop(self):
         """获取或创建事件循环，确保在任何环境下都能返回有效循环"""
@@ -188,7 +217,6 @@ class DynamicWeChat(_PluginBase):
         except RuntimeError:
             pass
 
-        # 当前线程无有效循环，创建一个新循环并设置为当前线程的循环
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         return loop
@@ -197,8 +225,6 @@ class DynamicWeChat(_PluginBase):
         """调度器守护协程：在独立事件循环中运行所有定时任务"""
         scheduler = AsyncIOScheduler(timezone=settings.TZ)
 
-        # 添加所有定时任务
-        # 固定半小时周期请求一次地址,防止cookie失效
         try:
             scheduler.add_job(
                 func=self.refresh_cookie,
@@ -223,7 +249,6 @@ class DynamicWeChat(_PluginBase):
         scheduler.start()
         logger.info("调度器守护已启动")
 
-        # 保持循环运行直到收到停止信号
         try:
             while not self._scheduler_stop_event.is_set():
                 await asyncio.sleep(1)
@@ -238,7 +263,6 @@ class DynamicWeChat(_PluginBase):
         if self._scheduler_thread and self._scheduler_thread.is_alive():
             return
 
-        # 重置停止事件，确保是未设置状态
         self._scheduler_stop_event = threading.Event()
         self._scheduler_thread = threading.Thread(
             target=lambda: asyncio.run(self._scheduler_daemon()),
@@ -267,7 +291,6 @@ class DynamicWeChat(_PluginBase):
         self.cfg = JsonFieldManager(self._settings_file_path)
         self._qr_running = False
 
-        # 获取或创建事件循环（确保在任何环境下都不会失败）
         self._loop = self._get_or_create_event_loop()
         self._qr_lock = asyncio.Lock()
 
@@ -288,25 +311,23 @@ class DynamicWeChat(_PluginBase):
         else:
             self._my_send = MySender(self._notification_token)
 
-        if not self._my_send.init_success:    # 没有输入通知方式,不通知
+        if not self._my_send.init_success:
             self._my_send = None
-        if self._my_send and not self._my_send.other_channel:   # 确保跟随通知配置，一定要配置了第三方才可以使用
+        if self._my_send and not self._my_send.other_channel:
             self._await_ip = False
 
-        if "||wan" in self._input_id_list:  # 多wan口
+        if "||wan" in self._input_id_list:
             last_char = self._input_id_list[-1] if self._input_id_list else None
             if isinstance(last_char, str) and last_char.isdigit():
                 max_ips = int(last_char)
             else:
-                max_ips = 3  # 默认为 3
+                max_ips = 3
             self.wan2 = IpLocationParser(self._settings_file_path, max_ips=max_ips)
-            self._current_ip_address = self.wan2.read_ips("ips")  # 从文件中读取
+            self._current_ip_address = self.wan2.read_ips("ips")
         else:
             self.wan2 = None
-            # _, self._current_ip_address = self.get_ip_from_url()  # 直接从网页获取 返回URL和IP
-            self._current_ip_address = self.cfg.get("WECHAT_NOW_IP")  # 应对MP/NAS长时间关闭后公网IP和可信IP不一致
+            self._current_ip_address = self.cfg.get("WECHAT_NOW_IP")
 
-        # 停止现有任务
         self.stop_service()
 
         if not self._input_id_list:
@@ -315,7 +336,6 @@ class DynamicWeChat(_PluginBase):
             return
 
         if (self._enabled or self._onlyonce) and self._input_id_list:
-            # 检测当前是否有运行中的事件循环
             try:
                 asyncio.get_running_loop()
                 loop_is_running = True
@@ -323,25 +343,20 @@ class DynamicWeChat(_PluginBase):
                 loop_is_running = False
 
             if loop_is_running:
-                # 情况1：有运行中的循环 → 正常创建 AsyncIOScheduler
                 self._scheduler = AsyncIOScheduler(timezone=settings.TZ)
                 self._setup_scheduler_jobs(self._scheduler)
                 if self._scheduler.get_jobs():
                     self._scheduler.print_jobs()
                     self._scheduler.start()
             else:
-                # 情况2：没有运行中的循环 → 在后台线程中启动调度器守护
                 logger.warning("当前没有运行中的 asyncio 事件循环，将在后台线程中启动调度器")
                 self._start_scheduler_in_background()
 
-            # 处理一次性任务（无论是否有运行中的循环都要执行）
             self._handle_once_tasks()
 
         self.__update_config()
 
     def _setup_scheduler_jobs(self, scheduler):
-        """向调度器添加所有定时任务"""
-        # 固定半小时周期请求一次地址,防止cookie失效
         try:
             scheduler.add_job(
                 func=self.refresh_cookie,
@@ -365,7 +380,7 @@ class DynamicWeChat(_PluginBase):
 
     def _handle_once_tasks(self):
         """处理一次性任务（onlyonce / forced_update / local_scan）"""
-        if self._onlyonce:  # 多网口ip检测禁用立即检测
+        if self._onlyonce:
             if self.wan2:
                 if not self._forced_update or not self._local_scan:
                     logger.info("多网络出口检查需要时间较长，预计25秒内完成")
@@ -374,7 +389,6 @@ class DynamicWeChat(_PluginBase):
             else:
                 if not self._forced_update or not self._local_scan:
                     self._safe_run_coro(self.check())
-            # 关闭一次性开关
             self._onlyonce = False
 
         if self._forced_update:
@@ -392,8 +406,7 @@ class DynamicWeChat(_PluginBase):
         """发送cookie失效通知"""
         self._cookie_valid = False
 
-        # 情况1：配置了微信通知且有效
-        if self._my_send and not self._await_ip and self._wechat_available:  # 配置了通知 且 不启用“IP变动后通知 且 微信通知有效
+        if self._my_send and not self._await_ip and self._wechat_available:
             error = self._my_send.send(
                 title="cookie已失效,请及时更新",
                 content="请在企业微信应用发送/push_qr, 验证码以'？'结束发送到企业微信应用。 如果使用'微信通知'请确保公网IP还没有变动",
@@ -403,13 +416,8 @@ class DynamicWeChat(_PluginBase):
                 logger.info(f"cookie失效通知发送失败,原因：{error}")
             return None
 
-        # 情况2：微信通知无效，但有第三方通知
         if self._my_send and not self._wechat_available and self._my_send.other_channel:
-            '''
-             # 微信通知无效（IP已不一致） 且 配置了第三方通知 
-            '''
             for channel, token in self._my_send.other_channel:
-                # logger.info(f"正常尝试：{channel} {token}")
                 error = self._my_send.send(
                     title="cookie已失效,且微信通知失效",
                     content="请在企业微信应用发送/push_qr, 验证码以'？'结束发送到企业微信应用。",
@@ -419,11 +427,9 @@ class DynamicWeChat(_PluginBase):
                     logger.error(f"通道 {channel} 发送失败，原因：{error}")
                 else:
                     return None
-            # 所有通道都失败，记录系统消息
             self.systemmessage.put("cookie已失效，且所有通知方式均发送失败，请手动更新cookie")
             return None
 
-        # 情况3：没有任何通知方式
         if not self._my_send:
             logger.warning("cookie已失效，但未配置任何通知方式，用户可能无法及时感知")
             self.systemmessage.put("cookie已失效，请及时更新，当前未配置通知方式")
@@ -434,9 +440,6 @@ class DynamicWeChat(_PluginBase):
     # ---------- 异步核心方法 ----------
     @eventmanager.register(EventType.PluginAction)
     async def forced_change(self, event: Event = None):
-        """
-        强制修改IP (异步)
-        """
         if not self._enabled:
             logger.error("插件未开启")
             return
@@ -445,10 +448,9 @@ class DynamicWeChat(_PluginBase):
             if not event_data or event_data.get("action") != "dynamicwechat":
                 return
 
-        # 先尝试cookie登陆
         context = None
         try:
-            context = await self._launch_browser_context_async(headless=True)
+            context = await self._launch_browser_context_with_retry(headless=True)
             cookie = await self.get_cookie_async()
             if cookie:
                 await context.add_cookies(cookie)
@@ -461,18 +463,16 @@ class DynamicWeChat(_PluginBase):
                 logger.error("cookie失效,强制修改IP失败：请使用'本地扫码修改IP'")
                 self._cookie_valid = False
         except Exception as err:
-            logger.error(f"强制修改IP失败：{err}")
+            logger.error(f"强制修改IP失败: {err}")
         finally:
             if context:
                 await context.close()
+                await asyncio.sleep(0.5)
 
         logger.info("----------------------本次任务结束----------------------")
 
     @eventmanager.register(EventType.PluginAction)
     async def local_scanning(self, event: Event = None):
-        """
-        本地扫码 (异步)
-        """
         if not self._enabled:
             logger.error("插件未开启")
             return
@@ -484,12 +484,13 @@ class DynamicWeChat(_PluginBase):
         context = None
         self._qr_running = True
         try:
-            context = await self._launch_browser_context_async(headless=True)
+            context = await self._launch_browser_context_with_retry(headless=True)
             page = await context.new_page()
             await page.goto(self._wechatUrl)
-            await asyncio.sleep(3)  # 页面加载等待时间
+            await asyncio.sleep(3)
             img, _ = await self.find_qrc(page)
             if img:
+                self.systemmessage.put("✅ 二维码已生成，请点击插件面板查看扫码")
                 current_time = datetime.now()
                 future_time = current_time + timedelta(seconds=110)
                 self._future_timestamp = int(future_time.timestamp())
@@ -498,10 +499,9 @@ class DynamicWeChat(_PluginBase):
                 attempt = 0
                 while attempt < max_attempts:
                     attempt += 1
-                    # logger.info(f"第 {attempt} 次检查登录状态...")
-                    await asyncio.sleep(20)  # 每20秒检查一次
+                    await asyncio.sleep(20)
                     if await self.check_login_status(page, task='local_scanning'):
-                        await self._update_cookie(page, context)  # 刷新cookie
+                        await self._update_cookie(page, context)
                         await self.click_app_management_buttons(page)
                         break
                 else:
@@ -510,11 +510,12 @@ class DynamicWeChat(_PluginBase):
                 logger.error("未找到二维码,任务结束")
             logger.info("----------------------本次任务结束----------------------")
         except Exception as e:
-            logger.error(f"本地扫码任务: 本地扫码失败: {e}")
+            logger.error(f"本地扫码任务失败: {e}")
         finally:
             self._qr_running = False
             if context:
                 await context.close()
+                await asyncio.sleep(0.5)
 
     @eventmanager.register(EventType.PluginAction)
     async def write_wan2_ip(self, event: Event = None):
@@ -532,12 +533,11 @@ class DynamicWeChat(_PluginBase):
         for url in urls:
             context = None
             try:
-                context = await self._launch_browser_context_async(headless=url != "https://ip.skk.moe/multi")
+                context = await self._launch_browser_context_with_retry(headless=url != "https://ip.skk.moe/multi")
                 page = await context.new_page()
-                # IpLocationParser.get_ipv4 已是异步方法
                 china_ips = await self.wan2.get_ipv4(page, url)
                 if china_ips:
-                    self.wan2.overwrite_ips("url_ip", china_ips)  # 将获取到的IP写入文件 覆盖写入
+                    self.wan2.overwrite_ips("url_ip", china_ips)
                     self.wan2_url = url
                     break
             except Exception as e:
@@ -545,12 +545,10 @@ class DynamicWeChat(_PluginBase):
             finally:
                 if context:
                     await context.close()
+                    await asyncio.sleep(0.5)
 
     @eventmanager.register(EventType.PluginAction)
     async def check(self, event: Event = None):
-        """
-        检测函数 (异步)
-        """
         if not self._enabled:
             logger.error("插件未开启")
             return
@@ -560,7 +558,6 @@ class DynamicWeChat(_PluginBase):
             if not event_data or event_data.get("action") != "dynamicwechat":
                 return
 
-        # 情况1：cookie有效
         if self._cookie_valid:
             logger.info("开始检测公网IP")
             if await self.CheckIP():
@@ -569,7 +566,6 @@ class DynamicWeChat(_PluginBase):
             logger.info("----------------------本次任务结束----------------------")
             return
 
-        # 情况2：cookie失效 + 启用IP变动后通知（有第三方通知）
         if self._await_ip:
             logger.info("开始检测公网IP,等待IP变动后发送通知")
             if await self.CheckIP(func="public"):
@@ -577,36 +573,30 @@ class DynamicWeChat(_PluginBase):
             logger.info("----------------------本次任务结束----------------------")
             return
 
-        # 情况3：cookie失效 + 不等待IP变化
         logger.info("Cookie已失效，本次不检查IP")
         self._send_cookie_false()
 
     async def CheckIP(self, func=None):
-        """检测IP是否变化"""
         if self.wan2:
             ip_address = self.wan2.read_ips("url_ip")
             url = self.wan2_url
         else:
             url, ip_address = await self.get_ip_from_url()
 
-        # 增强空值检查
         if not ip_address or ip_address == "获取IP失败" or not url:
             logger.error("获取IP失败 不操作可信IP")
             return False
 
-        # 成功获取 IP，记录日志
         if url and ip_address:
             logger.info(f"IP获取成功: {url}: {ip_address}")
 
-        # 上次修改 IP 失败时，继续尝试修改
-        if not self._ip_changed and func != "public":  # 排除cookie失效 检测公网变动的任务
+        if not self._ip_changed and func != "public":
             logger.info("上次IP修改IP失败 继续尝试修改IP")
             return True
 
-        # 如果有 wan2，则处理新增的 IP 地址
         if self.wan2:
             if isinstance(ip_address, str):
-                url_ips = [ip for ip in ip_address.split(";") if ip]  # 将字符串按分号拆分为多个 IP 地址，过滤空值
+                url_ips = [ip for ip in ip_address.split(";") if ip]
             else:
                 url_ips = [ip for ip in ip_address if ip]
 
@@ -616,13 +606,11 @@ class DynamicWeChat(_PluginBase):
             saved_ips = self.wan2.read_ips("ips")
             saved_ips_list = [ip for ip in saved_ips.split(";") if ip] if saved_ips else []
 
-            # 检查每个新 IP 是否存在，若不存在则添加并返回 True
             for ip in url_ips:
                 if ip not in saved_ips_list:
-                    self.wan2.add_ips("ips", ip)  # 将url获取到的新IP添加到ips字段
+                    self.wan2.add_ips("ips", ip)
                     return True
         else:
-            # 检查 IP 是否变化
             if ip_address != self._current_ip_address:
                 logger.info("检测到IP变化")
                 self._wechat_available = False
@@ -630,12 +618,11 @@ class DynamicWeChat(_PluginBase):
         return False
 
     async def try_connect_cc_async(self):
-        """异步连接CookieCloud"""
-        if not self._use_cookiecloud:  # 不使用CookieCloud
+        if not self._use_cookiecloud:
             self._cc_server = None
             return
 
-        if not settings.COOKIECLOUD_KEY or not settings.COOKIECLOUD_PASSWORD:  # 没有设置key和password
+        if not settings.COOKIECLOUD_KEY or not settings.COOKIECLOUD_PASSWORD:
             self._cc_server = None
             logger.error("没有配置CookieCloud的用户KEY和PASSWORD")
             return
@@ -647,7 +634,7 @@ class DynamicWeChat(_PluginBase):
                 password=settings.COOKIECLOUD_PASSWORD
             )
             logger.info("使用内建CookieCloud服务器")
-        else:  # 使用设置里的cookieCloud
+        else:
             self._cc_server = PyCookieCloud(
                 url=settings.COOKIECLOUD_HOST,
                 uuid=settings.COOKIECLOUD_KEY,
@@ -655,7 +642,6 @@ class DynamicWeChat(_PluginBase):
             )
             logger.info("使用自定义CookieCloud服务器")
 
-        # 异步检查连接
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(self._cc_server.url, timeout=aiohttp.ClientTimeout(total=3)) as resp:
@@ -667,8 +653,6 @@ class DynamicWeChat(_PluginBase):
             logger.error(f"CookieCloud连接失败: {e}")
 
     async def get_ip_from_url(self) -> (str, str):
-        """从URL获取IP地址"""
-        # 根据输入解析 URL 列表
         if isinstance(self._input_id_list, str) and "||" in self._input_id_list:
             _, url_list = self._input_id_list.split("||", 1)
             urls = url_list.split(",")
@@ -677,7 +661,6 @@ class DynamicWeChat(_PluginBase):
         else:
             urls = self._ip_urls
 
-        # 随机化 URL 列表
         random.shuffle(urls)
 
         if not self.wan2:
@@ -689,9 +672,9 @@ class DynamicWeChat(_PluginBase):
                                 text = await response.text()
                                 ip_address = re.search(self._ip_pattern, text)
                                 if ip_address:
-                                    return url, ip_address.group()  # 返回匹配的 IP 地址
+                                    return url, ip_address.group()
                     except Exception as e:
-                        if "104" not in str(e) and 'Read timed out' not in str(e):  # 忽略网络波动,都失败会返回None, "获取IP失败"
+                        if "104" not in str(e) and 'Read timed out' not in str(e):
                             logger.warning(f"{url} 获取IP失败, Error: {e}")
             return None, "获取IP失败"
         else:
@@ -700,26 +683,25 @@ class DynamicWeChat(_PluginBase):
             for url in urls:
                 context = None
                 try:
-                    context = await self._launch_browser_context_async(headless=url != "https://ip.skk.moe/multi")
+                    context = await self._launch_browser_context_with_retry(headless=url != "https://ip.skk.moe/multi")
                     page = await context.new_page()
                     china_ips = await self.wan2.get_ipv4(page, url)
                     if china_ips:
                         self.wan2_url = url
-                        self.wan2.overwrite_ips("url_ip", china_ips)  # 将获取到的IP写入文件 覆盖写入
-                        return url, china_ips  # 成功获取到IP后返回
+                        self.wan2.overwrite_ips("url_ip", china_ips)
+                        return url, china_ips
                 except Exception as e:
                     logger.warning(f"{url} 多出口IP获取失败, Error: {e}")
                 finally:
                     if context:
                         await context.close()
+                        await asyncio.sleep(0.5)
             self.wan2_url = None
             return None, "获取IP失败"
 
     async def find_qrc(self, page):
-        """查找二维码"""
-        # 查找 iframe 元素并切换到它
         try:
-            await page.wait_for_selector("iframe", timeout=5000)  # 等待 iframe 加载
+            await page.wait_for_selector("iframe", timeout=5000)
             iframe_element = await page.query_selector("iframe")
             if not iframe_element:
                 logger.warning("未找到iframe元素")
@@ -729,14 +711,11 @@ class DynamicWeChat(_PluginBase):
                 logger.warning("无法获取iframe内容")
                 return None, None
 
-            # 查找二维码图片元素
             qr_code_element = await frame.query_selector("img.qrcode_login_img")
             if qr_code_element:
-                # logger.info("找到二维码图片元素")
-                # 保存二维码图片
                 qr_code_url = await qr_code_element.get_attribute('src')
                 if qr_code_url.startswith("/"):
-                    qr_code_url = "https://work.weixin.qq.com" + qr_code_url  # 补全二维码 URL
+                    qr_code_url = "https://work.weixin.qq.com" + qr_code_url
 
                 async with aiohttp.ClientSession() as session:
                     async with session.get(qr_code_url) as resp:
@@ -752,11 +731,10 @@ class DynamicWeChat(_PluginBase):
             return None, None
 
     async def ChangeIP(self):
-        """修改可信IP"""
         logger.info("开始请求企业微信管理更改可信IP")
         context = None
         try:
-            context = await self._launch_browser_context_async(headless=True)
+            context = await self._launch_browser_context_with_retry(headless=True)
             cookie = await self.get_cookie_async()
             if cookie:
                 await context.add_cookies(cookie)
@@ -765,7 +743,7 @@ class DynamicWeChat(_PluginBase):
             await asyncio.sleep(3)
             img_src, refuse_time = await self.find_qrc(page)
             if img_src:
-                if self._my_send:   # 统一逻辑,只有用户发送'/push_qr'才会发送二维码
+                if self._my_send:
                     self._ip_changed = False
                     self._send_cookie_false()
                     logger.info("已尝试发送cookie失效通知")
@@ -773,7 +751,7 @@ class DynamicWeChat(_PluginBase):
                     self._ip_changed = False
                     self._cookie_valid = False
                     logger.info("cookie已失效,且没有配置通知方式,本次修改可信IP失败")
-            else:  # 如果直接进入企业微信
+            else:
                 logger.info("尝试cookie登录")
                 if await self.check_login_status(page, ""):
                     await self.click_app_management_buttons(page)
@@ -787,15 +765,15 @@ class DynamicWeChat(_PluginBase):
         finally:
             if context:
                 await context.close()
+                await asyncio.sleep(0.5)
 
     async def _update_cookie(self, page, context):
-        """更新cookie"""
-        self._future_timestamp = 0  # 标记二维码失效
-        PyCookieCloud.save_cookie_lifetime(self._settings_file_path, 0)  # 重置cookie存活时间
+        self._future_timestamp = 0
+        PyCookieCloud.save_cookie_lifetime(self._settings_file_path, 0)
 
         if self._use_cookiecloud:
-            if not self._cc_server:  # 连接失败返回 False
-                await self.try_connect_cc_async()  # 再尝试一次连接
+            if not self._cc_server:
+                await self.try_connect_cc_async()
                 if self._cc_server is None:
                     return
 
@@ -806,7 +784,7 @@ class DynamicWeChat(_PluginBase):
                     return
 
                 current_url = page.url
-                current_cookies = await context.cookies(current_url)  # 通过 context 获取 cookies
+                current_cookies = await context.cookies(current_url)
                 if current_cookies is None:
                     logger.error("无法从内置浏览器获取 cookies")
                     self._cookie_valid = False
@@ -815,10 +793,9 @@ class DynamicWeChat(_PluginBase):
                 self._saved_cookie = current_cookies
                 formatted_cookies = {}
                 for cookie in current_cookies:
-                    domain = cookie.get('domain')  # 使用 get() 方法避免 KeyError
+                    domain = cookie.get('domain')
                     if domain is None:
-                        continue  # 跳过没有 domain 的 cookie
-
+                        continue
                     if domain not in formatted_cookies:
                         formatted_cookies[domain] = []
                     formatted_cookies[domain].append(cookie)
@@ -839,7 +816,7 @@ class DynamicWeChat(_PluginBase):
         else:
             try:
                 current_url = page.url
-                current_cookies = await context.cookies(current_url)  # 通过 context 获取 cookies
+                current_cookies = await context.cookies(current_url)
                 if current_cookies is None:
                     self._send_cookie_false()
                     logger.error("更新本地 Cookie失败")
@@ -848,21 +825,13 @@ class DynamicWeChat(_PluginBase):
                 else:
                     logger.info("更新本地 Cookie成功，请不要在其他地方登录企业微信")
                     self._is_special_upload = True
-                    self._saved_cookie = current_cookies  # 保存
+                    self._saved_cookie = current_cookies
                     self._cookie_valid = True
             except Exception as e:
                 self._send_cookie_false()
                 logger.error(f"更新本地 cookie 发生错误: {e}")
 
     async def get_cookie_async(self):
-        """
-        异步获取企业微信 Cookie（非阻塞版本）
-        获取优先级：
-            1. 本地内存缓存（_saved_cookie 且标记有效）
-            2. CookieCloud 中 .work.weixin.qq.com 域名的 cookie
-        Returns:
-            Playwright 格式的 Cookie 字典列表；获取失败或未启用时返回 None。
-        """
         if self._saved_cookie and self._cookie_valid:
             return self._saved_cookie
 
@@ -870,10 +839,9 @@ class DynamicWeChat(_PluginBase):
             if not self._use_cookiecloud:
                 return None
 
-            # 在线程池中执行同步操作，不阻塞事件循环
             cookies, msg = await asyncio.to_thread(self._cookiecloud.download)
 
-            if not cookies:  # CookieCloud获取cookie失败
+            if not cookies:
                 logger.error(f"CookieCloud获取cookie失败,失败原因：{msg}")
                 return None
 
@@ -893,9 +861,6 @@ class DynamicWeChat(_PluginBase):
             return None
 
     def get_cookie(self):
-        """
-        同步获取 Cookie（兼容旧调用，实际使用应改用 get_cookie_async）
-        """
         if self._saved_cookie and self._cookie_valid:
             return self._saved_cookie
 
@@ -904,7 +869,7 @@ class DynamicWeChat(_PluginBase):
                 return None
 
             cookies, msg = self._cookiecloud.download()
-            if not cookies:  # CookieCloud获取cookie失败
+            if not cookies:
                 logger.error(f"CookieCloud获取cookie失败,失败原因：{msg}")
                 return None
 
@@ -923,9 +888,7 @@ class DynamicWeChat(_PluginBase):
             logger.error(f"从CookieCloud获取cookie错误,错误原因:{e}")
             return None
 
-    # @staticmethod
     def parse_cookie_header(self, cookie_header):
-        """解析cookie头"""
         cookies = []
         self._is_special_upload = False
         for cookie in cookie_header.split(';'):
@@ -942,29 +905,24 @@ class DynamicWeChat(_PluginBase):
         return cookies
 
     async def refresh_cookie(self):
-        """保活：刷新cookie"""
         context = None
         try:
-            context = await self._launch_browser_context_async(headless=True)
+            context = await self._launch_browser_context_with_retry(headless=True)
             cookie_used = False
 
             if self._saved_cookie:
-                # logger.info("尝试使用内存保存的 cookie")
                 await context.add_cookies(self._saved_cookie)
                 page = await context.new_page()
                 await page.goto(self._wechatUrl)
                 await asyncio.sleep(3)
                 if await self.check_login_status(page, task='refresh_cookie'):
-                    # logger.info("本地内存保存的 cookie 有效")
                     self._cookie_valid = True
                     cookie_used = True
                 else:
-                    # logger.warning("本地内存保存的 cookie 无效")
                     self._cookie_valid = False
-                    self._saved_cookie = None  # 清空无效的 cookie
+                    self._saved_cookie = None
 
             if not cookie_used and self._use_cookiecloud:
-                # logger.info("尝试从CookieCloud 获取新的 cookie")
                 cookie = await self.get_cookie_async()
                 if not cookie:
                     self._send_cookie_false()
@@ -974,13 +932,11 @@ class DynamicWeChat(_PluginBase):
                 await page.goto(self._wechatUrl)
                 await asyncio.sleep(3)
                 if await self.check_login_status(page, task='refresh_cookie'):
-                    # logger.info("新获取的 cookie 有效")
                     self._cookie_valid = True
-                    self._saved_cookie = await context.cookies()  # 保存有效的 cookie
+                    self._saved_cookie = await context.cookies()
                 else:
-                    # logger.warning("新获取的 cookie 无效")
                     self._send_cookie_false()
-                    self._saved_cookie = None  # 清空无效的 cookie
+                    self._saved_cookie = None
 
             if self._cookie_valid:
                 if self._my_send:
@@ -988,23 +944,15 @@ class DynamicWeChat(_PluginBase):
                 PyCookieCloud.increase_cookie_lifetime(self._settings_file_path, 600)
                 self._cookie_lifetime = PyCookieCloud.load_cookie_lifetime(self._settings_file_path)
 
-        except asyncio.TimeoutError:
-            self._send_cookie_false()
-            self._saved_cookie = None
-            logger.error("cookie 校验超时")
         except Exception as e:
-            self._send_cookie_false()
-            self._saved_cookie = None  # 异常时清空 cookie
             logger.error(f"cookie 校验过程中发生异常: {e}")
         finally:
             if context:
                 await context.close()
+                await asyncio.sleep(0.5)
 
     async def check_login_status(self, page, task):
-        """检查登录状态"""
-        # 等待页面加载
         await asyncio.sleep(3)
-        # 检查是否需要进行短信验证
         if task != 'refresh_cookie':
             logger.info("检查登录状态...")
 
@@ -1018,8 +966,7 @@ class DynamicWeChat(_PluginBase):
         try:
             for selector in success_selectors:
                 try:
-                    # 先检查登录成功后的页面状态
-                    success_element = await page.wait_for_selector(selector, timeout=3000)  # 检查登录成功的元素
+                    success_element = await page.wait_for_selector(selector, timeout=3000)
                     if success_element:
                         if task != 'refresh_cookie':
                             logger.info("登录成功！")
@@ -1030,25 +977,23 @@ class DynamicWeChat(_PluginBase):
             logger.debug(f"登录检查异常: {e}")
 
         try:
-            # 检查是否进入验证码界面
-            captcha_panel = await page.wait_for_selector('.receive_captcha_panel', timeout=5000)  # 检查验证码面板
-            if captcha_panel:  # 出现了短信验证界面
+            captcha_panel = await page.wait_for_selector('.receive_captcha_panel', timeout=5000)
+            if captcha_panel:
                 if task == 'local_scanning':
                     await asyncio.sleep(3)
                 else:
                     logger.info("等待30秒,请将短信验证码请以'？'结束,发送到<企业微信应用> 如： 110301？")
-                    await asyncio.sleep(30)  # 多等30秒
+                    await asyncio.sleep(30)
+
                 if self._verification_code:
-                    # logger.info("输入验证码：" + self._verification_code)
                     for digit in self._verification_code:
                         await page.keyboard.press(digit)
-                        await asyncio.sleep(0.3)  # 每个数字之间添加少量间隔以确保输入顺利
-                    confirm_button = await page.wait_for_selector('.confirm_btn', timeout=5000)  # 获取确认按钮
+                        await asyncio.sleep(0.3)
+                    confirm_button = await page.wait_for_selector('.confirm_btn', timeout=5000)
                     if confirm_button:
-                        await confirm_button.click()  # 点击确认
-                        await asyncio.sleep(3)  # 等待处理
+                        await confirm_button.click()
+                        await asyncio.sleep(3)
 
-                        # 再次检查登录状态
                         for selector in success_selectors:
                             try:
                                 success_element = await page.wait_for_selector(selector, timeout=3000)
@@ -1062,31 +1007,25 @@ class DynamicWeChat(_PluginBase):
                     logger.error("未收到短信验证码，请以问号结尾发送到企业微信应用。如：510010? 使用全局AI助手需使用/wxcode 510010的格式发送验证码")
                     return False
         except Exception:
-            # logger.debug(str(e))  # 基于bug运行,请不要将错误输出到日志
-            # try:  # 没有登录成功,也没有短信验证码
-            if await self.find_qrc(page) and task not in ['refresh_cookie', 'local_scanning']:  # 延长任务找到的二维码不会被发送,所以不算用户没有扫码
+            if await self.find_qrc(page) and task not in ['refresh_cookie', 'local_scanning']:
                 logger.warning("用户没有扫描二维码")
                 return False
 
         return False
 
     async def click_app_management_buttons(self, page):
-        """点击应用管理按钮"""
         self._cookie_valid = True
         if self._my_send:
-            self._my_send.reset_limit()  # 解除限制 可以发送cookie失效提醒
+            self._my_send.reset_limit()
 
         bash_url = "https://work.weixin.qq.com/wework_admin/frame#apps/modApiApp/"
-        # 按钮的选择器和名称
         buttons = [
-            # ("//span[@class='frame_nav_item_title' and text()='应用管理']", "应用管理"),
-            # ("//div[@class='app_index_item_title ' and contains(text(), 'MoviePilot')]", "MoviePilot"),
             (
                 "//div[contains(@class, 'js_show_ipConfig_dialog')]//a[contains(@class, '_mod_card_operationLink') and text()='配置']",
                 "配置")
         ]
 
-        if self.wan2:  # 多wan口从文件读取 ip
+        if self.wan2:
             self._current_ip_address = self.wan2.read_ips("ips")
         else:
             _, self._current_ip_address = await self.get_ip_from_url()
@@ -1107,24 +1046,20 @@ class DynamicWeChat(_PluginBase):
                 logger.warning("请根据 https://github.com/RamenRa/MoviePilot-Plugins 的说明进行配置应用ID")
                 return
 
-            await page.goto(app_url)  # 打开应用详情页
+            await page.goto(app_url)
             await asyncio.sleep(2)
 
-            # 依次点击每个按钮
             for xpath, name in buttons:
-                # 等待按钮出现并可点击
                 try:
-                    button = await page.wait_for_selector(xpath, timeout=5000)  # 等待按钮可点击
+                    button = await page.wait_for_selector(xpath, timeout=5000)
                     await button.click()
-                    # logger.info(f"已点击 '{name}' 按钮")
                     await page.wait_for_selector('textarea.js_ipConfig_textarea', timeout=5000)
-                    # logger.info(f"已找到文本框")
+
                     input_area = page.locator('textarea.js_ipConfig_textarea')
                     confirm = page.locator('.js_ipConfig_confirmBtn')
-                    # logger.info(f"即将输入的内容：'{input_ip}'")
-                    await input_area.fill(self._current_ip_address)  # 填充 IP 地址
-                    await confirm.click()  # 点击确认按钮
-                    await asyncio.sleep(3)  # 等待处理
+                    await input_area.fill(self._current_ip_address)
+                    await confirm.click()
+                    await asyncio.sleep(3)
                     self._ip_changed = True
                 except Exception as e:
                     logger.error(f"未能找打开{app_url}或点击 '{name}' 按钮异常: {e}")
@@ -1133,42 +1068,32 @@ class DynamicWeChat(_PluginBase):
                         logger.info(f"应用{app_id} 已被禁用,可能是没有设置接收api")
 
             if self._ip_changed:
-                self._wechat_available = True    # 标记微信通知重新有效
-                self._send_notification = False  # 重置第三方通知已发送标记
+                self._wechat_available = True
+                self._send_notification = False
                 self.cfg.update("WECHAT_NOW_IP", self._current_ip_address)
-                '''
-                将填入企业微信的IP写入settings.json 
-                应对MP/NAS长时间关闭后公网IP和可信IP不一致
-                '''
-                # self.wan2 = IpLocationParser(self._settings_file_path, max_ips=1)
+
                 masked_ips = [self.mask_ip(ip) for ip in self._current_ip_address.split(';')]
                 masked_ip_string = ";".join(masked_ips)
                 logger.info(f"应用: {app_id} 输入IP：" + self._current_ip_address)
-                if self._my_send and not self._my_send.quiet_flag:  # 没有开启安静模式才发通知
+                if self._my_send and not self._my_send.quiet_flag:
                     self._my_send.send(title="更新可信IP成功",
                                        content='应用: ' + app_id + ' 输入IP：' + masked_ip_string,
                                        force_send=True, diy_channel="WeChat")
 
     @staticmethod
     def mask_ip(ip):
-        """IP地址脱敏"""
         ip_parts = ip.split('.')
-        if len(ip_parts) == 4:  # 确保是有效的 IPv4 地址
-            # 使用星号替换第二和第三部分
+        if len(ip_parts) == 4:
             masked_ip = f"{ip_parts[0]}.{len(ip_parts[1]) * '*'}.{len(ip_parts[2]) * '*'}.{ip_parts[3]}"
             return masked_ip
-        return ip  # 如果不是有效的 IP 地址，返回原地址
+        return ip
 
     def __update_config(self):
-        """
-        更新配置
-        """
         self.update_config({
             "enabled": self._enabled,
             "onlyonce": self._onlyonce,
             "cron": self._cron,
             "notification_token": self._notification_token,
-            # "current_ip_address": self._current_ip_address,
             "await_ip": self._await_ip,
             "forced_update": self._forced_update,
             "local_scan": self._local_scan,
@@ -1181,9 +1106,6 @@ class DynamicWeChat(_PluginBase):
         return self._enabled
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """
-        拼装插件配置页面,只保留必要的配置项,并添加 token 配置。
-        """
         return [
             {
                 'component': 'VForm',
@@ -1193,10 +1115,7 @@ class DynamicWeChat(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
+                                'props': {'cols': 12, 'md': 4},
                                 'content': [
                                     {
                                         'component': 'VSwitch',
@@ -1209,10 +1128,7 @@ class DynamicWeChat(_PluginBase):
                             },
                             {
                                 'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
+                                'props': {'cols': 12, 'md': 4},
                                 'content': [
                                     {
                                         'component': 'VSwitch',
@@ -1225,10 +1141,7 @@ class DynamicWeChat(_PluginBase):
                             },
                             {
                                 'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
+                                'props': {'cols': 12, 'md': 4},
                                 'content': [
                                     {
                                         'component': 'VSwitch',
@@ -1246,10 +1159,7 @@ class DynamicWeChat(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
+                                'props': {'cols': 12, 'md': 4},
                                 'content': [
                                     {
                                         'component': 'VSwitch',
@@ -1262,10 +1172,7 @@ class DynamicWeChat(_PluginBase):
                             },
                             {
                                 'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
+                                'props': {'cols': 12, 'md': 4},
                                 'content': [
                                     {
                                         'component': 'VSwitch',
@@ -1279,10 +1186,7 @@ class DynamicWeChat(_PluginBase):
                             *(
                                 [{
                                     'component': 'VCol',
-                                    'props': {
-                                        'cols': 12,
-                                        'md': 4
-                                    },
+                                    'props': {'cols': 12, 'md': 4},
                                     'content': [
                                         {
                                             'component': 'VSwitch',
@@ -1302,10 +1206,7 @@ class DynamicWeChat(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
+                                'props': {'cols': 12, 'md': 6},
                                 'content': [
                                     {
                                         'component': 'VTextField',
@@ -1319,10 +1220,7 @@ class DynamicWeChat(_PluginBase):
                             },
                             {
                                 'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
+                                'props': {'cols': 12, 'md': 6},
                                 'content': [
                                     {
                                         'component': 'VTextarea',
@@ -1342,9 +1240,7 @@ class DynamicWeChat(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {
-                                    'cols': 12
-                                },
+                                'props': {'cols': 12},
                                 'content': [
                                     {
                                         'component': 'VTextarea',
@@ -1364,9 +1260,7 @@ class DynamicWeChat(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {
-                                    'cols': 12
-                                },
+                                'props': {'cols': 12},
                                 'content': [
                                     {
                                         'component': 'VAlert',
@@ -1385,9 +1279,7 @@ class DynamicWeChat(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {
-                                    'cols': 12
-                                },
+                                'props': {'cols': 12},
                                 'content': [
                                     {
                                         'component': 'VAlert',
@@ -1416,21 +1308,17 @@ class DynamicWeChat(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
-        # 获取当前时间戳
         current_time = datetime.now().timestamp()
 
-        # 判断二维码是否过期
         if current_time > self._future_timestamp:
             vaild_text = "二维码已过期或没有扫码任务"
             color = "#9B50FF" if self._enabled else "#bbbbbb"
             self._qr_code_image = None
         else:
-            # 二维码有效,格式化过期时间为 年-月-日 时:分:秒
             expiration_time = datetime.fromtimestamp(self._future_timestamp).strftime('%Y-%m-%d %H:%M:%S')
             vaild_text = f"二维码有效,过期时间: {expiration_time}"
             color = "#32CD32"
 
-        # 如果self._qr_code_image为None,返回提示信息
         if self._qr_code_image is None:
             img_component = {
                 "component": "div",
@@ -1445,13 +1333,10 @@ class DynamicWeChat(_PluginBase):
                 }
             }
         else:
-            # 获取二维码图片数据
             qr_image_data = self._qr_code_image.getvalue()
-            # 将图片数据转为 base64 编码
             base64_image = base64.b64encode(qr_image_data).decode('utf-8')
             img_src = f"data:image/png;base64,{base64_image}"
 
-            # 生成图片组件
             img_component = {
                 "component": "img",
                 "props": {
@@ -1468,10 +1353,9 @@ class DynamicWeChat(_PluginBase):
             }
 
         if self._is_special_upload and self._enabled:
-            # 计算 cookie_lifetime 的天数、小时数和分钟数
-            cookie_lifetime_days = self._cookie_lifetime // 86400  # 一天的秒数为 86400
-            cookie_lifetime_hours = (self._cookie_lifetime % 86400) // 3600  # 计算小时数
-            cookie_lifetime_minutes = (self._cookie_lifetime % 3600) // 60  # 计算分钟数
+            cookie_lifetime_days = self._cookie_lifetime // 86400
+            cookie_lifetime_hours = (self._cookie_lifetime % 86400) // 3600
+            cookie_lifetime_minutes = (self._cookie_lifetime % 3600) // 60
             bg_color = "#40bb45" if self._cookie_valid else "#ff0000"
             cookie_lifetime_text = f"Cookie 已使用: {cookie_lifetime_days}天{cookie_lifetime_hours}小时{cookie_lifetime_minutes}分钟"
 
@@ -1492,16 +1376,12 @@ class DynamicWeChat(_PluginBase):
                 }
             }
         else:
-            cookie_lifetime_component = None  # 不生成该组件
+            cookie_lifetime_component = None
 
         base_content = [
             {
                 "component": "div",
-                "props": {
-                    "style": {
-                        "textAlign": "center"
-                    }
-                },
+                "props": {"style": {"textAlign": "center"}},
                 "content": [
                     {
                         "component": "div",
@@ -1510,8 +1390,8 @@ class DynamicWeChat(_PluginBase):
                                 "display": "flex",
                                 "justifyContent": "center",
                                 "alignItems": "center",
-                                "flexDirection": "column",  # 垂直排列
-                                "gap": "10px"  # 控制间距
+                                "flexDirection": "column",
+                                "gap": "10px"
                             }
                         },
                         "content": [
@@ -1535,20 +1415,16 @@ class DynamicWeChat(_PluginBase):
                             cookie_lifetime_component if cookie_lifetime_component else {},
                         ]
                     },
-                    img_component  # 二维码图片或提示信息
+                    img_component
                 ]
             }
         ]
 
         return base_content
 
-    # ---------- 统一事件入口（用于 PluginAction 回调） ----------
+    # ---------- 统一事件入口 ----------
     @eventmanager.register(EventType.PluginAction)
     def dynamicwechat_event(self, event: Event = None):
-        """
-        统一入口：根据 sub_action 分发到不同处理逻辑
-        避免多个入口监听同一个 action 导致的并发冲突
-        """
         if not self._enabled or not event:
             return
 
@@ -1564,14 +1440,11 @@ class DynamicWeChat(_PluginBase):
             self._safe_run_coro(self.local_scanning(event))
         elif sub_action == "write_wan2_ip":
             self._safe_run_coro(self.write_wan2_ip(event))
-        else:  # check (默认)
+        else:
             self._safe_run_coro(self.check(event))
 
     @eventmanager.register(EventType.PluginAction)
     def push_qr_code_event(self, event: Event = None):
-        """
-        立即发送二维码（同步入口）
-        """
         if not self._enabled or not event:
             return
         event_data = event.event_data
@@ -1580,7 +1453,6 @@ class DynamicWeChat(_PluginBase):
         self._safe_run_coro(self._push_qr_code_with_lock(event))
 
     async def _push_qr_code_with_lock(self, event: Event = None):
-        """带锁的二维码推送"""
         if self._qr_lock.locked():
             logger.info("二维码推送任务正在执行，忽略重复触发")
             return
@@ -1589,11 +1461,10 @@ class DynamicWeChat(_PluginBase):
             await self._push_qr_code_async(event)
 
     async def _push_qr_code_async(self, event: Event = None):
-        """异步执行推送二维码"""
         self._qr_running = True
         context = None
         try:
-            context = await self._launch_browser_context_async(headless=True)
+            context = await self._launch_browser_context_with_retry(headless=True)
             page = await context.new_page()
             await page.goto(self._wechatUrl)
             await asyncio.sleep(3)
@@ -1601,10 +1472,9 @@ class DynamicWeChat(_PluginBase):
             image_src, refuse_time = await self.find_qrc(page)
             if image_src:
                 if self._my_send:
-                    if not self._wechat_available and self._my_send.other_channel:     # 微信通知已经无法使用,但是配置了第三方通知
+                    if not self._wechat_available and self._my_send.other_channel:
                         sent = False
                         for channel, token in self._my_send.other_channel:
-                            # logger.info(f"正常尝试：{channel} {token}")
                             error = self._my_send.send(
                                 title="企业微信登录二维码",
                                 image=image_src, diy_channel=channel, diy_token=token
@@ -1615,7 +1485,7 @@ class DynamicWeChat(_PluginBase):
                             logger.warning(f"通道 {channel} 推送二维码失败，原因：{error}")
                         if not sent:
                             logger.warning("所有第三方通知通道推送二维码均失败")
-                    else:  # 只配置了微信通知 硬发
+                    else:
                         error = self._my_send.send("企业微信登录二维码", image=image_src)
                         if error:
                             logger.info(f"远程推送任务: 二维码发送失败,原因：{error}")
@@ -1623,15 +1493,13 @@ class DynamicWeChat(_PluginBase):
                             return
 
                     logger.info("远程推送任务: 二维码发送成功,等待用户 80 秒内扫码登录。V2'微信通知'的用户,此消息并不准确")
-                    # logger.info("远程推送任务: 如收到短信验证码请以？结束,发送到<企业微信应用> 如： 110301？")
                     max_attempts = 4
                     attempt = 0
                     while attempt < max_attempts:
                         await asyncio.sleep(20)
                         attempt += 1
                         if await self.check_login_status(page, 'push_qr_code'):
-                            await self._update_cookie(page, context)  # 刷新cookie
-                            # logger.info("远程推送任务: 没有可用的CookieCloud服务器,只修改可信IP")
+                            await self._update_cookie(page, context)
                             await self.click_app_management_buttons(page)
                             break
                         else:
@@ -1642,17 +1510,15 @@ class DynamicWeChat(_PluginBase):
                 logger.warning("远程推送任务: 未找到二维码")
             logger.info("----------------------本次任务结束----------------------")
         except Exception as e:
-            logger.error(f"远程推送任务: 推送二维码失败: {e}")
+            logger.error(f"远程推送任务失败: {e}")
         finally:
             if context:
                 await context.close()
+                await asyncio.sleep(0.5)
             self._qr_running = False
 
     @eventmanager.register(EventType.PluginAction)
     def receive_code(self, event: Event = None):
-        """
-        接收企业微信验证码
-        """
         if not self._enabled or not event:
             return
 
@@ -1665,10 +1531,6 @@ class DynamicWeChat(_PluginBase):
 
         raw = event_data.get("arg_str") or ""
 
-        # 去掉无效日志噪音（只在调试时保留）
-        # logger.info(f"完整event_data: {event_data}")
-        # logger.info(f"原始内容: {raw}")
-
         match = re.search(r"\d{6}", raw)
         if not match:
             logger.warning(f"收到无效验证码: {raw}")
@@ -1676,7 +1538,6 @@ class DynamicWeChat(_PluginBase):
 
         code = match.group(0)
 
-        # 防重复接收（关键优化）
         if getattr(self, "_last_code", None) == code:
             return
 
@@ -1693,18 +1554,14 @@ class DynamicWeChat(_PluginBase):
                 "event": EventType.PluginAction,
                 "desc": "立即推送登录二维码",
                 "category": "",
-                "data": {
-                    "action": "push_qrcode"
-                }
+                "data": {"action": "push_qrcode"}
             },
             {
                 "cmd": "/wxcode",
                 "event": EventType.PluginAction,
                 "desc": "提交企业微信验证码",
                 "category": "",
-                "data": {
-                    "action": "wxcode"
-                }
+                "data": {"action": "wxcode"}
             }
         ]
 
@@ -1713,9 +1570,6 @@ class DynamicWeChat(_PluginBase):
 
     @eventmanager.register(EventType.UserMessage)
     def talk(self, event: Event):
-        """
-        监听用户消息
-        """
         if not self._enabled:
             return
         if not self._qr_running:
@@ -1726,23 +1580,12 @@ class DynamicWeChat(_PluginBase):
             match = re.search(r"\d{6}", self.text)
             if match:
                 code = match.group(0)
-                # self._verification_code = match.group(0)
                 if code != self._last_code:
                     self._verification_code = code
                     self._last_code = code
                     logger.info(f"收到验证码：{code}")
 
     def get_service(self) -> List[Dict[str, Any]]:
-        """
-        注册插件公共服务
-        [{
-            "id": "服务ID",
-            "name": "服务名称",
-            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
-            "func": self.xxx,
-            "kwargs": {} # 定时器参数
-        }]
-        """
         if self._enabled and self._cron:
             if not self.wan2:
                 logger.info("服务启动")
@@ -1758,9 +1601,6 @@ class DynamicWeChat(_PluginBase):
         return []
 
     def stop_service(self):
-        """
-        退出插件
-        """
         try:
             if self._scheduler:
                 self._scheduler.remove_all_jobs()
@@ -1768,7 +1608,6 @@ class DynamicWeChat(_PluginBase):
                     self._scheduler.shutdown()
                 self._scheduler = None
 
-            # 停止后台调度器线程
             if self._scheduler_stop_event:
                 self._scheduler_stop_event.set()
             if self._scheduler_thread and self._scheduler_thread.is_alive():
