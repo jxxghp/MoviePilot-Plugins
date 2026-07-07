@@ -938,6 +938,14 @@ jobs:
           gh api --method POST "repos/${REPO}/issues/${PR_NUMBER}/comments" --input "${payload}" > "${new_comment}"
           new_comment_id="$(jq -r '.id' "${new_comment}")"
           new_comment_created_at="$(jq -r '.created_at' "${new_comment}")"
+
+          latest_head_sha="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.head.sha')"
+          if [ "${latest_head_sha}" != "${HEAD_SHA}" ]; then
+            echo "PR head changed from ${HEAD_SHA} to ${latest_head_sha}; remove stale code review summary."
+            gh api --method DELETE "repos/${REPO}/issues/comments/${new_comment_id}" >/dev/null
+            exit 0
+          fi
+
           comment_ids="$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" --jq ".[] | select(.id != ${new_comment_id} and .user.login == \"github-actions[bot]\" and ((.body | startswith(\"<!-- pr-agent-code-review-summary -->\")) or (.body | startswith(\"<!-- pr-agent-update-notification -->\"))) and (.created_at < \"${new_comment_created_at}\" or (.created_at == \"${new_comment_created_at}\" and .id < ${new_comment_id}))) | .id")"
 
           if [ -z "${comment_ids}" ]; then
