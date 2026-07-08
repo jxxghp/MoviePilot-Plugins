@@ -2,7 +2,7 @@ import csv
 import subprocess
 import time
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import Dict, Optional
 
 from app.log import logger
 
@@ -57,44 +57,7 @@ class DiscRemuxer:
             logger.error(f"MakeMKV 自动安装失败:\n{e.stderr}")
             raise RuntimeError("MakeMKV 自动安装失败，请查看日志或尝试手动进入容器安装。")
 
-    @staticmethod
-    def _robot_message(line: str) -> Optional[str]:
-        if not (line.startswith("PRGC:") or line.startswith("PRGT:")):
-            return None
-        try:
-            row = next(csv.reader([line[5:]]))
-        except Exception:
-            return None
-        if len(row) < 3:
-            return None
-        message = row[2].strip()
-        return message or None
-
-    def _run_process(
-        self,
-        cmd: list[str],
-        progress_callback: Optional[Callable[[int, Optional[str]], None]] = None,
-    ) -> str:
-        output_lines = []
-        last_progress = -1
-        progress_title = None
-
-        def handle_line(raw_line: str) -> None:
-            nonlocal last_progress, progress_title
-            stripped_line = raw_line.strip()
-            if not stripped_line:
-                return
-            output_lines.append(raw_line)
-            message = self._robot_message(stripped_line)
-            if message:
-                progress_title = message
-                logger.info(f"MakeMKV 当前阶段: {progress_title}")
-            progress = self._parse_progress(stripped_line)
-            if progress is not None and progress != last_progress:
-                last_progress = progress
-                if progress_callback:
-                    progress_callback(progress, progress_title)
-
+    def _run_process(self, cmd: list[str]) -> str:
         self._process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -103,26 +66,12 @@ class DiscRemuxer:
             bufsize=0,
         )
         try:
-            if self._process.stdout:
-                buffer = ""
-                while True:
-                    char = self._process.stdout.read(1)
-                    if char == "" and self._process.poll() is not None:
-                        break
-                    if not char:
-                        continue
-                    buffer += char
-                    if char in ("\n", "\r"):
-                        handle_line(buffer)
-                        buffer = ""
-                if buffer:
-                    handle_line(buffer)
-
-            return_code = self._process.wait()
-            output = "".join(output_lines)
+            output, _ = self._process.communicate()
+            return_code = self._process.returncode
             if return_code != 0:
-                raise subprocess.CalledProcessError(return_code, cmd, stderr="".join(output_lines[-80:]).strip())
-            return output
+                stderr = "\n".join((output or "").splitlines()[-80:])
+                raise subprocess.CalledProcessError(return_code, cmd, stderr=stderr)
+            return output or ""
         finally:
             self._process = None
 
@@ -156,18 +105,6 @@ class DiscRemuxer:
         return str(target_title)
 
     @staticmethod
-    def _parse_progress(line: str) -> Optional[int]:
-        if not line.startswith("PRGV:"):
-            return None
-        try:
-            current, total, _ = [int(part) for part in line[5:].split(",")[:3]]
-            if total <= 0:
-                return None
-            return max(0, min(100, int(current * 100 / total)))
-        except Exception:
-            return None
-
-    @staticmethod
     def _find_generated_mkv(output_dir: Path, before: set[Path], started_at: float) -> Path:
         candidates = []
         for mkv_file in output_dir.glob("*.mkv"):
@@ -188,7 +125,6 @@ class DiscRemuxer:
         self,
         source_root_path: str,
         output_file_path: str,
-        progress_callback: Optional[Callable[[int, Optional[str]], None]] = None,
     ) -> Path:
         """提取最长正片，先生成 partial 文件，成功后改名为最终 MKV。"""
         source_root = Path(source_root_path)
@@ -210,7 +146,6 @@ class DiscRemuxer:
             "makemkvcon",
             "--robot",
             "--messages=-stdout",
-            "--progress=-stdout",
             "mkv",
             f"file:{source_root}",
             target_title,
@@ -218,7 +153,7 @@ class DiscRemuxer:
         ]
         logger.info(f"开始执行 MakeMKV 重封装: source={source_root}, output_dir={output_dir}")
 
-        self._run_process(cmd, progress_callback=progress_callback)
+        self._run_process(cmd)
 
         generated_file = self._find_generated_mkv(output_dir, before, started_at)
         generated_file.rename(partial_file)

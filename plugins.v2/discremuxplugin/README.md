@@ -51,7 +51,7 @@ MoviePilot v2 插件：查询最近整理历史中的蓝光原盘记录，使用
 ## 说明
 
 - 插件详情页会显示插件数据目录和最近处理记录。
-- MakeMKV 执行期间会在日志中输出当前阶段和百分比进度。
-- 媒体服务器刷新使用 MoviePilot 现有 `refresh_library_by_items` 能力，传入目标电影目录；不同媒体服务器的精确刷新范围由 MoviePilot 主项目对应模块决定。
+- MakeMKV 执行期间会记录开始、完成和失败信息。
+- 媒体服务器刷新会直接调用已配置媒体服务器实例的 `refresh_library_by_items`，传入目标电影目录；如果服务端模块不支持按条目刷新，则按 MoviePilot 对应模块能力回退。
 - 插件不会调用 `TransferChain().manual_transfer()`，不会重新整理文件。
 - `history.src` 只在启用“删除下载源和整理记录”时用于删除下载源，不作为 MakeMKV 输入。

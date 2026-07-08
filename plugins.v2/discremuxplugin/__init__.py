@@ -12,12 +12,11 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app import schemas
 from app.core.config import settings
-from app.chain import ChainBase
 from app.chain.storage import StorageChain
 from app.core.event import eventmanager
 from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.db.transferhistory_oper import TransferHistoryOper
-from app.helper.service import ServiceConfigHelper
+from app.helper.mediaserver import MediaServerHelper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import EventType, MediaType
@@ -173,26 +172,6 @@ class DiscRemuxPlugin(_PluginBase):
                             }
                         ],
                     },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12},
-                        "content": [
-                            {
-                                "component": "VBtn",
-                                "props": {
-                                    "color": "warning",
-                                    "variant": "tonal",
-                                    "text": "清空已处理历史",
-                                },
-                                "events": {
-                                    "click": {
-                                        "api": "plugin/DiscRemuxPlugin/clear_processed",
-                                        "method": "post",
-                                    }
-                                },
-                            }
-                        ],
-                    },
                 ],
             }
         ]
@@ -232,6 +211,33 @@ class DiscRemuxPlugin(_PluginBase):
                     ],
                 }
             )
+        page[0]["content"].append(
+            {
+                "component": "VCol",
+                "props": {"cols": 12},
+                "content": [
+                    {
+                        "component": "VBtn",
+                        "props": {
+                            "color": "warning",
+                            "variant": "tonal",
+                        },
+                        "content": [
+                            {
+                                "component": "span",
+                                "text": "清空已处理历史",
+                            }
+                        ],
+                        "events": {
+                            "click": {
+                                "api": "plugin/DiscRemuxPlugin/clear_processed",
+                                "method": "post",
+                            }
+                        },
+                    }
+                ],
+            }
+        )
         return page
 
     @staticmethod
@@ -379,14 +385,40 @@ class DiscRemuxPlugin(_PluginBase):
             category=history.category,
             target_path=refresh_target,
         )
-        if not ServiceConfigHelper.get_mediaserver_configs():
-            logger.info("未配置媒体服务器，跳过媒体库刷新。")
+        services = MediaServerHelper().get_services()
+        if not services:
+            logger.info("未获取到媒体服务器实例，跳过媒体库刷新。")
             return
-        try:
-            result = ChainBase().run_module("refresh_library_by_items", items=[item])
-            logger.info(f"已尝试刷新媒体服务器条目: target_path={refresh_target}, output={output_file}, result={result}")
-        except Exception as e:
-            logger.warning(f"刷新媒体服务器失败: target_path={refresh_target}, output={output_file}, error={e}")
+
+        for name, service in services.items():
+            instance = service.instance
+            if not instance:
+                logger.warning(f"媒体服务器实例为空，跳过刷新: name={name}")
+                continue
+            if hasattr(instance, "is_inactive") and instance.is_inactive():
+                logger.warning(f"媒体服务器未连接，跳过刷新: name={name}")
+                continue
+
+            try:
+                if hasattr(instance, "refresh_library_by_items"):
+                    result = instance.refresh_library_by_items([item])
+                    logger.info(
+                        f"已尝试刷新媒体服务器条目: name={name}, target_path={refresh_target}, "
+                        f"output={output_file}, result={result}"
+                    )
+                elif hasattr(instance, "refresh_root_library"):
+                    result = instance.refresh_root_library()
+                    logger.info(
+                        f"媒体服务器不支持按条目刷新，已尝试刷新根库: name={name}, "
+                        f"target_path={refresh_target}, result={result}"
+                    )
+                else:
+                    logger.warning(f"媒体服务器不支持刷新: name={name}")
+            except Exception as e:
+                logger.warning(
+                    f"刷新媒体服务器失败: name={name}, target_path={refresh_target}, "
+                    f"output={output_file}, error={e}"
+                )
 
     def remux(self) -> bool:
         """从整理历史中查找 BDMV 记录并调度重封装。"""
@@ -456,10 +488,6 @@ class DiscRemuxPlugin(_PluginBase):
                 remuxer.remux_to_mkv(
                     source_root_path=media_source_root.as_posix(),
                     output_file_path=output_file.as_posix(),
-                    progress_callback=lambda progress, stage=None, hid=history_id: logger.info(
-                        f"当前文件 remux 进度: history_id={hid}, progress={progress}%"
-                        + (f", stage={stage}" if stage else "")
-                    ),
                 )
                 if self._stop_event.is_set():
                     raise InterruptedError("用户发送了停用信号。")
