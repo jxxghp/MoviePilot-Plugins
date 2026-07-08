@@ -1,0 +1,160 @@
+[
+  {
+    "component": "VForm",
+    "content": [
+      {
+        "component": "VRow",
+        "content": [
+          {
+            "component": "VCol",
+            "props": { "cols": 12, "md": 6 },
+            "content": [
+              {
+                "component": "VSwitch",
+                "props": {
+                  "model": "enabled",
+                  "label": "启用插件"
+                }
+              }
+            ]
+          },
+          {
+            "component": "VCol",
+            "props": { "cols": 12, "md": 6 },
+            "content": [
+              {
+                "component": "VSwitch",
+                "props": {
+                  "model": "run_once",
+                  "label": "保存后立即运行一次"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "component": "VRow",
+        "content": [
+          {
+            "component": "VCol",
+            "props": { "cols": 12 },
+            "content": [
+              {
+                "component": "VCronField",
+                "props": {
+                  "model": "cron_schedule",
+                  "label": "定时运行策略 (Cron 表达式)",
+                  "placeholder": "例如: 0 3 * * *"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "component": "VRow",
+        "content": [
+          {
+            "component": "VCol",
+            "props": { "cols": 12, "md": 6 },
+            "content": [
+              {
+                "component": "VTextField",
+                "props": {
+                  "model": "recent_days",
+                  "label": "查询最近整理记录天数",
+                  "type": "number",
+                  "min": 1,
+                  "placeholder": "7"
+                }
+              }
+            ]
+          },
+          {
+            "component": "VCol",
+            "props": { "cols": 12, "md": 6 },
+            "content": [
+              {
+                "component": "VTextField",
+                "props": {
+                  "model": "min_mkv_size_gb",
+                  "label": "跳过阈值 (GB)",
+                  "type": "number",
+                  "min": 1,
+                  "placeholder": "5"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "component": "VRow",
+        "content": [
+          {
+            "component": "VCol",
+            "props": { "cols": 12, "md": 4 },
+            "content": [
+              {
+                "component": "VSwitch",
+                "props": {
+                  "model": "movies_only",
+                  "label": "只处理电影"
+                }
+              }
+            ]
+          },
+          {
+            "component": "VCol",
+            "props": { "cols": 12, "md": 4 },
+            "content": [
+              {
+                "component": "VSwitch",
+                "props": {
+                  "model": "delete_download_source",
+                  "label": "成功后删除下载源和整理记录"
+                }
+              }
+            ]
+          },
+          {
+            "component": "VCol",
+            "props": { "cols": 12, "md": 4 },
+            "content": [
+              {
+                "component": "VSwitch",
+                "props": {
+                  "model": "refresh_media_server",
+                  "label": "尝试刷新对应媒体库"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "component": "VRow",
+        "content": [
+          {
+            "component": "VCol",
+            "props": { "cols": 12 },
+            "content": [
+              {
+                "component": "VSelect",
+                "props": {
+                  "model": "bdmv_action",
+                  "label": "旧媒体库 BDMV 处理方式",
+                  "items": [
+                    { "title": "创建 .ignore 文件", "value": "ignore" },
+                    { "title": "删除旧 BDMV 和 CERTIFICATE", "value": "delete_bdmv" }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]
