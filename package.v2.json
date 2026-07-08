@@ -3,12 +3,13 @@
     "name": "蓝光原盘重封装",
     "description": "基于最近整理历史查找蓝光原盘，使用 MakeMKV 重封装到媒体库条目目录。",
     "labels": "",
-    "version": "1.0.0",
-    "icon": "bdmvprocessor_icon.png",
+    "version": "1.0.1",
+    "icon": "discremuxplugin.png",
     "author": "bruz",
     "level": 1,
     "release": true,
     "history": {
+      "v1.0.1": "修复图标。",
       "v1.0.0": "Initial release."
     }
   }
