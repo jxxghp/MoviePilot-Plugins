@@ -20,7 +20,7 @@ MoviePilot v2 插件：查询最近整理历史中的蓝光原盘记录，使用
 | 只处理电影 | 仅处理整理历史类型为电影的记录 | 开启 |
 | 旧媒体库 BDMV 处理方式 | 创建 `.ignore` 或删除旧 `BDMV` / `CERTIFICATE` | 创建 `.ignore` |
 | 成功后删除下载源和整理记录 | 删除下载源文件，并删除对应整理记录 | 关闭 |
-| 尝试刷新对应媒体库 | 调用媒体服务器按条目刷新能力，不主动全库扫描 | 开启 |
+| 尝试刷新对应媒体库 | 调用媒体服务器刷新能力，传入电影目录作为刷新目标 | 开启 |
 
 ## 工作流程
 
@@ -42,9 +42,16 @@ MoviePilot v2 插件：查询最近整理历史中的蓝光原盘记录，使用
 - 插件数据中已记录该 history id。
 - 媒体库旧 BDMV 不存在，或缺少 `index.bdmv` / `MovieObject.bdmv` 标志文件。
 
+## 重新运行
+
+插件详情页提供“清空已处理历史”按钮，会清空插件记录的 processed history id。
+
+注意：清空处理历史只解除 history id 防重复限制。若目标 MKV 已存在且大于阈值，或旧 BDMV 内已经有 `.ignore`，插件仍会跳过；需要同时删除目标 MKV、移除 `.ignore`，或调整跳过阈值。
+
 ## 说明
 
 - 插件详情页会显示插件数据目录和最近处理记录。
-- 媒体服务器刷新使用 MoviePilot 现有 `refresh_library_by_items` 能力；不同媒体服务器的精确刷新范围由 MoviePilot 主项目对应模块决定。
+- MakeMKV 执行期间会在日志中输出当前阶段和百分比进度。
+- 媒体服务器刷新使用 MoviePilot 现有 `refresh_library_by_items` 能力，传入目标电影目录；不同媒体服务器的精确刷新范围由 MoviePilot 主项目对应模块决定。
 - 插件不会调用 `TransferChain().manual_transfer()`，不会重新整理文件。
 - `history.src` 只在启用“删除下载源和整理记录”时用于删除下载源，不作为 MakeMKV 输入。

@@ -29,7 +29,7 @@ class DiscRemuxPlugin(_PluginBase):
     plugin_name = "蓝光原盘重封装"
     plugin_desc = "基于最近整理历史查找蓝光原盘，使用 MakeMKV 重封装到媒体库条目目录。"
     plugin_icon = "https://raw.githubusercontent.com/the-bruz/MoviePilot-Plugins/main/icons/discremuxplugin.png"
-    plugin_version = "1.0.2"
+    plugin_version = "1.1.0"
 
     plugin_author = "bruz"
     author_url = "https://github.com/the-bruz"
@@ -126,50 +126,135 @@ class DiscRemuxPlugin(_PluginBase):
     def get_page(self) -> List[dict]:
         """返回详情页 JSON。"""
         histories = self._get_processed_histories()[:20]
-        table_rows = [
+        headers = [
+            {"title": "History ID", "key": "id", "sortable": True},
+            {"title": "标题", "key": "title", "sortable": True},
+            {"title": "输出", "key": "output", "sortable": False},
+            {"title": "时间", "key": "time", "sortable": True},
+        ]
+        items = [
             {
                 "id": item.get("id"),
-                "title": item.get("title"),
-                "output": item.get("output"),
-                "time": item.get("time"),
+                "title": item.get("title") or "-",
+                "output": item.get("output") or "-",
+                "time": item.get("time") or "-",
             }
             for item in histories
         ]
-        return [
+        page = [
             {
-                "component": "VAlert",
-                "props": {"type": "info", "variant": "tonal", "text": self._message},
-            },
-            {
-                "component": "VAlert",
-                "props": {
-                    "type": "secondary",
-                    "variant": "tonal",
-                    "text": f"插件数据目录：{self.get_data_path()}",
-                },
-            },
-            {
-                "component": "VDataTable",
-                "props": {
-                    "headers": [
-                        {"title": "History ID", "key": "id"},
-                        {"title": "标题", "key": "title"},
-                        {"title": "输出", "key": "output"},
-                        {"title": "时间", "key": "time"},
-                    ],
-                    "items": table_rows,
-                    "items-per-page": 10,
-                    "density": "compact",
-                },
-            },
+                "component": "VRow",
+                "props": {"style": {"overflow": "hidden"}},
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
+                                "component": "VAlert",
+                                "props": {"type": "info", "variant": "tonal", "text": self._message},
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "secondary",
+                                    "variant": "tonal",
+                                    "text": (
+                                        f"插件数据目录：{self.get_data_path()}；如需重跑，可清空已处理历史。"
+                                        "目标 MKV 已存在或旧 BDMV 有 .ignore 时仍会按配置跳过。"
+                                    ),
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
+                                "component": "VBtn",
+                                "props": {
+                                    "color": "warning",
+                                    "variant": "tonal",
+                                    "text": "清空已处理历史",
+                                },
+                                "events": {
+                                    "click": {
+                                        "api": "plugin/DiscRemuxPlugin/clear_processed",
+                                        "method": "post",
+                                    }
+                                },
+                            }
+                        ],
+                    },
+                ],
+            }
         ]
+        if histories:
+            page[0]["content"].append(
+                {
+                    "component": "VCol",
+                    "props": {"cols": 12},
+                    "content": [
+                        {
+                            "component": "VDataTableVirtual",
+                            "props": {
+                                "class": "text-sm",
+                                "headers": headers,
+                                "items": items,
+                                "height": "30rem",
+                                "density": "compact",
+                                "fixed-header": True,
+                                "hide-no-data": True,
+                                "hover": True,
+                            },
+                        }
+                    ],
+                },
+            )
+        else:
+            page[0]["content"].append(
+                {
+                    "component": "VCol",
+                    "props": {"cols": 12},
+                    "content": [
+                        {
+                            "component": "div",
+                            "text": "暂无已处理历史记录。",
+                            "props": {"class": "text-center"},
+                        }
+                    ],
+                }
+            )
+        return page
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
         return []
 
     def get_api(self) -> List[Dict[str, Any]]:
-        return []
+        return [
+            {
+                "path": "/clear_processed",
+                "endpoint": self.clear_processed_histories,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "清空已处理历史",
+                "description": "清空插件记录的 processed history id，用于允许重新处理整理历史。",
+            }
+        ]
+
+    def clear_processed_histories(self) -> schemas.Response:
+        self.save_data(self._DATA_KEY, [])
+        self._message = "已清空已处理历史，下次运行会重新评估整理记录。"
+        logger.info(self._message)
+        return schemas.Response(success=True, message=self._message)
 
     def _get_processed_histories(self) -> List[dict]:
         data = self.get_data(self._DATA_KEY)
@@ -286,21 +371,22 @@ class DiscRemuxPlugin(_PluginBase):
         logger.info(f"已删除整理记录: history_id={history.id}")
 
     def _refresh_media_server(self, history, output_file: Path) -> None:
+        refresh_target = output_file.parent
         item = schemas.RefreshMediaItem(
             title=history.title,
             year=history.year,
             type=self._media_type(history),
             category=history.category,
-            target_path=output_file,
+            target_path=refresh_target,
         )
         if not ServiceConfigHelper.get_mediaserver_configs():
             logger.info("未配置媒体服务器，跳过媒体库刷新。")
             return
         try:
-            ChainBase().run_module("refresh_library_by_items", items=[item])
-            logger.info(f"已尝试刷新媒体服务器条目: path={output_file}")
+            result = ChainBase().run_module("refresh_library_by_items", items=[item])
+            logger.info(f"已尝试刷新媒体服务器条目: target_path={refresh_target}, output={output_file}, result={result}")
         except Exception as e:
-            logger.warning(f"刷新媒体服务器失败: path={output_file}, error={e}")
+            logger.warning(f"刷新媒体服务器失败: target_path={refresh_target}, output={output_file}, error={e}")
 
     def remux(self) -> bool:
         """从整理历史中查找 BDMV 记录并调度重封装。"""
@@ -370,8 +456,9 @@ class DiscRemuxPlugin(_PluginBase):
                 remuxer.remux_to_mkv(
                     source_root_path=media_source_root.as_posix(),
                     output_file_path=output_file.as_posix(),
-                    progress_callback=lambda progress, hid=history_id: logger.info(
+                    progress_callback=lambda progress, stage=None, hid=history_id: logger.info(
                         f"当前文件 remux 进度: history_id={hid}, progress={progress}%"
+                        + (f", stage={stage}" if stage else "")
                     ),
                 )
                 if self._stop_event.is_set():
