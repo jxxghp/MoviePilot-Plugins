@@ -927,5 +927,18 @@
     "history": {
       "v1.1.2": "WxPusher 消息通知，支持极简推送 SPT（可多个）与标准推送 AppToken"
     }
+  },
+  "BlurayRemux": {
+    "name": "蓝光原盘转封装",
+    "description": "整理电影蓝光原盘目录时，使用 ffmpeg 自动转封装为单个 MKV 文件。",
+    "labels": "文件整理,蓝光原盘,ffmpeg",
+    "version": "1.0.0",
+    "icon": "ffmpeg.png",
+    "author": "drdon1234",
+    "level": 1,
+    "system_version": ">=2.14.2",
+    "history": {
+      "v1.0.0": "新增电影蓝光原盘转封装插件，支持 MPLS 播放列表解析、覆盖检查和安全回滚。"
+    }
   }
 }
