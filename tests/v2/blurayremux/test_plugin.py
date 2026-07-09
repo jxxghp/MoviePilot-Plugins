@@ -227,3 +227,57 @@ def test_move_delete_failure_keeps_new_target(tmp_path, monkeypatch):
     assert result.target_item is not None
     assert Path(result.target_item.path).exists()
     assert source_root.exists()
+
+
+def test_target_lock_cache_keeps_strong_reference(tmp_path):
+    target = tmp_path / "target.mkv"
+
+    lock = BlurayRemux._BlurayRemux__get_target_lock(target)
+
+    assert lock is BlurayRemux._BlurayRemux__get_target_lock(target)
+
+
+def test_latest_mode_skips_version_delete_without_safe_identifier(tmp_path):
+    media_dir = tmp_path / "media" / "Sample Movie (2024)"
+    media_dir.mkdir(parents=True)
+    target_file = media_dir / "Sample Movie (2024).mkv"
+    old_file = media_dir / "Sample Movie (2024).old.mkv"
+    target_file.write_bytes(b"new")
+    old_file.write_bytes(b"old")
+
+    deleted = BlurayRemux._BlurayRemux__delete_version_files(
+        LocalStorage(),
+        target_file,
+        _media_info(),
+    )
+
+    assert deleted is False
+    assert old_file.exists()
+
+
+def test_run_remux_returns_failure_when_target_dir_cannot_be_created(tmp_path, monkeypatch):
+    plugin = _plugin()
+    source_file = tmp_path / "00000.m2ts"
+    source_file.write_bytes(b"stream")
+    target_file = tmp_path / "blocked" / "target.mkv"
+    monkeypatch.setattr(blurayremux.shutil, "which", lambda _name: "ffmpeg")
+
+    original_mkdir = Path.mkdir
+
+    def fail_target_mkdir(self, *args, **kwargs):
+        if self == target_file.parent:
+            raise PermissionError("blocked")
+        return original_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", fail_target_mkdir)
+
+    state, message = plugin._BlurayRemux__run_remux(
+        source_files=[blurayremux._RemuxSource(source_file)],
+        target_file=target_file,
+        allow_target_replace=False,
+        recheck_target_size=None,
+    )
+
+    assert state is False
+    assert "蓝光原盘转封装失败" in message
+    assert "blocked" in message

@@ -3,7 +3,6 @@ import shutil
 import subprocess
 import threading
 import uuid
-import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -79,7 +78,7 @@ class BlurayRemux(_PluginBase):
     _enabled = False
     _timeout = _DEFAULT_TIMEOUT_SECONDS
 
-    _target_locks = weakref.WeakValueDictionary()
+    _target_locks: Dict[str, threading.Lock] = {}
     _target_locks_guard = threading.Lock()
 
     def init_plugin(self, config: dict = None):
@@ -492,7 +491,7 @@ class BlurayRemux(_PluginBase):
                     need_notify=need_notify,
                 )
             if overwrite_mode == "latest":
-                self.__delete_version_files(target_oper, target_file)
+                self.__delete_version_files(target_oper, target_file, mediainfo)
 
         target_item = self.__get_target_item(target_oper, target_storage, target_file)
         if transfer_type == "move" and not source_oper.delete(fileitem):
@@ -741,11 +740,11 @@ class BlurayRemux(_PluginBase):
         if not ffmpeg:
             return False, "未找到 ffmpeg，无法进行蓝光原盘转封装"
 
-        target_file.parent.mkdir(parents=True, exist_ok=True)
         temp_suffix = uuid.uuid4().hex
         tmp_file = target_file.with_name(f".{target_file.stem}.{temp_suffix}.tmp{target_file.suffix}")
         concat_file = target_file.with_name(f".{target_file.stem}.{temp_suffix}.ffconcat")
         try:
+            target_file.parent.mkdir(parents=True, exist_ok=True)
             if len(source_files) == 1 and not source_files[0].need_clip:
                 command = [
                     ffmpeg,
@@ -869,13 +868,23 @@ class BlurayRemux(_PluginBase):
         return False, f"{target_file} 已存在", False
 
     @staticmethod
-    def __delete_version_files(storage_oper: StorageBase, path: Path) -> bool:
+    def __delete_version_files(
+            storage_oper: StorageBase,
+            path: Path,
+            mediainfo: Optional[MediaInfo] = None,
+    ) -> bool:
         if not storage_oper:
+            return False
+        if mediainfo and mediainfo.type == MediaType.MOVIE:
+            logger.warn(f"电影蓝光原盘转封装跳过删除其它版本文件：{path.parent}")
             return False
         meta = MetaInfoPath(path)
         season = meta.season
         episode = meta.episode
         part = meta.part
+        if season is None or episode is None:
+            logger.warn(f"无法从 {path.name} 解析到可安全匹配的媒体标识，跳过其它版本删除")
+            return False
         logger.warn(f"正在删除目标目录中其它版本的文件：{path.parent}")
         parent_item = storage_oper.get_item(path.parent)
         if not parent_item:
