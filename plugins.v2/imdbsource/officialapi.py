@@ -357,7 +357,7 @@ class OfficialApiClient:
                  ua: Optional[str] = None):
         self._req = RequestUtils(accept_type="application/json",
                                  content_type="application/json",
-                                 timeout=10,
+                                 timeout=30,
                                  ua=ua,
                                  proxies=proxies,
                                  session=requests.Session())
@@ -365,7 +365,7 @@ class OfficialApiClient:
             proxy_url = proxies.get("https") or proxies.get("http")
         else:
             proxy_url = None
-        self._client = httpx.AsyncClient(timeout=10, proxy=proxy_url)
+        self._client = httpx.AsyncClient(timeout=30, proxy=proxy_url)
         self._async_req = AsyncRequestUtils(accept_type="application/json", content_type="application/json",
                                             client=self._client, ua=ua)
         self.flat_interest_id = {}
