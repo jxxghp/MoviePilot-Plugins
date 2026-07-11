@@ -19,7 +19,7 @@ CACHE_LIFESPAN: Final[int] = 86400
 
 
 class ImdbApiClient:
-    BASE_URL = 'https://api.imdbapi.dev'
+    BASE_URL = 'https://api.tiffara.com'
 
     def __init__(self, proxies: Optional[Dict[str, str]] = None, ua: Optional[str] = None) -> None:
         self._req = RequestUtils(ua=ua, accept_type="application/json",
