@@ -212,6 +212,14 @@ yarn build
 
 然后再把构建产物拷贝到插件目录中的 `dist/assets/`。
 
+本地开发时，可将前端工程的 `dev` 脚本配置为监听构建：
+
+```bash
+yarn dev
+```
+
+其中 `dev` 执行 `vite build --watch`。通过 `PLUGIN_LOCAL_REPO_PATHS` 开发已安装插件，并启用 `DEV` 或 `PLUGIN_AUTO_RELOAD` 后，MoviePilot 会同步新的构建产物；刷新页面即可查看修改。
+
 ### 7.3 宿主联调
 
 以下场景必须回到宿主仓库验证：
