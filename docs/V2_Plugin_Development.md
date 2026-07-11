@@ -530,7 +530,17 @@ def get_render_mode(self) -> Tuple[str, str]:
 
 若需要独立侧栏页面，还要实现 `get_sidebar_nav()`。
 
-### 7.3 侧栏全页入口 `get_sidebar_nav()`
+### 7.3 本地监听构建
+
+本地开发时，可将前端工程的 `dev` 脚本配置为 `vite build --watch`，然后运行：
+
+```bash
+yarn dev
+```
+
+通过 `PLUGIN_LOCAL_REPO_PATHS` 开发已安装插件，并启用 `DEV` 或 `PLUGIN_AUTO_RELOAD` 后，MoviePilot 会同步新的构建产物；刷新页面即可查看修改。
+
+### 7.4 侧栏全页入口 `get_sidebar_nav()`
 
 只有 Vue 模式插件才会被主界面侧栏聚合。
 
