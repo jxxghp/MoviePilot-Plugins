@@ -1624,7 +1624,8 @@ class DynamicWeChat(_PluginBase):
                 if getattr(self, "_last_code", None) != code:
                     self._last_code = code
                     self._verification_code = code
-                    logger.info(f"收到验证码：{code}")
+                    # 安全：不记录验证码明文
+                    logger.info("收到验证码")
         else:
             self._start_bg_task(self.check(None))
 
@@ -1657,7 +1658,8 @@ class DynamicWeChat(_PluginBase):
             if code != self._last_code:
                 self._verification_code = code
                 self._last_code = code
-                logger.info(f"收到验证码：{code}")
+                # 安全：仅记录收到验证码，不输出明文
+                logger.info("收到验证码")
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
