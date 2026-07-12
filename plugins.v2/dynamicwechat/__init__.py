@@ -295,9 +295,10 @@ class DynamicWeChat(_PluginBase):
                 break
             delay = (next_time - now).total_seconds()
             while delay > 0 and not self._stopping and self._enabled:
-                sleep_sec = min(delay, 60.0)
+                sleep_sec = min(delay, 1.0)  # 缩短睡眠间隔，提升停止响应
                 await asyncio.sleep(sleep_sec)
-                delay -= sleep_sec
+                # 重新计算剩余延迟，避免累计误差
+                delay = (next_time - datetime.now(tz)).total_seconds()
             if self._stopping or not self._enabled:
                 break
             try:
@@ -325,9 +326,9 @@ class DynamicWeChat(_PluginBase):
                 break
             delay = (next_time - now).total_seconds()
             while delay > 0 and not self._stopping and self._enabled:
-                sleep_sec = min(delay, 60.0)
+                sleep_sec = min(delay, 1.0)
                 await asyncio.sleep(sleep_sec)
-                delay -= sleep_sec
+                delay = (next_time - datetime.now(tz)).total_seconds()
             if self._stopping or not self._enabled:
                 break
             try:
@@ -829,16 +830,15 @@ class DynamicWeChat(_PluginBase):
                     continue
                 self._cookie_invalid_notified = True
                 return None
-            # 所有第三方均失败，写入系统消息
+            # 所有第三方均失败，写入系统消息；不标记已通知，保留下次重试机会
             self.systemmessage.put("cookie已失效，且所有通知方式均发送失败，请手动更新cookie")
-            self._cookie_invalid_notified = True
             return None
 
         # 无任何通知渠道
         if not self._my_send:
             logger.warning("cookie已失效，但未配置任何通知方式，用户可能无法及时感知")
             self.systemmessage.put("cookie已失效，请及时更新，当前未配置通知方式")
-            self._cookie_invalid_notified = True
+            # 不标记已通知，因为无渠道可通知，但用户已通过系统消息感知，是否需要标记？按评审建议，失败路径不标记，以保持重试能力。
             return None
 
         return None
@@ -1480,15 +1480,23 @@ class DynamicWeChat(_PluginBase):
     def stop_service(self) -> bool:
         """
         停止所有后台任务和线程。
-        返回 True 表示所有任务已完全停止，False 表示仍有线程未退出。
+        返回 True 表示所有任务已完全停止，False 表示仍有未完成的任务或线程。
         """
         self._stopping = True
 
-        # 取消所有异步任务
+        # 取消所有异步任务，并保留尚未取消完成的任务
+        pending_tasks = []
         for task in list(getattr(self, "_bg_tasks", []) or []):
             if not task.done():
-                task.cancel()
-        self._bg_tasks = []
+                try:
+                    # 尝试在当前事件循环中取消
+                    task.get_loop().call_soon_threadsafe(task.cancel)
+                except RuntimeError:
+                    # 若无法获取循环，直接取消
+                    task.cancel()
+            if not task.done():
+                pending_tasks.append(task)
+        self._bg_tasks = pending_tasks
 
         # 等待后台线程退出
         alive_threads = []
@@ -1499,8 +1507,11 @@ class DynamicWeChat(_PluginBase):
                 alive_threads.append(thread)
         self._bg_threads = alive_threads
 
+        if pending_tasks:
+            logger.warning(f"{len(pending_tasks)} 个异步任务尚未完成取消")
         if alive_threads:
             logger.warning(f"{len(alive_threads)} 个后台线程未在超时时间内退出")
+        if pending_tasks or alive_threads:
             return False
         return True
 
