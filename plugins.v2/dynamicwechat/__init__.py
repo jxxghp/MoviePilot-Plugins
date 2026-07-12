@@ -33,7 +33,7 @@ class DynamicWeChat(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "2.1.6"
+    plugin_version = "2.1.6-1"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -144,47 +144,38 @@ class DynamicWeChat(_PluginBase):
         使用 CloakBrowser 异步启动企业微信页面上下文，支持重试机制。
         启动失败时不会影响 cookie 有效状态，仅记录日志。
         当前版本 CloakBrowser 不支持 env 参数，改用 os.environ 临时设置环境变量。
-        使用 threading.Lock 保护并发修改环境变量，避免污染其他协程。
+        使用 threading.Lock 保护并发修改环境变量，锁覆盖整个启动过程，避免污染其他协程。
         """
         last_exception = None
         loop = asyncio.get_running_loop()
 
         for attempt in range(1, self.BROWSER_RETRY_COUNT + 1):
             original_dbus = None
+            lock_acquired = False
+
             try:
-                # 设置环境变量（在线程池中执行，避免阻塞事件循环）
-                def set_env():
-                    nonlocal original_dbus
-                    with self._env_lock:
-                        original_dbus = os.environ.get('DBUS_SESSION_BUS_ADDRESS')
-                        os.environ['DBUS_SESSION_BUS_ADDRESS'] = ''
+                # 持有锁覆盖整个启动过程，防止并发启动互相污染全局环境变量
+                await loop.run_in_executor(None, self._env_lock.acquire)
+                lock_acquired = True
 
-                await loop.run_in_executor(None, set_env)
+                # 备份并设置环境变量
+                original_dbus = os.environ.get('DBUS_SESSION_BUS_ADDRESS')
+                os.environ['DBUS_SESSION_BUS_ADDRESS'] = ''
 
-                try:
-                    context = await asyncio.wait_for(
-                        launch_context_async(
-                            headless=headless,
-                            args=['--lang=zh-CN'],
-                            extra_http_headers={
-                                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.1'
-                            }
-                        ),
-                        timeout=self.BROWSER_LAUNCH_TIMEOUT
-                    )
-                    if attempt > 1:
-                        logger.info(f"浏览器启动成功 (第 {attempt} 次尝试)")
-                    return context
-                finally:
-                    # 恢复环境变量（在线程池中执行）
-                    def restore_env():
-                        with self._env_lock:
-                            if original_dbus is not None:
-                                os.environ['DBUS_SESSION_BUS_ADDRESS'] = original_dbus
-                            else:
-                                os.environ.pop('DBUS_SESSION_BUS_ADDRESS', None)
-
-                    await loop.run_in_executor(None, restore_env)
+                # 启动浏览器
+                context = await asyncio.wait_for(
+                    launch_context_async(
+                        headless=headless,
+                        args=['--lang=zh-CN'],
+                        extra_http_headers={
+                            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.1'
+                        }
+                    ),
+                    timeout=self.BROWSER_LAUNCH_TIMEOUT
+                )
+                if attempt > 1:
+                    logger.info(f"浏览器启动成功 (第 {attempt} 次尝试)")
+                return context
 
             except asyncio.TimeoutError:
                 last_exception = Exception("浏览器启动超时（30秒）")
@@ -192,6 +183,17 @@ class DynamicWeChat(_PluginBase):
             except Exception as e:
                 last_exception = e
                 logger.warning(f"浏览器启动失败 (尝试 {attempt}/{self.BROWSER_RETRY_COUNT}): {e}")
+            finally:
+                # 恢复环境变量（仍在锁内）
+                try:
+                    if original_dbus is not None:
+                        os.environ['DBUS_SESSION_BUS_ADDRESS'] = original_dbus
+                    else:
+                        os.environ.pop('DBUS_SESSION_BUS_ADDRESS', None)
+                finally:
+                    # 确保锁释放
+                    if lock_acquired and self._env_lock.locked():
+                        self._env_lock.release()
 
             if attempt < self.BROWSER_RETRY_COUNT:
                 await asyncio.sleep(self.BROWSER_RETRY_DELAY)
@@ -205,6 +207,7 @@ class DynamicWeChat(_PluginBase):
         安全地运行协程，绝不阻塞当前线程。
         优先在当前线程的运行中循环创建任务，否则在后台事件循环中执行。
         后台任务可通过 _bg_stop_event 取消。
+        关闭循环前清理异步生成器和默认执行器，避免线程泄漏。
         """
         try:
             # 1. 当前线程有运行中的事件循环，直接创建任务
@@ -241,6 +244,12 @@ class DynamicWeChat(_PluginBase):
                 try:
                     new_loop.run_until_complete(run_with_cancel())
                 finally:
+                    # 关闭循环前清理资源，避免线程泄漏
+                    try:
+                        new_loop.run_until_complete(new_loop.shutdown_asyncgens())
+                        new_loop.run_until_complete(new_loop.shutdown_default_executor())
+                    except Exception as e:
+                        logger.debug(f"关闭事件循环资源时出错（忽略）: {e}")
                     new_loop.close()
             except Exception as e:
                 logger.error(f"后台协程执行失败: {e}")
@@ -1741,7 +1750,8 @@ class DynamicWeChat(_PluginBase):
             if self._bg_stop_event:
                 self._bg_stop_event.set()
 
-            # 4. 等待后台任务完成（使用 while 循环原地清理，避免引用丢失）
+            # 4. 等待后台任务完成（保留未退出任务的引用）
+            # 先过滤已完成的线程
             i = 0
             while i < len(self._bg_tasks):
                 if not self._bg_tasks[i].is_alive():
@@ -1751,15 +1761,21 @@ class DynamicWeChat(_PluginBase):
 
             if self._bg_tasks:
                 logger.info(f"等待 {len(self._bg_tasks)} 个后台任务完成...")
+                remaining_tasks = []
                 for thread in self._bg_tasks:
                     if thread.is_alive():
                         thread.join(timeout=self.BACKUP_TASK_JOIN_TIMEOUT)
-                self._bg_tasks.clear()
-                logger.info("后台任务已清理完成")
+                    if thread.is_alive():
+                        remaining_tasks.append(thread)
+                self._bg_tasks = remaining_tasks
+                if self._bg_tasks:
+                    logger.warning(f"{len(self._bg_tasks)} 个后台任务未在超时时间内退出，保留停止信号")
+                else:
+                    logger.info("后台任务已清理完成")
 
-            # 5. 重置停止事件以便下次使用
-            if self._bg_stop_event:
-                self._bg_stop_event.clear()
+            # 5. 仅在所有后台任务退出后重建停止事件
+            if self._bg_stop_event and not self._bg_tasks:
+                self._bg_stop_event = threading.Event()
 
         except Exception as e:
             logger.error(str(e))
