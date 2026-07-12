@@ -131,6 +131,8 @@ class DynamicWeChat(_PluginBase):
     _qr_lock: threading.Lock = None
     # 停止标志
     _stopping = False
+    # 后台循环启动标志（防止重复启动）
+    _loops_started = False
 
     if hasattr(settings, 'VERSION_FLAG'):
         version = settings.VERSION_FLAG  # V2
@@ -152,6 +154,7 @@ class DynamicWeChat(_PluginBase):
         self.cfg = JsonFieldManager(self._settings_file_path)
         self._qr_running = False
         self._stopping = False
+        self._loops_started = False  # 重置标志
 
         # 初始化线程锁
         if self._file_lock is None:
@@ -234,7 +237,12 @@ class DynamicWeChat(_PluginBase):
             self._local_scan = False
 
     def _start_background_loops(self):
-        """启动周期性后台循环任务（兼容有/无事件循环环境）"""
+        """启动周期性后台循环任务（兼容有/无事件循环环境），防止重复启动"""
+        if self._loops_started:
+            logger.debug("后台循环已启动，忽略重复调用")
+            return
+        self._loops_started = True
+
         try:
             # 检测当前线程是否有运行中的事件循环
             asyncio.get_running_loop()
@@ -246,6 +254,7 @@ class DynamicWeChat(_PluginBase):
             # 无循环，在新线程中运行
             def run_loops():
                 async def main():
+                    # 在新事件循环中启动循环任务
                     tasks = [asyncio.create_task(self._refresh_cookie_loop())]
                     if self._cron:
                         tasks.append(asyncio.create_task(self._check_ip_loop()))
@@ -285,6 +294,7 @@ class DynamicWeChat(_PluginBase):
                 break
             except Exception as e:
                 logger.error(f"刷新cookie循环异常: {e}")
+        logger.info("Cookie刷新循环已退出")
 
     async def _check_ip_loop(self):
         """周期性检查IP的后台循环（分段睡眠）"""
@@ -315,6 +325,7 @@ class DynamicWeChat(_PluginBase):
                 break
             except Exception as e:
                 logger.error(f"IP检测循环异常: {e}")
+        logger.info("IP检测循环已退出")
 
     def _start_bg_task(self, coro):
         """启动一个后台协程并自动跟踪（兼容有/无循环）"""
@@ -1669,33 +1680,12 @@ class DynamicWeChat(_PluginBase):
     def stop_service(self):
         """退出插件，取消所有后台任务并等待完成"""
         self._stopping = True
-        # 取消所有异步任务
+        # 取消所有异步任务（仅取消，不等待）
         for task in self._bg_tasks:
             if not task.done():
                 task.cancel()
-
-        if self._bg_tasks:
-            try:
-                loop = asyncio.get_running_loop()
-                if loop.is_running():
-                    loop.call_soon_threadsafe(
-                        asyncio.create_task,
-                        self._cancel_all_tasks()
-                    )
-                    logger.debug("后台清理任务已安排，不等待完成")
-                else:
-                    future = asyncio.run_coroutine_threadsafe(
-                        self._cancel_all_tasks(),
-                        loop
-                    )
-                    future.result(timeout=self.BACKUP_TASK_JOIN_TIMEOUT)
-            except RuntimeError:
-                try:
-                    asyncio.run(self._cancel_all_tasks())
-                except Exception as e:
-                    logger.error(f"清理任务时出错: {e}")
-            except Exception as e:
-                logger.error(f"等待任务取消时出错: {e}")
+        # 清空任务列表
+        self._bg_tasks.clear()
 
         # 等待后台线程退出
         for thread in self._bg_threads:
@@ -1703,16 +1693,12 @@ class DynamicWeChat(_PluginBase):
                 thread.join(timeout=self.BACKUP_TASK_JOIN_TIMEOUT)
         self._bg_threads.clear()
 
-        self._stopping = False
+        # 重置启动标志，以便下次重新启动
+        self._loops_started = False
 
-    async def _cancel_all_tasks(self):
-        """等待所有后台任务取消完成"""
-        if self._bg_tasks:
-            for task in self._bg_tasks:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*[t for t in self._bg_tasks if not t.done()], return_exceptions=True)
-            self._bg_tasks.clear()
+    async def _cancel_all_tasks(self):  # 保留但不再使用，以防外部调用
+        """（已弃用）等待所有后台任务取消完成"""
+        pass
 
     async def _launch_browser_context_with_retry(self, headless: bool = True):
         """
