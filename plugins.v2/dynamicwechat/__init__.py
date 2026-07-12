@@ -685,7 +685,15 @@ class DynamicWeChat(_PluginBase):
                 china_ips = await self.wan2.get_ipv4(page, url)
                 if china_ips:
                     # 使用异步版本避免阻塞，并用文件锁保护写入（带超时和停止检查）
-                    await self._acquire_file_lock()
+                    # 只捕获 _acquire_file_lock 的超时/取消，浏览器超时应继续尝试下一个 URL
+                    try:
+                        await self._acquire_file_lock()
+                    except asyncio.CancelledError:
+                        logger.debug("停止信号触发，放弃写入多WAN IP")
+                        return
+                    except asyncio.TimeoutError:
+                        logger.warning("获取文件锁超时，放弃写入多WAN IP")
+                        return
                     try:
                         await self.wan2.overwrite_ips_async("url_ip", china_ips)
                     finally:
@@ -695,9 +703,9 @@ class DynamicWeChat(_PluginBase):
             except asyncio.CancelledError:
                 logger.debug("停止信号触发，放弃写入多WAN IP")
                 return
-            except asyncio.TimeoutError:
-                logger.warning("获取文件锁超时，放弃写入多WAN IP")
-                return
+            except asyncio.TimeoutError as e:
+                logger.warning(f"{url} 多出口IP获取超时, Error: {e}")
+                continue
             except Exception as e:
                 logger.warning(f"{url} 多出口IP获取失败, Error: {e}")
             finally:
@@ -871,24 +879,29 @@ class DynamicWeChat(_PluginBase):
                     page = await context.new_page()
                     china_ips = await self.wan2.get_ipv4(page, url)
                     if china_ips:
-                        self.wan2_url = url
                         # 使用异步版本避免阻塞，并用文件锁保护写入（带超时和停止检查）
                         try:
                             await self._acquire_file_lock()
-                        except (asyncio.CancelledError, asyncio.TimeoutError):
-                            logger.debug("获取文件锁失败，放弃多WAN IP写入")
+                        except asyncio.CancelledError:
+                            self.wan2_url = None
+                            logger.debug("停止信号触发，放弃多WAN IP写入")
+                            return None, "获取IP失败"
+                        except asyncio.TimeoutError:
+                            self.wan2_url = None
+                            logger.warning("获取文件锁超时，放弃多WAN IP写入")
                             return None, "获取IP失败"
                         try:
                             await self.wan2.overwrite_ips_async("url_ip", china_ips)
                         finally:
                             self._file_lock.release()
+                        # 在写入成功后才设置 wan2_url
+                        self.wan2_url = url
                         return url, china_ips  # 成功获取到IP后返回
                 except asyncio.CancelledError:
                     logger.debug("停止信号触发，放弃获取多WAN IP")
                     return None, "获取IP失败"
-                except asyncio.TimeoutError:
-                    logger.warning("获取文件锁超时，放弃获取多WAN IP")
-                    return None, "获取IP失败"
+                except asyncio.TimeoutError as e:
+                    logger.warning(f"{url} 多出口IP获取超时, Error: {e}")
                 except Exception as e:
                     logger.warning(f"{url} 多出口IP获取失败, Error: {e}")
                 finally:
