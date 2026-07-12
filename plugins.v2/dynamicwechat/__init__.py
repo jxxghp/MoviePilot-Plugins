@@ -111,6 +111,8 @@ class DynamicWeChat(_PluginBase):
 
     # cookie有效检测
     _cookie_valid = True
+    # cookie失效通知已发送标志（防止重复通知）
+    _cookie_invalid_notified = False
     # cookie存活时间
     _cookie_lifetime = 0
     # 使用CookieCloud开关
@@ -158,6 +160,8 @@ class DynamicWeChat(_PluginBase):
         self._qr_running = False
         self._stopping = False
         self._loops_started = False  # 重置标志
+        # 重置cookie通知标志
+        self._cookie_invalid_notified = False
 
         # 初始化线程锁
         if self._file_lock is None:
@@ -303,7 +307,7 @@ class DynamicWeChat(_PluginBase):
         logger.info("Cookie刷新循环已退出")
 
     async def _check_ip_loop(self):
-        """周期性检查IP的后台循环（分段睡眠）"""
+        """周期性检查IP的后台循环（分段睡眠），多WAN时先刷新出口IP"""
         try:
             trigger = CronTrigger.from_crontab(self._cron)
         except Exception as e:
@@ -326,6 +330,9 @@ class DynamicWeChat(_PluginBase):
             if self._stopping or not self._enabled:
                 break
             try:
+                # 多WAN模式：先刷新出口IP列表
+                if self.wan2:
+                    await self.write_wan2_ip()
                 await self.check()
             except asyncio.CancelledError:
                 break
@@ -355,10 +362,17 @@ class DynamicWeChat(_PluginBase):
             self._bg_threads.append(thread)
 
     async def _acquire_file_lock(self):
-        """带超时的文件锁获取（线程安全）"""
+        """带超时的文件锁获取（非阻塞轮询，避免协程取消后锁无法释放）"""
         try:
-            acquired = await asyncio.to_thread(self._file_lock.acquire, timeout=self.FILE_LOCK_TIMEOUT)
-            return acquired
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + self.FILE_LOCK_TIMEOUT
+            while not self._file_lock.acquire(blocking=False):
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    logger.warning("获取文件锁超时")
+                    return False
+                await asyncio.sleep(min(0.1, remaining))
+            return True
         except Exception as e:
             logger.warning(f"获取文件锁异常: {e}")
             return False
@@ -391,6 +405,7 @@ class DynamicWeChat(_PluginBase):
             else:
                 logger.error("cookie失效,强制修改IP失败：请使用'本地扫码修改IP'")
                 self._cookie_valid = False
+                self._cookie_invalid_notified = False  # 允许下次通知
         except Exception as err:
             logger.error(f"强制修改IP失败: {err}")
         finally:
@@ -591,6 +606,8 @@ class DynamicWeChat(_PluginBase):
             if ip_address != self._current_ip_address:
                 logger.info("检测到IP变化")
                 self._wechat_available = False
+                # 重置通知标志，允许通知
+                self._cookie_invalid_notified = False
                 return True
 
         return False
@@ -747,6 +764,7 @@ class DynamicWeChat(_PluginBase):
                 else:
                     self._ip_changed = False
                     self._cookie_valid = False
+                    self._cookie_invalid_notified = False  # 重置允许通知
                     logger.info("cookie已失效,且没有配置通知方式,本次修改可信IP失败")
             else:
                 logger.info("尝试cookie登录")
@@ -775,15 +793,18 @@ class DynamicWeChat(_PluginBase):
             if current_cookies:
                 self._saved_cookie = current_cookies
                 self._cookie_valid = True
+                self._cookie_invalid_notified = False  # 重置通知标志
                 self._is_special_upload = True
                 logger.info("从浏览器获取cookie成功")
             else:
                 logger.error("无法从内置浏览器获取 cookies")
                 self._cookie_valid = False
+                self._cookie_invalid_notified = False
                 return
         except Exception as e:
             logger.error(f"获取浏览器cookie失败: {e}")
             self._cookie_valid = False
+            self._cookie_invalid_notified = False
             return
 
         # 2. 重置Cookie生命周期（可选步骤，超时不阻断）
@@ -833,12 +854,15 @@ class DynamicWeChat(_PluginBase):
     async def _send_cookie_false(self):
         """
         发送cookie失效通知（异步版本）
-        内部先置失效标志，防止重复通知
+        使用独立标志避免重复通知，且不被调用方预置影响
         """
-        # 如果已经失效（已发送过通知），则直接返回避免重复
-        if not self._cookie_valid:
-            return
-        # 标记为失效，后续不再重复发送
+        # 如果已通知过，直接返回
+        if getattr(self, "_cookie_invalid_notified", False):
+            return None
+
+        # 标记为已通知（即使发送失败也标记，避免重复尝试）
+        self._cookie_invalid_notified = True
+        # 同时将 _cookie_valid 置为 False（保持状态一致）
         self._cookie_valid = False
 
         if self._my_send and not self._await_ip and self._wechat_available:
@@ -1006,10 +1030,12 @@ class DynamicWeChat(_PluginBase):
                 await asyncio.sleep(3)
                 if await self.check_login_status(page, task='refresh_cookie'):
                     self._cookie_valid = True
+                    self._cookie_invalid_notified = False  # 重置通知标志
                     cookie_used = True
                 else:
                     # 本地cookie失效，清空，后续尝试从CookieCloud获取
                     self._cookie_valid = False
+                    self._cookie_invalid_notified = False
                     self._saved_cookie = None
 
             # 若本地cookie无效，尝试从CookieCloud获取
@@ -1022,15 +1048,18 @@ class DynamicWeChat(_PluginBase):
                     await asyncio.sleep(3)
                     if await self.check_login_status(page, task='refresh_cookie'):
                         self._cookie_valid = True
+                        self._cookie_invalid_notified = False
                         self._saved_cookie = await context.cookies()
                     else:
                         # 新获取的cookie也无效，发送失效通知
                         self._cookie_valid = False
+                        self._cookie_invalid_notified = False
                         self._saved_cookie = None
                         await self._send_cookie_false()
                 else:
                     # 从CookieCloud获取失败
                     self._cookie_valid = False
+                    self._cookie_invalid_notified = False
                     self._saved_cookie = None
                     await self._send_cookie_false()
 
@@ -1128,6 +1157,7 @@ class DynamicWeChat(_PluginBase):
     async def click_app_management_buttons(self, page):
         """点击应用管理按钮（使用线程锁保护文件写入）"""
         self._cookie_valid = True
+        self._cookie_invalid_notified = False  # Cookie有效，重置通知标志
         if self._my_send:
             self._my_send.reset_limit()
 
@@ -1706,28 +1736,28 @@ class DynamicWeChat(_PluginBase):
     async def _launch_browser_context_with_retry(self, headless: bool = True):
         """
         使用 CloakBrowser 异步启动企业微信页面上下文，支持重试机制。
-        使用类级别锁串行化环境变量修改，避免并发冲突。
+        使用类级别锁串行化环境变量修改，非阻塞轮询获取锁。
         """
         last_exception = None
-        # 获取类级别锁（串行化环境变量修改）
         env_lock = self.__class__._browser_env_lock
 
         for attempt in range(1, self.BROWSER_RETRY_COUNT + 1):
             lock_acquired = False
             original_dbus = None
             try:
-                # 在独立线程中获取锁，带超时
-                lock_acquired = await asyncio.to_thread(
-                    env_lock.acquire, timeout=self.BROWSER_LAUNCH_TIMEOUT
-                )
-                if not lock_acquired:
-                    raise asyncio.TimeoutError
+                # 非阻塞轮询获取锁，带超时
+                loop = asyncio.get_running_loop()
+                deadline = loop.time() + self.BROWSER_LAUNCH_TIMEOUT
+                while not env_lock.acquire(blocking=False):
+                    remaining = deadline - loop.time()
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError
+                    await asyncio.sleep(min(0.1, remaining))
+                lock_acquired = True
 
-                # 记录并临时置空环境变量
                 original_dbus = os.environ.get('DBUS_SESSION_BUS_ADDRESS')
                 os.environ['DBUS_SESSION_BUS_ADDRESS'] = ''
 
-                # 启动浏览器
                 context = await asyncio.wait_for(
                     launch_context_async(
                         headless=headless,
@@ -1749,7 +1779,6 @@ class DynamicWeChat(_PluginBase):
                 last_exception = e
                 logger.warning(f"浏览器启动失败 (尝试 {attempt}/{self.BROWSER_RETRY_COUNT}): {e}")
             finally:
-                # 恢复环境变量并释放锁
                 if lock_acquired:
                     if original_dbus is not None:
                         os.environ['DBUS_SESSION_BUS_ADDRESS'] = original_dbus
