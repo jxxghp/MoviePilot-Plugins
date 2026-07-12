@@ -963,7 +963,15 @@ class DynamicWeChat(_PluginBase):
                 image_src, refuse_time = await self.find_qrc(page)
                 if image_src:
                     if self._my_send:
-                        if not self._wechat_available and self._my_send.other_channel:
+                        # 微信可用时直接发送，不可用时尝试第三方
+                        if self._wechat_available:
+                            error = await asyncio.to_thread(self._my_send.send, "企业微信登录二维码", image=image_src)
+                            if error:
+                                logger.info(f"远程推送任务: 二维码发送失败,原因：{error}")
+                                logger.info("----------------------本次任务结束----------------------")
+                                return
+                        else:
+                            # 微信不可用，尝试所有第三方通道
                             sent = False
                             for channel, token in self._my_send.other_channel:
                                 error = await asyncio.to_thread(
@@ -977,12 +985,9 @@ class DynamicWeChat(_PluginBase):
                                 logger.warning(f"通道 {channel} 推送二维码失败，原因：{error}")
                             if not sent:
                                 logger.warning("所有第三方通知通道推送二维码均失败")
-                        else:
-                            error = await asyncio.to_thread(self._my_send.send, "企业微信登录二维码", image=image_src)
-                            if error:
-                                logger.info(f"远程推送任务: 二维码发送失败,原因：{error}")
                                 logger.info("----------------------本次任务结束----------------------")
                                 return
+                        # 发送成功，开始等待扫码
                         logger.info("远程推送任务: 二维码发送成功,等待用户 80 秒内扫码登录。V2'微信通知'的用户,此消息并不准确")
                         for attempt in range(self.QR_CODE_MAX_ATTEMPTS):
                             # 短轮询检查停止信号
@@ -1600,15 +1605,15 @@ class DynamicWeChat(_PluginBase):
             return
         if not self._qr_running:
             return
-        self.text = event.event_data.get("text")
-        if len(self.text) == 7 and re.fullmatch(r".*\d{6}.*", self.text):
-            match = re.search(r"\d{6}", self.text)
-            if match:
-                code = match.group(0)
-                if code != self._last_code:
-                    self._verification_code = code
-                    self._last_code = code
-                    logger.info(f"收到验证码：{code}")
+        text = (event.event_data or {}).get("text") or ""
+        # 严格匹配以 ? 或 ？ 结尾的6位数字验证码
+        match = re.fullmatch(r"(\d{6})[?？]", text.strip())
+        if match:
+            code = match.group(1)
+            if code != self._last_code:
+                self._verification_code = code
+                self._last_code = code
+                logger.info(f"收到验证码：{code}")
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -1641,8 +1646,7 @@ class DynamicWeChat(_PluginBase):
     def stop_service(self) -> bool:
         """
         停止所有后台任务和线程。
-        对于当前事件循环中的任务，仅取消并挂回调，避免阻塞；
-        对于其他循环，等待取消完成。
+        对于当前事件循环中的任务，取消并加入 pending_tasks，确保旧任务未完全退出时不启动新循环。
         返回 True 表示认为所有任务已清理（可重载），False 表示仍有残留。
         """
         self._stopping = True
@@ -1681,7 +1685,7 @@ class DynamicWeChat(_PluginBase):
                 continue
 
             if loop is current_loop:
-                # 当前循环任务：仅取消并挂回调，不等待，不加入 pending_tasks
+                # 当前循环任务：取消并挂回调，但必须加入 pending_tasks，避免重载时误判
                 for task in tasks:
                     def cleanup(t):
                         try:
@@ -1691,6 +1695,7 @@ class DynamicWeChat(_PluginBase):
                             pass
                     task.cancel()
                     task.add_done_callback(cleanup)
+                pending_tasks.extend([task for task in tasks if not task.done()])
                 continue
 
             # 不同循环，可安全等待
