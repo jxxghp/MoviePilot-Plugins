@@ -32,7 +32,7 @@ class DynamicWeChat(_PluginBase):
     plugin_desc = "修改企微应用可信IP,详细说明查看'作者主页',支持第三方通知。验证码以？结尾发送到企业微信应用"
     # 插件图标
     plugin_icon = "Wecom_A.png"
-    # 插件版本
+    # 插件版本 (已升级)
     plugin_version = "2.1.6-2"
     # 插件作者
     plugin_author = "RamenRa"
@@ -382,7 +382,9 @@ class DynamicWeChat(_PluginBase):
         self._loop = self._get_or_create_event_loop()
         self._qr_lock = threading.Lock()
         self._env_lock = threading.Lock()
-        self._file_lock = threading.Lock()
+        # 仅在锁为 None 时初始化，避免重载时旧任务使用旧锁失效
+        if self._file_lock is None:
+            self._file_lock = threading.Lock()
         if self._tasks_lock is None:
             self._tasks_lock = threading.Lock()
 
@@ -660,9 +662,13 @@ class DynamicWeChat(_PluginBase):
                 # IpLocationParser.get_ipv4 已是异步方法
                 china_ips = await self.wan2.get_ipv4(page, url)
                 if china_ips:
-                    # 使用异步版本避免阻塞，并用文件锁保护写入
-                    with self._file_lock:
+                    # 使用异步版本避免阻塞，并用文件锁保护写入（非阻塞轮询）
+                    while not self._file_lock.acquire(blocking=False):
+                        await asyncio.sleep(0.05)
+                    try:
                         await self.wan2.overwrite_ips_async("url_ip", china_ips)
+                    finally:
+                        self._file_lock.release()
                     self.wan2_url = url
                     break
             except Exception as e:
@@ -738,15 +744,19 @@ class DynamicWeChat(_PluginBase):
             if not url_ips:
                 return False
 
-            # 使用异步版本读取和写入，避免阻塞事件循环；写入时加文件锁
+            # 使用异步版本读取和写入，避免阻塞事件循环；写入时加文件锁（非阻塞轮询）
             saved_ips = await self.wan2.read_ips_async("ips")
             saved_ips_list = [ip for ip in saved_ips.split(";") if ip] if saved_ips else []
 
             # 检查每个新 IP 是否存在，若不存在则添加并返回 True
             for ip in url_ips:
                 if ip not in saved_ips_list:
-                    with self._file_lock:
+                    while not self._file_lock.acquire(blocking=False):
+                        await asyncio.sleep(0.05)
+                    try:
                         await self.wan2.add_ips_async("ips", ip)
+                    finally:
+                        self._file_lock.release()
                     return True
         else:
             # 检查 IP 是否变化
@@ -832,9 +842,13 @@ class DynamicWeChat(_PluginBase):
                     china_ips = await self.wan2.get_ipv4(page, url)
                     if china_ips:
                         self.wan2_url = url
-                        # 使用异步版本避免阻塞，并用文件锁保护写入
-                        with self._file_lock:
+                        # 使用异步版本避免阻塞，并用文件锁保护写入（非阻塞轮询）
+                        while not self._file_lock.acquire(blocking=False):
+                            await asyncio.sleep(0.05)
+                        try:
                             await self.wan2.overwrite_ips_async("url_ip", china_ips)
+                        finally:
+                            self._file_lock.release()
                         return url, china_ips  # 成功获取到IP后返回
                 except Exception as e:
                     logger.warning(f"{url} 多出口IP获取失败, Error: {e}")
@@ -927,9 +941,13 @@ class DynamicWeChat(_PluginBase):
     async def _update_cookie(self, page, context):
         """更新cookie（使用异步文件操作）"""
         self._future_timestamp = 0  # 标记二维码失效
-        # 使用异步版本避免阻塞，并用文件锁保护写入
-        with self._file_lock:
+        # 使用异步版本避免阻塞，并用文件锁保护写入（非阻塞轮询）
+        while not self._file_lock.acquire(blocking=False):
+            await asyncio.sleep(0.05)
+        try:
             await PyCookieCloud.save_cookie_lifetime_async(self._settings_file_path, 0)
+        finally:
+            self._file_lock.release()
 
         if self._use_cookiecloud:
             if not self._cc_server:  # 连接失败返回 False
@@ -1123,9 +1141,13 @@ class DynamicWeChat(_PluginBase):
             if self._cookie_valid:
                 if self._my_send:
                     self._my_send.reset_limit()
-                # 使用异步版本避免阻塞，并用文件锁保护写入
-                with self._file_lock:
+                # 使用异步版本避免阻塞，并用文件锁保护写入（非阻塞轮询）
+                while not self._file_lock.acquire(blocking=False):
+                    await asyncio.sleep(0.05)
+                try:
                     await PyCookieCloud.increase_cookie_lifetime_async(self._settings_file_path, 600)
+                finally:
+                    self._file_lock.release()
                 self._cookie_lifetime = await PyCookieCloud.load_cookie_lifetime_async(self._settings_file_path)
 
         except Exception as e:
@@ -1289,9 +1311,13 @@ class DynamicWeChat(_PluginBase):
             if self._ip_changed:
                 self._wechat_available = True    # 标记微信通知重新有效
                 self._send_notification = False  # 重置第三方通知已发送标记
-                # 使用异步版本写入配置，并用文件锁保护
-                with self._file_lock:
+                # 使用异步版本写入配置，并用文件锁保护（非阻塞轮询）
+                while not self._file_lock.acquire(blocking=False):
+                    await asyncio.sleep(0.05)
+                try:
                     await self.cfg.aupdate("WECHAT_NOW_IP", self._current_ip_address)
+                finally:
+                    self._file_lock.release()
                 '''
                 将填入企业微信的IP写入settings.json 
                 应对MP/NAS长时间关闭后公网IP和可信IP不一致
