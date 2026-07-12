@@ -4,6 +4,7 @@ import os
 import random
 import re
 import base64
+import threading
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, List, Dict, Any
 
@@ -122,10 +123,12 @@ class DynamicWeChat(_PluginBase):
     _cookiecloud = CookieCloudHelper()
     # 后台任务列表（asyncio.Task）
     _bg_tasks: List[asyncio.Task] = []
-    # 文件写入锁（异步锁，保护 helper 文件操作）
-    _file_lock: asyncio.Lock = None
+    # 后台线程列表（用于无事件循环时启动）
+    _bg_threads: List[threading.Thread] = []
+    # 文件写入锁（线程锁，兼容多线程）
+    _file_lock: threading.Lock = None
     # 二维码运行状态锁
-    _qr_lock: asyncio.Lock = None
+    _qr_lock: threading.Lock = None
     # 停止标志
     _stopping = False
 
@@ -150,11 +153,11 @@ class DynamicWeChat(_PluginBase):
         self._qr_running = False
         self._stopping = False
 
-        # 初始化异步锁
+        # 初始化线程锁
         if self._file_lock is None:
-            self._file_lock = asyncio.Lock()
+            self._file_lock = threading.Lock()
         if self._qr_lock is None:
-            self._qr_lock = asyncio.Lock()
+            self._qr_lock = threading.Lock()
 
         if config:
             self._enabled = config.get("enabled")
@@ -199,9 +202,8 @@ class DynamicWeChat(_PluginBase):
             return
 
         if (self._enabled or self._onlyonce) and self._input_id_list:
-            # 启动后台循环任务（仅在启用时）
-            if self._enabled:
-                self._start_background_loops()
+            # 启动后台循环任务（兼容有/无事件循环环境）
+            self._start_background_loops()
             # 处理一次性任务
             self._handle_once_tasks()
 
@@ -232,15 +234,30 @@ class DynamicWeChat(_PluginBase):
             self._local_scan = False
 
     def _start_background_loops(self):
-        """启动周期性后台循环任务"""
-        # 刷新cookie循环
-        self._start_bg_task(self._refresh_cookie_loop())
-        # IP检测循环（只有启用且配置了cron时才启动）
-        if self._cron:
-            self._start_bg_task(self._check_ip_loop())
+        """启动周期性后台循环任务（兼容有/无事件循环环境）"""
+        try:
+            # 检测当前线程是否有运行中的事件循环
+            asyncio.get_running_loop()
+            # 有循环，直接创建任务
+            self._start_bg_task(self._refresh_cookie_loop())
+            if self._cron:
+                self._start_bg_task(self._check_ip_loop())
+        except RuntimeError:
+            # 无循环，在新线程中运行
+            def run_loops():
+                async def main():
+                    tasks = [asyncio.create_task(self._refresh_cookie_loop())]
+                    if self._cron:
+                        tasks.append(asyncio.create_task(self._check_ip_loop()))
+                    await asyncio.gather(*tasks)
+                asyncio.run(main())
+            thread = threading.Thread(target=run_loops, daemon=True)
+            thread.start()
+            self._bg_threads.append(thread)
+            logger.info("后台循环已在新线程中启动")
 
     async def _refresh_cookie_loop(self):
-        """周期性刷新cookie的后台循环"""
+        """周期性刷新cookie的后台循环（分段睡眠）"""
         try:
             trigger = CronTrigger.from_crontab(self._refresh_cron)
         except Exception as e:
@@ -256,8 +273,10 @@ class DynamicWeChat(_PluginBase):
                 logger.error("无法计算下一次执行时间，Cookie刷新任务退出")
                 break
             delay = (next_time - now).total_seconds()
-            if delay > 0:
-                await asyncio.sleep(delay)
+            while delay > 0 and not self._stopping and self._enabled:
+                sleep_sec = min(delay, 60.0)
+                await asyncio.sleep(sleep_sec)
+                delay -= sleep_sec
             if self._stopping or not self._enabled:
                 break
             try:
@@ -268,7 +287,7 @@ class DynamicWeChat(_PluginBase):
                 logger.error(f"刷新cookie循环异常: {e}")
 
     async def _check_ip_loop(self):
-        """周期性检查IP的后台循环"""
+        """周期性检查IP的后台循环（分段睡眠）"""
         try:
             trigger = CronTrigger.from_crontab(self._cron)
         except Exception as e:
@@ -284,8 +303,10 @@ class DynamicWeChat(_PluginBase):
                 logger.error("无法计算下一次执行时间，IP检测任务退出")
                 break
             delay = (next_time - now).total_seconds()
-            if delay > 0:
-                await asyncio.sleep(delay)
+            while delay > 0 and not self._stopping and self._enabled:
+                sleep_sec = min(delay, 60.0)
+                await asyncio.sleep(sleep_sec)
+                delay -= sleep_sec
             if self._stopping or not self._enabled:
                 break
             try:
@@ -296,24 +317,34 @@ class DynamicWeChat(_PluginBase):
                 logger.error(f"IP检测循环异常: {e}")
 
     def _start_bg_task(self, coro):
-        """启动一个后台协程并自动跟踪"""
-        task = asyncio.create_task(coro)
-        self._bg_tasks.append(task)
-        def cleanup(t):
-            try:
-                if t in self._bg_tasks:
-                    self._bg_tasks.remove(t)
-            except ValueError:
-                pass
-        task.add_done_callback(cleanup)
+        """启动一个后台协程并自动跟踪（兼容有/无循环）"""
+        try:
+            loop = asyncio.get_running_loop()
+            task = loop.create_task(coro)
+            self._bg_tasks.append(task)
+            def cleanup(t):
+                try:
+                    if t in self._bg_tasks:
+                        self._bg_tasks.remove(t)
+                except ValueError:
+                    pass
+            task.add_done_callback(cleanup)
+        except RuntimeError:
+            # 无循环，在新线程中运行
+            def run():
+                asyncio.run(coro)
+            thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+            self._bg_threads.append(thread)
 
     async def _acquire_file_lock(self):
-        """带超时的文件锁获取"""
+        """带超时的文件锁获取（线程安全）"""
         try:
-            await asyncio.wait_for(self._file_lock.acquire(), timeout=self.FILE_LOCK_TIMEOUT)
-            return True
-        except asyncio.TimeoutError:
-            logger.warning("获取文件锁超时")
+            # 使用 asyncio.to_thread 在非阻塞中等待线程锁
+            acquired = await asyncio.to_thread(self._file_lock.acquire, timeout=self.FILE_LOCK_TIMEOUT)
+            return acquired
+        except Exception as e:
+            logger.warning(f"获取文件锁异常: {e}")
             return False
 
     # ---------- 异步核心方法 ----------
@@ -421,12 +452,10 @@ class DynamicWeChat(_PluginBase):
                         try:
                             await self.wan2.overwrite_ips_async("url_ip", china_ips)
                             self.wan2_url = url
-                            # 成功写入后退出循环
                             break
                         finally:
                             self._file_lock.release()
                     else:
-                        # 锁获取失败，继续尝试下一个URL
                         logger.warning(f"获取文件锁超时，放弃写入 {url} 的IP，尝试下一个")
                         continue
             except asyncio.CancelledError:
@@ -622,7 +651,6 @@ class DynamicWeChat(_PluginBase):
                     page = await context.new_page()
                     china_ips = await self.wan2.get_ipv4(page, url)
                     if china_ips:
-                        # 尝试获取锁并写入，若锁失败则继续下一个URL，不返回成功
                         if await self._acquire_file_lock():
                             try:
                                 await self.wan2.overwrite_ips_async("url_ip", china_ips)
@@ -631,7 +659,6 @@ class DynamicWeChat(_PluginBase):
                             finally:
                                 self._file_lock.release()
                         else:
-                            # 锁获取失败，继续尝试下一个URL
                             logger.warning(f"获取文件锁超时，放弃写入 {url} 的IP，尝试下一个")
                             continue
                 except asyncio.CancelledError:
@@ -722,7 +749,7 @@ class DynamicWeChat(_PluginBase):
                 await asyncio.sleep(0.5)
 
     async def _update_cookie(self, page, context):
-        """更新cookie（使用异步锁保护文件操作）"""
+        """更新cookie（使用线程锁保护文件操作）"""
         self._future_timestamp = 0
 
         # 1. 先尝试从浏览器获取cookie（即使云端更新失败，也标记cookie有效）
@@ -730,7 +757,6 @@ class DynamicWeChat(_PluginBase):
             current_url = page.url
             current_cookies = await context.cookies(current_url)
             if current_cookies:
-                # 获取成功，先标记有效
                 self._saved_cookie = current_cookies
                 self._cookie_valid = True
                 self._is_special_upload = True
@@ -764,7 +790,6 @@ class DynamicWeChat(_PluginBase):
             try:
                 if not await self._cc_server.check_connection_async():
                     logger.error(f"连接 CookieCloud 失败: {self._cc_server.url}")
-                    # 虽然云端不可用，但本地cookie已有效，不返回
                     return
 
                 formatted_cookies = {}
@@ -786,7 +811,6 @@ class DynamicWeChat(_PluginBase):
             except Exception as e:
                 logger.error(f"CookieCloud更新 cookie 发生错误: {e}")
         else:
-            # 不使用CookieCloud，本地cookie已保存
             self._is_special_upload = False
             logger.info("更新本地 Cookie成功")
 
@@ -828,69 +852,71 @@ class DynamicWeChat(_PluginBase):
         return None
 
     async def _push_qr_code_async(self, event: Event = None):
-        """异步推送二维码（使用锁保护状态）"""
+        """异步推送二维码（使用线程锁保护状态）"""
         if not self._enabled or not event:
             return
 
-        async with self._qr_lock:
-            if self._qr_running:
-                logger.info("二维码推送任务正在执行，忽略重复触发")
-                return
-            self._qr_running = True
+        # 使用非阻塞锁获取
+        if not self._qr_lock.acquire(blocking=False):
+            logger.info("二维码推送任务正在执行，忽略重复触发")
+            return
 
-        context = None
         try:
-            context = await self._launch_browser_context_with_retry(headless=True)
-            page = await context.new_page()
-            await page.goto(self._wechatUrl)
-            await asyncio.sleep(3)
+            self._qr_running = True
+            context = None
+            try:
+                context = await self._launch_browser_context_with_retry(headless=True)
+                page = await context.new_page()
+                await page.goto(self._wechatUrl)
+                await asyncio.sleep(3)
 
-            image_src, refuse_time = await self.find_qrc(page)
-            if image_src:
-                if self._my_send:
-                    if not self._wechat_available and self._my_send.other_channel:
-                        sent = False
-                        for channel, token in self._my_send.other_channel:
-                            error = await asyncio.to_thread(
-                                self._my_send.send,
-                                title="企业微信登录二维码",
-                                image=image_src, diy_channel=channel, diy_token=token
-                            )
-                            if not error:
-                                sent = True
-                                break
-                            logger.warning(f"通道 {channel} 推送二维码失败，原因：{error}")
-                        if not sent:
-                            logger.warning("所有第三方通知通道推送二维码均失败")
-                    else:
-                        error = await asyncio.to_thread(self._my_send.send, "企业微信登录二维码", image=image_src)
-                        if error:
-                            logger.info(f"远程推送任务: 二维码发送失败,原因：{error}")
-                            logger.info("----------------------本次任务结束----------------------")
-                            return
-
-                    logger.info("远程推送任务: 二维码发送成功,等待用户 80 秒内扫码登录。V2'微信通知'的用户,此消息并不准确")
-                    for attempt in range(self.QR_CODE_MAX_ATTEMPTS):
-                        await asyncio.sleep(self.QR_CODE_CHECK_INTERVAL)
-                        if await self.check_login_status(page, 'push_qr_code'):
-                            await self._update_cookie(page, context)
-                            await self.click_app_management_buttons(page)
-                            break
+                image_src, refuse_time = await self.find_qrc(page)
+                if image_src:
+                    if self._my_send:
+                        if not self._wechat_available and self._my_send.other_channel:
+                            sent = False
+                            for channel, token in self._my_send.other_channel:
+                                error = await asyncio.to_thread(
+                                    self._my_send.send,
+                                    title="企业微信登录二维码",
+                                    image=image_src, diy_channel=channel, diy_token=token
+                                )
+                                if not error:
+                                    sent = True
+                                    break
+                                logger.warning(f"通道 {channel} 推送二维码失败，原因：{error}")
+                            if not sent:
+                                logger.warning("所有第三方通知通道推送二维码均失败")
                         else:
-                            logger.info("用户可能没有扫码或登录失败")
+                            error = await asyncio.to_thread(self._my_send.send, "企业微信登录二维码", image=image_src)
+                            if error:
+                                logger.info(f"远程推送任务: 二维码发送失败,原因：{error}")
+                                logger.info("----------------------本次任务结束----------------------")
+                                return
+
+                        logger.info("远程推送任务: 二维码发送成功,等待用户 80 秒内扫码登录。V2'微信通知'的用户,此消息并不准确")
+                        for attempt in range(self.QR_CODE_MAX_ATTEMPTS):
+                            await asyncio.sleep(self.QR_CODE_CHECK_INTERVAL)
+                            if await self.check_login_status(page, 'push_qr_code'):
+                                await self._update_cookie(page, context)
+                                await self.click_app_management_buttons(page)
+                                break
+                            else:
+                                logger.info("用户可能没有扫码或登录失败")
+                    else:
+                        logger.warning("远程推送任务: 没有找到可用的通知方式")
                 else:
-                    logger.warning("远程推送任务: 没有找到可用的通知方式")
-            else:
-                logger.warning("远程推送任务: 未找到二维码")
-            logger.info("----------------------本次任务结束----------------------")
-        except Exception as e:
-            logger.error(f"远程推送任务失败: {e}")
-        finally:
-            if context:
-                await context.close()
-                await asyncio.sleep(0.5)
-            async with self._qr_lock:
+                    logger.warning("远程推送任务: 未找到二维码")
+                logger.info("----------------------本次任务结束----------------------")
+            except Exception as e:
+                logger.error(f"远程推送任务失败: {e}")
+            finally:
+                if context:
+                    await context.close()
+                    await asyncio.sleep(0.5)
                 self._qr_running = False
+        finally:
+            self._qr_lock.release()
 
     async def get_cookie_async(self):
         """
@@ -1066,7 +1092,7 @@ class DynamicWeChat(_PluginBase):
         return False
 
     async def click_app_management_buttons(self, page):
-        """点击应用管理按钮（使用异步锁保护文件写入）"""
+        """点击应用管理按钮（使用线程锁保护文件写入）"""
         self._cookie_valid = True
         if self._my_send:
             self._my_send.reset_limit()
@@ -1630,6 +1656,7 @@ class DynamicWeChat(_PluginBase):
     def stop_service(self):
         """退出插件，取消所有后台任务并等待完成"""
         self._stopping = True
+        # 取消所有异步任务
         for task in self._bg_tasks:
             if not task.done():
                 task.cancel()
@@ -1657,6 +1684,12 @@ class DynamicWeChat(_PluginBase):
             except Exception as e:
                 logger.error(f"等待任务取消时出错: {e}")
 
+        # 等待后台线程退出
+        for thread in self._bg_threads:
+            if thread.is_alive():
+                thread.join(timeout=self.BACKUP_TASK_JOIN_TIMEOUT)
+        self._bg_threads.clear()
+
         self._stopping = False
 
     async def _cancel_all_tasks(self):
@@ -1677,7 +1710,6 @@ class DynamicWeChat(_PluginBase):
         original_dbus = os.environ.get('DBUS_SESSION_BUS_ADDRESS')
         for attempt in range(1, self.BROWSER_RETRY_COUNT + 1):
             try:
-                # 临时置空 D-Bus 地址，避免 Docker 中无服务报错
                 os.environ['DBUS_SESSION_BUS_ADDRESS'] = ''
                 context = await asyncio.wait_for(
                     launch_context_async(
@@ -1699,7 +1731,6 @@ class DynamicWeChat(_PluginBase):
                 last_exception = e
                 logger.warning(f"浏览器启动失败 (尝试 {attempt}/{self.BROWSER_RETRY_COUNT}): {e}")
             finally:
-                # 恢复原始 D-Bus 环境变量（若存在）
                 if original_dbus is not None:
                     os.environ['DBUS_SESSION_BUS_ADDRESS'] = original_dbus
                 else:
