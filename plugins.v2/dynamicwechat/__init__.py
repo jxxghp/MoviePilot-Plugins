@@ -133,6 +133,8 @@ class DynamicWeChat(_PluginBase):
     _env_lock: Optional[threading.Lock] = None
     # 后台任务列表锁（保护 _bg_tasks 并发访问）
     _tasks_lock: Optional[threading.Lock] = None
+    # 文件写入锁（保护配置文件并发写入）
+    _file_lock: Optional[threading.Lock] = None
     # 后台调度器线程相关
     _scheduler_thread: Optional[threading.Thread] = None
     _scheduler_stop_event: Optional[threading.Event] = None
@@ -275,6 +277,10 @@ class DynamicWeChat(_PluginBase):
             except Exception as e:
                 logger.error(f"后台协程执行失败: {e}")
 
+        # 惰性创建锁，防止 stop_service 在锁未初始化时被调用
+        if self._tasks_lock is None:
+            self._tasks_lock = threading.Lock()
+
         with self._tasks_lock:
             # 清理已退出线程
             self._bg_tasks[:] = [thread for thread in self._bg_tasks if thread.is_alive()]
@@ -376,6 +382,7 @@ class DynamicWeChat(_PluginBase):
         self._loop = self._get_or_create_event_loop()
         self._qr_lock = threading.Lock()
         self._env_lock = threading.Lock()
+        self._file_lock = threading.Lock()
         if self._tasks_lock is None:
             self._tasks_lock = threading.Lock()
 
@@ -417,10 +424,10 @@ class DynamicWeChat(_PluginBase):
         # 必须停止现有任务（在重置后台任务跟踪对象前执行）
         self.stop_service()
 
-        # 仅在 _bg_tasks 已清空后才重置列表和停止事件
+        # 仅在后台任务全部退出后才重置停止事件
         with self._tasks_lock:
+            self._bg_tasks = [thread for thread in self._bg_tasks if thread.is_alive()]
             if not self._bg_tasks:
-                self._bg_tasks = []
                 self._bg_stop_event = threading.Event()
 
         if not self._input_id_list:
@@ -653,8 +660,9 @@ class DynamicWeChat(_PluginBase):
                 # IpLocationParser.get_ipv4 已是异步方法
                 china_ips = await self.wan2.get_ipv4(page, url)
                 if china_ips:
-                    # 使用异步版本避免阻塞
-                    await self.wan2.overwrite_ips_async("url_ip", china_ips)
+                    # 使用异步版本避免阻塞，并用文件锁保护写入
+                    with self._file_lock:
+                        await self.wan2.overwrite_ips_async("url_ip", china_ips)
                     self.wan2_url = url
                     break
             except Exception as e:
@@ -730,14 +738,15 @@ class DynamicWeChat(_PluginBase):
             if not url_ips:
                 return False
 
-            # 使用异步版本读取和写入，避免阻塞事件循环
+            # 使用异步版本读取和写入，避免阻塞事件循环；写入时加文件锁
             saved_ips = await self.wan2.read_ips_async("ips")
             saved_ips_list = [ip for ip in saved_ips.split(";") if ip] if saved_ips else []
 
             # 检查每个新 IP 是否存在，若不存在则添加并返回 True
             for ip in url_ips:
                 if ip not in saved_ips_list:
-                    await self.wan2.add_ips_async("ips", ip)
+                    with self._file_lock:
+                        await self.wan2.add_ips_async("ips", ip)
                     return True
         else:
             # 检查 IP 是否变化
@@ -823,8 +832,9 @@ class DynamicWeChat(_PluginBase):
                     china_ips = await self.wan2.get_ipv4(page, url)
                     if china_ips:
                         self.wan2_url = url
-                        # 使用异步版本避免阻塞
-                        await self.wan2.overwrite_ips_async("url_ip", china_ips)
+                        # 使用异步版本避免阻塞，并用文件锁保护写入
+                        with self._file_lock:
+                            await self.wan2.overwrite_ips_async("url_ip", china_ips)
                         return url, china_ips  # 成功获取到IP后返回
                 except Exception as e:
                     logger.warning(f"{url} 多出口IP获取失败, Error: {e}")
@@ -917,8 +927,9 @@ class DynamicWeChat(_PluginBase):
     async def _update_cookie(self, page, context):
         """更新cookie（使用异步文件操作）"""
         self._future_timestamp = 0  # 标记二维码失效
-        # 使用异步版本避免阻塞
-        await PyCookieCloud.save_cookie_lifetime_async(self._settings_file_path, 0)
+        # 使用异步版本避免阻塞，并用文件锁保护写入
+        with self._file_lock:
+            await PyCookieCloud.save_cookie_lifetime_async(self._settings_file_path, 0)
 
         if self._use_cookiecloud:
             if not self._cc_server:  # 连接失败返回 False
@@ -1112,8 +1123,9 @@ class DynamicWeChat(_PluginBase):
             if self._cookie_valid:
                 if self._my_send:
                     self._my_send.reset_limit()
-                # 使用异步版本避免阻塞
-                await PyCookieCloud.increase_cookie_lifetime_async(self._settings_file_path, 600)
+                # 使用异步版本避免阻塞，并用文件锁保护写入
+                with self._file_lock:
+                    await PyCookieCloud.increase_cookie_lifetime_async(self._settings_file_path, 600)
                 self._cookie_lifetime = await PyCookieCloud.load_cookie_lifetime_async(self._settings_file_path)
 
         except Exception as e:
@@ -1277,8 +1289,9 @@ class DynamicWeChat(_PluginBase):
             if self._ip_changed:
                 self._wechat_available = True    # 标记微信通知重新有效
                 self._send_notification = False  # 重置第三方通知已发送标记
-                # 使用异步版本写入配置
-                await self.cfg.aupdate("WECHAT_NOW_IP", self._current_ip_address)
+                # 使用异步版本写入配置，并用文件锁保护
+                with self._file_lock:
+                    await self.cfg.aupdate("WECHAT_NOW_IP", self._current_ip_address)
                 '''
                 将填入企业微信的IP写入settings.json 
                 应对MP/NAS长时间关闭后公网IP和可信IP不一致
@@ -1935,6 +1948,10 @@ class DynamicWeChat(_PluginBase):
             self._scheduler_stop_event = None
 
             # 3/4. 在同一临界区内设置停止信号并获取后台任务快照
+            # 惰性创建锁，防止在锁未初始化时被调用
+            if self._tasks_lock is None:
+                self._tasks_lock = threading.Lock()
+
             with self._tasks_lock:
                 old_stop_event = self._bg_stop_event
                 if old_stop_event is None:
@@ -1943,7 +1960,11 @@ class DynamicWeChat(_PluginBase):
                 old_stop_event.set()
                 tasks_to_join = list(self._bg_tasks)
 
+            # 跳过当前线程，避免 join 自身导致 RuntimeError
+            current_thread = threading.current_thread()
             for thread in tasks_to_join:
+                if thread is current_thread:
+                    continue
                 if thread.is_alive():
                     thread.join(timeout=self.BACKUP_TASK_JOIN_TIMEOUT)
 
