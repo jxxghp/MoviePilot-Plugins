@@ -955,6 +955,7 @@ class DynamicWeChat(_PluginBase):
         """
         异步推送二维码（使用线程锁保护状态）
         生成二维码并通过配置的通知渠道发送给用户
+        先尝试微信，失败或不可用时降级到第三方通道
         """
         if not self._enabled or not event:
             return
@@ -972,22 +973,23 @@ class DynamicWeChat(_PluginBase):
                 image_src, refuse_time = await self.find_qrc(page)
                 if image_src:
                     if self._my_send:
-                        # 微信可用时直接发送，不可用时尝试第三方
+                        sent = False
+                        # 先尝试微信通知（如果可用）
                         if self._wechat_available:
                             error = await asyncio.to_thread(self._my_send.send, "企业微信登录二维码", image=image_src)
                             if error:
                                 logger.info(f"远程推送任务: 二维码发送失败,原因：{error}")
-                                logger.info("----------------------本次任务结束----------------------")
-                                return
-                        else:
-                            # 微信不可用，检查是否有第三方通道
+                            else:
+                                sent = True
+
+                        # 微信发送失败或不可用，尝试第三方通道
+                        if not sent:
                             if not self._my_send.other_channel:
-                                logger.warning("微信通知不可用且未配置第三方通知通道，无法推送二维码")
-                                self.systemmessage.put("微信通知不可用且未配置第三方通知通道，无法推送二维码")
+                                logger.warning("没有可用的第三方通知通道，无法推送二维码")
+                                self.systemmessage.put("二维码推送失败，请检查微信通知或配置第三方通知通道")
                                 logger.info("----------------------本次任务结束----------------------")
                                 return
-                            # 尝试所有第三方通道
-                            sent = False
+
                             for channel, token in self._my_send.other_channel:
                                 error = await asyncio.to_thread(
                                     self._my_send.send,
@@ -998,10 +1000,12 @@ class DynamicWeChat(_PluginBase):
                                     sent = True
                                     break
                                 logger.warning(f"通道 {channel} 推送二维码失败，原因：{error}")
+
                             if not sent:
-                                logger.warning("所有第三方通知通道推送二维码均失败")
+                                logger.warning("所有通知通道推送二维码均失败")
                                 logger.info("----------------------本次任务结束----------------------")
                                 return
+
                         # 发送成功，开始等待扫码
                         logger.info("远程推送任务: 二维码发送成功,等待用户 80 秒内扫码登录。V2'微信通知'的用户,此消息并不准确")
                         for attempt in range(self.QR_CODE_MAX_ATTEMPTS):
@@ -1235,9 +1239,16 @@ class DynamicWeChat(_PluginBase):
         buttons = [
             ("//div[contains(@class, 'js_show_ipConfig_dialog')]//a[contains(@class, '_mod_card_operationLink') and text()='配置']", "配置")
         ]
-        # 获取当前IP地址
+        # 获取当前IP地址，多WAN时加锁读取
         if self.wan2:
-            ips_str = await self.wan2.read_ips_async("ips")
+            ips_str = ""
+            if await self._acquire_file_lock():
+                try:
+                    ips_str = await self.wan2.read_ips_async("ips")
+                finally:
+                    self._file_lock.release()
+            else:
+                logger.warning("获取文件锁超时，重新获取公网IP")
             ips_list = [ip for ip in ips_str.split(";") if ip] if ips_str else []
             if ips_list:
                 self._current_ip_address = ";".join(ips_list)
