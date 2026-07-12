@@ -340,7 +340,6 @@ class DynamicWeChat(_PluginBase):
     async def _acquire_file_lock(self):
         """带超时的文件锁获取（线程安全）"""
         try:
-            # 使用 asyncio.to_thread 在非阻塞中等待线程锁
             acquired = await asyncio.to_thread(self._file_lock.acquire, timeout=self.FILE_LOCK_TIMEOUT)
             return acquired
         except Exception as e:
@@ -815,8 +814,14 @@ class DynamicWeChat(_PluginBase):
             logger.info("更新本地 Cookie成功")
 
     async def _send_cookie_false(self):
-        """发送cookie失效通知（异步版本）"""
-        self._cookie_valid = False
+        """
+        发送cookie失效通知（异步版本）
+        增加有效性检查，避免误报
+        """
+        # 如果当前 cookie 仍然有效，则不发送通知
+        if self._cookie_valid:
+            logger.debug("cookie当前有效，跳过失效通知")
+            return
 
         if self._my_send and not self._await_ip and self._wechat_available:
             error = await asyncio.to_thread(
@@ -967,12 +972,15 @@ class DynamicWeChat(_PluginBase):
         return cookies
 
     async def refresh_cookie(self):
-        """保活：刷新cookie"""
+        """
+        保活：刷新cookie（增强重试逻辑，避免误报失效）
+        """
         context = None
         try:
             context = await self._launch_browser_context_with_retry(headless=True)
             cookie_used = False
 
+            # 尝试使用本地保存的cookie
             if self._saved_cookie:
                 await context.add_cookies(self._saved_cookie)
                 page = await context.new_page()
@@ -982,25 +990,30 @@ class DynamicWeChat(_PluginBase):
                     self._cookie_valid = True
                     cookie_used = True
                 else:
+                    # 本地cookie失效，清空，后续尝试从CookieCloud获取
                     self._cookie_valid = False
                     self._saved_cookie = None
 
+            # 若本地cookie无效，尝试从CookieCloud获取
             if not cookie_used and self._use_cookiecloud:
                 cookie = await self.get_cookie_async()
-                if not cookie:
-                    await self._send_cookie_false()
-                    return
-                await context.add_cookies(cookie)
-                page = await context.new_page()
-                await page.goto(self._wechatUrl)
-                await asyncio.sleep(3)
-                if await self.check_login_status(page, task='refresh_cookie'):
-                    self._cookie_valid = True
-                    self._saved_cookie = await context.cookies()
+                if cookie:
+                    await context.add_cookies(cookie)
+                    page = await context.new_page()
+                    await page.goto(self._wechatUrl)
+                    await asyncio.sleep(3)
+                    if await self.check_login_status(page, task='refresh_cookie'):
+                        self._cookie_valid = True
+                        self._saved_cookie = await context.cookies()
+                    else:
+                        # 新获取的cookie也无效，发送失效通知
+                        await self._send_cookie_false()
+                        self._saved_cookie = None
                 else:
+                    # 从CookieCloud获取失败
                     await self._send_cookie_false()
-                    self._saved_cookie = None
 
+            # 如果cookie有效，延长生命周期
             if self._cookie_valid:
                 if self._my_send:
                     self._my_send.reset_limit()
