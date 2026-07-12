@@ -32,7 +32,7 @@ class DynamicWeChat(_PluginBase):
     plugin_desc = "修改企微应用可信IP,详细说明查看'作者主页',支持第三方通知。验证码以？结尾发送到企业微信应用"
     # 插件图标
     plugin_icon = "Wecom_A.png"
-    # 插件版本 (已升级)
+    # 插件版本
     plugin_version = "2.1.6-2"
     # 插件作者
     plugin_author = "RamenRa"
@@ -744,20 +744,19 @@ class DynamicWeChat(_PluginBase):
             if not url_ips:
                 return False
 
-            # 使用异步版本读取和写入，避免阻塞事件循环；写入时加文件锁（非阻塞轮询）
-            saved_ips = await self.wan2.read_ips_async("ips")
-            saved_ips_list = [ip for ip in saved_ips.split(";") if ip] if saved_ips else []
+            # 使用文件锁保护整个读-判断-写事务，避免并发导致重复或丢失更新
+            while not self._file_lock.acquire(blocking=False):
+                await asyncio.sleep(0.05)
+            try:
+                saved_ips = await self.wan2.read_ips_async("ips")
+                saved_ips_list = [ip for ip in saved_ips.split(";") if ip] if saved_ips else []
 
-            # 检查每个新 IP 是否存在，若不存在则添加并返回 True
-            for ip in url_ips:
-                if ip not in saved_ips_list:
-                    while not self._file_lock.acquire(blocking=False):
-                        await asyncio.sleep(0.05)
-                    try:
+                for ip in url_ips:
+                    if ip not in saved_ips_list:
                         await self.wan2.add_ips_async("ips", ip)
-                    finally:
-                        self._file_lock.release()
-                    return True
+                        return True
+            finally:
+                self._file_lock.release()
         else:
             # 检查 IP 是否变化
             if ip_address != self._current_ip_address:
@@ -1973,33 +1972,28 @@ class DynamicWeChat(_PluginBase):
             self._scheduler_thread = None
             self._scheduler_stop_event = None
 
-            # 3/4. 在同一临界区内设置停止信号并获取后台任务快照
-            # 惰性创建锁，防止在锁未初始化时被调用
-            if self._tasks_lock is None:
-                self._tasks_lock = threading.Lock()
-
+            # 3. 在同一临界区内设置停止信号、等待线程、清理 _bg_tasks 和回写事件
+            # 防止停服期间 _safe_run_coro 创建新任务
+            current_thread = threading.current_thread()
             with self._tasks_lock:
                 old_stop_event = self._bg_stop_event
                 if old_stop_event is None:
                     old_stop_event = threading.Event()
                     self._bg_stop_event = old_stop_event
                 old_stop_event.set()
-                tasks_to_join = list(self._bg_tasks)
 
-            # 跳过当前线程，避免 join 自身导致 RuntimeError
-            current_thread = threading.current_thread()
-            for thread in tasks_to_join:
-                if thread is current_thread:
-                    continue
-                if thread.is_alive():
-                    thread.join(timeout=self.BACKUP_TASK_JOIN_TIMEOUT)
+                remaining_tasks = []
+                for thread in list(self._bg_tasks):
+                    if thread is current_thread:
+                        remaining_tasks.append(thread)
+                        continue
+                    if thread.is_alive():
+                        thread.join(timeout=self.BACKUP_TASK_JOIN_TIMEOUT)
+                    if thread.is_alive():
+                        remaining_tasks.append(thread)
 
-            # 5. 移除已退出的线程；不要覆盖等待期间创建的新停止事件
-            with self._tasks_lock:
-                self._bg_tasks = [t for t in self._bg_tasks if t.is_alive()]
-                # 仅在当前事件仍是旧事件时才回写，避免覆盖 _safe_run_coro 创建的新事件
-                if self._bg_stop_event is old_stop_event or self._bg_stop_event is None:
-                    self._bg_stop_event = old_stop_event
+                self._bg_tasks = remaining_tasks
+                self._bg_stop_event = old_stop_event
 
             if self._bg_tasks:
                 logger.warning(f"{len(self._bg_tasks)} 个后台任务未在超时时间内退出，保留停止信号")
