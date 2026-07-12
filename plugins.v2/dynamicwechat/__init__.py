@@ -32,8 +32,8 @@ class DynamicWeChat(_PluginBase):
     plugin_desc = "修改企微应用可信IP,详细说明查看'作者主页',支持第三方通知。验证码以？结尾发送到企业微信应用"
     # 插件图标
     plugin_icon = "Wecom_A.png"
-    # 插件版本 (已升级)
-    plugin_version = "2.1.6-2"
+    # 插件版本
+    plugin_version = "2.1.6-1"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -136,7 +136,7 @@ class DynamicWeChat(_PluginBase):
     _scheduler_stop_event: Optional[threading.Event] = None
     # 后台任务跟踪（用于插件停止时取消）
     _bg_tasks: List[threading.Thread] = []
-    # 后台任务停止事件（每次停止时替换为新事件）
+    # 后台任务停止事件（每次停止时捕获当前事件，仅在全部退出后替换）
     _bg_stop_event: Optional[threading.Event] = None
 
     async def _launch_browser_context_with_retry(self, headless: bool = True):
@@ -1781,12 +1781,11 @@ class DynamicWeChat(_PluginBase):
             self._scheduler_thread = None
             self._scheduler_stop_event = None
 
-            # 3. 停止所有后台任务，立即替换为新的停止事件，避免长期保持 set
-            old_stop_event = self._bg_stop_event
-            if old_stop_event:
-                old_stop_event.set()
-            # 立即创建新的事件，供后续新任务使用
-            self._bg_stop_event = threading.Event()
+            # 3. 停止所有后台任务
+            # 先捕获旧事件并设置，不要替换为新事件
+            old_stop_event = self._bg_stop_event or threading.Event()
+            old_stop_event.set()
+            # 注意：不在这里替换 self._bg_stop_event，保留旧事件以便任务检测
 
             # 4. 等待后台任务完成（保留未退出任务的引用）
             # 先过滤已完成的线程
@@ -1797,6 +1796,7 @@ class DynamicWeChat(_PluginBase):
                 else:
                     i += 1
 
+            had_bg_tasks = bool(self._bg_tasks)
             if self._bg_tasks:
                 logger.info(f"等待 {len(self._bg_tasks)} 个后台任务完成...")
                 remaining_tasks = []
@@ -1806,13 +1806,17 @@ class DynamicWeChat(_PluginBase):
                     if thread.is_alive():
                         remaining_tasks.append(thread)
                 self._bg_tasks = remaining_tasks
-                if self._bg_tasks:
-                    logger.warning(f"{len(self._bg_tasks)} 个后台任务未在超时时间内退出，保留停止信号")
-                else:
-                    logger.info("后台任务已清理完成")
 
-            # 5. 注意：新的 _bg_stop_event 已创建，旧任务使用旧事件，新任务使用新事件
-            # 这样即使旧任务超时未退出，也不影响新任务的创建
+            # 5. 根据任务退出情况决定事件替换
+            if self._bg_tasks:
+                # 有任务未退出，保留已设置的旧事件（保持 set 状态）
+                logger.warning(f"{len(self._bg_tasks)} 个后台任务未在超时时间内退出，保留停止信号")
+                self._bg_stop_event = old_stop_event
+            else:
+                # 所有任务已退出，可以创建新的事件供下次使用
+                self._bg_stop_event = threading.Event()
+                if had_bg_tasks:
+                    logger.info("后台任务已清理完成")
 
         except Exception as e:
             logger.error(str(e))
