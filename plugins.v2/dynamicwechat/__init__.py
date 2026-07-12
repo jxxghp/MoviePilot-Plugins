@@ -231,16 +231,11 @@ class DynamicWeChat(_PluginBase):
             return
 
         # 3. 兜底：在后台线程中运行独立事件循环
-        with self._tasks_lock:
-            # 清理已退出线程
-            self._bg_tasks[:] = [thread for thread in self._bg_tasks if thread.is_alive()]
-            # 如果停止事件已设置（旧事件），则创建新事件，避免新任务被旧信号取消
-            if self._bg_stop_event is None or self._bg_stop_event.is_set():
-                self._bg_stop_event = threading.Event()
-            # 捕获当前停止事件，避免后续事件替换导致误判
-            current_stop_event = self._bg_stop_event
+        # 在同一临界区内完成：清理线程、创建/捕获停止事件、创建线程、登记线程
+        # 避免竞态窗口导致 stop_service 无法正确等待新线程
 
-        def run_in_thread():
+        def run_in_thread(stop_event):
+            """后台线程入口函数，接收停止事件作为参数"""
             try:
                 new_loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(new_loop)
@@ -248,7 +243,7 @@ class DynamicWeChat(_PluginBase):
                 async def run_with_cancel():
                     task = asyncio.create_task(coro)
                     while not task.done():
-                        if current_stop_event and current_stop_event.is_set():
+                        if stop_event and stop_event.is_set():
                             task.cancel()
                             try:
                                 await task
@@ -283,8 +278,19 @@ class DynamicWeChat(_PluginBase):
             except Exception as e:
                 logger.error(f"后台协程执行失败: {e}")
 
-        thread = threading.Thread(target=run_in_thread, daemon=True)
         with self._tasks_lock:
+            # 清理已退出线程
+            self._bg_tasks[:] = [thread for thread in self._bg_tasks if thread.is_alive()]
+            # 如果停止事件已设置（旧事件），则创建新事件，避免新任务被旧信号取消
+            if self._bg_stop_event is None or self._bg_stop_event.is_set():
+                self._bg_stop_event = threading.Event()
+            # 捕获当前停止事件，并在同一临界区内创建和登记线程
+            current_stop_event = self._bg_stop_event
+            thread = threading.Thread(
+                target=run_in_thread,
+                args=(current_stop_event,),
+                daemon=True
+            )
             self._bg_tasks.append(thread)
         thread.start()
 
@@ -372,9 +378,8 @@ class DynamicWeChat(_PluginBase):
         self._loop = self._get_or_create_event_loop()
         self._qr_lock = threading.Lock()
         self._env_lock = threading.Lock()
-        self._tasks_lock = threading.Lock()
-        self._bg_tasks = []
-        self._bg_stop_event = threading.Event()
+        if self._tasks_lock is None:
+            self._tasks_lock = threading.Lock()
 
         if config:
             self._enabled = config.get("enabled")
@@ -411,8 +416,14 @@ class DynamicWeChat(_PluginBase):
             # _, self._current_ip_address = self.get_ip_from_url()  # 直接从网页获取 返回URL和IP
             self._current_ip_address = self.cfg.get("WECHAT_NOW_IP")  # 应对MP/NAS长时间关闭后公网IP和可信IP不一致
 
-        # 停止现有任务
+        # 必须停止现有任务（在重置后台任务跟踪对象前执行）
         self.stop_service()
+
+        # 仅在 _bg_tasks 已清空后才重置列表和停止事件
+        with self._tasks_lock:
+            if not self._bg_tasks:
+                self._bg_tasks = []
+                self._bg_stop_event = threading.Event()
 
         if not self._input_id_list:
             logger.warning("插件未配置应用ID，请填写企业微信应用ID")
@@ -1195,9 +1206,9 @@ class DynamicWeChat(_PluginBase):
             # 验证码面板等待超时，说明没有进入验证码流程
             pass
         except Exception:
-            # logger.debug(str(e))  # 基于bug运行,请不要将错误输出到日志
-            # try:  # 没有登录成功,也没有短信验证码
-            if await self.find_qrc(page) and task not in ['refresh_cookie', 'local_scanning']:  # 延长任务找到的二维码不会被发送,所以不算用户没有扫码
+            # 修正：解包 find_qrc 返回值，只检查 img_src，避免 (None, None) 被误判为真值
+            img_src, _ = await self.find_qrc(page)
+            if img_src and task not in ['refresh_cookie', 'local_scanning']:  # 延长任务找到的二维码不会被发送,所以不算用户没有扫码
                 logger.warning("用户没有扫描二维码")
                 return False
 
