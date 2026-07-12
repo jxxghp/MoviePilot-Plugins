@@ -238,6 +238,9 @@ class DynamicWeChat(_PluginBase):
             return
 
         # 3. 兜底：在后台线程中运行独立事件循环
+        # 确保停止事件已初始化，避免捕获到 None
+        if self._bg_stop_event is None:
+            self._bg_stop_event = threading.Event()
         # 捕获当前停止事件，避免后续事件替换导致误判
         current_stop_event = self._bg_stop_event
 
@@ -288,9 +291,6 @@ class DynamicWeChat(_PluginBase):
                     new_loop.close()
             except Exception as e:
                 logger.error(f"后台协程执行失败: {e}")
-
-        if self._bg_stop_event is None:
-            self._bg_stop_event = threading.Event()
 
         thread = threading.Thread(target=run_in_thread, daemon=True)
         thread.start()
@@ -1782,10 +1782,12 @@ class DynamicWeChat(_PluginBase):
             self._scheduler_stop_event = None
 
             # 3. 停止所有后台任务
-            # 先捕获旧事件并设置，不要替换为新事件
-            old_stop_event = self._bg_stop_event or threading.Event()
+            # 确保停止事件存在并设置
+            old_stop_event = self._bg_stop_event
+            if old_stop_event is None:
+                old_stop_event = threading.Event()
+                self._bg_stop_event = old_stop_event
             old_stop_event.set()
-            # 注意：不在这里替换 self._bg_stop_event，保留旧事件以便任务检测
 
             # 4. 等待后台任务完成（保留未退出任务的引用）
             # 先过滤已完成的线程
