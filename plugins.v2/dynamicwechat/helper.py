@@ -4,12 +4,12 @@ import json
 import requests
 import base64
 import hashlib
+import asyncio
 from typing import Dict, Any
 from Crypto import Random
 from Crypto.Cipher import AES
 
 import aiohttp
-import asyncio
 
 from app.modules.wechat import WeChat
 from app.schemas.types import NotificationType, MessageChannel
@@ -17,7 +17,8 @@ from app.schemas.types import NotificationType, MessageChannel
 
 def bytes_to_key(data: bytes, salt: bytes, output=48) -> bytes:
     """兼容v2 将bytes_to_key和encrypt导入"""
-    assert len(salt) == 8, len(salt)
+    if len(salt) != 8:
+        raise ValueError(f"salt must be 8 bytes, got {len(salt)}")
     data += salt
     key = hashlib.md5(data).digest()
     final_key = key
@@ -44,6 +45,8 @@ def encrypt(message: bytes, passphrase: bytes) -> bytes:
 
 
 class PyCookieCloud:
+    """CookieCloud 客户端，提供同步和异步两种操作方式"""
+
     def __init__(self, url: str, uuid: str, password: str):
         self.url: str = url
         self.uuid: str = uuid
@@ -108,6 +111,7 @@ class PyCookieCloud:
         md5.update((self.uuid + '-' + self.password).encode('utf-8'))
         return md5.hexdigest()[:16]
 
+    # ---------- 同步文件操作方法（保留兼容） ----------
     @staticmethod
     def load_cookie_lifetime(settings_file: str = None):
         if os.path.exists(settings_file):
@@ -135,8 +139,26 @@ class PyCookieCloud:
         new_lifetime = current_lifetime + seconds
         PyCookieCloud.save_cookie_lifetime(settings_file, new_lifetime)
 
+    # ---------- 异步文件操作方法（新增） ----------
+    @staticmethod
+    async def load_cookie_lifetime_async(settings_file: str = None):
+        return await asyncio.to_thread(PyCookieCloud.load_cookie_lifetime, settings_file)
+
+    @staticmethod
+    async def save_cookie_lifetime_async(settings_file, cookie_lifetime):
+        await asyncio.to_thread(PyCookieCloud.save_cookie_lifetime, settings_file, cookie_lifetime)
+
+    @staticmethod
+    async def increase_cookie_lifetime_async(settings_file, seconds: int):
+        await asyncio.to_thread(PyCookieCloud.increase_cookie_lifetime, settings_file, seconds)
+
 
 class MySender:
+    """
+    多渠道消息发送器
+    注意：所有网络请求是同步的，在异步上下文中调用时需用 asyncio.to_thread 包裹
+    """
+
     def __init__(self, token=None, func=None):
         self.raw_token = token or ""
 
@@ -177,7 +199,7 @@ class MySender:
             return "PushPlus"
 
     def send(self, title, content=None, image=None, force_send=False, diy_channel=None, diy_token=None):
-        """发送消息"""
+        """发送消息（同步方法，在异步上下文中请用 to_thread 包裹）"""
         if not self.init_success:
             return
 
@@ -220,7 +242,7 @@ class MySender:
     def _send_wechat(title, content, image, token):
         wechat = WeChat()
         if token and ',' in token:
-            channel, actual_userid = token.split(',', 1)
+            _, actual_userid = token.split(',', 1)
         else:
             actual_userid = None
         if image:
@@ -238,11 +260,11 @@ class MySender:
         else:
             tmp_tokens = self.tokens[self.current_index]
         if ',' in tmp_tokens:
-            before_comma, after_comma = tmp_tokens.split(',', 1)
-            if before_comma.startswith('sctp') and image:
-                token = after_comma
+            first_part, second_part = tmp_tokens.split(',', 1)
+            if first_part.startswith('sctp') and image:
+                token = second_part
             else:
-                token = before_comma
+                token = first_part
         else:
             token = tmp_tokens
 
@@ -327,6 +349,11 @@ class MySender:
 
 
 class IpLocationParser:
+    """
+    IP 地址解析器，支持多 WAN 口
+    所有文件操作提供同步和异步两种版本
+    """
+
     def __init__(self, settings_file_path, max_ips=3):
         self._settings_file_path = settings_file_path
         self._max_ips = max_ips
@@ -486,6 +513,7 @@ class IpLocationParser:
         except Exception as e:
             return ""
 
+    # ---------- 同步文件操作方法（保留兼容） ----------
     def _limit_and_deduplicate_ips(self, ips):
         """去重并限制 IP 地址数量，最多保存 _max_ips 个 IP 地址"""
         unique_ips = list(dict.fromkeys(ips))
@@ -540,11 +568,22 @@ class IpLocationParser:
 
         self.overwrite_ips(field, updated_ips)
 
+    # ---------- 异步文件操作方法（新增） ----------
+    async def read_ips_async(self, field) -> str:
+        return await asyncio.to_thread(self.read_ips, field)
+
+    async def overwrite_ips_async(self, field, new_ips):
+        await asyncio.to_thread(self.overwrite_ips, field, new_ips)
+
+    async def add_ips_async(self, field, new_ips):
+        await asyncio.to_thread(self.add_ips, field, new_ips)
+
 
 class JsonFieldManager:
     """
     通用 JSON 配置文件字段管理器。
     所有操作均遵循「读-改-写」模式，确保不修改无关字段。
+    提供同步和异步两种操作方式。
     """
 
     def __init__(self, settings_file_path: str):
@@ -563,6 +602,7 @@ class JsonFieldManager:
         with open(self._settings_file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
 
+    # ---------- 同步操作方法 ----------
     def get(self, field: str, default: Any = None) -> Any:
         """读取指定字段的值"""
         return self._load().get(field, default)
@@ -582,6 +622,12 @@ class JsonFieldManager:
         data[field] = value
         self._save(data)
 
-    def set(self, field: str, value: Any) -> None:
-        """新增或修改字段（与 update 行为一致）"""
-        self.update(field, value)
+    # ---------- 异步操作方法（新增） ----------
+    async def aget(self, field: str, default: Any = None) -> Any:
+        return await asyncio.to_thread(self.get, field, default)
+
+    async def aadd(self, field: str, value: Any) -> bool:
+        return await asyncio.to_thread(self.add, field, value)
+
+    async def aupdate(self, field: str, value: Any) -> None:
+        await asyncio.to_thread(self.update, field, value)
