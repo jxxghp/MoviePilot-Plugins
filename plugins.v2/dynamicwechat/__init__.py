@@ -628,6 +628,9 @@ class DynamicWeChat(_PluginBase):
                             await self.wan2.add_ips_async("ips", ip)
                 finally:
                     self._file_lock.release()
+                # 检测到IP变化，与单IP分支一致，标记微信通知不可用并重置通知标志
+                self._wechat_available = False
+                self._cookie_invalid_notified = False
                 return True
             return False
         else:
@@ -929,6 +932,12 @@ class DynamicWeChat(_PluginBase):
                     notified = True
                     return None
                 self.systemmessage.put("cookie已失效，且所有通知方式均发送失败，请手动更新cookie")
+                return None
+
+            # 如果微信不可用且没有第三方通道，补充系统消息和日志，避免静默丢失
+            if self._my_send and not self._wechat_available and not self._my_send.other_channel:
+                logger.warning("微信通知不可用且未配置第三方通知通道，无法发送cookie失效通知")
+                self.systemmessage.put("cookie已失效，但微信通知不可用且未配置第三方通知通道，请手动更新cookie")
                 return None
 
             if not self._my_send:
