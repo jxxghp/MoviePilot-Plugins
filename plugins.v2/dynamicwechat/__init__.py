@@ -131,6 +131,8 @@ class DynamicWeChat(_PluginBase):
     _file_lock: threading.Lock = None
     # 二维码运行状态锁
     _qr_lock: threading.Lock = None
+    # 通知去重锁
+    _notify_lock: threading.Lock = None
     # 停止标志
     _stopping = False
     # 后台循环启动标志（防止重复启动）
@@ -177,6 +179,8 @@ class DynamicWeChat(_PluginBase):
             self._file_lock = threading.Lock()
         if self._qr_lock is None:
             self._qr_lock = threading.Lock()
+        if self._notify_lock is None:
+            self._notify_lock = threading.Lock()
 
         # 读取配置
         if config:
@@ -279,26 +283,10 @@ class DynamicWeChat(_PluginBase):
             return
         self._loops_started = True
 
-        try:
-            # 检测当前线程是否有运行中的事件循环
-            asyncio.get_running_loop()
-            # 有循环，直接创建任务
-            self._start_bg_task(self._refresh_cookie_loop())
-            if self._cron:
-                self._start_bg_task(self._check_ip_loop())
-        except RuntimeError:
-            # 无循环，在新线程中运行
-            def run_loops():
-                async def main():
-                    tasks = [asyncio.create_task(self._refresh_cookie_loop())]
-                    if self._cron:
-                        tasks.append(asyncio.create_task(self._check_ip_loop()))
-                    await asyncio.gather(*tasks)
-                asyncio.run(main())
-            thread = threading.Thread(target=run_loops, daemon=True)
-            thread.start()
-            self._bg_threads.append(thread)
-            logger.info("后台循环已在新线程中启动")
+        # 无论有无循环，都通过 _start_bg_task 启动，它内部会处理
+        self._start_bg_task(self._refresh_cookie_loop())
+        if self._cron:
+            self._start_bg_task(self._check_ip_loop())
 
     async def _refresh_cookie_loop(self):
         """
@@ -375,7 +363,7 @@ class DynamicWeChat(_PluginBase):
     def _start_bg_task(self, coro):
         """
         启动一个后台协程并自动跟踪（兼容有/无事件循环）
-        有循环时创建Task，无循环时在新线程中运行
+        有循环时创建Task，无循环时在新线程中运行并监控停止标志
         """
         try:
             loop = asyncio.get_running_loop()
@@ -389,9 +377,24 @@ class DynamicWeChat(_PluginBase):
                     pass
             task.add_done_callback(cleanup)
         except RuntimeError:
-            # 无循环，在新线程中运行
+            # 无循环，在新线程中运行，并主动监控 _stopping 以取消协程
             def run():
-                asyncio.run(coro)
+                async def runner():
+                    task = asyncio.create_task(coro)
+                    try:
+                        while not task.done():
+                            if self._stopping:
+                                task.cancel()
+                                break
+                            await asyncio.sleep(0.5)
+                        await task
+                    except asyncio.CancelledError:
+                        logger.debug("后台协程已取消")
+                    except Exception as e:
+                        logger.error(f"后台协程执行失败: {e}")
+
+                asyncio.run(runner())
+
             thread = threading.Thread(target=run, daemon=True)
             thread.start()
             self._bg_threads.append(thread)
@@ -885,54 +888,59 @@ class DynamicWeChat(_PluginBase):
 
     async def _send_cookie_false(self):
         """
-        发送cookie失效通知（异步版本）
-        仅当某个通道发送成功后才标记 _cookie_invalid_notified，失败时保持可重试。
-        不再受 _await_ip 限制，由调用方决定发送时机。
+        发送cookie失效通知（异步版本），线程安全去重
+        仅当某个通道发送成功后才持久标记，失败时保持可重试。
         """
-        if getattr(self, "_cookie_invalid_notified", False):
-            return None
-
-        self._cookie_valid = False
-
-        # 优先尝试微信通知（如果可用）
-        if self._my_send and self._wechat_available:
-            error = await asyncio.to_thread(
-                self._my_send.send,
-                title="cookie已失效,请及时更新",
-                content="请在企业微信应用发送/push_qr, 验证码以'？'结束发送到企业微信应用。 如果使用'微信通知'请确保公网IP还没有变动",
-                image=None, force_send=False
-            )
-            if error:
-                logger.info(f"cookie失效通知发送失败,原因：{error}")
-            else:
-                self._cookie_invalid_notified = True
+        with self._notify_lock:
+            if getattr(self, "_cookie_invalid_notified", False):
                 return None
+            # 占位，防止并发
+            self._cookie_invalid_notified = True
+            self._cookie_valid = False
 
-        # 如果微信不可用或发送失败，尝试第三方通知
-        if self._my_send and self._my_send.other_channel:
-            for channel, token in self._my_send.other_channel:
+        notified = False
+        try:
+            # 优先尝试微信通知（如果可用）
+            if self._my_send and self._wechat_available:
                 error = await asyncio.to_thread(
                     self._my_send.send,
-                    title="cookie已失效,且微信通知失效",
-                    content="请在企业微信应用发送/push_qr, 验证码以'？'结束发送到企业微信应用。",
-                    image=None, force_send=False, diy_channel=channel, diy_token=token
+                    title="cookie已失效,请及时更新",
+                    content="请在企业微信应用发送/push_qr, 验证码以'？'结束发送到企业微信应用。 如果使用'微信通知'请确保公网IP还没有变动",
+                    image=None, force_send=False
                 )
                 if error:
-                    logger.error(f"通道 {channel} 发送失败，原因：{error}")
-                    continue
-                self._cookie_invalid_notified = True
+                    logger.info(f"cookie失效通知发送失败,原因：{error}")
+                else:
+                    notified = True
+                    return None
+
+            # 如果微信不可用或发送失败，尝试第三方通知
+            if self._my_send and self._my_send.other_channel:
+                for channel, token in self._my_send.other_channel:
+                    error = await asyncio.to_thread(
+                        self._my_send.send,
+                        title="cookie已失效,且微信通知失效",
+                        content="请在企业微信应用发送/push_qr, 验证码以'？'结束发送到企业微信应用。",
+                        image=None, force_send=False, diy_channel=channel, diy_token=token
+                    )
+                    if error:
+                        logger.error(f"通道 {channel} 发送失败，原因：{error}")
+                        continue
+                    notified = True
+                    return None
+                self.systemmessage.put("cookie已失效，且所有通知方式均发送失败，请手动更新cookie")
                 return None
-            # 所有第三方均失败，写入系统消息；不标记已通知，保留下次重试机会
-            self.systemmessage.put("cookie已失效，且所有通知方式均发送失败，请手动更新cookie")
-            return None
 
-        # 无任何通知渠道
-        if not self._my_send:
-            logger.warning("cookie已失效，但未配置任何通知方式，用户可能无法及时感知")
-            self.systemmessage.put("cookie已失效，请及时更新，当前未配置通知方式")
-            return None
+            if not self._my_send:
+                logger.warning("cookie已失效，但未配置任何通知方式，用户可能无法及时感知")
+                self.systemmessage.put("cookie已失效，请及时更新，当前未配置通知方式")
+                return None
 
-        return None
+            return None
+        finally:
+            if not notified:
+                with self._notify_lock:
+                    self._cookie_invalid_notified = False
 
     async def _push_qr_code_async(self, event: Event = None):
         """
@@ -1127,10 +1135,10 @@ class DynamicWeChat(_PluginBase):
         await asyncio.sleep(3)
         if task != 'refresh_cookie':
             logger.info("检查登录状态...")
+        # 移除无效的XPath选择器，仅保留有效CSS或XPath
         success_selectors = [
             "//div[contains(@class, 'js_show_ipConfig_dialog')]//a[contains(@class, '_mod_card_operationLink') and text()='配置']",
             '#_hmt_click > div.index_colRight > div > div.index_info > div > a',
-            '/html/body/div/section[3]/div[1]/main/div/div/div[2]/div/div[1]/div/a',
             '#_hmt_click > div.index_colLeft > div.index_greeting.index_explore_text > div:nth-child(1)'
         ]
         try:
@@ -1632,9 +1640,10 @@ class DynamicWeChat(_PluginBase):
 
     def stop_service(self) -> bool:
         """
-        停止所有后台任务和线程，并在所属事件循环中等待取消完成（若为不同循环）。
-        若与当前循环相同则仅取消不等待，避免死锁。
-        返回 True 表示所有任务已完全停止，False 表示仍有未完成的任务或线程。
+        停止所有后台任务和线程。
+        对于当前事件循环中的任务，仅取消并挂回调，避免阻塞；
+        对于其他循环，等待取消完成。
+        返回 True 表示认为所有任务已清理（可重载），False 表示仍有残留。
         """
         self._stopping = True
 
@@ -1671,11 +1680,17 @@ class DynamicWeChat(_PluginBase):
                 pending_tasks.extend([task for task in tasks if not task.done()])
                 continue
 
-            # 若任务所属循环与当前循环相同，则仅取消，避免在同一个事件循环线程内同步等待
             if loop is current_loop:
+                # 当前循环任务：仅取消并挂回调，不等待，不加入 pending_tasks
                 for task in tasks:
+                    def cleanup(t):
+                        try:
+                            if t in self._bg_tasks:
+                                self._bg_tasks.remove(t)
+                        except ValueError:
+                            pass
                     task.cancel()
-                pending_tasks.extend([task for task in tasks if not task.done()])
+                    task.add_done_callback(cleanup)
                 continue
 
             # 不同循环，可安全等待
