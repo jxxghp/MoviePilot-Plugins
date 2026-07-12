@@ -670,7 +670,7 @@
     "name": "动态企微可信IP",
     "description": "修改企微应用可信IP，支持Srever酱等第三方通知。验证码以？结尾发送到企业微信应用",
     "labels": "消息通知",
-    "version": "2.1.6",
+    "version": "2.1.6-1",
     "icon": "Wecom_A.png",
     "author": "RamenRa",
     "level": 2,

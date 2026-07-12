@@ -145,34 +145,19 @@ class DynamicWeChat(_PluginBase):
         启动失败时不会影响 cookie 有效状态，仅记录日志。
         当前版本 CloakBrowser 不支持 env 参数，改用 os.environ 临时设置环境变量。
         使用 threading.Lock 保护并发修改环境变量，锁覆盖整个启动过程。
-        使用 asyncio.shield 保护锁获取，防止协程取消导致锁泄露。
+        使用非阻塞轮询方式获取锁，避免占用默认执行器线程。
         """
         last_exception = None
-        loop = asyncio.get_running_loop()
 
         for attempt in range(1, self.BROWSER_RETRY_COUNT + 1):
             original_dbus = None
             lock_acquired = False
 
             try:
-                # 使用 asyncio.shield 保护锁获取，防止协程取消导致线程拿到锁但无人释放
-                acquire_future = loop.run_in_executor(None, self._env_lock.acquire)
-
-                def release_if_acquired(fut):
-                    """回调函数：如果锁被获取但协程已取消，立即释放锁"""
-                    if not fut.cancelled() and fut.exception() is None and fut.result():
-                        try:
-                            self._env_lock.release()
-                        except RuntimeError:
-                            pass
-
-                try:
-                    await asyncio.shield(acquire_future)
-                    lock_acquired = True
-                except asyncio.CancelledError:
-                    # 协程被取消，添加回调确保锁被释放
-                    acquire_future.add_done_callback(release_if_acquired)
-                    raise
+                # 非阻塞轮询方式获取锁，避免占用默认执行器线程
+                while not self._env_lock.acquire(blocking=False):
+                    await asyncio.sleep(0.1)
+                lock_acquired = True
 
                 # 备份并设置环境变量
                 original_dbus = os.environ.get('DBUS_SESSION_BUS_ADDRESS')
@@ -238,8 +223,9 @@ class DynamicWeChat(_PluginBase):
             return
 
         # 3. 兜底：在后台线程中运行独立事件循环
-        # 确保停止事件已初始化，避免捕获到 None
-        if self._bg_stop_event is None:
+        # 清理已退出线程，并在旧停止事件已无任务需要时创建新事件
+        self._bg_tasks[:] = [thread for thread in self._bg_tasks if thread.is_alive()]
+        if self._bg_stop_event is None or (self._bg_stop_event.is_set() and not self._bg_tasks):
             self._bg_stop_event = threading.Event()
         # 捕获当前停止事件，避免后续事件替换导致误判
         current_stop_event = self._bg_stop_event
