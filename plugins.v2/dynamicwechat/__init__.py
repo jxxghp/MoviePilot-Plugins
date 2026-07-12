@@ -146,24 +146,33 @@ class DynamicWeChat(_PluginBase):
         当前版本 CloakBrowser 不支持 env 参数，改用 os.environ 临时设置环境变量。
         使用 threading.Lock 保护并发修改环境变量，锁覆盖整个启动过程。
         使用非阻塞轮询方式获取锁，避免占用默认执行器线程。
+        锁获取纳入超时预算，超时后抛出 TimeoutError 进入重试。
         """
         last_exception = None
+        loop = asyncio.get_running_loop()
 
         for attempt in range(1, self.BROWSER_RETRY_COUNT + 1):
             original_dbus = None
             lock_acquired = False
 
             try:
-                # 非阻塞轮询方式获取锁，避免占用默认执行器线程
+                # 非阻塞轮询方式获取锁，纳入超时预算
+                deadline = loop.time() + self.BROWSER_LAUNCH_TIMEOUT
                 while not self._env_lock.acquire(blocking=False):
-                    await asyncio.sleep(0.1)
+                    remaining = deadline - loop.time()
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError
+                    await asyncio.sleep(min(0.1, remaining))
                 lock_acquired = True
 
                 # 备份并设置环境变量
                 original_dbus = os.environ.get('DBUS_SESSION_BUS_ADDRESS')
                 os.environ['DBUS_SESSION_BUS_ADDRESS'] = ''
 
-                # 启动浏览器
+                # 启动浏览器，剩余超时时间
+                remaining_timeout = deadline - loop.time()
+                if remaining_timeout <= 0:
+                    raise asyncio.TimeoutError
                 context = await asyncio.wait_for(
                     launch_context_async(
                         headless=headless,
@@ -172,7 +181,7 @@ class DynamicWeChat(_PluginBase):
                             'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.1'
                         }
                     ),
-                    timeout=self.BROWSER_LAUNCH_TIMEOUT
+                    timeout=remaining_timeout
                 )
                 if attempt > 1:
                     logger.info(f"浏览器启动成功 (第 {attempt} 次尝试)")
@@ -1795,16 +1804,13 @@ class DynamicWeChat(_PluginBase):
                         remaining_tasks.append(thread)
                 self._bg_tasks = remaining_tasks
 
-            # 5. 根据任务退出情况决定事件替换
+            # 5. 保留已设置的停止事件；下一次启动后台任务时再由 _safe_run_coro 创建新事件
+            self._bg_stop_event = old_stop_event
             if self._bg_tasks:
                 # 有任务未退出，保留已设置的旧事件（保持 set 状态）
                 logger.warning(f"{len(self._bg_tasks)} 个后台任务未在超时时间内退出，保留停止信号")
-                self._bg_stop_event = old_stop_event
-            else:
-                # 所有任务已退出，可以创建新的事件供下次使用
-                self._bg_stop_event = threading.Event()
-                if had_bg_tasks:
-                    logger.info("后台任务已清理完成")
+            elif had_bg_tasks:
+                logger.info("后台任务已清理完成")
 
         except Exception as e:
             logger.error(str(e))
