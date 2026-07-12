@@ -1,5 +1,6 @@
 import asyncio
 import io
+import os
 import random
 import re
 import base64
@@ -128,6 +129,8 @@ class DynamicWeChat(_PluginBase):
     _loop: Optional[asyncio.AbstractEventLoop] = None
     # 二维码任务锁（threading.Lock 避免跨事件循环问题）
     _qr_lock: Optional[threading.Lock] = None
+    # 环境变量修改锁（threading.Lock 避免跨事件循环问题）
+    _env_lock: Optional[threading.Lock] = None
     # 后台调度器线程相关
     _scheduler_thread: Optional[threading.Thread] = None
     _scheduler_stop_event: Optional[threading.Event] = None
@@ -140,29 +143,49 @@ class DynamicWeChat(_PluginBase):
         """
         使用 CloakBrowser 异步启动企业微信页面上下文，支持重试机制。
         启动失败时不会影响 cookie 有效状态，仅记录日志。
-        通过 env 参数传递 DBUS_SESSION_BUS_ADDRESS='' 抑制 Docker 容器中的 D-Bus 错误。
-        注：CloakBrowser 保持最新版本，无需降级处理。
+        当前版本 CloakBrowser 不支持 env 参数，改用 os.environ 临时设置环境变量。
+        使用 threading.Lock 保护并发修改环境变量，避免污染其他协程。
         """
         last_exception = None
+        loop = asyncio.get_running_loop()
 
         for attempt in range(1, self.BROWSER_RETRY_COUNT + 1):
+            original_dbus = None
             try:
-                context = await asyncio.wait_for(
-                    launch_context_async(
-                        headless=headless,
-                        args=['--lang=zh-CN'],
-                        extra_http_headers={
-                            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.1'
-                        },
-                        env={
-                            'DBUS_SESSION_BUS_ADDRESS': ''
-                        }
-                    ),
-                    timeout=self.BROWSER_LAUNCH_TIMEOUT
-                )
-                if attempt > 1:
-                    logger.info(f"浏览器启动成功 (第 {attempt} 次尝试)")
-                return context
+                # 设置环境变量（在线程池中执行，避免阻塞事件循环）
+                def set_env():
+                    nonlocal original_dbus
+                    with self._env_lock:
+                        original_dbus = os.environ.get('DBUS_SESSION_BUS_ADDRESS')
+                        os.environ['DBUS_SESSION_BUS_ADDRESS'] = ''
+
+                await loop.run_in_executor(None, set_env)
+
+                try:
+                    context = await asyncio.wait_for(
+                        launch_context_async(
+                            headless=headless,
+                            args=['--lang=zh-CN'],
+                            extra_http_headers={
+                                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.1'
+                            }
+                        ),
+                        timeout=self.BROWSER_LAUNCH_TIMEOUT
+                    )
+                    if attempt > 1:
+                        logger.info(f"浏览器启动成功 (第 {attempt} 次尝试)")
+                    return context
+                finally:
+                    # 恢复环境变量（在线程池中执行）
+                    def restore_env():
+                        with self._env_lock:
+                            if original_dbus is not None:
+                                os.environ['DBUS_SESSION_BUS_ADDRESS'] = original_dbus
+                            else:
+                                os.environ.pop('DBUS_SESSION_BUS_ADDRESS', None)
+
+                    await loop.run_in_executor(None, restore_env)
+
             except asyncio.TimeoutError:
                 last_exception = Exception("浏览器启动超时（30秒）")
                 logger.warning(f"浏览器启动超时 (尝试 {attempt}/{self.BROWSER_RETRY_COUNT})")
@@ -312,6 +335,7 @@ class DynamicWeChat(_PluginBase):
 
         self._loop = self._get_or_create_event_loop()
         self._qr_lock = threading.Lock()
+        self._env_lock = threading.Lock()
         self._bg_tasks = []
         self._bg_stop_event = threading.Event()
 
