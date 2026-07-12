@@ -143,6 +143,22 @@ class DynamicWeChat(_PluginBase):
     # 后台任务停止事件
     _bg_stop_event: Optional[threading.Event] = None
 
+    async def _acquire_file_lock(self):
+        """
+        非阻塞获取文件锁，带超时和停止信号检查。
+        若获取失败或触发停止信号，抛出相应异常。
+        """
+        if self._file_lock is None:
+            self._file_lock = threading.Lock()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.BACKUP_TASK_JOIN_TIMEOUT
+        while not self._file_lock.acquire(blocking=False):
+            if self._bg_stop_event and self._bg_stop_event.is_set():
+                raise asyncio.CancelledError("停止信号已触发，放弃获取文件锁")
+            if loop.time() >= deadline:
+                raise asyncio.TimeoutError("获取文件写入锁超时")
+            await asyncio.sleep(0.05)
+
     async def _launch_browser_context_with_retry(self, headless: bool = True):
         """
         使用 CloakBrowser 异步启动企业微信页面上下文，支持重试机制。
@@ -284,7 +300,13 @@ class DynamicWeChat(_PluginBase):
         with self._tasks_lock:
             # 清理已退出线程
             self._bg_tasks[:] = [thread for thread in self._bg_tasks if thread.is_alive()]
-            # 如果停止事件已设置（旧事件），则创建新事件，避免新任务被旧信号取消
+            # 如果停止事件已设置且仍有旧任务未退出，则跳过启动新任务，避免并发冲突
+            if self._bg_stop_event and self._bg_stop_event.is_set() and self._bg_tasks:
+                logger.warning("仍有旧后台任务未退出，跳过启动新后台任务")
+                if hasattr(coro, "close"):
+                    coro.close()
+                return
+            # 如果停止事件未设置或已无任务，则创建新事件
             if self._bg_stop_event is None or self._bg_stop_event.is_set():
                 self._bg_stop_event = threading.Event()
             # 捕获当前停止事件，并在同一临界区内创建、登记和启动线程
@@ -662,15 +684,20 @@ class DynamicWeChat(_PluginBase):
                 # IpLocationParser.get_ipv4 已是异步方法
                 china_ips = await self.wan2.get_ipv4(page, url)
                 if china_ips:
-                    # 使用异步版本避免阻塞，并用文件锁保护写入（非阻塞轮询）
-                    while not self._file_lock.acquire(blocking=False):
-                        await asyncio.sleep(0.05)
+                    # 使用异步版本避免阻塞，并用文件锁保护写入（带超时和停止检查）
+                    await self._acquire_file_lock()
                     try:
                         await self.wan2.overwrite_ips_async("url_ip", china_ips)
                     finally:
                         self._file_lock.release()
                     self.wan2_url = url
                     break
+            except asyncio.CancelledError:
+                logger.debug("停止信号触发，放弃写入多WAN IP")
+                return
+            except asyncio.TimeoutError:
+                logger.warning("获取文件锁超时，放弃写入多WAN IP")
+                return
             except Exception as e:
                 logger.warning(f"{url} 多出口IP获取失败, Error: {e}")
             finally:
@@ -745,8 +772,12 @@ class DynamicWeChat(_PluginBase):
                 return False
 
             # 使用文件锁保护整个读-判断-写事务，避免并发导致重复或丢失更新
-            while not self._file_lock.acquire(blocking=False):
-                await asyncio.sleep(0.05)
+            try:
+                await self._acquire_file_lock()
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                logger.debug("获取文件锁失败，放弃IP检查")
+                return False
+
             try:
                 saved_ips = await self.wan2.read_ips_async("ips")
                 saved_ips_list = [ip for ip in saved_ips.split(";") if ip] if saved_ips else []
@@ -841,14 +872,23 @@ class DynamicWeChat(_PluginBase):
                     china_ips = await self.wan2.get_ipv4(page, url)
                     if china_ips:
                         self.wan2_url = url
-                        # 使用异步版本避免阻塞，并用文件锁保护写入（非阻塞轮询）
-                        while not self._file_lock.acquire(blocking=False):
-                            await asyncio.sleep(0.05)
+                        # 使用异步版本避免阻塞，并用文件锁保护写入（带超时和停止检查）
+                        try:
+                            await self._acquire_file_lock()
+                        except (asyncio.CancelledError, asyncio.TimeoutError):
+                            logger.debug("获取文件锁失败，放弃多WAN IP写入")
+                            return None, "获取IP失败"
                         try:
                             await self.wan2.overwrite_ips_async("url_ip", china_ips)
                         finally:
                             self._file_lock.release()
                         return url, china_ips  # 成功获取到IP后返回
+                except asyncio.CancelledError:
+                    logger.debug("停止信号触发，放弃获取多WAN IP")
+                    return None, "获取IP失败"
+                except asyncio.TimeoutError:
+                    logger.warning("获取文件锁超时，放弃获取多WAN IP")
+                    return None, "获取IP失败"
                 except Exception as e:
                     logger.warning(f"{url} 多出口IP获取失败, Error: {e}")
                 finally:
@@ -940,9 +980,12 @@ class DynamicWeChat(_PluginBase):
     async def _update_cookie(self, page, context):
         """更新cookie（使用异步文件操作）"""
         self._future_timestamp = 0  # 标记二维码失效
-        # 使用异步版本避免阻塞，并用文件锁保护写入（非阻塞轮询）
-        while not self._file_lock.acquire(blocking=False):
-            await asyncio.sleep(0.05)
+        # 使用异步版本避免阻塞，并用文件锁保护写入（带超时和停止检查）
+        try:
+            await self._acquire_file_lock()
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            logger.debug("获取文件锁失败，放弃更新Cookie")
+            return
         try:
             await PyCookieCloud.save_cookie_lifetime_async(self._settings_file_path, 0)
         finally:
@@ -1140,9 +1183,12 @@ class DynamicWeChat(_PluginBase):
             if self._cookie_valid:
                 if self._my_send:
                     self._my_send.reset_limit()
-                # 使用异步版本避免阻塞，并用文件锁保护写入（非阻塞轮询）
-                while not self._file_lock.acquire(blocking=False):
-                    await asyncio.sleep(0.05)
+                # 使用异步版本避免阻塞，并用文件锁保护写入（带超时和停止检查）
+                try:
+                    await self._acquire_file_lock()
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    logger.debug("获取文件锁失败，放弃更新Cookie生命周期")
+                    return
                 try:
                     await PyCookieCloud.increase_cookie_lifetime_async(self._settings_file_path, 600)
                 finally:
@@ -1310,9 +1356,12 @@ class DynamicWeChat(_PluginBase):
             if self._ip_changed:
                 self._wechat_available = True    # 标记微信通知重新有效
                 self._send_notification = False  # 重置第三方通知已发送标记
-                # 使用异步版本写入配置，并用文件锁保护（非阻塞轮询）
-                while not self._file_lock.acquire(blocking=False):
-                    await asyncio.sleep(0.05)
+                # 使用异步版本写入配置，并用文件锁保护（带超时和停止检查）
+                try:
+                    await self._acquire_file_lock()
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    logger.debug("获取文件锁失败，放弃更新配置")
+                    return
                 try:
                     await self.cfg.aupdate("WECHAT_NOW_IP", self._current_ip_address)
                 finally:
@@ -1974,6 +2023,10 @@ class DynamicWeChat(_PluginBase):
 
             # 3. 在同一临界区内设置停止信号、等待线程、清理 _bg_tasks 和回写事件
             # 防止停服期间 _safe_run_coro 创建新任务
+            # 惰性创建锁，防止在锁未初始化时被调用
+            if self._tasks_lock is None:
+                self._tasks_lock = threading.Lock()
+
             current_thread = threading.current_thread()
             with self._tasks_lock:
                 old_stop_event = self._bg_stop_event
