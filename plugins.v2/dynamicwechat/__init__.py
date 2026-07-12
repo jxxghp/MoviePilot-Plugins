@@ -134,6 +134,9 @@ class DynamicWeChat(_PluginBase):
     # 后台循环启动标志（防止重复启动）
     _loops_started = False
 
+    # 类级别锁，用于串行化浏览器启动环境变量修改
+    _browser_env_lock = threading.Lock()
+
     if hasattr(settings, 'VERSION_FLAG'):
         version = settings.VERSION_FLAG  # V2
     else:
@@ -198,6 +201,9 @@ class DynamicWeChat(_PluginBase):
 
         # 停止之前残留的任务
         self.stop_service()
+        # 重置停止标志，使新任务可以启动
+        self._stopping = False
+        self._loops_started = False
 
         if not self._input_id_list:
             logger.warning("插件未配置应用ID，请填写企业微信应用ID")
@@ -827,12 +833,13 @@ class DynamicWeChat(_PluginBase):
     async def _send_cookie_false(self):
         """
         发送cookie失效通知（异步版本）
-        增加有效性检查，避免误报
+        内部先置失效标志，防止重复通知
         """
-        # 如果当前 cookie 仍然有效，则不发送通知
-        if self._cookie_valid:
-            logger.debug("cookie当前有效，跳过失效通知")
+        # 如果已经失效（已发送过通知），则直接返回避免重复
+        if not self._cookie_valid:
             return
+        # 标记为失效，后续不再重复发送
+        self._cookie_valid = False
 
         if self._my_send and not self._await_ip and self._wechat_available:
             error = await asyncio.to_thread(
@@ -1018,10 +1025,13 @@ class DynamicWeChat(_PluginBase):
                         self._saved_cookie = await context.cookies()
                     else:
                         # 新获取的cookie也无效，发送失效通知
-                        await self._send_cookie_false()
+                        self._cookie_valid = False
                         self._saved_cookie = None
+                        await self._send_cookie_false()
                 else:
                     # 从CookieCloud获取失败
+                    self._cookie_valid = False
+                    self._saved_cookie = None
                     await self._send_cookie_false()
 
             # 如果cookie有效，延长生命周期
@@ -1693,23 +1703,31 @@ class DynamicWeChat(_PluginBase):
                 thread.join(timeout=self.BACKUP_TASK_JOIN_TIMEOUT)
         self._bg_threads.clear()
 
-        # 重置启动标志，以便下次重新启动
-        self._loops_started = False
-
-    async def _cancel_all_tasks(self):  # 保留但不再使用，以防外部调用
-        """（已弃用）等待所有后台任务取消完成"""
-        pass
-
     async def _launch_browser_context_with_retry(self, headless: bool = True):
         """
         使用 CloakBrowser 异步启动企业微信页面上下文，支持重试机制。
-        临时设置环境变量以抑制D-Bus错误，启动后恢复。
+        使用类级别锁串行化环境变量修改，避免并发冲突。
         """
         last_exception = None
-        original_dbus = os.environ.get('DBUS_SESSION_BUS_ADDRESS')
+        # 获取类级别锁（串行化环境变量修改）
+        env_lock = self.__class__._browser_env_lock
+
         for attempt in range(1, self.BROWSER_RETRY_COUNT + 1):
+            lock_acquired = False
+            original_dbus = None
             try:
+                # 在独立线程中获取锁，带超时
+                lock_acquired = await asyncio.to_thread(
+                    env_lock.acquire, timeout=self.BROWSER_LAUNCH_TIMEOUT
+                )
+                if not lock_acquired:
+                    raise asyncio.TimeoutError
+
+                # 记录并临时置空环境变量
+                original_dbus = os.environ.get('DBUS_SESSION_BUS_ADDRESS')
                 os.environ['DBUS_SESSION_BUS_ADDRESS'] = ''
+
+                # 启动浏览器
                 context = await asyncio.wait_for(
                     launch_context_async(
                         headless=headless,
@@ -1723,6 +1741,7 @@ class DynamicWeChat(_PluginBase):
                 if attempt > 1:
                     logger.info(f"浏览器启动成功 (第 {attempt} 次尝试)")
                 return context
+
             except asyncio.TimeoutError:
                 last_exception = Exception("浏览器启动超时（30秒）")
                 logger.warning(f"浏览器启动超时 (尝试 {attempt}/{self.BROWSER_RETRY_COUNT})")
@@ -1730,10 +1749,13 @@ class DynamicWeChat(_PluginBase):
                 last_exception = e
                 logger.warning(f"浏览器启动失败 (尝试 {attempt}/{self.BROWSER_RETRY_COUNT}): {e}")
             finally:
-                if original_dbus is not None:
-                    os.environ['DBUS_SESSION_BUS_ADDRESS'] = original_dbus
-                else:
-                    os.environ.pop('DBUS_SESSION_BUS_ADDRESS', None)
+                # 恢复环境变量并释放锁
+                if lock_acquired:
+                    if original_dbus is not None:
+                        os.environ['DBUS_SESSION_BUS_ADDRESS'] = original_dbus
+                    else:
+                        os.environ.pop('DBUS_SESSION_BUS_ADDRESS', None)
+                    env_lock.release()
 
             if attempt < self.BROWSER_RETRY_COUNT:
                 await asyncio.sleep(self.BROWSER_RETRY_DELAY)
