@@ -285,20 +285,30 @@ class DynamicWeChat(_PluginBase):
                 coro.close()
             return
 
-        # 定义取消监控包装协程
+        # 定义取消监控包装协程（支持自身被取消时级联取消内部任务）
         async def run_with_cancel_on_loop(stop_event):
             """在已有事件循环上运行协程并监控取消信号"""
             task = asyncio.create_task(coro)
-            while not task.done():
-                if stop_event and stop_event.is_set():
+            try:
+                while not task.done():
+                    if stop_event and stop_event.is_set():
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            logger.debug("后台任务已取消")
+                        return
+                    await asyncio.sleep(0.5)
+                await task
+            except asyncio.CancelledError:
+                # 自身被取消时，级联取消内部任务
+                if not task.done():
                     task.cancel()
                     try:
                         await task
                     except asyncio.CancelledError:
                         logger.debug("后台任务已取消")
-                    return
-                await asyncio.sleep(0.5)
-            await task
+                raise
 
         try:
             # 1. 当前线程有运行中的事件循环，直接创建任务
