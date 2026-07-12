@@ -143,6 +143,27 @@ class DynamicWeChat(_PluginBase):
     # 后台任务停止事件
     _bg_stop_event: Optional[threading.Event] = None
 
+    def _prepare_bg_stop_event(self):
+        """
+        准备后台任务停止事件。
+        清理已退出线程，检查是否有旧任务未退出，返回当前有效停止事件。
+        若事件已触发且有旧任务未退出，返回 None 表示应跳过启动新任务。
+        """
+        if self._tasks_lock is None:
+            self._tasks_lock = threading.Lock()
+
+        with self._tasks_lock:
+            # 清理已退出线程
+            self._bg_tasks[:] = [thread for thread in self._bg_tasks if thread.is_alive()]
+            # 如果停止事件已设置且仍有旧任务未退出，则跳过启动新任务，避免并发冲突
+            if self._bg_stop_event and self._bg_stop_event.is_set() and self._bg_tasks:
+                logger.warning("仍有旧后台任务未退出，跳过启动新后台任务")
+                return None
+            # 如果停止事件未设置或已无任务，则创建新事件
+            if self._bg_stop_event is None or self._bg_stop_event.is_set():
+                self._bg_stop_event = threading.Event()
+            return self._bg_stop_event
+
     async def _acquire_file_lock(self):
         """
         非阻塞获取文件锁，带超时和停止信号检查。
@@ -235,6 +256,21 @@ class DynamicWeChat(_PluginBase):
         优先在当前线程的运行中循环创建任务，否则在后台事件循环中执行。
         后台任务可通过 _bg_stop_event 取消。
         """
+        # 在所有调度分支前统一准备停止事件，避免新协程复用已触发事件
+        current_stop_event = self._prepare_bg_stop_event()
+        if current_stop_event is None:
+            # 仍有旧任务未退出，跳过启动
+            if hasattr(coro, "close"):
+                coro.close()
+            return
+
+        # 如果停止事件已触发，直接关闭协程返回
+        if current_stop_event.is_set():
+            logger.debug("停止事件已触发，放弃启动新后台任务")
+            if hasattr(coro, "close"):
+                coro.close()
+            return
+
         try:
             # 1. 当前线程有运行中的事件循环，直接创建任务
             loop = asyncio.get_running_loop()
@@ -293,31 +329,19 @@ class DynamicWeChat(_PluginBase):
             except Exception as e:
                 logger.error(f"后台协程执行失败: {e}")
 
-        # 惰性创建锁，防止 stop_service 在锁未初始化时被调用
-        if self._tasks_lock is None:
-            self._tasks_lock = threading.Lock()
-
         with self._tasks_lock:
-            # 清理已退出线程
-            self._bg_tasks[:] = [thread for thread in self._bg_tasks if thread.is_alive()]
-            # 如果停止事件已设置且仍有旧任务未退出，则跳过启动新任务，避免并发冲突
-            if self._bg_stop_event and self._bg_stop_event.is_set() and self._bg_tasks:
-                logger.warning("仍有旧后台任务未退出，跳过启动新后台任务")
+            # 再次检查停止事件是否在准备后被触发
+            if current_stop_event.is_set():
+                logger.debug("停止事件在启动前被触发，放弃启动后台任务")
                 if hasattr(coro, "close"):
                     coro.close()
                 return
-            # 如果停止事件未设置或已无任务，则创建新事件
-            if self._bg_stop_event is None or self._bg_stop_event.is_set():
-                self._bg_stop_event = threading.Event()
-            # 捕获当前停止事件，并在同一临界区内创建、登记和启动线程
-            current_stop_event = self._bg_stop_event
             thread = threading.Thread(
                 target=run_in_thread,
                 args=(current_stop_event,),
                 daemon=True
             )
             self._bg_tasks.append(thread)
-            # 在锁内启动线程，确保 stop_service 快照中线程已处于可等待状态
             thread.start()
 
     def _get_or_create_event_loop(self):
@@ -749,36 +773,8 @@ class DynamicWeChat(_PluginBase):
 
     async def CheckIP(self, func=None):
         """检测IP是否变化（使用异步文件操作）"""
+        # 多WAN分支：将 url_ip 和 self.wan2_url 的读取放入锁保护
         if self.wan2:
-            ip_address = self.wan2.read_ips("url_ip")
-            url = self.wan2_url
-        else:
-            url, ip_address = await self.get_ip_from_url()
-
-        # 增强空值检查
-        if not ip_address or ip_address == "获取IP失败" or not url:
-            logger.error("获取IP失败 不操作可信IP")
-            return False
-
-        # 成功获取 IP，记录日志
-        if url and ip_address:
-            logger.info(f"IP获取成功: {url}: {ip_address}")
-
-        # 上次修改 IP 失败时，继续尝试修改
-        if not self._ip_changed and func != "public":  # 排除cookie失效 检测公网变动的任务
-            logger.info("上次IP修改IP失败 继续尝试修改IP")
-            return True
-
-        # 如果有 wan2，则处理新增的 IP 地址
-        if self.wan2:
-            if isinstance(ip_address, str):
-                url_ips = [ip for ip in ip_address.split(";") if ip]  # 将字符串按分号拆分为多个 IP 地址，过滤空值
-            else:
-                url_ips = [ip for ip in ip_address if ip]
-
-            if not url_ips:
-                return False
-
             # 使用文件锁保护整个读-判断-写事务，避免并发导致重复或丢失更新
             try:
                 await self._acquire_file_lock()
@@ -787,6 +783,28 @@ class DynamicWeChat(_PluginBase):
                 return False
 
             try:
+                ip_address = await self.wan2.read_ips_async("url_ip")
+                url = self.wan2_url
+
+                if not ip_address or ip_address == "获取IP失败" or not url:
+                    logger.error("获取IP失败 不操作可信IP")
+                    return False
+
+                if url and ip_address:
+                    logger.info(f"IP获取成功: {url}: {ip_address}")
+
+                if not self._ip_changed and func != "public":
+                    logger.info("上次IP修改IP失败 继续尝试修改IP")
+                    return True
+
+                if isinstance(ip_address, str):
+                    url_ips = [ip for ip in ip_address.split(";") if ip]
+                else:
+                    url_ips = [ip for ip in ip_address if ip]
+
+                if not url_ips:
+                    return False
+
                 saved_ips = await self.wan2.read_ips_async("ips")
                 saved_ips_list = [ip for ip in saved_ips.split(";") if ip] if saved_ips else []
 
@@ -794,14 +812,29 @@ class DynamicWeChat(_PluginBase):
                     if ip not in saved_ips_list:
                         await self.wan2.add_ips_async("ips", ip)
                         return True
+                return False
             finally:
                 self._file_lock.release()
         else:
-            # 检查 IP 是否变化
+            # 非多WAN分支：直接从网络获取IP
+            url, ip_address = await self.get_ip_from_url()
+
+            if not ip_address or ip_address == "获取IP失败" or not url:
+                logger.error("获取IP失败 不操作可信IP")
+                return False
+
+            if url and ip_address:
+                logger.info(f"IP获取成功: {url}: {ip_address}")
+
+            if not self._ip_changed and func != "public":
+                logger.info("上次IP修改IP失败 继续尝试修改IP")
+                return True
+
             if ip_address != self._current_ip_address:
                 logger.info("检测到IP变化")
                 self._wechat_available = False
                 return True
+
         return False
 
     async def try_connect_cc_async(self):
@@ -883,19 +916,17 @@ class DynamicWeChat(_PluginBase):
                         try:
                             await self._acquire_file_lock()
                         except asyncio.CancelledError:
-                            self.wan2_url = None
                             logger.debug("停止信号触发，放弃多WAN IP写入")
                             return None, "获取IP失败"
                         except asyncio.TimeoutError:
-                            self.wan2_url = None
                             logger.warning("获取文件锁超时，放弃多WAN IP写入")
                             return None, "获取IP失败"
                         try:
+                            # 在同一临界区内同时写入 url_ip 和 self.wan2_url，确保原子性
                             await self.wan2.overwrite_ips_async("url_ip", china_ips)
+                            self.wan2_url = url
                         finally:
                             self._file_lock.release()
-                        # 在写入成功后才设置 wan2_url
-                        self.wan2_url = url
                         return url, china_ips  # 成功获取到IP后返回
                 except asyncio.CancelledError:
                     logger.debug("停止信号触发，放弃获取多WAN IP")
