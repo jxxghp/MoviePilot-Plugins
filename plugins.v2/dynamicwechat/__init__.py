@@ -247,8 +247,12 @@ class DynamicWeChat(_PluginBase):
             if self.wan2:
                 if not self._forced_update or not self._local_scan:
                     logger.info("多网络出口检查需要时间较长，预计25秒内完成")
-                    self._start_bg_task(self.write_wan2_ip())
-                    self._start_bg_task(self.check())
+                    # 顺序执行，避免 check 读取到旧的 wan2_url 或 IP 文件
+                    async def run_wan2_once():
+                        await self.write_wan2_ip()
+                        if not self._stopping:
+                            await self.check()
+                    self._start_bg_task(run_wan2_once())
             else:
                 if not self._forced_update or not self._local_scan:
                     self._start_bg_task(self.check())
@@ -1628,10 +1632,17 @@ class DynamicWeChat(_PluginBase):
 
     def stop_service(self) -> bool:
         """
-        停止所有后台任务和线程，并在所属事件循环中等待取消完成
-        返回 True 表示所有任务已完全停止，False 表示仍有未完成的任务或线程
+        停止所有后台任务和线程，并在所属事件循环中等待取消完成（若为不同循环）。
+        若与当前循环相同则仅取消不等待，避免死锁。
+        返回 True 表示所有任务已完全停止，False 表示仍有未完成的任务或线程。
         """
         self._stopping = True
+
+        # 检测当前事件循环
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
 
         # 收集按事件循环分组的未完成任务
         tasks_by_loop = {}
@@ -1659,6 +1670,15 @@ class DynamicWeChat(_PluginBase):
                     task.cancel()
                 pending_tasks.extend([task for task in tasks if not task.done()])
                 continue
+
+            # 若任务所属循环与当前循环相同，则仅取消，避免在同一个事件循环线程内同步等待
+            if loop is current_loop:
+                for task in tasks:
+                    task.cancel()
+                pending_tasks.extend([task for task in tasks if not task.done()])
+                continue
+
+            # 不同循环，可安全等待
             try:
                 future = asyncio.run_coroutine_threadsafe(cancel_and_wait(tasks), loop)
                 future.result(timeout=self.BACKUP_TASK_JOIN_TIMEOUT)
@@ -1688,6 +1708,7 @@ class DynamicWeChat(_PluginBase):
         """
         使用 CloakBrowser 异步启动企业微信页面上下文，支持重试机制。
         使用类级别锁串行化环境变量修改，避免并发冲突。
+        锁等待时间计入总超时预算。
         """
         last_exception = None
         env_lock = self.__class__._browser_env_lock
@@ -1697,12 +1718,17 @@ class DynamicWeChat(_PluginBase):
             try:
                 loop = asyncio.get_running_loop()
                 deadline = loop.time() + self.BROWSER_LAUNCH_TIMEOUT
+                # 非阻塞轮询获取锁，计入超时预算
                 while not env_lock.acquire(blocking=False):
                     remaining = deadline - loop.time()
                     if remaining <= 0:
                         raise asyncio.TimeoutError
                     await asyncio.sleep(min(0.1, remaining))
                 lock_acquired = True
+                # 计算剩余超时预算
+                remaining_timeout = deadline - loop.time()
+                if remaining_timeout <= 0:
+                    raise asyncio.TimeoutError
                 # 临时置空 D-Bus 地址，避免 Docker 中无服务报错
                 original_dbus = os.environ.get('DBUS_SESSION_BUS_ADDRESS')
                 os.environ['DBUS_SESSION_BUS_ADDRESS'] = ''
@@ -1713,7 +1739,7 @@ class DynamicWeChat(_PluginBase):
                         args=['--lang=zh-CN'],
                         extra_http_headers={'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.1'}
                     ),
-                    timeout=self.BROWSER_LAUNCH_TIMEOUT
+                    timeout=remaining_timeout
                 )
                 if attempt > 1:
                     logger.info(f"浏览器启动成功 (第 {attempt} 次尝试)")
