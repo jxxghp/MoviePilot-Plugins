@@ -168,14 +168,28 @@ class DynamicWeChat(_PluginBase):
         """
         非阻塞获取文件锁，带超时和停止信号检查。
         若获取失败或触发停止信号，抛出相应异常。
+        获取前后均检查停止信号，防止停止后仍拿到锁。
         """
         if self._file_lock is None:
             self._file_lock = threading.Lock()
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.BACKUP_TASK_JOIN_TIMEOUT
-        while not self._file_lock.acquire(blocking=False):
-            if self._bg_stop_event and self._bg_stop_event.is_set():
+        stop_event = self._bg_stop_event
+
+        def stop_requested():
+            event = stop_event or self._bg_stop_event
+            return bool(event and event.is_set())
+
+        while True:
+            if stop_requested():
                 raise asyncio.CancelledError("停止信号已触发，放弃获取文件锁")
+
+            if self._file_lock.acquire(blocking=False):
+                if stop_requested():
+                    self._file_lock.release()
+                    raise asyncio.CancelledError("停止信号已触发，放弃获取文件锁")
+                return
+
             if loop.time() >= deadline:
                 raise asyncio.TimeoutError("获取文件写入锁超时")
             await asyncio.sleep(0.05)
@@ -797,8 +811,11 @@ class DynamicWeChat(_PluginBase):
             # 使用文件锁保护整个读-判断-写事务，避免并发导致重复或丢失更新
             try:
                 await self._acquire_file_lock()
-            except (asyncio.CancelledError, asyncio.TimeoutError):
-                logger.debug("获取文件锁失败，放弃IP检查")
+            except asyncio.CancelledError:
+                logger.debug("停止信号触发，放弃IP检查")
+                return False
+            except asyncio.TimeoutError:
+                logger.warning("获取文件锁超时，放弃IP检查")
                 return False
 
             try:
@@ -1421,18 +1438,24 @@ class DynamicWeChat(_PluginBase):
                         logger.info(f"应用{app_id} 已被禁用,可能是没有设置接收api")
 
             if self._ip_changed:
-                self._wechat_available = True    # 标记微信通知重新有效
-                self._send_notification = False  # 重置第三方通知已发送标记
                 # 使用异步版本写入配置，并用文件锁保护（带超时和停止检查）
+                # 远端已修改成功，本地写入超时不应阻止后续通知和状态更新
                 try:
                     await self._acquire_file_lock()
-                except (asyncio.CancelledError, asyncio.TimeoutError):
-                    logger.debug("获取文件锁失败，放弃更新配置")
-                    return
-                try:
-                    await self.cfg.aupdate("WECHAT_NOW_IP", self._current_ip_address)
-                finally:
-                    self._file_lock.release()
+                    try:
+                        await self.cfg.aupdate("WECHAT_NOW_IP", self._current_ip_address)
+                    finally:
+                        self._file_lock.release()
+                except asyncio.CancelledError:
+                    # 停止信号触发，应向上传播，避免停服期间继续执行
+                    logger.debug("停止信号触发，放弃更新配置")
+                    raise
+                except asyncio.TimeoutError:
+                    # 超时只记录警告，继续完成后续处理
+                    logger.warning("可信IP已修改，但本地配置写入超时，继续完成后续处理")
+
+                self._wechat_available = True    # 标记微信通知重新有效
+                self._send_notification = False  # 重置第三方通知已发送标记
                 '''
                 将填入企业微信的IP写入settings.json 
                 应对MP/NAS长时间关闭后公网IP和可信IP不一致
