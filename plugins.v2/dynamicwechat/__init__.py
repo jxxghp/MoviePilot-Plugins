@@ -971,7 +971,13 @@ class DynamicWeChat(_PluginBase):
                                 logger.info("----------------------本次任务结束----------------------")
                                 return
                         else:
-                            # 微信不可用，尝试所有第三方通道
+                            # 微信不可用，检查是否有第三方通道
+                            if not self._my_send.other_channel:
+                                logger.warning("微信通知不可用且未配置第三方通知通道，无法推送二维码")
+                                self.systemmessage.put("微信通知不可用且未配置第三方通知通道，无法推送二维码")
+                                logger.info("----------------------本次任务结束----------------------")
+                                return
+                            # 尝试所有第三方通道
                             sent = False
                             for channel, token in self._my_send.other_channel:
                                 error = await asyncio.to_thread(
@@ -1207,6 +1213,7 @@ class DynamicWeChat(_PluginBase):
         """
         点击应用管理按钮，填入可信IP
         多WAN口时将所有出口IP用分号拼接，符合企业微信支持多IP的格式（最多120个）
+        若获取IP失败则中止更新
         """
         self._cookie_valid = True
         self._cookie_invalid_notified = False
@@ -1228,6 +1235,15 @@ class DynamicWeChat(_PluginBase):
                 logger.warning("多WAN口未检测到有效IP，重新获取")
         else:
             _, self._current_ip_address = await self.get_ip_from_url()
+
+        # 校验IP有效性
+        ip_values = [ip for ip in str(self._current_ip_address).split(";") if ip]
+        if not ip_values or self._current_ip_address == "获取IP失败":
+            self._ip_changed = False
+            logger.error("未获取到有效公网IP，取消更新可信IP")
+            self.systemmessage.put("未获取到有效公网IP，取消更新可信IP，请检查网络或稍后重试")
+            return
+
         # 解析应用ID列表
         if "||" in self._input_id_list:
             parts = self._input_id_list.split("||", 1)
@@ -1646,7 +1662,7 @@ class DynamicWeChat(_PluginBase):
     def stop_service(self) -> bool:
         """
         停止所有后台任务和线程。
-        对于当前事件循环中的任务，取消并加入 pending_tasks，确保旧任务未完全退出时不启动新循环。
+        对于当前事件循环中的任务，仅取消并挂回调，不阻塞重载，确保后续能正常启动新任务。
         返回 True 表示认为所有任务已清理（可重载），False 表示仍有残留。
         """
         self._stopping = True
@@ -1685,7 +1701,7 @@ class DynamicWeChat(_PluginBase):
                 continue
 
             if loop is current_loop:
-                # 当前循环任务：取消并挂回调，但必须加入 pending_tasks，避免重载时误判
+                # 当前循环任务：取消并挂回调，不加入 pending，避免阻塞重载
                 for task in tasks:
                     def cleanup(t):
                         try:
@@ -1695,7 +1711,6 @@ class DynamicWeChat(_PluginBase):
                             pass
                     task.cancel()
                     task.add_done_callback(cleanup)
-                pending_tasks.extend([task for task in tasks if not task.done()])
                 continue
 
             # 不同循环，可安全等待
