@@ -142,6 +142,25 @@ class DynamicWeChat(_PluginBase):
     _bg_tasks: List[threading.Thread] = []
     # 后台任务停止事件
     _bg_stop_event: Optional[threading.Event] = None
+    # 后台循环任务跟踪（用于停止时取消）
+    _bg_loop_tasks: set = set()
+
+    def _track_loop_task(self, future):
+        """跟踪事件循环上的后台任务"""
+        # 确保锁已初始化
+        if self._tasks_lock is None:
+            self._tasks_lock = threading.Lock()
+
+        with self._tasks_lock:
+            self._bg_loop_tasks.add(future)
+
+        def _cleanup(done_future):
+            # 确保锁存在，避免异常
+            if self._tasks_lock is not None:
+                with self._tasks_lock:
+                    self._bg_loop_tasks.discard(done_future)
+
+        future.add_done_callback(_cleanup)
 
     def _prepare_bg_stop_event(self):
         """
@@ -155,8 +174,10 @@ class DynamicWeChat(_PluginBase):
         with self._tasks_lock:
             # 清理已退出线程
             self._bg_tasks[:] = [thread for thread in self._bg_tasks if thread.is_alive()]
+            # 清理已完成的循环任务
+            self._bg_loop_tasks = {t for t in self._bg_loop_tasks if not t.done()}
             # 如果停止事件已设置且仍有旧任务未退出，则跳过启动新任务，避免并发冲突
-            if self._bg_stop_event and self._bg_stop_event.is_set() and self._bg_tasks:
+            if self._bg_stop_event and self._bg_stop_event.is_set() and (self._bg_tasks or self._bg_loop_tasks):
                 logger.warning("仍有旧后台任务未退出，跳过启动新后台任务")
                 return None
             # 如果停止事件未设置或已无任务，则创建新事件
@@ -313,17 +334,19 @@ class DynamicWeChat(_PluginBase):
         try:
             # 1. 当前线程有运行中的事件循环，直接创建任务
             loop = asyncio.get_running_loop()
-            loop.create_task(run_with_cancel_on_loop(current_stop_event))
+            task = loop.create_task(run_with_cancel_on_loop(current_stop_event))
+            self._track_loop_task(task)
             return
         except RuntimeError:
             pass
 
         # 2. 尝试使用初始化时缓存的循环
         if self._loop and self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(
+            future = asyncio.run_coroutine_threadsafe(
                 run_with_cancel_on_loop(current_stop_event),
                 self._loop
             )
+            self._track_loop_task(future)
             return
 
         # 3. 兜底：在后台线程中运行独立事件循环
@@ -475,6 +498,8 @@ class DynamicWeChat(_PluginBase):
             self._file_lock = threading.Lock()
         if self._tasks_lock is None:
             self._tasks_lock = threading.Lock()
+        # 初始化后台循环任务跟踪集合
+        self._bg_loop_tasks = set()
 
         if config:
             self._enabled = config.get("enabled")
@@ -514,11 +539,15 @@ class DynamicWeChat(_PluginBase):
         # 必须停止现有任务（在重置后台任务跟踪对象前执行）
         self.stop_service()
 
-        # 仅在后台任务全部退出后才重置停止事件
+        # 仅在后台任务全部退出后才重置停止事件；旧任务未退出时不要启动新服务
         with self._tasks_lock:
             self._bg_tasks = [thread for thread in self._bg_tasks if thread.is_alive()]
-            if not self._bg_tasks:
-                self._bg_stop_event = threading.Event()
+            self._bg_loop_tasks = {t for t in self._bg_loop_tasks if not t.done()}
+            if self._bg_tasks or self._bg_loop_tasks:
+                logger.warning("仍有旧后台任务未退出，延后启动新服务，避免复用已触发的停止事件")
+                self.__update_config()
+                return
+            self._bg_stop_event = threading.Event()
 
         if not self._input_id_list:
             logger.warning("插件未配置应用ID，请填写企业微信应用ID")
@@ -2146,10 +2175,12 @@ class DynamicWeChat(_PluginBase):
                         remaining_tasks.append(thread)
 
                 self._bg_tasks = remaining_tasks
+                # 清理已完成的循环任务
+                self._bg_loop_tasks = {t for t in self._bg_loop_tasks if not t.done()}
                 self._bg_stop_event = old_stop_event
 
-            if self._bg_tasks:
-                logger.warning(f"{len(self._bg_tasks)} 个后台任务未在超时时间内退出，保留停止信号")
+            if self._bg_tasks or self._bg_loop_tasks:
+                logger.warning(f"{len(self._bg_tasks)} 个后台线程和 {len(self._bg_loop_tasks)} 个后台协程未在超时时间内退出，保留停止信号")
             else:
                 logger.info("后台任务已清理完成")
 
