@@ -30,8 +30,8 @@ class DynamicWeChat(_PluginBase):
     plugin_desc = "修改企微应用可信IP,详细说明查看'作者主页',支持第三方通知。验证码以？结尾发送到企业微信应用"
     # 插件图标
     plugin_icon = "Wecom_A.png"
-    # 插件版本 (已升级)
-    plugin_version = "2.1.6-2"
+    # 插件版本
+    plugin_version = "2.1.7"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
