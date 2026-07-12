@@ -231,9 +231,6 @@ class DynamicWeChat(_PluginBase):
             return
 
         # 3. 兜底：在后台线程中运行独立事件循环
-        # 在同一临界区内完成：清理线程、创建/捕获停止事件、创建线程、登记线程
-        # 避免竞态窗口导致 stop_service 无法正确等待新线程
-
         def run_in_thread(stop_event):
             """后台线程入口函数，接收停止事件作为参数"""
             try:
@@ -284,7 +281,7 @@ class DynamicWeChat(_PluginBase):
             # 如果停止事件已设置（旧事件），则创建新事件，避免新任务被旧信号取消
             if self._bg_stop_event is None or self._bg_stop_event.is_set():
                 self._bg_stop_event = threading.Event()
-            # 捕获当前停止事件，并在同一临界区内创建和登记线程
+            # 捕获当前停止事件，并在同一临界区内创建、登记和启动线程
             current_stop_event = self._bg_stop_event
             thread = threading.Thread(
                 target=run_in_thread,
@@ -292,7 +289,8 @@ class DynamicWeChat(_PluginBase):
                 daemon=True
             )
             self._bg_tasks.append(thread)
-        thread.start()
+            # 在锁内启动线程，确保 stop_service 快照中线程已处于可等待状态
+            thread.start()
 
     def _get_or_create_event_loop(self):
         """获取或创建事件循环，确保在任何环境下都能返回有效循环"""
@@ -544,7 +542,9 @@ class DynamicWeChat(_PluginBase):
         return None
 
     # ---------- 异步核心方法 ----------
-    @eventmanager.register(EventType.PluginAction)
+    # 注意：以下方法不再单独注册 EventType.PluginAction，
+    # 统一由 dynamicwechat_event 入口分发，避免重复触发。
+
     async def forced_change(self, event: Event = None):
         """
         强制修改IP
@@ -581,7 +581,6 @@ class DynamicWeChat(_PluginBase):
 
         logger.info("----------------------本次任务结束----------------------")
 
-    @eventmanager.register(EventType.PluginAction)
     async def local_scanning(self, event: Event = None):
         """
         本地扫码
@@ -634,7 +633,6 @@ class DynamicWeChat(_PluginBase):
                 await context.close()
                 await asyncio.sleep(0.5)
 
-    @eventmanager.register(EventType.PluginAction)
     async def write_wan2_ip(self, event: Event = None):
         if not self._enabled:
             logger.error("插件未开启")
@@ -666,7 +664,6 @@ class DynamicWeChat(_PluginBase):
                     await context.close()
                     await asyncio.sleep(0.5)
 
-    @eventmanager.register(EventType.PluginAction)
     async def check(self, event: Event = None):
         """
         检测函数
@@ -1206,7 +1203,7 @@ class DynamicWeChat(_PluginBase):
             # 验证码面板等待超时，说明没有进入验证码流程
             pass
         except Exception:
-            # 修正：解包 find_qrc 返回值，只检查 img_src，避免 (None, None) 被误判为真值
+            # 解包 find_qrc 返回值，只检查 img_src，避免 (None, None) 被误判为真值
             img_src, _ = await self.find_qrc(page)
             if img_src and task not in ['refresh_cookie', 'local_scanning']:  # 延长任务找到的二维码不会被发送,所以不算用户没有扫码
                 logger.warning("用户没有扫描二维码")
@@ -1693,6 +1690,8 @@ class DynamicWeChat(_PluginBase):
         return base_content
 
     # ---------- 统一事件入口 ----------
+    # 注意：forced_change、local_scanning、write_wan2_ip、check 不再单独注册
+    # EventType.PluginAction，统一由 dynamicwechat_event 分发，避免重复触发。
     @eventmanager.register(EventType.PluginAction)
     def dynamicwechat_event(self, event: Event = None):
         """
@@ -1709,13 +1708,13 @@ class DynamicWeChat(_PluginBase):
         sub_action = event_data.get("sub_action", "check")
 
         if sub_action == "forced_change":
-            self._safe_run_coro(self.forced_change(event))
+            self._safe_run_coro(self.forced_change(None))
         elif sub_action == "local_scanning":
-            self._safe_run_coro(self.local_scanning(event))
+            self._safe_run_coro(self.local_scanning(None))
         elif sub_action == "write_wan2_ip":
-            self._safe_run_coro(self.write_wan2_ip(event))
+            self._safe_run_coro(self.write_wan2_ip(None))
         else:  # check (默认)
-            self._safe_run_coro(self.check(event))
+            self._safe_run_coro(self.check(None))
 
     @eventmanager.register(EventType.PluginAction)
     def push_qr_code_event(self, event: Event = None):
@@ -1935,27 +1934,26 @@ class DynamicWeChat(_PluginBase):
             self._scheduler_thread = None
             self._scheduler_stop_event = None
 
-            # 3. 停止所有后台任务
-            old_stop_event = self._bg_stop_event
-            if old_stop_event is None:
-                old_stop_event = threading.Event()
-                self._bg_stop_event = old_stop_event
-            old_stop_event.set()
-
-            # 4. 等待后台任务完成（基于快照，避免丢失并发新增线程）
+            # 3/4. 在同一临界区内设置停止信号并获取后台任务快照
             with self._tasks_lock:
+                old_stop_event = self._bg_stop_event
+                if old_stop_event is None:
+                    old_stop_event = threading.Event()
+                    self._bg_stop_event = old_stop_event
+                old_stop_event.set()
                 tasks_to_join = list(self._bg_tasks)
 
             for thread in tasks_to_join:
                 if thread.is_alive():
                     thread.join(timeout=self.BACKUP_TASK_JOIN_TIMEOUT)
 
-            # 5. 移除已退出的线程（保留新加入的存活线程）
+            # 5. 移除已退出的线程；不要覆盖等待期间创建的新停止事件
             with self._tasks_lock:
                 self._bg_tasks = [t for t in self._bg_tasks if t.is_alive()]
+                # 仅在当前事件仍是旧事件时才回写，避免覆盖 _safe_run_coro 创建的新事件
+                if self._bg_stop_event is old_stop_event or self._bg_stop_event is None:
+                    self._bg_stop_event = old_stop_event
 
-            # 6. 保留停止事件，让新任务在 _safe_run_coro 中创建新事件
-            self._bg_stop_event = old_stop_event
             if self._bg_tasks:
                 logger.warning(f"{len(self._bg_tasks)} 个后台任务未在超时时间内退出，保留停止信号")
             else:
