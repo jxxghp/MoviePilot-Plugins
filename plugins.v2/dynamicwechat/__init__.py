@@ -271,17 +271,35 @@ class DynamicWeChat(_PluginBase):
                 coro.close()
             return
 
+        # 定义取消监控包装协程
+        async def run_with_cancel_on_loop(stop_event):
+            """在已有事件循环上运行协程并监控取消信号"""
+            task = asyncio.create_task(coro)
+            while not task.done():
+                if stop_event and stop_event.is_set():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        logger.debug("后台任务已取消")
+                    return
+                await asyncio.sleep(0.5)
+            await task
+
         try:
             # 1. 当前线程有运行中的事件循环，直接创建任务
             loop = asyncio.get_running_loop()
-            loop.create_task(coro)
+            loop.create_task(run_with_cancel_on_loop(current_stop_event))
             return
         except RuntimeError:
             pass
 
         # 2. 尝试使用初始化时缓存的循环
         if self._loop and self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(coro, self._loop)
+            asyncio.run_coroutine_threadsafe(
+                run_with_cancel_on_loop(current_stop_event),
+                self._loop
+            )
             return
 
         # 3. 兜底：在后台线程中运行独立事件循环
@@ -291,7 +309,7 @@ class DynamicWeChat(_PluginBase):
                 new_loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(new_loop)
 
-                async def run_with_cancel():
+                async def run_with_cancel_in_thread():
                     task = asyncio.create_task(coro)
                     while not task.done():
                         if stop_event and stop_event.is_set():
@@ -305,7 +323,7 @@ class DynamicWeChat(_PluginBase):
                     await task
 
                 try:
-                    new_loop.run_until_complete(run_with_cancel())
+                    new_loop.run_until_complete(run_with_cancel_in_thread())
                 finally:
                     # 关闭循环前清理资源
                     try:
@@ -720,9 +738,10 @@ class DynamicWeChat(_PluginBase):
                         return
                     try:
                         await self.wan2.overwrite_ips_async("url_ip", china_ips)
+                        # 在锁内更新 wan2_url，与 url_ip 写入原子提交
+                        self.wan2_url = url
                     finally:
                         self._file_lock.release()
-                    self.wan2_url = url
                     break
             except asyncio.CancelledError:
                 logger.debug("停止信号触发，放弃写入多WAN IP")
@@ -1027,8 +1046,12 @@ class DynamicWeChat(_PluginBase):
         # 使用异步版本避免阻塞，并用文件锁保护写入（带超时和停止检查）
         try:
             await self._acquire_file_lock()
-        except (asyncio.CancelledError, asyncio.TimeoutError):
-            logger.debug("获取文件锁失败，放弃更新Cookie")
+        except asyncio.CancelledError:
+            # 取消信号应向上传播，避免停服期间继续执行后续操作
+            logger.debug("停止信号触发，放弃更新Cookie")
+            raise
+        except asyncio.TimeoutError:
+            logger.debug("获取文件锁超时，放弃更新Cookie")
             return
         try:
             await PyCookieCloud.save_cookie_lifetime_async(self._settings_file_path, 0)
