@@ -594,11 +594,12 @@ class DynamicWeChat(_PluginBase):
                 return False
             try:
                 ip_address = await self.wan2.read_ips_async("url_ip")
-                url = self.wan2_url
+                # url用于日志展示，若为空则使用默认文本，不阻断检测
+                url = self.wan2_url or "已保存的多WAN检测结果"
                 saved_ips = await self.wan2.read_ips_async("ips")
             finally:
                 self._file_lock.release()
-            if not ip_address or ip_address == "获取IP失败" or not url:
+            if not ip_address or ip_address == "获取IP失败":
                 logger.error("获取IP失败 不操作可信IP")
                 return False
             if url and ip_address:
@@ -893,6 +894,7 @@ class DynamicWeChat(_PluginBase):
         """
         发送cookie失效通知（异步版本），线程安全去重
         仅当某个通道发送成功后才持久标记，失败时保持可重试。
+        系统消息入队后也标记为已通知，避免重复提示。
         """
         with self._notify_lock:
             if getattr(self, "_cookie_invalid_notified", False):
@@ -932,17 +934,20 @@ class DynamicWeChat(_PluginBase):
                     notified = True
                     return None
                 self.systemmessage.put("cookie已失效，且所有通知方式均发送失败，请手动更新cookie")
+                notified = True
                 return None
 
-            # 如果微信不可用且没有第三方通道，补充系统消息和日志，避免静默丢失
+            # 如果微信不可用且没有第三方通道，补充系统消息和日志
             if self._my_send and not self._wechat_available and not self._my_send.other_channel:
                 logger.warning("微信通知不可用且未配置第三方通知通道，无法发送cookie失效通知")
                 self.systemmessage.put("cookie已失效，但微信通知不可用且未配置第三方通知通道，请手动更新cookie")
+                notified = True
                 return None
 
             if not self._my_send:
                 logger.warning("cookie已失效，但未配置任何通知方式，用户可能无法及时感知")
                 self.systemmessage.put("cookie已失效，请及时更新，当前未配置通知方式")
+                notified = True
                 return None
 
             return None
