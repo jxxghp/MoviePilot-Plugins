@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Tuple, List, Dict, Any
 
 import aiohttp
+import pytz
 from apscheduler.triggers.cron import CronTrigger
 from cloakbrowser import launch_context_async
 
@@ -134,9 +135,6 @@ class DynamicWeChat(_PluginBase):
         version = "v1"
 
     def init_plugin(self, config: dict = None):
-        # 设置环境变量，抑制Docker容器中D-Bus连接错误（全局设置一次）
-        os.environ['DBUS_SESSION_BUS_ADDRESS'] = ''
-
         # 清空配置
         self._last_code = ""
         self._notification_token = ''
@@ -209,6 +207,30 @@ class DynamicWeChat(_PluginBase):
 
         self.__update_config()
 
+    def _handle_once_tasks(self):
+        """处理一次性任务（onlyonce / forced_update / local_scan）"""
+        if self._onlyonce:
+            if self.wan2:
+                if not self._forced_update or not self._local_scan:
+                    logger.info("多网络出口检查需要时间较长，预计25秒内完成")
+                    self._start_bg_task(self.write_wan2_ip())
+                    self._start_bg_task(self.check())
+            else:
+                if not self._forced_update or not self._local_scan:
+                    self._start_bg_task(self.check())
+            self._onlyonce = False
+
+        if self._forced_update:
+            if not self._local_scan:
+                logger.info("使用Cookie,强制更新公网IP")
+                self._start_bg_task(self.forced_change())
+            self._forced_update = False
+
+        if self._local_scan:
+            logger.info("使用本地扫码登陆")
+            self._start_bg_task(self.local_scanning())
+            self._local_scan = False
+
     def _start_background_loops(self):
         """启动周期性后台循环任务"""
         # 刷新cookie循环
@@ -219,14 +241,19 @@ class DynamicWeChat(_PluginBase):
 
     async def _refresh_cookie_loop(self):
         """周期性刷新cookie的后台循环"""
-        trigger = CronTrigger.from_crontab(self._refresh_cron)
+        try:
+            trigger = CronTrigger.from_crontab(self._refresh_cron)
+        except Exception as e:
+            logger.error(f"Cookie刷新定时器配置错误: {e}，任务退出")
+            return
+        tz = pytz.timezone(settings.TZ) if settings.TZ else pytz.utc
         while not self._stopping:
-            # 额外检查启用状态
             if not self._enabled:
                 break
-            now = datetime.now()
+            now = datetime.now(tz)
             next_time = trigger.get_next_fire_time(None, now)
             if not next_time:
+                logger.error("无法计算下一次执行时间，Cookie刷新任务退出")
                 break
             delay = (next_time - now).total_seconds()
             if delay > 0:
@@ -242,13 +269,19 @@ class DynamicWeChat(_PluginBase):
 
     async def _check_ip_loop(self):
         """周期性检查IP的后台循环"""
-        trigger = CronTrigger.from_crontab(self._cron)
+        try:
+            trigger = CronTrigger.from_crontab(self._cron)
+        except Exception as e:
+            logger.error(f"IP检测定时器配置错误: {e}，任务退出")
+            return
+        tz = pytz.timezone(settings.TZ) if settings.TZ else pytz.utc
         while not self._stopping:
             if not self._enabled:
                 break
-            now = datetime.now()
+            now = datetime.now(tz)
             next_time = trigger.get_next_fire_time(None, now)
             if not next_time:
+                logger.error("无法计算下一次执行时间，IP检测任务退出")
                 break
             delay = (next_time - now).total_seconds()
             if delay > 0:
@@ -266,7 +299,13 @@ class DynamicWeChat(_PluginBase):
         """启动一个后台协程并自动跟踪"""
         task = asyncio.create_task(coro)
         self._bg_tasks.append(task)
-        task.add_done_callback(lambda t: self._bg_tasks.remove(t) if t in self._bg_tasks else None)
+        def cleanup(t):
+            try:
+                if t in self._bg_tasks:
+                    self._bg_tasks.remove(t)
+            except ValueError:
+                pass
+        task.add_done_callback(cleanup)
 
     async def _acquire_file_lock(self):
         """带超时的文件锁获取"""
@@ -382,9 +421,14 @@ class DynamicWeChat(_PluginBase):
                         try:
                             await self.wan2.overwrite_ips_async("url_ip", china_ips)
                             self.wan2_url = url
+                            # 成功写入后退出循环
+                            break
                         finally:
                             self._file_lock.release()
-                    break
+                    else:
+                        # 锁获取失败，继续尝试下一个URL
+                        logger.warning(f"获取文件锁超时，放弃写入 {url} 的IP，尝试下一个")
+                        continue
             except asyncio.CancelledError:
                 logger.debug("任务被取消，放弃写入多WAN IP")
                 return
@@ -543,7 +587,7 @@ class DynamicWeChat(_PluginBase):
             logger.error(f"CookieCloud连接失败: {e}")
 
     async def get_ip_from_url(self) -> (str, str):
-        """从URL获取IP地址"""
+        """从URL获取IP地址（多WAN分支修复：锁失败则继续尝试下一个URL）"""
         if isinstance(self._input_id_list, str) and "||" in self._input_id_list:
             _, url_list = self._input_id_list.split("||", 1)
             urls = url_list.split(",")
@@ -578,13 +622,18 @@ class DynamicWeChat(_PluginBase):
                     page = await context.new_page()
                     china_ips = await self.wan2.get_ipv4(page, url)
                     if china_ips:
+                        # 尝试获取锁并写入，若锁失败则继续下一个URL，不返回成功
                         if await self._acquire_file_lock():
                             try:
                                 await self.wan2.overwrite_ips_async("url_ip", china_ips)
                                 self.wan2_url = url
+                                return url, china_ips
                             finally:
                                 self._file_lock.release()
-                        return url, china_ips
+                        else:
+                            # 锁获取失败，继续尝试下一个URL
+                            logger.warning(f"获取文件锁超时，放弃写入 {url} 的IP，尝试下一个")
+                            continue
                 except asyncio.CancelledError:
                     logger.debug("任务被取消，放弃获取多WAN IP")
                     return None, "获取IP失败"
@@ -730,17 +779,15 @@ class DynamicWeChat(_PluginBase):
                 update_success = await asyncio.to_thread(self._cc_server.update_cookie, formatted_cookies)
                 if update_success:
                     logger.info("更新 CookieCloud 成功")
-                    # 仅当确实更新成功才标记特殊上传（用于界面显示）
                     self._is_special_upload = True
                 else:
                     logger.error("更新 CookieCloud 失败，但本地cookie已有效")
-                    # 本地已有效，但云端更新失败，不标记特殊上传
                     self._is_special_upload = False
             except Exception as e:
                 logger.error(f"CookieCloud更新 cookie 发生错误: {e}")
         else:
             # 不使用CookieCloud，本地cookie已保存
-            self._is_special_upload = False  # 不使用CookieCloud时无特殊标记
+            self._is_special_upload = False
             logger.info("更新本地 Cookie成功")
 
     async def _send_cookie_false(self):
@@ -785,14 +832,12 @@ class DynamicWeChat(_PluginBase):
         if not self._enabled or not event:
             return
 
-        # 使用锁保护 _qr_running 的检查和设置
         async with self._qr_lock:
             if self._qr_running:
                 logger.info("二维码推送任务正在执行，忽略重复触发")
                 return
             self._qr_running = True
 
-        # 执行推送（锁外执行，避免长时间持锁）
         context = None
         try:
             context = await self._launch_browser_context_with_retry(headless=True)
@@ -844,7 +889,6 @@ class DynamicWeChat(_PluginBase):
             if context:
                 await context.close()
                 await asyncio.sleep(0.5)
-            # 重置运行状态
             async with self._qr_lock:
                 self._qr_running = False
 
@@ -1032,13 +1076,11 @@ class DynamicWeChat(_PluginBase):
             ("//div[contains(@class, 'js_show_ipConfig_dialog')]//a[contains(@class, '_mod_card_operationLink') and text()='配置']", "配置")
         ]
 
-        # 获取当前IP地址（多WAN口时，企业微信支持分号分隔的多个IP，最多120个）
+        # 获取当前IP地址（多WAN口时，企业微信支持分号分隔的多个IP，最多120个，默认max_ips=3保证不超限）
         if self.wan2:
-            # 多WAN口：读取所有检测到的出口IP，用分号拼接后一次性填入
             ips_str = await self.wan2.read_ips_async("ips")
             ips_list = [ip for ip in ips_str.split(";") if ip] if ips_str else []
             if ips_list:
-                # 企业微信可信IP支持多个IP以英文分号分隔，最多120个
                 self._current_ip_address = ";".join(ips_list)
                 logger.info(f"多WAN口检测到 {len(ips_list)} 个出口IP，全部填入可信IP")
             else:
@@ -1094,7 +1136,6 @@ class DynamicWeChat(_PluginBase):
 
                 self._wechat_available = True
                 self._send_notification = False
-                # 脱敏处理：对每个IP分别脱敏
                 masked_ips = [self.mask_ip(ip) for ip in self._current_ip_address.split(';')]
                 masked_ip_string = ";".join(masked_ips)
                 logger.info(f"应用: {app_id} 输入IP：" + self._current_ip_address)
@@ -1589,32 +1630,26 @@ class DynamicWeChat(_PluginBase):
     def stop_service(self):
         """退出插件，取消所有后台任务并等待完成"""
         self._stopping = True
-        # 取消所有未完成的任务
         for task in self._bg_tasks:
             if not task.done():
                 task.cancel()
 
-        # 等待所有任务取消完成，避免阻塞事件循环
         if self._bg_tasks:
             try:
                 loop = asyncio.get_running_loop()
-                # 检测是否在事件循环线程中运行
                 if loop.is_running():
-                    # 若在事件循环内，使用 call_soon 安排清理，不阻塞
                     loop.call_soon_threadsafe(
                         asyncio.create_task,
                         self._cancel_all_tasks()
                     )
                     logger.debug("后台清理任务已安排，不等待完成")
                 else:
-                    # 循环未运行，使用 run_coroutine_threadsafe 并等待
                     future = asyncio.run_coroutine_threadsafe(
                         self._cancel_all_tasks(),
                         loop
                     )
                     future.result(timeout=self.BACKUP_TASK_JOIN_TIMEOUT)
             except RuntimeError:
-                # 没有运行循环，创建新循环同步等待
                 try:
                     asyncio.run(self._cancel_all_tasks())
                 except Exception as e:
@@ -1622,27 +1657,28 @@ class DynamicWeChat(_PluginBase):
             except Exception as e:
                 logger.error(f"等待任务取消时出错: {e}")
 
-        # 重置停止标志，以便下次启动
         self._stopping = False
 
     async def _cancel_all_tasks(self):
         """等待所有后台任务取消完成"""
         if self._bg_tasks:
-            # 先取消所有未完成的任务
             for task in self._bg_tasks:
                 if not task.done():
                     task.cancel()
-            # 等待它们完成
             await asyncio.gather(*[t for t in self._bg_tasks if not t.done()], return_exceptions=True)
             self._bg_tasks.clear()
 
     async def _launch_browser_context_with_retry(self, headless: bool = True):
         """
         使用 CloakBrowser 异步启动企业微信页面上下文，支持重试机制。
+        临时设置环境变量以抑制D-Bus错误，启动后恢复。
         """
         last_exception = None
+        original_dbus = os.environ.get('DBUS_SESSION_BUS_ADDRESS')
         for attempt in range(1, self.BROWSER_RETRY_COUNT + 1):
             try:
+                # 临时置空 D-Bus 地址，避免 Docker 中无服务报错
+                os.environ['DBUS_SESSION_BUS_ADDRESS'] = ''
                 context = await asyncio.wait_for(
                     launch_context_async(
                         headless=headless,
@@ -1662,6 +1698,12 @@ class DynamicWeChat(_PluginBase):
             except Exception as e:
                 last_exception = e
                 logger.warning(f"浏览器启动失败 (尝试 {attempt}/{self.BROWSER_RETRY_COUNT}): {e}")
+            finally:
+                # 恢复原始 D-Bus 环境变量（若存在）
+                if original_dbus is not None:
+                    os.environ['DBUS_SESSION_BUS_ADDRESS'] = original_dbus
+                else:
+                    os.environ.pop('DBUS_SESSION_BUS_ADDRESS', None)
 
             if attempt < self.BROWSER_RETRY_COUNT:
                 await asyncio.sleep(self.BROWSER_RETRY_DELAY)
