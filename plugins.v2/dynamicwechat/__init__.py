@@ -142,11 +142,14 @@ class DynamicWeChat(_PluginBase):
     _bg_tasks: List[threading.Thread] = []
     # 后台任务停止事件
     _bg_stop_event: Optional[threading.Event] = None
-    # 后台循环任务跟踪（用于停止时取消）
-    _bg_loop_tasks: set = set()
+    # 后台循环任务跟踪（用于停止时取消），初始为 None
+    _bg_loop_tasks: Optional[set] = None
 
     def _track_loop_task(self, future):
         """跟踪事件循环上的后台任务"""
+        # 确保 _bg_loop_tasks 存在
+        if self._bg_loop_tasks is None:
+            self._bg_loop_tasks = set()
         # 确保锁已初始化
         if self._tasks_lock is None:
             self._tasks_lock = threading.Lock()
@@ -155,8 +158,7 @@ class DynamicWeChat(_PluginBase):
             self._bg_loop_tasks.add(future)
 
         def _cleanup(done_future):
-            # 确保锁存在，避免异常
-            if self._tasks_lock is not None:
+            if self._tasks_lock is not None and self._bg_loop_tasks is not None:
                 with self._tasks_lock:
                     self._bg_loop_tasks.discard(done_future)
 
@@ -175,7 +177,10 @@ class DynamicWeChat(_PluginBase):
             # 清理已退出线程
             self._bg_tasks[:] = [thread for thread in self._bg_tasks if thread.is_alive()]
             # 清理已完成的循环任务
-            self._bg_loop_tasks = {t for t in self._bg_loop_tasks if not t.done()}
+            if self._bg_loop_tasks is not None:
+                self._bg_loop_tasks = {t for t in self._bg_loop_tasks if not t.done()}
+            else:
+                self._bg_loop_tasks = set()
             # 如果停止事件已设置且仍有旧任务未退出，则跳过启动新任务，避免并发冲突
             if self._bg_stop_event and self._bg_stop_event.is_set() and (self._bg_tasks or self._bg_loop_tasks):
                 logger.warning("仍有旧后台任务未退出，跳过启动新后台任务")
@@ -498,8 +503,9 @@ class DynamicWeChat(_PluginBase):
             self._file_lock = threading.Lock()
         if self._tasks_lock is None:
             self._tasks_lock = threading.Lock()
-        # 初始化后台循环任务跟踪集合
-        self._bg_loop_tasks = set()
+        # 注意：不要在这里重置 _bg_loop_tasks，保留旧集合直到停服检查完成
+        if self._bg_loop_tasks is None:
+            self._bg_loop_tasks = set()
 
         if config:
             self._enabled = config.get("enabled")
@@ -542,12 +548,17 @@ class DynamicWeChat(_PluginBase):
         # 仅在后台任务全部退出后才重置停止事件；旧任务未退出时不要启动新服务
         with self._tasks_lock:
             self._bg_tasks = [thread for thread in self._bg_tasks if thread.is_alive()]
-            self._bg_loop_tasks = {t for t in self._bg_loop_tasks if not t.done()}
+            if self._bg_loop_tasks is not None:
+                self._bg_loop_tasks = {t for t in self._bg_loop_tasks if not t.done()}
+            else:
+                self._bg_loop_tasks = set()
             if self._bg_tasks or self._bg_loop_tasks:
                 logger.warning("仍有旧后台任务未退出，延后启动新服务，避免复用已触发的停止事件")
                 self.__update_config()
                 return
+            # 确认无残留任务后，重置停止事件，并清空循环任务集合（已无任务）
             self._bg_stop_event = threading.Event()
+            # 可以重置 _bg_loop_tasks 为新的空集合，但已在上面赋值为空集合，无需重复
 
         if not self._input_id_list:
             logger.warning("插件未配置应用ID，请填写企业微信应用ID")
@@ -2176,7 +2187,10 @@ class DynamicWeChat(_PluginBase):
 
                 self._bg_tasks = remaining_tasks
                 # 清理已完成的循环任务
-                self._bg_loop_tasks = {t for t in self._bg_loop_tasks if not t.done()}
+                if self._bg_loop_tasks is not None:
+                    self._bg_loop_tasks = {t for t in self._bg_loop_tasks if not t.done()}
+                else:
+                    self._bg_loop_tasks = set()
                 self._bg_stop_event = old_stop_event
 
             if self._bg_tasks or self._bg_loop_tasks:
