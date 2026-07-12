@@ -293,12 +293,12 @@ class DynamicWeChat(_PluginBase):
         周期性刷新cookie的后台循环
         使用CronTrigger计算下次执行时间，睡眠期间每1秒检查停止标志
         """
+        tz = pytz.timezone(settings.TZ) if settings.TZ else pytz.utc
         try:
-            trigger = CronTrigger.from_crontab(self._refresh_cron)
+            trigger = CronTrigger.from_crontab(self._refresh_cron, timezone=tz)
         except Exception as e:
             logger.error(f"Cookie刷新定时器配置错误: {e}，任务退出")
             return
-        tz = pytz.timezone(settings.TZ) if settings.TZ else pytz.utc
         while not self._stopping:
             if not self._enabled:
                 break
@@ -328,12 +328,12 @@ class DynamicWeChat(_PluginBase):
         周期性检查IP的后台循环
         多WAN模式时先刷新出口IP列表，再执行检查
         """
+        tz = pytz.timezone(settings.TZ) if settings.TZ else pytz.utc
         try:
-            trigger = CronTrigger.from_crontab(self._cron)
+            trigger = CronTrigger.from_crontab(self._cron, timezone=tz)
         except Exception as e:
             logger.error(f"IP检测定时器配置错误: {e}，任务退出")
             return
-        tz = pytz.timezone(settings.TZ) if settings.TZ else pytz.utc
         while not self._stopping:
             if not self._enabled:
                 break
@@ -1089,7 +1089,10 @@ class DynamicWeChat(_PluginBase):
                 else:
                     self._cookie_valid = False
                     self._saved_cookie = None
-                    if self._await_ip and self._wechat_available:
+                    # 本地失效，若启用CookieCloud则暂不通知，等待云端尝试
+                    if self._use_cookiecloud:
+                        logger.info("本地缓存 Cookie 失效，尝试从 CookieCloud 获取")
+                    elif self._await_ip and self._wechat_available:
                         logger.info("Cookie失效，等待公网IP变动后再通知")
                     else:
                         await self._send_cookie_false()
@@ -1662,7 +1665,7 @@ class DynamicWeChat(_PluginBase):
     def stop_service(self) -> bool:
         """
         停止所有后台任务和线程。
-        对于当前事件循环中的任务，仅取消并挂回调，不阻塞重载，确保后续能正常启动新任务。
+        对于当前事件循环中的任务，取消并加入 pending，确保旧任务清理完成前不会启动新循环。
         返回 True 表示认为所有任务已清理（可重载），False 表示仍有残留。
         """
         self._stopping = True
@@ -1701,7 +1704,7 @@ class DynamicWeChat(_PluginBase):
                 continue
 
             if loop is current_loop:
-                # 当前循环任务：取消并挂回调，不加入 pending，避免阻塞重载
+                # 当前循环无法同步等待，保留为 pending，避免旧任务清理完成前启动新循环
                 for task in tasks:
                     def cleanup(t):
                         try:
@@ -1711,6 +1714,7 @@ class DynamicWeChat(_PluginBase):
                             pass
                     task.cancel()
                     task.add_done_callback(cleanup)
+                pending_tasks.extend([task for task in tasks if not task.done()])
                 continue
 
             # 不同循环，可安全等待
