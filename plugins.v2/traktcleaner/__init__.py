@@ -23,7 +23,7 @@ class TraktCleaner(_PluginBase):
     # 插件图标
     plugin_icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/trakt.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "Guoyin-Wen"
     author_url = "https://github.com/Guoyin-Wen"
@@ -292,6 +292,48 @@ class TraktCleaner(_PluginBase):
         logger.info(f"Trakt 观看清理：获取到 {len(result)} 部已观看剧集")
         return result
 
+    def __fetch_show_progress(self, trakt_id) -> Dict[str, List[int]]:
+        """
+        获取某部剧的已观看进度：{季号(str): [集号列表]}
+        用于 /sync/watched/shows 未返回 seasons 明细时的回退（权威数据源）。
+        """
+        if not trakt_id:
+            return {}
+        for attempt in range(2):
+            try:
+                resp = requests.get(
+                    f"{self._TRAKT_API_BASE}/shows/{trakt_id}/progress/watched",
+                    headers=self.__get_trakt_headers(),
+                    params={"hidden": "false", "specials": "false"},
+                    timeout=30,
+                )
+                if resp.status_code == 401 and attempt == 0:
+                    if self.__refresh_token():
+                        continue
+                    self._token_error = True
+                    return {}
+                if resp.status_code != 200:
+                    logger.error(f"Trakt 观看清理：获取剧集进度失败 {trakt_id} {resp.status_code}")
+                    return {}
+                data = resp.json()
+                watched_seasons = {}
+                for season in data.get("seasons", []):
+                    sn = season.get("number", 0)
+                    # progress/watched 的 episodes 数组包含全部已播出集，
+                    # 只有 last_watched_at 非空的才是真正看过的（对应顶层 completed 计数）
+                    eps = [
+                        e.get("number", 0)
+                        for e in season.get("episodes", [])
+                        if e.get("last_watched_at")
+                    ]
+                    if eps:
+                        watched_seasons[str(sn)] = eps
+                return watched_seasons
+            except Exception as e:
+                logger.error(f"Trakt 观看清理：获取剧集进度异常 {trakt_id}: {e}")
+                return {}
+        return {}
+
     def __normalize_title(self, title: str) -> str:
         """标准化标题用于匹配（保留兼容，用于 Trakt 侧标题）"""
         if not title:
@@ -319,7 +361,9 @@ class TraktCleaner(_PluginBase):
                 title = movie.get("title", "")
                 year = movie.get("year")
                 ids = movie.get("ids", {})
-                key = self.__normalize_title(title)
+                # 用年份作为后缀，避免同名不同年份的媒体互相覆盖
+                norm = self.__normalize_title(title)
+                key = f"{norm}|{year}" if year else norm
                 if key:
                     watched[key] = {
                         "type": "movie",
@@ -339,13 +383,19 @@ class TraktCleaner(_PluginBase):
                 title = show.get("title", "")
                 year = show.get("year")
                 ids = show.get("ids", {})
-                key = self.__normalize_title(title)
+                # 用年份作为后缀，避免同名不同年份的剧集互相覆盖
+                norm = self.__normalize_title(title)
+                key = f"{norm}|{year}" if year else norm
                 # 解析已观看的季集信息
                 watched_seasons = {}
                 for season in item.get("seasons", []):
                     sn = season.get("number", 0)
                     eps = [e.get("number", 0) for e in season.get("episodes", [])]
                     watched_seasons[str(sn)] = eps
+                # 部分账户的 /sync/watched/shows 不返回 seasons 明细，
+                # 回退到 /shows/{id}/progress/watched 获取权威的已看季集
+                if not watched_seasons and ids.get("trakt"):
+                    watched_seasons = self.__fetch_show_progress(ids.get("trakt"))
                 if key:
                     watched[key] = {
                         "type": "show",
@@ -419,29 +469,49 @@ class TraktCleaner(_PluginBase):
         if raw_normalized:
             names.add(raw_normalized)
 
-        # 精确匹配
+        torrent_year = ""
+        meta_year = getattr(meta, "year", None)
+        if meta_year:
+            torrent_year = str(meta_year)
+
+        # 1) 优先精确匹配（带年份，避免同名不同年份的剧互相错配）
+        if torrent_year:
+            for name in names:
+                k = f"{name}|{torrent_year}"
+                if k in watched:
+                    return watched[k]
+        # 2) 不带年份的精确匹配
         for name in names:
             if name in watched:
                 return watched[name]
 
-        # 子串匹配
+        # 3) 子串匹配（兜底，比较时剥去年份后缀）
         for name in names:
             for key, info in watched.items():
-                if key in name or name in key:
+                bare = key.split("|", 1)[0]
+                if not bare:
+                    continue
+                if bare in name or name in bare:
                     return info
 
         return None
 
-    def __get_torrent_episodes(self, torrent_hash: str) -> Dict[int, List[int]]:
+    def __get_torrent_episodes(
+        self, torrent_hash: str, default_season: Optional[int] = None
+    ) -> Tuple[Dict[int, List[int]], int, int]:
         """
         获取种子内的实际文件列表，用 MetaInfo 提取季集信息
-        返回: {季号: [集号列表]}
+        返回: (季号->集号列表, 视频文件总数, 成功解析出集数的文件数)
+        default_season: 当文件名识别不出季号时（如整季包文件名不带 Sxx）回退使用的季号，
+                        通常取自种子标题（torrent_meta.begin_season）。
         """
         result: Dict[int, List[int]] = {}
+        total_video_files = 0
+        parsed_files = 0
         try:
             files = self.chain.torrent_files(tid=torrent_hash)
             if not files:
-                return result
+                return result, 0, 0
             for f in files:
                 name = ""
                 if hasattr(f, "name"):
@@ -454,42 +524,63 @@ class TraktCleaner(_PluginBase):
                 file_path = Path(name)
                 if not file_path.suffix or file_path.suffix.lower() not in settings.RMT_MEDIAEXT:
                     continue
+                total_video_files += 1
                 # 用 MetaInfo 识别文件名中的季集
                 meta = MetaInfo(file_path.name)
-                if meta.begin_season is not None and meta.begin_episode is not None:
-                    season = meta.begin_season
-                    if season not in result:
-                        result[season] = []
-                    result[season].extend(meta.episode_list)
+                if meta.begin_episode is None:
+                    # 没有集号信息，无法判断，跳过该文件
+                    continue
+                # 季号识别失败时，回退到默认季号（通常取自种子标题）
+                season = meta.begin_season
+                if season is None:
+                    season = default_season
+                if season is None:
+                    continue
+                parsed_files += 1
+                if season not in result:
+                    result[season] = []
+                result[season].extend(meta.episode_list or [])
         except Exception as e:
             logger.debug(f"Trakt 观看清理：获取种子文件列表失败 {torrent_hash}: {e}")
         # 去重
         for s in result:
             result[s] = list(set(result[s]))
-        return result
+        return result, total_video_files, parsed_files
 
-    def __should_clean_torrent(self, matched: dict, torrent_hash: str) -> Tuple[bool, str]:
+    def __should_clean_torrent(
+        self, matched: dict, torrent_hash: str, default_season: Optional[int] = None
+    ) -> Tuple[bool, str]:
         """
         判断是否应该清理该种子
         返回: (是否应清理, 原因描述)
+        采用 fail-safe 原则：信息不足时返回 False（跳过），避免误删未看剧集。
         """
         matched_type = matched.get("type", "")
 
-        # 电影：只要匹配到已观看就清理
+        # 电影：只要匹配到已观看就清理（Trakt watched 即唯一事实来源）
         if matched_type == "movie":
             return True, "已观看电影"
 
         # 剧集：需要判断集数
         watched_seasons = matched.get("watched_seasons", {})
         if not watched_seasons:
-            # 没有 seasons 数据，回退到只匹配剧名
-            return True, "已观看剧集（无集数详情）"
+            # 没有 seasons 数据，无法确认集数，跳过避免误删
+            return False, "已观看剧集（Trakt 无集数详情，跳过）"
 
         # 获取种子内实际文件对应的集数
-        torrent_eps = self.__get_torrent_episodes(torrent_hash)
+        torrent_eps, total_video_files, parsed_files = self.__get_torrent_episodes(
+            torrent_hash, default_season
+        )
         if not torrent_eps:
-            # 无法获取文件列表，回退到标题匹配
-            return True, "已观看剧集（无法获取文件列表）"
+            # 无法解析出任何集数，跳过避免误删
+            return False, "已观看剧集（无法解析种子集数，跳过）"
+
+        # 完整性校验：若成功解析的文件数少于实际视频文件数，说明有文件未识别出季集
+        # （这些文件很可能还没看），删除整颗种子会误删它们，故跳过。
+        if total_video_files > 0 and parsed_files < total_video_files:
+            return False, (
+                f"已观看剧集（集数解析不完整 {parsed_files}/{total_video_files}，跳过避免误删）"
+            )
 
         # 对比每一季
         all_watched = True
@@ -631,11 +722,15 @@ class TraktCleaner(_PluginBase):
             torrent_episodes = torrent_meta.episode_list if torrent_meta.episode_list else None
             season_ep_text = self.__format_season_episode_int(torrent_season, torrent_episodes)
 
-            # 判断是否应清理（基于文件级集数判断）
-            should_clean, reason = self.__should_clean_torrent(matched, torrent.hash)
+            # 判断是否应清理（基于文件级集数判断，传入默认季号用于回退）
+            should_clean, reason = self.__should_clean_torrent(
+                matched, torrent.hash, torrent_meta.begin_season
+            )
 
             # 获取种子内实际文件的集数信息（用于展示）
-            torrent_file_eps = self.__get_torrent_episodes(torrent.hash)
+            torrent_file_eps, _, _ = self.__get_torrent_episodes(
+                torrent.hash, torrent_meta.begin_season
+            )
             file_eps_text = ""
             if torrent_file_eps:
                 parts = []
