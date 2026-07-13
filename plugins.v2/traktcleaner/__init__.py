@@ -23,7 +23,7 @@ class TraktCleaner(_PluginBase):
     # 插件图标
     plugin_icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/trakt.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "Guoyin-Wen"
     author_url = "https://github.com/Guoyin-Wen"
@@ -49,6 +49,8 @@ class TraktCleaner(_PluginBase):
     _clean_movie = True
     _clean_episode = True
     _exclude_tags = ""
+    # 首次发现观看后延迟清理的天数，0 表示即时清理（保持原行为）
+    _delay_days = 0
 
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
@@ -78,6 +80,7 @@ class TraktCleaner(_PluginBase):
             "clean_movie": self._clean_movie,
             "clean_episode": self._clean_episode,
             "exclude_tags": self._exclude_tags or "",
+            "delay_days": self._delay_days,
         }
 
     def init_plugin(self, config: dict = None):
@@ -98,6 +101,7 @@ class TraktCleaner(_PluginBase):
             self._clean_movie = config.get("clean_movie", True)
             self._clean_episode = config.get("clean_episode", True)
             self._exclude_tags = config.get("exclude_tags", "")
+            self._delay_days = int(config.get("delay_days", 0) or 0)
 
             # 如果用户填写了 PIN，自动换取 Token
             pin = config.get("pin", "").strip()
@@ -292,6 +296,48 @@ class TraktCleaner(_PluginBase):
         logger.info(f"Trakt 观看清理：获取到 {len(result)} 部已观看剧集")
         return result
 
+    def __fetch_show_progress(self, trakt_id) -> Dict[str, List[int]]:
+        """
+        获取某部剧的已观看进度：{季号(str): [集号列表]}
+        用于 /sync/watched/shows 未返回 seasons 明细时的回退（权威数据源）。
+        """
+        if not trakt_id:
+            return {}
+        for attempt in range(2):
+            try:
+                resp = requests.get(
+                    f"{self._TRAKT_API_BASE}/shows/{trakt_id}/progress/watched",
+                    headers=self.__get_trakt_headers(),
+                    params={"hidden": "false", "specials": "false"},
+                    timeout=30,
+                )
+                if resp.status_code == 401 and attempt == 0:
+                    if self.__refresh_token():
+                        continue
+                    self._token_error = True
+                    return {}
+                if resp.status_code != 200:
+                    logger.error(f"Trakt 观看清理：获取剧集进度失败 {trakt_id} {resp.status_code}")
+                    return {}
+                data = resp.json()
+                watched_seasons = {}
+                for season in data.get("seasons", []):
+                    sn = season.get("number", 0)
+                    # progress/watched 的 episodes 数组包含全部已播出集，
+                    # 只有 last_watched_at 非空的才是真正看过的（对应顶层 completed 计数）
+                    eps = [
+                        e.get("number", 0)
+                        for e in season.get("episodes", [])
+                        if e.get("last_watched_at")
+                    ]
+                    if eps:
+                        watched_seasons[str(sn)] = eps
+                return watched_seasons
+            except Exception as e:
+                logger.error(f"Trakt 观看清理：获取剧集进度异常 {trakt_id}: {e}")
+                return {}
+        return {}
+
     def __normalize_title(self, title: str) -> str:
         """标准化标题用于匹配（保留兼容，用于 Trakt 侧标题）"""
         if not title:
@@ -319,7 +365,9 @@ class TraktCleaner(_PluginBase):
                 title = movie.get("title", "")
                 year = movie.get("year")
                 ids = movie.get("ids", {})
-                key = self.__normalize_title(title)
+                # 用年份作为后缀，避免同名不同年份的媒体互相覆盖
+                norm = self.__normalize_title(title)
+                key = f"{norm}|{year}" if year else norm
                 if key:
                     watched[key] = {
                         "type": "movie",
@@ -339,13 +387,19 @@ class TraktCleaner(_PluginBase):
                 title = show.get("title", "")
                 year = show.get("year")
                 ids = show.get("ids", {})
-                key = self.__normalize_title(title)
+                # 用年份作为后缀，避免同名不同年份的剧集互相覆盖
+                norm = self.__normalize_title(title)
+                key = f"{norm}|{year}" if year else norm
                 # 解析已观看的季集信息
                 watched_seasons = {}
                 for season in item.get("seasons", []):
                     sn = season.get("number", 0)
                     eps = [e.get("number", 0) for e in season.get("episodes", [])]
                     watched_seasons[str(sn)] = eps
+                # 部分账户的 /sync/watched/shows 不返回 seasons 明细，
+                # 回退到 /shows/{id}/progress/watched 获取权威的已看季集
+                if not watched_seasons and ids.get("trakt"):
+                    watched_seasons = self.__fetch_show_progress(ids.get("trakt"))
                 if key:
                     watched[key] = {
                         "type": "show",
@@ -419,29 +473,49 @@ class TraktCleaner(_PluginBase):
         if raw_normalized:
             names.add(raw_normalized)
 
-        # 精确匹配
+        torrent_year = ""
+        meta_year = getattr(meta, "year", None)
+        if meta_year:
+            torrent_year = str(meta_year)
+
+        # 1) 优先精确匹配（带年份，避免同名不同年份的剧互相错配）
+        if torrent_year:
+            for name in names:
+                k = f"{name}|{torrent_year}"
+                if k in watched:
+                    return watched[k]
+        # 2) 不带年份的精确匹配
         for name in names:
             if name in watched:
                 return watched[name]
 
-        # 子串匹配
+        # 3) 子串匹配（兜底，比较时剥去年份后缀）
         for name in names:
             for key, info in watched.items():
-                if key in name or name in key:
+                bare = key.split("|", 1)[0]
+                if not bare:
+                    continue
+                if bare in name or name in bare:
                     return info
 
         return None
 
-    def __get_torrent_episodes(self, torrent_hash: str) -> Dict[int, List[int]]:
+    def __get_torrent_episodes(
+        self, torrent_hash: str, default_season: Optional[int] = None
+    ) -> Tuple[Dict[int, List[int]], int, int]:
         """
         获取种子内的实际文件列表，用 MetaInfo 提取季集信息
-        返回: {季号: [集号列表]}
+        返回: (季号->集号列表, 视频文件总数, 成功解析出集数的文件数)
+        default_season: 当文件名识别不出季号时（如整季包文件名不带 Sxx）回退使用的季号，
+                        通常取自种子标题（torrent_meta.begin_season）。
         """
         result: Dict[int, List[int]] = {}
+        total_video_files = 0
+        parsed_files = 0
         try:
             files = self.chain.torrent_files(tid=torrent_hash)
             if not files:
-                return result
+                return result, 0, 0
             for f in files:
                 name = ""
                 if hasattr(f, "name"):
@@ -454,42 +528,63 @@ class TraktCleaner(_PluginBase):
                 file_path = Path(name)
                 if not file_path.suffix or file_path.suffix.lower() not in settings.RMT_MEDIAEXT:
                     continue
+                total_video_files += 1
                 # 用 MetaInfo 识别文件名中的季集
                 meta = MetaInfo(file_path.name)
-                if meta.begin_season is not None and meta.begin_episode is not None:
-                    season = meta.begin_season
-                    if season not in result:
-                        result[season] = []
-                    result[season].extend(meta.episode_list)
+                if meta.begin_episode is None:
+                    # 没有集号信息，无法判断，跳过该文件
+                    continue
+                # 季号识别失败时，回退到默认季号（通常取自种子标题）
+                season = meta.begin_season
+                if season is None:
+                    season = default_season
+                if season is None:
+                    continue
+                parsed_files += 1
+                if season not in result:
+                    result[season] = []
+                result[season].extend(meta.episode_list or [])
         except Exception as e:
             logger.debug(f"Trakt 观看清理：获取种子文件列表失败 {torrent_hash}: {e}")
         # 去重
         for s in result:
             result[s] = list(set(result[s]))
-        return result
+        return result, total_video_files, parsed_files
 
-    def __should_clean_torrent(self, matched: dict, torrent_hash: str) -> Tuple[bool, str]:
+    def __should_clean_torrent(
+        self, matched: dict, torrent_hash: str, default_season: Optional[int] = None
+    ) -> Tuple[bool, str]:
         """
         判断是否应该清理该种子
         返回: (是否应清理, 原因描述)
+        采用 fail-safe 原则：信息不足时返回 False（跳过），避免误删未看剧集。
         """
         matched_type = matched.get("type", "")
 
-        # 电影：只要匹配到已观看就清理
+        # 电影：只要匹配到已观看就清理（Trakt watched 即唯一事实来源）
         if matched_type == "movie":
             return True, "已观看电影"
 
         # 剧集：需要判断集数
         watched_seasons = matched.get("watched_seasons", {})
         if not watched_seasons:
-            # 没有 seasons 数据，回退到只匹配剧名
-            return True, "已观看剧集（无集数详情）"
+            # 没有 seasons 数据，无法确认集数，跳过避免误删
+            return False, "已观看剧集（Trakt 无集数详情，跳过）"
 
         # 获取种子内实际文件对应的集数
-        torrent_eps = self.__get_torrent_episodes(torrent_hash)
+        torrent_eps, total_video_files, parsed_files = self.__get_torrent_episodes(
+            torrent_hash, default_season
+        )
         if not torrent_eps:
-            # 无法获取文件列表，回退到标题匹配
-            return True, "已观看剧集（无法获取文件列表）"
+            # 无法解析出任何集数，跳过避免误删
+            return False, "已观看剧集（无法解析种子集数，跳过）"
+
+        # 完整性校验：若成功解析的文件数少于实际视频文件数，说明有文件未识别出季集
+        # （这些文件很可能还没看），删除整颗种子会误删它们，故跳过。
+        if total_video_files > 0 and parsed_files < total_video_files:
+            return False, (
+                f"已观看剧集（集数解析不完整 {parsed_files}/{total_video_files}，跳过避免误删）"
+            )
 
         # 对比每一季
         all_watched = True
@@ -592,12 +687,30 @@ class TraktCleaner(_PluginBase):
         cleaned = []
         skipped = []
         excluded = []
+        discovered = []   # 延期模式：本次首次发现入队的种子
+        waiting = []      # 延期模式：本次仍处于等待中的种子
         # 解析排除标签
         exclude_tags = set()
         if self._exclude_tags:
             exclude_tags = {t.strip() for t in self._exclude_tags.replace("，", ",").split(",") if t.strip()}
             if exclude_tags:
                 logger.info(f"Trakt 观看清理：排除标签: {exclude_tags}")
+
+        # 延期模式：加载待清理队列（pending: {hash: item}）
+        delayed = self._delay_days > 0
+        delay_seconds = self._delay_days * 86400
+        now = time.time()
+        pending: Dict[str, dict] = {}
+        if delayed:
+            pending = self.get_data("pending") or {}
+            if not isinstance(pending, dict):
+                pending = {}
+            logger.info(
+                f"Trakt 观看清理：延期模式，延迟 {self._delay_days} 天，"
+                f"待清理队列 {len(pending)} 个"
+            )
+        # 本次扫描中"仍满足清理条件"的种子 hash，用于复核 pending 队列
+        cleanable_hashes = set()
 
         for torrent in all_torrents:
             # 检查排除标签
@@ -631,11 +744,15 @@ class TraktCleaner(_PluginBase):
             torrent_episodes = torrent_meta.episode_list if torrent_meta.episode_list else None
             season_ep_text = self.__format_season_episode_int(torrent_season, torrent_episodes)
 
-            # 判断是否应清理（基于文件级集数判断）
-            should_clean, reason = self.__should_clean_torrent(matched, torrent.hash)
+            # 判断是否应清理（基于文件级集数判断，传入默认季号用于回退）
+            should_clean, reason = self.__should_clean_torrent(
+                matched, torrent.hash, torrent_meta.begin_season
+            )
 
             # 获取种子内实际文件的集数信息（用于展示）
-            torrent_file_eps = self.__get_torrent_episodes(torrent.hash)
+            torrent_file_eps, _, _ = self.__get_torrent_episodes(
+                torrent.hash, torrent_meta.begin_season
+            )
             file_eps_text = ""
             if torrent_file_eps:
                 parts = []
@@ -724,32 +841,58 @@ class TraktCleaner(_PluginBase):
                 skipped.append(torrent_info)
                 continue
 
-            if self._dry_run:
-                logger.info(
-                    f"Trakt 观看清理（试运行）：匹配到 {matched.get('title')} "
-                    f"({season_ep_text}) [{reason}] → 种子 {torrent.title}"
-                )
-            else:
-                try:
-                    result = self.chain.remove_torrents(
-                        hashs=torrent.hash,
-                        delete_file=self._delete_file,
+            # 满足清理条件
+            cleanable_hashes.add(torrent.hash)
+
+            if delayed:
+                # 延期模式：进入待清理队列，到期后自动清理
+                item = pending.get(torrent.hash)
+                if item is None:
+                    # 首次发现 → 入队
+                    pending[torrent.hash] = self.__build_pending_item(torrent_info, now)
+                    logger.info(
+                        f"Trakt 观看清理：发现待清理 {matched.get('title')} "
+                        f"({season_ep_text})，进入待清理队列，将于 {self._delay_days} 天后清理"
                     )
-                    if result is not None:
-                        logger.info(
-                            f"Trakt 观看清理：已删除种子 {torrent.title} "
-                            f"(匹配: {matched.get('title')} {season_ep_text}, {reason})"
-                        )
-                    else:
-                        logger.warning(f"Trakt 观看清理：删除种子失败 {torrent.title}")
-                        torrent_info["error"] = "删除失败"
-                except Exception as e:
-                    logger.error(f"Trakt 观看清理：删除种子异常 {torrent.title}: {e}")
-                    torrent_info["error"] = str(e)
+                    discovered.append(torrent_info)
+                elif self._dry_run:
+                    logger.info(
+                        f"Trakt 观看清理（试运行）：待清理 {matched.get('title')} "
+                        f"({season_ep_text}) [{reason}] → 种子 {torrent.title}"
+                    )
+                    waiting.append(torrent_info)
+                elif (now - item.get("first_seen", now)) >= delay_seconds:
+                    # 到期，执行清理
+                    self.__remove_torrent(torrent, torrent_info, matched, season_ep_text, reason)
+                    if torrent.hash in pending:
+                        del pending[torrent.hash]
+                    cleaned.append(torrent_info)
+                else:
+                    # 未到期，继续等待
+                    waiting.append(torrent_info)
+            else:
+                # 即时模式（原行为）
+                if self._dry_run:
+                    logger.info(
+                        f"Trakt 观看清理（试运行）：匹配到 {matched.get('title')} "
+                        f"({season_ep_text}) [{reason}] → 种子 {torrent.title}"
+                    )
+                else:
+                    self.__remove_torrent(torrent, torrent_info, matched, season_ep_text, reason)
+                cleaned.append(torrent_info)
 
-            cleaned.append(torrent_info)
+        # 延期模式：复核待清理队列，移除失效条目
+        # （种子已消失 / Trakt 观看已取消 / 不再满足清理条件 / 被排除标签命中）
+        # 失效后下次扫描若再次满足条件，会重新入列重新计时。
+        if delayed:
+            stale = [h for h in pending if h not in cleanable_hashes]
+            for h in stale:
+                del pending[h]
+            if stale:
+                logger.info(f"Trakt 观看清理：待清理队列移除 {len(stale)} 个失效条目")
+            self.save_data("pending", pending)
 
-        # 5. 保存清理历史（含跳过的、排除的）
+        # 5. 保存清理历史（含跳过的、排除的；延期模式的 discovered/waiting 保留在待清理队列，不入历史）
         all_records = cleaned + skipped + excluded
         if all_records:
             history = self.get_data("history") or []
@@ -760,11 +903,18 @@ class TraktCleaner(_PluginBase):
         # 6. 发送通知
         if self._notify:
             dry_tag = "（试运行）" if self._dry_run else ""
-            msg_lines = [f"### Trakt 观看清理{dry_tag}"]
+            mode_tag = "（延期）" if delayed else ""
+            msg_lines = [f"### Trakt 观看清理{dry_tag}{mode_tag}"]
 
             # 统计信息
             stats = f"📊 观看记录 {len(watched)} 条 · 下载器 {len(all_torrents)} 个种子"
-            stats += f" · 清理 {len(cleaned)} · 跳过 {len(skipped)}"
+            if delayed:
+                stats += (
+                    f" · 到期清理 {len(cleaned)} · 新发现 {len(discovered)}"
+                    f" · 等待中 {len(waiting)} · 跳过 {len(skipped)}"
+                )
+            else:
+                stats += f" · 清理 {len(cleaned)} · 跳过 {len(skipped)}"
             if excluded:
                 stats += f" · 排除 {len(excluded)}"
             msg_lines.append(stats)
@@ -790,14 +940,31 @@ class TraktCleaner(_PluginBase):
             msg_lines.append("")
 
             # 种子明细
+            cleaned_title = "✅ 待清理（试运行）" if self._dry_run else "✅ 已清理"
             if cleaned:
-                msg_lines.append(f"**✅ 待清理 ({len(cleaned)} 个)：**")
+                msg_lines.append(f"**{cleaned_title} ({len(cleaned)} 个)：**")
                 for item in cleaned:
                     title_display = item.get("matched_title", "")
                     notify_eps = item.get("notify_eps_text", "")
                     line = f"- {title_display} [{notify_eps}]" if notify_eps else f"- {title_display}"
                     if item.get("error"):
                         line += f" ❌ {item.get('error')}"
+                    msg_lines.append(line)
+
+            if discovered:
+                msg_lines.append(f"\n**🆕 新发现入队 ({len(discovered)} 个)：**")
+                for item in discovered:
+                    title_display = item.get("matched_title", "")
+                    notify_eps = item.get("notify_eps_text", "")
+                    line = f"- {title_display} [{notify_eps}]" if notify_eps else f"- {title_display}"
+                    msg_lines.append(line)
+
+            if waiting:
+                msg_lines.append(f"\n**⏳ 等待中 ({len(waiting)} 个)：**")
+                for item in waiting:
+                    title_display = item.get("matched_title", "")
+                    notify_eps = item.get("notify_eps_text", "")
+                    line = f"- {title_display} [{notify_eps}]" if notify_eps else f"- {title_display}"
                     msg_lines.append(line)
 
             if skipped:
@@ -813,19 +980,64 @@ class TraktCleaner(_PluginBase):
                 for item in excluded:
                     msg_lines.append(f"- {item['title']} [{item['tags']}]")
 
-            if not cleaned and not skipped and not excluded:
+            if not cleaned and not skipped and not excluded and not discovered and not waiting:
                 msg_lines.append("无匹配的种子需要处理")
 
             self.post_message(
                 mtype=NotificationType.Plugin,
-                title=f"Trakt 观看清理{dry_tag}报告",
+                title=f"Trakt 观看清理{dry_tag}{mode_tag}报告",
                 text="\n".join(msg_lines),
             )
 
         logger.info(
             f"Trakt 观看清理：本次共清理 {len(cleaned)} 个种子"
             f"，跳过 {len(skipped)} 个，排除 {len(excluded)} 个"
+            + (
+                f"，新发现 {len(discovered)}，等待 {len(waiting)}"
+                if delayed else ""
+            )
         )
+
+    def __remove_torrent(self, torrent, torrent_info: dict, matched: dict,
+                         season_ep_text: str, reason: str):
+        """删除种子并把结果（成功/失败/异常）写入 torrent_info"""
+        try:
+            result = self.chain.remove_torrents(
+                hashs=torrent.hash,
+                delete_file=self._delete_file,
+            )
+            if result is not None:
+                logger.info(
+                    f"Trakt 观看清理：已删除种子 {torrent.title} "
+                    f"(匹配: {matched.get('title')} {season_ep_text}, {reason})"
+                )
+            else:
+                logger.warning(f"Trakt 观看清理：删除种子失败 {torrent.title}")
+                torrent_info["error"] = "删除失败"
+        except Exception as e:
+            logger.error(f"Trakt 观看清理：删除种子异常 {torrent.title}: {e}")
+            torrent_info["error"] = str(e)
+
+    def __build_pending_item(self, torrent_info: dict, first_seen: float) -> dict:
+        """由扫描到的 torrent_info 构建待清理队列条目"""
+        return {
+            "torrent_hash": torrent_info.get("hash"),
+            "title": torrent_info.get("title"),
+            "matched_type": torrent_info.get("matched_type"),
+            "matched_title": torrent_info.get("matched_title"),
+            "matched_year": torrent_info.get("matched_year"),
+            "season": torrent_info.get("season"),
+            "episodes": torrent_info.get("episodes"),
+            "season_ep_text": torrent_info.get("season_ep_text"),
+            "file_eps_text": torrent_info.get("file_eps_text"),
+            "watched_eps_text": torrent_info.get("watched_eps_text"),
+            "matched_watched_text": torrent_info.get("matched_watched_text"),
+            "notify_eps_text": torrent_info.get("notify_eps_text"),
+            "ep_details": torrent_info.get("ep_details"),
+            "reason": torrent_info.get("reason"),
+            "first_seen": first_seen,
+            "status": "pending",
+        }
 
     def get_state(self) -> bool:
         return self._enabled
@@ -842,6 +1054,18 @@ class TraktCleaner(_PluginBase):
                 "methods": ["GET"],
                 "summary": "获取 Trakt 授权链接",
             },
+            {
+                "path": "/clean_now",
+                "endpoint": self.__clean_now_api,
+                "methods": ["GET"],
+                "summary": "手动清理待清理队列中的指定种子",
+            },
+            {
+                "path": "/clear_seen",
+                "endpoint": self.__clear_seen_api,
+                "methods": ["GET"],
+                "summary": "清除指定种子的发现状态（重置等待计时）",
+            },
         ]
 
     def __authorize_url_api(self):
@@ -857,6 +1081,63 @@ class TraktCleaner(_PluginBase):
             f"&redirect_uri={self._TRAKT_REDIRECT_URI}"
         )
         return JSONResponse({"success": True, "url": url, "message": "请点击链接授权"})
+
+    def __clean_now_api(self, torrent_hash: str = "") -> dict:
+        """API：手动立即清理待清理队列中的指定种子（不受试运行开关影响）"""
+        if not torrent_hash:
+            return {"success": False, "message": "缺少种子 hash"}
+        pending = self.get_data("pending") or {}
+        if not isinstance(pending, dict):
+            pending = {}
+        item = pending.get(torrent_hash)
+        if not item:
+            return {"success": False, "message": "该种子不在待清理队列中"}
+        # 手动清理即真实删除，不受 dry_run 影响
+        try:
+            result = self.chain.remove_torrents(
+                hashs=torrent_hash, delete_file=self._delete_file
+            )
+        except Exception as e:
+            logger.error(f"Trakt 观看清理：手动清理异常 {item.get('title')}: {e}")
+            return {"success": False, "message": f"删除异常: {e}"}
+        if result is None:
+            return {"success": False, "message": "删除种子失败（下载器返回失败）"}
+        # 成功：移出队列，写入历史
+        item["status"] = "cleaned"
+        item["manual"] = True
+        item["hash"] = torrent_hash
+        item["dry_run"] = False
+        item["clean_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        del pending[torrent_hash]
+        self.save_data("pending", pending)
+        history = self.get_data("history") or []
+        history.append(item)
+        history = history[-1000:]
+        self.save_data("history", history)
+        logger.info(
+            f"Trakt 观看清理：手动清理 {item.get('title')} "
+            f"({item.get('season_ep_text')})"
+        )
+        return {
+            "success": True,
+            "message": f"已清理：{item.get('matched_title') or item.get('title')}",
+        }
+
+    def __clear_seen_api(self, torrent_hash: str = "") -> dict:
+        """API：清除指定种子的发现状态（重置等待计时，下次扫描重新入列）"""
+        if not torrent_hash:
+            return {"success": False, "message": "缺少种子 hash"}
+        pending = self.get_data("pending") or {}
+        if not isinstance(pending, dict):
+            pending = {}
+        if torrent_hash in pending:
+            item = pending.pop(torrent_hash)
+            self.save_data("pending", pending)
+            logger.info(
+                f"Trakt 观看清理：清除发现状态 {item.get('title')}（重置，下次扫描重新计时）"
+            )
+            return {"success": True, "message": "已清除发现状态，下次扫描将重新计时"}
+        return {"success": False, "message": "该种子不在待清理队列中"}
 
     def get_service(self) -> List[Dict[str, Any]]:
         """注册定时任务"""
@@ -974,6 +1255,38 @@ class TraktCleaner(_PluginBase):
                                     {
                                         "component": "VSwitch",
                                         "props": {"model": "clean_episode", "label": "清理已看剧集"},
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    # 延迟清理天数
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "delay_days",
+                                            "label": "延迟清理天数",
+                                            "placeholder": "0 表示即时清理；填 N 则首次发现观看后等 N 天再清理",
+                                            "type": "number",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 8},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {"type": "info", "variant": "tonal"},
+                                        "text": "延期模式下，满足清理条件的种子先进入待清理队列，到期后自动清理；可在详情页手动「立即清理」或「清除发现」。",
                                     }
                                 ],
                             },
@@ -1252,6 +1565,7 @@ class TraktCleaner(_PluginBase):
             "clean_movie": True,
             "clean_episode": True,
             "exclude_tags": "",
+            "delay_days": 0,
         }
 
     def __build_batch_page_content(self, items: list) -> List[dict]:
@@ -1630,9 +1944,18 @@ class TraktCleaner(_PluginBase):
         return content
 
     def get_page(self) -> List[dict]:
-        """插件详情页：每次执行一个折叠面板，默认展开最新的"""
+        """插件详情页：顶部为待清理队列（可手动操作），下方为历史执行批次"""
+        page: List[dict] = []
+
+        # 待清理队列（延期模式产物，可手动「立即清理」/「清除发现」）
+        pending = self.get_data("pending") or {}
+        if isinstance(pending, dict) and pending:
+            page.append(self.__build_pending_section(pending))
+
         history = self.get_data("history")
         if not history:
+            if page:
+                return page
             return [
                 {
                     "component": "div",
@@ -1703,13 +2026,162 @@ class TraktCleaner(_PluginBase):
                 }
             )
 
-        return [
+        page.append(
             {
                 "component": "VExpansionPanels",
                 "props": {"modelValue": 0},
                 "content": panels,
             }
-        ]
+        )
+        return page
+
+    def __build_pending_section(self, pending: Dict[str, dict]) -> dict:
+        """构建详情页顶部的待清理队列区段（含手动操作按钮）"""
+        now = time.time()
+        delay_seconds = self._delay_days * 86400
+        plugin_name = self.__class__.__name__
+
+        rows = []
+        # 按首次发现时间倒序
+        for h, item in sorted(
+            pending.items(),
+            key=lambda kv: kv[1].get("first_seen", 0),
+            reverse=True,
+        ):
+            first_seen = item.get("first_seen", now) or now
+            first_seen_text = time.strftime("%Y-%m-%d %H:%M", time.localtime(first_seen))
+            if delay_seconds > 0:
+                remain = (first_seen + delay_seconds) - now
+                if remain > 0:
+                    remain_text = f"剩余 {remain / 86400:.1f} 天"
+                    chip_color = "info"
+                else:
+                    remain_text = "已到期"
+                    chip_color = "warning"
+            else:
+                remain_text = "即时"
+                chip_color = "success"
+
+            title_display = item.get("matched_title") or item.get("title") or ""
+            season_ep = item.get("season_ep_text") or ""
+            notify_eps = item.get("notify_eps_text") or ""
+            sub_text = f"发现于 {first_seen_text}"
+            if notify_eps:
+                sub_text += f" · {notify_eps}"
+            elif item.get("reason"):
+                sub_text += f" · {item.get('reason')}"
+
+            rows.append(
+                {
+                    "component": "VRow",
+                    "props": {"align": "center", "class": "py-1"},
+                    "content": [
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 6},
+                            "content": [
+                                {
+                                    "component": "div",
+                                    "props": {"class": "font-weight-medium"},
+                                    "text": f"{title_display} {season_ep}".strip(),
+                                },
+                                {
+                                    "component": "div",
+                                    "props": {"class": "text-caption text-grey-darken-1"},
+                                    "text": sub_text,
+                                },
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 6, "md": 2},
+                            "content": [
+                                {
+                                    "component": "VChip",
+                                    "props": {
+                                        "size": "small",
+                                        "variant": "tonal",
+                                        "color": chip_color,
+                                    },
+                                    "text": remain_text,
+                                },
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 6, "md": 4},
+                            "content": [
+                                {
+                                    "component": "VBtn",
+                                    "props": {
+                                        "color": "error",
+                                        "size": "small",
+                                        "variant": "tonal",
+                                        "class": "mr-2",
+                                        "prepend-icon": "mdi-delete",
+                                    },
+                                    "text": "立即清理",
+                                    "events": {
+                                        "click": {
+                                            "api": f"plugin/{plugin_name}/clean_now?apikey={settings.API_TOKEN}",
+                                            "method": "get",
+                                            "params": {
+                                                "torrent_hash": h,
+                                            },
+                                        }
+                                    },
+                                },
+                                {
+                                    "component": "VBtn",
+                                    "props": {
+                                        "color": "grey",
+                                        "size": "small",
+                                        "variant": "text",
+                                        "prepend-icon": "mdi-undo",
+                                    },
+                                    "text": "清除发现",
+                                    "events": {
+                                        "click": {
+                                            "api": f"plugin/{plugin_name}/clear_seen?apikey={settings.API_TOKEN}",
+                                            "method": "get",
+                                            "params": {
+                                                "torrent_hash": h,
+                                            },
+                                        }
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                }
+            )
+
+        return {
+            "component": "VCard",
+            "props": {"variant": "outlined", "class": "mb-4"},
+            "content": [
+                {
+                    "component": "VCardItem",
+                    "content": [
+                        {
+                            "component": "VCardTitle",
+                            "text": f"⏳ 待清理队列（{len(pending)} 个）",
+                        },
+                        {
+                            "component": "VCardSubtitle",
+                            "text": (
+                                f"延期 {self._delay_days} 天自动清理；可手动「立即清理」"
+                                f"或「清除发现」重置计时"
+                            ),
+                        },
+                    ],
+                },
+                {
+                    "component": "VCardText",
+                    "content": rows,
+                },
+            ],
+        }
 
     def stop_service(self):
         """停止插件"""
