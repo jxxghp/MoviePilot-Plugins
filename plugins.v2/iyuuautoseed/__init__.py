@@ -34,7 +34,7 @@ class IYUUAutoSeed(_PluginBase):
     # 插件图标
     plugin_icon = "IYUU.png"
     # 插件版本
-    plugin_version = "2.17"
+    plugin_version = "2.18"
     # 插件作者
     plugin_author = "jxxghp,CKun"
     # 作者主页
@@ -120,6 +120,7 @@ class IYUUAutoSeed(_PluginBase):
             self._categoryafterseed = config.get("categoryafterseed")
             self._auto_category = config.get("auto_category")
             self._auto_start = config.get("auto_start")
+            self._reuse_save_path = config.get("reuse_save_path", True)
             self._addhosttotag = config.get("addhosttotag")
             self._size = float(config.get("size")) if config.get("size") else 0
             self._clearcache = config.get("clearcache")
@@ -594,6 +595,22 @@ class IYUUAutoSeed(_PluginBase):
                                         }
                                     }
                                 ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'reuse_save_path',
+                                            'label': '沿用原种路径(仅QB有效)',
+                                        }
+                                    }
+                                ]
                             }
                         ]
                     },
@@ -652,6 +669,7 @@ class IYUUAutoSeed(_PluginBase):
             "addhosttotag": False,
             "auto_category": False,
             "auto_start": False,
+            "reuse_save_path": True,
             "cron": "",
             "token": "",
             "downloaders": [],
@@ -686,6 +704,7 @@ class IYUUAutoSeed(_PluginBase):
             "addhosttotag": self._addhosttotag,
             "auto_category": self._auto_category,
             "auto_start": self._auto_start,
+            "reuse_save_path": self._reuse_save_path,
             "size": self._size,
             "success_caches": self._success_caches,
             "error_caches": self._error_caches,
@@ -1022,12 +1041,17 @@ class IYUUAutoSeed(_PluginBase):
 
             torrent_tags.append(tag)
 
+            # 沿用原种保存路径：强制关闭 qB 自动种子管理(ATM)。
+            # 开启自动分类管理时 ATM 会覆盖 save_path，辅种落到分类目录而非原种路径，
+            # 原种文件不复用即表现为“文件丢失”。
+            force_reuse = bool(self._reuse_save_path)
             state = service.instance.add_torrent(content=content,
                                                  download_dir=save_path,
                                                  is_paused=True,
                                                  tag=torrent_tags,
-                                                 category=save_category,
-                                                 is_skip_checking=self._skipverify)
+                                                 category=None if force_reuse else save_category,
+                                                 is_skip_checking=self._skipverify,
+                                                 ignore_category_check=not force_reuse)
             if not state:
                 return None
             else:
@@ -1036,6 +1060,11 @@ class IYUUAutoSeed(_PluginBase):
                 if not torrent_hash:
                     logger.error(f"{service.name} 下载任务添加成功，但获取任务信息失败！")
                     return None
+                # 强制复用路径时分类未在添加时下发(ATM已关闭)，此处补设；
+                # ATM 关闭下修改分类不会触发文件移动，save_path 保持不变
+                if force_reuse and save_category:
+                    service.instance.set_torrent_category(hash_string=torrent_hash,
+                                                          category=save_category)
             return torrent_hash
         elif service.type == "transmission":
             # 添加任务
