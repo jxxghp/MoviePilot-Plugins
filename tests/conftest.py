@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 # 相对导入本仓薄壳，先定位同级 MoviePilot 后端并加入 ``sys.path``，再复用主程序共享引导。
@@ -43,3 +44,30 @@ def pytest_configure(config) -> None:
         prepare_v2_backend()
     else:
         prepare_v1_backend()
+
+
+def _report_session_cleanup_error(session, name: str, err: Exception) -> None:
+    """记录收尾错误；原测试绿色时将会话标记为失败。"""
+    sys.stderr.write(f"\npytest session cleanup failed: {name}: {err!r}\n")
+    if session.exitstatus == 0:
+        session.exitstatus = 1
+
+
+def pytest_sessionfinish(session, exitstatus) -> None:
+    """释放测试过程中创建的消息队列与日志后台线程"""
+    if _selected_generation(session.config) == "ci":
+        return
+
+    try:
+        from app.helper.message import stop_message
+
+        stop_message()
+    except Exception as err:
+        _report_session_cleanup_error(session, "message service", err)
+
+    try:
+        from app.log import LoggerManager
+
+        LoggerManager.shutdown()
+    except Exception as err:
+        _report_session_cleanup_error(session, "logger manager", err)
