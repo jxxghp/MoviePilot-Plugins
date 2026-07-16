@@ -1,0 +1,3 @@
+pytest>=8,<9
+requests>=2.31,<3
+torrentool>=1.2,<2
