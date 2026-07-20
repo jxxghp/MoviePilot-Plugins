@@ -1,4 +1,16 @@
 {
+  "GDriveUploadStat": {
+    "name": "网盘上传量统计",
+    "description": "按盘符统计整理记录的落盘数据量，达到自定义阈值走通知频道告警（自用/gclone多盘限额监控）。",
+    "labels": "工具",
+    "version": "1.0.0",
+    "icon": "Alidrive_A.png",
+    "author": "lkwang88",
+    "level": 1,
+    "history": {
+      "v1.0.0": "首发版本：按盘符匹配目标路径统计上传量，支持自然日/滚动窗口、多级阈值告警。"
+    }
+  },
   "MediaServerRefresh88": {
     "name": "媒体库服务器刷新",
     "description": "入库后自动刷新Emby/Jellyfin/Plex服务器海报墙 (LKWANG88 定制防抖版)。",
