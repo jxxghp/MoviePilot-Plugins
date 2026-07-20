@@ -25,7 +25,7 @@
     "description": "多站点刷流任务独立调度、托管、统计与运行诊断。",
     "labels": "刷流,仪表板",
     "version": "5.0.0",
-    "icon": "brush.jpg",
+    "icon": "brush-flow.png",
     "author": "jxxghp,InfinityPacer,Seed680",
     "level": 2,
     "release": true,
