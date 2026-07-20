@@ -22,13 +22,16 @@
   },
   "BrushFlow": {
     "name": "站点刷流",
-    "description": "自动托管刷流，将会提高对应站点的访问频率。",
+    "description": "多站点刷流任务独立调度、托管、统计与运行诊断。",
     "labels": "刷流,仪表板",
-    "version": "4.3.5",
+    "version": "5.0.0",
     "icon": "brush.jpg",
     "author": "jxxghp,InfinityPacer,Seed680",
     "level": 2,
+    "release": true,
+    "system_version": ">=2.14.6",
     "history": {
+      "v5.0.0": "使用 Vue 重构多站点独立刷流任务工作台，需要 MoviePilot v2.14.6+",
       "v4.3.5": "提升匹配规则时的健壮性",
       "v4.3.4": "添加RSS支持配置选项",
       "v4.3.2": "增加'删除促销结束的未完成下载'功能",

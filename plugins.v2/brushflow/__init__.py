@@ -1,2911 +1,1566 @@
 import base64
 import json
-import random
 import re
 import threading
 import time
+import uuid
+from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Any, List, Dict, Tuple, Optional, Union, Set
-from urllib.parse import urlparse, parse_qs, unquote, parse_qsl, urlencode, urlunparse
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
+from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlparse, urlunparse
 
-import pytz
-from app.helper.sites import SitesHelper
-from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from fastapi import Query
 
 from app import schemas
+from app.api.endpoints.plugin import register_plugin_api
 from app.chain.torrents import TorrentsChain
 from app.core.config import settings
 from app.core.context import MediaInfo
+from app.core.event import Event, eventmanager
 from app.core.metainfo import MetaInfo
 from app.db.site_oper import SiteOper
 from app.db.subscribe_oper import SubscribeOper
 from app.helper.downloader import DownloaderHelper
+from app.helper.sites import SitesHelper
+from app.helper.thread import ThreadHelper
 from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
-from app.schemas import NotificationType, TorrentInfo, MediaType, ServiceInfo
+from app.scheduler import Scheduler
+from app.schemas import MediaType, NotificationType, ServiceInfo, TorrentInfo
 from app.schemas.types import EventType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
-lock = threading.Lock()
+from .models import BrushFlowSettingsPayload, BrushTaskPayload, BrushTaskStatePayload
 
 
-class BrushConfig:
+TASK_CONFIG_FIELDS = (
+    "enabled",
+    "notify",
+    "site_id",
+    "downloader",
+    "brush_interval",
+    "check_interval",
+    "cron",
+    "active_time_range",
+    "disksize",
+    "maxupspeed",
+    "maxdlspeed",
+    "maxdlcount",
+    "freeleech",
+    "hr",
+    "include",
+    "exclude",
+    "size",
+    "seeder",
+    "timezone_offset",
+    "pubtime",
+    "seed_time",
+    "hr_seed_time",
+    "seed_ratio",
+    "seed_size",
+    "download_time",
+    "seed_avgspeed",
+    "seed_inactivetime",
+    "delete_size_range",
+    "up_speed",
+    "dl_speed",
+    "auto_archive_days",
+    "save_path",
+    "delete_except_tags",
+    "except_subscribe",
+    "proxy_delete",
+    "del_no_free",
+    "qb_category",
+    "site_hr_active",
+    "site_skip_tips",
+    "rss_support",
+)
+
+LEGACY_SITE_OVERRIDE_FIELDS = {
+    "freeleech",
+    "hr",
+    "include",
+    "exclude",
+    "size",
+    "seeder",
+    "timezone_offset",
+    "pubtime",
+    "seed_time",
+    "hr_seed_time",
+    "seed_ratio",
+    "seed_size",
+    "download_time",
+    "seed_avgspeed",
+    "seed_inactivetime",
+    "save_path",
+    "proxy_delete",
+    "qb_category",
+    "site_hr_active",
+    "site_skip_tips",
+    "del_no_free",
+    "rss_support",
+}
+
+
+class BrushTaskConfig:
     """
-    刷流配置
+    单个站点刷流任务的运行配置
     """
 
-    def __init__(self, config: dict, process_site_config=True):
-        self.enabled = config.get("enabled", False)
-        self.notify = config.get("notify", True)
-        self.onlyonce = config.get("onlyonce", False)
-        self.brushsites = config.get("brushsites", [])
-        self.downloader = config.get("downloader")
-        self.disksize = self.__parse_number(config.get("disksize"))
+    def __init__(self, config: dict):
+        """读取并标准化一项刷流任务配置"""
+        self.id = str(config.get("id") or uuid.uuid4().hex)
+        self.name = str(config.get("name") or "刷流任务").strip()
+        self.enabled = bool(config.get("enabled", True))
+        self.notify = bool(config.get("notify", True))
+        self.site_id = int(config.get("site_id") or 0)
+        self.downloader = str(config.get("downloader") or "").strip()
+        self.brush_interval = max(int(self._parse_number(config.get("brush_interval")) or 10), 1)
+        self.check_interval = max(int(self._parse_number(config.get("check_interval")) or 5), 1)
+        self.cron = self._clean_text(config.get("cron"))
+        self.active_time_range = self._clean_text(config.get("active_time_range"))
+        self.disksize = self._parse_number(config.get("disksize"))
+        self.maxupspeed = self._parse_number(config.get("maxupspeed"))
+        self.maxdlspeed = self._parse_number(config.get("maxdlspeed"))
+        self.maxdlcount = self._parse_number(config.get("maxdlcount"))
         self.freeleech = config.get("freeleech", "free")
-        self.hr = config.get("hr", "no")
-        self.maxupspeed = self.__parse_number(config.get("maxupspeed"))
-        self.maxdlspeed = self.__parse_number(config.get("maxdlspeed"))
-        self.maxdlcount = self.__parse_number(config.get("maxdlcount"))
-        self.include = config.get("include")
-        self.exclude = config.get("exclude")
-        self.size = config.get("size")
-        self.seeder = config.get("seeder")
-        self.timezone_offset = (self.__parse_number(config.get("timezone_offset", "+0")) or 0) * 60  # 转换到分钟
-        self.pubtime = config.get("pubtime")
-        self.seed_time = self.__parse_number(config.get("seed_time"))
-        self.hr_seed_time = self.__parse_number(config.get("hr_seed_time"))
-        self.seed_ratio = self.__parse_number(config.get("seed_ratio"))
-        self.seed_size = self.__parse_number(config.get("seed_size"))
-        self.download_time = self.__parse_number(config.get("download_time"))
-        self.seed_avgspeed = self.__parse_number(config.get("seed_avgspeed"))
-        self.seed_inactivetime = self.__parse_number(config.get("seed_inactivetime"))
-        self.delete_size_range = config.get("delete_size_range")
-        self.up_speed = self.__parse_number(config.get("up_speed"))
-        self.dl_speed = self.__parse_number(config.get("dl_speed"))
-        self.auto_archive_days = self.__parse_number(config.get("auto_archive_days"))
-        self.save_path = config.get("save_path")
-        self.clear_task = config.get("clear_task", False)
-        self.delete_except_tags = config.get("delete_except_tags")
-        self.except_subscribe = config.get("except_subscribe", True)
-        self.brush_sequential = config.get("brush_sequential", False)
-        self.proxy_delete = config.get("proxy_delete", False)
-        self.del_no_free = config.get("del_no_free", False) if self.freeleech in ["free", "2xfree"] else False
-        self.active_time_range = config.get("active_time_range")
-        self.cron = config.get("cron")
-        self.qb_category = config.get("qb_category")
-        self.site_hr_active = config.get("site_hr_active", False)
-        self.site_skip_tips = config.get("site_skip_tips", False)
-        self.rss_support = config.get("rss_support", False)
+        self.hr = config.get("hr", "yes")
+        self.include = self._clean_text(config.get("include"))
+        self.exclude = self._clean_text(config.get("exclude"))
+        self.size = self._clean_text(config.get("size"))
+        self.seeder = self._clean_text(config.get("seeder"))
+        self.timezone_offset = float(self._parse_number(config.get("timezone_offset")) or 0)
+        self.pubtime = self._clean_text(config.get("pubtime"))
+        self.seed_time = self._parse_number(config.get("seed_time"))
+        self.hr_seed_time = self._parse_number(config.get("hr_seed_time"))
+        self.seed_ratio = self._parse_number(config.get("seed_ratio"))
+        self.seed_size = self._parse_number(config.get("seed_size"))
+        self.download_time = self._parse_number(config.get("download_time"))
+        self.seed_avgspeed = self._parse_number(config.get("seed_avgspeed"))
+        self.seed_inactivetime = self._parse_number(config.get("seed_inactivetime"))
+        self.delete_size_range = self._clean_text(config.get("delete_size_range"))
+        self.up_speed = self._parse_number(config.get("up_speed"))
+        self.dl_speed = self._parse_number(config.get("dl_speed"))
+        self.auto_archive_days = self._parse_number(config.get("auto_archive_days"))
+        self.save_path = self._clean_text(config.get("save_path"))
+        self.delete_except_tags = self._clean_text(config.get("delete_except_tags"))
+        self.except_subscribe = bool(config.get("except_subscribe", True))
+        self.proxy_delete = bool(config.get("proxy_delete", False))
+        self.del_no_free = bool(config.get("del_no_free", False)) if self.freeleech in {"free", "2xfree"} else False
+        self.qb_category = self._clean_text(config.get("qb_category"))
+        self.site_hr_active = bool(config.get("site_hr_active", False))
+        self.site_skip_tips = bool(config.get("site_skip_tips", False))
+        self.rss_support = bool(config.get("rss_support", False))
 
-        self.brush_tag = "刷流"
-        # 站点独立配置
-        self.enable_site_config = config.get("enable_site_config", False)
-        self.site_config = config.get("site_config", "[]")
-        self.group_site_configs = {}
+    @property
+    def brush_tag(self) -> str:
+        """返回当前任务在下载器中使用的唯一标签"""
+        return f"刷流-{self.id[:8]}"
 
-        # 如果开启了独立站点配置，那么则初始化，否则判断配置是否为空，如果为空，则恢复默认配置
-        if process_site_config:
-            if self.enable_site_config:
-                self.__initialize_site_config()
-            elif not self.site_config:
-                self.site_config = self.get_demo_site_config()
+    @staticmethod
+    def _clean_text(value: Any) -> Optional[str]:
+        """把空白文本标准化为 None"""
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
 
-    def __initialize_site_config(self):
-        if not self.site_config:
-            logger.error(f"没有设置站点配置，已关闭站点独立配置并恢复默认配置示例，请检查配置项")
-            self.site_config = self.get_demo_site_config()
-            self.group_site_configs = {}
-            self.enable_site_config = False
-            return
-
-        # 定义允许覆盖的字段列表
-        allowed_fields = {
-            "freeleech",
-            "hr",
-            "include",
-            "exclude",
-            "size",
-            "seeder",
-            "timezone_offset",
-            "pubtime",
-            "seed_time",
-            "hr_seed_time",
-            "seed_ratio",
-            "seed_size",
-            "download_time",
-            "seed_avgspeed",
-            "seed_inactivetime",
-            "save_path",
-            "proxy_delete",
-            "qb_category",
-            "site_hr_active",
-            "site_skip_tips",
-            "del_no_free",
-            "rss_support"
-            # 当新增支持字段时，仅在此处添加字段名
-        }
+    @staticmethod
+    def _parse_number(value: Any) -> Optional[Union[int, float]]:
+        """兼容解析历史配置中的整数、浮点数和空值"""
+        if value is None or value == "":
+            return None
         try:
-            # site_config中去掉以//开始的行
-            site_config = re.sub(r'//.*?\n', '', self.site_config).strip()
-            site_configs = json.loads(site_config)
-            self.group_site_configs = {}
-            for config in site_configs:
-                sitename = config.get("sitename")
-                if not sitename:
-                    continue
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return int(number) if number.is_integer() else number
 
-                # 只从站点特定配置中获取允许的字段
-                site_specific_config = {key: config[key] for key in allowed_fields & set(config.keys())}
-
-                full_config = {key: getattr(self, key) for key in vars(self) if
-                               key not in ["group_site_configs", "site_config"]}
-                full_config.update(site_specific_config)
-
-                self.group_site_configs[sitename] = BrushConfig(config=full_config, process_site_config=False)
-        except Exception as e:
-            logger.error(f"解析站点配置失败，已停用插件并关闭站点独立配置，请检查配置项，错误详情: {e}")
-            self.group_site_configs = {}
-            self.enable_site_config = False
-            self.enabled = False
-
-    @staticmethod
-    def get_demo_site_config() -> str:
-        desc = (
-            "// 以下为配置示例，请参考：https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins.v2/brushflowlowfreq/README.md 进行配置\n"
-            "// 如与全局保持一致的配置项，请勿在站点配置中配置\n"
-            "// 注意无关内容需使用 // 注释\n")
-        config = """[{
-    "sitename": "站点1",
-    "seed_time": 96,
-    "hr_seed_time": 144
-}, {
-    "sitename": "站点2",
-    "hr": "yes",
-    "size": "10-500",
-    "seeder": "5-10",
-    "pubtime": "5-120",
-    "seed_time": 96,
-    "save_path": "/downloads/site2",
-    "hr_seed_time": 144
-}, {
-    "sitename": "站点3",
-    "freeleech": "free",
-    "hr": "yes",
-    "include": "",
-    "exclude": "",
-    "size": "10-500",
-    "seeder": "1",
-    // 用户本地时区与站点时区的时间偏移，单位为小时。例如：主机时区是UTC+8，站点时区是UTC，应配置为+8；主机时区是UTC，站点时区是UTC+8，应配置为-8
-    "timezone_offset": "+0",
-    "pubtime": "5-120",
-    "seed_time": 120,
-    "hr_seed_time": 144,
-    "seed_ratio": "",
-    "seed_size": "",
-    "download_time": "",
-    "seed_avgspeed": "",
-    "seed_inactivetime": "",
-    "save_path": "/downloads/site1",
-    "proxy_delete": false,
-    // 是否删除促销超时的未完成下载，仅当freeleech配置为free或2xfree时有效
-    "del_no_free": false,
-    "qb_category": "刷流",
-    "site_hr_active": true,
-    "site_skip_tips": true,
-    "rss_support": true
-}]"""
-        return desc + config
-
-    def get_site_config(self, sitename):
-        """
-        根据站点名称获取特定的BrushConfig实例。如果没有找到站点特定的配置，则返回全局的BrushConfig实例。
-        """
-        if not self.enable_site_config:
-            return self
-        return self if not sitename else self.group_site_configs.get(sitename, self)
-
-    @staticmethod
-    def __parse_number(value):
-        if value is None or value == "":  # 更精确地检查None或空字符串
-            return value
-        elif isinstance(value, int):  # 直接判断是否为int
-            return value
-        elif isinstance(value, float):  # 直接判断是否为float
-            return value
-        else:
-            try:
-                number = float(value)
-                # 检查number是否等于其整数形式
-                if number == int(number):
-                    return int(number)
-                else:
-                    return number
-            except (ValueError, TypeError):
-                return 0
-
-    def __format_value(self, v):
-        """
-        Format the value to mimic JSON serialization. This is now an instance method.
-        """
-        if isinstance(v, str):
-            return f'"{v}"'
-        elif isinstance(v, (int, float, bool)):
-            return str(v).lower() if isinstance(v, bool) else str(v)
-        elif isinstance(v, list):
-            return '[' + ', '.join(self.__format_value(i) for i in v) + ']'
-        elif isinstance(v, dict):
-            return '{' + ', '.join(f'"{k}": {self.__format_value(val)}' for k, val in v.items()) + '}'
-        else:
-            return str(v)
-
-    def __str__(self):
-        attrs = vars(self)
-        # Note the use of self.format_value(v) here to call the instance method
-        attrs_str = ', '.join(f'"{k}": {self.__format_value(v)}' for k, v in attrs.items())
-        return f'{{ {attrs_str} }}'
-
-    def __repr__(self):
-        return self.__str__()
+    def to_dict(self) -> Dict[str, Any]:
+        """返回可持久化和供前端编辑的任务配置"""
+        data = {"id": self.id, "name": self.name}
+        data.update({field: getattr(self, field) for field in TASK_CONFIG_FIELDS})
+        return data
 
 
 class BrushFlow(_PluginBase):
-    # region 全局定义
+    """
+    多站点独立任务刷流插件
+    """
 
-    # 插件名称
     plugin_name = "站点刷流"
-    # 插件描述
-    plugin_desc = "自动托管刷流，将会提高对应站点的访问频率。"
-    # 插件图标
+    plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush.jpg"
-    # 插件版本
-    plugin_version = "4.3.5"
-    # 插件作者
+    plugin_version = "5.0.0"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
-    # 作者主页
     author_url = "https://github.com/InfinityPacer"
-    # 插件配置项ID前缀
     plugin_config_prefix = "brushflow_"
-    # 加载顺序
     plugin_order = 21
-    # 可使用的用户级别
     auth_level = 2
 
-    # 刷流配置
-    _brush_config = None
-    # Brush任务是否启动
-    _task_brush_enable = False
-    # 订阅缓存信息
-    _subscribe_infos = None
-    # Brush定时
-    _brush_interval = 10
-    # Check定时
-    _check_interval = 5
-    # 退出事件
-    _event = threading.Event()
-    _scheduler = None
-    # tabs
-    _tabs = None
+    DATA_SCHEMA_VERSION = 2
+    MAX_RUN_HISTORY = 50
+    GLOBAL_BRUSH_TAG = "刷流"
+    TASK_DATA_NAMES = ("torrents", "archived", "unmanaged", "statistic", "runs")
 
-    # endregion
+    def init_plugin(self, config: dict = None) -> None:
+        """初始化全局开关、任务配置、运行锁和历史数据迁移"""
+        raw_config = config or {}
+        self._task_context = threading.local()
+        self._task_locks: Dict[str, threading.Lock] = {}
+        self._brush_lock = threading.Lock()
+        self._runtime_lock = threading.Lock()
+        self._runtime: Dict[str, dict] = {}
+        self._subscribe_infos: Dict[str, List[str]] = {}
+        self._enabled = bool(raw_config.get("enabled", False))
+        self._show_sidebar_nav = bool(raw_config.get("show_sidebar_nav", True))
 
-    def init_plugin(self, config: dict = None):
+        task_rows = raw_config.get("tasks") if isinstance(raw_config.get("tasks"), list) else None
+        migrated = task_rows is None and bool(raw_config.get("brushsites"))
+        if migrated:
+            task_rows = self._migrate_legacy_config(raw_config)
+        task_rows = task_rows or []
 
-        self._task_brush_enable = False
+        self._task_configs: Dict[str, BrushTaskConfig] = {}
+        for row in task_rows:
+            if not isinstance(row, dict):
+                continue
+            task = BrushTaskConfig(row)
+            if not self._validate_task_reference(task, notify=False):
+                task.enabled = False
+            self._task_configs[task.id] = task
+            self._task_locks[task.id] = threading.Lock()
+            self._runtime[task.id] = {"state": "idle", "operation": None, "last_error": None}
 
-        if not config:
-            logger.info("站点刷流任务出错，无法获取插件配置")
-            return False
+        normalized = self._current_config()
+        if migrated or raw_config != normalized:
+            self.update_config(normalized)
+        self._migrate_legacy_data()
 
-        self._tabs = config.get("_tabs", None)
+        if migrated and raw_config.get("onlyonce") and self._enabled:
+            for task in self._task_configs.values():
+                if task.enabled:
+                    ThreadHelper().submit(self.brush, task.id)
+                    ThreadHelper().submit(self.check, task.id)
 
-        # 如果配置校验没有通过，那么这里修改配置文件后退出
-        if not self.__validate_and_fix_config(config=config):
-            self._brush_config = BrushConfig(config=config)
-            self._brush_config.enabled = False
-            self.__update_config()
-            return
+    def get_state(self) -> bool:
+        """返回插件全局启用状态"""
+        return bool(getattr(self, "_enabled", False))
 
-        self._brush_config = BrushConfig(config=config)
+    @staticmethod
+    def get_command() -> List[Dict[str, Any]]:
+        """当前插件不注册远程命令"""
+        return []
 
-        brush_config = self._brush_config
+    @staticmethod
+    def get_render_mode() -> Tuple[str, str]:
+        """声明使用 Vue 联邦组件渲染插件界面"""
+        return "vue", "dist/assets"
 
-        # 这里先过滤掉已删除的站点并保存，特别注意的是，这里保留了界面选择站点时的顺序，以便后续站点随机刷流或顺序刷流
-        if brush_config.brushsites:
-            site_id_to_public_status = {site.get("id"): site.get("public") for site in SitesHelper().get_indexers()}
-            brush_config.brushsites = [
-                site_id for site_id in brush_config.brushsites
-                if site_id in site_id_to_public_status and not site_id_to_public_status[site_id]
-            ]
+    def get_sidebar_nav(self) -> List[Dict[str, Any]]:
+        """向主界面整理分组注册刷流任务入口"""
+        if not self.get_state() or not getattr(self, "_show_sidebar_nav", True):
+            return []
+        return [
+            {
+                "nav_key": "main",
+                "title": "站点刷流",
+                "icon": "mdi-sync",
+                "section": "organize",
+                "permission": "manage",
+                "order": 45,
+            }
+        ]
 
-        self.__update_config()
+    def get_api(self) -> List[Dict[str, Any]]:
+        """注册 Vue 工作台使用的刷流任务 API"""
+        return [
+            {
+                "path": "/status",
+                "endpoint": self.get_status,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "获取刷流任务总览",
+            },
+            {
+                "path": "/settings",
+                "endpoint": self.update_settings,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "更新刷流插件设置",
+            },
+            {
+                "path": "/tasks",
+                "endpoint": self.create_task,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "创建刷流任务",
+            },
+            {
+                "path": "/tasks/{task_id}",
+                "endpoint": self.get_task_detail,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "获取刷流任务详情",
+            },
+            {
+                "path": "/tasks/{task_id}",
+                "endpoint": self.update_task,
+                "methods": ["PUT"],
+                "auth": "bear",
+                "summary": "更新刷流任务",
+            },
+            {
+                "path": "/tasks/{task_id}",
+                "endpoint": self.delete_task,
+                "methods": ["DELETE"],
+                "auth": "bear",
+                "summary": "删除刷流任务",
+            },
+            {
+                "path": "/tasks/{task_id}/state",
+                "endpoint": self.update_task_state,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "启用或暂停刷流任务",
+            },
+            {
+                "path": "/tasks/{task_id}/run",
+                "endpoint": self.run_task,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "立即执行刷流刷新",
+            },
+            {
+                "path": "/tasks/{task_id}/check",
+                "endpoint": self.check_task,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "立即检查刷流种子",
+            },
+            {
+                "path": "/tasks/{task_id}/clear",
+                "endpoint": self.clear_task_data,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "清除单个刷流任务数据",
+            },
+        ]
 
-        if brush_config.clear_task:
-            self.__clear_tasks()
-            brush_config.clear_task = False
-            self.__update_config()
+    def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        """Vue 配置组件只需要接收当前配置模型"""
+        return [], self._current_config()
 
-        if brush_config.enable_site_config:
-            logger.debug(f"已开启站点独立配置，配置信息：{brush_config}")
-        else:
-            logger.debug(f"没有开启站点独立配置，配置信息：{brush_config}")
+    def get_page(self) -> List[dict]:
+        """Vue 详情组件自行通过插件 API 获取页面数据"""
+        return []
 
-        # 停止现有任务
-        self.stop_service()
+    def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], None]]:
+        """保留原有仪表板入口并改由 Vue 组件渲染"""
+        if not self.get_state():
+            return None
+        return (
+            {"cols": 12, "sm": 6, "md": 6},
+            {
+                "title": "站点刷流",
+                "subtitle": "多任务运行概览",
+                "refresh": 30,
+                "border": True,
+            },
+            None,
+        )
 
-        # 如果站点都没有配置，则不开启定时刷流服务
-        if not brush_config.brushsites:
-            logger.info(f"站点刷流定时服务停止，没有配置站点")
+    def get_service(self) -> List[Dict[str, Any]]:
+        """为每个启用任务注册独立的刷流刷新和状态检查服务"""
+        if not self.get_state():
+            return []
+        services: List[Dict[str, Any]] = []
+        for task in self._task_configs.values():
+            if not task.enabled:
+                continue
+            if task.cron:
+                try:
+                    brush_trigger: Union[str, CronTrigger] = CronTrigger.from_crontab(task.cron)
+                    brush_kwargs: Dict[str, Any] = {}
+                except ValueError as err:
+                    logger.error(f"刷流任务 [{task.name}] CRON 表达式无效：{str(err)}")
+                    brush_trigger = "interval"
+                    brush_kwargs = {"minutes": task.brush_interval}
+            else:
+                brush_trigger = "interval"
+                brush_kwargs = {"minutes": task.brush_interval}
+            services.append(
+                {
+                    "id": f"Task_{task.id}_Brush",
+                    "name": f"刷流刷新 - {task.name}",
+                    "trigger": brush_trigger,
+                    "func": self.brush,
+                    "kwargs": brush_kwargs,
+                    "func_kwargs": {"task_id": task.id},
+                }
+            )
+            services.append(
+                {
+                    "id": f"Task_{task.id}_Check",
+                    "name": f"刷流检查 - {task.name}",
+                    "trigger": "interval",
+                    "func": self.check,
+                    "kwargs": {"minutes": task.check_interval},
+                    "func_kwargs": {"task_id": task.id},
+                }
+            )
+        return services
 
-        # 如果开启&存在站点时，才需要启用后台任务
-        self._task_brush_enable = brush_config.enabled and brush_config.brushsites
-
-        # 如果下载器都没有配置，那么这里也不需要继续
-        if not brush_config.downloader:
-            brush_config.enabled = False
-            self.__update_config()
-            logger.info(f"站点刷流服务停止，没有配置下载器")
-            return
-
-        if not self.service_info:
-            return
-
-        # 检查是否启用了一次性任务
-        if brush_config.onlyonce:
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-
-            logger.info(f"站点刷流服务启动，立即运行一次")
-            self._scheduler.add_job(self.brush, "date",
-                                    run_date=datetime.now(
-                                        tz=pytz.timezone(settings.TZ)
-                                    ) + timedelta(seconds=3),
-                                    name="站点刷流服务")
-
-            logger.info(f"站点刷流检查服务启动，立即运行一次")
-            self._scheduler.add_job(self.check, "date",
-                                    run_date=datetime.now(
-                                        tz=pytz.timezone(settings.TZ)
-                                    ) + timedelta(seconds=3),
-                                    name="站点刷流检查服务")
-
-            # 关闭一次性开关
-            brush_config.onlyonce = False
-            self.__update_config()
-
-            # 存在任务则启动任务
-            if self._scheduler.get_jobs():
-                # 启动服务
-                self._scheduler.print_jobs()
-                self._scheduler.start()
+    def stop_service(self) -> None:
+        """插件不再维护私有调度器，公共服务由宿主统一停止"""
+        with getattr(self, "_runtime_lock", threading.Lock()):
+            for runtime in getattr(self, "_runtime", {}).values():
+                runtime.update({"state": "idle", "operation": None})
 
     @property
     def service_info(self) -> Optional[ServiceInfo]:
-        """
-        服务信息
-        """
-        brush_config = self.__get_brush_config()
-        service = DownloaderHelper().get_service(name=brush_config.downloader)
+        """获取当前任务绑定的下载器服务"""
+        task = self._get_task_config()
+        if not task or not task.downloader:
+            return None
+        service = DownloaderHelper().get_service(name=task.downloader)
         if not service:
-            self.__log_and_notify_error("站点刷流任务出错，获取下载器实例失败，请检查配置")
+            self._log_and_notify_error(f"刷流任务 [{task.name}] 获取下载器实例失败，请检查配置")
             return None
-
         if service.instance.is_inactive():
-            self.__log_and_notify_error("站点刷流任务出错，下载器未连接")
+            self._log_and_notify_error(f"刷流任务 [{task.name}] 下载器未连接")
             return None
-
         return service
 
     @property
     def downloader(self) -> Optional[Union[Qbittorrent, Transmission]]:
-        """
-        下载器实例
-        """
-        return self.service_info.instance if self.service_info else None
+        """返回当前任务绑定的下载器实例"""
+        service = self.service_info
+        return service.instance if service else None
 
-    def get_state(self) -> bool:
-        brush_config = self.__get_brush_config()
-        return True if brush_config and brush_config.enabled else False
+    def get_status(self) -> schemas.Response:
+        """返回全局设置、任务摘要和前端可选项"""
+        return schemas.Response(success=True, data=self._build_status_data())
 
-    @staticmethod
-    def get_command() -> List[Dict[str, Any]]:
-        pass
+    def update_settings(self, payload: BrushFlowSettingsPayload) -> schemas.Response:
+        """更新插件全局开关并刷新宿主任务调度"""
+        self._enabled = payload.enabled
+        self._show_sidebar_nav = payload.show_sidebar_nav
+        self._save_config()
+        self._refresh_scheduler()
+        return schemas.Response(success=True, data=self._build_status_data())
 
-    def get_api(self) -> List[Dict[str, Any]]:
-        pass
+    def create_task(self, payload: BrushTaskPayload) -> schemas.Response:
+        """创建一个站点与下载器均独立的刷流任务"""
+        task_data = payload.model_dump()
+        task_data["id"] = uuid.uuid4().hex
+        task = BrushTaskConfig(task_data)
+        if not self._validate_task_reference(task):
+            return schemas.Response(success=False, message="站点或下载器配置无效")
+        self._task_configs[task.id] = task
+        self._task_locks[task.id] = threading.Lock()
+        self._runtime[task.id] = {"state": "idle", "operation": None, "last_error": None}
+        self._save_config()
+        self._refresh_scheduler()
+        return schemas.Response(success=True, data=self._build_task_detail(task.id))
 
-    def get_service(self) -> List[Dict[str, Any]]:
-        """
-        注册插件公共服务
-        [{
-            "id": "服务ID",
-            "name": "服务名称",
-            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
-            "func": self.xxx,
-            "kwargs": {} # 定时器参数
-        }]
-        """
-        services = []
+    def get_task_detail(
+        self,
+        task_id: str,
+        state: str = Query("active", pattern="^(active|deleted|all)$"),
+        page: int = Query(1, ge=1),
+        page_size: int = Query(50, ge=10, le=200),
+    ) -> schemas.Response:
+        """分页返回任务配置、统计、诊断记录和种子明细"""
+        if task_id not in self._task_configs:
+            return schemas.Response(success=False, message="刷流任务不存在")
+        return schemas.Response(
+            success=True,
+            data=self._build_task_detail(task_id, state=state, page=page, page_size=page_size),
+        )
 
-        brush_config = self.__get_brush_config()
-        if not brush_config:
-            return services
+    def update_task(self, task_id: str, payload: BrushTaskPayload) -> schemas.Response:
+        """更新任务配置并保持原任务 ID 与历史数据关联"""
+        if task_id not in self._task_configs:
+            return schemas.Response(success=False, message="刷流任务不存在")
+        if self._is_task_busy(task_id):
+            return schemas.Response(success=False, message="任务正在执行，请稍后再修改")
+        task_data = payload.model_dump()
+        task_data["id"] = task_id
+        task = BrushTaskConfig(task_data)
+        if not self._validate_task_reference(task):
+            return schemas.Response(success=False, message="站点或下载器配置无效")
+        self._task_configs[task_id] = task
+        self._save_config()
+        self._refresh_scheduler()
+        return schemas.Response(success=True, data=self._build_task_detail(task_id))
 
-        if self._task_brush_enable:
-            if brush_config.cron:
-                values = brush_config.cron.split()
-                values[0] = f"{datetime.now().minute % 10}/10"
-                cron = " ".join(values)
-                logger.info(f"站点刷流定时服务启动，执行周期 {cron}")
-                cron_trigger = CronTrigger.from_crontab(cron)
-                services.append({
-                    "id": "BrushFlow",
-                    "name": "站点刷流服务",
-                    "trigger": cron_trigger,
-                    "func": self.brush
-                })
-            else:
-                logger.info(f"站点刷流定时服务启动，时间间隔 {self._brush_interval} 分钟")
-                services.append({
-                    "id": "BrushFlow",
-                    "name": "站点刷流服务",
-                    "trigger": "interval",
-                    "func": self.brush,
-                    "kwargs": {"minutes": self._brush_interval}
-                })
+    def delete_task(self, task_id: str) -> schemas.Response:
+        """删除没有活跃种子的任务及其独立历史数据"""
+        task = self._task_configs.get(task_id)
+        if not task:
+            return schemas.Response(success=False, message="刷流任务不存在")
+        if self._is_task_busy(task_id):
+            return schemas.Response(success=False, message="任务正在执行，请稍后再删除")
+        torrents = self._get_task_data(task_id, "torrents") or {}
+        active_count = sum(1 for item in torrents.values() if not item.get("deleted"))
+        if active_count:
+            return schemas.Response(success=False, message="任务仍有活跃种子，请先处理后再删除")
+        self._task_configs.pop(task_id, None)
+        self._task_locks.pop(task_id, None)
+        self._runtime.pop(task_id, None)
+        for data_name in self.TASK_DATA_NAMES:
+            self.del_data(self._task_data_key(task_id, data_name))
+        self._save_config()
+        self._refresh_scheduler()
+        return schemas.Response(success=True, data=self._build_status_data())
 
-        if brush_config.enabled:
-            logger.info(f"站点刷流检查定时服务启动，时间间隔 {self._check_interval} 分钟")
-            services.append({
-                "id": "BrushFlowCheck",
-                "name": "站点刷流检查服务",
-                "trigger": "interval",
-                "func": self.check,
-                "kwargs": {"minutes": self._check_interval}
-            })
+    def update_task_state(self, task_id: str, payload: BrushTaskStatePayload) -> schemas.Response:
+        """启用或暂停单个任务并更新对应宿主调度"""
+        task = self._task_configs.get(task_id)
+        if not task:
+            return schemas.Response(success=False, message="刷流任务不存在")
+        task.enabled = payload.enabled
+        self._save_config()
+        self._refresh_scheduler()
+        return schemas.Response(success=True, data=self._build_task_detail(task_id))
 
-        if not services:
-            logger.info("站点刷流服务未开启")
+    def run_task(self, task_id: str) -> schemas.Response:
+        """异步提交单个任务的立即刷流刷新"""
+        return self._submit_task_operation(task_id, "brush")
 
-        return services
+    def check_task(self, task_id: str) -> schemas.Response:
+        """异步提交单个任务的立即状态检查"""
+        return self._submit_task_operation(task_id, "check")
 
-    def __get_total_elements(self) -> List[dict]:
-        """
-        组装汇总元素
-        """
-        # 统计数据
-        statistic_info = self.__get_statistic_info()
-        # 总上传量
-        total_uploaded = StringUtils.str_filesize(statistic_info.get("uploaded") or 0)
-        # 总下载量
-        total_downloaded = StringUtils.str_filesize(statistic_info.get("downloaded") or 0)
-        # 下载种子数
-        total_count = statistic_info.get("count") or 0
-        # 删除种子数
-        total_deleted = statistic_info.get("deleted") or 0
-        # 待归档种子数
-        total_unarchived = statistic_info.get("unarchived") or 0
-        # 活跃种子数
-        total_active = statistic_info.get("active") or 0
-        # 活跃上传量
-        total_active_uploaded = StringUtils.str_filesize(statistic_info.get("active_uploaded") or 0)
-        # 活跃下载量
-        total_active_downloaded = StringUtils.str_filesize(statistic_info.get("active_downloaded") or 0)
+    def clear_task_data(self, task_id: str) -> schemas.Response:
+        """清除单个任务的统计、历史与托管记录"""
+        if task_id not in self._task_configs:
+            return schemas.Response(success=False, message="刷流任务不存在")
+        if self._is_task_busy(task_id):
+            return schemas.Response(success=False, message="任务正在执行，请稍后再清除")
+        for data_name in self.TASK_DATA_NAMES:
+            self._save_task_data(task_id, data_name, {} if data_name != "runs" else [])
+        return schemas.Response(success=True, data=self._build_task_detail(task_id))
 
-        return [
-            # 总上传量
-            {
-                'component': 'VCol',
-                'props': {
-                    'cols': 12,
-                    'md': 3,
-                    'sm': 6
-                },
-                'content': [
-                    {
-                        'component': 'VCard',
-                        'props': {
-                            'variant': 'tonal',
-                        },
-                        'content': [
-                            {
-                                'component': 'VCardText',
-                                'props': {
-                                    'class': 'd-flex align-center',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAvatar',
-                                        'props': {
-                                            'rounded': True,
-                                            'variant': 'text',
-                                            'class': 'me-3'
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VImg',
-                                                'props': {
-                                                    'src': '/plugin_icon/upload.png'
-                                                }
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'div',
-                                        'content': [
-                                            {
-                                                'component': 'span',
-                                                'props': {
-                                                    'class': 'text-caption'
-                                                },
-                                                'text': '总上传量 / 活跃'
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'props': {
-                                                    'class': 'd-flex align-center flex-wrap'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-h6'
-                                                        },
-                                                        'text': f"{total_uploaded} / {total_active_uploaded}"
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                ]
-            },
-            # 总下载量
-            {
-                'component': 'VCol',
-                'props': {
-                    'cols': 12,
-                    'md': 3,
-                    'sm': 6
-                },
-                'content': [
-                    {
-                        'component': 'VCard',
-                        'props': {
-                            'variant': 'tonal',
-                        },
-                        'content': [
-                            {
-                                'component': 'VCardText',
-                                'props': {
-                                    'class': 'd-flex align-center',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAvatar',
-                                        'props': {
-                                            'rounded': True,
-                                            'variant': 'text',
-                                            'class': 'me-3'
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VImg',
-                                                'props': {
-                                                    'src': '/plugin_icon/download.png'
-                                                }
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'div',
-                                        'content': [
-                                            {
-                                                'component': 'span',
-                                                'props': {
-                                                    'class': 'text-caption'
-                                                },
-                                                'text': '总下载量 / 活跃'
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'props': {
-                                                    'class': 'd-flex align-center flex-wrap'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-h6'
-                                                        },
-                                                        'text': f"{total_downloaded} / {total_active_downloaded}"
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                ]
-            },
-            # 下载种子数
-            {
-                'component': 'VCol',
-                'props': {
-                    'cols': 12,
-                    'md': 3,
-                    'sm': 6
-                },
-                'content': [
-                    {
-                        'component': 'VCard',
-                        'props': {
-                            'variant': 'tonal',
-                        },
-                        'content': [
-                            {
-                                'component': 'VCardText',
-                                'props': {
-                                    'class': 'd-flex align-center',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAvatar',
-                                        'props': {
-                                            'rounded': True,
-                                            'variant': 'text',
-                                            'class': 'me-3'
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VImg',
-                                                'props': {
-                                                    'src': '/plugin_icon/seed.png'
-                                                }
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'div',
-                                        'content': [
-                                            {
-                                                'component': 'span',
-                                                'props': {
-                                                    'class': 'text-caption'
-                                                },
-                                                'text': '下载种子数 / 活跃'
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'props': {
-                                                    'class': 'd-flex align-center flex-wrap'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-h6'
-                                                        },
-                                                        'text': f"{total_count} / {total_active}"
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                ]
-            },
-            # 删除种子数
-            {
-                'component': 'VCol',
-                'props': {
-                    'cols': 12,
-                    'md': 3,
-                    'sm': 6
-                },
-                'content': [
-                    {
-                        'component': 'VCard',
-                        'props': {
-                            'variant': 'tonal',
-                        },
-                        'content': [
-                            {
-                                'component': 'VCardText',
-                                'props': {
-                                    'class': 'd-flex align-center',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAvatar',
-                                        'props': {
-                                            'rounded': True,
-                                            'variant': 'text',
-                                            'class': 'me-3'
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VImg',
-                                                'props': {
-                                                    'src': '/plugin_icon/delete.png'
-                                                }
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'div',
-                                        'content': [
-                                            {
-                                                'component': 'span',
-                                                'props': {
-                                                    'class': 'text-caption'
-                                                },
-                                                'text': '删除种子数 / 待归档'
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'props': {
-                                                    'class': 'd-flex align-center flex-wrap'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-h6'
-                                                        },
-                                                        'text': f"{total_deleted} / {total_unarchived}"
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            },
-        ]
+    @eventmanager.register(EventType.PluginReload)
+    def reload(self, event: Event) -> None:
+        """插件重载后重新注册动态 API 和任务调度"""
+        if event and event.event_data.get("plugin_id") == self.__class__.__name__:
+            register_plugin_api(plugin_id=self.__class__.__name__)
+            Scheduler().update_plugin_job(self.__class__.__name__)
 
-    def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
-        """
-        获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、全局配置（自动刷新等）；3、仪表板页面元素配置json（含数据）
-        1、col配置参考：
-        {
-            "cols": 12, "md": 6
-        }
-        2、全局配置参考：
-        {
-            "refresh": 10 // 自动刷新时间，单位秒
-        }
-        3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
-        """
-        # 列配置
-        cols = {
-            "cols": 12
-        }
-        # 全局配置
-        attrs = {}
-        # 拼装页面元素
-        elements = [
-            {
-                'component': 'VRow',
-                'content': self.__get_total_elements()
-            }
-        ]
-        return cols, attrs, elements
-
-    def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """
-        拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
-        """
-
-        # 站点选项
-        site_options = [{"title": site.get("name"), "value": site.get("id")}
-                        for site in SitesHelper().get_indexers()]
-        # 下载器选项
-        downloader_options = [{"title": config.name, "value": config.name}
-                              for config in DownloaderHelper().get_configs().values()]
-        return [
-            {
-                'component': 'VForm',
-                'content': [
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'enabled',
-                                            'label': '启用插件',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'notify',
-                                            'label': '发送通知',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'onlyonce',
-                                            'label': '立即运行一次',
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSelect',
-                                        'props': {
-                                            'multiple': True,
-                                            'chips': True,
-                                            'clearable': True,
-                                            'model': 'brushsites',
-                                            'label': '刷流站点',
-                                            'items': site_options
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 3
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSelect',
-                                        'props': {
-                                            'model': 'downloader',
-                                            'label': '下载器',
-                                            'items': downloader_options
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 3
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCronField',
-                                        'props': {
-                                            'model': 'cron',
-                                            'label': '执行周期',
-                                            'placeholder': '如：0 0-1 * * FRI,SUN'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 3
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'active_time_range',
-                                            'label': '开启时间段',
-                                            'placeholder': '如：00:00-08:00'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 3
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'delete_size_range',
-                                            'label': '动态删种阈值（GB）',
-                                            'placeholder': '如：500 或 500-1000，达到后删除任务'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VTabs',
-                        'props': {
-                            'model': '_tabs',
-                            'style': {
-                                'margin-top': '8px',
-                                'margin-bottom': '16px'
-                            },
-                            'stacked': True,
-                            'fixed-tabs': True
-                        },
-                        'content': [
-                            {
-                                'component': 'VTab',
-                                'props': {
-                                    'value': 'base_tab'
-                                },
-                                'text': '基本配置'
-                            }, {
-                                'component': 'VTab',
-                                'props': {
-                                    'value': 'download_tab'
-                                },
-                                'text': '选种规则'
-                            }, {
-                                'component': 'VTab',
-                                'props': {
-                                    'value': 'delete_tab'
-                                },
-                                'text': '删除规则'
-                            }, {
-                                'component': 'VTab',
-                                'props': {
-                                    'value': 'other_tab'
-                                },
-                                'text': '更多配置'
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VWindow',
-                        'props': {
-                            'model': '_tabs'
-                        },
-                        'content': [
-                            {
-                                'component': 'VWindowItem',
-                                'props': {
-                                    'value': 'base_tab'
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VRow',
-                                        'props': {
-                                            'style': {
-                                                'margin-top': '0px'
-                                            }
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'maxdlcount',
-                                                            'label': '同时下载任务数',
-                                                            'placeholder': '达到后停止新增任务'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'disksize',
-                                                            'label': '保种体积（GB）',
-                                                            'placeholder': '如：500，达到后停止新增任务'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'qb_category',
-                                                            'label': '种子分类',
-                                                            'placeholder': '仅支持qBittorrent，需提前创建'
-                                                        }
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'VRow',
-                                        'content': [
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'maxupspeed',
-                                                            'label': '总上传带宽（KB/s）',
-                                                            'placeholder': '达到后停止新增任务'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'maxdlspeed',
-                                                            'label': '总下载带宽（KB/s）',
-                                                            'placeholder': '达到后停止新增任务'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'save_path',
-                                                            'label': '保存目录',
-                                                            'placeholder': '留空自动'
-                                                        }
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'VRow',
-                                        'content': [
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'up_speed',
-                                                            'label': '单任务上传限速（KB/s）',
-                                                            'placeholder': '种子上传限速'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'dl_speed',
-                                                            'label': '单任务下载限速（KB/s）',
-                                                            'placeholder': '种子下载限速'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'auto_archive_days',
-                                                            'label': '自动归档记录天数',
-                                                            'placeholder': '超过此天数后自动归档',
-                                                            'type': 'number',
-                                                            "min": "0"
-                                                        }
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VWindowItem',
-                                'props': {
-                                    'value': 'download_tab'
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VRow',
-                                        'props': {
-                                            'style': {
-                                                'margin-top': '0px'
-                                            }
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSelect',
-                                                        'props': {
-                                                            'model': 'hr',
-                                                            'label': '排除H&R',
-                                                            'items': [
-                                                                {'title': '是', 'value': 'yes'},
-                                                                {'title': '否', 'value': 'no'},
-                                                            ]
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSelect',
-                                                        'props': {
-                                                            'model': 'freeleech',
-                                                            'label': '促销',
-                                                            'items': [
-                                                                {'title': '全部（包括普通）', 'value': ''},
-                                                                {'title': '免费', 'value': 'free'},
-                                                                {'title': '2X免费', 'value': '2xfree'},
-                                                            ]
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'pubtime',
-                                                            'label': '发布时间（分钟）',
-                                                            'placeholder': '如：5 或 5-10'
-                                                        }
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'VRow',
-                                        'content': [
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'size',
-                                                            'label': '种子大小（GB）',
-                                                            'placeholder': '如：5 或 5-10'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'seeder',
-                                                            'label': '做种人数',
-                                                            'placeholder': '如：5 或 5-10'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'include',
-                                                            'label': '包含规则',
-                                                            'placeholder': '支持正式表达式'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'exclude',
-                                                            'label': '排除规则',
-                                                            'placeholder': '支持正式表达式'
-                                                        }
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VWindowItem',
-                                'props': {
-                                    'value': 'delete_tab'
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VRow',
-                                        'props': {
-                                            'style': {
-                                                'margin-top': '0px'
-                                            }
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'seed_time',
-                                                            'label': '做种时间（小时）',
-                                                            'placeholder': '达到后删除任务'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'hr_seed_time',
-                                                            'label': 'H&R做种时间（小时）',
-                                                            'placeholder': '达到后删除任务'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'seed_ratio',
-                                                            'label': '分享率',
-                                                            'placeholder': '达到后删除任务'
-                                                        }
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'VRow',
-                                        'content': [
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'seed_size',
-                                                            'label': '上传量（GB）',
-                                                            'placeholder': '达到后删除任务'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'seed_avgspeed',
-                                                            'label': '平均上传速度（KB/s）',
-                                                            'placeholder': '低于时删除任务'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'download_time',
-                                                            'label': '下载超时时间（小时）',
-                                                            'placeholder': '达到后删除任务'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'seed_inactivetime',
-                                                            'label': '未活动时间（分钟）',
-                                                            'placeholder': '超过时删除任务'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VTextField',
-                                                        'props': {
-                                                            'model': 'delete_except_tags',
-                                                            'label': '删除排除标签',
-                                                            'placeholder': '如：MOVIEPILOT,H&R'
-                                                        }
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VWindowItem',
-                                'props': {
-                                    'value': 'other_tab'
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VRow',
-                                        'props': {
-                                            'style': {
-                                                'margin-top': '-16px'
-                                            }
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSwitch',
-                                                        'props': {
-                                                            'model': 'brush_sequential',
-                                                            'label': '站点顺序刷流',
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSwitch',
-                                                        'props': {
-                                                            'model': 'except_subscribe',
-                                                            'label': '排除订阅（实验性功能）',
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSwitch',
-                                                        'props': {
-                                                            'model': 'proxy_delete',
-                                                            'label': '动态删除种子（实验性功能）',
-                                                        }
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'VRow',
-                                        'content': [
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSwitch',
-                                                        'props': {
-                                                            'model': 'clear_task',
-                                                            'label': '清除统计数据',
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSwitch',
-                                                        'props': {
-                                                            'model': 'enable_site_config',
-                                                            'label': '站点独立配置',
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                "component": "VCol",
-                                                "props": {
-                                                    "cols": 12,
-                                                    "md": 4
-                                                },
-                                                "content": [
-                                                    {
-                                                        "component": "VSwitch",
-                                                        "props": {
-                                                            "model": "dialog_closed",
-                                                            "label": "打开站点配置窗口"
-                                                        }
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        'component': 'VRow',
-                                        'content': [
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSwitch',
-                                                        'props': {
-                                                            'model': 'del_no_free',
-                                                            'label': '删除促销过期的未完成下载',
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VCol',
-                                                'props': {
-                                                    'cols': 12,
-                                                    'md': 4
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VSwitch',
-                                                        'props': {
-                                                            'model': 'rss_support',
-                                                            'label': '启用RSS支持',
-                                                        }
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'props': {
-                            'style': {
-                                'margin-top': '12px'
-                            },
-                        },
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'success',
-                                            'variant': 'tonal'
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'span',
-                                                'text': '注意：详细配置说明以及刷流规则请参考：'
-                                            },
-                                            {
-                                                'component': 'a',
-                                                'props': {
-                                                    'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins.v2/brushflowlowfreq/README.md',
-                                                    'target': '_blank'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'u',
-                                                        'text': 'README'
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'error',
-                                            'variant': 'tonal',
-                                            'text': '注意：排除H&R并不保证能完全适配所有站点（部分站点在列表页不显示H&R标志，但实际上是有H&R的），请注意核对使用'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VDialog",
-                        "props": {
-                            "model": "dialog_closed",
-                            "max-width": "65rem",
-                            "overlay-class": "v-dialog--scrollable v-overlay--scroll-blocked",
-                            "content-class": "v-card v-card--density-default v-card--variant-elevated rounded-t"
-                        },
-                        "content": [
-                            {
-                                "component": "VCard",
-                                "props": {
-                                    "title": "设置站点配置"
-                                },
-                                "content": [
-                                    {
-                                        "component": "VDialogCloseBtn",
-                                        "props": {
-                                            "model": "dialog_closed"
-                                        }
-                                    },
-                                    {
-                                        "component": "VCardText",
-                                        "props": {},
-                                        "content": [
-                                            {
-                                                'component': 'VRow',
-                                                'content': [
-                                                    {
-                                                        'component': 'VCol',
-                                                        'props': {
-                                                            'cols': 12,
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'VAceEditor',
-                                                                'props': {
-                                                                    'modelvalue': 'site_config',
-                                                                    'lang': 'json',
-                                                                    'theme': 'monokai',
-                                                                    'style': 'height: 30rem',
-                                                                }
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VRow',
-                                                'content': [
-                                                    {
-                                                        'component': 'VCol',
-                                                        'props': {
-                                                            'cols': 12,
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'VAlert',
-                                                                'props': {
-                                                                    'type': 'info',
-                                                                    'variant': 'tonal'
-                                                                },
-                                                                'content': [
-                                                                    {
-                                                                        'component': 'span',
-                                                                        'text': '注意：只有启用站点独立配置时，该配置项才会生效，详细配置参考：'
-                                                                    },
-                                                                    {
-                                                                        'component': 'a',
-                                                                        'props': {
-                                                                            'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins.v2/brushflowlowfreq/README.md',
-                                                                            'target': '_blank'
-                                                                        },
-                                                                        'content': [
-                                                                            {
-                                                                                'component': 'u',
-                                                                                'text': 'README'
-                                                                            }
-                                                                        ]
-                                                                    }
-                                                                ]
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            }
-        ], {
-            "enabled": False,
-            "notify": True,
-            "onlyonce": False,
-            "clear_task": False,
-            "delete_except_tags": f"{settings.TORRENT_TAG},H&R" if settings.TORRENT_TAG else "H&R",
-            "except_subscribe": True,
-            "brush_sequential": False,
-            "proxy_delete": False,
-            "del_no_free": False,
-            "freeleech": "free",
-            "hr": "yes",
-            "enable_site_config": False,
-            "site_config": BrushConfig.get_demo_site_config(),
-            "rss_support": False
+    def _current_config(self) -> Dict[str, Any]:
+        """返回插件当前可持久化配置快照"""
+        return {
+            "schema_version": self.DATA_SCHEMA_VERSION,
+            "enabled": bool(getattr(self, "_enabled", False)),
+            "show_sidebar_nav": bool(getattr(self, "_show_sidebar_nav", True)),
+            "tasks": [task.to_dict() for task in getattr(self, "_task_configs", {}).values()],
         }
 
-    def get_page(self) -> List[dict]:
-        # 种子明细
-        torrents = self.get_data("torrents") or {}
+    def _save_config(self) -> None:
+        """保存全局设置和全部任务配置"""
+        self.update_config(self._current_config())
 
-        if not torrents:
-            return [
-                {
-                    'component': 'div',
-                    'text': '暂无数据',
-                    'props': {
-                        'class': 'text-center',
-                    }
-                }
-            ]
-        else:
-            data_list = torrents.values()
-            # 按time倒序排序
-            data_list = sorted(data_list, key=lambda x: x.get("time") or 0, reverse=True)
-
-        # 表格标题
-        headers = [
-            {'title': '站点', 'key': 'site', 'sortable': True},
-            {'title': '标题', 'key': 'title', 'sortable': True},
-            {'title': '大小', 'key': 'size', 'sortable': True},
-            {'title': '上传量', 'key': 'uploaded', 'sortable': True},
-            {'title': '下载量', 'key': 'downloaded', 'sortable': True},
-            {'title': '分享率', 'key': 'ratio', 'sortable': True},
-            {'title': '状态', 'key': 'status', 'sortable': True},
-        ]
-        # 种子数据明细
-        items = [
-            {
-                'site': data.get("site_name"),
-                'title': data.get("title"),
-                'size': StringUtils.str_filesize(data.get("size")),
-                'uploaded': StringUtils.str_filesize(data.get("uploaded") or 0),
-                'downloaded': StringUtils.str_filesize(data.get("downloaded") or 0),
-                'ratio': round(data.get('ratio') or 0, 2),
-                'status': "已删除" if data.get("deleted") else "正常"
-            } for data in data_list
-        ]
-
-        # 拼装页面
-        return [
-            {
-                'component': 'VRow',
-                'props': {
-                    'style': {
-                        'overflow': 'hidden',
-                    }
-                },
-                'content': self.__get_total_elements() + [
-                    # 种子明细
-                    {
-                        'component': 'VRow',
-                        'props': {
-                            'class': 'd-none d-sm-block',
-                        },
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VDataTableVirtual',
-                                        'props': {
-                                            'class': 'text-sm',
-                                            'headers': headers,
-                                            'items': items,
-                                            'height': '30rem',
-                                            'density': 'compact',
-                                            'fixed-header': True,
-                                            'hide-no-data': True,
-                                            'hover': True
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            }
-        ]
-
-    def stop_service(self):
-        """
-        退出插件
-        """
+    def _refresh_scheduler(self) -> None:
+        """通知宿主按最新任务列表重建插件服务"""
         try:
-            if self._scheduler:
-                self._scheduler.remove_all_jobs()
-                if self._scheduler.running:
-                    self._event.set()
-                    self._scheduler.shutdown()
-                    self._event.clear()
-                self._scheduler = None
-        except Exception as e:
-            print(str(e))
+            Scheduler().update_plugin_job(self.__class__.__name__)
+        except Exception as err:
+            logger.error(f"更新站点刷流调度失败：{str(err)}")
 
-    # region Brush
+    def _validate_task_reference(self, task: BrushTaskConfig, notify: bool = True) -> bool:
+        """校验任务引用的私有站点和下载器是否仍然存在"""
+        site = SiteOper().get(task.site_id)
+        downloader_configs = DownloaderHelper().get_configs()
+        valid = bool(
+            site
+            and not getattr(site, "public", False)
+            and task.downloader
+            and task.downloader in downloader_configs
+        )
+        if notify and not valid:
+            self._log_and_notify_error(f"刷流任务 [{task.name}] 引用的站点或下载器不存在")
+        return valid
 
-    def brush(self):
-        """
-        定时刷流，添加下载任务
-        """
-        brush_config = self.__get_brush_config()
-
-        if not brush_config.brushsites or not brush_config.downloader or not self.downloader:
-            return
-
-        if not self.__is_current_time_in_range():
-            logger.info(f"当前不在指定的刷流时间区间内，刷流操作将暂时暂停")
-            return
-
-        with lock:
-            logger.info(f"开始执行刷流任务 ...")
-
-            torrent_tasks: Dict[str, dict] = self.get_data("torrents") or {}
-            torrents_size = self.__calculate_seeding_torrents_size(torrent_tasks=torrent_tasks)
-
-            # 判断能否通过保种体积前置条件
-            size_condition_passed, reason = self.__evaluate_size_condition_for_brush(torrents_size=torrents_size)
-            self.__log_brush_conditions(passed=size_condition_passed, reason=reason)
-            if not size_condition_passed:
-                logger.info(f"刷流任务执行完成")
-                return
-
-            # 判断能否通过刷流前置条件
-            pre_condition_passed, reason = self.__evaluate_pre_conditions_for_brush()
-            self.__log_brush_conditions(passed=pre_condition_passed, reason=reason)
-            if not pre_condition_passed:
-                logger.info(f"刷流任务执行完成")
-                return
-
-            statistic_info = self.__get_statistic_info()
-
-            # 获取所有站点的信息，并过滤掉不存在的站点
-            site_infos = []
-            for siteid in brush_config.brushsites:
-                siteinfo = SiteOper().get(siteid)
-                if siteinfo:
-                    site_infos.append(siteinfo)
-
-            # 根据是否开启顺序刷流来决定是否需要打乱顺序
-            if not brush_config.brush_sequential:
-                random.shuffle(site_infos)
-
-            logger.info(f"即将针对站点 {', '.join(site.name for site in site_infos)} 开始刷流")
-
-            # 获取订阅标题
-            subscribe_titles = self.__get_subscribe_titles()
-
-            # 处理所有站点
-            for site in site_infos:
-                # 如果站点刷流没有正确响应，说明没有通过前置条件，其他站点也不需要继续刷流了
-                if not self.__brush_site_torrents(siteid=site.id, torrent_tasks=torrent_tasks,
-                                                  statistic_info=statistic_info,
-                                                  subscribe_titles=subscribe_titles):
-                    logger.info(f"站点 {site.name} 刷流中途结束，停止后续刷流")
-                    break
-                else:
-                    logger.info(f"站点 {site.name} 刷流完成")
-
-            # 保存数据
-            self.save_data("torrents", torrent_tasks)
-            # 保存统计数据
-            self.save_data("statistic", statistic_info)
-            logger.info(f"刷流任务执行完成")
-
-    def __brush_site_torrents(self, siteid, torrent_tasks: Dict[str, dict], statistic_info: Dict[str, int],
-                              subscribe_titles: Set[str]) -> bool:
-        """
-        针对站点进行刷流
-        """
-        siteinfo = SiteOper().get(siteid)
-        if not siteinfo:
-            logger.warning(f"站点不存在：{siteid}")
-            return True
-
-        logger.info(f"开始获取站点 {siteinfo.name} 的新种子 ...")
-
-        # 根据rss_support配置决定使用browse还是rss方法获取种子
-        brush_config = self.__get_brush_config(sitename=siteinfo.name)
-        if brush_config.rss_support:
-            torrents = TorrentsChain().rss(domain=siteinfo.domain)
-        else:
-            torrents = TorrentsChain().browse(domain=siteinfo.domain)
-
-        if not torrents:
-            logger.info(f"站点 {siteinfo.name} 没有获取到种子")
-            return True
-
-        brush_config = self.__get_brush_config(sitename=siteinfo.name)
-
-        if brush_config.site_hr_active:
-            logger.info(f"站点 {siteinfo.name} 已开启全站H&R选项，所有种子设置为H&R种子")
-
-        # 排除包含订阅的种子
-        if brush_config.except_subscribe:
-            torrents = self.__filter_torrents_contains_subscribe(torrents=torrents, subscribe_titles=subscribe_titles)
-
-        # 按发布日期降序排列
-        torrents.sort(key=lambda x: x.pubdate or '', reverse=True)
-
-        torrents_size = self.__calculate_seeding_torrents_size(torrent_tasks=torrent_tasks)
-
-        logger.info(f"正在准备种子刷流，数量 {len(torrents)}")
-
-        # 过滤种子
-        for torrent in torrents:
-            # 判断能否通过刷流前置条件
-            pre_condition_passed, reason = self.__evaluate_pre_conditions_for_brush(include_network_conditions=False)
-            self.__log_brush_conditions(passed=pre_condition_passed, reason=reason)
-            if not pre_condition_passed:
-                return False
-
-            logger.debug(f"种子详情：{torrent}")
-
-            # 判断能否通过保种体积刷流条件
-            size_condition_passed, reason = self.__evaluate_size_condition_for_brush(torrents_size=torrents_size,
-                                                                                     add_torrent_size=torrent.size)
-            self.__log_brush_conditions(passed=size_condition_passed, reason=reason, torrent=torrent)
-            if not size_condition_passed:
+    def _migrate_legacy_config(self, config: dict) -> List[dict]:
+        """把旧全局配置和站点覆盖 JSON 拆分为一站点一任务"""
+        overrides = self._parse_legacy_site_overrides(config)
+        tasks: List[dict] = []
+        for site_id in config.get("brushsites") or []:
+            site = SiteOper().get(site_id)
+            if not site or getattr(site, "public", False):
                 continue
-
-            # 判断能否通过刷流条件
-            condition_passed, reason = self.__evaluate_conditions_for_brush(torrent=torrent,
-                                                                            torrent_tasks=torrent_tasks)
-            self.__log_brush_conditions(passed=condition_passed, reason=reason, torrent=torrent)
-            if not condition_passed:
-                continue
-
-            # 添加下载任务
-            hash_string = self.__download(torrent=torrent)
-            if not hash_string:
-                logger.warning(f"{torrent.title} 添加刷流任务失败！")
-                continue
-
-            # 触发刷流下载时间并保存任务信息
-            torrent_task = {
-                "site": siteinfo.id,
-                "site_name": siteinfo.name,
-                "title": torrent.title,
-                "size": torrent.size,
-                "pubdate": torrent.pubdate,
-                # "site_cookie": torrent.site_cookie,
-                # "site_ua": torrent.site_ua,
-                # "site_proxy": torrent.site_proxy,
-                # "site_order": torrent.site_order,
-                "description": torrent.description,
-                "imdbid": torrent.imdbid,
-                # "enclosure": torrent.enclosure,
-                "page_url": torrent.page_url,
-                # "seeders": torrent.seeders,
-                # "peers": torrent.peers,
-                # "grabs": torrent.grabs,
-                "date_elapsed": torrent.date_elapsed,
-                "freedate": torrent.freedate,
-                "uploadvolumefactor": torrent.uploadvolumefactor,
-                "downloadvolumefactor": torrent.downloadvolumefactor,
-                "hit_and_run": torrent.hit_and_run or brush_config.site_hr_active,
-                "volume_factor": torrent.volume_factor,
-                "freedate_diff": torrent.freedate_diff,
-                # "labels": torrent.labels,
-                # "pri_order": torrent.pri_order,
-                # "category": torrent.category,
-                "ratio": 0,
-                "downloaded": 0,
-                "uploaded": 0,
-                "seeding_time": 0,
-                "deleted": False,
-                "time": time.time()
-            }
-
-            self.eventmanager.send_event(etype=EventType.PluginTriggered, data={
-                "plugin_id": self.__class__.__name__,
-                "event_name": "brushflow_download_added",
-                "hash": hash_string,
-                "data": torrent_task,
-                "downloader": self.service_info.name
-            })
-            torrent_tasks[hash_string] = torrent_task
-
-            # 统计数据
-            torrents_size += torrent.size
-            statistic_info["count"] += 1
-            logger.info(f"站点 {siteinfo.name}，新增刷流种子下载：{torrent.title}|{torrent.description}")
-            self.__send_add_message(torrent)
-
-        return True
-
-    def __evaluate_size_condition_for_brush(self, torrents_size: float,
-                                            add_torrent_size: float = 0.0) -> Tuple[bool, Optional[str]]:
-        """
-        过滤体积不符合条件的种子
-        """
-        brush_config = self.__get_brush_config()
-
-        # 如果没有明确指定增加的种子大小，则检查配置中是否有种子大小下限，如果有，使用这个大小作为增加的种子大小
-        preset_condition = False
-        if not add_torrent_size and brush_config.size:
-            size_limits = [float(size) * 1024 ** 3 for size in brush_config.size.split("-")]
-            add_torrent_size = size_limits[0]  # 使用配置的种子大小下限
-            preset_condition = True
-
-        total_size = self.__bytes_to_gb(torrents_size + add_torrent_size)  # 预计总做种体积
-
-        def generate_message(config):
-            if add_torrent_size:
-                if preset_condition:
-                    return (f"当前做种体积 {self.__bytes_to_gb(torrents_size):.1f} GB，"
-                            f"刷流种子下限 {self.__bytes_to_gb(add_torrent_size):.1f} GB，"
-                            f"预计做种体积 {total_size:.1f} GB，"
-                            f"超过设定的保种体积 {config} GB，暂时停止新增任务")
-                else:
-                    return (f"当前做种体积 {self.__bytes_to_gb(torrents_size):.1f} GB，"
-                            f"刷流种子大小 {self.__bytes_to_gb(add_torrent_size):.1f} GB，"
-                            f"预计做种体积 {total_size:.1f} GB，"
-                            f"超过设定的保种体积 {config} GB")
-            else:
-                return (f"当前做种体积 {self.__bytes_to_gb(torrents_size):.1f} GB，"
-                        f"超过设定的保种体积 {config} GB，暂时停止新增任务")
-
-        reasons = [
-            ("disksize",
-             lambda config: torrents_size + add_torrent_size > float(config) * 1024 ** 3, generate_message)
-        ]
-
-        for condition, check, message in reasons:
-            config_value = getattr(brush_config, condition, None)
-            if config_value and check(config_value):
-                reason = message(config_value)
-                return False, reason
-
-        return True, None
-
-    def __evaluate_pre_conditions_for_brush(self, include_network_conditions: bool = True) \
-            -> Tuple[bool, Optional[str]]:
-        """
-        前置过滤不符合条件的种子
-        """
-        reasons = [
-            ("maxdlcount", lambda config: self.__get_downloading_count() >= int(config),
-             lambda config: f"当前同时下载任务数已达到最大值 {config}，暂时停止新增任务")
-        ]
-
-        if include_network_conditions:
-            # 获取平均带宽
-            avg_upload_speed, avg_download_speed = self.__get_average_bandwidth()
-            if avg_upload_speed is not None and avg_download_speed is not None:
-                reasons.extend([
-                    ("maxupspeed", lambda config: avg_upload_speed >= float(config) * 1024,
-                     lambda config: f"当前总上传带宽 {StringUtils.str_filesize(avg_upload_speed)}，"
-                                    f"已达到最大值 {config} KB/s，暂时停止新增任务"),
-                    ("maxdlspeed", lambda config: avg_download_speed >= float(config) * 1024,
-                     lambda config: f"当前总下载带宽 {StringUtils.str_filesize(avg_download_speed)}，"
-                                    f"已达到最大值 {config} KB/s，暂时停止新增任务"),
-                ])
-
-        brush_config = self.__get_brush_config()
-        for condition, check, message in reasons:
-            config_value = getattr(brush_config, condition, None)
-            if config_value and check(config_value):
-                reason = message(config_value)
-                return False, reason
-
-        return True, None
-
-    def __evaluate_conditions_for_brush(self, torrent, torrent_tasks) -> Tuple[bool, Optional[str]]:
-        """
-        过滤不符合条件的种子
-        """
-        brush_config = self.__get_brush_config(torrent.site_name)
-
-        # 排除重复种子
-        # 默认根据标题和站点名称进行排除
-        task_key = f"{torrent.site_name}{torrent.title}"
-        if any(task_key == f"{task.get('site_name')}{task.get('title')}" for task in torrent_tasks.values()):
-            return False, "重复种子"
-
-        # 部分站点标题会上新时携带后缀，这里进一步根据种子详情地址进行排除
-        if torrent.page_url:
-            task_page_url = f"{torrent.site_name}{torrent.page_url}"
-            if any(task_page_url == f"{task.get('site_name')}{task.get('page_url')}" for task in
-                   torrent_tasks.values()):
-                return False, "重复种子"
-
-        # 不同站点如果遇到相同种子，判断前一个种子是否已经在做种，否则排除处理
-        if torrent.title:
-            if any(torrent.site_name != f"{task.get('site_name')}" and torrent.title == f"{task.get('title')}"
-                   and not task.get("seed_time") for task in torrent_tasks.values()):
-                return False, "其他站点存在尚未下载完成的相同种子"
-
-        # 促销条件
-        if brush_config.freeleech and torrent.downloadvolumefactor != 0:
-            return False, "非免费种子"
-        if brush_config.freeleech == "2xfree" and torrent.uploadvolumefactor != 2:
-            return False, "非双倍上传种子"
-
-        # H&R
-        if brush_config.hr == "yes" and torrent.hit_and_run:
-            return False, "存在H&R"
-
-        # 包含规则
-        if brush_config.include:
-            try:
-                include_match = False
-                if torrent.title and re.search(brush_config.include, torrent.title, re.I):
-                    include_match = True
-                elif torrent.description and re.search(brush_config.include, torrent.description, re.I):
-                    include_match = True
-                
-                if not include_match:
-                    return False, "不符合包含规则"
-            except re.error:
-                logger.warning(f"包含规则正则表达式错误: {brush_config.include}")
-                return False, "包含规则正则表达式错误"
-
-        # 排除规则
-        if brush_config.exclude:
-            try:
-                exclude_match = False
-                if torrent.title and re.search(brush_config.exclude, torrent.title, re.I):
-                    exclude_match = True
-                elif torrent.description and re.search(brush_config.exclude, torrent.description, re.I):
-                    exclude_match = True
-                    
-                if exclude_match:
-                    return False, "符合排除规则"
-            except re.error:
-                logger.warning(f"排除规则正则表达式错误: {brush_config.exclude}")
-                return False, "排除规则正则表达式错误"
-
-        # 种子大小（GB）
-        if brush_config.size:
-            sizes = [float(size) * 1024 ** 3 for size in brush_config.size.split("-")]
-            if len(sizes) == 1 and torrent.size < sizes[0]:
-                return False, f"种子大小 {self.__bytes_to_gb(torrent.size):.1f} GB，不符合条件"
-            elif len(sizes) > 1 and not sizes[0] <= torrent.size <= sizes[1]:
-                return False, f"种子大小 {self.__bytes_to_gb(torrent.size):.1f} GB，不在指定范围内"
-
-        # 做种人数
-        if brush_config.seeder:
-            seeders_range = [float(n) for n in brush_config.seeder.split("-")]
-            # 检查是否仅指定了一个数字，即做种人数需要小于等于该数字
-            if len(seeders_range) == 1:
-                # 当做种人数大于该数字时，不符合条件
-                if torrent.seeders > seeders_range[0]:
-                    return False, f"做种人数 {torrent.seeders}，超过单个指定值"
-            # 如果指定了一个范围
-            elif len(seeders_range) > 1:
-                # 检查做种人数是否在指定的范围内（包括边界）
-                if not (seeders_range[0] <= torrent.seeders <= seeders_range[1]):
-                    return False, f"做种人数 {torrent.seeders}，不在指定范围内"
-
-        # 发布时间：用户时间 - 站点时间 - 时区偏移
-        # e.g.1: 用户UTC+8，站点UTC，timezone_offset应为+8，种子在UTC 0:00/UTC+8 8:00发布；
-        #        9:17 - 0:00 - 8:00 = 1:17；1小时17分为正确的发布时间与当前的时间差
-        # e.g.2: 用户UTC，站点UTC+8，timezone_offset应为-8，种子在UTC 0:00/UTC+8 8:00发布：
-        #        1:17 - 8:00 - (-8:00) = 1:17；1小时17分为正确的发布时间与当前的时间差
-        # timezone_offset为后加功能，默认为0，方便后续更多与时间相关的功能开发，之前在单独站点配置中使用pubtime计算过时区偏移的用户也不受影响
-        pubdate_minutes = self.__get_pubminutes(torrent.pubdate) - brush_config.timezone_offset
-        # 已支持独立站点配置，取消单独适配站点时区逻辑，可通过配置项「pubtime」自行适配
-        # pubdate_minutes = self.__adjust_site_pubminutes(pubdate_minutes, torrent)
-        if brush_config.pubtime:
-            pubtimes = [float(n) for n in brush_config.pubtime.split("-")]
-            if len(pubtimes) == 1:
-                # 单个值：选择发布时间小于等于该值的种子
-                if pubdate_minutes > pubtimes[0]:
-                    return False, f"发布时间（站点时区）{torrent.pubdate}，当前配置时区偏移 {brush_config.timezone_offset} 小时，{pubdate_minutes:.0f} 分钟前，不符合条件"
-            else:
-                # 范围值：选择发布时间在范围内的种子
-                if not (pubtimes[0] <= pubdate_minutes <= pubtimes[1]):
-                    return False, f"发布时间（站点时区）{torrent.pubdate}，当前配置时区偏移 {brush_config.timezone_offset} 小时，{pubdate_minutes:.0f} 分钟前，不在指定范围内"
-
-        return True, None
+            task_data = {field: config.get(field) for field in TASK_CONFIG_FIELDS if field in config}
+            site_override = overrides.get(site.name, {})
+            task_data.update(site_override)
+            # 旧版会把全局时区小时数转换成分钟后再次持久化，站点覆盖 JSON 则始终保留小时数。
+            if "timezone_offset" not in site_override:
+                timezone_offset = BrushTaskConfig._parse_number(config.get("timezone_offset")) or 0
+                task_data["timezone_offset"] = float(timezone_offset) / 60
+            task_data.update(
+                {
+                    "id": uuid.uuid4().hex,
+                    "name": site.name,
+                    "site_id": site.id,
+                    "enabled": True,
+                    "brush_interval": 10,
+                    "check_interval": 5,
+                }
+            )
+            tasks.append(BrushTaskConfig(task_data).to_dict())
+        return tasks
 
     @staticmethod
-    def __log_brush_conditions(passed: bool, reason: str, torrent: Any = None):
-        """
-        记录刷流日志
-        """
-        if not passed:
-            if not torrent:
-                logger.warning(f"没有通过前置刷流条件校验，原因：{reason}")
-            else:
-                logger.debug(f"种子没有通过刷流条件校验，原因：{reason} 种子：{torrent.title}|{torrent.description}")
+    def _parse_legacy_site_overrides(config: dict) -> Dict[str, dict]:
+        """解析旧版允许注释的站点覆盖 JSON"""
+        if not config.get("enable_site_config") or not config.get("site_config"):
+            return {}
+        try:
+            content = re.sub(r"//.*?(?:\n|$)", "", str(config.get("site_config"))).strip()
+            rows = json.loads(content)
+        except (TypeError, ValueError) as err:
+            logger.error(f"解析旧版站点独立配置失败：{str(err)}")
+            return {}
+        overrides: Dict[str, dict] = {}
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict) or not row.get("sitename"):
+                continue
+            overrides[str(row["sitename"])] = {
+                key: row[key] for key in LEGACY_SITE_OVERRIDE_FIELDS if key in row
+            }
+        return overrides
 
-    # endregion
-
-    # region Check
-
-    def check(self):
-        """
-        定时检查，删除下载任务
-        """
-        brush_config = self.__get_brush_config()
-
-        if not brush_config.downloader or not self.downloader:
+    def _migrate_legacy_data(self) -> None:
+        """按站点把旧全局种子、归档和未托管记录迁移到任务命名空间"""
+        if (self.get_data("task_data_schema_version") or 0) >= self.DATA_SCHEMA_VERSION:
             return
-
-        with lock:
-            logger.info("开始检查刷流下载任务 ...")
-            torrent_tasks: Dict[str, dict] = self.get_data("torrents") or {}
-            unmanaged_tasks: Dict[str, dict] = self.get_data("unmanaged") or {}
-
-            downloader = self.downloader
-            seeding_torrents, error = downloader.get_torrents()
-            if error:
-                logger.warning("连接下载器出错，将在下个时间周期重试")
-                return
-
-            seeding_torrents_dict = {self.__get_hash(torrent): torrent for torrent in seeding_torrents}
-
-            # 检查种子刷流标签变更情况
-            self.__update_seeding_tasks_based_on_tags(torrent_tasks=torrent_tasks, unmanaged_tasks=unmanaged_tasks,
-                                                      seeding_torrents_dict=seeding_torrents_dict)
-
-            torrent_check_hashes = list(torrent_tasks.keys())
-            if not torrent_tasks or not torrent_check_hashes:
-                logger.info("没有需要检查的刷流下载任务")
-                return
-
-            logger.info(f"共有 {len(torrent_check_hashes)} 个任务正在刷流，开始检查任务状态")
-
-            # 获取到当前所有做种数据中需要被检查的种子数据
-            check_torrents = [seeding_torrents_dict[th] for th in torrent_check_hashes if th in seeding_torrents_dict]
-
-            # 先更新刷流任务的最新状态，上下传，分享率
-            self.__update_torrent_tasks_state(torrents=check_torrents, torrent_tasks=torrent_tasks)
-
-            # 更新刷流任务列表中在下载器中删除的种子为删除状态
-            self.__update_undeleted_torrents_missing_in_downloader(torrent_tasks, torrent_check_hashes, check_torrents)
-
-            # 根据配置的标签进行种子排除
-            if check_torrents:
-                logger.info(f"当前刷流任务共 {len(check_torrents)} 个有效种子，正在准备按设定的种子标签进行排除")
-                # 初始化一个空的列表来存储需要排除的标签
-                tags_to_exclude = set()
-                # 如果 delete_except_tags 非空且不是纯空白，则添加到排除列表中
-                if brush_config.delete_except_tags and brush_config.delete_except_tags.strip():
-                    tags_to_exclude.update(tag.strip() for tag in brush_config.delete_except_tags.split(','))
-                # 将所有需要排除的标签组合成一个字符串，每个标签之间用逗号分隔
-                combined_tags = ",".join(tags_to_exclude)
-                if combined_tags:  # 确保有标签需要排除
-                    pre_filter_count = len(check_torrents)  # 获取过滤前的任务数量
-                    check_torrents = self.__filter_torrents_by_tag(torrents=check_torrents, exclude_tag=combined_tags)
-                    post_filter_count = len(check_torrents)  # 获取过滤后的任务数量
-                    excluded_count = pre_filter_count - post_filter_count  # 计算被排除的任务数量
-                    logger.info(
-                        f"有效种子数 {pre_filter_count}，排除标签 '{combined_tags}' 后，"
-                        f"剩余种子数 {post_filter_count}，排除种子数 {excluded_count}")
-                else:
-                    logger.info("没有配置有效的排除标签，所有种子均参与后续处理")
-
-            # 种子删除检查
-            if not check_torrents:
-                logger.info("没有需要检查的任务，跳过")
-            else:
-                need_delete_hashes = []
-
-                # 如果配置了动态删除以及删种阈值，则根据动态删种进行分组处理
-                if brush_config.proxy_delete and brush_config.delete_size_range:
-                    logger.info("已开启动态删种，按系统默认动态删种条件开始检查任务")
-                    proxy_delete_hashes = self.__delete_torrent_for_proxy(torrents=check_torrents,
-                                                                          torrent_tasks=torrent_tasks) or []
-                    need_delete_hashes.extend(proxy_delete_hashes)
-                # 否则均认为是没有开启动态删种
-                else:
-                    logger.info("没有开启动态删种，按用户设置删种条件开始检查任务")
-                    not_proxy_delete_hashes = self.__delete_torrent_for_evaluate_conditions(torrents=check_torrents,
-                                                                                            torrent_tasks=torrent_tasks) or []
-                    need_delete_hashes.extend(not_proxy_delete_hashes)
-
-                if need_delete_hashes:
-                    # 如果是QB，则重新汇报Tracker
-                    if DownloaderHelper().is_downloader("qbittorrent", service=self.service_info):
-                        self.__qb_torrents_reannounce(torrent_hashes=need_delete_hashes)
-                    # 删除种子
-                    if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
-                        for torrent_hash in need_delete_hashes:
-                            torrent_tasks[torrent_hash]["deleted"] = True
-                            torrent_tasks[torrent_hash]["deleted_time"] = time.time()
-
-            # 归档数据
-            self.__auto_archive_tasks(torrent_tasks=torrent_tasks)
-
-            self.__update_and_save_statistic_info(torrent_tasks)
-
-            self.save_data("torrents", torrent_tasks)
-
-            logger.info("刷流下载任务检查完成")
-
-    def __update_torrent_tasks_state(self, torrents: List[Any], torrent_tasks: Dict[str, dict]):
-        """
-        更新刷流任务的最新状态，上下传，分享率
-        """
-        for torrent in torrents:
-            torrent_hash = self.__get_hash(torrent)
-            torrent_task = torrent_tasks.get(torrent_hash, None)
-            # 如果找不到种子任务，说明不在管理的种子范围内，直接跳过
-            if not torrent_task:
-                continue
-
-            torrent_info = self.__get_torrent_info(torrent)
-
-            # 更新上传量、下载量
-            torrent_task.update({
-                "downloaded": torrent_info.get("downloaded"),
-                "uploaded": torrent_info.get("uploaded"),
-                "ratio": torrent_info.get("ratio"),
-                "seeding_time": torrent_info.get("seeding_time"),
-            })
-
-    def __update_seeding_tasks_based_on_tags(self, torrent_tasks: Dict[str, dict], unmanaged_tasks: Dict[str, dict],
-                                             seeding_torrents_dict: Dict[str, Any]):
-        brush_config = self.__get_brush_config()
-
-        if not DownloaderHelper().is_downloader("qbittorrent", service=self.service_info):
-            logger.info("同步种子刷流标签记录目前仅支持qbittorrent")
-            return
-
-        # 初始化汇总信息
-        added_tasks = []
-        reset_tasks = []
-        removed_tasks = []
-        # 基于 seeding_torrents_dict 的信息更新或添加到 torrent_tasks
-        for torrent_hash, torrent in seeding_torrents_dict.items():
-            tags = self.__get_label(torrent=torrent)
-            # 判断是否包含刷流标签
-            if brush_config.brush_tag in tags:
-                # 如果包含刷流标签又不在刷流任务中，则需要加入管理
-                if torrent_hash not in torrent_tasks:
-                    # 检查该种子是否在 unmanaged_tasks 中
-                    if torrent_hash in unmanaged_tasks:
-                        # 如果在 unmanaged_tasks 中，移除并转移到 torrent_tasks
-                        torrent_task = unmanaged_tasks.pop(torrent_hash)
-                        torrent_tasks[torrent_hash] = torrent_task
-                        added_tasks.append(torrent_task)
-                        logger.info(f"站点 {torrent_task.get('site_name')}，"
-                                    f"刷流任务种子再次加入：{torrent_task.get('title')}|{torrent_task.get('description')}")
-                    else:
-                        # 否则，创建一个新的任务
-                        torrent_task = self.__convert_torrent_info_to_task(torrent)
-                        torrent_tasks[torrent_hash] = torrent_task
-                        added_tasks.append(torrent_task)
-                        logger.info(f"站点 {torrent_task.get('site_name')}，"
-                                    f"刷流任务种子加入：{torrent_task.get('title')}|{torrent_task.get('description')}")
-                # 包含刷流标签又在刷流任务中，这里额外处理一个特殊逻辑，就是种子在刷流任务中可能被标记删除但实际上又还在下载器中，这里进行重置
-                else:
-                    torrent_task = torrent_tasks[torrent_hash]
-                    if torrent_task.get("deleted"):
-                        torrent_task["deleted"] = False
-                        reset_tasks.append(torrent_task)
-                        logger.info(
-                            f"站点 {torrent_task.get('site_name')}，在下载器中找到已标记删除的刷流任务对应的种子信息，"
-                            f"更新刷流任务状态为正常：{torrent_task.get('title')}|{torrent_task.get('description')}")
-            else:
-                # 不包含刷流标签但又在刷流任务中，则移除管理
-                if torrent_hash in torrent_tasks:
-                    # 如果种子不符合刷流条件但在 torrent_tasks 中，移除并加入 unmanaged_tasks
-                    torrent_task = torrent_tasks.pop(torrent_hash)
-                    unmanaged_tasks[torrent_hash] = torrent_task
-                    removed_tasks.append(torrent_task)
-                    logger.info(f"站点 {torrent_task.get('site_name')}，"
-                                f"刷流任务种子移除：{torrent_task.get('title')}|{torrent_task.get('description')}")
-
-        self.save_data("torrents", torrent_tasks)
-        self.save_data("unmanaged", unmanaged_tasks)
-
-        # 发送汇总消息
-        if added_tasks:
-            self.__log_and_send_torrent_task_update_message(title="【刷流任务种子加入】", status="纳入刷流管理",
-                                                            reason="刷流标签添加", torrent_tasks=added_tasks)
-        if removed_tasks:
-            self.__log_and_send_torrent_task_update_message(title="【刷流任务种子移除】", status="移除刷流管理",
-                                                            reason="刷流标签移除", torrent_tasks=removed_tasks)
-        if reset_tasks:
-            self.__log_and_send_torrent_task_update_message(title="【刷流任务状态更新】", status="更新刷流状态为正常",
-                                                            reason="在下载器中找到已标记删除的刷流任务对应的种子信息",
-                                                            torrent_tasks=reset_tasks)
-
-    def __group_torrents_by_proxy_delete(self, torrents: List[Any], torrent_tasks: Dict[str, dict]):
-        """
-        根据是否启用动态删种进行分组
-        """
-        proxy_delete_torrents = []
-        not_proxy_delete_torrents = []
-
-        for torrent in torrents:
-            torrent_hash = self.__get_hash(torrent)
-            torrent_task = torrent_tasks.get(torrent_hash, None)
-
-            # 如果找不到种子任务，说明不在管理的种子范围内，直接跳过
-            if not torrent_task:
-                continue
-
-            site_name = torrent_task.get("site_name", "")
-
-            brush_config = self.__get_brush_config(site_name)
-            if brush_config.proxy_delete:
-                proxy_delete_torrents.append(torrent)
-            else:
-                not_proxy_delete_torrents.append(torrent)
-
-        return proxy_delete_torrents, not_proxy_delete_torrents
-
-    def __evaluate_conditions_for_delete(self, site_name: str, torrent_info: dict, torrent_task: dict) \
-            -> Tuple[bool, str]:
-        """
-        评估删除条件并返回是否应删除种子及其原因
-        """
-        brush_config = self.__get_brush_config(sitename=site_name)
-
-        reason = "未能满足设置的删除条件"
-
-        # 当配置了H&R做种时间/分享率时，则H&R种子只有达到预期行为时，才会进行删除，如果没有配置H&R做种时间/分享率，则普通种子的删除规则也适用于H&R种子
-        # 判断是否为H&R种子并且是否配置了特定的H&R条件
-        hit_and_run = torrent_task.get("hit_and_run", False)
-        hr_specific_conditions_configured = hit_and_run and (brush_config.hr_seed_time or brush_config.seed_ratio)
-        if hr_specific_conditions_configured:
-            if (brush_config.hr_seed_time and torrent_info.get("seeding_time")
-                    >= float(brush_config.hr_seed_time) * 3600):
-                return True, (f"H&R种子，做种时间 {torrent_info.get('seeding_time') / 3600:.1f} 小时，"
-                              f"大于 {brush_config.hr_seed_time} 小时")
-            if brush_config.seed_ratio and torrent_info.get("ratio") >= float(brush_config.seed_ratio):
-                return True, f"H&R种子，分享率 {torrent_info.get('ratio'):.2f}，大于 {brush_config.seed_ratio}"
-            return False, "H&R种子，未能满足设置的H&R删除条件"
-
-        while brush_config.del_no_free and torrent_info.get("downloaded") < torrent_info.get("total_size"):
-            if not torrent_task.get("freedate", None):
-                logger.warning(f"配置了‘删除促销过期的未完成下载’，但未获取到该种子的促销截止时间，跳过。")
-                break
-            try:
-                now = datetime.now()
-                freedate_origin = torrent_task.get("freedate")
-                freedate = freedate_origin.replace("T", " ").replace("Z", "")
-                freedate = datetime.strptime(freedate, "%Y-%m-%d %H:%M:%S")
-                delta_minutes = (((freedate - now).total_seconds() + 60) // 60) - brush_config.timezone_offset
-                logger.debug(
-                    f"促销截止（站点时间）: {freedate_origin}, 时区偏移: {brush_config.timezone_offset}, 用户当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')}, 时间差: {delta_minutes}分")
-                if delta_minutes <= 0:
-                    return True, "促销过期"
-            except Exception as e:
-                logger.warning(f"处理‘删除促销过期的未完成下载’时报错，继续判断其他删除条件。")
-                logger.debug(f"error: {e}")
-            break
-
-        # 处理其他场景，1. 不是H&R种子；2. 是H&R种子但没有特定条件配置
-        reason = reason if not hit_and_run else "H&R种子（未设置H&R条件），未能满足设置的删除条件"
-        if brush_config.seed_time and torrent_info.get("seeding_time") >= float(brush_config.seed_time) * 3600:
-            reason = f"做种时间 {torrent_info.get('seeding_time') / 3600:.1f} 小时，大于 {brush_config.seed_time} 小时"
-        elif brush_config.seed_ratio and torrent_info.get("ratio") >= float(brush_config.seed_ratio):
-            reason = f"分享率 {torrent_info.get('ratio'):.2f}，大于 {brush_config.seed_ratio}"
-        elif brush_config.seed_size and torrent_info.get("uploaded") >= float(brush_config.seed_size) * 1024 ** 3:
-            reason = f"上传量 {torrent_info.get('uploaded') / 1024 ** 3:.1f} GB，大于 {brush_config.seed_size} GB"
-        elif brush_config.download_time and torrent_info.get("downloaded") < torrent_info.get(
-                "total_size") and torrent_info.get("dltime") >= float(brush_config.download_time) * 3600:
-            reason = f"下载耗时 {torrent_info.get('dltime') / 3600:.1f} 小时，大于 {brush_config.download_time} 小时"
-        elif brush_config.seed_avgspeed and torrent_info.get("avg_upspeed") <= float(
-                brush_config.seed_avgspeed) * 1024 and torrent_info.get("seeding_time") >= 30 * 60:
-            reason = f"平均上传速度 {torrent_info.get('avg_upspeed') / 1024:.1f} KB/s，低于 {brush_config.seed_avgspeed} KB/s"
-        elif brush_config.seed_inactivetime and torrent_info.get("iatime") >= float(
-                brush_config.seed_inactivetime) * 60:
-            reason = f"未活动时间 {torrent_info.get('iatime') / 60:.0f} 分钟，大于 {brush_config.seed_inactivetime} 分钟"
-        else:
-            return False, reason
-
-        return True, reason if not hit_and_run else "H&R种子（未设置H&R条件），" + reason
-
-    def __evaluate_proxy_pre_conditions_for_delete(self, site_name: str,
-                                                   torrent_info: dict, torrent_task: dict) -> Tuple[bool, str]:
-        """
-        评估动态删除前置条件并返回是否应删除种子及其原因
-        """
-        brush_config = self.__get_brush_config(sitename=site_name)
-
-        should_delete = False
-        reason = "未能满足动态删除设置的前置删除条件"
-
-        while brush_config.del_no_free and torrent_info.get("downloaded") < torrent_info.get("total_size"):
-            if not torrent_task.get("freedate", None):
-                logger.warning(f"配置了‘删除促销过期的未完成下载’，但未获取到该种子的促销截止时间，跳过。")
-                break
-            try:
-                now = datetime.now()
-                freedate_origin = torrent_task.get("freedate")
-                freedate = freedate_origin.replace("T", " ").replace("Z", "")
-                freedate = datetime.strptime(freedate, "%Y-%m-%d %H:%M:%S")
-                delta_minutes = (((freedate - now).total_seconds() + 60) // 60) - brush_config.timezone_offset
-                logger.debug(
-                    f"促销截止（站点时间）: {freedate_origin}, 时区偏移: {brush_config.timezone_offset}, 用户当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')}, 时间差: {delta_minutes}分")
-                if delta_minutes <= 0:
-                    return True, f"促销已过期"
-            except Exception as e:
-                logger.warning(f"处理‘删除促销过期的未完成下载’时报错，继续判断其他删除条件。")
-                logger.debug(f"error: {e}")
-            break
-
-        if brush_config.download_time and torrent_info.get("downloaded") < torrent_info.get(
-                "total_size") and torrent_info.get("dltime") >= float(brush_config.download_time) * 3600:
-            reason = f"下载耗时 {torrent_info.get('dltime') / 3600:.1f} 小时，大于 {brush_config.download_time} 小时"
-        elif not should_delete:
-            return False, reason
-
-        return True, reason
-
-    def __delete_torrent_for_evaluate_conditions(self, torrents: List[Any], torrent_tasks: Dict[str, dict],
-                                                 proxy_delete: bool = False) -> List:
-        """
-        根据条件删除种子并获取已删除列表
-        """
-        delete_hashes = []
-
-        for torrent in torrents:
-            torrent_hash = self.__get_hash(torrent)
-            torrent_task = torrent_tasks.get(torrent_hash, None)
-            # 如果找不到种子任务，说明不在管理的种子范围内，直接跳过
-            if not torrent_task:
-                continue
-            site_name = torrent_task.get("site_name", "")
-            torrent_title = torrent_task.get("title", "")
-            torrent_desc = torrent_task.get("description", "")
-
-            torrent_info = self.__get_torrent_info(torrent)
-
-            # 删除种子的具体实现可能会根据实际情况略有不同
-            should_delete, reason = self.__evaluate_conditions_for_delete(site_name=site_name,
-                                                                          torrent_info=torrent_info,
-                                                                          torrent_task=torrent_task)
-            if should_delete:
-                delete_hashes.append(torrent_hash)
-                reason = "触发动态删除阈值，" + reason if proxy_delete else reason
-                self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc,
-                                           reason=reason)
-                logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
-            else:
-                logger.debug(f"站点：{site_name}，{reason}，不删除种子：{torrent_title}|{torrent_desc}")
-
-        return delete_hashes
-
-    def __delete_torrent_for_evaluate_proxy_pre_conditions(self, torrents: List[Any],
-                                                           torrent_tasks: Dict[str, dict]) -> List:
-        """
-        根据动态删除前置条件排除H&R种子后删除种子并获取已删除列表
-        """
-        delete_hashes = []
-
-        for torrent in torrents:
-            torrent_hash = self.__get_hash(torrent)
-            torrent_task = torrent_tasks.get(torrent_hash, None)
-            # 如果找不到种子任务，说明不在管理的种子范围内，直接跳过
-            if not torrent_task:
-                continue
-
-            # 如果是H&R种子，前置条件中不进行处理
-            if torrent_task.get('hit_and_run', False):
-                continue
-
-            site_name = torrent_task.get("site_name", "")
-            torrent_title = torrent_task.get("title", "")
-            torrent_desc = torrent_task.get("description", "")
-
-            torrent_info = self.__get_torrent_info(torrent)
-
-            # 删除种子的具体实现可能会根据实际情况略有不同
-            should_delete, reason = self.__evaluate_proxy_pre_conditions_for_delete(site_name=site_name,
-                                                                                    torrent_info=torrent_info,
-                                                                                    torrent_task=torrent_task)
-            if should_delete:
-                delete_hashes.append(torrent_hash)
-                self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc,
-                                           reason=reason)
-                logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
-            else:
-                logger.debug(f"站点：{site_name}，{reason}，不删除种子：{torrent_title}|{torrent_desc}")
-
-        return delete_hashes
-
-    def __delete_torrent_for_proxy(self, torrents: List[Any], torrent_tasks: Dict[str, dict]) -> List:
-        """
-        动态删除种子，删除规则如下；
-        - 不管做种体积是否超过设定的动态删除阈值，默认优先执行排除H&R种子后满足「下载超时时间」的种子
-        - 上述规则执行完成后，当做种体积依旧超过设定的动态删除阈值时，继续执行下述种子删除规则
-        - 优先删除满足用户设置删除规则的全部种子，即便在删除过程中已经低于了阈值下限，也会继续删除
-        - 若删除后还没有达到阈值，则在已完成种子中排除H&R种子后按做种时间倒序进行删除
-        - 动态删除阈值：100，当做种体积 > 100G 时，则开始删除种子，直至降低至 100G
-        - 动态删除阈值：50-100，当做种体积 > 100G 时，则开始删除种子，直至降至为 50G
-        """
-        brush_config = self.__get_brush_config()
-
-        # 如果没有启用动态删除或没有设置删除阈值，则不执行删除操作
-        if not (brush_config.proxy_delete and brush_config.delete_size_range):
-            return []
-
-        # 获取种子信息Map
-        torrent_info_map = {self.__get_hash(torrent): self.__get_torrent_info(torrent=torrent) for torrent in torrents}
-
-        # 计算当前总做种体积
-        total_torrent_size = self.__calculate_seeding_torrents_size(torrent_tasks=torrent_tasks)
-
-        logger.info(
-            f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，正在准备计算满足动态前置删除条件的种子")
-
-        # 执行排除H&R种子后满足前置删除条件的种子
-        pre_delete_hashes = self.__delete_torrent_for_evaluate_proxy_pre_conditions(torrents=torrents,
-                                                                                    torrent_tasks=torrent_tasks) or []
-
-        # 如果存在前置删除种子，这里进行额外判断，总做种体积排除前置删除种子的体积
-        if pre_delete_hashes:
-            pre_delete_total_size = sum(torrent_info_map[self.__get_hash(torrent)].get("total_size", 0)
-                                        for torrent in torrents if self.__get_hash(torrent) in pre_delete_hashes)
-            total_torrent_size = total_torrent_size - pre_delete_total_size
-            torrents = [torrent for torrent in torrents if self.__get_hash(torrent) not in pre_delete_hashes]
-            logger.info(
-                f"满足动态删除前置条件的种子共 {len(pre_delete_hashes)} 个，体积 {self.__bytes_to_gb(pre_delete_total_size):.1f} GB，"
-                f"删除种子后，当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB")
-        else:
-            logger.info(f"没有找到任何满足动态删除前置条件的种子")
-
-        # 解析删除阈值范围
-        sizes = [float(size) * 1024 ** 3 for size in brush_config.delete_size_range.split("-")]
-        min_size = sizes[0]  # 至少需要达到的做种体积
-        max_size = sizes[1] if len(sizes) > 1 else sizes[0]  # 触发删除操作的做种体积上限
-
-        # 判断是否为区间删除
-        proxy_size_range = len(sizes) > 1
-
-        # 当总体积未超过最大阈值时，不需要执行删除操作
-        if total_torrent_size < max_size:
-            logger.info(
-                f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，上限 {self.__bytes_to_gb(max_size):.1f} GB，"
-                f"下限 {self.__bytes_to_gb(min_size):.1f} GB，未进一步触发动态删除")
-            return pre_delete_hashes or []
-        else:
-            logger.info(
-                f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，上限 {self.__bytes_to_gb(max_size):.1f} GB，"
-                f"下限 {self.__bytes_to_gb(min_size):.1f} GB，进一步触发动态删除")
-
-        need_delete_hashes = []
-        need_delete_hashes.extend(pre_delete_hashes)
-
-        # 即使开了动态删除，但是也有可能部分站点单独设置了关闭，这里根据种子托管进行分组，先处理不需要托管的种子，按设置的规则进行删除
-        proxy_delete_torrents, not_proxy_delete_torrents = self.__group_torrents_by_proxy_delete(torrents=torrents,
-                                                                                                 torrent_tasks=torrent_tasks)
-        logger.info(f"托管种子数 {len(proxy_delete_torrents)}，未托管种子数 {len(not_proxy_delete_torrents)}")
-        if not_proxy_delete_torrents:
-            not_proxy_delete_hashes = self.__delete_torrent_for_evaluate_conditions(torrents=not_proxy_delete_torrents,
-                                                                                    torrent_tasks=torrent_tasks) or []
-            need_delete_hashes.extend(not_proxy_delete_hashes)
-            total_torrent_size -= sum(
-                torrent_info_map[self.__get_hash(torrent)].get("total_size", 0) for torrent in not_proxy_delete_torrents
-                if self.__get_hash(torrent) in not_proxy_delete_hashes)
-
-        # 如果删除非托管种子后仍未达到最小体积要求，则处理托管种子
-        if total_torrent_size > min_size and proxy_delete_torrents:
-            proxy_delete_hashes = self.__delete_torrent_for_evaluate_conditions(torrents=proxy_delete_torrents,
-                                                                                torrent_tasks=torrent_tasks,
-                                                                                proxy_delete=True) or []
-            need_delete_hashes.extend(proxy_delete_hashes)
-            total_torrent_size -= sum(
-                torrent_info_map[self.__get_hash(torrent)].get("total_size", 0) for torrent in proxy_delete_torrents if
-                self.__get_hash(torrent) in proxy_delete_hashes)
-
-        # 在完成初始删除步骤后，如果总体积仍然超过最小阈值，则进一步找到已完成种子并排除HR种子后按做种时间正序进行删除
-        if total_torrent_size > min_size:
-            # 重新计算当前的种子列表，排除已删除的种子
-            remaining_hashes = list(
-                {self.__get_hash(torrent) for torrent in proxy_delete_torrents} - set(need_delete_hashes))
-            # 这里根据排除后的种子列表，再次从下载器中找到已完成的任务
-            downloader = self.downloader
-            completed_torrents = downloader.get_completed_torrents(ids=remaining_hashes)
-            remaining_hashes = {self.__get_hash(torrent) for torrent in completed_torrents}
-            remaining_torrents = [(_hash, torrent_info_map[_hash]) for _hash in remaining_hashes]
-
-            # 准备一个列表，用于存放满足条件的种子，即非HR种子且有明确做种时间
-            filtered_torrents = [(_hash, info['seeding_time']) for _hash, info in remaining_torrents if
-                                 not torrent_tasks[_hash].get("hit_and_run", False)]
-            sorted_torrents = sorted(filtered_torrents, key=lambda x: x[1], reverse=True)
-
-            # 进行额外的删除操作，直到满足最小阈值或没有更多种子可删除
-            for torrent_hash, _ in sorted_torrents:
-                if total_torrent_size <= min_size:
-                    break
-                torrent_task = torrent_tasks.get(torrent_hash, None)
-                torrent_info = torrent_info_map.get(torrent_hash, None)
-                if not torrent_task or not torrent_info:
+        tasks = list(self._task_configs.values())
+        by_site_id = {str(task.site_id): task for task in tasks}
+        by_site_name = {
+            self._get_site_name(task.site_id): task for task in tasks if self._get_site_name(task.site_id)
+        }
+        for data_name in ("torrents", "archived", "unmanaged"):
+            legacy_rows = self.get_data(data_name) or {}
+            buckets: Dict[str, dict] = {task.id: {} for task in tasks}
+            for item_id, item in legacy_rows.items() if isinstance(legacy_rows, dict) else []:
+                task = by_site_id.get(str(item.get("site"))) or by_site_name.get(item.get("site_name"))
+                if not task and len(tasks) == 1:
+                    task = tasks[0]
+                if not task:
                     continue
+                migrated_item = dict(item)
+                migrated_item.update({"task_id": task.id, "task_name": task.name})
+                buckets[task.id][item_id] = migrated_item
+            for task_id, rows in buckets.items():
+                current = self._get_task_data(task_id, data_name)
+                if not current and rows:
+                    self._save_task_data(task_id, data_name, rows)
+        for task in tasks:
+            self._recalculate_statistics(task.id)
+        self.save_data("task_data_schema_version", self.DATA_SCHEMA_VERSION)
 
-                need_delete_hashes.append(torrent_hash)
-                total_torrent_size -= torrent_info.get("total_size", 0)
+    @staticmethod
+    def _get_site_name(site_id: int) -> Optional[str]:
+        """按站点 ID 获取名称并兼容已删除站点"""
+        site = SiteOper().get(site_id)
+        return site.name if site else None
 
-                site_name = torrent_task.get("site_name", "")
-                torrent_title = torrent_task.get("title", "")
-                torrent_desc = torrent_task.get("description", "")
-                seeding_time = torrent_task.get("seeding_time", 0)
-                if seeding_time:
-                    reason = (f"触发动态删除阈值，系统自动删除，做种时间 {seeding_time / 3600:.1f} 小时，"
-                              f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB")
-                    # 如果是区间删除，一次性删除的数据过多，取消消息推送
-                    if not proxy_size_range:
-                        self.__send_delete_message(site_name=site_name, torrent_title=torrent_title,
-                                                   torrent_desc=torrent_desc,
-                                                   reason=reason)
-                    logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
+    @contextmanager
+    def _task_scope(self, task_id: str) -> Iterator[BrushTaskConfig]:
+        """在当前线程中绑定任务上下文，供深层核心逻辑读取"""
+        previous = getattr(self._task_context, "task_id", None)
+        self._task_context.task_id = task_id
+        try:
+            task = self._task_configs.get(task_id)
+            if not task:
+                raise KeyError(f"刷流任务不存在：{task_id}")
+            yield task
+        finally:
+            if previous is None:
+                if hasattr(self._task_context, "task_id"):
+                    delattr(self._task_context, "task_id")
+            else:
+                self._task_context.task_id = previous
 
-        delete_sites = {torrent_tasks[hash_key].get('site_name', '') for hash_key in need_delete_hashes if
-                        hash_key in torrent_tasks}
-        msg = (f"站点：{'，'.join(delete_sites)}\n内容：已完成 {len(need_delete_hashes)} 个种子删除，"
-               f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB\n原因：触发动态删除阈值，系统自动删除")
-        logger.info(msg)
+    def _get_task_config(self, task_id: Optional[str] = None) -> Optional[BrushTaskConfig]:
+        """获取显式任务或当前线程绑定的任务配置"""
+        resolved_id = task_id or getattr(self._task_context, "task_id", None)
+        return self._task_configs.get(resolved_id) if resolved_id else None
 
-        # 如果是区间删除，这里则进行统一推送
-        if proxy_size_range:
-            self.__send_message(title="【刷流任务种子删除】", text=msg)
+    def __get_brush_config(self, sitename: str = None) -> Optional[BrushTaskConfig]:
+        """兼容核心逻辑获取当前任务配置"""
+        task = self._get_task_config()
+        if task or not sitename:
+            return task
+        return next(
+            (item for item in self._task_configs.values() if self._get_site_name(item.site_id) == sitename),
+            None,
+        )
 
-        # 返回所有需要删除的种子的哈希列表
-        return need_delete_hashes
+    @staticmethod
+    def _task_data_key(task_id: str, data_name: str) -> str:
+        """生成任务独立的插件数据键"""
+        return f"task.{task_id}.{data_name}"
 
-    def __update_undeleted_torrents_missing_in_downloader(self, torrent_tasks, torrent_check_hashes, torrents):
-        """
-        处理已经被删除，但是任务记录中还没有被标记删除的种子
-        """
-        # 先通过获取的全量种子，判断已经被删除，但是任务记录中还没有被标记删除的种子
-        torrent_all_hashes = self.__get_all_hashes(torrents)
-        missing_hashes = [hash_value for hash_value in torrent_check_hashes if hash_value not in torrent_all_hashes]
-        undeleted_hashes = [hash_value for hash_value in missing_hashes if not torrent_tasks[hash_value].get("deleted")]
+    def _get_task_data(self, task_id: str, data_name: str) -> Any:
+        """读取指定任务的独立持久化数据"""
+        return self.get_data(self._task_data_key(task_id, data_name))
 
-        if not undeleted_hashes:
+    def _save_task_data(self, task_id: str, data_name: str, value: Any) -> None:
+        """保存指定任务的独立持久化数据"""
+        self.save_data(self._task_data_key(task_id, data_name), value)
+
+    def _current_task_data(self, data_name: str, default: Any = None) -> Any:
+        """读取当前线程任务的数据并提供缺省值"""
+        task = self._get_task_config()
+        if not task:
+            return default
+        value = self._get_task_data(task.id, data_name)
+        return default if value is None else value
+
+    def _save_current_task_data(self, data_name: str, value: Any) -> None:
+        """保存当前线程任务的数据"""
+        task = self._get_task_config()
+        if task:
+            self._save_task_data(task.id, data_name, value)
+
+    def _submit_task_operation(self, task_id: str, operation: str) -> schemas.Response:
+        """校验运行条件后把手动操作提交到宿主线程池"""
+        task = self._task_configs.get(task_id)
+        if not task:
+            return schemas.Response(success=False, message="刷流任务不存在")
+        if not self.get_state() or not task.enabled:
+            return schemas.Response(success=False, message="插件或任务未启用")
+        if not self._mark_task_queued(task_id, operation):
+            return schemas.Response(success=False, message="任务已有操作正在执行")
+        target = self.brush if operation == "brush" else self.check
+        try:
+            ThreadHelper().submit(target, task_id)
+        except Exception as err:
+            self._set_runtime(task_id, state="idle", operation=None, last_error=str(err))
+            logger.error(f"提交刷流任务 [{task.name}] 失败：{str(err)}")
+            return schemas.Response(success=False, message="任务提交失败")
+        return schemas.Response(success=True, message="任务已提交", data=self._task_summary(task_id))
+
+    def _is_task_busy(self, task_id: str) -> bool:
+        """判断任务是否已经排队或正在执行，保护运行中的配置与数据"""
+        task_lock = self._task_locks.get(task_id)
+        with self._runtime_lock:
+            runtime = self._runtime.get(task_id, {})
+            return bool(
+                runtime.get("state") in {"queued", "running"}
+                or (task_lock and task_lock.locked())
+            )
+
+    def _mark_task_queued(self, task_id: str, operation: str) -> bool:
+        """以原子方式把空闲任务标记为排队，避免重复提交手动操作"""
+        with self._runtime_lock:
+            runtime = self._runtime.setdefault(
+                task_id,
+                {"state": "idle", "operation": None, "last_error": None},
+            )
+            if runtime.get("state") in {"queued", "running"}:
+                return False
+            runtime.update({"state": "queued", "operation": operation, "last_error": None})
+            return True
+
+    def _set_runtime(self, task_id: str, **updates: Any) -> None:
+        """线程安全地更新任务瞬时运行状态"""
+        with self._runtime_lock:
+            runtime = self._runtime.setdefault(task_id, {"state": "idle", "operation": None, "last_error": None})
+            runtime.update(updates)
+
+    def _append_run(self, task_id: str, report: dict) -> None:
+        """保存最近的刷流或检查诊断记录"""
+        history = self._get_task_data(task_id, "runs") or []
+        stored_report = {
+            **report,
+            "reason_counts": dict(report.get("reason_counts") or {}),
+        }
+        history.insert(0, stored_report)
+        self._save_task_data(task_id, "runs", history[: self.MAX_RUN_HISTORY])
+
+    def _build_status_data(self) -> Dict[str, Any]:
+        """组装工作台总览、任务摘要和可选站点下载器"""
+        task_rows = [self._task_summary(task_id) for task_id in self._task_configs]
+        aggregate = {
+            "task_count": len(task_rows),
+            "enabled_count": sum(1 for row in task_rows if row.get("enabled")),
+            "active_count": sum(row.get("statistic", {}).get("active", 0) for row in task_rows),
+            "uploaded": sum(row.get("statistic", {}).get("uploaded", 0) for row in task_rows),
+            "downloaded": sum(row.get("statistic", {}).get("downloaded", 0) for row in task_rows),
+            "seeding_size": sum(row.get("seeding_size", 0) for row in task_rows),
+        }
+        site_options = [
+            {"title": site.get("name"), "value": site.get("id")}
+            for site in SitesHelper().get_indexers()
+            if not site.get("public")
+        ]
+        downloader_options = [
+            {"title": item.name, "value": item.name}
+            for item in DownloaderHelper().get_configs().values()
+        ]
+        return {
+            "enabled": self.get_state(),
+            "show_sidebar_nav": self._show_sidebar_nav,
+            "summary": aggregate,
+            "tasks": task_rows,
+            "options": {"sites": site_options, "downloaders": downloader_options},
+        }
+
+    def _task_summary(self, task_id: str) -> Dict[str, Any]:
+        """组装单个任务在左侧任务列表和仪表板中的摘要"""
+        task = self._task_configs.get(task_id)
+        if not task:
+            return {}
+        statistic = self._get_statistic_info(task_id)
+        torrents = self._get_task_data(task_id, "torrents") or {}
+        history = self._get_task_data(task_id, "runs") or []
+        runtime = dict(self._runtime.get(task_id, {}))
+        if not self.get_state():
+            display_state = "disabled"
+        elif not task.enabled:
+            display_state = "paused"
+        elif runtime.get("state") in {"queued", "running"}:
+            display_state = runtime.get("operation") or "running"
+        elif not self._is_current_time_in_range(task):
+            display_state = "waiting"
+        elif runtime.get("last_error"):
+            display_state = "error"
+        else:
+            display_state = "running"
+        return {
+            "id": task.id,
+            "name": task.name,
+            "enabled": task.enabled,
+            "site_id": task.site_id,
+            "site_name": self._get_site_name(task.site_id) or "站点已删除",
+            "downloader": task.downloader,
+            "brush_interval": task.brush_interval,
+            "check_interval": task.check_interval,
+            "cron": task.cron,
+            "active_time_range": task.active_time_range,
+            "state": display_state,
+            "operation": runtime.get("operation"),
+            "last_error": runtime.get("last_error"),
+            "next_run_at": self._next_run_at(task, history),
+            "last_run": history[0] if history else None,
+            "statistic": statistic,
+            "seeding_size": self.__calculate_seeding_torrents_size(torrents),
+        }
+
+    def _build_task_detail(
+        self,
+        task_id: str,
+        state: str = "active",
+        page: int = 1,
+        page_size: int = 50,
+    ) -> Dict[str, Any]:
+        """组装任务编辑、概览、诊断与分页种子数据"""
+        task = self._task_configs[task_id]
+        torrents = self._get_task_data(task_id, "torrents") or {}
+        archived = self._get_task_data(task_id, "archived") or {}
+        rows = list(torrents.values())
+        if state == "active":
+            rows = [row for row in rows if not row.get("deleted")]
+        elif state == "deleted":
+            rows = [row for row in rows if row.get("deleted")] + list(archived.values())
+        else:
+            rows.extend(archived.values())
+        rows.sort(key=lambda item: item.get("time") or 0, reverse=True)
+        total = len(rows)
+        start = (page - 1) * page_size
+        selected_rows = rows[start : start + page_size]
+        return {
+            "task": task.to_dict(),
+            "summary": self._task_summary(task_id),
+            "runs": (self._get_task_data(task_id, "runs") or [])[:20],
+            "torrents": {
+                "items": selected_rows,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "state": state,
+            },
+        }
+
+    @staticmethod
+    def _next_run_at(task: BrushTaskConfig, history: List[dict]) -> Optional[str]:
+        """按 CRON 或固定间隔估算任务下一次刷新时间"""
+        now = datetime.now().astimezone()
+        try:
+            if task.cron:
+                next_time = CronTrigger.from_crontab(task.cron, timezone=settings.TZ).get_next_fire_time(None, now)
+            else:
+                last_brush = next((item for item in history if item.get("kind") == "brush"), None)
+                if last_brush and last_brush.get("started_at"):
+                    base = datetime.fromisoformat(last_brush["started_at"])
+                    next_time = max(base + timedelta(minutes=task.brush_interval), now)
+                else:
+                    next_time = now + timedelta(minutes=task.brush_interval)
+            return next_time.isoformat(timespec="minutes") if next_time else None
+        except (TypeError, ValueError):
+            return None
+
+    def brush(self, task_id: Optional[str] = None) -> None:
+        """执行单个任务的站点刷新、选种和下载流程"""
+        task = self._get_task_config(task_id)
+        if not task or not self.get_state() or not task.enabled:
             return
+        task_lock = self._task_locks.setdefault(task.id, threading.Lock())
+        if not task_lock.acquire(blocking=False):
+            logger.info(f"刷流任务 [{task.name}] 已有操作执行中，本轮跳过")
+            return
+        report = self._new_run_report("brush")
+        self._set_runtime(task.id, state="running", operation="brush", last_error=None)
+        try:
+            with self._brush_lock, self._task_scope(task.id):
+                self._run_brush(task, report)
+            report["success"] = report.get("result") not in {"downloader_unavailable", "site_missing"}
+        except Exception as err:
+            report.update({"success": False, "error": str(err)})
+            self._set_runtime(task.id, last_error=str(err))
+            logger.error(f"刷流任务 [{task.name}] 执行失败：{str(err)}")
+        finally:
+            report["finished_at"] = self._now_iso()
+            self._append_run(task.id, report)
+            self._set_runtime(task.id, state="idle", operation=None)
+            task_lock.release()
 
-        # 初始化汇总信息
-        delete_tasks = []
-        for hash_value in undeleted_hashes:
-            # 获取对应的任务信息
-            torrent_task = torrent_tasks[hash_value]
-            # 标记为已删除
-            torrent_task["deleted"] = True
-            torrent_task["deleted_time"] = time.time()
-            # 处理日志相关内容
-            delete_tasks.append(torrent_task)
-            site_name = torrent_task.get("site_name", "")
-            torrent_title = torrent_task.get("title", "")
-            torrent_desc = torrent_task.get("description", "")
-            logger.info(
-                f"站点：{site_name}，无法在下载器中找到对应种子信息，更新刷流任务状态为已删除，种子：{torrent_title}|{torrent_desc}")
+    def _run_brush(self, task: BrushTaskConfig, report: dict) -> None:
+        """在已绑定任务上下文中执行刷流核心流程"""
+        if not self._validate_task_reference(task) or not self.downloader:
+            report["result"] = "downloader_unavailable"
+            return
+        if not self._is_current_time_in_range(task):
+            report["result"] = "outside_active_time"
+            report["reason_counts"]["不在开启时间段"] = 1
+            return
+        torrent_tasks: Dict[str, dict] = self._current_task_data("torrents", {})
+        seeding_size = self.__calculate_seeding_torrents_size(torrent_tasks)
+        passed, reason = self.__evaluate_size_condition_for_brush(seeding_size)
+        if not passed:
+            report["result"] = "precondition_blocked"
+            report["reason_counts"][reason] = 1
+            return
+        passed, reason = self.__evaluate_pre_conditions_for_brush()
+        if not passed:
+            report["result"] = "precondition_blocked"
+            report["reason_counts"][reason] = 1
+            return
+        site = SiteOper().get(task.site_id)
+        if not site:
+            report["result"] = "site_missing"
+            return
+        all_torrent_tasks = self._load_all_torrent_tasks()
+        subscribe_titles = self.__get_subscribe_titles()
+        self.__brush_site_torrents(
+            site=site,
+            torrent_tasks=torrent_tasks,
+            all_torrent_tasks=all_torrent_tasks,
+            subscribe_titles=subscribe_titles,
+            report=report,
+        )
+        self._save_current_task_data("torrents", torrent_tasks)
+        self._recalculate_statistics(task.id)
 
-        self.__log_and_send_torrent_task_update_message(title="【刷流任务状态更新】", status="更新刷流状态为已删除",
-                                                        reason="无法在下载器中找到对应的种子信息",
-                                                        torrent_tasks=delete_tasks)
+    def _load_all_torrent_tasks(self) -> Dict[str, dict]:
+        """聚合所有任务的当前记录以保持跨站点重复种子保护"""
+        rows: Dict[str, dict] = {}
+        for task_id in self._task_configs:
+            task_rows = self._get_task_data(task_id, "torrents") or {}
+            rows.update(task_rows)
+        return rows
+
+    def __brush_site_torrents(
+        self,
+        site: Any,
+        torrent_tasks: Dict[str, dict],
+        all_torrent_tasks: Dict[str, dict],
+        subscribe_titles: Set[str],
+        report: dict,
+    ) -> None:
+        """获取当前任务站点候选并逐项执行保留的选种规则"""
+        task = self._get_task_config()
+        logger.info(f"刷流任务 [{task.name}] 开始获取站点 {site.name} 的新种子")
+        torrents = TorrentsChain().rss(domain=site.domain) if task.rss_support else TorrentsChain().browse(domain=site.domain)
+        if not torrents:
+            report["result"] = "no_candidates"
+            return
+        report["source_count"] = len(torrents)
+        if task.except_subscribe:
+            before_count = len(torrents)
+            torrents = self.__filter_torrents_contains_subscribe(torrents, subscribe_titles)
+            report["subscription_excluded"] = before_count - len(torrents)
+            if report["subscription_excluded"]:
+                report["reason_counts"]["命中订阅内容"] = report["subscription_excluded"]
+        report["candidate_count"] = len(torrents)
+        torrents.sort(key=lambda item: item.pubdate or "", reverse=True)
+        seeding_size = self.__calculate_seeding_torrents_size(torrent_tasks)
+        for torrent in torrents:
+            passed, reason = self.__evaluate_pre_conditions_for_brush(include_network_conditions=False)
+            if not passed:
+                report["reason_counts"][reason] += 1
+                report["result"] = "precondition_blocked"
+                break
+            passed, reason = self.__evaluate_size_condition_for_brush(seeding_size, torrent.size)
+            if not passed:
+                report["reason_counts"][reason] += 1
+                continue
+            passed, reason = self.__evaluate_conditions_for_brush(torrent, all_torrent_tasks)
+            if not passed:
+                report["reason_counts"][reason] += 1
+                continue
+            hash_string = self.__download(torrent)
+            if not hash_string:
+                report["reason_counts"]["下载器添加失败"] += 1
+                continue
+            torrent_task = self._torrent_to_task_record(torrent, site, task)
+            torrent_tasks[hash_string] = torrent_task
+            all_torrent_tasks[hash_string] = torrent_task
+            seeding_size += torrent.size
+            report["added_count"] += 1
+            report["added_titles"].append(torrent.title)
+            self.eventmanager.send_event(
+                etype=EventType.PluginTriggered,
+                data={
+                    "plugin_id": self.__class__.__name__,
+                    "event_name": "brushflow_download_added",
+                    "hash": hash_string,
+                    "data": torrent_task,
+                    "downloader": self.service_info.name,
+                },
+            )
+            logger.info(f"刷流任务 [{task.name}] 新增种子：{torrent.title}|{torrent.description}")
+            self.__send_add_message(torrent)
+        report["filtered_count"] = max(report["candidate_count"] - report["added_count"], 0)
+        report["result"] = "completed"
+
+    @staticmethod
+    def _torrent_to_task_record(torrent: TorrentInfo, site: Any, task: BrushTaskConfig) -> dict:
+        """把站点候选种子转换为可持久化的任务记录"""
+        return {
+            "task_id": task.id,
+            "task_name": task.name,
+            "site": site.id,
+            "site_name": site.name,
+            "title": torrent.title,
+            "size": torrent.size,
+            "pubdate": torrent.pubdate,
+            "description": torrent.description,
+            "imdbid": torrent.imdbid,
+            "page_url": torrent.page_url,
+            "date_elapsed": torrent.date_elapsed,
+            "freedate": torrent.freedate,
+            "uploadvolumefactor": torrent.uploadvolumefactor,
+            "downloadvolumefactor": torrent.downloadvolumefactor,
+            "hit_and_run": torrent.hit_and_run or task.site_hr_active,
+            "volume_factor": torrent.volume_factor,
+            "freedate_diff": torrent.freedate_diff,
+            "ratio": 0,
+            "downloaded": 0,
+            "uploaded": 0,
+            "seeding_time": 0,
+            "deleted": False,
+            "time": time.time(),
+        }
+
+    @staticmethod
+    def _new_run_report(kind: str) -> dict:
+        """创建一条结构稳定的运行诊断记录"""
+        return {
+            "id": uuid.uuid4().hex,
+            "kind": kind,
+            "started_at": BrushFlow._now_iso(),
+            "finished_at": None,
+            "success": None,
+            "result": None,
+            "error": None,
+            "source_count": 0,
+            "subscription_excluded": 0,
+            "candidate_count": 0,
+            "filtered_count": 0,
+            "added_count": 0,
+            "deleted_count": 0,
+            "active_count": 0,
+            "reason_counts": Counter(),
+            "added_titles": [],
+        }
+
+    @staticmethod
+    def _now_iso() -> str:
+        """返回带本地时区且精确到秒的时间文本"""
+        return datetime.now().astimezone().isoformat(timespec="seconds")
+
+    def __evaluate_size_condition_for_brush(
+        self,
+        torrents_size: float,
+        add_torrent_size: float = 0.0,
+    ) -> Tuple[bool, Optional[str]]:
+        """校验当前任务新增种子后是否超过保种体积"""
+        task = self._get_task_config()
+        if not task or not task.disksize:
+            return True, None
+        estimated_size = torrents_size + (add_torrent_size or 0)
+        limit_size = float(task.disksize) * 1024 ** 3
+        if estimated_size <= limit_size:
+            return True, None
+        reason = (
+            f"预计做种体积 {self.__bytes_to_gb(estimated_size):.1f} GB，"
+            f"超过保种上限 {task.disksize} GB"
+        )
+        return False, reason
+
+    def __evaluate_pre_conditions_for_brush(
+        self,
+        include_network_conditions: bool = True,
+    ) -> Tuple[bool, Optional[str]]:
+        """校验单任务下载并发及全局上传下载带宽"""
+        task = self._get_task_config()
+        if not task:
+            return False, "任务配置不存在"
+        if task.maxdlcount and self.__get_downloading_count() >= int(task.maxdlcount):
+            return False, f"同时下载任务数达到上限 {task.maxdlcount}"
+        if not include_network_conditions:
+            return True, None
+        avg_upload_speed, avg_download_speed = self.__get_average_bandwidth()
+        if avg_upload_speed is None or avg_download_speed is None:
+            return True, None
+        if task.maxupspeed and avg_upload_speed >= float(task.maxupspeed) * 1024:
+            return False, f"总上传带宽达到上限 {task.maxupspeed} KB/s"
+        if task.maxdlspeed and avg_download_speed >= float(task.maxdlspeed) * 1024:
+            return False, f"总下载带宽达到上限 {task.maxdlspeed} KB/s"
+        return True, None
+
+    def __evaluate_conditions_for_brush(
+        self,
+        torrent: TorrentInfo,
+        torrent_tasks: Dict[str, dict],
+    ) -> Tuple[bool, Optional[str]]:
+        """按原有促销、H&R、规则、体积、人数和发布时间筛选候选"""
+        task = self._get_task_config()
+        if not task:
+            return False, "任务配置不存在"
+        task_key = f"{torrent.site_name}{torrent.title}"
+        if any(task_key == f"{item.get('site_name')}{item.get('title')}" for item in torrent_tasks.values()):
+            return False, "重复种子"
+        if torrent.page_url:
+            page_key = f"{torrent.site_name}{torrent.page_url}"
+            if any(page_key == f"{item.get('site_name')}{item.get('page_url')}" for item in torrent_tasks.values()):
+                return False, "重复种子"
+        if torrent.title and any(
+            torrent.site_name != item.get("site_name")
+            and torrent.title == item.get("title")
+            and not item.get("deleted")
+            and (item.get("downloaded") or 0) < (item.get("size") or 0)
+            for item in torrent_tasks.values()
+        ):
+            return False, "其他站点存在尚未下载完成的相同种子"
+        if task.freeleech and torrent.downloadvolumefactor != 0:
+            return False, "非免费种子"
+        if task.freeleech == "2xfree" and torrent.uploadvolumefactor != 2:
+            return False, "非双倍上传种子"
+        if task.hr == "yes" and torrent.hit_and_run:
+            return False, "存在 H&R"
+        if task.include:
+            include_match = bool(
+                (torrent.title and re.search(task.include, torrent.title, re.I))
+                or (torrent.description and re.search(task.include, torrent.description, re.I))
+            )
+            if not include_match:
+                return False, "不符合包含规则"
+        if task.exclude:
+            exclude_match = bool(
+                (torrent.title and re.search(task.exclude, torrent.title, re.I))
+                or (torrent.description and re.search(task.exclude, torrent.description, re.I))
+            )
+            if exclude_match:
+                return False, "符合排除规则"
+        if task.size:
+            size_range = [float(value) * 1024 ** 3 for value in task.size.split("-")]
+            if len(size_range) == 1 and torrent.size < size_range[0]:
+                return False, "种子大小低于下限"
+            if len(size_range) > 1 and not size_range[0] <= torrent.size <= size_range[1]:
+                return False, "种子大小不在范围内"
+        if task.seeder:
+            seeder_range = [float(value) for value in task.seeder.split("-")]
+            seeders = torrent.seeders or 0
+            if len(seeder_range) == 1 and seeders > seeder_range[0]:
+                return False, "做种人数超过上限"
+            if len(seeder_range) > 1 and not seeder_range[0] <= seeders <= seeder_range[1]:
+                return False, "做种人数不在范围内"
+        if task.pubtime:
+            pubdate_minutes = self.__get_pubminutes(torrent.pubdate) - task.timezone_offset * 60
+            pubtime_range = [float(value) for value in task.pubtime.split("-")]
+            if len(pubtime_range) == 1 and pubdate_minutes > pubtime_range[0]:
+                return False, "发布时间超过上限"
+            if len(pubtime_range) > 1 and not pubtime_range[0] <= pubdate_minutes <= pubtime_range[1]:
+                return False, "发布时间不在范围内"
+        return True, None
+
+    def check(self, task_id: Optional[str] = None) -> None:
+        """执行单个任务的下载器状态同步、删种和归档流程"""
+        task = self._get_task_config(task_id)
+        if not task or not self.get_state() or not task.enabled:
+            return
+        task_lock = self._task_locks.setdefault(task.id, threading.Lock())
+        if not task_lock.acquire(blocking=False):
+            logger.info(f"刷流任务 [{task.name}] 已有操作执行中，本轮检查跳过")
+            return
+        report = self._new_run_report("check")
+        self._set_runtime(task.id, state="running", operation="check", last_error=None)
+        try:
+            with self._task_scope(task.id):
+                self._run_check(task, report)
+            report["success"] = report.get("result") not in {"downloader_unavailable", "downloader_error"}
+        except Exception as err:
+            report.update({"success": False, "error": str(err)})
+            self._set_runtime(task.id, last_error=str(err))
+            logger.error(f"刷流任务 [{task.name}] 检查失败：{str(err)}")
+        finally:
+            report["finished_at"] = self._now_iso()
+            self._append_run(task.id, report)
+            self._set_runtime(task.id, state="idle", operation=None)
+            task_lock.release()
+
+    def _run_check(self, task: BrushTaskConfig, report: dict) -> None:
+        """在已绑定任务上下文中执行刷流种子检查"""
+        if not self._validate_task_reference(task) or not self.downloader:
+            report["result"] = "downloader_unavailable"
+            return
+        torrent_tasks: Dict[str, dict] = self._current_task_data("torrents", {})
+        unmanaged_tasks: Dict[str, dict] = self._current_task_data("unmanaged", {})
+        downloader = self.downloader
+        seeding_torrents, error = downloader.get_torrents()
+        if error:
+            report["result"] = "downloader_error"
+            raise RuntimeError("连接下载器出错")
+        seeding_torrents_dict = {self.__get_hash(torrent): torrent for torrent in seeding_torrents}
+        self.__update_seeding_tasks_based_on_tags(torrent_tasks, unmanaged_tasks, seeding_torrents_dict)
+        check_hashes = list(torrent_tasks.keys())
+        if not check_hashes:
+            report.update({"result": "no_managed_torrents", "active_count": 0})
+            self._recalculate_statistics(task.id)
+            return
+        check_torrents = [seeding_torrents_dict[item] for item in check_hashes if item in seeding_torrents_dict]
+        self.__update_torrent_tasks_state(check_torrents, torrent_tasks)
+        self.__update_undeleted_torrents_missing_in_downloader(torrent_tasks, check_hashes, seeding_torrents)
+        filtered_torrents = self.__filter_torrents_by_tag(check_torrents, task.delete_except_tags)
+        if task.proxy_delete and task.delete_size_range:
+            need_delete_hashes = self.__delete_torrent_for_proxy(filtered_torrents, torrent_tasks)
+        else:
+            need_delete_hashes = self.__delete_torrent_for_evaluate_conditions(filtered_torrents, torrent_tasks)
+        need_delete_hashes = list(dict.fromkeys(need_delete_hashes or []))
+        if need_delete_hashes:
+            if DownloaderHelper().is_downloader("qbittorrent", service=self.service_info):
+                self.__qb_torrents_reannounce(need_delete_hashes)
+            if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
+                for torrent_hash in need_delete_hashes:
+                    if torrent_hash in torrent_tasks:
+                        torrent_tasks[torrent_hash]["deleted"] = True
+                        torrent_tasks[torrent_hash]["deleted_time"] = time.time()
+        self.__auto_archive_tasks(torrent_tasks)
+        self._save_current_task_data("torrents", torrent_tasks)
+        self._recalculate_statistics(task.id)
+        report.update(
+            {
+                "result": "completed",
+                "deleted_count": len(need_delete_hashes),
+                "active_count": sum(1 for item in torrent_tasks.values() if not item.get("deleted")),
+            }
+        )
+
+    def __update_torrent_tasks_state(self, torrents: List[Any], torrent_tasks: Dict[str, dict]) -> None:
+        """更新当前任务种子的上下传、分享率和做种时间"""
+        for torrent in torrents:
+            torrent_hash = self.__get_hash(torrent)
+            torrent_task = torrent_tasks.get(torrent_hash)
+            if not torrent_task:
+                continue
+            torrent_info = self.__get_torrent_info(torrent)
+            torrent_task.update(
+                {
+                    "downloaded": torrent_info.get("downloaded"),
+                    "uploaded": torrent_info.get("uploaded"),
+                    "ratio": torrent_info.get("ratio"),
+                    "seeding_time": torrent_info.get("seeding_time"),
+                }
+            )
+
+    def __update_seeding_tasks_based_on_tags(
+        self,
+        torrent_tasks: Dict[str, dict],
+        unmanaged_tasks: Dict[str, dict],
+        seeding_torrents_dict: Dict[str, Any],
+    ) -> None:
+        """按任务唯一标签同步 qBittorrent 中的纳管和移除状态"""
+        task = self._get_task_config()
+        if not task or not DownloaderHelper().is_downloader("qbittorrent", service=self.service_info):
+            return
+        added_tasks: List[dict] = []
+        removed_tasks: List[dict] = []
+        reset_tasks: List[dict] = []
+        for torrent_hash, torrent in seeding_torrents_dict.items():
+            tags = self.__get_label(torrent)
+            has_unique_tag = task.brush_tag in tags
+            has_global_tag = self.GLOBAL_BRUSH_TAG in tags
+            existing = torrent_hash in torrent_tasks
+            adopt_legacy = (
+                has_global_tag
+                and not existing
+                and self._is_primary_task_for_torrent(task, torrent)
+            )
+            managed = has_unique_tag or (has_global_tag and existing) or adopt_legacy
+            if managed:
+                if not existing:
+                    torrent_task = unmanaged_tasks.pop(torrent_hash, None) or self.__convert_torrent_info_to_task(torrent)
+                    torrent_task.update({"task_id": task.id, "task_name": task.name})
+                    torrent_tasks[torrent_hash] = torrent_task
+                    added_tasks.append(torrent_task)
+                elif torrent_tasks[torrent_hash].get("deleted"):
+                    torrent_tasks[torrent_hash]["deleted"] = False
+                    torrent_tasks[torrent_hash].pop("deleted_time", None)
+                    reset_tasks.append(torrent_tasks[torrent_hash])
+            elif existing:
+                unmanaged_tasks[torrent_hash] = torrent_tasks.pop(torrent_hash)
+                removed_tasks.append(unmanaged_tasks[torrent_hash])
+        self._save_current_task_data("torrents", torrent_tasks)
+        self._save_current_task_data("unmanaged", unmanaged_tasks)
+        if added_tasks:
+            self.__log_and_send_torrent_task_update_message(
+                "【刷流任务种子加入】", "纳入刷流管理", "刷流任务标签匹配", added_tasks
+            )
+        if removed_tasks:
+            self.__log_and_send_torrent_task_update_message(
+                "【刷流任务种子移除】", "移除刷流管理", "刷流任务标签移除", removed_tasks
+            )
+        if reset_tasks:
+            self.__log_and_send_torrent_task_update_message(
+                "【刷流任务状态更新】", "恢复为正常", "下载器中仍存在对应种子", reset_tasks
+            )
+
+    def _is_primary_task_for_torrent(self, task: BrushTaskConfig, torrent: Any) -> bool:
+        """仅让同站点第一项任务接管没有唯一标签的旧版刷流种子"""
+        site_id, _ = self.__get_site_by_torrent(torrent)
+        if site_id != task.site_id:
+            return False
+        site_tasks = [item for item in self._task_configs.values() if item.site_id == site_id]
+        return bool(site_tasks and site_tasks[0].id == task.id)
+
+    def __evaluate_conditions_for_delete(
+        self,
+        torrent_info: dict,
+        torrent_task: dict,
+    ) -> Tuple[bool, str]:
+        """评估普通与 H&R 种子的原有删除条件"""
+        task = self._get_task_config()
+        if not task:
+            return False, "任务配置不存在"
+        hit_and_run = bool(torrent_task.get("hit_and_run"))
+        if hit_and_run and (task.hr_seed_time or task.seed_ratio):
+            if task.hr_seed_time and torrent_info.get("seeding_time", 0) >= float(task.hr_seed_time) * 3600:
+                return True, f"H&R 做种时间达到 {task.hr_seed_time} 小时"
+            if task.seed_ratio and torrent_info.get("ratio", 0) >= float(task.seed_ratio):
+                return True, f"H&R 分享率达到 {task.seed_ratio}"
+            return False, "H&R 种子尚未满足删除条件"
+        promotion_expired, promotion_reason = self.__promotion_expired(torrent_info, torrent_task)
+        if promotion_expired:
+            return True, promotion_reason
+        if task.seed_time and torrent_info.get("seeding_time", 0) >= float(task.seed_time) * 3600:
+            return True, f"做种时间达到 {task.seed_time} 小时"
+        if task.seed_ratio and torrent_info.get("ratio", 0) >= float(task.seed_ratio):
+            return True, f"分享率达到 {task.seed_ratio}"
+        if task.seed_size and torrent_info.get("uploaded", 0) >= float(task.seed_size) * 1024 ** 3:
+            return True, f"上传量达到 {task.seed_size} GB"
+        if (
+            task.download_time
+            and torrent_info.get("downloaded", 0) < torrent_info.get("total_size", 0)
+            and torrent_info.get("dltime", 0) >= float(task.download_time) * 3600
+        ):
+            return True, f"下载耗时达到 {task.download_time} 小时"
+        if (
+            task.seed_avgspeed
+            and torrent_info.get("avg_upspeed", 0) <= float(task.seed_avgspeed) * 1024
+            and torrent_info.get("seeding_time", 0) >= 30 * 60
+        ):
+            return True, f"平均上传速度低于 {task.seed_avgspeed} KB/s"
+        if task.seed_inactivetime and torrent_info.get("iatime", 0) >= float(task.seed_inactivetime) * 60:
+            return True, f"未活动时间达到 {task.seed_inactivetime} 分钟"
+        return False, "尚未满足删除条件"
+
+    def __promotion_expired(self, torrent_info: dict, torrent_task: dict) -> Tuple[bool, str]:
+        """判断免费促销是否结束且种子仍未完成下载"""
+        task = self._get_task_config()
+        if (
+            not task
+            or not task.del_no_free
+            or torrent_info.get("downloaded", 0) >= torrent_info.get("total_size", 0)
+        ):
+            return False, ""
+        freedate_origin = torrent_task.get("freedate")
+        if not freedate_origin:
+            return False, ""
+        try:
+            freedate = datetime.strptime(str(freedate_origin).replace("T", " ").replace("Z", ""), "%Y-%m-%d %H:%M:%S")
+            delta_minutes = (freedate - datetime.now()).total_seconds() / 60 - task.timezone_offset * 60
+            return (delta_minutes <= 0, "促销已过期" if delta_minutes <= 0 else "")
+        except (TypeError, ValueError) as err:
+            logger.warning(f"解析促销截止时间失败：{str(err)}")
+            return False, ""
+
+    def __delete_torrent_for_evaluate_conditions(
+        self,
+        torrents: List[Any],
+        torrent_tasks: Dict[str, dict],
+        dynamic: bool = False,
+    ) -> List[str]:
+        """找出满足用户删除条件的种子并发送对应通知"""
+        delete_hashes: List[str] = []
+        for torrent in torrents:
+            torrent_hash = self.__get_hash(torrent)
+            torrent_task = torrent_tasks.get(torrent_hash)
+            if not torrent_task:
+                continue
+            torrent_info = self.__get_torrent_info(torrent)
+            should_delete, reason = self.__evaluate_conditions_for_delete(torrent_info, torrent_task)
+            if not should_delete:
+                continue
+            delete_hashes.append(torrent_hash)
+            if dynamic:
+                reason = f"触发动态删除阈值，{reason}"
+            self.__send_delete_message(torrent_task, reason)
+            logger.info(f"刷流任务删除种子：{torrent_task.get('title')}，原因：{reason}")
+        return delete_hashes
+
+    def __delete_torrent_for_evaluate_proxy_pre_conditions(
+        self,
+        torrents: List[Any],
+        torrent_tasks: Dict[str, dict],
+    ) -> List[str]:
+        """动态删种前优先清理促销过期或下载超时的非 H&R 种子"""
+        task = self._get_task_config()
+        delete_hashes: List[str] = []
+        for torrent in torrents:
+            torrent_hash = self.__get_hash(torrent)
+            torrent_task = torrent_tasks.get(torrent_hash)
+            if not task or not torrent_task or torrent_task.get("hit_and_run"):
+                continue
+            torrent_info = self.__get_torrent_info(torrent)
+            expired, reason = self.__promotion_expired(torrent_info, torrent_task)
+            timed_out = bool(
+                task.download_time
+                and torrent_info.get("downloaded", 0) < torrent_info.get("total_size", 0)
+                and torrent_info.get("dltime", 0) >= float(task.download_time) * 3600
+            )
+            if not expired and not timed_out:
+                continue
+            if timed_out and not reason:
+                reason = f"下载耗时达到 {task.download_time} 小时"
+            delete_hashes.append(torrent_hash)
+            self.__send_delete_message(torrent_task, reason)
+        return delete_hashes
+
+    def __delete_torrent_for_proxy(
+        self,
+        torrents: List[Any],
+        torrent_tasks: Dict[str, dict],
+    ) -> List[str]:
+        """按动态体积阈值执行前置、条件和兜底删种"""
+        task = self._get_task_config()
+        if not task or not task.proxy_delete or not task.delete_size_range:
+            return []
+        torrent_info_map = {
+            self.__get_hash(torrent): self.__get_torrent_info(torrent) for torrent in torrents
+        }
+        total_size = self.__calculate_seeding_torrents_size(torrent_tasks)
+        pre_delete_hashes = self.__delete_torrent_for_evaluate_proxy_pre_conditions(torrents, torrent_tasks)
+        total_size -= sum(torrent_info_map[item].get("total_size", 0) for item in pre_delete_hashes if item in torrent_info_map)
+        remaining_torrents = [torrent for torrent in torrents if self.__get_hash(torrent) not in pre_delete_hashes]
+        limits = [float(value) * 1024 ** 3 for value in task.delete_size_range.split("-")]
+        min_size = limits[0]
+        max_size = limits[1] if len(limits) > 1 else limits[0]
+        if total_size < max_size:
+            return pre_delete_hashes
+        delete_hashes = list(pre_delete_hashes)
+        conditional_hashes = self.__delete_torrent_for_evaluate_conditions(
+            remaining_torrents, torrent_tasks, dynamic=True
+        )
+        delete_hashes.extend(conditional_hashes)
+        total_size -= sum(
+            torrent_info_map[item].get("total_size", 0)
+            for item in conditional_hashes
+            if item in torrent_info_map
+        )
+        if total_size > min_size:
+            remaining_hashes = [
+                self.__get_hash(torrent)
+                for torrent in remaining_torrents
+                if self.__get_hash(torrent) not in delete_hashes
+            ]
+            completed = self.downloader.get_completed_torrents(ids=remaining_hashes)
+            candidates = []
+            for torrent in completed:
+                torrent_hash = self.__get_hash(torrent)
+                if torrent_tasks.get(torrent_hash, {}).get("hit_and_run"):
+                    continue
+                info = torrent_info_map.get(torrent_hash) or self.__get_torrent_info(torrent)
+                candidates.append((torrent_hash, info))
+            candidates.sort(key=lambda item: item[1].get("seeding_time", 0), reverse=True)
+            for torrent_hash, torrent_info in candidates:
+                if total_size <= min_size:
+                    break
+                delete_hashes.append(torrent_hash)
+                total_size -= torrent_info.get("total_size", 0)
+                torrent_task = torrent_tasks.get(torrent_hash, {})
+                self.__send_delete_message(torrent_task, "触发动态删除阈值，系统按做种时间清理")
+        if len(limits) > 1 and delete_hashes:
+            self.__send_message(
+                "【刷流任务动态删除】",
+                f"任务：{task.name}\n删除：{len(delete_hashes)} 个种子\n当前做种：{self.__bytes_to_gb(total_size):.1f} GB",
+            )
+        return delete_hashes
+
+    def __update_undeleted_torrents_missing_in_downloader(
+        self,
+        torrent_tasks: Dict[str, dict],
+        torrent_check_hashes: List[str],
+        torrents: List[Any],
+    ) -> None:
+        """把下载器中已不存在但仍标记正常的记录更新为已删除"""
+        existing_hashes = set(self.__get_all_hashes(torrents))
+        missing_hashes = [
+            item for item in torrent_check_hashes
+            if item not in existing_hashes and not torrent_tasks[item].get("deleted")
+        ]
+        deleted_tasks: List[dict] = []
+        for torrent_hash in missing_hashes:
+            torrent_task = torrent_tasks[torrent_hash]
+            torrent_task.update({"deleted": True, "deleted_time": time.time()})
+            deleted_tasks.append(torrent_task)
+        if deleted_tasks:
+            self.__log_and_send_torrent_task_update_message(
+                "【刷流任务状态更新】", "更新为已删除", "下载器中找不到对应种子", deleted_tasks
+            )
 
     def __convert_torrent_info_to_task(self, torrent: Any) -> dict:
-        """
-        根据torrent_info转换成torrent_task
-        """
-        torrent_info = self.__get_torrent_info(torrent=torrent)
-
-        site_id, site_name = self.__get_site_by_torrent(torrent=torrent)
-
-        torrent_task = {
+        """把下载器种子转换为当前任务的托管记录"""
+        torrent_info = self.__get_torrent_info(torrent)
+        site_id, site_name = self.__get_site_by_torrent(torrent)
+        task = self._get_task_config()
+        return {
+            "task_id": task.id if task else None,
+            "task_name": task.name if task else None,
             "site": site_id,
             "site_name": site_name,
             "title": torrent_info.get("title", ""),
-            "size": torrent_info.get("total_size", 0),  # 假设total_size对应于size
+            "size": torrent_info.get("total_size", 0),
             "pubdate": None,
             "description": None,
             "imdbid": None,
@@ -2914,598 +1569,234 @@ class BrushFlow(_PluginBase):
             "freedate": None,
             "uploadvolumefactor": None,
             "downloadvolumefactor": None,
-            "hit_and_run": None,
+            "hit_and_run": False,
             "volume_factor": None,
-            "freedate_diff": None,  # 假设无法从torrent_info直接获取
+            "freedate_diff": None,
             "ratio": torrent_info.get("ratio", 0),
             "downloaded": torrent_info.get("downloaded", 0),
             "uploaded": torrent_info.get("uploaded", 0),
+            "seeding_time": torrent_info.get("seeding_time", 0),
             "deleted": False,
-            "time": torrent_info.get("add_on", time.time())
+            "time": torrent_info.get("add_on", time.time()),
         }
-        return torrent_task
-
-    # endregion
-
-    def __update_and_save_statistic_info(self, torrent_tasks):
-        """
-        更新并保存统计信息
-        """
-        total_count, total_uploaded, total_downloaded, total_deleted = 0, 0, 0, 0
-        active_uploaded, active_downloaded, active_count, total_unarchived = 0, 0, 0, 0
-
-        statistic_info = self.__get_statistic_info()
-        archived_tasks = self.get_data("archived") or {}
-        combined_tasks = {**torrent_tasks, **archived_tasks}
-
-        for task in combined_tasks.values():
-            if task.get("deleted", False):
-                total_deleted += 1
-            total_downloaded += task.get("downloaded", 0)
-            total_uploaded += task.get("uploaded", 0)
-
-        # 计算torrent_tasks中未标记为删除的活跃任务的统计信息，及待归档的任务数
-        for task in torrent_tasks.values():
-            if not task.get("deleted", False):
-                active_uploaded += task.get("uploaded", 0)
-                active_downloaded += task.get("downloaded", 0)
-                active_count += 1
-            else:
-                total_unarchived += 1
-
-        # 更新统计信息
-        total_count = len(combined_tasks)
-        statistic_info.update({
-            "uploaded": total_uploaded,
-            "downloaded": total_downloaded,
-            "deleted": total_deleted,
-            "unarchived": total_unarchived,
-            "count": total_count,
-            "active": active_count,
-            "active_uploaded": active_uploaded,
-            "active_downloaded": active_downloaded
-        })
-
-        logger.info(f"刷流任务统计数据，总任务数：{total_count}，活跃任务数：{active_count}，已删除：{total_deleted}，"
-                    f"待归档：{total_unarchived}，"
-                    f"活跃上传量：{StringUtils.str_filesize(active_uploaded)}，"
-                    f"活跃下载量：{StringUtils.str_filesize(active_downloaded)}，"
-                    f"总上传量：{StringUtils.str_filesize(total_uploaded)}，"
-                    f"总下载量：{StringUtils.str_filesize(total_downloaded)}")
-
-        self.save_data("statistic", statistic_info)
-        self.save_data("torrents", torrent_tasks)
-
-    def __get_brush_config(self, sitename: str = None) -> BrushConfig:
-        """
-        获取BrushConfig
-        """
-        return self._brush_config if not sitename else self._brush_config.get_site_config(sitename=sitename)
-
-    def __validate_and_fix_config(self, config: dict = None) -> bool:
-        """
-        检查并修正配置值
-        """
-        if config is None:
-            logger.error("配置为None，无法验证和修正")
-            return False
-
-        # 设置一个标志，用于跟踪是否发现校验错误
-        found_error = False
-
-        config_number_attr_to_desc = {
-            "disksize": "保种体积",
-            "maxupspeed": "总上传带宽",
-            "maxdlspeed": "总下载带宽",
-            "maxdlcount": "同时下载任务数",
-            "seed_time": "做种时间",
-            "hr_seed_time": "H&R做种时间",
-            "seed_ratio": "分享率",
-            "seed_size": "上传量",
-            "download_time": "下载超时时间",
-            "seed_avgspeed": "平均上传速度",
-            "seed_inactivetime": "未活动时间",
-            "up_speed": "单任务上传限速",
-            "dl_speed": "单任务下载限速",
-            "auto_archive_days": "自动清理记录天数"
-        }
-
-        config_range_number_attr_to_desc = {
-            "pubtime": "发布时间",
-            "size": "种子大小",
-            "seeder": "做种人数",
-            "delete_size_range": "动态删种阈值"
-        }
-
-        for attr, desc in config_number_attr_to_desc.items():
-            value = config.get(attr)
-            if value and not self.__is_number(value):
-                self.__log_and_notify_error(f"站点刷流任务出错，{desc}设置错误：{value}")
-                config[attr] = None
-                found_error = True  # 更新错误标志
-
-        for attr, desc in config_range_number_attr_to_desc.items():
-            value = config.get(attr)
-            # 检查 value 是否存在且是否符合数字或数字-数字的模式
-            if value and not self.__is_number_or_range(str(value)):
-                self.__log_and_notify_error(f"站点刷流任务出错，{desc}设置错误：{value}")
-                config[attr] = None
-                found_error = True  # 更新错误标志
-
-        active_time_range = config.get("active_time_range")
-        if active_time_range and not self.__is_valid_time_range(time_range=active_time_range):
-            self.__log_and_notify_error(f"站点刷流任务出错，开启时间段设置错误：{active_time_range}")
-            config["active_time_range"] = None
-            found_error = True  # 更新错误标志
-
-        # 如果发现任何错误，返回False；否则返回True
-        return not found_error
-
-    def __update_config(self, brush_config: BrushConfig = None):
-        """
-        根据传入的BrushConfig实例更新配置
-        """
-        if brush_config is None:
-            brush_config = self._brush_config
-
-        if brush_config is None:
-            return
-
-        # 创建一个将配置属性名称映射到BrushConfig属性值的字典
-        config_mapping = {
-            "onlyonce": brush_config.onlyonce,
-            "enabled": brush_config.enabled,
-            "notify": brush_config.notify,
-            "brushsites": brush_config.brushsites,
-            "downloader": brush_config.downloader,
-            "disksize": brush_config.disksize,
-            "freeleech": brush_config.freeleech,
-            "hr": brush_config.hr,
-            "maxupspeed": brush_config.maxupspeed,
-            "maxdlspeed": brush_config.maxdlspeed,
-            "maxdlcount": brush_config.maxdlcount,
-            "include": brush_config.include,
-            "exclude": brush_config.exclude,
-            "size": brush_config.size,
-            "seeder": brush_config.seeder,
-            "timezone_offset": brush_config.timezone_offset,
-            "pubtime": brush_config.pubtime,
-            "seed_time": brush_config.seed_time,
-            "hr_seed_time": brush_config.hr_seed_time,
-            "seed_ratio": brush_config.seed_ratio,
-            "seed_size": brush_config.seed_size,
-            "download_time": brush_config.download_time,
-            "seed_avgspeed": brush_config.seed_avgspeed,
-            "seed_inactivetime": brush_config.seed_inactivetime,
-            "delete_size_range": brush_config.delete_size_range,
-            "up_speed": brush_config.up_speed,
-            "dl_speed": brush_config.dl_speed,
-            "auto_archive_days": brush_config.auto_archive_days,
-            "save_path": brush_config.save_path,
-            "clear_task": brush_config.clear_task,
-            "delete_except_tags": brush_config.delete_except_tags,
-            "except_subscribe": brush_config.except_subscribe,
-            "brush_sequential": brush_config.brush_sequential,
-            "proxy_delete": brush_config.proxy_delete,
-            "active_time_range": brush_config.active_time_range,
-            "cron": brush_config.cron,
-            "qb_category": brush_config.qb_category,
-            "enable_site_config": brush_config.enable_site_config,
-            "site_config": brush_config.site_config,
-            "del_no_free": brush_config.del_no_free,
-            "rss_support": brush_config.rss_support,
-            "_tabs": self._tabs
-        }
-
-        # 使用update_config方法或其等效方法更新配置
-        self.update_config(config_mapping)
 
     @staticmethod
-    def __get_redict_url(url: str, proxies: str = None, ua: str = None, cookie: str = None) -> Optional[str]:
-        """
-        获取下载链接， url格式：[base64]url
-        """
-        # 获取[]中的内容
-        m = re.search(r"\[(.*)](.*)", url)
-        if m:
-            # 参数
-            base64_str = m.group(1)
-            # URL
-            url = m.group(2)
-            if not base64_str:
-                return url
-            # 解码参数
-            req_str = base64.b64decode(base64_str.encode('utf-8')).decode('utf-8')
-            req_params: Dict[str, dict] = json.loads(req_str)
-            # 是否使用cookie
-            if not req_params.get('cookie'):
-                cookie = None
-            # 请求头
-            if req_params.get('header'):
-                headers = req_params.get('header')
-            else:
-                headers = None
-            if req_params.get('method') == 'get':
-                # GET请求
-                res = RequestUtils(
-                    ua=ua,
-                    proxies=proxies,
-                    cookies=cookie,
-                    headers=headers
-                ).get_res(url, params=req_params.get('params'))
-            else:
-                # POST请求
-                res = RequestUtils(
-                    ua=ua,
-                    proxies=proxies,
-                    cookies=cookie,
-                    headers=headers
-                ).post_res(url, params=req_params.get('params'))
-            if not res:
-                return None
-            if not req_params.get('result'):
-                return res.text
-            else:
-                data = res.json()
-                for key in str(req_params.get('result')).split("."):
-                    data = data.get(key)
-                    if not data:
-                        return None
-                logger.debug(f"获取到下载地址：{data}")
-                return data
-        return None
-
-    @staticmethod
-    def __reset_download_url(torrent_url, site_id) -> str:
-        """
-        处理下载地址
-        """
+    def __get_redict_url(
+        url: str,
+        proxies: str = None,
+        ua: str = None,
+        cookie: str = None,
+    ) -> Optional[str]:
+        """解析带请求参数的跳转下载链接并返回真实地址"""
+        match = re.search(r"\[(.*)](.*)", url)
+        if not match:
+            return None
+        base64_str, request_url = match.group(1), match.group(2)
+        if not base64_str:
+            return request_url
         try:
-            # 检查 torrent_url 是否为有效的下载 URL，并且 site 是 NexusPHP
+            request_text = base64.b64decode(base64_str.encode("utf-8")).decode("utf-8")
+            request_params: Dict[str, dict] = json.loads(request_text)
+        except (ValueError, UnicodeDecodeError) as err:
+            logger.error(f"解析种子跳转下载参数失败：{str(err)}")
+            return None
+        if not request_params.get("cookie"):
+            cookie = None
+        headers = request_params.get("header") or None
+        request = RequestUtils(ua=ua, proxies=proxies, cookies=cookie, headers=headers)
+        if request_params.get("method") == "get":
+            response = request.get_res(request_url, params=request_params.get("params"))
+        else:
+            response = request.post_res(request_url, params=request_params.get("params"))
+        if not response:
+            return None
+        result_path = request_params.get("result")
+        if not result_path:
+            return response.text
+        data = response.json()
+        for key in str(result_path).split("."):
+            if not isinstance(data, dict):
+                return None
+            data = data.get(key)
+            if data is None:
+                return None
+        return str(data)
+
+    @staticmethod
+    def __reset_download_url(torrent_url: str, site_id: int) -> str:
+        """为支持的 NexusPHP 站点追加跳过下载提示参数"""
+        try:
             if not torrent_url or torrent_url.startswith("magnet"):
                 return torrent_url
-
-            indexers = SitesHelper().get_indexers()
-            if not indexers:
+            site = next(
+                (item for item in SitesHelper().get_indexers() if item.get("id") == site_id),
+                None,
+            )
+            if not site or site.get("name") in {"天空"} or not site.get("schema", "").startswith("Nexus"):
                 return torrent_url
-
-            unsupported_sites = {"天空"}
-            site = next((item for item in indexers if item.get("id") == site_id), None)
-            if site.get("name") in unsupported_sites or not site.get("schema", "").startswith("Nexus"):
-                return torrent_url
-
-            # 解析 URL
             parsed_url = urlparse(torrent_url)
-
-            # 如果 URL 中已有查询参数，使用 urlencode 进行拼接
             query_params = dict(parse_qsl(parsed_url.query))
             query_params["letdown"] = "1"
-
-            # 重新构造带有新参数的 URL
-            new_query = urlencode(query_params)
-            new_url = str(urlunparse(parsed_url._replace(query=new_query)))
-            return new_url
-        except Exception as e:
-            logger.error(f"Error while resetting downloader URL for torrent: {torrent_url}. Error: {str(e)}")
+            return str(urlunparse(parsed_url._replace(query=urlencode(query_params))))
+        except Exception as err:
+            logger.error(f"处理种子下载提示地址失败：{str(err)}")
             return torrent_url
 
     def __download(self, torrent: TorrentInfo) -> Optional[str]:
-        """
-        添加下载任务
-        """
-        if not torrent.enclosure:
-            logger.error(f"获取下载链接失败：{torrent.title}")
+        """按当前任务配置向 qBittorrent 或 Transmission 添加种子"""
+        task = self._get_task_config()
+        if not task or not torrent.enclosure:
+            logger.error(f"获取种子下载链接失败：{torrent.title}")
             return None
-
-        brush_config = self.__get_brush_config(torrent.site_name)
-
-        # 上传限速
-        up_speed = int(brush_config.up_speed) if brush_config.up_speed else None
-        # 下载限速
-        down_speed = int(brush_config.dl_speed) if brush_config.dl_speed else None
-        # 保存地址
-        download_dir = brush_config.save_path or None
-        # 获取下载链接
-        torrent_content = torrent.enclosure
-        # proxies
+        up_speed = int(task.up_speed) if task.up_speed else None
+        down_speed = int(task.dl_speed) if task.dl_speed else None
+        torrent_content: Union[str, bytes] = torrent.enclosure
         proxies = settings.PROXY if torrent.site_proxy else None
-        # cookie
         cookies = torrent.site_cookie
-        if torrent_content.startswith("["):
-            torrent_content = self.__get_redict_url(url=torrent_content,
-                                                    proxies=proxies,
-                                                    ua=torrent.site_ua,
-                                                    cookie=cookies)
-            # 目前馒头请求实际种子时，不能传入Cookie
+        if isinstance(torrent_content, str) and torrent_content.startswith("["):
+            torrent_content = self.__get_redict_url(
+                torrent_content,
+                proxies=proxies,
+                ua=torrent.site_ua,
+                cookie=cookies,
+            )
             cookies = None
         if not torrent_content:
-            logger.error(f"获取下载链接失败：{torrent.title}")
             return None
-
-        if brush_config.site_skip_tips:
-            torrent_content = self.__reset_download_url(torrent_url=torrent_content, site_id=torrent.site)
-            logger.debug(f"站点 {torrent.site_name} 已启用自动跳过提示，种子下载地址更新为 {torrent_content}")
-
+        if task.site_skip_tips and isinstance(torrent_content, str):
+            torrent_content = self.__reset_download_url(torrent_content, torrent.site)
         downloader = self.downloader
-        if not downloader:
+        service = self.service_info
+        if not downloader or not service:
             return None
-
         downloader_helper = DownloaderHelper()
-        if downloader_helper.is_downloader("qbittorrent", service=self.service_info):
-            # 限速值转为bytes
-            up_speed = up_speed * 1024 if up_speed else None
-            down_speed = down_speed * 1024 if down_speed else None
-            # 生成随机Tag
-            tag = StringUtils.generate_random_str(10)
-            # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
-            if not torrent_content.startswith("magnet"):
-                response = RequestUtils(cookies=cookies,
-                                        proxies=proxies,
-                                        ua=torrent.site_ua).get_res(url=torrent_content)
+        if downloader_helper.is_downloader("qbittorrent", service=service):
+            up_limit = up_speed * 1024 if up_speed else None
+            down_limit = down_speed * 1024 if down_speed else None
+            random_tag = StringUtils.generate_random_str(10)
+            if isinstance(torrent_content, str) and not torrent_content.startswith("magnet"):
+                response = RequestUtils(cookies=cookies, proxies=proxies, ua=torrent.site_ua).get_res(
+                    url=torrent_content
+                )
                 if response and response.ok:
                     torrent_content = response.content
-                else:
-                    logger.error("尝试通过MP下载种子失败，继续尝试传递种子地址到下载器进行下载")
-            if torrent_content:
-                state = downloader.add_torrent(content=torrent_content,
-                                               download_dir=download_dir,
-                                               cookie=cookies,
-                                               category=brush_config.qb_category,
-                                               tag=["已整理", brush_config.brush_tag, tag],
-                                               upload_limit=up_speed,
-                                               download_limit=down_speed)
-                if not state:
-                    return None
-                else:
-                    # 获取种子Hash
-                    torrent_hash = downloader.get_torrent_id_by_tag(tags=tag)
-                    if not torrent_hash:
-                        logger.error(f"{brush_config.downloader} 获取种子Hash失败，详细信息请查看 README")
-                        return None
-                    return torrent_hash
-            return None
-
-        elif downloader_helper.is_downloader("transmission", service=self.service_info):
-            # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
-            if not torrent_content.startswith("magnet"):
-                response = RequestUtils(cookies=cookies,
-                                        proxies=proxies,
-                                        ua=torrent.site_ua).get_res(url=torrent_content)
+            if not downloader.add_torrent(
+                content=torrent_content,
+                download_dir=task.save_path,
+                cookie=cookies,
+                category=task.qb_category,
+                tag=["已整理", self.GLOBAL_BRUSH_TAG, task.brush_tag, random_tag],
+                upload_limit=up_limit,
+                download_limit=down_limit,
+            ):
+                return None
+            torrent_hash = downloader.get_torrent_id_by_tag(tags=random_tag)
+            if not torrent_hash:
+                logger.error(f"刷流任务 [{task.name}] 获取种子 Hash 失败")
+            return torrent_hash
+        if downloader_helper.is_downloader("transmission", service=service):
+            if isinstance(torrent_content, str) and not torrent_content.startswith("magnet"):
+                response = RequestUtils(cookies=cookies, proxies=proxies, ua=torrent.site_ua).get_res(
+                    url=torrent_content
+                )
                 if response and response.ok:
                     torrent_content = response.content
-                else:
-                    logger.error("尝试通过MP下载种子失败，继续尝试传递种子地址到下载器进行下载")
-            if torrent_content:
-                torrent = downloader.add_torrent(content=torrent_content,
-                                                 download_dir=download_dir,
-                                                 cookie=cookies,
-                                                 labels=["已整理", brush_config.brush_tag])
-                if not torrent:
-                    return None
-                else:
-                    if brush_config.up_speed or brush_config.dl_speed:
-                        downloader.change_torrent(hash_string=torrent.hashString,
-                                                  upload_limit=up_speed,
-                                                  download_limit=down_speed)
-                    return torrent.hashString
+            added_torrent = downloader.add_torrent(
+                content=torrent_content,
+                download_dir=task.save_path,
+                cookie=cookies,
+                labels=["已整理", self.GLOBAL_BRUSH_TAG, task.brush_tag],
+            )
+            if not added_torrent:
+                return None
+            if task.up_speed or task.dl_speed:
+                downloader.change_torrent(
+                    hash_string=added_torrent.hashString,
+                    upload_limit=up_speed,
+                    download_limit=down_speed,
+                )
+            return added_torrent.hashString
         return None
 
-    def __qb_torrents_reannounce(self, torrent_hashes: List[str]):
-        """强制重新汇报"""
+    def __qb_torrents_reannounce(self, torrent_hashes: List[str]) -> None:
+        """删除 qBittorrent 种子前强制重新汇报 Tracker"""
         downloader = self.downloader
-        if not downloader:
+        if not downloader or not getattr(downloader, "qbc", None) or not torrent_hashes:
             return
-
-        if not downloader.qbc:
-            return
-
-        if not torrent_hashes:
-            return
-
         try:
-            # 重新汇报
             downloader.qbc.torrents_reannounce(torrent_hashes=torrent_hashes)
         except Exception as err:
-            logger.error(f"强制重新汇报失败：{str(err)}")
+            logger.error(f"强制重新汇报 Tracker 失败：{str(err)}")
 
-    def __get_hash(self, torrent: Any):
-        """
-        获取种子hash
-        """
+    def __get_hash(self, torrent: Any) -> str:
+        """兼容获取 qBittorrent 与 Transmission 种子 Hash"""
         try:
-            return torrent.get("hash") if DownloaderHelper().is_downloader("qbittorrent", service=self.service_info) \
-                else torrent.hashString
-        except Exception as e:
-            print(str(e))
+            service = self.service_info
+            if service and DownloaderHelper().is_downloader("qbittorrent", service=service):
+                return torrent.get("hash") or ""
+            return getattr(torrent, "hashString", "") or ""
+        except Exception as err:
+            logger.error(f"获取种子 Hash 失败：{str(err)}")
             return ""
 
-    def __get_all_hashes(self, torrents):
-        """
-        获取torrents列表中所有种子的Hash值
+    def __get_all_hashes(self, torrents: List[Any]) -> List[str]:
+        """提取下载器种子列表中的全部有效 Hash"""
+        return [torrent_hash for torrent in torrents if (torrent_hash := self.__get_hash(torrent))]
 
-        :param torrents: 包含种子信息的列表
-        :return: 包含所有Hash值的列表
-        """
+    def __get_label(self, torrent: Any) -> List[str]:
+        """兼容获取 qBittorrent 标签和 Transmission Labels"""
         try:
-            all_hashes = []
-            for torrent in torrents:
-                # 根据下载器类型获取Hash值
-                hash_value = torrent.get("hash") if DownloaderHelper().is_downloader("qbittorrent",
-                                                                                     service=self.service_info) \
-                    else torrent.hashString
-                if hash_value:
-                    all_hashes.append(hash_value)
-            return all_hashes
-        except Exception as e:
-            print(str(e))
-            return []
-
-    def __get_label(self, torrent: Any):
-        """
-        获取种子标签
-        """
-        try:
-            return [str(tag).strip() for tag in torrent.get("tags").split(',')] \
-                if DownloaderHelper().is_downloader("qbittorrent",
-                                                    service=self.service_info) else torrent.labels or []
-        except Exception as e:
-            print(str(e))
+            service = self.service_info
+            if service and DownloaderHelper().is_downloader("qbittorrent", service=service):
+                return [item.strip() for item in str(torrent.get("tags") or "").split(",") if item.strip()]
+            return [str(item).strip() for item in getattr(torrent, "labels", None) or [] if str(item).strip()]
+        except Exception as err:
+            logger.error(f"获取种子标签失败：{str(err)}")
             return []
 
     def __get_torrent_info(self, torrent: Any) -> dict:
-        """
-        获取种子信息
-        """
-        date_now = int(time.time())
-        # QB
-        if DownloaderHelper().is_downloader("qbittorrent", service=self.service_info):
-            """
-            {
-              "added_on": 1693359031,
-              "amount_left": 0,
-              "auto_tmm": false,
-              "availability": -1,
-              "category": "tJU",
-              "completed": 67759229411,
-              "completion_on": 1693609350,
-              "content_path": "/mnt/sdb/qb/downloads/Steel.Division.2.Men.of.Steel-RUNE",
-              "dl_limit": -1,
-              "dlspeed": 0,
-              "download_path": "",
-              "downloaded": 67767365851,
-              "downloaded_session": 0,
-              "eta": 8640000,
-              "f_l_piece_prio": false,
-              "force_start": false,
-              "hash": "116bc6f3efa6f3b21a06ce8f1cc71875",
-              "infohash_v1": "116bc6f306c40e072bde8f1cc71875",
-              "infohash_v2": "",
-              "last_activity": 1693609350,
-              "magnet_uri": "magnet:?xt=",
-              "max_ratio": -1,
-              "max_seeding_time": -1,
-              "name": "Steel.Division.2.Men.of.Steel-RUNE",
-              "num_complete": 1,
-              "num_incomplete": 0,
-              "num_leechs": 0,
-              "num_seeds": 0,
-              "priority": 0,
-              "progress": 1,
-              "ratio": 0,
-              "ratio_limit": -2,
-              "save_path": "/mnt/sdb/qb/downloads",
-              "seeding_time": 615035,
-              "seeding_time_limit": -2,
-              "seen_complete": 1693609350,
-              "seq_dl": false,
-              "size": 67759229411,
-              "state": "stalledUP",
-              "super_seeding": false,
-              "tags": "",
-              "time_active": 865354,
-              "total_size": 67759229411,
-              "tracker": "https://tracker",
-              "trackers_count": 2,
-              "up_limit": -1,
-              "uploaded": 0,
-              "uploaded_session": 0,
-              "upspeed": 0
-            }
-            """
-            # ID
+        """统一提取 qBittorrent 与 transmission-rpc v7 种子状态"""
+        now_timestamp = int(time.time())
+        service = self.service_info
+        if service and DownloaderHelper().is_downloader("qbittorrent", service=service):
             torrent_id = torrent.get("hash")
-            # 标题
-            torrent_title = torrent.get("name")
-            # 下载时间
-            if (not torrent.get("added_on")
-                    or torrent.get("added_on") < 0):
-                dltime = 0
-            else:
-                dltime = date_now - torrent.get("added_on")
-            # 做种时间
-            if (not torrent.get("completion_on")
-                    or torrent.get("completion_on") < 0):
-                seeding_time = 0
-            else:
-                seeding_time = date_now - torrent.get("completion_on")
-            # 分享率
+            title = torrent.get("name")
+            added_on = torrent.get("added_on") or 0
+            completion_on = torrent.get("completion_on") or 0
+            last_activity = torrent.get("last_activity") or 0
+            dltime = now_timestamp - added_on if added_on > 0 else 0
+            seeding_time = now_timestamp - completion_on if completion_on > 0 else 0
+            iatime = now_timestamp - last_activity if last_activity > 0 else 0
             ratio = torrent.get("ratio") or 0
-            # 上传量
             uploaded = torrent.get("uploaded") or 0
-            # 平均上传速度 Byte/s
-            if dltime:
-                avg_upspeed = int(uploaded / dltime)
-            else:
-                avg_upspeed = uploaded
-            # 已未活动 秒
-            if (not torrent.get("last_activity")
-                    or torrent.get("last_activity") < 0):
-                iatime = 0
-            else:
-                iatime = date_now - torrent.get("last_activity")
-            # 下载量
-            downloaded = torrent.get("downloaded")
-            # 种子大小
-            total_size = torrent.get("total_size")
-            # 添加时间
-            add_on = (torrent.get("added_on") or 0)
-            add_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(add_on))
-            # 种子标签
-            tags = torrent.get("tags")
-            # tracker
-            tracker = torrent.get("tracker")
-        # TR
+            downloaded = torrent.get("downloaded") or 0
+            total_size = torrent.get("total_size") or 0
+            tags = torrent.get("tags") or ""
+            tracker = torrent.get("tracker") or ""
         else:
-            # ID
-            torrent_id = torrent.hashString
-            # 标题
-            torrent_title = torrent.name
-            # 做种时间 — 兼容 transmission-rpc v7(done_date) 与旧版(date_done)
+            torrent_id = getattr(torrent, "hashString", "")
+            title = getattr(torrent, "name", "")
             done_date = getattr(torrent, "done_date", None) or getattr(torrent, "date_done", None)
-            if (not done_date
-                    or done_date.timestamp() < 1):
-                seeding_time = 0
-            else:
-                seeding_time = date_now - int(done_date.timestamp())
-            # 下载耗时 — 兼容 v7(added_date) 与旧版(date_added)
             added_date = getattr(torrent, "added_date", None) or getattr(torrent, "date_added", None)
-            if (not added_date
-                    or added_date.timestamp() < 1):
-                dltime = 0
-            else:
-                dltime = date_now - int(added_date.timestamp())
-            # 下载量
-            downloaded = int(torrent.total_size * torrent.progress / 100)
-            # 分享率
-            ratio = torrent.ratio or 0
-            # 上传量
-            uploaded = int(downloaded * torrent.ratio)
-            # 平均上传速度
-            if dltime:
-                avg_upspeed = int(uploaded / dltime)
-            else:
-                avg_upspeed = uploaded
-            # 未活动时间 — 兼容 v7(activity_date) 与旧版(date_active)
             activity_date = getattr(torrent, "activity_date", None) or getattr(torrent, "date_active", None)
-            if (not activity_date
-                    or activity_date.timestamp() < 1):
-                iatime = 0
-            else:
-                iatime = date_now - int(activity_date.timestamp())
-            # 种子大小
-            total_size = torrent.total_size
-            # 添加时间
-            add_on = (added_date.timestamp() if added_date else 0)
-            add_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(add_on))
-            # 种子标签 — v7(labels) 与旧版(labels) 均为属性
+            done_timestamp = int(done_date.timestamp()) if done_date and done_date.timestamp() > 0 else 0
+            added_on = int(added_date.timestamp()) if added_date and added_date.timestamp() > 0 else 0
+            activity_timestamp = int(activity_date.timestamp()) if activity_date and activity_date.timestamp() > 0 else 0
+            seeding_time = now_timestamp - done_timestamp if done_timestamp else 0
+            dltime = now_timestamp - added_on if added_on else 0
+            iatime = now_timestamp - activity_timestamp if activity_timestamp else 0
+            total_size = getattr(torrent, "total_size", 0) or 0
+            progress = getattr(torrent, "progress", 0) or 0
+            downloaded = int(total_size * progress / 100)
+            ratio = getattr(torrent, "ratio", 0) or 0
+            uploaded = int(downloaded * ratio)
             tags = getattr(torrent, "labels", None) or ""
-            # tracker — 兼容 v7(tracker_list) 与旧版(tracker_list)
             tracker_list = getattr(torrent, "tracker_list", None)
             tracker = tracker_list[0] if tracker_list else ""
-
+        avg_upspeed = int(uploaded / dltime) if dltime else uploaded
         return {
             "hash": torrent_id,
-            "title": torrent_title,
+            "title": title,
             "seeding_time": seeding_time,
             "ratio": ratio,
             "uploaded": uploaded,
@@ -3514,420 +1805,189 @@ class BrushFlow(_PluginBase):
             "iatime": iatime,
             "dltime": dltime,
             "total_size": total_size,
-            "add_time": add_time,
-            "add_on": add_on,
+            "add_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(added_on)),
+            "add_on": added_on,
             "tags": tags,
-            "tracker": tracker
+            "tracker": tracker,
         }
 
-    def __log_and_notify_error(self, message):
-        """
-        记录错误日志并发送系统通知
-        """
-        logger.error(message)
-        self.systemmessage.put(message, title="站点刷流")
-
-    def __send_delete_message(self, site_name: str, torrent_title: str, torrent_desc: str, reason: str,
-                              title: str = "【刷流任务种子删除】"):
-        """
-        发送删除种子的消息
-        """
-        brush_config = self.__get_brush_config()
-        if not brush_config.notify:
-            return
-        msg_text = ""
-        if site_name:
-            msg_text = f"站点：{site_name}"
-        if torrent_title:
-            msg_text = f"{msg_text}\n标题：{torrent_title}"
-        if torrent_desc:
-            msg_text = f"{msg_text}\n内容：{torrent_desc}"
-        if reason:
-            msg_text = f"{msg_text}\n原因：{reason}"
-
-        self.post_message(mtype=NotificationType.SiteMessage, title=title, text=msg_text)
-
-    @staticmethod
-    def __build_add_message_text(torrent):
-        """
-        构建消息文本，兼容TorrentInfo对象和torrent_task字典
-        """
-
-        # 定义一个辅助函数来统一获取数据的方式
-        def get_data(_key, default=None):
-            if isinstance(torrent, dict):
-                return torrent.get(_key, default)
-            else:
-                return getattr(torrent, _key, default)
-
-        # 构造消息文本，确保使用中文标签
-        msg_parts = []
-        label_mapping = {
-            "site_name": "站点",
-            "title": "标题",
-            "description": "内容",
-            "size": "大小",
-            "pubdate": "发布时间",
-            "seeders": "做种数",
-            "volume_factor": "促销",
-            "hit_and_run": "Hit&Run"
-        }
-        for key in label_mapping:
-            value = get_data(key)
-            if key == "size" and value and str(value).replace(".", "", 1).isdigit():
-                value = StringUtils.str_filesize(value)
-            if value:
-                msg_parts.append(f"{label_mapping[key]}：{'是' if key == 'hit_and_run' and value else value}")
-
-        return "\n".join(msg_parts)
-
-    def __send_add_message(self, torrent, title: str = "【刷流任务种子下载】"):
-        """
-        发送添加下载的消息
-        """
-        brush_config = self.__get_brush_config()
-        if not brush_config.notify:
-            return
-
-        # 使用辅助方法构建消息文本
-        msg_text = self.__build_add_message_text(torrent)
-        self.post_message(mtype=NotificationType.SiteMessage, title=title, text=msg_text)
-
-    def __send_message(self, title: str, text: str):
-        """
-        发送消息
-        """
-        brush_config = self.__get_brush_config()
-        if not brush_config.notify:
-            return
-
-        self.post_message(mtype=NotificationType.SiteMessage, title=title, text=text)
-
-    def __log_and_send_torrent_task_update_message(self, title: str, status: str, reason: str,
-                                                   torrent_tasks: List[dict]):
-        """
-        记录和发送刷流任务更新消息
-        """
-        if torrent_tasks:
-            sites_names = ', '.join({task.get("site_name", "N/A") for task in torrent_tasks})
-            first_title = torrent_tasks[0].get('title', 'N/A')
-            count = len(torrent_tasks)
-            msg = f"站点：{sites_names}\n内容：{first_title} 等 {count} 个种子已经{status}\n原因：{reason}"
-            logger.info(f"{title}，{msg}")
-            self.__send_message(title=title, text=msg)
-
-    def __get_torrents_size(self) -> int:
-        """
-        获取任务中的种子总大小
-        """
-        # 读取种子记录
-        task_info = self.get_data("torrents") or {}
-        if not task_info:
-            return 0
-        total_size = sum([task.get("size") or 0 for task in task_info.values()])
-        return total_size
-
-    def __get_average_bandwidth(self, sample_count: int = 5, interval: float = 3.0) \
-            -> Tuple[Optional[float], Optional[float]]:
-        """
-        多次采样上传和下载带宽，取平均值
-        """
-        upload_speeds = []
-        download_speeds = []
-        start_time = time.time()
-        for _ in range(sample_count):
+    def __get_average_bandwidth(
+        self,
+        sample_count: int = 5,
+        interval: float = 3.0,
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """多次采样所有下载器带宽并返回平均值"""
+        upload_speeds: List[float] = []
+        download_speeds: List[float] = []
+        for index in range(sample_count):
             downloader_info = self.__get_downloader_info()
             if downloader_info:
                 upload_speeds.append(downloader_info.upload_speed or 0)
                 download_speeds.append(downloader_info.download_speed or 0)
-            # 采样间隔
-            time.sleep(interval)
-        end_time = time.time()
-        total_duration = end_time - start_time
+            if index < sample_count - 1:
+                time.sleep(interval)
         if not upload_speeds or not download_speeds:
             return None, None
-        avg_upload_speed = sum(upload_speeds) / len(upload_speeds) if upload_speeds else 0
-        avg_download_speed = sum(download_speeds) / len(download_speeds) if download_speeds else 0
-        logger.debug(f"平均上传带宽 {StringUtils.str_filesize(avg_upload_speed)}, "
-                     f"平均下载带宽 {StringUtils.str_filesize(avg_download_speed)}, "
-                     f"采样次数={sample_count}, 时长={total_duration:.2f} 秒")
-        return avg_upload_speed, avg_download_speed
+        return sum(upload_speeds) / len(upload_speeds), sum(download_speeds) / len(download_speeds)
 
     def __get_downloader_info(self) -> schemas.DownloaderInfo:
-        """
-        获取下载器实时信息（所有下载器）
-        """
-        ret_info = schemas.DownloaderInfo()
-
-        downloader = self.downloader
-        if not downloader:
-            return ret_info
-
+        """通过插件链汇总当前所有下载器的实时传输信息"""
+        result = schemas.DownloaderInfo()
         transfer_infos = self.chain.run_module("downloader_info")
-        if transfer_infos:
-            for transfer_info in transfer_infos:
-                ret_info.download_speed += transfer_info.download_speed
-                ret_info.upload_speed += transfer_info.upload_speed
-                ret_info.download_size += transfer_info.download_size
-                ret_info.upload_size += transfer_info.upload_size
-
-        return ret_info
+        for transfer_info in transfer_infos or []:
+            result.download_speed += transfer_info.download_speed
+            result.upload_speed += transfer_info.upload_speed
+            result.download_size += transfer_info.download_size
+            result.upload_size += transfer_info.upload_size
+        return result
 
     def __get_downloading_count(self) -> int:
-        """
-        获取正在下载的任务数量
-        """
+        """获取带当前任务唯一标签的下载中种子数量"""
+        task = self._get_task_config()
+        downloader = self.downloader
+        if not task or not downloader:
+            return 0
         try:
-            brush_config = self.__get_brush_config()
-            downloader = self.downloader
-            if not downloader:
-                return 0
-
-            torrents = downloader.get_downloading_torrents(tags=brush_config.brush_tag)
-            if torrents is None:
-                logger.warning("获取下载数量失败，可能是下载器连接发生异常")
-                return 0
-
-            return len(torrents)
-        except Exception as e:
-            logger.error(f"获取下载数量发生异常: {e}")
+            torrents = downloader.get_downloading_torrents(tags=task.brush_tag)
+            return len(torrents or [])
+        except Exception as err:
+            logger.error(f"获取任务 [{task.name}] 下载数量失败：{str(err)}")
             return 0
 
     @staticmethod
     def __get_pubminutes(pubdate: str) -> float:
-        """
-        将字符串转换为时间，并计算与当前时间差）（分钟）
-        """
+        """计算站点发布时间距当前时间的分钟数"""
+        if not pubdate:
+            return 0
         try:
-            if not pubdate:
-                return 0
-            pubdate = pubdate.replace("T", " ").replace("Z", "")
-            pubdate = datetime.strptime(pubdate, "%Y-%m-%d %H:%M:%S")
-            now = datetime.now()
-            return (now - pubdate).total_seconds() // 60
-        except Exception as e:
-            logger.error(f"发布时间 {pubdate} 获取分钟失败，错误详情: {e}")
+            publish_time = datetime.strptime(pubdate.replace("T", " ").replace("Z", ""), "%Y-%m-%d %H:%M:%S")
+            return (datetime.now() - publish_time).total_seconds() / 60
+        except (TypeError, ValueError) as err:
+            logger.error(f"解析发布时间 {pubdate} 失败：{str(err)}")
             return 0
 
-    @staticmethod
-    def __adjust_site_pubminutes(pub_minutes: float, torrent: TorrentInfo) -> float:
-        """
-        处理部分站点的时区逻辑
-        """
-        try:
-            if not torrent:
-                return pub_minutes
-
-            if torrent.site_name == "我堡":
-                # 获取当前时区的UTC偏移量（以秒为单位）
-                utc_offset_seconds = time.timezone
-
-                # 将UTC偏移量转换为分钟
-                utc_offset_minutes = utc_offset_seconds / 60
-
-                # 增加UTC偏移量到pub_minutes
-                adjusted_pub_minutes = pub_minutes + utc_offset_minutes
-
-                return adjusted_pub_minutes
-
-            return pub_minutes
-        except Exception as e:
-            logger.error(str(e))
-            return 0
-
-    def __filter_torrents_by_tag(self, torrents: List[Any], exclude_tag: str) -> List[Any]:
-        """
-        根据标签过滤torrents，排除标签格式为逗号分隔的字符串，例如 "MOVIEPILOT, H&R"
-        """
-        # 如果排除标签字符串为空，则返回原始列表
+    def __filter_torrents_by_tag(self, torrents: List[Any], exclude_tag: Optional[str]) -> List[Any]:
+        """过滤包含任一删除排除标签的种子"""
         if not exclude_tag:
             return torrents
-
-        # 将 exclude_tag 字符串分割成一个集合，并去除每个标签两端的空白，忽略空白标签并自动去重
-        exclude_tags = set(tag.strip() for tag in exclude_tag.split(',') if tag.strip())
-
-        filter_torrents = []
-        for torrent in torrents:
-            # 使用 __get_label 方法获取每个 torrent 的标签列表
-            labels = self.__get_label(torrent)
-            # 检查是否有任何一个排除标签存在于标签列表中
-            if not any(exclude in labels for exclude in exclude_tags):
-                filter_torrents.append(torrent)
-        return filter_torrents
+        excluded_tags = {item.strip() for item in exclude_tag.split(",") if item.strip()}
+        return [
+            torrent for torrent in torrents
+            if not excluded_tags.intersection(self.__get_label(torrent))
+        ]
 
     def __get_subscribe_titles(self) -> Set[str]:
-        """
-        获取当前订阅的所有标题，返回一个不包含None和空白字符的集合
-        """
-        brush_config = self.__get_brush_config()
-        if not brush_config.except_subscribe:
-            logger.info("没有开启排除订阅，取消订阅标题匹配")
+        """识别并缓存当前订阅可用于排除匹配的标题集合"""
+        task = self._get_task_config()
+        if not task or not task.except_subscribe:
             return set()
-
-        logger.info("已开启排除订阅，正在准备订阅标题匹配 ...")
-
-        if not self._subscribe_infos:
-            self._subscribe_infos = {}
-
-        subscribes = SubscribeOper().list()
-        if subscribes:
-            # 遍历订阅
-            for subscribe in subscribes:
-                # 判断当前订阅是否已经在缓存中，如果已经处理过，那么这里直接跳过
-                subscribe_key = f"{subscribe.id}_{subscribe.name}"
-                if subscribe_key in self._subscribe_infos:
-                    continue
-
-                subscribe_titles = [subscribe.name]
-                try:
-                    # 生成元数据
-                    meta = MetaInfo(subscribe.name)
-                    meta.year = subscribe.year
-                    meta.begin_season = subscribe.season or None
-                    meta.type = MediaType(subscribe.type)
-                    # 识别媒体信息
-                    mediainfo: MediaInfo = self.chain.recognize_media(meta=meta, mtype=meta.type,
-                                                                      tmdbid=subscribe.tmdbid,
-                                                                      doubanid=subscribe.doubanid,
-                                                                      cache=True)
-                    if mediainfo:
-                        logger.info(f"订阅 {subscribe.name} 已识别到媒体信息")
-                        logger.debug(f"subscribe {subscribe.name} {mediainfo.to_dict()}")
-                        subscribe_titles.extend(mediainfo.names)
-                        subscribe_titles = [title.strip() for title in subscribe_titles if title and title.strip()]
-                        self._subscribe_infos[subscribe_key] = subscribe_titles
-                    else:
-                        logger.info(f"订阅 {subscribe.name} 没有识别到媒体信息，跳过订阅标题匹配")
-                except Exception as e:
-                    logger.error(f"识别订阅 {subscribe.name} 媒体信息失败，错误详情: {e}")
-
-            # 移除不再存在的订阅
-            current_keys = {f"{subscribe.id}_{subscribe.name}" for subscribe in subscribes}
-            for key in set(self._subscribe_infos) - current_keys:
-                del self._subscribe_infos[key]
-
-        logger.info("订阅标题匹配完成")
-        logger.debug(f"当前订阅的标题集合为：{self._subscribe_infos}")
-        unique_titles = {title for titles in self._subscribe_infos.values() for title in titles}
-        return unique_titles
+        subscribes = SubscribeOper().list() or []
+        for subscribe in subscribes:
+            cache_key = f"{subscribe.id}_{subscribe.name}"
+            if cache_key in self._subscribe_infos:
+                continue
+            titles = [subscribe.name]
+            try:
+                meta = MetaInfo(subscribe.name)
+                meta.year = subscribe.year
+                meta.begin_season = subscribe.season or None
+                meta.type = MediaType(subscribe.type)
+                mediainfo: MediaInfo = self.chain.recognize_media(
+                    meta=meta,
+                    mtype=meta.type,
+                    tmdbid=subscribe.tmdbid,
+                    doubanid=subscribe.doubanid,
+                    cache=True,
+                )
+                if mediainfo:
+                    titles.extend(mediainfo.names)
+            except Exception as err:
+                logger.error(f"识别订阅 {subscribe.name} 失败：{str(err)}")
+            self._subscribe_infos[cache_key] = [item.strip() for item in titles if item and item.strip()]
+        current_keys = {f"{subscribe.id}_{subscribe.name}" for subscribe in subscribes}
+        for cache_key in set(self._subscribe_infos) - current_keys:
+            self._subscribe_infos.pop(cache_key, None)
+        return {title for titles in self._subscribe_infos.values() for title in titles}
 
     @staticmethod
-    def __filter_torrents_contains_subscribe(torrents: Any, subscribe_titles: Set[str]):
-        # 初始化两个列表，一个用于收集未被排除的种子，一个用于记录被排除的种子
-        included_torrents = []
-        excluded_torrents = []
-
-        # 单次遍历处理
+    def __filter_torrents_contains_subscribe(
+        torrents: List[TorrentInfo],
+        subscribe_titles: Set[str],
+    ) -> List[TorrentInfo]:
+        """排除标题或描述命中任一订阅名称的候选种子"""
+        if not subscribe_titles:
+            return torrents
+        included: List[TorrentInfo] = []
         for torrent in torrents:
-            # 确保title和description至少是空字符串
-            title = torrent.title or ''
-            description = torrent.description or ''
-
-            if any(subscribe_title in title or subscribe_title in description for subscribe_title in subscribe_titles):
-                # 如果种子的标题或描述包含订阅标题中的任一项，则记录为被排除
-                excluded_torrents.append(torrent)
+            title = torrent.title or ""
+            description = torrent.description or ""
+            if any(item in title or item in description for item in subscribe_titles):
                 logger.info(f"命中订阅内容，排除种子：{title}|{description}")
-            else:
-                # 否则，收集为未被排除的种子
-                included_torrents.append(torrent)
-
-        if not excluded_torrents:
-            logger.info(f"没有命中订阅内容，不需要排除种子")
-
-        # 返回未被排除的种子列表
-        return included_torrents
+                continue
+            included.append(torrent)
+        return included
 
     @staticmethod
     def __bytes_to_gb(size_in_bytes: float) -> float:
-        """
-        将字节单位的大小转换为千兆字节（GB）。
-
-        :param size_in_bytes: 文件大小，单位为字节。
-        :return: 文件大小，单位为千兆字节（GB）。
-        """
-        if not size_in_bytes:
-            return 0.0
-        return size_in_bytes / (1024 ** 3)
-
-    @staticmethod
-    def __is_number_or_range(value):
-        """
-        检查字符串是否表示单个数字或数字范围（如'5', '5.5', '5-10' 或 '5.5-10.2'）
-        """
-        return bool(re.match(r"^\d+(\.\d+)?(-\d+(\.\d+)?)?$", value))
-
-    @staticmethod
-    def __is_number(value):
-        """
-        检查给定的值是否可以被转换为数字（整数或浮点数）
-        """
-        try:
-            float(value)
-            return True
-        except ValueError:
-            return False
+        """把字节数转换为 GB"""
+        return float(size_in_bytes or 0) / 1024 ** 3
 
     @staticmethod
     def __calculate_seeding_torrents_size(torrent_tasks: Dict[str, dict]) -> float:
-        """
-        计算保种种子体积
-        """
-        return sum(task.get("size", 0) for task in torrent_tasks.values() if not task.get("deleted", False))
+        """计算未删除托管种子的总做种体积"""
+        return sum(
+            item.get("size", 0) or 0
+            for item in torrent_tasks.values()
+            if not item.get("deleted")
+        )
 
     def __auto_archive_tasks(self, torrent_tasks: Dict[str, dict]) -> None:
-        """
-       自动归档已经删除的种子数据
-       """
-        if not self._brush_config.auto_archive_days or self._brush_config.auto_archive_days <= 0:
-            logger.info("自动归档记录天数小于等于0，取消自动归档")
+        """按当前任务保留天数归档已删除种子记录"""
+        task = self._get_task_config()
+        if not task or not task.auto_archive_days or task.auto_archive_days <= 0:
             return
-
-        # 用于存储已删除的数据
-        archived_tasks: Dict[str, dict] = self.get_data("archived") or {}
-
-        current_time = time.time()
-        archive_threshold_seconds = self._brush_config.auto_archive_days * 86400  # 将天数转换为秒数
-
-        # 准备一个列表，记录所有需要从原始数据中删除的键
-        keys_to_delete = set()
-
-        # 遍历所有 torrent 条目
-        for key, value in torrent_tasks.items():
-            deleted_time = value.get("deleted_time")
-            # 场景 1: 检查任务是否已被标记为删除且超出保留天数
-            if (value.get("deleted") and isinstance(deleted_time, (int, float)) and
-                    current_time - deleted_time > archive_threshold_seconds):
-                keys_to_delete.add(key)
-                archived_tasks[key] = value
+        archived_tasks: Dict[str, dict] = self._current_task_data("archived", {})
+        threshold = float(task.auto_archive_days) * 86400
+        now_timestamp = time.time()
+        archive_hashes = []
+        for torrent_hash, item in torrent_tasks.items():
+            if not item.get("deleted"):
                 continue
+            deleted_time = item.get("deleted_time")
+            if deleted_time is None or (
+                isinstance(deleted_time, (int, float))
+                and now_timestamp - deleted_time > threshold
+            ):
+                archive_hashes.append(torrent_hash)
+        for torrent_hash in archive_hashes:
+            archived_tasks[torrent_hash] = torrent_tasks.pop(torrent_hash)
+        self._save_current_task_data("archived", archived_tasks)
 
-            # 场景 2: 检查没有明确删除时间的历史数据
-            if value.get("deleted") and deleted_time is None:
-                keys_to_delete.add(key)
-                archived_tasks[key] = value
-                continue
+    def _recalculate_statistics(self, task_id: str) -> Dict[str, int]:
+        """从当前和归档记录重新计算单任务统计"""
+        torrents = self._get_task_data(task_id, "torrents") or {}
+        archived = self._get_task_data(task_id, "archived") or {}
+        combined = {**archived, **torrents}
+        statistic = {
+            "count": len(combined),
+            "deleted": sum(1 for item in combined.values() if item.get("deleted")),
+            "uploaded": sum(item.get("uploaded", 0) or 0 for item in combined.values()),
+            "downloaded": sum(item.get("downloaded", 0) or 0 for item in combined.values()),
+            "unarchived": sum(1 for item in torrents.values() if item.get("deleted")),
+            "active": sum(1 for item in torrents.values() if not item.get("deleted")),
+            "active_uploaded": sum(
+                item.get("uploaded", 0) or 0 for item in torrents.values() if not item.get("deleted")
+            ),
+            "active_downloaded": sum(
+                item.get("downloaded", 0) or 0 for item in torrents.values() if not item.get("deleted")
+            ),
+        }
+        self._save_task_data(task_id, "statistic", statistic)
+        return statistic
 
-        # 从原始字典中移除已删除的条目
-        for key in keys_to_delete:
-            del torrent_tasks[key]
-
-        self.save_data("archived", archived_tasks)
-
-    def __clear_tasks(self):
-        """
-        清除统计数据
-        彻底重置所有刷流数据，如当前还存在正在做种的刷流任务，待定时检查任务执行后，会自动纳入刷流管理
-        """
-        self.save_data("torrents", {})
-        self.save_data("archived", {})
-        self.save_data("unmanaged", {})
-        self.save_data("statistic", {})
-
-    def __get_statistic_info(self) -> Dict[str, int]:
-        """
-        获取统计数据
-        """
-        statistic_info = self.get_data("statistic") or {
+    def _get_statistic_info(self, task_id: str) -> Dict[str, int]:
+        """读取单任务统计并为历史空数据补齐字段"""
+        defaults = {
             "count": 0,
             "deleted": 0,
             "uploaded": 0,
@@ -3935,110 +1995,146 @@ class BrushFlow(_PluginBase):
             "unarchived": 0,
             "active": 0,
             "active_uploaded": 0,
-            "active_downloaded": 0
+            "active_downloaded": 0,
         }
-        return statistic_info
+        statistic = self._get_task_data(task_id, "statistic") or {}
+        return {**defaults, **statistic}
 
     @staticmethod
-    def __is_valid_time_range(time_range: str) -> bool:
-        """检查时间范围字符串是否有效：格式为"HH:MM-HH:MM"，且时间有效"""
-        if not time_range:
+    def _is_valid_time_range(time_range: Optional[str]) -> bool:
+        """校验 HH:MM-HH:MM 格式的每日时间段"""
+        if not time_range or not re.fullmatch(r"\d{2}:\d{2}-\d{2}:\d{2}", time_range):
             return False
-
-        # 使用正则表达式匹配格式
-        pattern = re.compile(r'^\d{2}:\d{2}-\d{2}:\d{2}$')
-        if not pattern.match(time_range):
-            return False
-
         try:
-            start_str, end_str = time_range.split('-')
-            datetime.strptime(start_str, '%H:%M').time()
-            datetime.strptime(end_str, '%H:%M').time()
-        except Exception as e:
-            print(str(e))
+            start, end = time_range.split("-", 1)
+            datetime.strptime(start, "%H:%M")
+            datetime.strptime(end, "%H:%M")
+            return True
+        except ValueError:
             return False
 
-        return True
-
-    def __is_current_time_in_range(self) -> bool:
-        """判断当前时间是否在开启时间区间内"""
-
-        brush_config = self.__get_brush_config()
-        active_time_range = brush_config.active_time_range
-
-        if not self.__is_valid_time_range(active_time_range):
-            # 如果时间范围格式不正确或不存在，说明当前没有开启时间段，返回True
+    def _is_current_time_in_range(self, task: Optional[BrushTaskConfig] = None) -> bool:
+        """判断当前时间是否处于任务允许的每日开启区间"""
+        task = task or self._get_task_config()
+        if not task or not self._is_valid_time_range(task.active_time_range):
             return True
-
-        start_str, end_str = active_time_range.split('-')
-        start_time = datetime.strptime(start_str, '%H:%M').time()
-        end_time = datetime.strptime(end_str, '%H:%M').time()
-        now = datetime.now().time()
-
+        start_text, end_text = task.active_time_range.split("-", 1)
+        start_time = datetime.strptime(start_text, "%H:%M").time()
+        end_time = datetime.strptime(end_text, "%H:%M").time()
+        current_time = datetime.now().time()
         if start_time <= end_time:
-            # 情况1: 时间段不跨越午夜
-            return start_time <= now <= end_time
-        else:
-            # 情况2: 时间段跨越午夜
-            return now >= start_time or now <= end_time
+            return start_time <= current_time <= end_time
+        return current_time >= start_time or current_time <= end_time
 
     @staticmethod
     def __get_site_by_torrent(torrent: Any) -> Tuple[int, str]:
-        """
-        根据tracker获取站点信息
-        """
-        trackers = []
-        try:
-            # 兼容 QB(dict) 和 TR(object) 两种种子类型：先尝试 dict 访问，再尝试属性
-            tracker_url = None
-            try:
-                tracker_url = torrent.get("tracker")
-            except (AttributeError, TypeError):
-                tracker_list = getattr(torrent, "tracker_list", None)
-                tracker_url = tracker_list[0] if tracker_list else None
-            if tracker_url:
-                trackers.append(tracker_url)
-
-            magnet_link = None
-            try:
-                magnet_link = torrent.get("magnet_uri")
-            except (AttributeError, TypeError):
-                magnet_link = getattr(torrent, "magnet_link", None)
-            if magnet_link:
-                query_params: dict = parse_qs(urlparse(magnet_link).query)
-                encoded_tracker_urls = query_params.get('tr', [])
-                # 解码tracker URLs然后扩展到trackers列表中
-                decoded_tracker_urls = [unquote(url) for url in encoded_tracker_urls]
-                trackers.extend(decoded_tracker_urls)
-        except Exception as e:
-            logger.error(e)
-
-        domain = "未知"
-        if not trackers:
-            return 0, domain
-
-        # 特定tracker到域名的映射
+        """根据 Tracker 或磁力链接识别种子所属站点"""
+        trackers: List[str] = []
+        last_domain = "未知"
+        tracker_url = torrent.get("tracker") if isinstance(torrent, dict) else None
+        if not tracker_url:
+            tracker_list = getattr(torrent, "tracker_list", None)
+            tracker_url = tracker_list[0] if tracker_list else None
+        if tracker_url:
+            trackers.append(tracker_url)
+        magnet_link = torrent.get("magnet_uri") if isinstance(torrent, dict) else getattr(torrent, "magnet_link", None)
+        if magnet_link:
+            trackers.extend(unquote(item) for item in parse_qs(urlparse(magnet_link).query).get("tr", []))
         tracker_mappings = {
             "chdbits.xyz": "ptchdbits.co",
             "agsvpt.trackers.work": "agsvpt.com",
             "tracker.cinefiles.info": "audiences.me",
         }
-
         for tracker in trackers:
             if not tracker:
                 continue
-            # 检查tracker是否包含特定的关键字，并进行相应的映射
-            for key, mapped_domain in tracker_mappings.items():
-                if key in tracker:
-                    domain = mapped_domain
-                    break
-            else:
-                # 使用StringUtils工具类获取tracker的域名
-                domain = StringUtils.get_url_domain(tracker)
+            domain = next(
+                (mapped for keyword, mapped in tracker_mappings.items() if keyword in tracker),
+                StringUtils.get_url_domain(tracker),
+            )
+            last_domain = domain or last_domain
+            site = SitesHelper().get_indexer(domain)
+            if site:
+                return site.get("id"), site.get("name")
+        return 0, last_domain
 
-            site_info = SitesHelper().get_indexer(domain)
-            if site_info:
-                return site_info.get("id"), site_info.get("name")
+    def _log_and_notify_error(self, message: str) -> None:
+        """记录错误并写入系统消息中心"""
+        logger.error(message)
+        self.systemmessage.put(message, title="站点刷流")
 
-        # 当找不到对应的站点信息时，返回一个默认值
-        return 0, domain
+    def __send_delete_message(self, torrent_task: dict, reason: str) -> None:
+        """发送包含任务、站点、种子和原因的删种通知"""
+        task = self._get_task_config()
+        if not task or not task.notify:
+            return
+        text = (
+            f"任务：{task.name}\n"
+            f"站点：{torrent_task.get('site_name') or '未知'}\n"
+            f"标题：{torrent_task.get('title') or '未知'}\n"
+            f"原因：{reason}"
+        )
+        self.post_message(mtype=NotificationType.SiteMessage, title="【刷流任务种子删除】", text=text)
+
+    @staticmethod
+    def __build_add_message_text(torrent: Union[TorrentInfo, dict], task_name: str) -> str:
+        """兼容候选对象和任务字典构建新增通知文本"""
+        def read_value(key: str, default: Any = None) -> Any:
+            """统一读取候选对象或字典字段"""
+            return torrent.get(key, default) if isinstance(torrent, dict) else getattr(torrent, key, default)
+
+        lines = [f"任务：{task_name}"]
+        labels = {
+            "site_name": "站点",
+            "title": "标题",
+            "description": "内容",
+            "size": "大小",
+            "pubdate": "发布时间",
+            "seeders": "做种数",
+            "volume_factor": "促销",
+            "hit_and_run": "Hit&Run",
+        }
+        for key, label in labels.items():
+            value = read_value(key)
+            if key == "size" and value:
+                value = StringUtils.str_filesize(value)
+            if value not in (None, "", False):
+                lines.append(f"{label}：{'是' if key == 'hit_and_run' else value}")
+        return "\n".join(lines)
+
+    def __send_add_message(self, torrent: Union[TorrentInfo, dict]) -> None:
+        """发送当前任务新增刷流种子的通知"""
+        task = self._get_task_config()
+        if not task or not task.notify:
+            return
+        self.post_message(
+            mtype=NotificationType.SiteMessage,
+            title="【刷流任务种子下载】",
+            text=self.__build_add_message_text(torrent, task.name),
+        )
+
+    def __send_message(self, title: str, text: str) -> None:
+        """按当前任务通知开关发送通用站点消息"""
+        task = self._get_task_config()
+        if task and task.notify:
+            self.post_message(mtype=NotificationType.SiteMessage, title=title, text=text)
+
+    def __log_and_send_torrent_task_update_message(
+        self,
+        title: str,
+        status: str,
+        reason: str,
+        torrent_tasks: List[dict],
+    ) -> None:
+        """记录并汇总发送标签同步导致的任务状态变更"""
+        if not torrent_tasks:
+            return
+        task = self._get_task_config()
+        first_title = torrent_tasks[0].get("title") or "未知种子"
+        text = (
+            f"任务：{task.name if task else '未知'}\n"
+            f"内容：{first_title} 等 {len(torrent_tasks)} 个种子已{status}\n"
+            f"原因：{reason}"
+        )
+        logger.info(f"{title}，{text}")
+        self.__send_message(title, text)
