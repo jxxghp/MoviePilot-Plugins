@@ -6,6 +6,7 @@ import {
   formatBytes,
   formatDateTime,
   formatDuration,
+  normalizeSettings,
   taskStateMeta,
   torrentProgress,
   unwrapResponse,
@@ -42,7 +43,14 @@ const editorTask = ref(cloneTask())
 const deleteDialog = ref(false)
 const clearDialog = ref(false)
 const settingsMenu = ref(false)
-const settingsDraft = ref({ enabled: false, show_sidebar_nav: true })
+const settingsDraft = ref({
+  enabled: false,
+  show_sidebar_nav: true,
+  global_disksize: null,
+  global_maxdlcount: null,
+  global_maxupspeed: null,
+  global_maxdlspeed: null,
+})
 const hostToast = inject('moviepilot:toast', null)
 let refreshTimer
 
@@ -109,6 +117,10 @@ async function loadStatus({ preserveSelection = true, loadDetail = true } = {}) 
     settingsDraft.value = {
       enabled: Boolean(status.value.enabled),
       show_sidebar_nav: status.value.show_sidebar_nav !== false,
+      global_disksize: status.value.global_disksize ?? null,
+      global_maxdlcount: status.value.global_maxdlcount ?? null,
+      global_maxupspeed: status.value.global_maxupspeed ?? null,
+      global_maxdlspeed: status.value.global_maxdlspeed ?? null,
     }
     const selectedStillExists = tasks.value.some(item => item.id === selectedTaskId.value)
     if (!preserveSelection || !selectedStillExists) selectedTaskId.value = tasks.value[0]?.id || ''
@@ -226,7 +238,8 @@ async function runOperation(operation) {
 async function saveSettings() {
   saving.value = true
   try {
-    status.value = unwrapResponse(await props.api.post(`${pluginBase.value}/settings`, settingsDraft.value))
+    const payload = normalizeSettings(settingsDraft.value)
+    status.value = unwrapResponse(await props.api.post(`${pluginBase.value}/settings`, payload))
     settingsMenu.value = false
     await loadStatus()
     notify('全局设置已保存')
@@ -338,7 +351,7 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
           <template #activator="{ props: menuProps }">
             <VBtn v-bind="menuProps" icon="mdi-tune-variant" variant="text" aria-label="全局设置" />
           </template>
-          <VCard min-width="300" title="全局设置">
+          <VCard class="brushflow-settings-menu" title="全局设置">
             <VCardText class="settings-menu__body">
               <VSwitch v-model="settingsDraft.enabled" label="启用插件" color="primary" hide-details inset />
               <VSwitch
@@ -347,6 +360,39 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                 color="primary"
                 hide-details
                 inset
+              />
+              <VDivider />
+              <VTextField
+                v-model.number="settingsDraft.global_disksize"
+                type="number"
+                min="0"
+                label="全局保种体积（GB）"
+                clearable
+                hide-details
+              />
+              <VTextField
+                v-model.number="settingsDraft.global_maxdlcount"
+                type="number"
+                min="0"
+                label="全局同时下载任务数"
+                clearable
+                hide-details
+              />
+              <VTextField
+                v-model.number="settingsDraft.global_maxupspeed"
+                type="number"
+                min="0"
+                label="全局总上传带宽（KB/s）"
+                clearable
+                hide-details
+              />
+              <VTextField
+                v-model.number="settingsDraft.global_maxdlspeed"
+                type="number"
+                min="0"
+                label="全局总下载带宽（KB/s）"
+                clearable
+                hide-details
               />
             </VCardText>
             <VCardActions>
@@ -867,6 +913,10 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
 .settings-menu__body {
   display: grid;
   gap: 8px;
+}
+
+.brushflow-settings-menu {
+  inline-size: min(25rem, calc(100vw - 24px));
 }
 
 .brushflow-loading,

@@ -5,6 +5,18 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 
+def _normalize_optional_positive_number(value):
+    """把历史配置中的空值和 0 统一转换为未设置。"""
+    if value is None or value == "":
+        return None
+    try:
+        if float(value) == 0:
+            return None
+    except (TypeError, ValueError):
+        return value
+    return value
+
+
 class BrushTaskPayload(BaseModel):
     """
     刷流任务新增与更新请求模型
@@ -52,6 +64,28 @@ class BrushTaskPayload(BaseModel):
     site_hr_active: bool = False
     site_skip_tips: bool = False
     rss_support: bool = False
+
+    @field_validator(
+        "disksize",
+        "maxupspeed",
+        "maxdlspeed",
+        "maxdlcount",
+        "seed_time",
+        "hr_seed_time",
+        "seed_ratio",
+        "seed_size",
+        "download_time",
+        "seed_avgspeed",
+        "seed_inactivetime",
+        "up_speed",
+        "dl_speed",
+        "auto_archive_days",
+        mode="before",
+    )
+    @classmethod
+    def normalize_optional_positive_number(cls, value):
+        """兼容旧版用 0 表示未配置的可选正数配置。"""
+        return _normalize_optional_positive_number(value)
 
     @field_validator("name", "downloader")
     @classmethod
@@ -129,3 +163,19 @@ class BrushFlowSettingsPayload(BaseModel):
 
     enabled: bool = True
     show_sidebar_nav: bool = True
+    global_disksize: Optional[float] = Field(None, gt=0)
+    global_maxdlcount: Optional[int] = Field(None, gt=0)
+    global_maxupspeed: Optional[float] = Field(None, gt=0)
+    global_maxdlspeed: Optional[float] = Field(None, gt=0)
+
+    @field_validator(
+        "global_disksize",
+        "global_maxdlcount",
+        "global_maxupspeed",
+        "global_maxdlspeed",
+        mode="before",
+    )
+    @classmethod
+    def normalize_optional_positive_number(cls, value):
+        """兼容全局限额中用于表示不限的空值和 0。"""
+        return _normalize_optional_positive_number(value)

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from brushflow import BrushFlow, BrushTaskConfig
+from brushflow.models import BrushFlowSettingsPayload, BrushTaskPayload
 
 
 def _make_task(task_id: str, site_id: int = 1, name: str = "任务") -> BrushTaskConfig:
@@ -25,6 +26,11 @@ def _make_runtime_plugin(*tasks: BrushTaskConfig) -> BrushFlow:
     plugin = BrushFlow()
     plugin._enabled = True
     plugin._show_sidebar_nav = True
+    plugin._global_disksize = None
+    plugin._global_maxdlcount = None
+    plugin._global_maxupspeed = None
+    plugin._global_maxdlspeed = None
+    plugin._task_context = threading.local()
     plugin._task_configs = {task.id: task for task in tasks}
     plugin._task_locks = {task.id: threading.Lock() for task in tasks}
     plugin._runtime_lock = threading.Lock()
@@ -100,6 +106,103 @@ def test_legacy_config_migrates_timezone_and_site_overrides():
     assert by_name["A 站"]["timezone_offset"] == 8
     assert by_name["B 站"]["timezone_offset"] == -5
     assert by_name["B 站"]["rss_support"] is True
+
+
+def test_legacy_global_limits_are_restored_during_initial_upgrade():
+    """从 V4 直升时应把原有运行限额恢复为跨任务全局限额。"""
+    plugin = BrushFlow()
+    plugin.update_config = MagicMock()
+    plugin._migrate_legacy_data = MagicMock()
+    site = SimpleNamespace(id=1, name="A 站", public=False)
+    config = {
+        "brushsites": [1],
+        "downloader": "主下载器",
+        "disksize": 500,
+        "maxdlcount": 4,
+        "maxupspeed": 1024,
+        "maxdlspeed": 2048,
+    }
+
+    with patch("brushflow.SiteOper") as site_oper, patch("brushflow.DownloaderHelper") as downloader_helper:
+        site_oper.return_value.get.return_value = site
+        downloader_helper.return_value.get_configs.return_value = {
+            "主下载器": SimpleNamespace(name="主下载器")
+        }
+        plugin.init_plugin(config)
+
+    assert plugin._global_disksize == 500
+    assert plugin._global_maxdlcount == 4
+    assert plugin._global_maxupspeed == 1024
+    assert plugin._global_maxdlspeed == 2048
+    saved_config = plugin.update_config.call_args.args[0]
+    assert saved_config["global_disksize"] == 500
+
+
+def test_payloads_treat_legacy_zero_limits_as_unset():
+    """历史配置用 0 表示不限时，任务和全局设置接口都不应返回 422。"""
+    task_payload = BrushTaskPayload.model_validate(
+        {
+            "name": "A 站",
+            "site_id": 1,
+            "downloader": "主下载器",
+            "disksize": 0,
+            "maxupspeed": "0",
+            "maxdlspeed": 0.0,
+            "maxdlcount": 0,
+            "seed_ratio": 0,
+        }
+    )
+    settings_payload = BrushFlowSettingsPayload.model_validate(
+        {
+            "global_disksize": 0,
+            "global_maxdlcount": "0",
+            "global_maxupspeed": 0.0,
+            "global_maxdlspeed": 0,
+        }
+    )
+
+    assert task_payload.disksize is None
+    assert task_payload.maxupspeed is None
+    assert task_payload.maxdlspeed is None
+    assert task_payload.maxdlcount is None
+    assert task_payload.seed_ratio is None
+    assert settings_payload.global_disksize is None
+    assert settings_payload.global_maxdlcount is None
+    assert settings_payload.global_maxupspeed is None
+    assert settings_payload.global_maxdlspeed is None
+
+
+def test_global_limits_aggregate_all_tasks():
+    """全局体积和下载并发应阻止任一任务继续突破合计上限。"""
+    first = _make_task("task-a")
+    second = _make_task("task-b", site_id=2)
+    plugin = _make_runtime_plugin(first, second)
+    plugin._global_disksize = 100
+    plugin._global_maxdlcount = 3
+    gib = 1024 ** 3
+    task_rows = {
+        first.id: {"first": {"size": 40 * gib, "deleted": False}},
+        second.id: {"second": {"size": 50 * gib, "deleted": False}},
+    }
+    plugin._get_task_data = MagicMock(side_effect=lambda task_id, _name: task_rows[task_id])
+    plugin._BrushFlow__get_global_downloading_count = MagicMock(return_value=3)
+
+    global_size = plugin._calculate_global_seeding_size()
+    with plugin._task_scope(first.id):
+        size_passed, size_reason = plugin._BrushFlow__evaluate_size_condition_for_brush(
+            40 * gib,
+            20 * gib,
+            global_torrents_size=global_size,
+        )
+        count_passed, count_reason = plugin._BrushFlow__evaluate_pre_conditions_for_brush(
+            include_network_conditions=False
+        )
+
+    assert global_size == 90 * gib
+    assert size_passed is False
+    assert "全局保种上限" in size_reason
+    assert count_passed is False
+    assert "全局同时下载任务数" in count_reason
 
 
 def test_reference_validation_uses_configured_downloader_when_offline():

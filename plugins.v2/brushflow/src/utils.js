@@ -90,7 +90,8 @@ export function normalizeTask(task) {
     'qb_category',
   ]
   nullableNumbers.forEach(key => {
-    result[key] = result[key] === '' || result[key] === null ? null : Number(result[key])
+    const value = result[key] === '' || result[key] === null ? null : Number(result[key])
+    result[key] = value === 0 ? null : value
   })
   optionalText.forEach(key => {
     result[key] = String(result[key] || '').trim() || null
@@ -99,6 +100,17 @@ export function normalizeTask(task) {
   result.brush_interval = Number(result.brush_interval || 10)
   result.check_interval = Number(result.check_interval || 5)
   result.timezone_offset = Number(result.timezone_offset || 0)
+  return result
+}
+
+/** 把全局设置中的空值、零值和正数标准化为后端请求类型。 */
+export function normalizeSettings(settings = {}) {
+  const result = { ...(settings || {}) }
+  const limitFields = ['global_disksize', 'global_maxdlcount', 'global_maxupspeed', 'global_maxdlspeed']
+  limitFields.forEach(key => {
+    const value = Number(result[key] || 0)
+    result[key] = value > 0 ? value : null
+  })
   return result
 }
 

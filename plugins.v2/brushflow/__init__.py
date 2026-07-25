@@ -106,6 +106,13 @@ LEGACY_SITE_OVERRIDE_FIELDS = {
     "rss_support",
 }
 
+GLOBAL_LIMIT_FIELDS = (
+    "global_disksize",
+    "global_maxdlcount",
+    "global_maxupspeed",
+    "global_maxdlspeed",
+)
+
 
 class BrushTaskConfig:
     """
@@ -196,7 +203,7 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流"
     plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "5.0.0"
+    plugin_version = "5.0.1"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -219,6 +226,14 @@ class BrushFlow(_PluginBase):
         self._subscribe_infos: Dict[str, List[str]] = {}
         self._enabled = bool(raw_config.get("enabled", False))
         self._show_sidebar_nav = bool(raw_config.get("show_sidebar_nav", True))
+
+        legacy_config = not isinstance(raw_config.get("tasks"), list) and bool(raw_config.get("brushsites"))
+        for field in GLOBAL_LIMIT_FIELDS:
+            value = raw_config.get(field)
+            if value is None and legacy_config:
+                value = raw_config.get(field.removeprefix("global_"))
+            parsed_value = BrushTaskConfig._parse_number(value)
+            setattr(self, f"_{field}", parsed_value if parsed_value and parsed_value > 0 else None)
 
         task_rows = raw_config.get("tasks") if isinstance(raw_config.get("tasks"), list) else None
         migrated = task_rows is None and bool(raw_config.get("brushsites"))
@@ -451,6 +466,8 @@ class BrushFlow(_PluginBase):
         """更新插件全局开关并刷新宿主任务调度"""
         self._enabled = payload.enabled
         self._show_sidebar_nav = payload.show_sidebar_nav
+        for field in GLOBAL_LIMIT_FIELDS:
+            setattr(self, f"_{field}", getattr(payload, field))
         self._save_config()
         self._refresh_scheduler()
         return schemas.Response(success=True, data=self._build_status_data())
@@ -557,12 +574,14 @@ class BrushFlow(_PluginBase):
 
     def _current_config(self) -> Dict[str, Any]:
         """返回插件当前可持久化配置快照"""
-        return {
+        config = {
             "schema_version": self.DATA_SCHEMA_VERSION,
             "enabled": bool(getattr(self, "_enabled", False)),
             "show_sidebar_nav": bool(getattr(self, "_show_sidebar_nav", True)),
             "tasks": [task.to_dict() for task in getattr(self, "_task_configs", {}).values()],
         }
+        config.update({field: getattr(self, f"_{field}", None) for field in GLOBAL_LIMIT_FIELDS})
+        return config
 
     def _save_config(self) -> None:
         """保存全局设置和全部任务配置"""
@@ -810,6 +829,7 @@ class BrushFlow(_PluginBase):
         return {
             "enabled": self.get_state(),
             "show_sidebar_nav": self._show_sidebar_nav,
+            **{field: getattr(self, f"_{field}", None) for field in GLOBAL_LIMIT_FIELDS},
             "summary": aggregate,
             "tasks": task_rows,
             "options": {"sites": site_options, "downloaders": downloader_options},
@@ -945,7 +965,11 @@ class BrushFlow(_PluginBase):
             return
         torrent_tasks: Dict[str, dict] = self._current_task_data("torrents", {})
         seeding_size = self.__calculate_seeding_torrents_size(torrent_tasks)
-        passed, reason = self.__evaluate_size_condition_for_brush(seeding_size)
+        global_seeding_size = self._calculate_global_seeding_size(task.id, torrent_tasks)
+        passed, reason = self.__evaluate_size_condition_for_brush(
+            seeding_size,
+            global_torrents_size=global_seeding_size,
+        )
         if not passed:
             report["result"] = "precondition_blocked"
             report["reason_counts"][reason] = 1
@@ -967,6 +991,7 @@ class BrushFlow(_PluginBase):
             all_torrent_tasks=all_torrent_tasks,
             subscribe_titles=subscribe_titles,
             report=report,
+            global_seeding_size=global_seeding_size,
         )
         self._save_current_task_data("torrents", torrent_tasks)
         self._recalculate_statistics(task.id)
@@ -979,6 +1004,21 @@ class BrushFlow(_PluginBase):
             rows.update(task_rows)
         return rows
 
+    def _calculate_global_seeding_size(
+        self,
+        current_task_id: Optional[str] = None,
+        current_torrent_tasks: Optional[Dict[str, dict]] = None,
+    ) -> float:
+        """汇总所有任务未删除种子的体积，并允许使用当前任务的内存快照。"""
+        total_size = 0.0
+        for task_id in self._task_configs:
+            if task_id == current_task_id and current_torrent_tasks is not None:
+                task_rows = current_torrent_tasks
+            else:
+                task_rows = self._get_task_data(task_id, "torrents") or {}
+            total_size += self.__calculate_seeding_torrents_size(task_rows)
+        return total_size
+
     def __brush_site_torrents(
         self,
         site: Any,
@@ -986,6 +1026,7 @@ class BrushFlow(_PluginBase):
         all_torrent_tasks: Dict[str, dict],
         subscribe_titles: Set[str],
         report: dict,
+        global_seeding_size: float,
     ) -> None:
         """获取当前任务站点候选并逐项执行保留的选种规则"""
         task = self._get_task_config()
@@ -1010,7 +1051,11 @@ class BrushFlow(_PluginBase):
                 report["reason_counts"][reason] += 1
                 report["result"] = "precondition_blocked"
                 break
-            passed, reason = self.__evaluate_size_condition_for_brush(seeding_size, torrent.size)
+            passed, reason = self.__evaluate_size_condition_for_brush(
+                seeding_size,
+                torrent.size,
+                global_torrents_size=global_seeding_size,
+            )
             if not passed:
                 report["reason_counts"][reason] += 1
                 continue
@@ -1026,6 +1071,7 @@ class BrushFlow(_PluginBase):
             torrent_tasks[hash_string] = torrent_task
             all_torrent_tasks[hash_string] = torrent_task
             seeding_size += torrent.size
+            global_seeding_size += torrent.size
             report["added_count"] += 1
             report["added_titles"].append(torrent.title)
             self.eventmanager.send_event(
@@ -1103,29 +1149,45 @@ class BrushFlow(_PluginBase):
         self,
         torrents_size: float,
         add_torrent_size: float = 0.0,
+        global_torrents_size: Optional[float] = None,
     ) -> Tuple[bool, Optional[str]]:
-        """校验当前任务新增种子后是否超过保种体积"""
+        """校验当前任务及所有任务新增种子后是否超过保种体积。"""
         task = self._get_task_config()
-        if not task or not task.disksize:
-            return True, None
+        if not task:
+            return False, "任务配置不存在"
         estimated_size = torrents_size + (add_torrent_size or 0)
-        limit_size = float(task.disksize) * 1024 ** 3
-        if estimated_size <= limit_size:
-            return True, None
-        reason = (
-            f"预计做种体积 {self.__bytes_to_gb(estimated_size):.1f} GB，"
-            f"超过保种上限 {task.disksize} GB"
-        )
-        return False, reason
+        if task.disksize:
+            limit_size = float(task.disksize) * 1024 ** 3
+            if estimated_size > limit_size:
+                reason = (
+                    f"预计做种体积 {self.__bytes_to_gb(estimated_size):.1f} GB，"
+                    f"超过任务保种上限 {task.disksize} GB"
+                )
+                return False, reason
+        global_disksize = getattr(self, "_global_disksize", None)
+        if global_disksize:
+            if global_torrents_size is None:
+                global_torrents_size = self._calculate_global_seeding_size()
+            estimated_global_size = global_torrents_size + (add_torrent_size or 0)
+            if estimated_global_size > float(global_disksize) * 1024 ** 3:
+                reason = (
+                    f"预计全局做种体积 {self.__bytes_to_gb(estimated_global_size):.1f} GB，"
+                    f"超过全局保种上限 {global_disksize} GB"
+                )
+                return False, reason
+        return True, None
 
     def __evaluate_pre_conditions_for_brush(
         self,
         include_network_conditions: bool = True,
     ) -> Tuple[bool, Optional[str]]:
-        """校验单任务下载并发及全局上传下载带宽"""
+        """校验单任务与全局下载并发及上传下载带宽。"""
         task = self._get_task_config()
         if not task:
             return False, "任务配置不存在"
+        global_maxdlcount = getattr(self, "_global_maxdlcount", None)
+        if global_maxdlcount and self.__get_global_downloading_count() >= int(global_maxdlcount):
+            return False, f"全局同时下载任务数达到上限 {global_maxdlcount}"
         if task.maxdlcount and self.__get_downloading_count() >= int(task.maxdlcount):
             return False, f"同时下载任务数达到上限 {task.maxdlcount}"
         if not include_network_conditions:
@@ -1133,6 +1195,12 @@ class BrushFlow(_PluginBase):
         avg_upload_speed, avg_download_speed = self.__get_average_bandwidth()
         if avg_upload_speed is None or avg_download_speed is None:
             return True, None
+        global_maxupspeed = getattr(self, "_global_maxupspeed", None)
+        global_maxdlspeed = getattr(self, "_global_maxdlspeed", None)
+        if global_maxupspeed and avg_upload_speed >= float(global_maxupspeed) * 1024:
+            return False, f"全局总上传带宽达到上限 {global_maxupspeed} KB/s"
+        if global_maxdlspeed and avg_download_speed >= float(global_maxdlspeed) * 1024:
+            return False, f"全局总下载带宽达到上限 {global_maxdlspeed} KB/s"
         if task.maxupspeed and avg_upload_speed >= float(task.maxupspeed) * 1024:
             return False, f"总上传带宽达到上限 {task.maxupspeed} KB/s"
         if task.maxdlspeed and avg_download_speed >= float(task.maxdlspeed) * 1024:
@@ -1853,6 +1921,22 @@ class BrushFlow(_PluginBase):
         except Exception as err:
             logger.error(f"获取任务 [{task.name}] 下载数量失败：{str(err)}")
             return 0
+
+    def __get_global_downloading_count(self) -> int:
+        """按下载器去重汇总带全局刷流标签的下载中种子数量。"""
+        total_count = 0
+        downloader_names = {task.downloader for task in self._task_configs.values() if task.downloader}
+        downloader_helper = DownloaderHelper()
+        for downloader_name in downloader_names:
+            try:
+                service = downloader_helper.get_service(name=downloader_name)
+                if not service or not service.instance:
+                    continue
+                torrents = service.instance.get_downloading_torrents(tags=self.GLOBAL_BRUSH_TAG)
+                total_count += len(torrents or [])
+            except Exception as err:
+                logger.error(f"获取下载器 [{downloader_name}] 全局刷流下载数量失败：{str(err)}")
+        return total_count
 
     @staticmethod
     def __get_pubminutes(pubdate: str) -> float:
