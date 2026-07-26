@@ -953,5 +953,18 @@
     "history": {
       "v1.0.0": "新增电影蓝光原盘转封装插件，支持 MPLS 播放列表解析、覆盖检查和安全回滚。"
     }
+  },
+  "EpisodeTag": {
+    "name": "集数标签",
+    "description": "下载剧集时自动给任务打上集数标签（如 E01-E12），qBittorrent / Transmission 通用，支持一次性补全历史",
+    "labels": "下载管理",
+    "version": "1.1",
+    "icon": "Youtube-dl_B.png",
+    "author": "devin",
+    "level": 1,
+    "history": {
+      "v1.1": "每集拆成独立标签（不再用范围）；补全时读种子文件列表覆盖无历史种子；自动迁移旧范围标签",
+      "v1.0": "初始版本：下载时自动打集数标签，支持一次性补全历史"
+    }
   }
 }
