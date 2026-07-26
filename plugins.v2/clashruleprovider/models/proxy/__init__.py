@@ -11,15 +11,20 @@ from .hysteriaproxy import HysteriaProxy
 from .hysteria2proxy import Hysteria2Proxy
 from .mieruproxy import MieruProxy
 from .networkmixin import NetworkMixin
-from .proxybase import ProxyBase
+from .openvpn import OpenVPN
+from .rematch import Rematch
 from .shadowsocksproxy import ShadowsocksProxy
 from .shadowsocksrproxy import ShadowsocksRProxy
 from .snellproxy import SnellProxy
 from .socks5proxy import Socks5Proxy
 from .sshproxy import SshProxy
+from .sudoku import Sudoku
 from .tlsmixin import TLSMixin
 from .trojanproxy import TrojanProxy
 from .tuicproxy import TuicProxy
+from .trusttunnelproxy import TrustTunnelProxy
+from .tailscaleproxy import TailscaleProxy
+from .shadowquicproxy import ShadowQUICProxy
 from .vlessproxy import VlessProxy
 from .vmessproxy import VmessProxy
 from .wireguardproxy import WireGuardProxy
@@ -33,12 +38,18 @@ ProxyType = Union[
     HysteriaProxy,
     Hysteria2Proxy,
     MieruProxy,
+    OpenVPN,
+    Rematch,
     ShadowsocksProxy,
     ShadowsocksRProxy,
+    ShadowQUICProxy,
     SnellProxy,
     Socks5Proxy,
     SshProxy,
+    Sudoku,
+    TailscaleProxy,
     TrojanProxy,
+    TrustTunnelProxy,
     TuicProxy,
     VlessProxy,
     VmessProxy,

@@ -3952,10 +3952,10 @@ const _sfc_main$w = /* @__PURE__ */ _defineComponent$w({
 
 const {defineComponent:_defineComponent$v} = await importShared('vue');
 
-const {createTextVNode:_createTextVNode$v,resolveComponent:_resolveComponent$v,withCtx:_withCtx$v,createVNode:_createVNode$v,createElementVNode:_createElementVNode$o,renderList:_renderList$a,Fragment:_Fragment$b,openBlock:_openBlock$v,createElementBlock:_createElementBlock$c,toDisplayString:_toDisplayString$s,createBlock:_createBlock$v,createCommentVNode:_createCommentVNode$r} = await importShared('vue');
+const {createTextVNode:_createTextVNode$v,resolveComponent:_resolveComponent$v,withCtx:_withCtx$v,createVNode:_createVNode$v,createElementVNode:_createElementVNode$o,renderList:_renderList$a,Fragment:_Fragment$b,openBlock:_openBlock$v,createElementBlock:_createElementBlock$d,toDisplayString:_toDisplayString$s,createBlock:_createBlock$v,createCommentVNode:_createCommentVNode$r} = await importShared('vue');
 
 const _hoisted_1$l = { class: "d-flex align-center justify-space-between mb-2" };
-const _hoisted_2$f = {
+const _hoisted_2$g = {
   key: 0,
   class: "text-caption text-grey text-center py-2"
 };
@@ -4098,7 +4098,7 @@ const _sfc_main$v = /* @__PURE__ */ _defineComponent$v({
                     "selected-class": "text-primary"
                   }, {
                     default: _withCtx$v(() => [
-                      (_openBlock$v(true), _createElementBlock$c(_Fragment$b, null, _renderList$a(__props.presetIdentifiers, (id) => {
+                      (_openBlock$v(true), _createElementBlock$d(_Fragment$b, null, _renderList$a(__props.presetIdentifiers, (id) => {
                         return _openBlock$v(), _createBlock$v(_component_v_chip, {
                           key: id,
                           value: id,
@@ -4130,8 +4130,8 @@ const _sfc_main$v = /* @__PURE__ */ _defineComponent$v({
                       _: 1
                     })
                   ]),
-                  (_openBlock$v(true), _createElementBlock$c(_Fragment$b, null, _renderList$a(customExpressions.value.keys(), (index) => {
-                    return _openBlock$v(), _createElementBlock$c("div", {
+                  (_openBlock$v(true), _createElementBlock$d(_Fragment$b, null, _renderList$a(customExpressions.value.keys(), (index) => {
+                    return _openBlock$v(), _createElementBlock$d("div", {
                       key: index,
                       class: "d-flex align-center mb-2"
                     }, [
@@ -4154,7 +4154,7 @@ const _sfc_main$v = /* @__PURE__ */ _defineComponent$v({
                       }, null, 8, ["onClick"])
                     ]);
                   }), 128)),
-                  customExpressions.value.length === 0 ? (_openBlock$v(), _createElementBlock$c("div", _hoisted_2$f, " 无自定义表达式 ")) : _createCommentVNode$r("", true)
+                  customExpressions.value.length === 0 ? (_openBlock$v(), _createElementBlock$d("div", _hoisted_2$g, " 无自定义表达式 ")) : _createCommentVNode$r("", true)
                 ]),
                 _: 1
               }),
@@ -4445,7 +4445,7 @@ const _sfc_main$u = /* @__PURE__ */ _defineComponent$u({
 
 const {defineComponent:_defineComponent$t} = await importShared('vue');
 
-const {resolveComponent:_resolveComponent$t,createVNode:_createVNode$t,withCtx:_withCtx$t,Teleport:_Teleport$1,openBlock:_openBlock$t,createBlock:_createBlock$t,createCommentVNode:_createCommentVNode$p,unref:_unref$o,toDisplayString:_toDisplayString$q,createTextVNode:_createTextVNode$t,createElementVNode:_createElementVNode$n,Fragment:_Fragment$a,createElementBlock:_createElementBlock$b} = await importShared('vue');
+const {resolveComponent:_resolveComponent$t,createVNode:_createVNode$t,withCtx:_withCtx$t,Teleport:_Teleport$1,openBlock:_openBlock$t,createBlock:_createBlock$t,createCommentVNode:_createCommentVNode$p,unref:_unref$o,toDisplayString:_toDisplayString$q,createTextVNode:_createTextVNode$t,createElementVNode:_createElementVNode$n,Fragment:_Fragment$a,createElementBlock:_createElementBlock$c} = await importShared('vue');
 
 const _hoisted_1$k = ["colspan"];
 const {ref: ref$k} = await importShared('vue');
@@ -4579,7 +4579,7 @@ const _sfc_main$t = /* @__PURE__ */ _defineComponent$t({
       const _component_v_chip = _resolveComponent$t("v-chip");
       const _component_v_icon = _resolveComponent$t("v-icon");
       const _component_v_data_table = _resolveComponent$t("v-data-table");
-      return _openBlock$t(), _createElementBlock$b(_Fragment$a, null, [
+      return _openBlock$t(), _createElementBlock$c(_Fragment$a, null, [
         selected.value.length > 0 ? (_openBlock$t(), _createBlock$t(_Teleport$1, {
           key: 0,
           to: "#ruleset-rules-table-batch-actions"
@@ -4816,7 +4816,7 @@ const {defineComponent:_defineComponent$s} = await importShared('vue');
 const {toDisplayString:_toDisplayString$p,createTextVNode:_createTextVNode$s,resolveComponent:_resolveComponent$s,withCtx:_withCtx$s,createVNode:_createVNode$s,mergeProps:_mergeProps$l,openBlock:_openBlock$s,createBlock:_createBlock$s,createCommentVNode:_createCommentVNode$o,createElementVNode:_createElementVNode$m,unref:_unref$n} = await importShared('vue');
 
 const _hoisted_1$j = { class: "d-flex justify-space-between align-center px-4 pt-3" };
-const _hoisted_2$e = ["title"];
+const _hoisted_2$f = ["title"];
 const _sfc_main$s = /* @__PURE__ */ _defineComponent$s({
   __name: "RuleCard",
   props: {
@@ -4951,7 +4951,7 @@ const _sfc_main$s = /* @__PURE__ */ _defineComponent$s({
                     default: _withCtx$s(() => [
                       _createElementVNode$m("span", {
                         title: __props.rule.payload
-                      }, _toDisplayString$p(__props.rule.payload), 9, _hoisted_2$e)
+                      }, _toDisplayString$p(__props.rule.payload), 9, _hoisted_2$f)
                     ]),
                     _: 1
                   })
@@ -5478,10 +5478,13 @@ const _sfc_main$r = /* @__PURE__ */ _defineComponent$r({
         "IN-TYPE",
         "IN-USER",
         "IN-NAME",
+        "REMATCH-NAME",
         "PROCESS-PATH",
         "PROCESS-PATH-REGEX",
+        "PROCESS-PATH-WILDCARD",
         "PROCESS-NAME",
         "PROCESS-NAME-REGEX",
+        "PROCESS-NAME-WILDCARD",
         "UID",
         "NETWORK",
         "DSCP",
@@ -5799,12 +5802,12 @@ const _sfc_main$r = /* @__PURE__ */ _defineComponent$r({
 
 const {defineComponent:_defineComponent$q} = await importShared('vue');
 
-const {resolveComponent:_resolveComponent$q,createVNode:_createVNode$q,withCtx:_withCtx$q,createElementVNode:_createElementVNode$l,renderList:_renderList$9,Fragment:_Fragment$9,openBlock:_openBlock$q,createElementBlock:_createElementBlock$a,createBlock:_createBlock$q,unref:_unref$m,toDisplayString:_toDisplayString$n,createTextVNode:_createTextVNode$q,mergeProps:_mergeProps$k,createCommentVNode:_createCommentVNode$m} = await importShared('vue');
+const {resolveComponent:_resolveComponent$q,createVNode:_createVNode$q,withCtx:_withCtx$q,createElementVNode:_createElementVNode$l,renderList:_renderList$9,Fragment:_Fragment$9,openBlock:_openBlock$q,createElementBlock:_createElementBlock$b,createBlock:_createBlock$q,unref:_unref$m,toDisplayString:_toDisplayString$n,createTextVNode:_createTextVNode$q,mergeProps:_mergeProps$k,createCommentVNode:_createCommentVNode$m} = await importShared('vue');
 
 const _hoisted_1$i = { class: "mb-2 position-relative" };
-const _hoisted_2$d = { class: "pa-4" };
-const _hoisted_3$d = { class: "d-none d-sm-flex clash-data-table" };
-const _hoisted_4$b = { class: "d-sm-none" };
+const _hoisted_2$e = { class: "pa-4" };
+const _hoisted_3$e = { class: "d-none d-sm-flex clash-data-table" };
+const _hoisted_4$c = { class: "d-sm-none" };
 const _hoisted_5$8 = {
   class: "pa-4",
   style: { "min-height": "4rem" }
@@ -5955,7 +5958,7 @@ const _sfc_main$q = /* @__PURE__ */ _defineComponent$q({
       const _component_v_list = _resolveComponent$q("v-list");
       const _component_v_menu = _resolveComponent$q("v-menu");
       const _component_v_divider = _resolveComponent$q("v-divider");
-      return _openBlock$q(), _createElementBlock$a("div", _hoisted_1$i, [
+      return _openBlock$q(), _createElementBlock$b("div", _hoisted_1$i, [
         _createVNode$q(_component_v_overlay, {
           modelValue: loading.value,
           "onUpdate:modelValue": _cache[0] || (_cache[0] = ($event) => loading.value = $event),
@@ -5970,7 +5973,7 @@ const _sfc_main$q = /* @__PURE__ */ _defineComponent$q({
           ]),
           _: 1
         }, 8, ["modelValue"]),
-        _createElementVNode$l("div", _hoisted_2$d, [
+        _createElementVNode$l("div", _hoisted_2$e, [
           _createVNode$q(_component_v_row, {
             align: "center",
             "no-gutters": ""
@@ -6048,7 +6051,7 @@ const _sfc_main$q = /* @__PURE__ */ _defineComponent$q({
             _: 1
           })
         ]),
-        _createElementVNode$l("div", _hoisted_3$d, [
+        _createElementVNode$l("div", _hoisted_3$e, [
           _createVNode$q(_sfc_main$t, {
             group: group.value,
             "sorted-rules": _ctx.rules,
@@ -6064,10 +6067,10 @@ const _sfc_main$q = /* @__PURE__ */ _defineComponent$q({
             onChangeStatusBatch: handleBatchStatusChange
           }, null, 8, ["group", "sorted-rules", "page", "items-per-page", "ruleset-prefix", "search-rule"])
         ]),
-        _createElementVNode$l("div", _hoisted_4$b, [
+        _createElementVNode$l("div", _hoisted_4$c, [
           _createVNode$q(_component_v_row, null, {
             default: _withCtx$q(() => [
-              (_openBlock$q(true), _createElementBlock$a(_Fragment$9, null, _renderList$9(paginatedRulesetRules.value, (item) => {
+              (_openBlock$q(true), _createElementBlock$b(_Fragment$9, null, _renderList$9(paginatedRulesetRules.value, (item) => {
                 return _openBlock$q(), _createBlock$q(_component_v_col, {
                   key: item.priority,
                   cols: "12"
@@ -6153,7 +6156,7 @@ const _sfc_main$q = /* @__PURE__ */ _defineComponent$q({
                     default: _withCtx$q(() => [
                       _createVNode$q(_component_v_list, null, {
                         default: _withCtx$q(() => [
-                          (_openBlock$q(true), _createElementBlock$a(_Fragment$9, null, _renderList$9(_unref$m(itemsPerPageOptions), (item, index) => {
+                          (_openBlock$q(true), _createElementBlock$b(_Fragment$9, null, _renderList$9(_unref$m(itemsPerPageOptions), (item, index) => {
                             return _openBlock$q(), _createBlock$q(_component_v_list_item, {
                               key: index,
                               value: item.value,
@@ -6646,12 +6649,12 @@ const _sfc_main$o = /* @__PURE__ */ _defineComponent$o({
 
 const {defineComponent:_defineComponent$n} = await importShared('vue');
 
-const {resolveComponent:_resolveComponent$n,createVNode:_createVNode$n,withCtx:_withCtx$n,createElementVNode:_createElementVNode$i,renderList:_renderList$8,Fragment:_Fragment$8,openBlock:_openBlock$n,createElementBlock:_createElementBlock$9,createBlock:_createBlock$n,unref:_unref$j,toDisplayString:_toDisplayString$l,createTextVNode:_createTextVNode$n,mergeProps:_mergeProps$i,createCommentVNode:_createCommentVNode$k} = await importShared('vue');
+const {resolveComponent:_resolveComponent$n,createVNode:_createVNode$n,withCtx:_withCtx$n,createElementVNode:_createElementVNode$i,renderList:_renderList$8,Fragment:_Fragment$8,openBlock:_openBlock$n,createElementBlock:_createElementBlock$a,createBlock:_createBlock$n,unref:_unref$j,toDisplayString:_toDisplayString$l,createTextVNode:_createTextVNode$n,mergeProps:_mergeProps$i,createCommentVNode:_createCommentVNode$k} = await importShared('vue');
 
 const _hoisted_1$g = { class: "mb-2 position-relative" };
-const _hoisted_2$c = { class: "pa-4" };
-const _hoisted_3$c = { class: "d-none d-sm-flex clash-data-table" };
-const _hoisted_4$a = { class: "d-sm-none" };
+const _hoisted_2$d = { class: "pa-4" };
+const _hoisted_3$d = { class: "d-none d-sm-flex clash-data-table" };
+const _hoisted_4$b = { class: "d-sm-none" };
 const _hoisted_5$7 = {
   class: "pa-4",
   style: { "min-height": "4rem" }
@@ -6817,7 +6820,7 @@ const _sfc_main$n = /* @__PURE__ */ _defineComponent$n({
       const _component_v_list = _resolveComponent$n("v-list");
       const _component_v_menu = _resolveComponent$n("v-menu");
       const _component_v_divider = _resolveComponent$n("v-divider");
-      return _openBlock$n(), _createElementBlock$9("div", _hoisted_1$g, [
+      return _openBlock$n(), _createElementBlock$a("div", _hoisted_1$g, [
         _createVNode$n(_component_v_overlay, {
           modelValue: loading.value,
           "onUpdate:modelValue": _cache[0] || (_cache[0] = ($event) => loading.value = $event),
@@ -6832,7 +6835,7 @@ const _sfc_main$n = /* @__PURE__ */ _defineComponent$n({
           ]),
           _: 1
         }, 8, ["modelValue"]),
-        _createElementVNode$i("div", _hoisted_2$c, [
+        _createElementVNode$i("div", _hoisted_2$d, [
           _createVNode$n(_component_v_row, {
             align: "center",
             "no-gutters": ""
@@ -6894,7 +6897,7 @@ const _sfc_main$n = /* @__PURE__ */ _defineComponent$n({
             _: 1
           })
         ]),
-        _createElementVNode$i("div", _hoisted_3$c, [
+        _createElementVNode$i("div", _hoisted_3$d, [
           _createVNode$n(_sfc_main$p, {
             "sorted-rules": _ctx.rules,
             page: page.value,
@@ -6909,10 +6912,10 @@ const _sfc_main$n = /* @__PURE__ */ _defineComponent$n({
             onEditVisibility: editVisibility
           }, null, 8, ["sorted-rules", "page", "items-per-page", "search-rule"])
         ]),
-        _createElementVNode$i("div", _hoisted_4$a, [
+        _createElementVNode$i("div", _hoisted_4$b, [
           _createVNode$n(_component_v_row, null, {
             default: _withCtx$n(() => [
-              (_openBlock$n(true), _createElementBlock$9(_Fragment$8, null, _renderList$8(paginatedTopRules.value, (item) => {
+              (_openBlock$n(true), _createElementBlock$a(_Fragment$8, null, _renderList$8(paginatedTopRules.value, (item) => {
                 return _openBlock$n(), _createBlock$n(_component_v_col, {
                   key: item.priority,
                   cols: "12"
@@ -6999,7 +7002,7 @@ const _sfc_main$n = /* @__PURE__ */ _defineComponent$n({
                     default: _withCtx$n(() => [
                       _createVNode$n(_component_v_list, null, {
                         default: _withCtx$n(() => [
-                          (_openBlock$n(true), _createElementBlock$9(_Fragment$8, null, _renderList$8(_unref$j(itemsPerPageOptions), (item, index) => {
+                          (_openBlock$n(true), _createElementBlock$a(_Fragment$8, null, _renderList$8(_unref$j(itemsPerPageOptions), (item, index) => {
                             return _openBlock$n(), _createBlock$n(_component_v_list_item, {
                               key: index,
                               value: item.value,
@@ -7423,8 +7426,8 @@ const {defineComponent:_defineComponent$k} = await importShared('vue');
 const {toDisplayString:_toDisplayString$i,createElementVNode:_createElementVNode$g,createTextVNode:_createTextVNode$k,resolveComponent:_resolveComponent$k,mergeProps:_mergeProps$f,withCtx:_withCtx$k,createVNode:_createVNode$k,openBlock:_openBlock$k,createBlock:_createBlock$k,createCommentVNode:_createCommentVNode$h,unref:_unref$g} = await importShared('vue');
 
 const _hoisted_1$e = { class: "d-flex justify-space-between align-center px-4 pt-3" };
-const _hoisted_2$b = ["title"];
-const _hoisted_3$b = { class: "d-flex align-center" };
+const _hoisted_2$c = ["title"];
+const _hoisted_3$c = { class: "d-flex align-center" };
 const _sfc_main$k = /* @__PURE__ */ _defineComponent$k({
   __name: "ProxyGroupCard",
   props: {
@@ -7458,8 +7461,8 @@ const _sfc_main$k = /* @__PURE__ */ _defineComponent$k({
             _createElementVNode$g("span", {
               class: "font-weight-bold text-truncate",
               title: __props.proxyGroupData.data.name
-            }, _toDisplayString$i(__props.proxyGroupData.data.name), 9, _hoisted_2$b),
-            _createElementVNode$g("div", _hoisted_3$b, [
+            }, _toDisplayString$i(__props.proxyGroupData.data.name), 9, _hoisted_2$c),
+            _createElementVNode$g("div", _hoisted_3$c, [
               __props.proxyGroupData.meta.invisible_to && __props.proxyGroupData.meta.invisible_to.length > 0 ? (_openBlock$k(), _createBlock$k(_component_v_tooltip, {
                 key: 0,
                 text: "已配置可见性限制",
@@ -8204,12 +8207,12 @@ const _sfc_main$j = /* @__PURE__ */ _defineComponent$j({
 
 const {defineComponent:_defineComponent$i} = await importShared('vue');
 
-const {resolveComponent:_resolveComponent$i,createVNode:_createVNode$i,withCtx:_withCtx$i,createElementVNode:_createElementVNode$e,renderList:_renderList$7,Fragment:_Fragment$7,openBlock:_openBlock$i,createElementBlock:_createElementBlock$8,createBlock:_createBlock$i,unref:_unref$f,toDisplayString:_toDisplayString$g,createTextVNode:_createTextVNode$i,mergeProps:_mergeProps$e,createCommentVNode:_createCommentVNode$f} = await importShared('vue');
+const {resolveComponent:_resolveComponent$i,createVNode:_createVNode$i,withCtx:_withCtx$i,createElementVNode:_createElementVNode$e,renderList:_renderList$7,Fragment:_Fragment$7,openBlock:_openBlock$i,createElementBlock:_createElementBlock$9,createBlock:_createBlock$i,unref:_unref$f,toDisplayString:_toDisplayString$g,createTextVNode:_createTextVNode$i,mergeProps:_mergeProps$e,createCommentVNode:_createCommentVNode$f} = await importShared('vue');
 
 const _hoisted_1$d = { class: "mb-2 position-relative" };
-const _hoisted_2$a = { class: "pa-4" };
-const _hoisted_3$a = { class: "d-none d-sm-flex clash-data-table" };
-const _hoisted_4$9 = { class: "d-sm-none" };
+const _hoisted_2$b = { class: "pa-4" };
+const _hoisted_3$b = { class: "d-none d-sm-flex clash-data-table" };
+const _hoisted_4$a = { class: "d-sm-none" };
 const _hoisted_5$6 = {
   class: "pa-4",
   style: { "min-height": "4rem" }
@@ -8345,7 +8348,7 @@ const _sfc_main$i = /* @__PURE__ */ _defineComponent$i({
       const _component_v_list = _resolveComponent$i("v-list");
       const _component_v_menu = _resolveComponent$i("v-menu");
       const _component_v_divider = _resolveComponent$i("v-divider");
-      return _openBlock$i(), _createElementBlock$8("div", _hoisted_1$d, [
+      return _openBlock$i(), _createElementBlock$9("div", _hoisted_1$d, [
         _createVNode$i(_component_v_overlay, {
           modelValue: loading.value,
           "onUpdate:modelValue": _cache[0] || (_cache[0] = ($event) => loading.value = $event),
@@ -8360,7 +8363,7 @@ const _sfc_main$i = /* @__PURE__ */ _defineComponent$i({
           ]),
           _: 1
         }, 8, ["modelValue"]),
-        _createElementVNode$e("div", _hoisted_2$a, [
+        _createElementVNode$e("div", _hoisted_2$b, [
           _createVNode$i(_component_v_row, {
             align: "center",
             "no-gutters": ""
@@ -8416,7 +8419,7 @@ const _sfc_main$i = /* @__PURE__ */ _defineComponent$i({
             _: 1
           })
         ]),
-        _createElementVNode$e("div", _hoisted_3$a, [
+        _createElementVNode$e("div", _hoisted_3$b, [
           _createVNode$i(_sfc_main$l, {
             "items-per-page": itemsPerPageProxyGroup.value,
             page: pageProxyGroup.value,
@@ -8431,10 +8434,10 @@ const _sfc_main$i = /* @__PURE__ */ _defineComponent$i({
             onEditVisibility: editVisibility
           }, null, 8, ["items-per-page", "page", "proxy-groups", "search"])
         ]),
-        _createElementVNode$e("div", _hoisted_4$9, [
+        _createElementVNode$e("div", _hoisted_4$a, [
           _createVNode$i(_component_v_row, null, {
             default: _withCtx$i(() => [
-              (_openBlock$i(true), _createElementBlock$8(_Fragment$7, null, _renderList$7(paginatedProxyGroups.value, (item) => {
+              (_openBlock$i(true), _createElementBlock$9(_Fragment$7, null, _renderList$7(paginatedProxyGroups.value, (item) => {
                 return _openBlock$i(), _createBlock$i(_component_v_col, {
                   key: item.data.name,
                   cols: "12"
@@ -8517,7 +8520,7 @@ const _sfc_main$i = /* @__PURE__ */ _defineComponent$i({
                     default: _withCtx$i(() => [
                       _createVNode$i(_component_v_list, null, {
                         default: _withCtx$i(() => [
-                          (_openBlock$i(true), _createElementBlock$8(_Fragment$7, null, _renderList$7(_unref$f(itemsPerPageOptions), (item, index) => {
+                          (_openBlock$i(true), _createElementBlock$9(_Fragment$7, null, _renderList$7(_unref$f(itemsPerPageOptions), (item, index) => {
                             return _openBlock$i(), _createBlock$i(_component_v_list_item, {
                               key: index,
                               value: item.value,
@@ -8795,9 +8798,18 @@ const _sfc_main$h = /* @__PURE__ */ _defineComponent$h({
 
 const {defineComponent:_defineComponent$g} = await importShared('vue');
 
-const {unref:_unref$d,toDisplayString:_toDisplayString$e,createTextVNode:_createTextVNode$g,resolveComponent:_resolveComponent$g,withCtx:_withCtx$g,createVNode:_createVNode$g,openBlock:_openBlock$g,createBlock:_createBlock$g,createCommentVNode:_createCommentVNode$d,createElementVNode:_createElementVNode$d,mergeProps:_mergeProps$c} = await importShared('vue');
+const {unref:_unref$d,toDisplayString:_toDisplayString$e,createTextVNode:_createTextVNode$g,resolveComponent:_resolveComponent$g,withCtx:_withCtx$g,createVNode:_createVNode$g,openBlock:_openBlock$g,createBlock:_createBlock$g,createCommentVNode:_createCommentVNode$d,createElementBlock:_createElementBlock$8,mergeProps:_mergeProps$c,createElementVNode:_createElementVNode$d} = await importShared('vue');
 
-const _hoisted_1$c = { class: "d-flex align-center" };
+const _hoisted_1$c = { key: 0 };
+const _hoisted_2$a = {
+  key: 1,
+  class: "text-disabled"
+};
+const _hoisted_3$a = {
+  key: 1,
+  class: "text-disabled"
+};
+const _hoisted_4$9 = { class: "d-flex align-center" };
 const {ref: ref$b} = await importShared('vue');
 const _sfc_main$g = /* @__PURE__ */ _defineComponent$g({
   __name: "ProxiesTable",
@@ -8891,10 +8903,11 @@ const _sfc_main$g = /* @__PURE__ */ _defineComponent$g({
           }, 1032, ["color"])
         ]),
         "item.server": _withCtx$g(({ item }) => [
-          _createElementVNode$d("small", null, _toDisplayString$e(item.data.server), 1)
+          item.data.server ? (_openBlock$g(), _createElementBlock$8("small", _hoisted_1$c, _toDisplayString$e(item.data.server), 1)) : (_openBlock$g(), _createElementBlock$8("span", _hoisted_2$a, "—"))
         ]),
         "item.port": _withCtx$g(({ item }) => [
-          _createVNode$g(_component_v_chip, {
+          item.data.port != null ? (_openBlock$g(), _createBlock$g(_component_v_chip, {
+            key: 0,
             size: "x-small",
             label: "",
             variant: "tonal",
@@ -8904,7 +8917,7 @@ const _sfc_main$g = /* @__PURE__ */ _defineComponent$g({
               _createTextVNode$g(_toDisplayString$e(item.data.port), 1)
             ]),
             _: 2
-          }, 1024)
+          }, 1024)) : (_openBlock$g(), _createElementBlock$8("span", _hoisted_3$a, "—"))
         ]),
         "item.source": _withCtx$g(({ item }) => [
           _createVNode$g(_component_v_chip, {
@@ -8919,7 +8932,7 @@ const _sfc_main$g = /* @__PURE__ */ _defineComponent$g({
           }, 1032, ["color"])
         ]),
         "item.status": _withCtx$g(({ item }) => [
-          _createElementVNode$d("div", _hoisted_1$c, [
+          _createElementVNode$d("div", _hoisted_4$9, [
             _createVNode$g(_component_v_icon, {
               color: item.meta.disabled ? "grey" : "success",
               class: "mr-1"
@@ -9129,7 +9142,7 @@ const _sfc_main$f = /* @__PURE__ */ _defineComponent$f({
   }
 });
 
-const ProxyCard = /* @__PURE__ */ _export_sfc(_sfc_main$f, [["__scopeId", "data-v-e80a10d3"]]);
+const ProxyCard = /* @__PURE__ */ _export_sfc(_sfc_main$f, [["__scopeId", "data-v-0a0a7d99"]]);
 
 const {defineComponent:_defineComponent$e} = await importShared('vue');
 
@@ -11098,7 +11111,7 @@ const _sfc_main$c = /* @__PURE__ */ _defineComponent$c({
   }
 });
 
-const SubscriptionCard = /* @__PURE__ */ _export_sfc(_sfc_main$c, [["__scopeId", "data-v-b5b6e9bb"]]);
+const SubscriptionCard = /* @__PURE__ */ _export_sfc(_sfc_main$c, [["__scopeId", "data-v-d6917c49"]]);
 
 const {defineComponent:_defineComponent$b} = await importShared('vue');
 
@@ -11706,7 +11719,7 @@ const _sfc_main$8 = /* @__PURE__ */ _defineComponent$8({
   }
 });
 
-const RuleProviderCard = /* @__PURE__ */ _export_sfc(_sfc_main$8, [["__scopeId", "data-v-01e2e8ef"]]);
+const RuleProviderCard = /* @__PURE__ */ _export_sfc(_sfc_main$8, [["__scopeId", "data-v-20958398"]]);
 
 const {defineComponent:_defineComponent$7} = await importShared('vue');
 
