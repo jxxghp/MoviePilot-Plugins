@@ -23,10 +23,13 @@ class Smux(BaseModel):
 
 class ProxyBase(BaseModel):
     name: str
-    type: Literal['direct', 'dns', 'http', 'ss', 'ssr', 'mieru', 'snell', 'vmess', 'vless', 'trojan', 'anytls',
-                  'hysteria','hysteria2', 'tuic', 'wireguard', 'ssh', 'socks5']
-    server: str
-    port: int
+    type: Literal[
+        'direct', 'dns', 'http', 'ss', 'ssr', 'mieru', 'snell', 'vmess', 'vless', 'trojan', 'anytls',
+        'hysteria', 'hysteria2', 'tuic', 'wireguard', 'ssh', 'socks5', 'openvpn', 'trusttunnel', 'tailscale',
+        'shadowquic', 'rematch', 'sudoku'
+    ]
+    server: str | None = None
+    port: int | None = None
     ip_version: Optional[Literal['dual', 'ipv4', 'ipv6', 'ipv4-prefer', 'ipv6-prefer']] = Field(None,
                                                                                                 alias='ip-version')
     udp: bool = False

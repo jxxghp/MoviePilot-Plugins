@@ -7,25 +7,25 @@
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1) !important;
 }
 
-.proxy-card[data-v-e80a10d3]:hover {
+.proxy-card[data-v-0a0a7d99]:hover {
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1) !important;
 }
 
-.subscription-card[data-v-b5b6e9bb] {
+.subscription-card[data-v-d6917c49] {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.subscription-card[data-v-b5b6e9bb]:hover {
+.subscription-card[data-v-d6917c49]:hover {
   transform: translateY(-4px);
   box-shadow: 0 4px 25px 0 rgba(0, 0, 0, 0.1);
   border-color: rgb(var(--v-theme-primary));
 }
-.card-header[data-v-b5b6e9bb] {
+.card-header[data-v-d6917c49] {
   background: rgba(var(--v-theme-surface-variant), 0.05);
 }
-.bg-surface-variant-lighten[data-v-b5b6e9bb] {
+.bg-surface-variant-lighten[data-v-d6917c49] {
   background: rgba(var(--v-theme-surface-variant), 0.02);
 }
-.stats-grid[data-v-b5b6e9bb] {
+.stats-grid[data-v-d6917c49] {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
@@ -50,7 +50,7 @@
 }
 }
 
-.rule-provider-card[data-v-01e2e8ef]:hover {
+.rule-provider-card[data-v-20958398]:hover {
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1) !important;
 }
 
