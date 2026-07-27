@@ -25,7 +25,7 @@ class GoldPrice(_PluginBase):
     plugin_desc = "每日定时推送金店零售价、银行纸黄金、大盘金价到通知渠道(微信)。"
     plugin_icon = "gold.png"
     plugin_color = "#D4AF37"
-    plugin_version = "1.0.0"
+    plugin_version = "1.1.0"
     plugin_author = "nshzswz"
     author_url = "https://github.com/nshzswz-c"
     plugin_config_prefix = "goldprice_"
@@ -41,6 +41,10 @@ class GoldPrice(_PluginBase):
     _show_bank: bool = True
     _shops: str = ""
     _msgtype: str = ""
+    _history_days: int = 90
+
+    # 历史数据存储 key
+    _DATA_KEY = "history"
 
     _HEADERS = {
         "User-Agent": (
@@ -63,6 +67,10 @@ class GoldPrice(_PluginBase):
         self._show_bank = bool(config.get("show_bank", True))
         self._shops = (config.get("shops") or "").strip()
         self._msgtype = config.get("msgtype") or ""
+        try:
+            self._history_days = int(config.get("history_days") or 90)
+        except (TypeError, ValueError):
+            self._history_days = 90
 
         # 立即运行一次
         if self._onlyonce:
@@ -82,6 +90,7 @@ class GoldPrice(_PluginBase):
             "show_bank": self._show_bank,
             "shops": self._shops,
             "msgtype": self._msgtype,
+            "history_days": self._history_days,
         })
 
     def get_state(self) -> bool:
@@ -128,13 +137,13 @@ class GoldPrice(_PluginBase):
                             },
                         ],
                     },
-                    # 第二行: cron / 消息类型
+                    # 第二行: cron / 消息类型 / 历史保留天数
                     {
                         "component": "VRow",
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -148,7 +157,7 @@ class GoldPrice(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VSelect",
@@ -157,6 +166,21 @@ class GoldPrice(_PluginBase):
                                             "label": "消息类型",
                                             "items": msg_options,
                                             "clearable": True,
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "history_days",
+                                            "label": "历史保留天数",
+                                            "type": "number",
+                                            "placeholder": "90",
                                         },
                                     }
                                 ],
@@ -247,6 +271,7 @@ class GoldPrice(_PluginBase):
             "onlyonce": False,
             "cron": "30 9 * * *",
             "msgtype": "",
+            "history_days": 90,
             "show_market": True,
             "show_shop": True,
             "show_bank": True,
@@ -254,8 +279,101 @@ class GoldPrice(_PluginBase):
         }
 
     def get_page(self) -> Optional[List[dict]]:
-        """详情页: 无独立数据展示，返回 None"""
-        return None
+        """详情页: 历史金价折线图 (大盘/金店/银行 各一张)"""
+        history: Dict[str, Any] = self.get_data(self._DATA_KEY) or {}
+        if not history:
+            return [
+                {
+                    "component": "VAlert",
+                    "props": {
+                        "type": "info",
+                        "variant": "tonal",
+                        "text": "暂无历史数据。插件每次推送后会记录当天金价，积累几天后这里会显示历史折线图。"
+                                "可在配置页勾选「立即运行一次」先抓一次。",
+                    },
+                }
+            ]
+
+        dates = sorted(history.keys())
+
+        def build_series(kind: str) -> List[dict]:
+            """把某一类(market/shop/bank)整理成 ApexCharts series: [{name, data}]"""
+            # 收集该类下出现过的所有条目名
+            names: List[str] = []
+            for d in dates:
+                for n in history[d].get(kind, {}).keys():
+                    if n not in names:
+                        names.append(n)
+            series = []
+            for n in names:
+                # 每个日期取值, 缺失填 None(折线断开)
+                data = [history[d].get(kind, {}).get(n) for d in dates]
+                # 全空的系列不画
+                if any(v is not None for v in data):
+                    series.append({"name": n, "data": data})
+            return series
+
+        def chart_card(title: str, series: List[dict]) -> Optional[dict]:
+            if not series:
+                return None
+            return {
+                "component": "VCol",
+                "props": {"cols": 12},
+                "content": [
+                    {
+                        "component": "VApexChart",
+                        "props": {
+                            "height": 300,
+                            "options": {
+                                "chart": {"type": "line", "zoom": {"enabled": True}},
+                                "title": {"text": title},
+                                "xaxis": {"categories": dates},
+                                "stroke": {"curve": "smooth", "width": 2},
+                                "markers": {"size": 3},
+                                "legend": {"show": True},
+                                "tooltip": {"shared": True},
+                                "dataLabels": {"enabled": False},
+                                "noData": {"text": "暂无数据"},
+                                "yaxis": {"title": {"text": "元/克"}},
+                            },
+                            "series": series,
+                        },
+                    }
+                ],
+            }
+
+        cards = []
+        if self._show_market:
+            c = chart_card("大盘金价走势 (元/克)", build_series("market"))
+            if c:
+                cards.append(c)
+        if self._show_shop:
+            c = chart_card("金店零售价走势 (元/克)", build_series("shop"))
+            if c:
+                cards.append(c)
+        if self._show_bank:
+            c = chart_card("银行纸黄金走势 (元/克)", build_series("bank"))
+            if c:
+                cards.append(c)
+
+        if not cards:
+            return [
+                {
+                    "component": "VAlert",
+                    "props": {
+                        "type": "info",
+                        "variant": "tonal",
+                        "text": f"已记录 {len(dates)} 天数据，但当前开关下无可展示的图表。",
+                    },
+                }
+            ]
+
+        return [
+            {
+                "component": "VRow",
+                "content": cards,
+            }
+        ]
 
     def get_service(self) -> List[Dict[str, Any]]:
         """注册定时服务"""
@@ -318,6 +436,12 @@ class GoldPrice(_PluginBase):
             self._post(msg)
             return
 
+        # 记录历史数据(用于详情页折线图)
+        try:
+            self._save_history(market, shops, banks)
+        except Exception as e:
+            logger.error(f"金价日报: 保存历史数据失败: {e}")
+
         now = datetime.now(self._TZ).strftime("%Y-%m-%d %H:%M")
         text = f"⏰ {now}\n\n" + "\n\n".join(blocks)
         if errors:
@@ -325,6 +449,50 @@ class GoldPrice(_PluginBase):
 
         self._post(text)
         logger.info("金价日报: 推送完成")
+
+    def _save_history(self, market: List[dict], shops: List[dict], banks: List[dict]):
+        """把当天抓到的金价按日期存入插件数据, 供详情页画折线图。
+
+        存储结构: { "2026-07-27": {"market": {品种: 价}, "shop": {金店: 价}, "bank": {银行: 价}}, ... }
+        同一天多次推送(如 9/12/14/18 点)以最后一次为准。
+        """
+        today = datetime.now(self._TZ).strftime("%Y-%m-%d")
+
+        def to_float(v: str) -> Optional[float]:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+
+        day_rec: Dict[str, Dict[str, float]] = {"market": {}, "shop": {}, "bank": {}}
+        for m in market:
+            val = to_float(m.get("cny"))
+            if "黄金" in m.get("name", "") and val is not None:
+                day_rec["market"][m["name"]] = val
+        for s in shops:
+            val = to_float(s.get("price"))
+            if val is not None:
+                day_rec["shop"][s["name"]] = val
+        for b in banks:
+            val = to_float(b.get("price"))
+            if val is not None:
+                day_rec["bank"][b["name"]] = val
+
+        # 全空不记录, 避免抓取失败污染历史
+        if not (day_rec["market"] or day_rec["shop"] or day_rec["bank"]):
+            return
+
+        history: Dict[str, Any] = self.get_data(self._DATA_KEY) or {}
+        history[today] = day_rec
+
+        # 按日期裁剪到保留天数
+        days = sorted(history.keys())
+        keep = max(1, self._history_days)
+        if len(days) > keep:
+            for d in days[:-keep]:
+                history.pop(d, None)
+
+        self.save_data(self._DATA_KEY, history)
 
     def _post(self, text: str):
         """通过 MoviePilot 通知渠道推送; 指定了消息类型则带上, 否则归入插件通知"""
