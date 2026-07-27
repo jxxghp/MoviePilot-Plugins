@@ -26,8 +26,8 @@ class GoldPrice(_PluginBase):
     plugin_icon = "gold.png"
     plugin_color = "#D4AF37"
     plugin_version = "1.0.0"
-    plugin_author = "nieshenghui"
-    author_url = "https://github.com/nieshenghui"
+    plugin_author = "nshzswz"
+    author_url = "https://github.com/nshzswz-c"
     plugin_config_prefix = "goldprice_"
     plugin_order = 50
     auth_level = 2
