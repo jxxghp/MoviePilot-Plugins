@@ -25,7 +25,7 @@ class GoldPrice(_PluginBase):
     plugin_desc = "每日定时推送金店零售价、银行纸黄金、大盘金价到通知渠道(微信)。"
     plugin_icon = "gold.png"
     plugin_color = "#D4AF37"
-    plugin_version = "1.2.0"
+    plugin_version = "1.2.1"
     plugin_author = "nshzswz"
     author_url = "https://github.com/nshzswz-c"
     plugin_config_prefix = "goldprice_"
@@ -419,8 +419,9 @@ class GoldPrice(_PluginBase):
             }
         ]
         # 周期汇报: 周=周一9点 / 月=每月1号9点 / 年=每年1月1号9点
+        # 注意: APScheduler day_of_week 用名称避免数字歧义(数字周一=0, 与标准 crontab 周一=1 不同)
         summary_cron = {
-            "week": "0 9 * * 1",
+            "week": "0 9 * * mon",
             "month": "0 9 1 * *",
             "year": "0 9 1 1 *",
         }.get(self._summary_period)
@@ -439,6 +440,11 @@ class GoldPrice(_PluginBase):
     # =====================================================================
     def push(self):
         """定时触发: 抓取金价并推送"""
+        # 未启用任何内容: 直接跳过, 不发失败告警
+        if not (self._show_market or self._show_shop or self._show_bank):
+            logger.info("金价日报: 未启用任何推送内容, 跳过")
+            return
+
         logger.info("金价日报: 开始抓取金价数据")
         blocks: List[str] = []
         errors: List[str] = []
@@ -460,6 +466,14 @@ class GoldPrice(_PluginBase):
             except Exception as e:
                 logger.error(f"金价日报: 抓取银行金价失败: {e}")
                 errors.append("银行金价数据获取失败")
+
+        # 逐个启用项校验: 页面返回 200 但结构变了会得到空列表, 视为该项失败, 不静默
+        if self._show_market and not market and "金店/大盘数据获取失败" not in errors:
+            errors.append("大盘数据解析为空")
+        if self._show_shop and not shops and "金店/大盘数据获取失败" not in errors:
+            errors.append("金店数据解析为空")
+        if self._show_bank and not banks and "银行金价数据获取失败" not in errors:
+            errors.append("银行金价数据解析为空")
 
         # 取昨日记录做日环比(必须在写入今天之前取)
         today = datetime.now(self._TZ).strftime("%Y-%m-%d")
@@ -530,7 +544,15 @@ class GoldPrice(_PluginBase):
             return
 
         history: Dict[str, Any] = self.get_data(self._DATA_KEY) or {}
-        history[today] = day_rec
+        # 合并而非整体覆盖: 只更新本次实际抓到数据的类别,
+        # 避免同一天某源失败/返回空时抹掉其它源已成功记录的价格 (PR-Agent: 历史丢失)
+        existing = history.get(today) or {"market": {}, "shop": {}, "bank": {}}
+        for kind in ("market", "shop", "bank"):
+            if day_rec[kind]:  # 本次这类有数据才覆盖, 空则保留原值
+                existing[kind] = day_rec[kind]
+            else:
+                existing.setdefault(kind, {})
+        history[today] = existing
 
         # 按日期裁剪到保留天数
         days = sorted(history.keys())
@@ -719,28 +741,41 @@ class GoldPrice(_PluginBase):
 
         lines = [f"📈 金价{label}  {base_date} → {latest_date}"]
 
-        def section(title: str, kind: str):
+        def section(title: str, kind: str, name_filter: Optional[List[str]] = None):
             base_d = base_rec.get(kind, {})
             cur_d = latest_rec.get(kind, {})
             if not base_d or not cur_d:
                 return
+            # 应用白名单筛选(与每日推送保持一致)
+            names = list(cur_d.keys())
+            if name_filter:
+                order = {n: i for i, n in enumerate(name_filter)}
+                names = sorted([n for n in names if n in order], key=lambda n: order[n])
             rows = []
-            for name in cur_d:
+            for name in names:
                 cur_v = cur_d.get(name)
                 base_v = base_d.get(name)
-                d = self._delta(cur_v, base_v)
                 if cur_v is None:
                     continue
+                d = self._delta(cur_v, base_v)
                 dtxt = f"  {d}" if d else ""
-                rows.append(f"· {name}: {base_v:.2f}→{cur_v:.2f}{dtxt}")
+                # base_v 缺失时(该项在周期起点不存在)只显示当前价
+                base_str = f"{base_v:.2f}→" if base_v is not None else "新增→"
+                rows.append(f"· {name}: {base_str}{cur_v:.2f}{dtxt}")
             if rows:
                 lines.append(f"\n{title}")
                 lines.extend(rows)
 
+        # 金店白名单
+        wanted_shops: Optional[List[str]] = (
+            [s.strip() for s in self._shops.split(",") if s.strip()]
+            if self._shops else None
+        )
+
         if self._show_market:
             section("💰 大盘金价 (元/克)", "market")
         if self._show_shop:
-            section("🏪 金店零售价 (元/克)", "shop")
+            section("🏪 金店零售价 (元/克)", "shop", name_filter=wanted_shops)
         if self._show_bank:
             section("🏦 银行纸黄金 (元/克)", "bank")
 
