@@ -3,9 +3,10 @@ from typing import Optional, Literal
 from pydantic import Field
 
 from .proxybase import ProxyBase
+from .tlsmixin import TLSMixin
 
 
-class HysteriaProxy(ProxyBase):
+class HysteriaProxy(ProxyBase, TLSMixin):
     type: Literal['hysteria'] = 'hysteria'
     auth_str: Optional[str] = Field(None, alias='auth-str')
     auth: Optional[str] = None

@@ -70,6 +70,7 @@ class ProxyProvider(BaseModel):
     exclude_type: str | None = Field(default=None, alias="exclude-type", description="排除的代理类型")
     dialer_proxy: str | None = Field(default=None, alias="dialer-proxy", description="拨号代理")
     size_limit: int | None = Field(default=None, alias="size-limit", description="文件大小限制(字节)")
+    age_secret_key: str | None = Field(default=None, alias="age-secret-key")
     payload: list[dict[str, Any]] | None = Field(default=None, description="内联代理配置")
     health_check: HealthCheck | None = Field(default=None, alias="health-check", description="健康检查配置")
     override: Override | None = Field(default=None, description="配置覆盖")

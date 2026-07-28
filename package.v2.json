@@ -548,12 +548,13 @@
     "name": "Clash Rule Provider",
     "description": "随时为Clash添加一些额外的规则。",
     "labels": "工具",
-    "version": "2.1.7",
+    "version": "2.1.8",
     "icon": "Mihomo_Meta_A.png",
     "author": "wumode",
     "level": 1,
     "release": true,
     "history": {
+      "v2.1.8": "扩充代理协议与路由规则支持；优化配置页面",
       "v2.1.7": "移除全局 TLS 指纹配置，请在代理节点中直接设置 client-fingerprint",
       "v2.1.6": "修复依赖冲突",
       "v2.1.5": "优化仪表盘连接鉴权；优化订阅更新提示",
@@ -965,6 +966,18 @@
     "history": {
       "v1.1": "每集拆成独立标签（不再用范围）；补全时读种子文件列表覆盖无历史种子；自动迁移旧范围标签",
       "v1.0": "初始版本：下载时自动打集数标签，支持一次性补全历史"
+    }
+  },
+  "PromotionTag": {
+    "name": "促销标签",
+    "description": "自动为下载任务打上 PT 站点促销标签（免费/2X免费/50%/2X 等），限时促销到期后自动移除；支持兜底扫描补全手动添加的种子。",
+    "labels": "下载,标签",
+    "version": "1.0",
+    "icon": "seed.png",
+    "author": "devin",
+    "level": 1,
+    "history": {
+      "v1.0": "首次发布：下载添加时打促销标签，未完成/已完成种子按间隔刷新，促销到期自动移除标签，兜底扫描覆盖非 MoviePilot 触发的下载"
     }
   },
   "GoldPrice": {
