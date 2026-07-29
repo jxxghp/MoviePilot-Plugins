@@ -203,7 +203,7 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流"
     plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "5.0.1"
+    plugin_version = "5.0.2"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -256,6 +256,13 @@ class BrushFlow(_PluginBase):
         if migrated or raw_config != normalized:
             self.update_config(normalized)
         self._migrate_legacy_data()
+
+        # V5 为任务增加了唯一标签；启动时回收升级前已经失去任务配置的孤立标签。
+        if self._enabled:
+            try:
+                ThreadHelper().submit(self._cleanup_unused_task_tags)
+            except Exception as err:
+                logger.warning(f"提交刷流标签清理任务失败：{str(err)}")
 
         if migrated and raw_config.get("onlyonce") and self._enabled:
             for task in self._task_configs.values():
@@ -535,6 +542,11 @@ class BrushFlow(_PluginBase):
             self.del_data(self._task_data_key(task_id, data_name))
         self._save_config()
         self._refresh_scheduler()
+        try:
+            # 删除接口不应被下载器网络请求阻塞，标签清理由后台线程完成。
+            ThreadHelper().submit(self._cleanup_unused_task_tag, task)
+        except Exception as err:
+            logger.warning(f"提交刷流任务标签清理失败：{str(err)}")
         return schemas.Response(success=True, data=self._build_status_data())
 
     def update_task_state(self, task_id: str, payload: BrushTaskStatePayload) -> schemas.Response:
@@ -607,6 +619,79 @@ class BrushFlow(_PluginBase):
         if notify and not valid:
             self._log_and_notify_error(f"刷流任务 [{task.name}] 引用的站点或下载器不存在")
         return valid
+
+    @staticmethod
+    def _torrent_has_tag(torrent: Any, tag: str) -> bool:
+        """判断 qBittorrent 种子是否仍绑定指定标签"""
+        if not isinstance(torrent, dict):
+            return False
+        tags = {
+            item.strip()
+            for item in str(torrent.get("tags") or "").split(",")
+            if item.strip()
+        }
+        return tag in tags
+
+    def _cleanup_unused_task_tag(
+        self,
+        task: BrushTaskConfig,
+        torrents: Optional[List[Any]] = None,
+    ) -> None:
+        """仅删除不再被任何 qBittorrent 种子使用的任务唯一标签"""
+        if not task or not task.downloader:
+            return
+        try:
+            helper = DownloaderHelper()
+            service = helper.get_service(name=task.downloader)
+            if not service or not service.instance or not helper.is_downloader("qbittorrent", service=service):
+                return
+            if torrents is None:
+                torrents, error = service.instance.get_torrents()
+                if error:
+                    logger.warning(f"清理刷流任务 [{task.name}] 标签时获取下载器种子失败")
+                    return
+            if any(self._torrent_has_tag(torrent, task.brush_tag) for torrent in torrents or []):
+                return
+            if service.instance.delete_torrents_tag(ids=None, tag=task.brush_tag):
+                logger.info(f"清理刷流任务 [{task.name}] 未使用标签：{task.brush_tag}")
+        except Exception as err:
+            # 标签清理失败不应影响刷流检查或任务删除主流程。
+            logger.warning(f"清理刷流任务 [{task.name}] 标签失败：{str(err)}")
+
+    def _cleanup_unused_task_tags(self) -> None:
+        """扫描全部 qBittorrent 下载器，清理历史遗留的刷流唯一标签"""
+        try:
+            helper = DownloaderHelper()
+            downloader_names = set(helper.get_configs().keys())
+            for downloader_name in downloader_names:
+                service = helper.get_service(name=downloader_name)
+                if not service or not service.instance or not helper.is_downloader("qbittorrent", service=service):
+                    continue
+                client = getattr(service.instance, "qbc", None)
+                if not client:
+                    continue
+                all_tags = [str(tag).strip() for tag in client.torrents_tags() or [] if str(tag).strip()]
+                task_tags = [tag for tag in all_tags if tag.startswith("刷流-")]
+                if not task_tags:
+                    continue
+                torrents, error = service.instance.get_torrents()
+                if error:
+                    logger.warning(f"扫描下载器 [{downloader_name}] 刷流标签时获取种子失败")
+                    continue
+                used_tags = {
+                    tag
+                    for torrent in torrents or []
+                    for tag in {
+                        item.strip()
+                        for item in str(torrent.get("tags") or "").split(",")
+                        if item.strip()
+                    }
+                }
+                unused_tags = [tag for tag in task_tags if tag not in used_tags]
+                if unused_tags and service.instance.delete_torrents_tag(ids=None, tag=unused_tags):
+                    logger.info(f"清理下载器 [{downloader_name}] 未使用刷流标签：{','.join(unused_tags)}")
+        except Exception as err:
+            logger.warning(f"扫描清理历史刷流标签失败：{str(err)}")
 
     def _migrate_legacy_config(self, config: dict) -> List[dict]:
         """把旧全局配置和站点覆盖 JSON 拆分为一站点一任务"""
@@ -1314,6 +1399,7 @@ class BrushFlow(_PluginBase):
         self.__update_seeding_tasks_based_on_tags(torrent_tasks, unmanaged_tasks, seeding_torrents_dict)
         check_hashes = list(torrent_tasks.keys())
         if not check_hashes:
+            self._cleanup_unused_task_tag(task, torrents=seeding_torrents)
             report.update({"result": "no_managed_torrents", "active_count": 0})
             self._recalculate_statistics(task.id)
             return
@@ -1326,15 +1412,21 @@ class BrushFlow(_PluginBase):
         else:
             need_delete_hashes = self.__delete_torrent_for_evaluate_conditions(filtered_torrents, torrent_tasks)
         need_delete_hashes = list(dict.fromkeys(need_delete_hashes or []))
+        deleted_from_downloader = False
         if need_delete_hashes:
             if DownloaderHelper().is_downloader("qbittorrent", service=self.service_info):
                 self.__qb_torrents_reannounce(need_delete_hashes)
             if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
+                deleted_from_downloader = True
                 for torrent_hash in need_delete_hashes:
                     if torrent_hash in torrent_tasks:
                         torrent_tasks[torrent_hash]["deleted"] = True
                         torrent_tasks[torrent_hash]["deleted_time"] = time.time()
         self.__auto_archive_tasks(torrent_tasks)
+        self._cleanup_unused_task_tag(
+            task,
+            torrents=None if deleted_from_downloader else seeding_torrents,
+        )
         self._save_current_task_data("torrents", torrent_tasks)
         self._recalculate_statistics(task.id)
         report.update(
