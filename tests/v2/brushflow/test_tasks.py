@@ -83,6 +83,60 @@ def test_services_are_registered_per_task():
     assert {service["func_kwargs"]["task_id"] for service in services} == {"task-a", "task-b"}
 
 
+def test_cleanup_unused_task_tag_removes_orphan_qb_tag():
+    """任务标签不再被任何种子使用时，应删除 qBittorrent 全局标签定义。"""
+    task = _make_task("task-a")
+    plugin = _make_runtime_plugin(task)
+    downloader = MagicMock()
+    downloader.get_torrents.return_value = ([{"tags": "已整理,刷流"}], False)
+    downloader.delete_torrents_tag.return_value = True
+    service = SimpleNamespace(name="主下载器", type="qbittorrent", instance=downloader)
+    helper = MagicMock()
+    helper.get_service.return_value = service
+    helper.is_downloader.return_value = True
+
+    with patch("brushflow.DownloaderHelper", return_value=helper):
+        plugin._cleanup_unused_task_tag(task)
+
+    downloader.delete_torrents_tag.assert_called_once_with(ids=None, tag=task.brush_tag)
+
+
+def test_cleanup_unused_task_tag_keeps_tag_used_by_torrent():
+    """仍绑定种子的任务标签不能被清理。"""
+    task = _make_task("task-a")
+    plugin = _make_runtime_plugin(task)
+    downloader = MagicMock()
+    downloader.get_torrents.return_value = ([{"tags": f"刷流,{task.brush_tag}"}], False)
+    service = SimpleNamespace(name="主下载器", type="qbittorrent", instance=downloader)
+    helper = MagicMock()
+    helper.get_service.return_value = service
+    helper.is_downloader.return_value = True
+
+    with patch("brushflow.DownloaderHelper", return_value=helper):
+        plugin._cleanup_unused_task_tag(task)
+
+    downloader.delete_torrents_tag.assert_not_called()
+
+
+def test_cleanup_unused_task_tags_removes_historical_orphans():
+    """启动扫描应只删除历史遗留且未使用的刷流唯一标签。"""
+    plugin = _make_runtime_plugin(_make_task("task-a"))
+    downloader = MagicMock()
+    downloader.qbc.torrents_tags.return_value = ["刷流-deadbeef", "刷流-live123", "其他标签"]
+    downloader.get_torrents.return_value = ([{"tags": "刷流-live123"}], False)
+    downloader.delete_torrents_tag.return_value = True
+    service = SimpleNamespace(name="主下载器", type="qbittorrent", instance=downloader)
+    helper = MagicMock()
+    helper.get_configs.return_value = {"主下载器": SimpleNamespace(name="主下载器")}
+    helper.get_service.return_value = service
+    helper.is_downloader.return_value = True
+
+    with patch("brushflow.DownloaderHelper", return_value=helper):
+        plugin._cleanup_unused_task_tags()
+
+    downloader.delete_torrents_tag.assert_called_once_with(ids=None, tag=["刷流-deadbeef"])
+
+
 def test_legacy_config_migrates_timezone_and_site_overrides():
     """旧版全局分钟时区应还原为小时，站点覆盖值应保持小时语义。"""
     plugin = BrushFlow()
