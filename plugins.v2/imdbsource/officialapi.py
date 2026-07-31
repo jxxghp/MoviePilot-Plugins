@@ -1,3 +1,4 @@
+import json
 import re
 from textwrap import dedent
 from typing import Any, Dict, List, Optional, Final, AsyncGenerator
@@ -355,42 +356,55 @@ class OfficialApiClient:
 
     def __init__(self, proxies: Optional[Dict[str, str]] = None,
                  ua: Optional[str] = None):
-        self._req = RequestUtils(accept_type="application/json",
-                                 content_type="application/json",
-                                 timeout=30,
-                                 ua=ua,
-                                 proxies=proxies,
-                                 session=requests.Session())
+        headers = {
+            "accept": "application/graphql+json, application/json",
+            "content-type": "application/json",
+            "x-imdb-client-name": "imdb-web-next-localized"
+        }
+        self._req = RequestUtils(
+            headers=headers,
+            timeout=30,
+            ua=ua,
+            proxies=proxies,
+            session=requests.Session()
+        )
         if proxies:
             proxy_url = proxies.get("https") or proxies.get("http")
         else:
             proxy_url = None
         self._client = httpx.AsyncClient(timeout=30, proxy=proxy_url)
-        self._async_req = AsyncRequestUtils(accept_type="application/json", content_type="application/json",
-                                            client=self._client, ua=ua)
+        self._async_req = AsyncRequestUtils(
+            headers=headers,
+            client=self._client,
+            ua=ua,
+        )
         self.flat_interest_id = {}
         for category, value in INTERESTS_ID.items():
             for name, in_id in value.items():
                 self.flat_interest_id[name] = in_id
 
     @cached(maxsize=1024, ttl=CACHE_LIFETIME)
-    async def _async_request(self, params: Dict[str, Any], sha256: str) -> Optional[Dict]:
-        params["extensions"] = {"persistedQuery": {"sha256Hash": sha256, "version": 1}}
-        data = await self._async_req.post_json(f"{self.BASE_URL}", json=params, raise_exception=True)
+    async def _async_request(self, operation_name: str, variables: Dict[str, Any], sha256: str) -> Optional[Dict]:
+        params = {
+            "operationName": operation_name,
+            "variables": json.dumps(variables, separators=(",", ":"), ensure_ascii=False),
+            "extensions": f'{{"persistedQuery":{{"sha256Hash":"{sha256}","version":1}}}}'
+        }
+        data = await self._async_req.get_json(f"{self.BASE_URL}", params=params, raise_exception=True)
         if not data:
             return None
         if "errors" in data:
             error = data.get("errors")[0] if data.get("errors") else {}
-            return {'error': error}
+            return {"error": error}
         return data.get("data")
 
     @retry(Exception, logger=logger, delay=1)
     @cached(maxsize=1024, ttl=CACHE_LIFETIME)
     def _query_graphql(self, query: str, variables: Dict[str, Any]) -> Optional[dict]:
-        params = {'query': query, 'variables': variables}
+        params = {"query": query, "variables": variables}
         data = self._req.post_json(f"{self.BASE_URL}", json=params, raise_exception=True)
         if not data:
-            return {'error': 'Query failed.'}
+            return {"error": "Query failed."}
         if "errors" in data:
             error = data.get("errors")[0] if data.get("errors") else {}
             return {'error': error}
@@ -399,13 +413,13 @@ class OfficialApiClient:
     @retry(Exception, logger=logger, delay=1)
     @cached(maxsize=1024, ttl=CACHE_LIFETIME)
     async def _async_query_graphql(self, query: str, variables: Dict[str, Any]) -> Optional[Dict]:
-        params = {'query': query, 'variables': variables}
+        params = {"query": query, "variables": variables}
         data = await self._async_req.post_json(f"{self.BASE_URL}", json=params, raise_exception=True)
         if not data:
             return None
         if "errors" in data:
             error = data.get("errors")[0] if data.get("errors") else {}
-            return {'error': error}
+            return {"error": error}
         return data.get("data")
 
     @cached(maxsize=1024, ttl=CACHE_LIFETIME)
@@ -416,12 +430,13 @@ class OfficialApiClient:
                                  videos: Optional[List[str]] = None,
                                  is_registered: bool = False
                                  ) -> Optional[VerticalList]:
-        variables = {'images': images or [],
-                     'titles': titles or [],
-                     'names': names or [],
-                     'videos': videos or [],
-                     'isRegistered': is_registered,
-                     }
+        variables = {
+            'images': images or [],
+            'titles': titles or [],
+            'names': names or [],
+            'videos': videos or [],
+            'isRegistered': is_registered,
+        }
         try:
             data = self._query_graphql(IMDB_GRAPHQL_QUERY, variables)
             if 'error' in data:
@@ -534,9 +549,7 @@ class OfficialApiClient:
         if last_cursor:
             variables["after"] = last_cursor
 
-        params = {"operationName": operation_name,
-                  "variables": variables}
-        data = await self._async_request(params, sha256)
+        data = await self._async_request(operation_name, variables, sha256)
         if not data:
             return None
         if 'error' in data:

@@ -35,7 +35,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "1.6.10"
+    plugin_version = "1.6.11"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -941,7 +941,7 @@ class ImdbSource(_PluginBase):
                                             'type': 'info',
                                             'variant': 'tonal',
                                             'title': '代理设置',
-                                            'text': '可能需要通过代理访问的域名：「media-amazon.com」「media-imdb.com」「imdbapi.dev」「imdb.com」'
+                                            'text': '可能需要通过代理访问的域名：「media-amazon.com」「media-imdb.com」「api.tiffara.com」「imdb.com」'
                                         }
                                     }
                                 ]
