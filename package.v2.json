@@ -412,6 +412,18 @@
       "v0.1": "视频多级分类插件, 目前仅支持电影按评分，年代，系列分类。"
     }
   },
+  "NotifyImage": {
+    "name": "通知高清图片",
+    "description": "发送通知前将 TMDB 图片地址从 w500 升级为 w1280 高清尺寸，提升飞书等推送渠道的图片清晰度。",
+    "labels": "消息通知",
+    "version": "1.0",
+    "icon": "notifyimage.png",
+    "author": "zf",
+    "level": 1,
+    "history": {
+      "v1.0": "通知图片升级为 w1280 高清"
+    }
+  },
   "MoviePilotUpdateNotify": {
     "name": "MoviePilot更新推送",
     "description": "MoviePilot推送release更新通知、自动重启。",
