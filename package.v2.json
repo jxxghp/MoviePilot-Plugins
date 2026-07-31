@@ -1012,5 +1012,17 @@
       "v1.0.2": "修复 dashboard 格式/API 解包/timer 响应，新增 lan-wall 与 public-data 无认证接口",
       "v1.0.0": "初始版本，支持照片/浮动/怀旧冲印/光舞等屏幕保护动效"
     }
+  },
+  "BangumiProxy": {
+    "name": "Bangumi代理",
+    "description": "为 MoviePilot 内置 Bangumi 动漫数据与图片请求配置自定义代理 Base URL。",
+    "labels": "Bangumi,动漫,网络",
+    "version": "1.0.0",
+    "icon": "Bangumi_A.png",
+    "author": "kiritoxjf",
+    "level": 1,
+    "history": {
+      "v1.0.0": "新增 Bangumi 数据与图片代理 Base URL 配置，兼容 MoonPlus 代理拼接规则。"
+    }
   }
 }
