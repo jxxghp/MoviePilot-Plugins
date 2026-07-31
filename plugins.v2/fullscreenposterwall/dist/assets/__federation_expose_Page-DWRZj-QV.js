@@ -1,8 +1,8 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { P as PhotosSlideshow, a as ShiftingTiles, R as RingGallery, D as DepthTunnel, S as SlidingPanels, F as Floating, V as VintagePrints, L as LightDance } from './DepthTunnel-BcjAAQm1.js';
+import { P as PhotosSlideshow, a as ShiftingTiles, R as RingGallery, D as DepthTunnel, S as SlidingPanels, F as Floating, V as VintagePrints, L as LightDance } from './DepthTunnel-Dx7GfZGR.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
-const {createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,createBlock:_createBlock,renderList:_renderList,Fragment:_Fragment,normalizeClass:_normalizeClass,resolveDynamicComponent:_resolveDynamicComponent,Teleport:_Teleport} = await importShared('vue');
+const {createElementVNode:_createElementVNode,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,Fragment:_Fragment,resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createBlock:_createBlock,renderList:_renderList,normalizeClass:_normalizeClass,resolveDynamicComponent:_resolveDynamicComponent,Teleport:_Teleport} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "fspw-root" };
@@ -12,33 +12,37 @@ const _hoisted_2 = {
 };
 const _hoisted_3 = { class: "fspw-title" };
 const _hoisted_4 = { class: "fspw-meta" };
-const _hoisted_5 = { class: "fspw-header-actions" };
-const _hoisted_6 = {
+const _hoisted_5 = {
+  key: 0,
+  class: "fspw-waiting"
+};
+const _hoisted_6 = { class: "fspw-header-actions" };
+const _hoisted_7 = {
   key: 2,
   class: "fspw-body"
 };
-const _hoisted_7 = { class: "fspw-effects" };
-const _hoisted_8 = { class: "fspw-effect-icon" };
-const _hoisted_9 = { class: "fspw-effect-name" };
-const _hoisted_10 = { class: "fspw-effect-desc" };
-const _hoisted_11 = {
+const _hoisted_8 = { class: "fspw-effects" };
+const _hoisted_9 = { class: "fspw-effect-icon" };
+const _hoisted_10 = { class: "fspw-effect-name" };
+const _hoisted_11 = { class: "fspw-effect-desc" };
+const _hoisted_12 = {
   key: 0,
   class: "fspw-effect-check"
 };
-const _hoisted_12 = { class: "fspw-summary" };
-const _hoisted_13 = { class: "fspw-summary-row" };
-const _hoisted_14 = { class: "v" };
-const _hoisted_15 = { class: "fspw-summary-row" };
-const _hoisted_16 = { class: "v" };
-const _hoisted_17 = { class: "fspw-summary-row" };
-const _hoisted_18 = { class: "v" };
-const _hoisted_19 = { class: "fspw-summary-row" };
-const _hoisted_20 = { class: "v" };
-const _hoisted_21 = { class: "fspw-summary-row" };
-const _hoisted_22 = { class: "v" };
-const _hoisted_23 = { class: "fspw-hint" };
-const _hoisted_24 = { class: "fspw-lan-row" };
-const _hoisted_25 = { class: "fspw-lan-url" };
+const _hoisted_13 = { class: "fspw-summary" };
+const _hoisted_14 = { class: "fspw-summary-row" };
+const _hoisted_15 = { class: "v" };
+const _hoisted_16 = { class: "fspw-summary-row" };
+const _hoisted_17 = { class: "v" };
+const _hoisted_18 = { class: "fspw-summary-row" };
+const _hoisted_19 = { class: "v" };
+const _hoisted_20 = { class: "fspw-summary-row" };
+const _hoisted_21 = { class: "v" };
+const _hoisted_22 = { class: "fspw-summary-row" };
+const _hoisted_23 = { class: "v" };
+const _hoisted_24 = { class: "fspw-hint" };
+const _hoisted_25 = { class: "fspw-lan-row" };
+const _hoisted_26 = { class: "fspw-lan-url" };
 
 const {ref,computed,onMounted,onBeforeUnmount,nextTick} = await importShared('vue');
 
@@ -308,13 +312,17 @@ return (_ctx, _cache) => {
             _createElementVNode("div", null, [
               _cache[1] || (_cache[1] = _createElementVNode("h2", { class: "ma-0" }, "全屏海报墙", -1)),
               _createElementVNode("div", _hoisted_4, [
-                _createTextVNode(_toDisplayString(items.value.length) + " 张海报已就绪 · ", 1),
+                (!items.value.length)
+                  ? (_openBlock(), _createElementBlock("span", _hoisted_5, "请等候拉取图片…"))
+                  : (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
+                      _createTextVNode(_toDisplayString(items.value.length) + " 张海报已就绪 ·", 1)
+                    ], 64)),
                 _createElementVNode("strong", null, _toDisplayString(effectName.value), 1),
                 _createTextVNode(" · " + _toDisplayString(config.value.interval) + " 秒切换 ", 1)
               ])
             ])
           ]),
-          _createElementVNode("div", _hoisted_5, [
+          _createElementVNode("div", _hoisted_6, [
             _createVNode(_component_v_btn, {
               icon: "mdi-cog-outline",
               variant: "text",
@@ -364,31 +372,31 @@ return (_ctx, _cache) => {
         }))
       : _createCommentVNode("", true),
     (!playing.value)
-      ? (_openBlock(), _createElementBlock("div", _hoisted_6, [
+      ? (_openBlock(), _createElementBlock("div", _hoisted_7, [
           _cache[16] || (_cache[16] = _createElementVNode("div", { class: "fspw-section-title" }, [
             _createTextVNode(" 播放效果 "),
             _createElementVNode("span", { class: "fspw-section-hint" }, "当前生效的效果由「插件设置」决定（彩色=选中，灰色=未选中）。")
           ], -1)),
-          _createElementVNode("div", _hoisted_7, [
+          _createElementVNode("div", _hoisted_8, [
             (_openBlock(), _createElementBlock(_Fragment, null, _renderList(effects, (e) => {
               return _createElementVNode("div", {
                 key: e.key,
                 class: _normalizeClass(["fspw-effect", { 'is-active': config.value.effect === e.key, 'is-inactive': config.value.effect !== e.key }])
               }, [
-                _createElementVNode("div", _hoisted_8, _toDisplayString(e.icon), 1),
-                _createElementVNode("div", _hoisted_9, _toDisplayString(e.name), 1),
-                _createElementVNode("div", _hoisted_10, _toDisplayString(e.desc), 1),
+                _createElementVNode("div", _hoisted_9, _toDisplayString(e.icon), 1),
+                _createElementVNode("div", _hoisted_10, _toDisplayString(e.name), 1),
+                _createElementVNode("div", _hoisted_11, _toDisplayString(e.desc), 1),
                 (config.value.effect === e.key)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_11, "✓"))
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_12, "✓"))
                   : _createCommentVNode("", true)
               ], 2)
             }), 64))
           ]),
           _cache[17] || (_cache[17] = _createElementVNode("div", { class: "fspw-section-title mt-5" }, "当前设置", -1)),
-          _createElementVNode("div", _hoisted_12, [
-            _createElementVNode("div", _hoisted_13, [
+          _createElementVNode("div", _hoisted_13, [
+            _createElementVNode("div", _hoisted_14, [
               _cache[5] || (_cache[5] = _createElementVNode("span", { class: "k" }, "推荐数据源", -1)),
-              _createElementVNode("span", _hoisted_14, [
+              _createElementVNode("span", _hoisted_15, [
                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(sourceChips.value, (s) => {
                   return (_openBlock(), _createBlock(_component_v_chip, {
                     key: s.key,
@@ -405,31 +413,31 @@ return (_ctx, _cache) => {
                 }), 128))
               ])
             ]),
-            _createElementVNode("div", _hoisted_15, [
+            _createElementVNode("div", _hoisted_16, [
               _cache[6] || (_cache[6] = _createElementVNode("span", { class: "k" }, "图片来源", -1)),
-              _createElementVNode("span", _hoisted_16, _toDisplayString(imageTypeName.value), 1)
+              _createElementVNode("span", _hoisted_17, _toDisplayString(imageTypeName.value), 1)
             ]),
-            _createElementVNode("div", _hoisted_17, [
+            _createElementVNode("div", _hoisted_18, [
               _cache[7] || (_cache[7] = _createElementVNode("span", { class: "k" }, "切换间隔", -1)),
-              _createElementVNode("span", _hoisted_18, _toDisplayString(config.value.interval) + " 秒切换", 1)
+              _createElementVNode("span", _hoisted_19, _toDisplayString(config.value.interval) + " 秒切换", 1)
             ]),
-            _createElementVNode("div", _hoisted_19, [
+            _createElementVNode("div", _hoisted_20, [
               _cache[8] || (_cache[8] = _createElementVNode("span", { class: "k" }, "随机乱序", -1)),
-              _createElementVNode("span", _hoisted_20, _toDisplayString(config.value.shuffle ? '开' : '关'), 1)
+              _createElementVNode("span", _hoisted_21, _toDisplayString(config.value.shuffle ? '开' : '关'), 1)
             ]),
-            _createElementVNode("div", _hoisted_21, [
+            _createElementVNode("div", _hoisted_22, [
               _cache[9] || (_cache[9] = _createElementVNode("span", { class: "k" }, "隐藏文字", -1)),
-              _createElementVNode("span", _hoisted_22, _toDisplayString(config.value.hide_text ? '开' : '关'), 1)
+              _createElementVNode("span", _hoisted_23, _toDisplayString(config.value.hide_text ? '开' : '关'), 1)
             ])
           ]),
-          _createElementVNode("div", _hoisted_23, [
+          _createElementVNode("div", _hoisted_24, [
             _cache[11] || (_cache[11] = _createTextVNode(" 💡 修改以上效果/间隔/数据源等：", -1)),
             _cache[12] || (_cache[12] = _createElementVNode("strong", null, "右上齿轮按钮", -1)),
             _cache[13] || (_cache[13] = _createTextVNode(" 打开插件设置保存。 ", -1)),
             _cache[14] || (_cache[14] = _createElementVNode("br", null, null, -1)),
             _cache[15] || (_cache[15] = _createTextVNode(" 💡 在同一 Wi-Fi 内的手机/电脑浏览器直接打开（无需登录）： ", -1)),
-            _createElementVNode("span", _hoisted_24, [
-              _createElementVNode("code", _hoisted_25, _toDisplayString(lanWallUrl.value), 1),
+            _createElementVNode("span", _hoisted_25, [
+              _createElementVNode("code", _hoisted_26, _toDisplayString(lanWallUrl.value), 1),
               _createVNode(_component_v_btn, {
                 size: "x-small",
                 variant: "tonal",
@@ -487,6 +495,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-166d60ab"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1c9a421d"]]);
 
 export { Page as default };

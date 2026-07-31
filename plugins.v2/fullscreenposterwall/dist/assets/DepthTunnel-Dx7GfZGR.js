@@ -2,14 +2,60 @@ import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
 function pickImageUrl(item, type, domain) {
-  let path;
-  if (type === "poster") path = item.poster_path || item.backdrop_path;
-  else if (type === "logo") path = item.thumb_path || item.fanart_poster_path || item.backdrop_path || item.poster_path;
-  else path = item.backdrop_path || item.poster_path;
-  if (!path) return "";
-  if (/^https?:\/\//.test(path)) return path;
-  if (path.startsWith("/")) return domain + path;
-  return domain + "/" + path;
+  return pickImageCandidates(item, type, domain)[0] || "";
+}
+function pickImageCandidates(item, type, domain) {
+  if (!item) return [];
+  const paths = type === "poster" ? [item.poster_path, item.backdrop_path] : type === "logo" ? [item.thumb_path, item.fanart_poster_path, item.backdrop_path, item.poster_path] : [item.backdrop_path, item.poster_path];
+  const base = domain || "https://image.tmdb.org/t/p/original";
+  const urls = paths.filter((p) => !!p).map((p) => /^https?:\/\//.test(p) ? p : p.startsWith("/") ? base + p : base + "/" + p);
+  return [...new Set(urls)];
+}
+const hostFailCount = /* @__PURE__ */ new Map();
+const deadHosts = /* @__PURE__ */ new Set();
+function hostOf(url) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "";
+  }
+}
+function noteHostFail(url) {
+  const h = hostOf(url);
+  if (!h) return;
+  const n = (hostFailCount.get(h) || 0) + 1;
+  hostFailCount.set(h, n);
+  if (n >= 2) deadHosts.add(h);
+}
+function loadImageWithFallback(urls, timeoutMs = 1500) {
+  const live = urls.filter((u) => !deadHosts.has(hostOf(u)));
+  const list = live.length ? live : [...urls];
+  return new Promise((resolve) => {
+    const tryAt = (i) => {
+      if (i >= list.length) return resolve("");
+      const url = list[i];
+      let settled = false;
+      const img = new Image();
+      const fail = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        img.src = "";
+        noteHostFail(url);
+        tryAt(i + 1);
+      };
+      const timer = setTimeout(fail, timeoutMs);
+      img.onload = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(url);
+      };
+      img.onerror = fail;
+      img.src = url;
+    };
+    tryAt(0);
+  });
 }
 function hasNativeLogoImage(item) {
   return !!(item.thumb_path || item.fanart_poster_path);
@@ -647,20 +693,19 @@ const _sfc_main$3 = /* @__PURE__ */ _defineComponent$3({
       return pickImageUrl(item, props.imageType, cfg.value.tmdb_image_domain);
     }
     function nextPhoto() {
-      return new Promise((resolve) => {
+      return new Promise(async (resolve) => {
         if (!props.items.length) return resolve({ url: "", logo: "" });
         let guard = 0;
-        const tryNext = () => {
+        while (guard++ <= props.items.length) {
           if (cursor >= queue.length) reshuffle();
           const it = queue[cursor++];
-          const url = it ? imageUrl(it) : "";
-          if (!url || ++guard > props.items.length) return resolve({ url: "", logo: "" });
-          const img = new Image();
-          img.onload = () => resolve({ url, logo: it && !hasNativeLogoImage(it) ? logoUrl(it) : "" });
-          img.onerror = () => tryNext();
-          img.src = url;
-        };
-        tryNext();
+          const cands = it ? pickImageCandidates(it, props.imageType, cfg.value.tmdb_image_domain) : [];
+          if (!cands.length) continue;
+          const url = await loadImageWithFallback(cands);
+          if (!url) continue;
+          return resolve({ url, logo: it && !hasNativeLogoImage(it) ? logoUrl(it) : "" });
+        }
+        resolve({ url: "", logo: "" });
       });
     }
     function preloadAhead() {
@@ -689,9 +734,7 @@ const _sfc_main$3 = /* @__PURE__ */ _defineComponent$3({
     async function makeRow(count) {
       const ws = Array.from({ length: count }, genWidth);
       const sum = ws.reduce((a, b) => a + b, 0);
-      const tiles = [];
-      for (const w of ws) tiles.push(await makeTile(w / sum));
-      return tiles;
+      return Promise.all(ws.map((w) => makeTile(w / sum)));
     }
     async function buildLayout() {
       reshuffle();
@@ -699,8 +742,7 @@ const _sfc_main$3 = /* @__PURE__ */ _defineComponent$3({
       const counts = nRows === 2 ? [4, 4] : [3, 3, 3];
       counts[0] = 3 + Math.floor(Math.random() * 3);
       counts[1] = 3 + Math.floor(Math.random() * 3);
-      const out = [];
-      for (const c of counts) out.push(await makeRow(c));
+      const out = await Promise.all(counts.map((c) => makeRow(c)));
       rows.value = out;
       preloadAhead();
     }
@@ -839,7 +881,7 @@ const _sfc_main$3 = /* @__PURE__ */ _defineComponent$3({
   }
 });
 
-const ShiftingTiles = /* @__PURE__ */ _export_sfc(_sfc_main$3, [["__scopeId", "data-v-75753df0"]]);
+const ShiftingTiles = /* @__PURE__ */ _export_sfc(_sfc_main$3, [["__scopeId", "data-v-cba878f0"]]);
 
 const {defineComponent:_defineComponent$2} = await importShared('vue');
 
@@ -1261,20 +1303,6 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
       if (cursor >= queue.length) reshuffle();
       return queue[cursor++] || null;
     }
-    function preload(url) {
-      return new Promise((resolve) => {
-        const img = new Image();
-        img.onload = async () => {
-          try {
-            await img.decode();
-          } catch {
-          }
-          resolve(true);
-        };
-        img.onerror = () => resolve(false);
-        img.src = url;
-      });
-    }
     function fillThumbs() {
       const limit = Math.max(props.items.length, 1);
       let misses = 0;
@@ -1325,8 +1353,8 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
       if (warming || !thumbs.value.length) return;
       warming = true;
       const t = thumbs.value[0];
-      const url = imageUrl(t.item);
-      if (!await preload(url)) {
+      const url = await loadImageWithFallback(pickImageCandidates(t.item, props.imageType, cfg.value.tmdb_image_domain));
+      if (!url) {
         thumbs.value.shift();
         fillThumbs();
         warming = false;
@@ -1443,6 +1471,6 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
   }
 });
 
-const DepthTunnel = /* @__PURE__ */ _export_sfc(_sfc_main, [["__scopeId", "data-v-163ec211"]]);
+const DepthTunnel = /* @__PURE__ */ _export_sfc(_sfc_main, [["__scopeId", "data-v-16eb2c8c"]]);
 
 export { DepthTunnel as D, Floating as F, LightDance as L, PhotosSlideshow as P, RingGallery as R, SlidingPanels as S, VintagePrints as V, ShiftingTiles as a };

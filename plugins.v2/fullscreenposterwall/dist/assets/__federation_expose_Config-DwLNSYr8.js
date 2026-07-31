@@ -45,6 +45,8 @@ const effectOptions = [
   { title: '怀旧冲印 (Vintage Prints)', value: 'vintage' },
   { title: '光舞 (Light Dance)', value: 'lightdance' },
 ];
+const posterCountOptions = [30, 60, 120, 180, 240];
+
 const imageTypeOptions = [
   { title: '背景大图 (backdrop)', value: 'backdrop' },
   { title: '带Logo的背景大图 (logo)', value: 'logo' },
@@ -57,6 +59,7 @@ const defaults = {
   effect: 'photos',
   image_type: 'backdrop',
   interval: 8,
+  poster_count: 60,
   refresh_minutes: 60,
   autoplay: true,
   show_dashboard: true,
@@ -100,7 +103,7 @@ return (_ctx, _cache) => {
       class: "pa-4 mb-3"
     }, {
       default: _withCtx(() => [
-        _cache[13] || (_cache[13] = _createElementVNode("h3", { class: "mb-3" }, "全屏海报墙 — 插件设置", -1)),
+        _cache[14] || (_cache[14] = _createElementVNode("h3", { class: "mb-3" }, "全屏海报墙 — 插件设置", -1)),
         _createVNode(_component_v_switch, {
           modelValue: local.enabled,
           "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((local.enabled) = $event)),
@@ -115,7 +118,7 @@ return (_ctx, _cache) => {
           class: "mb-4",
           density: "compact"
         }, {
-          default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
+          default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
             _createTextVNode(" 启用后，插件详情页（Page）会提供全屏海报墙入口。 ", -1)
           ]))]),
           _: 1
@@ -147,9 +150,18 @@ return (_ctx, _cache) => {
           density: "comfortable",
           class: "mb-3"
         }, null, 8, ["modelValue"]),
+        _createVNode(_component_v_select, {
+          modelValue: local.poster_count,
+          "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((local.poster_count) = $event)),
+          modelModifiers: { number: true },
+          items: posterCountOptions,
+          label: "海报数量（每次拉取）",
+          density: "comfortable",
+          class: "mb-3"
+        }, null, 8, ["modelValue"]),
         _createVNode(_component_v_text_field, {
           modelValue: local.interval,
-          "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((local.interval) = $event)),
+          "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((local.interval) = $event)),
           modelModifiers: { number: true },
           label: "切换间隔（秒）",
           type: "number",
@@ -160,7 +172,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"]),
         _createVNode(_component_v_text_field, {
           modelValue: local.refresh_minutes,
-          "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((local.refresh_minutes) = $event)),
+          "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((local.refresh_minutes) = $event)),
           modelModifiers: { number: true },
           label: "数据刷新间隔（分钟）",
           type: "number",
@@ -171,7 +183,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"]),
         _createVNode(_component_v_switch, {
           modelValue: local.autoplay,
-          "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((local.autoplay) = $event)),
+          "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((local.autoplay) = $event)),
           label: "进入页面后自动播放",
           color: "primary",
           "hide-details": "",
@@ -180,7 +192,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"]),
         _createVNode(_component_v_switch, {
           modelValue: local.show_dashboard,
-          "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((local.show_dashboard) = $event)),
+          "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((local.show_dashboard) = $event)),
           label: "在首页仪表板显示此小窗格",
           color: "primary",
           "hide-details": "",
@@ -189,7 +201,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"]),
         _createVNode(_component_v_switch, {
           modelValue: local.shuffle,
-          "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((local.shuffle) = $event)),
+          "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((local.shuffle) = $event)),
           label: "随机乱序（每次全屏顺序不同）",
           color: "primary",
           "hide-details": "",
@@ -198,7 +210,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"]),
         _createVNode(_component_v_switch, {
           modelValue: local.hide_text,
-          "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((local.hide_text) = $event)),
+          "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((local.hide_text) = $event)),
           label: "隐藏文字（只看海报不看标题/年份）",
           color: "primary",
           "hide-details": "",
@@ -211,7 +223,7 @@ return (_ctx, _cache) => {
             variant: "text",
             onClick: onReset
           }, {
-            default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
+            default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
               _createTextVNode("重置默认", -1)
             ]))]),
             _: 1
@@ -220,7 +232,7 @@ return (_ctx, _cache) => {
             color: "primary",
             onClick: onSave
           }, {
-            default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
+            default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
               _createTextVNode("保存", -1)
             ]))]),
             _: 1
@@ -233,7 +245,7 @@ return (_ctx, _cache) => {
       variant: "outlined",
       class: "pa-4"
     }, {
-      default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
+      default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
         _createElementVNode("h4", { class: "mb-2" }, "使用说明", -1),
         _createElementVNode("ol", { style: {"line-height":"1.8","padding-left":"20px"} }, [
           _createElementVNode("li", null, "在此开启插件并选择推荐数据源 + 播放方式。"),
@@ -248,6 +260,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-54ed3b3c"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-04b16efa"]]);
 
 export { Config as default };

@@ -88,7 +88,7 @@ class FullScreenPosterWall(_PluginBase):
     plugin_name = "全屏海报墙"
     plugin_desc = "这是一个全屏海报墙插件，让所有终端可以播放精美的电影海报。抓取 MoviePilot 推荐媒体（流行趋势/TMDB热门电影/TMDB热门电视剧）的海报图片，以照片/拼贴/纵深穿梭/滑动面板/浮动/怀旧冲印/光舞等多种动效全屏展示，支持局域网海报墙页面。"
     plugin_icon = "fullscreenposterwall.png"
-    plugin_version = "1.13.1"
+    plugin_version = "1.14.2"
     plugin_label = "媒体展示"
     plugin_author = "ltdstudio"
     plugin_config_prefix = "fullscreenposterwall_"
@@ -101,6 +101,7 @@ class FullScreenPosterWall(_PluginBase):
     _effect: str = "photos"
     _interval: int = 8
     _image_type: str = "backdrop"
+    _poster_count: int = 60
     _refresh_minutes: int = 60
     _autoplay: bool = True
     _show_dashboard: bool = True
@@ -133,6 +134,11 @@ class FullScreenPosterWall(_PluginBase):
             self._interval = 8
         self._image_type = str(config.get("image_type") or "backdrop")
         try:
+            pc = int(config.get("poster_count") or 60)
+            self._poster_count = pc if pc in (30, 60, 120, 180, 240) else 60
+        except (TypeError, ValueError):
+            self._poster_count = 60
+        try:
             self._refresh_minutes = max(5, min(1440, int(config.get("refresh_minutes") or 60)))
         except (TypeError, ValueError):
             self._refresh_minutes = 60
@@ -161,6 +167,7 @@ class FullScreenPosterWall(_PluginBase):
             "effect": "photos",
             "image_type": "backdrop",
             "interval": 8,
+            "poster_count": 60,
             "refresh_minutes": 60,
             "autoplay": True,
             "show_dashboard": True,
@@ -366,6 +373,7 @@ class FullScreenPosterWall(_PluginBase):
             "effect": self._effect,
             "interval": self._interval,
             "image_type": self._image_type,
+            "poster_count": self._poster_count,
             "refresh_minutes": self._refresh_minutes,
             "autoplay": self._autoplay,
             "show_dashboard": self._show_dashboard,
@@ -390,6 +398,11 @@ class FullScreenPosterWall(_PluginBase):
             merged["interval"] = max(3, min(30, int(merged.get("interval") or 8)))
         except (TypeError, ValueError):
             merged["interval"] = 8
+        try:
+            pc = int(merged.get("poster_count") or 60)
+            merged["poster_count"] = pc if pc in (30, 60, 120, 180, 240) else 60
+        except (TypeError, ValueError):
+            merged["poster_count"] = 60
         try:
             merged["refresh_minutes"] = max(
                 5, min(1440, int(merged.get("refresh_minutes") or 60))
@@ -442,19 +455,23 @@ class FullScreenPosterWall(_PluginBase):
 
         chain = self._recommend_chain or RecommendChain()
         items: List[Dict[str, Any]] = []
+        # 按目标张数计算每源需要的页数（每页约 20 条）
+        n_sources = max(1, len(self._sources))
+        pages = max(1, -(-self._poster_count // (20 * n_sources)))  # 向上取整
         loop = asyncio.new_event_loop()
         try:
-            for source in self._sources:
-                try:
-                    medias = loop.run_until_complete(
-                        self._fetch_source(chain, source)
-                    )
-                except Exception:
-                    continue
-                for m in medias or []:
-                    item = self._normalize(m, source)
-                    if item:
-                        items.append(item)
+            for page in range(1, pages + 1):
+                for source in self._sources:
+                    try:
+                        medias = loop.run_until_complete(
+                            self._fetch_source(chain, source, page=page)
+                        )
+                    except Exception:
+                        continue
+                    for m in medias or []:
+                        item = self._normalize(m, source)
+                        if item:
+                            items.append(item)
         finally:
             loop.close()
 
@@ -466,6 +483,9 @@ class FullScreenPosterWall(_PluginBase):
                 continue
             seen.add(key)
             unique.append(it)
+
+        # 按配置的目标张数截断
+        unique = unique[: self._poster_count]
 
         # image_type=logo 时，为每条数据抓取 TMDB 片名 Logo（带电影名字的艺术字图）
         if self._image_type == "logo":
@@ -484,15 +504,15 @@ class FullScreenPosterWall(_PluginBase):
         return {"success": True, "data": data, "cached": False, "count": len(data)}
 
     async def _fetch_source(
-        self, chain: RecommendChain, source: str
+        self, chain: RecommendChain, source: str, page: int = 1
     ) -> Optional[List[MediaInfo]]:
-        """根据 source 拉取对应类型的推荐。"""
+        """根据 source 拉取对应类型的推荐（支持分页）。"""
         if source == "trending":
-            return await chain.async_tmdb_trending()
+            return await chain.async_tmdb_trending(page=page)
         if source == "tmdb_movies":
-            return await chain.async_tmdb_movies()
+            return await chain.async_tmdb_movies(page=page)
         if source == "tmdb_tvs":
-            return await chain.async_tmdb_tvs()
+            return await chain.async_tmdb_tvs(page=page)
         return None
 
     @staticmethod

@@ -182,18 +182,18 @@ to { opacity: 1; transform: none;
 .meta-center .meta-logo[data-v-2392aa20] { margin: 0 auto; object-position: center bottom;
 }
 
-.collage-root[data-v-75753df0] {
+.collage-root[data-v-cba878f0] {
   width: 100vw; height: 100vh;
   background: #000;
   overflow: hidden;
   display: flex; flex-direction: column;
 }
-.collage-row[data-v-75753df0] {
+.collage-row[data-v-cba878f0] {
   flex: 1;
   display: flex;
   min-height: 0;
 }
-.ctile[data-v-75753df0] {
+.ctile[data-v-cba878f0] {
   flex: 0 0 auto;
   min-width: 0;
   position: relative;
@@ -203,25 +203,28 @@ to { opacity: 1; transform: none;
   overflow: hidden;
   transition: flex-basis 1100ms cubic-bezier(0.45, 0, 0.2, 1);
 }
-.ctile-img[data-v-75753df0] { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block;
+.ctile-img[data-v-cba878f0] { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block;
 }
-.ctile-half[data-v-75753df0] { height: calc(50% - 3px);
+.ctile-half[data-v-cba878f0] { height: calc(50% - 3px);
 }
-.ctile-half[data-v-75753df0]:first-child { margin-bottom: 6px;
+.ctile-half[data-v-cba878f0]:first-child { margin-bottom: 6px;
 }
-.ctile-half img[data-v-75753df0] { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block;
+.ctile-half img[data-v-cba878f0] { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block;
 }
-.ctile-logo[data-v-75753df0] {
+.ctile-logo[data-v-cba878f0] {
   position: absolute; inset: 0; margin: auto;
-  max-width: 70%; max-height: 55%;
+  /* 宽度驱动：始终随瓷砖宽度缩放（高度只做兜底约束） */
+  width: 62%; height: auto;
+  max-height: 62%;
   object-fit: contain;
   filter: drop-shadow(0 4px 16px rgba(0,0,0,.65));
   pointer-events: none;
 }
-/* 横版 Logo：贴瓷砖底部中间 */
-.ctile-logo.logo-wide[data-v-75753df0] {
+/* 横版 Logo：贴瓷砖底部中间，同样随瓷砖宽度缩放 */
+.ctile-logo.logo-wide[data-v-cba878f0] {
   inset: auto; margin: 0;
   left: 50%; bottom: 8%;
+  width: 56%;
   transform: translateX(-50%);
 }
 
@@ -387,11 +390,11 @@ to   { transform: translateY(-50%);
   background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%);
 }
 
-.dt-root[data-v-163ec211] {
+.dt-root[data-v-16eb2c8c] {
   position: absolute; inset: 0; overflow: hidden;
   background: radial-gradient(ellipse at center, #0b0e14 0%, #000 75%);
 }
-.dt-streaks[data-v-163ec211] {
+.dt-streaks[data-v-16eb2c8c] {
   position: absolute; left: 50%; top: 50%;
   width: 220vmax; height: 220vmax;
   transform: translate(-50%, -50%);
@@ -400,25 +403,25 @@ to   { transform: translateY(-50%);
     rgba(255,255,255,0.028) 0deg 0.6deg,
     transparent 0.6deg 9deg
   );
-  animation: dt-spin-163ec211 90s linear infinite;
+  animation: dt-spin-16eb2c8c 90s linear infinite;
   pointer-events: none;
 }
-@keyframes dt-spin-163ec211 {
+@keyframes dt-spin-16eb2c8c {
 to { transform: translate(-50%, -50%) rotate(360deg);
 }
 }
-.dt-flyer[data-v-163ec211] {
+.dt-flyer[data-v-16eb2c8c] {
   position: absolute; left: 50%; top: 50%;
   width: min(72vw, 1280px); height: min(72vh, 760px);
   margin-left: calc(min(72vw, 1280px) / -2);
   margin-top: calc(min(72vh, 760px) / -2);
-  animation-name: dt-fly-163ec211;
+  animation-name: dt-fly-16eb2c8c;
   animation-timing-function: cubic-bezier(0.32, 0.42, 0.55, 1);
   animation-fill-mode: forwards;
   will-change: transform, opacity;
 }
 /* 螺旋飞出：绕 2 圈、轨道半径随接近而收缩；旋转截止点放大，放大时压在最上层 */
-@keyframes dt-fly-163ec211 {
+@keyframes dt-fly-16eb2c8c {
   /* 时间配比：旋转 30%、正向放大 60%（旋转的 2 倍）、淡出 10% */
 0%   { transform: scale(0.06) rotate(0deg) translate(16vw, -12vh); opacity: 0;
 }
@@ -438,37 +441,37 @@ to { transform: translate(-50%, -50%) rotate(360deg);
 }
 }
 /* 主图保持原始比例：contain，不裁切、不拉伸 */
-.dt-flyer img[data-v-163ec211]:not(.dt-logo) {
+.dt-flyer img[data-v-16eb2c8c]:not(.dt-logo) {
   width: 100%; height: 100%;
   object-fit: contain; object-position: center;
   display: block;
 }
-.dt-logo[data-v-163ec211] {
+.dt-logo[data-v-16eb2c8c] {
   position: absolute; inset: 0; margin: auto;
   max-width: 60%; max-height: 45%; width: auto; height: auto;
   object-fit: contain; filter: drop-shadow(0 6px 24px rgba(0,0,0,.7)); pointer-events: none;
 }
-.dt-logo.logo-wide[data-v-163ec211] { inset: auto; margin: 0; left: 50%; bottom: 7%; transform: translateX(-50%);
+.dt-logo.logo-wide[data-v-16eb2c8c] { inset: auto; margin: 0; left: 50%; bottom: 7%; transform: translateX(-50%);
 }
 
 /* 备选小图：散布在黑色深处，缓慢乱序漂移 */
-.dt-thumbs[data-v-163ec211] {
+.dt-thumbs[data-v-16eb2c8c] {
   position: absolute; inset: 0;
   pointer-events: none;
   z-index: 1;
 }
-.dt-thumb[data-v-163ec211] {
+.dt-thumb[data-v-16eb2c8c] {
   position: absolute;
   overflow: hidden;
   background: #111;
   border: 1px solid rgba(255,255,255,0.10);
-  animation-name: dt-drift-163ec211;
+  animation-name: dt-drift-16eb2c8c;
   animation-timing-function: ease-in-out;
   animation-iteration-count: infinite;
   animation-direction: alternate;
   will-change: transform;
 }
-@keyframes dt-drift-163ec211 {
+@keyframes dt-drift-16eb2c8c {
 0%   { transform: translate(0, 0);
 }
 50%  { transform: translate(26px, -18px);
@@ -476,24 +479,24 @@ to { transform: translate(-50%, -50%) rotate(360deg);
 100% { transform: translate(-20px, 22px);
 }
 }
-.dt-thumb img[data-v-163ec211] {
+.dt-thumb img[data-v-16eb2c8c] {
   width: 100%; height: 100%;
   object-fit: cover; object-position: center;
   display: block;
 }
-.dt-meta[data-v-163ec211] {
+.dt-meta[data-v-16eb2c8c] {
   position: absolute; left: 48px; bottom: 42px; max-width: 560px;
   color: #fff; z-index: 60;
 }
-.dt-title[data-v-163ec211] { font-size: 42px; font-weight: 700; text-shadow: 0 2px 14px rgba(0,0,0,.8);
+.dt-title[data-v-16eb2c8c] { font-size: 42px; font-weight: 700; text-shadow: 0 2px 14px rgba(0,0,0,.8);
 }
-.dt-sub[data-v-163ec211] { font-size: 15px; opacity: .8; margin-top: 6px;
+.dt-sub[data-v-16eb2c8c] { font-size: 15px; opacity: .8; margin-top: 6px;
 }
-.meta-logo[data-v-163ec211] { max-width: 420px; max-height: 130px; object-fit: contain; object-position: left bottom; filter: drop-shadow(0 4px 16px rgba(0,0,0,.65));
+.meta-logo[data-v-16eb2c8c] { max-width: 420px; max-height: 130px; object-fit: contain; object-position: left bottom; filter: drop-shadow(0 4px 16px rgba(0,0,0,.65));
 }
-.meta-logo.logo-wide[data-v-163ec211] { display: block; margin: 0 auto;
+.meta-logo.logo-wide[data-v-16eb2c8c] { display: block; margin: 0 auto;
 }
-.dt-vignette[data-v-163ec211] {
+.dt-vignette[data-v-16eb2c8c] {
   position: absolute; inset: 0; pointer-events: none; z-index: 2;
   background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,.6) 100%);
   z-index: 50;

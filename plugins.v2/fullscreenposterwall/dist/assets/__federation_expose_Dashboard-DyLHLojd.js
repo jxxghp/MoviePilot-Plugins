@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { D as DepthTunnel, R as RingGallery, S as SlidingPanels, a as ShiftingTiles, L as LightDance, V as VintagePrints, F as Floating, P as PhotosSlideshow } from './DepthTunnel-BcjAAQm1.js';
+import { D as DepthTunnel, R as RingGallery, S as SlidingPanels, a as ShiftingTiles, L as LightDance, V as VintagePrints, F as Floating, P as PhotosSlideshow } from './DepthTunnel-Dx7GfZGR.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
 const {createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,resolveDynamicComponent:_resolveDynamicComponent,openBlock:_openBlock,createBlock:_createBlock,normalizeStyle:_normalizeStyle,normalizeClass:_normalizeClass,Fragment:_Fragment,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,Teleport:_Teleport} = await importShared('vue');
