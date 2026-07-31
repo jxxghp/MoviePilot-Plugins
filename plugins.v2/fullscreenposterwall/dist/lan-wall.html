@@ -146,11 +146,13 @@
   .meta-center .meta-logo { margin: 0 auto; object-position: center bottom; }
   .effect-shiftingtiles .ctile-logo {
     position: absolute; inset: 0; margin: auto;
-    max-width: 70%; max-height: 55%; object-fit: contain;
+    /* 宽度驱动：始终随瓷砖宽度缩放（高度只做兜底约束） */
+    width: 62%; height: auto; max-height: 62%; object-fit: contain;
     filter: drop-shadow(0 4px 16px rgba(0,0,0,.65)); pointer-events: none;
   }
   .effect-shiftingtiles .ctile-logo.logo-wide {
-    inset: auto; margin: 0; left: 50%; bottom: 8%; transform: translateX(-50%);
+    inset: auto; margin: 0; left: 50%; bottom: 8%;
+    width: 56%; transform: translateX(-50%);
   }
 
   /* 拼拼贴（复刻 macOS 滑动照片面板：双轨道 + 推挤碰撞 + 垂直抽离） */
@@ -431,6 +433,8 @@
 
   .placeholder { width: 100vw; height: 100vh; display: grid; place-items: center; color: var(--muted); font-size: 14px; }
   .error { color: #f87171; padding: 24px; max-width: 480px; text-align: center; line-height: 1.6; }
+  .placeholder.waiting { color: #f87171; font-weight: 600; font-size: 18px; animation: fspw-blink 0.9s step-start infinite; }
+  @keyframes fspw-blink { 50% { opacity: 0.15; } }
 </style>
 </head>
 <body>
@@ -443,15 +447,64 @@
   const API = '/api/v1/plugin/FullScreenPosterWall/public-data';
 
   function pickUrl(item, imageType, domain) {
-    if (!item) return '';
-    let path;
-    if (imageType === 'poster') path = item.poster_path || item.backdrop_path;
-    else if (imageType === 'logo') path = item.thumb_path || item.fanart_poster_path || item.backdrop_path || item.poster_path;
-    else path = item.backdrop_path || item.poster_path;
-    if (!path) return '';
-    if (/^https?:/.test(path)) return path;
-    if (path.startsWith('/')) return (domain || 'https://image.tmdb.org/t/p/original') + path;
-    return (domain || 'https://image.tmdb.org/t/p/original') + '/' + path;
+    const c = pickUrlCandidates(item, imageType, domain);
+    return c[0] || '';
+  }
+
+  // 按优先级返回某条目的全部候选图 URL（去重）。
+  // 预加载失败时在同一条目内逐级回退：Fanart CDN（assets.fanart.tv）
+  // 在浏览器侧不可达时自动降级 TMDB，而不是整条跳过导致整面墙黑屏。
+  function pickUrlCandidates(item, imageType, domain) {
+    if (!item) return [];
+    let paths;
+    if (imageType === 'poster') paths = [item.poster_path, item.backdrop_path];
+    else if (imageType === 'logo') paths = [item.thumb_path, item.fanart_poster_path, item.backdrop_path, item.poster_path];
+    else paths = [item.backdrop_path, item.poster_path];
+    const base = domain || 'https://image.tmdb.org/t/p/original';
+    const urls = paths.filter(Boolean).map(p => {
+      if (/^https?:/.test(p)) return p;
+      if (p.startsWith('/')) return base + p;
+      return base + '/' + p;
+    });
+    return [...new Set(urls)];
+  }
+
+  // 死主机记忆：同一主机连续失败 2 次即标记，后续候选直接跳过（页面会话内有效）。
+  // 解决 Fanart CDN 不可达时每张图都白等网络层超时、整面墙黑屏 ~30 秒的问题。
+  const hostFailCount = new Map();
+  const deadHosts = new Set();
+  function hostOf(url) { try { return new URL(url).host; } catch (e) { return ''; } }
+  function noteHostFail(url) {
+    const h = hostOf(url);
+    if (!h) return;
+    const n = (hostFailCount.get(h) || 0) + 1;
+    hostFailCount.set(h, n);
+    if (n >= 2) deadHosts.add(h);
+  }
+
+  // 按优先级加载候选图：死主机跳过、单候选 timeoutMs 超时快速失败
+  function tryLoadCandidates(urls, timeoutMs) {
+    timeoutMs = timeoutMs || 1500;
+    const live = urls.filter(u => !deadHosts.has(hostOf(u)));
+    const list = live.length ? live : urls.slice();
+    return new Promise(resolve => {
+      const tryAt = i => {
+        if (i >= list.length) return resolve('');
+        const url = list[i];
+        let settled = false;
+        const img = new Image();
+        const fail = () => {
+          if (settled) return;
+          settled = true; clearTimeout(timer); img.src = '';
+          noteHostFail(url); tryAt(i + 1);
+        };
+        const timer = setTimeout(fail, timeoutMs);
+        img.onload = () => { if (settled) return; settled = true; clearTimeout(timer); resolve(url); };
+        img.onerror = fail;
+        img.src = url;
+      };
+      tryAt(0);
+    });
   }
   function hasNativeLogo(item) { return !!(item && (item.thumb_path || item.fanart_poster_path)); }
   function logoUrl(item, domain) {
@@ -707,19 +760,18 @@
       cursor = 0;
     }
     function nextPhoto() {
-      return new Promise(resolve => {
+      return new Promise(async resolve => {
         let guard = 0;
-        const tryNext = () => {
+        while (guard++ <= items.length) {
           if (cursor >= queue.length) reshuffle();
           const it = queue[cursor++];
-          const url = it ? pickUrl(it, cfg.image_type, cfg.tmdb_image_domain) : '';
-          if (!url || ++guard > items.length) return resolve({ url: '', logo: '' });
-          const img = new Image();
-          img.onload = () => resolve({ url, logo: (it && !hasNativeLogo(it)) ? logoUrl(it, cfg.tmdb_image_domain) : '' });
-          img.onerror = () => tryNext();
-          img.src = url;
-        };
-        tryNext();
+          const cands = it ? pickUrlCandidates(it, cfg.image_type, cfg.tmdb_image_domain) : [];
+          if (!cands.length) continue;
+          const url = await tryLoadCandidates(cands);
+          if (!url) continue;
+          return resolve({ url, logo: (it && !hasNativeLogo(it)) ? logoUrl(it, cfg.tmdb_image_domain) : '' });
+        }
+        resolve({ url: '', logo: '' });
       });
     }
     function genWidth() {
@@ -754,7 +806,9 @@
       rowEl.className = 'collage-row';
       const ws = Array.from({ length: count }, genWidth);
       const sum = ws.reduce((a, b) => a + b, 0);
-      for (const w of ws) rowEl.appendChild(await makeTileEl(w / sum));
+      // 并行构建瓷砖：某块图慢不拖垮整行（首屏速度关键）
+      const els = await Promise.all(ws.map(w => makeTileEl(w / sum)));
+      for (const el of els) rowEl.appendChild(el);
       return rowEl;
     }
     async function build() {
@@ -762,7 +816,8 @@
       collage.innerHTML = '';
       const portrait = window.innerWidth < window.innerHeight;
       const counts = portrait ? [3, 3, 3] : [3 + Math.floor(Math.random() * 3), 3 + Math.floor(Math.random() * 3)];
-      for (const c of counts) collage.appendChild(await makeRow(c));
+      const rows = await Promise.all(counts.map(c => makeRow(c)));
+      for (const r of rows) collage.appendChild(r);
     }
     function shiftOnce() {
       if (busy) return;
@@ -1429,8 +1484,8 @@
       if (warming || !thumbs.length) return;
       warming = true;
       const t = thumbs[0];
-      const url = pickUrl(t.item, cfg.image_type, cfg.tmdb_image_domain);
-      if (!(await preload(url))) {
+      const url = await tryLoadCandidates(pickUrlCandidates(t.item, cfg.image_type, cfg.tmdb_image_domain));
+      if (!url) {
         thumbs.shift(); t.el.remove(); fillThumbs();
         warming = false;
         return;
@@ -1586,15 +1641,29 @@
     app.innerHTML = '<div class="placeholder error">' + escapeHtml(msg) + '</div>';
   }
 
-  try {
-    const { cfg, items } = await load();
-    if (!cfg.enabled) { renderError('插件未启用。请在 MoviePilot 启用"全屏海报墙"插件。'); return; }
-    setTopBar(cfg, items);
-    renderEffect(cfg, items);
-    startFullscreenCountdown();
-  } catch (e) {
-    renderError('数据加载失败：' + (e && e.message || e));
+  function renderWaiting() {
+    const app = document.getElementById('app');
+    app.innerHTML = '<div class="placeholder waiting">请等候拉取图片数据…</div>';
   }
+
+  async function boot() {
+    try {
+      const { cfg, items } = await load();
+      if (!cfg.enabled) { renderError('插件未启用。请在 MoviePilot 启用"全屏海报墙"插件。'); return; }
+      if (!items.length) {
+        // 数据未就绪：红字闪烁提示，每 5 秒重试
+        renderWaiting();
+        setTimeout(boot, 5000);
+        return;
+      }
+      setTopBar(cfg, items);
+      renderEffect(cfg, items);
+      startFullscreenCountdown();
+    } catch (e) {
+      renderError('数据加载失败：' + (e && e.message || e));
+    }
+  }
+  boot();
 })();
 
 // 倒数 3 秒后尝试进入全屏；浏览器要求用户手势，
