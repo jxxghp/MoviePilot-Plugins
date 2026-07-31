@@ -88,7 +88,7 @@ class FullScreenPosterWall(_PluginBase):
     plugin_name = "全屏海报墙"
     plugin_desc = "这是一个全屏海报墙插件，让所有终端可以播放精美的电影海报。抓取 MoviePilot 推荐媒体（流行趋势/TMDB热门电影/TMDB热门电视剧）的海报图片，以照片/拼贴/纵深穿梭/滑动面板/浮动/怀旧冲印/光舞等多种动效全屏展示，支持局域网海报墙页面。"
     plugin_icon = "fullscreenposterwall.png"
-    plugin_version = "1.13.0"
+    plugin_version = "1.13.1"
     plugin_label = "媒体展示"
     plugin_author = "ltdstudio"
     plugin_config_prefix = "fullscreenposterwall_"
@@ -109,6 +109,8 @@ class FullScreenPosterWall(_PluginBase):
     _recommend_chain: Optional[RecommendChain] = None
     _cache: List[Dict[str, Any]] = []
     _cache_time: float = 0.0
+    # 当前缓存周期内是否已尝试过 Logo 补抓（防止缓存命中时反复外呼 Fanart/TMDB）
+    _logo_enrich_done: bool = False
 
     def init_plugin(self, config: dict | None = None) -> None:
         """根据持久化配置初始化运行状态。"""
@@ -400,6 +402,7 @@ class FullScreenPosterWall(_PluginBase):
         self.init_plugin(merged)
         self._cache = []
         self._cache_time = 0.0
+        self._logo_enrich_done = False
         return {"success": True, "data": merged}
 
     def api_get_recommend(
@@ -420,10 +423,14 @@ class FullScreenPosterWall(_PluginBase):
             and self._cache
             and (now - self._cache_time) < self._refresh_minutes * 60
         ):
-            # 切到 logo 模式但缓存里没有 logo_path 时，补抓一次（不整库刷新）
-            if self._image_type == "logo" and any(
-                not it.get("logo_path") for it in self._cache
+            # 切到 logo 模式但缓存里没有 logo_path 时，补抓一次（每个缓存周期仅尝试一次，
+            # 无结果的条目在下个刷新周期前不再重复外呼，避免绕过 refresh_minutes 频率约束）
+            if (
+                self._image_type == "logo"
+                and not self._logo_enrich_done
+                and any(not it.get("logo_path") for it in self._cache)
             ):
+                self._logo_enrich_done = True
                 self._enrich_logos(self._cache)
             data = list(self._cache)
             should_shuffle = shuffle or bool(self._shuffle)
@@ -466,6 +473,8 @@ class FullScreenPosterWall(_PluginBase):
 
         self._cache = unique
         self._cache_time = now
+        # 抓取阶段已按当前 image_type 处理过 Logo，本缓存周期标记为已尝试
+        self._logo_enrich_done = self._image_type == "logo"
         data = list(unique)
         should_shuffle = shuffle or bool(self._shuffle)
         if should_shuffle:

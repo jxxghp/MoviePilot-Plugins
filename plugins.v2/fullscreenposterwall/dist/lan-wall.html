@@ -522,7 +522,8 @@
     const MAX = 16;
     const cards = [];
     function spawn() {
-      if (cursor >= items.length) return null;
+      if (!items.length) return null;
+      if (cursor >= items.length) cursor = 0;   // 队列耗尽后循环复用，保证持续轮播
       const it = items[cursor++];
       const w = inner.clientWidth, h = inner.clientHeight;
       const size = 240 + Math.random() * 300;
@@ -1391,11 +1392,16 @@
       });
     }
     function fillThumbs() {
-      while (thumbs.length < THUMBS_N) {
+      // 有限扫描：连续 miss 满一轮队列长度即判定当前没有可用图片，进入空态，
+      // 避免列表非空但全部缺图时 while 同步死循环卡死主线程
+      const limit = Math.max(items.length, 1);
+      let misses = 0;
+      while (thumbs.length < THUMBS_N && misses < limit) {
         const it = nextItem();
         if (!it) break;
         const url = pickUrl(it, cfg.image_type, cfg.tmdb_image_domain);
-        if (!url) continue;
+        if (!url) { misses++; continue; }
+        misses = 0;
         const el = document.createElement('div');
         el.className = 'dt-thumb';
         // 黑色深处随机散布：位置/大小/透明度/模糊/漂移节奏

@@ -174,6 +174,7 @@ const _sfc_main$6 = /* @__PURE__ */ _defineComponent$6({
     let lastSpawn = 0;
     let lastSwap = 0;
     let cursor = 0;
+    let initialized = false;
     function logoUrl(item) {
       return pickLogoUrl(item, cfg.value.tmdb_image_domain);
     }
@@ -184,7 +185,8 @@ const _sfc_main$6 = /* @__PURE__ */ _defineComponent$6({
       return s && s.length > max ? s.slice(0, max) + "…" : s || "";
     }
     function spawn() {
-      if (cursor >= props.items.length) return null;
+      if (!props.items.length) return null;
+      if (cursor >= props.items.length) cursor = 0;
       const item = props.items[cursor++];
       const w = window.innerWidth, h = window.innerHeight;
       const size = 240 + Math.random() * 300;
@@ -213,21 +215,30 @@ const _sfc_main$6 = /* @__PURE__ */ _defineComponent$6({
     }
     function step(now) {
       const w = window.innerWidth, h = window.innerHeight;
-      if (now - lastSwap > props.interval * 1e3) {
-        const oldest = moving.value.reduce((a, b) => a.fade > b.fade ? b : a, moving.value[0]);
-        if (oldest) {
-          const fresh = spawn();
-          if (fresh) {
-            Object.assign(oldest, fresh);
+      if (props.autoplay) {
+        if (now - lastSwap > props.interval * 1e3) {
+          const oldest = moving.value.reduce((a, b) => a.fade > b.fade ? b : a, moving.value[0]);
+          if (oldest) {
+            const fresh = spawn();
+            if (fresh) {
+              Object.assign(oldest, fresh);
+            }
           }
+          lastSwap = now;
         }
-        lastSwap = now;
+        if (moving.value.length < MAX && now - lastSpawn > 800) {
+          const m = spawn();
+          if (m) moving.value.push(m);
+          lastSpawn = now;
+        }
+      } else if (!initialized) {
+        while (moving.value.length < Math.min(MAX, props.items.length)) {
+          const m = spawn();
+          if (!m) break;
+          moving.value.push(m);
+        }
       }
-      if (moving.value.length < MAX && now - lastSpawn > 800) {
-        const m = spawn();
-        if (m) moving.value.push(m);
-        lastSpawn = now;
-      }
+      initialized = true;
       for (const m of moving.value) {
         m.x += m.vx;
         m.y += m.vy;
@@ -290,7 +301,7 @@ const _sfc_main$6 = /* @__PURE__ */ _defineComponent$6({
   }
 });
 
-const Floating = /* @__PURE__ */ _export_sfc(_sfc_main$6, [["__scopeId", "data-v-1e5e6b31"]]);
+const Floating = /* @__PURE__ */ _export_sfc(_sfc_main$6, [["__scopeId", "data-v-b43f3d57"]]);
 
 const {defineComponent:_defineComponent$5} = await importShared('vue');
 
@@ -1016,7 +1027,10 @@ const _sfc_main$1 = /* @__PURE__ */ _defineComponent$1({
     const props = __props;
     const cfg = ref$1({ tmdb_image_domain: "https://image.tmdb.org/t/p/original" });
     fetch("/api/v1/plugin/FullScreenPosterWall/config").then((r) => r.json()).then((d) => {
-      if (d?.data) cfg.value = d.data;
+      if (d?.data) {
+        cfg.value = d.data;
+        if (timer && !document.hidden) startTimer();
+      }
     }).catch(() => {
     });
     const imageType = ref$1(props.imageType);
@@ -1088,21 +1102,28 @@ const _sfc_main$1 = /* @__PURE__ */ _defineComponent$1({
     function onResize() {
       computeRadius();
     }
+    function currentInterval() {
+      return Math.max(4, cfg.value.interval || 8) * 1e3;
+    }
+    function startTimer() {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+      timer = setInterval(rotate, currentInterval());
+    }
     onMounted$1(() => {
       computeRadius();
       build();
       window.addEventListener("resize", onResize);
-      const iv = Math.max(4, cfg.value.interval || 8) * 1e3;
-      timer = setInterval(rotate, iv);
+      startTimer();
       document.addEventListener("visibilitychange", vis);
     });
     function vis() {
       if (document.hidden && timer) {
         clearInterval(timer);
         timer = null;
-      } else if (!document.hidden && !timer) {
-        timer = setInterval(rotate, Math.max(4, cfg.value.interval || 8) * 1e3);
-      }
+      } else if (!document.hidden && !timer) startTimer();
     }
     onBeforeUnmount$1(() => {
       if (timer) clearInterval(timer);
@@ -1168,7 +1189,7 @@ const _sfc_main$1 = /* @__PURE__ */ _defineComponent$1({
   }
 });
 
-const RingGallery = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-13a54594"]]);
+const RingGallery = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-3abb1908"]]);
 
 const {defineComponent:_defineComponent} = await importShared('vue');
 
@@ -1255,11 +1276,17 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
       });
     }
     function fillThumbs() {
-      while (thumbs.value.length < THUMBS_N) {
+      const limit = Math.max(props.items.length, 1);
+      let misses = 0;
+      while (thumbs.value.length < THUMBS_N && misses < limit) {
         const it = nextItem();
         if (!it) break;
         const url = imageUrl(it);
-        if (!url) continue;
+        if (!url) {
+          misses++;
+          continue;
+        }
+        misses = 0;
         const depth = 0.35 + Math.random() * 0.65;
         thumbs.value.push({
           id: ++uid,
@@ -1416,6 +1443,6 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
   }
 });
 
-const DepthTunnel = /* @__PURE__ */ _export_sfc(_sfc_main, [["__scopeId", "data-v-399e34d7"]]);
+const DepthTunnel = /* @__PURE__ */ _export_sfc(_sfc_main, [["__scopeId", "data-v-163ec211"]]);
 
 export { DepthTunnel as D, Floating as F, LightDance as L, PhotosSlideshow as P, RingGallery as R, SlidingPanels as S, VintagePrints as V, ShiftingTiles as a };
