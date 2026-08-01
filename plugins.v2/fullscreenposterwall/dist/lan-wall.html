@@ -506,7 +506,15 @@
       tryAt(0);
     });
   }
-  function hasNativeLogo(item) { return !!(item && (item.thumb_path || item.fanart_poster_path)); }
+  function hasNativeLogo(item) { return !!(item && !item.__native_failed && (item.thumb_path || item.fanart_poster_path)); }
+  // logo 模式下记录实际加载成功的主图 URL：若不是原生带字候选（thumb/fanart_poster），
+  // 标记 __native_failed，hasNativeLogo 随之返回 false，叠层 Logo 恢复显示
+  function noteNativeFail(it, url, imageType, domain) {
+    if (!it || imageType !== 'logo' || !url) return;
+    const base = domain || 'https://image.tmdb.org/t/p/original';
+    const natives = [it.thumb_path, it.fanart_poster_path].filter(Boolean).map(p => (/^https?:/.test(p) ? p : p.startsWith('/') ? base + p : base + '/' + p));
+    it.__native_failed = natives.indexOf(url) === -1;
+  }
   function logoUrl(item, domain) {
     if (!item || !item.logo_path) return '';
     const path = item.logo_path;
@@ -769,6 +777,7 @@
           if (!cands.length) continue;
           const url = await tryLoadCandidates(cands);
           if (!url) continue;
+          noteNativeFail(it, url, cfg.image_type, cfg.tmdb_image_domain);
           return resolve({ url, logo: (it && !hasNativeLogo(it)) ? logoUrl(it, cfg.tmdb_image_domain) : '' });
         }
         resolve({ url: '', logo: '' });
@@ -1485,6 +1494,7 @@
       warming = true;
       const t = thumbs[0];
       const url = await tryLoadCandidates(pickUrlCandidates(t.item, cfg.image_type, cfg.tmdb_image_domain));
+      noteNativeFail(t.item, url, cfg.image_type, cfg.tmdb_image_domain);
       if (!url) {
         thumbs.shift(); t.el.remove(); fillThumbs();
         warming = false;
