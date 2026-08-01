@@ -1041,5 +1041,26 @@
     "history": {
       "v1.0.0": "新增 Bangumi 数据与图片代理 Base URL 配置，兼容 MoonPlus 代理拼接规则。"
     }
+  },
+  "StorageCleanup": {
+    "name": "存储清理",
+    "description": "按电影或整部剧聚合展示媒体、做种与保护关系，并提供三档安全清理。",
+    "labels": "存储,媒体库,下载管理",
+    "version": "1.0.7",
+    "icon": "https://raw.githubusercontent.com/Hommchen/nas-storage-cleanup-ui-public/main/public/storagecleanup.svg",
+    "author": "Hommchen",
+    "level": 1,
+    "release": true,
+    "system_version": ">=2.14.6",
+    "history": {
+      "v1.0.6": "刷新资源清单时显示阶段与耗时，明确长时间 H&R 只读探测仍在进行",
+      "v1.0.7": "移除 MoviePilot 内部标识，改用面向用户的安全清理台标题",
+      "v1.0.5": "新增 NAS 拓扑设置、路径只读探测与配置变更后的安全锁定",
+      "v1.0.4": "丢弃过期清理计划响应，并修复执行前计划重建异常",
+      "v1.0.3": "新增手机卡片布局、横向筛选、双行操作面板及安全区弹窗适配",
+      "v1.0.2": "全部操作栏和弹窗统一挂到浏览器根节点，始终相对当前视口定位",
+      "v1.0.1": "操作栏固定到浏览器视口，并使用版本化联邦入口避免旧前端缓存",
+      "v1.0.0": "接入 PiNAS 清理台原生 Vue 页面、侧栏入口与三档真实执行链路"
+    }
   }
 }
