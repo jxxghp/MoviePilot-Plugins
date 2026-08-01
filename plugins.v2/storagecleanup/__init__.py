@@ -15,7 +15,7 @@ from .bridge_client import DEFAULT_GATEWAY, DEFAULT_TOKEN_FILE, CleanupBridge
 class StorageCleanup(_PluginBase):
     plugin_name = "存储清理"
     plugin_desc = "看清媒体、做种、H&R 与硬链接关系后再清理。"
-    plugin_icon = "mdi-broom"
+    plugin_icon = "https://raw.githubusercontent.com/Hommchen/nas-storage-cleanup-ui-public/main/public/storagecleanup.svg"
     plugin_version = "1.0.7"
     plugin_author = "Hommchen"
     author_url = "https://github.com/Hommchen/nas-storage-cleanup-ui-public"
