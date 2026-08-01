@@ -58,7 +58,14 @@ function loadImageWithFallback(urls, timeoutMs = 1500) {
   });
 }
 function hasNativeLogoImage(item) {
+  if (item.__native_failed) return false;
   return !!(item.thumb_path || item.fanart_poster_path);
+}
+function noteLoadedMainUrl(item, type, url, domain) {
+  if (!item || type !== "logo" || !url) return;
+  const base = domain || "https://image.tmdb.org/t/p/original";
+  const natives = [item.thumb_path, item.fanart_poster_path].filter((p) => !!p).map((p) => /^https?:\/\//.test(p) ? p : p.startsWith("/") ? base + p : base + "/" + p);
+  item.__native_failed = !natives.includes(url);
 }
 function pickLogoUrl(item, domain) {
   const path = item.logo_path;
@@ -703,6 +710,7 @@ const _sfc_main$3 = /* @__PURE__ */ _defineComponent$3({
           if (!cands.length) continue;
           const url = await loadImageWithFallback(cands);
           if (!url) continue;
+          noteLoadedMainUrl(it, props.imageType, url, cfg.value.tmdb_image_domain);
           return resolve({ url, logo: it && !hasNativeLogoImage(it) ? logoUrl(it) : "" });
         }
         resolve({ url: "", logo: "" });
@@ -881,7 +889,7 @@ const _sfc_main$3 = /* @__PURE__ */ _defineComponent$3({
   }
 });
 
-const ShiftingTiles = /* @__PURE__ */ _export_sfc(_sfc_main$3, [["__scopeId", "data-v-cba878f0"]]);
+const ShiftingTiles = /* @__PURE__ */ _export_sfc(_sfc_main$3, [["__scopeId", "data-v-c66ed8da"]]);
 
 const {defineComponent:_defineComponent$2} = await importShared('vue');
 
@@ -1354,6 +1362,7 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
       warming = true;
       const t = thumbs.value[0];
       const url = await loadImageWithFallback(pickImageCandidates(t.item, props.imageType, cfg.value.tmdb_image_domain));
+      noteLoadedMainUrl(t.item, props.imageType, url, cfg.value.tmdb_image_domain);
       if (!url) {
         thumbs.value.shift();
         fillThumbs();
@@ -1471,6 +1480,6 @@ const _sfc_main = /* @__PURE__ */ _defineComponent({
   }
 });
 
-const DepthTunnel = /* @__PURE__ */ _export_sfc(_sfc_main, [["__scopeId", "data-v-16eb2c8c"]]);
+const DepthTunnel = /* @__PURE__ */ _export_sfc(_sfc_main, [["__scopeId", "data-v-0fa3742f"]]);
 
 export { DepthTunnel as D, Floating as F, LightDance as L, PhotosSlideshow as P, RingGallery as R, SlidingPanels as S, VintagePrints as V, ShiftingTiles as a };
