@@ -1041,5 +1041,19 @@
     "history": {
       "v1.0.0": "新增 Bangumi 数据与图片代理 Base URL 配置，兼容 MoonPlus 代理拼接规则。"
     }
+  },
+  "StorageCleanup": {
+    "name": "存储清理",
+    "description": "按电影或整部剧聚合展示媒体、做种与保护关系，并提供三档安全清理。",
+    "labels": "存储,媒体库,下载管理",
+    "version": "1.0.7",
+    "icon": "mdi-broom",
+    "author": "Hommchen",
+    "level": 1,
+    "release": true,
+    "system_version": ">=2.14.6",
+    "history": {
+      "v1.0.7": "移除 MoviePilot 内部标识，改用面向用户的安全清理台标题；补齐 NAS 拓扑设置与路径只读探测。"
+    }
   }
 }
