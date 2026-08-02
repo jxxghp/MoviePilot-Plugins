@@ -2,7 +2,9 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   ACTIONS,
-  FILTERS,
+  FILTER_GROUPS,
+  createFilterState,
+  filterOptionCount,
   filterResources,
   formatBytes,
   formatGiB,
@@ -10,6 +12,7 @@ import {
   unwrapResponse,
 } from '../provider.js'
 import { refreshFeedback } from '../refresh-feedback.js'
+import Config from './Config.vue'
 
 const props = defineProps({
   api: { type: Object, default: () => ({}) },
@@ -32,7 +35,7 @@ const refreshing = ref(false)
 const refreshElapsed = ref(0)
 const error = ref('')
 const search = ref('')
-const activeFilter = ref('all')
+const filterState = ref(createFilterState())
 const safeOnly = ref(false)
 const descending = ref(true)
 const selected = ref([])
@@ -61,11 +64,12 @@ const recoveryTarget = ref(null)
 const recoveryAction = ref(null)
 const recoveryPhrase = ref('')
 const recovering = ref(false)
+const settingsOpen = ref(false)
 
 const pluginBase = computed(() => `plugin/${props.pluginId || 'StorageCleanup'}`)
 const resources = computed(() => snapshot.value.resources || [])
 const visible = computed(() => filterResources(resources.value, {
-  filter: activeFilter.value,
+  filters: filterState.value,
   search: search.value,
   safeOnly: safeOnly.value,
   descending: descending.value,
@@ -74,6 +78,9 @@ const selectedItems = computed(() => resources.value.filter(item => selected.val
 const selectedSize = computed(() => selectedItems.value.reduce((total, item) => total + Number(item.size || 0), 0))
 const executionEnabled = computed(() => Boolean(health.value.executionEnabled))
 const inventoryCurrent = computed(() => health.value.inventoryCurrent !== false)
+const onboardingRequired = computed(() => !loading.value && (
+  !snapshot.value.snapshotId || health.value.configReady === false
+))
 const unresolvedTransactions = computed(() => Number(snapshot.value.stats?.unresolvedTransactions || 0))
 const hrGap = computed(() => Math.max(
   0,
@@ -87,24 +94,34 @@ const hrUnassigned = computed(() => Number(
   snapshot.value.stats?.hrMissingUncovered ??
   0,
 ))
-const filters = computed(() => FILTERS.map(filter => ({
-  ...filter,
-  count: resources.value.filter(item => {
-    if (filter.id === 'all') return true
-    return filterResources([item], {
-      filter: filter.id,
-      search: '',
-      safeOnly: false,
-      descending: true,
-    }).length === 1
-  }).length,
+const filterGroups = computed(() => FILTER_GROUPS.map(group => ({
+  ...group,
+  options: group.options.map(option => ({
+    ...option,
+    count: filterOptionCount(resources.value, filterState.value, group.id, option.id),
+  })),
 })))
+const activeFilterChips = computed(() => {
+  const chips = []
+  for (const group of FILTER_GROUPS) {
+    const selected = group.id === 'flags'
+      ? filterState.value.flags
+      : [filterState.value[group.id]]
+    for (const option of group.options) {
+      if (option.id !== 'all' && selected.includes(option.id)) {
+        chips.push({ group: group.id, id: option.id, label: option.label })
+      }
+    }
+  }
+  return chips
+})
 const allVisibleSelected = computed(() => {
   const selectable = visible.value.filter(item => !item.protected)
   return selectable.length > 0 && selectable.every(item => selected.value.includes(item.id))
 })
 const currentAction = computed(() => planMode.value ? ACTIONS[planMode.value] : null)
 const planExpired = computed(() => Boolean(plan.value && Date.parse(plan.value.expiresAt) <= Date.now()))
+const allFiltersDefault = computed(() => activeFilterChips.value.length === 0)
 const refreshMessage = computed(() => {
   if (!refreshing.value) return ''
   return refreshFeedback(refreshElapsed.value)
@@ -129,6 +146,17 @@ function startRefreshTimer() {
 
 function payloadError(payload, fallback) {
   return payload?.error?.message || fallback
+}
+
+function requestErrorMessage(error, fallback) {
+  const response = error?.response || {}
+  const payload = response.data || error?.data || {}
+  const nested = payload?.error || {}
+  if (nested.code === 'inventory_stale' || response.status === 409 || error?.status === 409) {
+    health.value = { ...health.value, inventoryCurrent: false }
+    return '资源清单已过期，请点击“刷新资源清单”后再操作。浏览器重新加载不会重新核对 NAS。'
+  }
+  return nested.message || payload.message || error?.message || fallback
 }
 
 async function get(path) {
@@ -156,6 +184,9 @@ async function loadStatus() {
     if (!payload?.ok || !payload.snapshot) throw new Error(payloadError(payload, '无法读取清理台状态。'))
     health.value = payload.health || {}
     acceptSnapshot(payload.snapshot)
+    if (health.value.inventoryCurrent === false) {
+      selected.value = []
+    }
   } catch (err) {
     error.value = err?.message || '无法读取清理台状态。'
   } finally {
@@ -196,11 +227,49 @@ function toggleVisible() {
     : [...new Set([...selected.value, ...ids])]
 }
 
+function isFilterActive(group, option) {
+  if (group.id === 'flags') return filterState.value.flags.includes(option.id)
+  return filterState.value[group.id] === option.id
+}
+
+function selectFilter(group, option) {
+  if (group.id === 'flags') {
+    filterState.value = {
+      ...filterState.value,
+      flags: filterState.value.flags.includes(option.id)
+        ? filterState.value.flags.filter(id => id !== option.id)
+        : [...filterState.value.flags, option.id],
+    }
+    return
+  }
+  filterState.value = { ...filterState.value, [group.id]: option.id }
+}
+
+function clearFilters() {
+  filterState.value = createFilterState()
+}
+
+function clearFilterChip(chip) {
+  if (chip.group === 'flags') {
+    filterState.value = {
+      ...filterState.value,
+      flags: filterState.value.flags.filter(id => id !== chip.id),
+    }
+    return
+  }
+  filterState.value = { ...filterState.value, [chip.group]: 'all' }
+}
+
 async function requestPlan(mode, acknowledged = false) {
   planLoading.value = true
   planError.value = ''
   plan.value = null
   finalConfirmation.value = false
+  if (!inventoryCurrent.value) {
+    planError.value = '资源清单已过期，请点击“刷新资源清单”后再操作。浏览器重新加载不会重新核对 NAS。'
+    planLoading.value = false
+    return
+  }
   try {
     const payload = await post('/plan', {
       snapshotId: snapshot.value.snapshotId,
@@ -211,7 +280,7 @@ async function requestPlan(mode, acknowledged = false) {
     if (!payload?.ok || !payload.plan) throw new Error(payloadError(payload, '无法生成执行计划。'))
     plan.value = payload.plan
   } catch (err) {
-    planError.value = err?.message || '无法生成执行计划。'
+    planError.value = requestErrorMessage(err, '无法生成执行计划。')
   } finally {
     planLoading.value = false
   }
@@ -256,6 +325,13 @@ async function executePlan() {
     }
     executeResult.value = payload.result
     selected.value = []
+    if (plan.value?.mode === 'delete') {
+      const deletedIds = new Set(plan.value.resources.map(item => item.id))
+      snapshot.value = {
+        ...snapshot.value,
+        resources: snapshot.value.resources.filter(item => !deletedIds.has(item.id)),
+      }
+    }
     if (payload.result.snapshotRefreshPending) {
       health.value = { ...health.value, inventoryCurrent: false }
     } else {
@@ -335,6 +411,14 @@ function recoveryExpectedPhrase() {
     : recoveryTarget.value.finalizePhrase
 }
 
+function openSettings() {
+  settingsOpen.value = true
+}
+
+function closeSettings() {
+  settingsOpen.value = false
+}
+
 onMounted(loadStatus)
 onUnmounted(stopRefreshTimer)
 </script>
@@ -350,7 +434,7 @@ onUnmounted(stopRefreshTimer)
       <div :class="['status-card', { danger: error || !inventoryCurrent }]">
         <i>{{ error || !inventoryCurrent ? '!' : '✓' }}</i>
         <p>
-          <strong>{{ error || (executionEnabled ? '执行链路已连接' : '只读模式') }}</strong>
+          <strong>{{ error || (!inventoryCurrent ? '资源清单待刷新' : executionEnabled ? '执行链路已连接' : '只读模式') }}</strong>
           <span v-if="snapshot.generatedAt">更新于 {{ snapshot.generatedAt.slice(5, 16).replace('T', ' ') }}</span>
         </p>
       </div>
@@ -370,6 +454,14 @@ onUnmounted(stopRefreshTimer)
         实际占用 {{ descending ? '↓' : '↑' }}
       </button>
       <button
+        class="soft-button settings-button"
+        type="button"
+        aria-label="打开存储清理设置"
+        @click="openSettings"
+      >
+        设置
+      </button>
+      <button
         class="icon-button"
         type="button"
         :disabled="refreshing"
@@ -383,6 +475,24 @@ onUnmounted(stopRefreshTimer)
       <p v-if="refreshing" class="refresh-feedback" role="status" aria-live="polite">
         {{ refreshMessage }}
       </p>
+    </section>
+
+    <div v-if="!inventoryCurrent && !refreshing" class="notice critical stale-notice" role="status">
+      <i>!</i>
+      <p>
+        <strong>资源清单待刷新</strong>
+        <span>浏览器重新加载只重载页面，不会重新核对 NAS；刷新完成前已锁定清理动作。</span>
+      </p>
+      <button type="button" @click="refreshSnapshot">刷新资源清单</button>
+    </div>
+
+    <section v-if="onboardingRequired" class="onboarding-card">
+      <div>
+        <strong>{{ health.configReady === false ? '清理台还没有完成配置' : '还没有连接到清理后台' }}</strong>
+        <span v-if="error">{{ error }}</span>
+        <span v-else>请由 NAS 管理员先部署 PiNAS 清理台，并完成只读路径探测；插件不会自动登录或配置 NAS。</span>
+      </div>
+      <button type="button" @click="openSettings">打开设置</button>
     </section>
 
     <button
@@ -417,16 +527,47 @@ onUnmounted(stopRefreshTimer)
       <b>查看明细</b>
     </button>
 
-    <nav class="filters" aria-label="资源筛选">
-      <button
-        v-for="filter in filters"
-        :key="filter.id"
-        :class="{ active: activeFilter === filter.id }"
-        type="button"
-        @click="activeFilter = filter.id"
-      >
-        {{ filter.label }} <span>{{ filter.count }}</span>
-      </button>
+    <nav class="filter-panel" aria-label="资源筛选">
+      <div v-for="group in filterGroups" :key="group.id" class="filter-row">
+        <div class="filter-label">
+          {{ group.label }}
+          <small>{{ group.multi ? '可多选' : '单选' }}</small>
+        </div>
+        <div class="filter-options">
+          <button
+            v-for="option in group.options"
+            :key="option.id"
+            :class="['filter-option', { active: isFilterActive(group, option) }, { warning: option.tone === 'warning' }]"
+            :aria-pressed="isFilterActive(group, option)"
+            type="button"
+            @click="selectFilter(group, option)"
+          >
+            {{ option.label }} <span>{{ option.count }}</span>
+          </button>
+        </div>
+      </div>
+      <div class="filter-footer">
+        <div class="active-filter-chips" aria-live="polite">
+          <span v-if="allFiltersDefault" class="filter-caption">当前筛选：全部资源</span>
+          <template v-else>
+            <span class="filter-caption">当前筛选</span>
+            <button
+              v-for="chip in activeFilterChips"
+              :key="`${chip.group}-${chip.id}`"
+              class="active-filter-chip"
+              type="button"
+              @click="clearFilterChip(chip)"
+            >
+              {{ chip.label }} ×
+            </button>
+          </template>
+        </div>
+        <div class="filter-result-count">
+          <strong>{{ visible.length }}</strong> 条结果
+          <button v-if="!allFiltersDefault" type="button" @click="clearFilters">清除筛选</button>
+        </div>
+      </div>
+      <p class="filter-help">同组条件单选；不同组条件按 AND 组合。待处理 / 质量标签可以叠加。</p>
     </nav>
 
     <section class="resource-card">
@@ -466,6 +607,9 @@ onUnmounted(stopRefreshTimer)
         <div class="stack-cell library" data-label="媒体库">
           <strong>{{ item.librarySummary }}</strong>
           <span>{{ item.libraryDetail }}</span>
+          <span v-if="item.episodeStatus === 'incomplete'">
+            缺 {{ item.episodeMissing }} 集 · 已有 {{ item.episodeActual }} / 应有 {{ item.episodeExpected }}
+          </span>
         </div>
 
         <div class="seed-cell" data-label="做种与保护">
@@ -518,6 +662,8 @@ onUnmounted(stopRefreshTimer)
             v-for="(action, mode) in ACTIONS"
             :key="mode"
             :class="['action-level', { delete: mode === 'delete' }]"
+            :disabled="!inventoryCurrent || refreshing"
+            :title="!inventoryCurrent ? '请先刷新资源清单' : action.detail"
             type="button"
             @click="openPlan(mode)"
           >
@@ -593,7 +739,7 @@ onUnmounted(stopRefreshTimer)
           <i>盾</i>
           <p>
             <strong>{{ executionEnabled ? '执行前还需第二次确认' : '执行引擎未启用' }}</strong>
-            <span>最终执行前会重新读取 qB、路径、硬链接和保护状态。</span>
+            <span>最终执行前复核当前清单，执行器只回读所选资源的 qB、路径和硬链接。</span>
           </p>
         </div>
 
@@ -602,6 +748,9 @@ onUnmounted(stopRefreshTimer)
           <span>
             停止 {{ executeResult.qbStopped }} · 退出 {{ executeResult.qbRemoved }} ·
             删除文件入口 {{ executeResult.filesDeleted }} · 清理索引 {{ executeResult.moviepilotIndexesDeleted }}
+          </span>
+          <span v-if="executeResult.snapshotRefreshPending">
+            {{ planMode === 'delete' ? '已从当前列表移除，请刷新资源清单后继续操作。' : '操作已完成，请刷新资源清单后继续操作。' }}
           </span>
           <button type="button" @click="closePlan">完成</button>
         </div>
@@ -616,7 +765,7 @@ onUnmounted(stopRefreshTimer)
               :disabled="executing || planExpired"
               @click="executePlan"
             >
-              {{ executing ? '正在二次复核…' : `确认${currentAction?.title}` }}
+              {{ executing ? '正在定向复核…' : `确认${currentAction?.title}` }}
             </button>
           </div>
         </div>
@@ -665,6 +814,24 @@ onUnmounted(stopRefreshTimer)
               {{ recovering ? '处理中…' : '执行恢复' }}
             </button>
           </div>
+        </section>
+      </div>
+
+      <div v-if="settingsOpen" class="modal-backdrop" @click.self="closeSettings">
+        <section
+          class="modal settings-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="storage-cleanup-settings-title"
+        >
+          <header>
+            <div>
+              <span>清理台配置</span>
+              <h2 id="storage-cleanup-settings-title">设置</h2>
+            </div>
+            <button type="button" aria-label="关闭设置" @click="closeSettings">×</button>
+          </header>
+          <Config :api="props.api" :plugin-id="props.pluginId" />
         </section>
       </div>
     </Teleport>
@@ -765,6 +932,11 @@ button { color: inherit; }
   cursor: pointer;
 }
 .soft-button { padding: 0 14px; }
+.settings-button { border-color: rgba(var(--v-theme-primary, 59, 130, 246), .35); color: var(--primary); font-weight: 750; }
+.onboarding-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border: 1px solid rgba(var(--v-theme-primary, 59, 130, 246), .22); border-radius: 12px; background: var(--primary-soft); }
+.onboarding-card div { display: grid; gap: 4px; }
+.onboarding-card span { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.onboarding-card button { flex: 0 0 auto; padding: 9px 14px; border: 1px solid rgba(var(--v-theme-primary, 59, 130, 246), .35); border-radius: 8px; background: transparent; color: var(--primary); cursor: pointer; font-weight: 700; }
 .icon-button { width: 42px; font-size: 20px; }
 .refresh-feedback {
   flex: 0 0 100%;
@@ -790,17 +962,85 @@ button { color: inherit; }
 .notice b { color: var(--warn); font-size: 13px; }
 .notice.critical { border-color: rgba(196, 75, 71, .25); background: rgba(196, 75, 71, .08); }
 .notice.critical b { color: var(--danger); }
-.filters { display: flex; gap: 6px; margin-bottom: 12px; }
-.filters button {
-  padding: 8px 13px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: transparent;
+.stale-notice { cursor: default; }
+.stale-notice button { flex: 0 0 auto; padding: 8px 12px; border: 1px solid rgba(196, 75, 71, .28); border-radius: 9px; background: var(--surface); color: var(--danger); font-weight: 750; cursor: pointer; }
+.filter-panel {
+  display: grid;
+  gap: 0;
+  margin-bottom: 12px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--primary-soft));
+}
+.filter-row {
+  display: grid;
+  grid-template-columns: 126px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.filter-label {
+  padding-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.filter-label small {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 500;
+  opacity: .8;
+}
+.filter-options { display: flex; flex-wrap: wrap; gap: 7px; }
+.filter-option {
+  min-height: 34px;
+  padding: 6px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
   color: var(--muted);
   cursor: pointer;
+  transition: .15s ease;
 }
-.filters button.active { border-color: var(--line); background: var(--surface); color: var(--ink); font-weight: 750; box-shadow: 0 4px 12px rgba(15, 23, 42, .04); }
-.filters span { margin-left: 5px; padding: 2px 6px; border-radius: 99px; background: rgba(100, 116, 139, .10); font-size: 11px; }
+.filter-option:hover { border-color: var(--primary); color: var(--ink); }
+.filter-option.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 750;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, .04);
+}
+.filter-option.warning.active { border-color: var(--warn); color: var(--warn); background: rgba(184, 107, 17, .08); }
+.filter-option span {
+  display: inline-block;
+  min-width: 20px;
+  margin-left: 5px;
+  padding: 2px 6px;
+  border-radius: 99px;
+  background: rgba(100, 116, 139, .10);
+  font-size: 11px;
+  text-align: center;
+}
+.filter-option.active span { background: color-mix(in srgb, currentColor 14%, transparent); }
+.filter-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; }
+.active-filter-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.filter-caption { color: var(--muted); font-size: 11px; }
+.active-filter-chip {
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 99px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 11px;
+  cursor: pointer;
+}
+.filter-result-count { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.filter-result-count strong { color: var(--ink); font-size: 17px; }
+.filter-result-count button { margin-left: 8px; padding: 0; border: 0; background: transparent; color: var(--primary); font-size: 11px; cursor: pointer; }
+.filter-help { margin: 0; padding: 0 0 10px; color: var(--muted); font-size: 10px; }
 .resource-card { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
 .table-head, .resource-row {
   display: grid;
@@ -874,13 +1114,14 @@ button { color: inherit; }
 .action-buttons { display: contents; }
 .action-level { display: grid; flex: 1; gap: 3px; padding: 10px 14px; border: 1px solid rgba(255, 255, 255, .17); border-radius: 11px; background: rgba(255, 255, 255, .06); color: white; text-align: left; cursor: pointer; }
 .action-level.delete { border-color: rgba(255, 142, 136, .32); background: rgba(196, 75, 71, .28); }
+.action-level:disabled { cursor: not-allowed; opacity: .45; }
 .modal-backdrop {
   position: fixed;
   z-index: 100;
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 28px;
+  padding: 28px 28px 28px calc(28px + 260px);
   background: rgba(15, 23, 42, .55);
   backdrop-filter: blur(6px);
 }
@@ -931,6 +1172,8 @@ button { color: inherit; }
 .error-text { color: var(--danger); font-size: 13px; }
 .execution-result { color: var(--good); background: rgba(22, 131, 107, .08); }
 .compact-modal { width: min(650px, 90vw); }
+.settings-modal { width: min(980px, 94vw); max-height: calc(100dvh - 56px); padding: 20px; }
+.settings-modal :deep(.config-page) { max-width: none; padding: 0; }
 .gap-row, .recovery-row { display: flex; align-items: center; gap: 8px; padding: 11px 4px; border-bottom: 1px solid var(--line); }
 .gap-row p, .recovery-row p { flex: 1; }
 .gap-row span, .recovery-row span { color: var(--muted); font-size: 11px; }
@@ -944,6 +1187,7 @@ button { color: inherit; }
   }
 }
 @media (max-width: 760px) {
+  .modal-backdrop { padding: 16px; }
   .cleanup-app {
     min-width: 0;
     overflow-x: clip;
@@ -969,7 +1213,7 @@ button { color: inherit; }
   }
   .toolbar {
     display: grid;
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
     gap: 8px;
   }
   .search {
@@ -990,18 +1234,18 @@ button { color: inherit; }
   .notice p strong { font-size: 14px; }
   .notice p span { font-size: 11px; }
   .notice b { display: none; }
-  .filters {
-    overflow-x: auto;
+  .filter-panel {
     width: calc(100vw - 24px);
-    padding: 0 0 4px;
-    scrollbar-width: none;
+    padding: 0 10px;
   }
-  .filters::-webkit-scrollbar { display: none; }
-  .filters button {
-    flex: 0 0 auto;
-    padding: 8px 11px;
-    white-space: nowrap;
-  }
+  .filter-row { display: block; padding: 10px 0; }
+  .filter-label { padding: 0 0 7px; }
+  .filter-options { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+  .filter-options::-webkit-scrollbar { display: none; }
+  .filter-option { flex: 0 0 auto; white-space: nowrap; }
+  .filter-footer { align-items: flex-start; flex-direction: column; gap: 6px; padding: 7px 0; }
+  .filter-result-count { width: 100%; }
+  .filter-help { line-height: 1.45; }
   .resource-card {
     overflow: visible;
     border: 0;
