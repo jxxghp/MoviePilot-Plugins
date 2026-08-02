@@ -59,9 +59,18 @@ function getMaskedApiKey(index) {
           <td>{{ row.model }}</td>
           <td>{{ row.token_limit > 0 ? formatTokens(row.token_limit) : '不限' }}</td>
           <td class="text-right">
-            <VBtn icon="mdi-content-copy" size="small" variant="text" @click="emit('duplicate', index)">
-              <VTooltip activator="parent">复制</VTooltip>
-            </VBtn>
+            <VTooltip text="复制">
+              <template #activator="{ props: tooltipProps }">
+                <VBtn
+                  v-bind="tooltipProps"
+                  icon="mdi-content-copy"
+                  size="small"
+                  variant="text"
+                  aria-label="复制"
+                  @click="emit('duplicate', index)"
+                />
+              </template>
+            </VTooltip>
             <VBtn icon="mdi-pencil" size="small" variant="text" @click="emit('edit', index)" />
             <VBtn icon="mdi-delete" size="small" variant="text" color="error" @click="emit('remove', index)" />
           </td>
