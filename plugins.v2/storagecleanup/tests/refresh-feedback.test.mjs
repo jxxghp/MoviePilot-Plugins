@@ -9,7 +9,7 @@ test('refresh feedback starts with a read-only snapshot message', () => {
 })
 
 test('refresh feedback exposes elapsed time during normal checks', () => {
-  assert.equal(refreshFeedback(5), '正在核对 qB、Jellyfin 与 H&R（已等待 5 秒）')
+  assert.equal(refreshFeedback(5), '正在核对媒体目录、qB 与 H&R（已等待 5 秒）')
   assert.match(refreshFeedback(29), /已等待 29 秒/)
 })
 

@@ -2,6 +2,8 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import federation from '@originjs/vite-plugin-federation'
 
+const pluginVersion = '1.0.15'
+
 export default defineConfig({
   plugins: [
     vue(),
@@ -23,7 +25,7 @@ export default defineConfig({
     }),
   ],
   build: {
-    outDir: 'dist/v1.0.7',
+    outDir: `dist/v${pluginVersion}`,
     target: 'esnext',
     minify: false,
     cssCodeSplit: true,

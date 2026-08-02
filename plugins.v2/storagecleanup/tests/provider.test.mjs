@@ -3,9 +3,16 @@ import assert from 'node:assert/strict'
 
 import {
   createLatestPlanApi,
+  createFilterState,
+  FILTER_GROUPS,
   filterResources,
+  filterOptionCount,
+  FILTERS,
   formatGiB,
+  isIncompleteTv,
+  mediaType,
   matchesFilter,
+  matchesFilterState,
   unwrapResponse,
 } from '../src/provider.js'
 
@@ -29,6 +36,11 @@ test('review filter means no seeding task or protection restriction', () => {
   assert.equal(matchesFilter(resources[1], 'review'), false)
 })
 
+test('generic filter list does not expose brush-flow tasks', () => {
+  assert.equal(FILTERS.some(filter => filter.id === 'brush'), false)
+  assert.equal(FILTERS.some(filter => filter.label === '刷流任务'), false)
+})
+
 test('resource filtering supports bilingual search and size order', () => {
   assert.deepEqual(
     filterResources(resources, { filter: 'all', search: 'Back to', safeOnly: false, descending: true }).map(item => item.id),
@@ -38,6 +50,52 @@ test('resource filtering supports bilingual search and size order', () => {
     filterResources(resources, { filter: 'all', search: '', safeOnly: false, descending: true }).map(item => item.id),
     ['safe', 'hr'],
   )
+})
+
+test('media type filters include all TV and retain an incomplete-TV legacy shortcut', () => {
+  const typedResources = [
+    { id: 'movie', title: '电影', type: '电影', library: false, size: 30 },
+    { id: 'tv', title: '完整剧集', type: '电视剧', library: true, edition: 'S01 · 8 集', size: 20 },
+    { id: 'tv-incomplete', title: '缺集剧集', type: '电视剧', library: true, edition: 'S01 · 6 集', episodeExpected: 8, episodeActual: 6, episodeIncomplete: true, size: 10 },
+    { id: 'tv-unimported', title: '未入库剧集', type: '电视剧', library: false, edition: 'S01 · 未入库', size: 5 },
+  ]
+
+  assert.equal(mediaType(typedResources[0]), 'movie')
+  assert.equal(mediaType(typedResources[1]), 'tv')
+  assert.equal(isIncompleteTv(typedResources[2]), true)
+  assert.equal(isIncompleteTv(typedResources[3]), false)
+  assert.equal(isIncompleteTv(typedResources[0]), false)
+  assert.deepEqual(
+    filterResources(typedResources, { filter: 'movie', search: '', safeOnly: false, descending: true }).map(item => item.id),
+    ['movie'],
+  )
+  assert.deepEqual(
+    filterResources(typedResources, { filter: 'tv', search: '', safeOnly: false, descending: true }).map(item => item.id),
+    ['tv', 'tv-incomplete', 'tv-unimported'],
+  )
+  assert.deepEqual(
+    filterResources(typedResources, { filter: 'tv-incomplete', search: '', safeOnly: false, descending: true }).map(item => item.id),
+    ['tv-incomplete'],
+  )
+})
+
+test('grouped filters combine with AND and quality flags can stack', () => {
+  const typedResources = [
+    { id: 'movie', type: '电影', library: true, protected: false, qbSummary: '无 qB 任务', size: 30 },
+    { id: 'complete-tv', type: '电视剧', library: true, metadataVerified: true, protected: false, qbSummary: '1 个 qB 任务', size: 20 },
+    { id: 'incomplete-tv', type: '电视剧', library: false, episodeIncomplete: true, metadataVerified: false, protected: true, hr: true, qbSummary: '1 个 qB 任务', size: 10 },
+  ]
+  const state = { ...createFilterState(), type: 'tv', library: 'not-imported', flags: ['incomplete', 'name-pending'] }
+
+  assert.equal(matchesFilterState(typedResources[2], state), true)
+  assert.equal(matchesFilterState(typedResources[1], state), false)
+  assert.deepEqual(
+    filterResources(typedResources, { filters: state, search: '', safeOnly: false, descending: true }).map(item => item.id),
+    ['incomplete-tv'],
+  )
+  assert.equal(filterOptionCount(typedResources, createFilterState(), 'type', 'tv'), 2)
+  assert.equal(filterOptionCount(typedResources, { ...createFilterState(), type: 'tv' }, 'library', 'not-imported'), 1)
+  assert.equal(FILTER_GROUPS.find(group => group.id === 'flags')?.multi, true)
 })
 
 test('MoviePilot response wrapper is normalized', () => {
