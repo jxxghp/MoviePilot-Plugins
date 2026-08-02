@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, f as formatTokens, P as PROVIDER_TYPE_OPTIONS, d as createProvider, b as buildProviderRows, a as buildProviderSummary, g as getNextProviderPriority, e as duplicateProvider, n as normalizeProvider } from './_plugin-vue_export-helper-CwgBSK_U.js';
 
-const {createElementVNode:_createElementVNode$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$2,createCommentVNode:_createCommentVNode$2,renderList:_renderList$1,Fragment:_Fragment$1,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,withCtx:_withCtx$4,unref:_unref$4,createBlock:_createBlock$4} = await importShared('vue');
+const {createElementVNode:_createElementVNode$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$2,createCommentVNode:_createCommentVNode$2,renderList:_renderList$1,Fragment:_Fragment$1,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,withCtx:_withCtx$4,unref:_unref$4,mergeProps:_mergeProps,createBlock:_createBlock$4} = await importShared('vue');
 
 
 const _hoisted_1$3 = { key: 0 };
@@ -47,8 +47,8 @@ function getMaskedApiKey(index) {
 return (_ctx, _cache) => {
   const _component_VSwitch = _resolveComponent$4("VSwitch");
   const _component_VChip = _resolveComponent$4("VChip");
-  const _component_VTooltip = _resolveComponent$4("VTooltip");
   const _component_VBtn = _resolveComponent$4("VBtn");
+  const _component_VTooltip = _resolveComponent$4("VTooltip");
   const _component_VTable = _resolveComponent$4("VTable");
   const _component_VSheet = _resolveComponent$4("VSheet");
 
@@ -116,22 +116,18 @@ return (_ctx, _cache) => {
                 _createElementVNode$3("td", null, _toDisplayString$4(row.model), 1),
                 _createElementVNode$3("td", null, _toDisplayString$4(row.token_limit > 0 ? _unref$4(formatTokens)(row.token_limit) : '不限'), 1),
                 _createElementVNode$3("td", _hoisted_5$2, [
-                  _createVNode$4(_component_VBtn, {
-                    icon: "mdi-content-copy",
-                    size: "small",
-                    variant: "text",
-                    onClick: $event => (emit('duplicate', index))
-                  }, {
-                    default: _withCtx$4(() => [
-                      _createVNode$4(_component_VTooltip, { activator: "parent" }, {
-                        default: _withCtx$4(() => [...(_cache[8] || (_cache[8] = [
-                          _createTextVNode$4("复制", -1)
-                        ]))]),
-                        _: 1
-                      })
+                  _createVNode$4(_component_VTooltip, { text: "复制" }, {
+                    activator: _withCtx$4(({ props: tooltipProps }) => [
+                      _createVNode$4(_component_VBtn, _mergeProps({ ref_for: true }, tooltipProps, {
+                        icon: "mdi-content-copy",
+                        size: "small",
+                        variant: "text",
+                        "aria-label": "复制",
+                        onClick: $event => (emit('duplicate', index))
+                      }), null, 16, ["onClick"])
                     ]),
-                    _: 1
-                  }, 8, ["onClick"]),
+                    _: 2
+                  }, 1024),
                   _createVNode$4(_component_VBtn, {
                     icon: "mdi-pencil",
                     size: "small",
@@ -167,7 +163,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ProviderConfigTable = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-41ff8fe1"]]);
+const ProviderConfigTable = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-41448444"]]);
 
 const {toDisplayString:_toDisplayString$3,createTextVNode:_createTextVNode$3,resolveComponent:_resolveComponent$3,withCtx:_withCtx$3,createVNode:_createVNode$3,unref:_unref$3,openBlock:_openBlock$3,createBlock:_createBlock$3} = await importShared('vue');
 
