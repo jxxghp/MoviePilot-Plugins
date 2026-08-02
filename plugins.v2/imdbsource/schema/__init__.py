@@ -1,9 +1,9 @@
 from enum import Enum
 from typing import Optional, List, Tuple, Union
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .imdbapi import ImdbApiTitle, ImdbApiEpisode, ImdbApiCredit, ImdbapiImage
+from .imdbapi import ImdbApiTitle, ImdbApiEpisode, ImdbApiCredit, ImdbapiImage, ImdbApiSeason
 from .imdbtypes import ImdbTitle, ImdbName, ImdbImage, ImdbVideo, AkasNode, TitleEdge
 
 
@@ -20,6 +20,12 @@ class StaffPickEntry(BaseModel):
     relatedconst: List[str] = Field(default_factory=list, alias='relatedConst')
     viconst: Optional[str] = None
 
+    @field_validator("relatedconst", mode="before")
+    @classmethod
+    def clean_relatedconst(cls, v):
+        if not v:
+            return []
+        return [x for x in v if x]
 
 class VerticalList(BaseModel):
     titles: List[ImdbTitle] = Field(default_factory=list)
@@ -39,6 +45,7 @@ class ImdbMediaInfo(ImdbApiTitle):
     episodes: List[ImdbApiEpisode] = Field(default_factory=list)
     credits: List[ImdbApiCredit] = Field(default_factory=list)
     images: List[ImdbapiImage] = Field(default_factory=list)
+    seasons: List[ImdbApiSeason] = Field(default_factory=list)
 
     @classmethod
     def from_title(
@@ -47,7 +54,8 @@ class ImdbMediaInfo(ImdbApiTitle):
         akas: Optional[List[AkasNode]] = None,
         episodes: Optional[List[ImdbApiEpisode]] = None,
         api_credits: Optional[List[ImdbApiCredit]] = None,
-        images: Optional[List[ImdbapiImage]] = None
+        images: Optional[List[ImdbapiImage]] = None,
+        seasons: Optional[List[ImdbApiSeason]] = None
     ) -> "ImdbMediaInfo":
         fields = {
             **title.model_dump(exclude_none=True, by_alias=True),
@@ -60,6 +68,8 @@ class ImdbMediaInfo(ImdbApiTitle):
             fields['credits'] = api_credits
         if images is not None:
             fields['images'] = images
+        if seasons is not None:
+            fields["seasons"] = seasons
         return cls(**fields)
 
     def backdrop_path(self) -> str | None:

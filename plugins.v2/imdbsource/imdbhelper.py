@@ -2,7 +2,7 @@ import base64
 from collections import OrderedDict
 from json import JSONDecodeError
 import json
-from typing import Dict, List, Optional, Union, AsyncGenerator
+from typing import Dict, List, Optional, Union, AsyncGenerator, Any
 
 from pydantic import ValidationError
 
@@ -253,6 +253,18 @@ class ImdbHelper:
             if not seasons_dict.get(s):
                 seasons_dict[s] = episode.release_date
         return seasons_dict
+
+    def get_info_by_imdbid(self, imdbid: str) -> ImdbMediaInfo | None:
+        title = self.imdbapi_client.title(imdbid)
+        if not title:
+            return None
+        return ImdbMediaInfo.from_title(title)
+
+    async def async_get_info_by_imdbid(self, imdbid: str) -> ImdbMediaInfo | None:
+        title = await self.imdbapi_client.async_title(imdbid)
+        if not title:
+            return None
+        return ImdbMediaInfo.from_title(title)
 
     def match_by(self, name: str, mtype: MediaType | None = None, year: str | None = None) -> ImdbMediaInfo | None:
         """
@@ -517,7 +529,9 @@ class ImdbHelper:
         credit_list = [credit for credit in self.imdbapi_client.credits_generator(title_id)]
         episodes = [episode for episode in self.imdbapi_client.episodes_generator(title_id)]
         images = [image for image in self.imdbapi_client.images_generator(title_id)]
-        return ImdbMediaInfo.from_title(details, akas=akas, api_credits=credit_list, episodes=episodes, images=images)
+        seasons = self.imdbapi_client.seasons(title_id)
+        return ImdbMediaInfo.from_title(details, akas=akas, api_credits=credit_list, episodes=episodes, images=images,
+                                        seasons=seasons.seasons if seasons else None)
 
     async def async_update_info(self, title_id: str, info: ImdbMediaInfo) -> ImdbMediaInfo:
         details = await self.imdbapi_client.async_title(title_id) or info
@@ -528,10 +542,13 @@ class ImdbHelper:
         credit_list = [credit async for credit in self.imdbapi_client.async_credits_generator(title_id)]
         episodes = [episode async for episode in self.imdbapi_client.async_episodes_generator(title_id)]
         images = [image async for image in self.imdbapi_client.async_images_generator(title_id)]
-        return ImdbMediaInfo.from_title(details, akas=akas, api_credits=credit_list, episodes=episodes, images=images)
+        seasons = await self.imdbapi_client.async_seasons(title_id)
+        return ImdbMediaInfo.from_title(details, akas=akas, api_credits=credit_list, episodes=episodes, images=images,
+                                        seasons=seasons.seasons if seasons else None)
 
     @staticmethod
     def convert_mediainfo(info: ImdbMediaInfo) -> MediaInfo:
+        """将 ImdbMediaInfo 转换为 MediaInfo"""
         mediainfo = MediaInfo()
         mediainfo.source = 'imdb'
         mediainfo.type = ImdbHelper.type_to_mtype(info.type.value)
@@ -547,7 +564,8 @@ class ImdbHelper:
             mediainfo.original_title = info.original_title
         mediainfo.names = [aka.text for aka in info.akas]
         if info.origin_countries:
-            mediainfo.origin_country = [origin_country.code for origin_country in info.origin_countries]
+            mediainfo.origin_country = [origin_country.code for origin_country in info.origin_countries if origin_country.code]
+            mediainfo.production_countries = [{"name": origin_country.name} for origin_country in info.origin_countries if origin_country.name]
         if info.primary_image and info.primary_image.url:
             mediainfo.poster_path = info.primary_image.url
         if info.images:
@@ -568,8 +586,17 @@ class ImdbHelper:
         if vote:
             mediainfo.vote_average = round(float(vote), 1)
         season_years: Dict[int, int] = {}
+
         if mediainfo.type == MediaType.TV:
-            for episode in info.episodes:
+            season_info: dict[str, dict[str, Any]] = {
+                s.season: {
+                    "season_number": int(s.season) if StringUtils.is_number(s.season) else None,
+                    "episode_count": s.episode_count,
+                    "name": s.season
+                }
+                for s in (info.seasons or []) if s and s.season
+            }
+            for episode in (info.episodes or []):
                 ep_season = episode.season
                 if ep_season is None:
                     continue
@@ -579,9 +606,13 @@ class ImdbHelper:
                         season_years[season] = episode.release_date.year
                     else:
                         season_years[season] = 0
-                mediainfo.seasons.setdefault(season, []).append(episode)
+                if episode.season in season_info:
+                    season_info[episode.season]['season_number'] = season
+                mediainfo.seasons.setdefault(season, []).append(episode.episode_number)
                 mediainfo.season_years[season] = season_years[season]
-
+            mediainfo.season_info = list(season_info.values())
+            mediainfo.number_of_seasons = len(info.seasons or [])
+            mediainfo.number_of_episodes = len(info.episodes or [])
         return mediainfo
 
     @staticmethod
