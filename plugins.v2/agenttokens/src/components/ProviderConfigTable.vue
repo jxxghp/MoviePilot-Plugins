@@ -16,7 +16,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['edit', 'remove'])
+const emit = defineEmits(['duplicate', 'edit', 'remove'])
 
 // 获取管理页服务端返回的脱敏 Key。
 function getMaskedApiKey(index) {
@@ -59,6 +59,9 @@ function getMaskedApiKey(index) {
           <td>{{ row.model }}</td>
           <td>{{ row.token_limit > 0 ? formatTokens(row.token_limit) : '不限' }}</td>
           <td class="text-right">
+            <VBtn icon="mdi-content-copy" size="small" variant="text" @click="emit('duplicate', index)">
+              <VTooltip activator="parent">复制</VTooltip>
+            </VBtn>
             <VBtn icon="mdi-pencil" size="small" variant="text" @click="emit('edit', index)" />
             <VBtn icon="mdi-delete" size="small" variant="text" color="error" @click="emit('remove', index)" />
           </td>

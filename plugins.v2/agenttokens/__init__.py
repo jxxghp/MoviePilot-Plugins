@@ -22,9 +22,9 @@ class AgentTokens(_PluginBase):
     """
 
     plugin_name = "Agent Tokens 管理"
-    plugin_desc = "管理多平台免费 Token 配额，按优先级自动切换 Agent LLM 供应商。"
+    plugin_desc = "管理多平台免费 Token 配额，支持定向选择及按优先级切换 Agent LLM 供应商。"
     plugin_icon = "agentresourceofficer.png"
-    plugin_version = "1.0.13"
+    plugin_version = "1.1.0"
     plugin_author = "jxxghp"
     author_url = "https://github.com/jxxghp"
     plugin_config_prefix = "agenttokens_"
@@ -192,6 +192,43 @@ class AgentTokens(_PluginBase):
             event_data[key] = value
         else:
             setattr(event_data, key, value)
+
+    @classmethod
+    def _event_metadata(cls, event_data: Any) -> Dict[str, Any]:
+        """
+        读取事件扩展元数据并返回可安全修改的副本。
+        """
+        metadata = cls._event_get(event_data, "metadata", {})
+        return dict(metadata) if isinstance(metadata, dict) else {}
+
+    @staticmethod
+    def _to_bool(value: Any) -> bool:
+        """
+        将事件中的布尔值兼容转换为 bool，避免字符串 false 被视为真值。
+        """
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @classmethod
+    def _requested_provider_id(cls, event_data: Any, metadata: Dict[str, Any]) -> str:
+        """
+        从显式事件字段或扩展元数据中读取调用方指定的供应商 ID。
+        """
+        return cls._clean_text(
+            cls._event_get(event_data, "requested_provider_id")
+            or metadata.get("requested_provider_id")
+        )
+
+    @classmethod
+    def _allow_provider_failover(cls, event_data: Any, metadata: Dict[str, Any]) -> bool:
+        """
+        读取调用方是否允许指定供应商不可用时自动回退。
+        """
+        direct_value = cls._event_get(event_data, "allow_failover")
+        if direct_value is not None:
+            return cls._to_bool(direct_value)
+        return cls._to_bool(metadata.get("allow_failover"))
 
     @classmethod
     def _normalize_provider(cls, provider: dict, index: int) -> dict:
@@ -362,21 +399,63 @@ class AgentTokens(_PluginBase):
             "limited_usage_percent": limited_usage_percent,
         }
 
-    def _select_provider(self) -> Optional[dict]:
+    def _find_provider(self, provider_id: str) -> Optional[dict]:
         """
-        按优先级选择第一个启用且未耗尽 token 配额的供应商。
+        按稳定 ID 查找供应商配置。
+        """
+        return next(
+            (
+                provider
+                for provider in getattr(self, "_providers", [])
+                if provider.get("id") == provider_id
+            ),
+            None,
+        )
+
+    def _provider_unavailable_reason(
+        self,
+        provider: Optional[dict],
+        usage: Dict[str, dict],
+    ) -> Optional[str]:
+        """
+        校验供应商启用状态、连接配置和剩余额度，返回不可用原因。
+        """
+        if not provider:
+            return "供应商不存在"
+        if not provider.get("enabled"):
+            return "供应商已停用"
+        if not provider.get("base_url"):
+            return "供应商缺少 API 地址"
+        if not provider.get("api_key"):
+            return "供应商缺少 API Key"
+        if not provider.get("model"):
+            return "供应商缺少模型"
+        if self._provider_usage(provider, usage)["exhausted"]:
+            return "供应商 Token 额度已耗尽"
+        return None
+
+    def _select_provider(
+        self,
+        requested_provider_id: str = "",
+        allow_failover: bool = False,
+    ) -> Tuple[Optional[dict], Optional[str]]:
+        """
+        优先选择调用方指定供应商；允许回退时再按优先级选择其他可用项。
         """
         usage = self._load_usage()
+        requested_error = None
+        if requested_provider_id:
+            requested_provider = self._find_provider(requested_provider_id)
+            requested_error = self._provider_unavailable_reason(requested_provider, usage)
+            if not requested_error:
+                return requested_provider, None
+            if not allow_failover:
+                return None, requested_error
+
         for provider in getattr(self, "_providers", []):
-            if not provider.get("enabled"):
-                continue
-            if not provider.get("api_key") or not provider.get("model") or not provider.get("base_url"):
-                continue
-            provider_usage = self._provider_usage(provider, usage)
-            if provider_usage["exhausted"]:
-                continue
-            return provider
-        return None
+            if not self._provider_unavailable_reason(provider, usage):
+                return provider, requested_error
+        return None, requested_error
 
     def get_status(self) -> schemas.Response:
         """
@@ -430,20 +509,50 @@ class AgentTokens(_PluginBase):
     @eventmanager.register(ChainEventType.AgentLLMProvider, priority=50)
     def select_llm_provider(self, event: Event):
         """
-        响应 Agent LLM 供应商链式事件，写入当前可用供应商配置。
+        响应 Agent LLM 供应商链式事件，按定向或自动模式写入可用供应商配置。
         """
         if not self.get_state() or not event or not event.event_data:
             return
         if self._event_get(event.event_data, "selected_provider_id"):
             return
 
-        provider = self._select_provider()
+        metadata = self._event_metadata(event.event_data)
+        requested_provider_id = self._requested_provider_id(event.event_data, metadata)
+        allow_failover = self._allow_provider_failover(event.event_data, metadata)
+        provider, requested_error = self._select_provider(
+            requested_provider_id=requested_provider_id,
+            allow_failover=allow_failover,
+        )
         if not provider:
-            logger.info("Agent Tokens 没有可用供应商，Agent 将使用系统 LLM 配置")
+            metadata["provider_selection_status"] = "unavailable"
+            metadata["provider_selection_error"] = requested_error or "没有可用供应商"
+            if requested_provider_id:
+                metadata["requested_provider_id"] = requested_provider_id
+                logger.warning(
+                    f"Agent Tokens 指定供应商 [{requested_provider_id}] 不可用："
+                    f"{metadata['provider_selection_error']}"
+                )
+            else:
+                logger.info("Agent Tokens 没有可用供应商，Agent 将使用系统 LLM 配置")
+            self._event_set(event.event_data, "metadata", metadata)
             return
 
         provider_name = provider.get("name")
         model = provider.get("model")
+        if requested_provider_id:
+            metadata["requested_provider_id"] = requested_provider_id
+            if requested_error:
+                metadata["provider_selection_status"] = "fallback"
+                metadata["requested_provider_error"] = requested_error
+                logger.warning(
+                    f"Agent Tokens 指定供应商 [{requested_provider_id}] 不可用：{requested_error}，"
+                    f"已回退到 [{provider_name}]"
+                )
+            else:
+                metadata["provider_selection_status"] = "selected"
+        else:
+            metadata["provider_selection_status"] = "automatic"
+        metadata.pop("provider_selection_error", None)
         logger.info(f"Agent Tokens 分配 LLM 供应商：[{provider_name}] 模型：[{model}]")
 
         self._event_set(event.event_data, "provider", provider.get("provider") or "openai")
@@ -456,6 +565,7 @@ class AgentTokens(_PluginBase):
         self._event_set(event.event_data, "selected_provider_id", provider.get("id"))
         self._event_set(event.event_data, "selected_provider_name", provider.get("name"))
         self._event_set(event.event_data, "source", self.__class__.__name__)
+        self._event_set(event.event_data, "metadata", metadata)
 
     @eventmanager.register(EventType.AgentTokensUsage)
     def record_tokens_usage(self, event: Event):

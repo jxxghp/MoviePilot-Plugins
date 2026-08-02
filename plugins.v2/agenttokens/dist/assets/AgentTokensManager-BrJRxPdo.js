@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, f as formatTokens, P as PROVIDER_TYPE_OPTIONS, d as createProvider, b as buildProviderRows, a as buildProviderSummary, g as getNextProviderPriority, n as normalizeProvider } from './_plugin-vue_export-helper-hPgBDeLJ.js';
+import { _ as _export_sfc, f as formatTokens, P as PROVIDER_TYPE_OPTIONS, d as createProvider, b as buildProviderRows, a as buildProviderSummary, g as getNextProviderPriority, e as duplicateProvider, n as normalizeProvider } from './_plugin-vue_export-helper-CwgBSK_U.js';
 
 const {createElementVNode:_createElementVNode$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$2,createCommentVNode:_createCommentVNode$2,renderList:_renderList$1,Fragment:_Fragment$1,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,withCtx:_withCtx$4,unref:_unref$4,createBlock:_createBlock$4} = await importShared('vue');
 
@@ -32,7 +32,7 @@ const _sfc_main$4 = {
     default: false,
   },
 },
-  emits: ['edit', 'remove'],
+  emits: ['duplicate', 'edit', 'remove'],
   setup(__props, { emit: __emit }) {
 
 const props = __props;
@@ -47,6 +47,7 @@ function getMaskedApiKey(index) {
 return (_ctx, _cache) => {
   const _component_VSwitch = _resolveComponent$4("VSwitch");
   const _component_VChip = _resolveComponent$4("VChip");
+  const _component_VTooltip = _resolveComponent$4("VTooltip");
   const _component_VBtn = _resolveComponent$4("VBtn");
   const _component_VTable = _resolveComponent$4("VTable");
   const _component_VSheet = _resolveComponent$4("VSheet");
@@ -116,6 +117,22 @@ return (_ctx, _cache) => {
                 _createElementVNode$3("td", null, _toDisplayString$4(row.token_limit > 0 ? _unref$4(formatTokens)(row.token_limit) : '不限'), 1),
                 _createElementVNode$3("td", _hoisted_5$2, [
                   _createVNode$4(_component_VBtn, {
+                    icon: "mdi-content-copy",
+                    size: "small",
+                    variant: "text",
+                    onClick: $event => (emit('duplicate', index))
+                  }, {
+                    default: _withCtx$4(() => [
+                      _createVNode$4(_component_VTooltip, { activator: "parent" }, {
+                        default: _withCtx$4(() => [...(_cache[8] || (_cache[8] = [
+                          _createTextVNode$4("复制", -1)
+                        ]))]),
+                        _: 1
+                      })
+                    ]),
+                    _: 1
+                  }, 8, ["onClick"]),
+                  _createVNode$4(_component_VBtn, {
                     icon: "mdi-pencil",
                     size: "small",
                     variant: "text",
@@ -150,7 +167,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ProviderConfigTable = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-cd4337d8"]]);
+const ProviderConfigTable = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-41ff8fe1"]]);
 
 const {toDisplayString:_toDisplayString$3,createTextVNode:_createTextVNode$3,resolveComponent:_resolveComponent$3,withCtx:_withCtx$3,createVNode:_createVNode$3,unref:_unref$3,openBlock:_openBlock$3,createBlock:_createBlock$3} = await importShared('vue');
 
@@ -724,6 +741,13 @@ function editProvider(index) {
   showEditor.value = true;
 }
 
+// 复制供应商配置并以新增模式打开编辑弹窗。
+function copyProvider(index) {
+  editedProvider.value = duplicateProvider(providers.value[index]);
+  editorIndex.value = -1;
+  showEditor.value = true;
+}
+
 // 将弹窗中的供应商写回配置列表。
 function commitProvider() {
   const nextProviders = [...providers.value];
@@ -963,6 +987,7 @@ return (_ctx, _cache) => {
                   providers: providers.value,
                   "provider-rows": displayProviderRows.value,
                   "show-credentials": "",
+                  onDuplicate: copyProvider,
                   onEdit: editProvider,
                   onRemove: removeProvider
                 }, null, 8, ["providers", "provider-rows"])
@@ -987,6 +1012,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AgentTokensManager = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0ad3e3fe"]]);
+const AgentTokensManager = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1f84ec00"]]);
 
 export { AgentTokensManager as A };

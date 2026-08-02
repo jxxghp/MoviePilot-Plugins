@@ -8,6 +8,7 @@ import {
   buildProviderRows,
   buildProviderSummary,
   createProvider,
+  duplicateProvider,
   formatTokens,
   getNextProviderPriority,
   normalizeProvider,
@@ -73,6 +74,13 @@ function addProvider() {
 function editProvider(index) {
   editedProvider.value = { ...providers.value[index] }
   editorIndex.value = index
+  showEditor.value = true
+}
+
+// 复制供应商配置并以新增模式打开编辑弹窗。
+function copyProvider(index) {
+  editedProvider.value = duplicateProvider(providers.value[index])
+  editorIndex.value = -1
   showEditor.value = true
 }
 
@@ -185,6 +193,7 @@ function resetAllUsage() {
             :providers="providers"
             :provider-rows="displayProviderRows"
             show-credentials
+            @duplicate="copyProvider"
             @edit="editProvider"
             @remove="removeProvider"
           />

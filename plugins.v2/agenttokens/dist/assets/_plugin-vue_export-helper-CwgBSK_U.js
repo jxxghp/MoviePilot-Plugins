@@ -24,6 +24,23 @@ function createProvider() {
   }
 }
 
+// 生成前端临时稳定 ID，保存后继续由服务端标准化并持久化。
+function createProviderId() {
+  const randomUuid = globalThis.crypto?.randomUUID?.();
+  if (randomUuid) return randomUuid.replaceAll('-', '')
+  return `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`
+}
+
+// 复制供应商连接配置，同时清空用量并生成独立 ID。
+function duplicateProvider(provider) {
+  return {
+    ...provider,
+    id: createProviderId(),
+    name: provider?.name ? `${provider.name} 副本` : '',
+    used_tokens: 0,
+  }
+}
+
 // 生成深拷贝配置，避免直接修改父组件传入对象。
 function cloneConfig(config) {
   return JSON.parse(JSON.stringify(config || { enabled: false, show_sidebar_nav: true, providers: [] }))
@@ -123,4 +140,4 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-export { PROVIDER_TYPE_OPTIONS as P, _export_sfc as _, buildProviderSummary as a, buildProviderRows as b, cloneConfig as c, createProvider as d, formatTokens as f, getNextProviderPriority as g, normalizeProvider as n, unwrapResponse as u };
+export { PROVIDER_TYPE_OPTIONS as P, _export_sfc as _, buildProviderSummary as a, buildProviderRows as b, cloneConfig as c, createProvider as d, duplicateProvider as e, formatTokens as f, getNextProviderPriority as g, normalizeProvider as n, unwrapResponse as u };
