@@ -162,6 +162,34 @@ async function saveTask() {
                   </VCol>
                 </VRow>
               </section>
+
+              <section class="editor-section">
+                <header class="editor-section__head">
+                  <div>
+                    <div class="text-subtitle-1 font-weight-medium">站点分享率控制</div>
+                    <div class="text-body-2 text-medium-emphasis">根据最新站点统计自动等待或恢复刷流</div>
+                  </div>
+                </header>
+                <VSwitch
+                  v-model="localTask.site_ratio_control"
+                  label="启用站点分享率控制"
+                  color="primary"
+                  hide-details
+                  inset
+                />
+                <VRow v-if="localTask.site_ratio_control">
+                  <VCol cols="12" md="6">
+                    <VTextField
+                      v-model.number="localTask.site_ratio_target"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      label="目标分享率"
+                      :rules="[value => Number(value) > 0 || '请输入大于 0 的目标分享率']"
+                    />
+                  </VCol>
+                </VRow>
+              </section>
             </VWindowItem>
 
             <VWindowItem value="selection">
@@ -369,6 +397,7 @@ async function saveTask() {
               <div><dt>刷新</dt><dd>{{ scheduleText }}</dd></div>
               <div><dt>检查</dt><dd>每 {{ localTask.check_interval || 5 }} 分钟</dd></div>
               <div><dt>时段</dt><dd>{{ localTask.active_time_range || '全天' }}</dd></div>
+              <div><dt>目标分享率</dt><dd>{{ localTask.site_ratio_control ? localTask.site_ratio_target || '未设置' : '关闭' }}</dd></div>
               <div><dt>促销</dt><dd>{{ localTask.freeleech === '2xfree' ? '2X 免费' : localTask.freeleech === 'free' ? '免费' : '全部' }}</dd></div>
               <div><dt>保种上限</dt><dd>{{ localTask.disksize ? `${localTask.disksize} GB` : '不限' }}</dd></div>
               <div><dt>删除</dt><dd>{{ localTask.proxy_delete ? '动态删种' : '按条件删除' }}</dd></div>

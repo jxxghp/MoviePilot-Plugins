@@ -2,7 +2,7 @@ import re
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def _normalize_optional_positive_number(value):
@@ -32,6 +32,8 @@ class BrushTaskPayload(BaseModel):
     check_interval: int = Field(5, ge=1, le=1440)
     cron: Optional[str] = None
     active_time_range: Optional[str] = None
+    site_ratio_control: bool = False
+    site_ratio_target: Optional[float] = Field(None, gt=0)
     disksize: Optional[float] = Field(None, gt=0)
     maxupspeed: Optional[float] = Field(None, gt=0)
     maxdlspeed: Optional[float] = Field(None, gt=0)
@@ -70,6 +72,7 @@ class BrushTaskPayload(BaseModel):
         "maxupspeed",
         "maxdlspeed",
         "maxdlcount",
+        "site_ratio_target",
         "seed_time",
         "hr_seed_time",
         "seed_ratio",
@@ -146,6 +149,13 @@ class BrushTaskPayload(BaseModel):
         if value:
             re.compile(value)
         return value
+
+    @model_validator(mode="after")
+    def validate_site_ratio_control(self):
+        """启用站点分享率控制时要求同时配置有效目标值。"""
+        if self.site_ratio_control and self.site_ratio_target is None:
+            raise ValueError("启用站点分享率控制时必须设置目标分享率")
+        return self
 
 
 class BrushTaskStatePayload(BaseModel):
