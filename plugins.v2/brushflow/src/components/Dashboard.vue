@@ -45,7 +45,7 @@ onUnmounted(() => {
 <template>
   <div class="brushflow-dashboard">
     <div class="brushflow-dashboard__metrics">
-      <div><span>运行任务</span><strong>{{ status.summary.enabled_count || 0 }} / {{ status.summary.task_count || 0 }}</strong></div>
+      <div><span>运行任务</span><strong>{{ status.summary.running_count ?? status.summary.enabled_count ?? 0 }} / {{ status.summary.task_count || 0 }}</strong></div>
       <div><span>活跃种子</span><strong>{{ status.summary.active_count || 0 }}</strong></div>
       <div><span>累计上传</span><strong>{{ formatBytes(status.summary.uploaded) }}</strong></div>
       <div><span>当前做种</span><strong>{{ formatBytes(status.summary.seeding_size) }}</strong></div>

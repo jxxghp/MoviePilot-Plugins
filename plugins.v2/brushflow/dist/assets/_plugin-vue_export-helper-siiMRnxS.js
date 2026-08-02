@@ -9,6 +9,8 @@ const taskDefaults = {
   check_interval: 5,
   cron: null,
   active_time_range: null,
+  site_ratio_control: false,
+  site_ratio_target: null,
   disksize: null,
   maxupspeed: null,
   maxdlspeed: null,
@@ -65,6 +67,7 @@ function normalizeTask(task) {
     'maxupspeed',
     'maxdlspeed',
     'maxdlcount',
+    'site_ratio_target',
     'seed_time',
     'hr_seed_time',
     'seed_ratio',
@@ -152,6 +155,8 @@ function taskStateMeta(state) {
     check: { text: '正在检查', color: 'info', icon: 'mdi-progress-check' },
     paused: { text: '已暂停', color: 'secondary', icon: 'mdi-pause-circle-outline' },
     waiting: { text: '等待时段', color: 'warning', icon: 'mdi-clock-outline' },
+    waiting_ratio: { text: '待刷流', color: 'warning', icon: 'mdi-target' },
+    ratio_unavailable: { text: '等待数据', color: 'info', icon: 'mdi-database-clock-outline' },
     disabled: { text: '插件停用', color: 'secondary', icon: 'mdi-stop-circle-outline' },
     error: { text: '运行异常', color: 'error', icon: 'mdi-alert-circle-outline' },
   };
@@ -173,4 +178,4 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-export { _export_sfc as _, formatDateTime as a, formatDuration as b, cloneTask as c, torrentProgress as d, normalizeSettings as e, formatBytes as f, normalizeTask as n, taskStateMeta as t, unwrapResponse as u };
+export { _export_sfc as _, formatDateTime as a, formatDuration as b, cloneTask as c, normalizeTask as d, torrentProgress as e, formatBytes as f, normalizeSettings as n, taskStateMeta as t, unwrapResponse as u };

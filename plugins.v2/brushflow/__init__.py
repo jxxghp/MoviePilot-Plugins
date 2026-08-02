@@ -47,6 +47,8 @@ TASK_CONFIG_FIELDS = (
     "check_interval",
     "cron",
     "active_time_range",
+    "site_ratio_control",
+    "site_ratio_target",
     "disksize",
     "maxupspeed",
     "maxdlspeed",
@@ -131,6 +133,8 @@ class BrushTaskConfig:
         self.check_interval = max(int(self._parse_number(config.get("check_interval")) or 5), 1)
         self.cron = self._clean_text(config.get("cron"))
         self.active_time_range = self._clean_text(config.get("active_time_range"))
+        self.site_ratio_control = bool(config.get("site_ratio_control", False))
+        self.site_ratio_target = self._parse_number(config.get("site_ratio_target"))
         self.disksize = self._parse_number(config.get("disksize"))
         self.maxupspeed = self._parse_number(config.get("maxupspeed"))
         self.maxdlspeed = self._parse_number(config.get("maxdlspeed"))
@@ -203,7 +207,7 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流"
     plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "5.0.2"
+    plugin_version = "5.1.0"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -893,10 +897,21 @@ class BrushFlow(_PluginBase):
 
     def _build_status_data(self) -> Dict[str, Any]:
         """组装工作台总览、任务摘要和可选站点下载器"""
-        task_rows = [self._task_summary(task_id) for task_id in self._task_configs]
+        site_user_data = (
+            self._latest_site_user_data_by_domain()
+            if any(task.site_ratio_control for task in self._task_configs.values())
+            else {}
+        )
+        task_rows = [
+            self._task_summary(task_id, site_user_data_by_domain=site_user_data)
+            for task_id in self._task_configs
+        ]
         aggregate = {
             "task_count": len(task_rows),
             "enabled_count": sum(1 for row in task_rows if row.get("enabled")),
+            "running_count": sum(
+                1 for row in task_rows if row.get("state") in {"running", "brush", "check"}
+            ),
             "active_count": sum(row.get("statistic", {}).get("active", 0) for row in task_rows),
             "uploaded": sum(row.get("statistic", {}).get("uploaded", 0) for row in task_rows),
             "downloaded": sum(row.get("statistic", {}).get("downloaded", 0) for row in task_rows),
@@ -920,7 +935,11 @@ class BrushFlow(_PluginBase):
             "options": {"sites": site_options, "downloaders": downloader_options},
         }
 
-    def _task_summary(self, task_id: str) -> Dict[str, Any]:
+    def _task_summary(
+        self,
+        task_id: str,
+        site_user_data_by_domain: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """组装单个任务在左侧任务列表和仪表板中的摘要"""
         task = self._task_configs.get(task_id)
         if not task:
@@ -929,12 +948,17 @@ class BrushFlow(_PluginBase):
         torrents = self._get_task_data(task_id, "torrents") or {}
         history = self._get_task_data(task_id, "runs") or []
         runtime = dict(self._runtime.get(task_id, {}))
+        site_ratio = self._build_site_ratio_status(task, site_user_data_by_domain)
         if not self.get_state():
             display_state = "disabled"
         elif not task.enabled:
             display_state = "paused"
         elif runtime.get("state") in {"queued", "running"}:
             display_state = runtime.get("operation") or "running"
+        elif site_ratio["enabled"] and not site_ratio["available"]:
+            display_state = "ratio_unavailable"
+        elif site_ratio["reached"]:
+            display_state = "waiting_ratio"
         elif not self._is_current_time_in_range(task):
             display_state = "waiting"
         elif runtime.get("last_error"):
@@ -959,7 +983,84 @@ class BrushFlow(_PluginBase):
             "last_run": history[0] if history else None,
             "statistic": statistic,
             "seeding_size": self.__calculate_seeding_torrents_size(torrents),
+            "site_ratio": site_ratio,
         }
+
+    @staticmethod
+    def _latest_site_user_data_by_domain() -> Dict[str, Any]:
+        """按标准化域名索引各站点最新一条有效用户统计。"""
+        result: Dict[str, Any] = {}
+        for row in SiteOper().get_userdata_latest() or []:
+            domain = StringUtils.get_url_domain(getattr(row, "domain", None))
+            if domain and domain not in result:
+                result[domain] = row
+        return result
+
+    def _build_site_ratio_status(
+        self,
+        task: BrushTaskConfig,
+        site_user_data_by_domain: Optional[Dict[str, Any]] = None,
+        site: Any = None,
+    ) -> Dict[str, Any]:
+        """组装任务绑定站点的当前分享率、目标值和控制状态。"""
+        status = {
+            "enabled": bool(task.site_ratio_control),
+            "target": task.site_ratio_target,
+            "current": None,
+            "available": False,
+            "unlimited": False,
+            "reached": False,
+            "updated_at": None,
+        }
+        if not task.site_ratio_control or not task.site_ratio_target:
+            return status
+        site = site or SiteOper().get(task.site_id)
+        if not site:
+            return status
+        if site_user_data_by_domain is None:
+            site_user_data_by_domain = self._latest_site_user_data_by_domain()
+        domain = StringUtils.get_url_domain(getattr(site, "domain", None))
+        user_data = site_user_data_by_domain.get(domain)
+        if not user_data:
+            return status
+        ratio = BrushTaskConfig._parse_number(getattr(user_data, "ratio", None))
+        if ratio is None:
+            return status
+        upload = BrushTaskConfig._parse_number(getattr(user_data, "upload", None)) or 0
+        download = BrushTaskConfig._parse_number(getattr(user_data, "download", None)) or 0
+        unlimited = float(ratio) == 0 and float(upload) > 0 and float(download) <= 0
+        updated_day = getattr(user_data, "updated_day", None)
+        updated_time = getattr(user_data, "updated_time", None)
+        status.update(
+            {
+                "current": None if unlimited else float(ratio),
+                "available": True,
+                "unlimited": unlimited,
+                "reached": unlimited or float(ratio) >= float(task.site_ratio_target),
+                "updated_at": " ".join(value for value in (updated_day, updated_time) if value) or None,
+            }
+        )
+        return status
+
+    def _evaluate_site_ratio_control(
+        self,
+        task: BrushTaskConfig,
+        site: Any = None,
+    ) -> Tuple[bool, Optional[str], Dict[str, Any]]:
+        """判断站点分享率是否允许当前任务继续新增种子。"""
+        status = self._build_site_ratio_status(task, site=site)
+        if not status["enabled"]:
+            return True, None, status
+        if not status["available"]:
+            return False, "暂无站点分享率统计，等待数据更新", status
+        if status["reached"]:
+            current = "无限" if status["unlimited"] else f"{status['current']:.2f}"
+            return (
+                False,
+                f"站点分享率 {current}，已达到目标 {float(status['target']):.2f}",
+                status,
+            )
+        return True, None, status
 
     def _build_task_detail(
         self,
@@ -1048,6 +1149,17 @@ class BrushFlow(_PluginBase):
             report["result"] = "outside_active_time"
             report["reason_counts"]["不在开启时间段"] = 1
             return
+        site = SiteOper().get(task.site_id)
+        if not site:
+            report["result"] = "site_missing"
+            return
+        ratio_passed, ratio_reason, ratio_status = self._evaluate_site_ratio_control(task, site=site)
+        if ratio_status["enabled"]:
+            report["site_ratio"] = ratio_status
+        if not ratio_passed:
+            report["result"] = "site_ratio_blocked"
+            report["reason_counts"][ratio_reason] = 1
+            return
         torrent_tasks: Dict[str, dict] = self._current_task_data("torrents", {})
         seeding_size = self.__calculate_seeding_torrents_size(torrent_tasks)
         global_seeding_size = self._calculate_global_seeding_size(task.id, torrent_tasks)
@@ -1063,10 +1175,6 @@ class BrushFlow(_PluginBase):
         if not passed:
             report["result"] = "precondition_blocked"
             report["reason_counts"][reason] = 1
-            return
-        site = SiteOper().get(task.site_id)
-        if not site:
-            report["result"] = "site_missing"
             return
         all_torrent_tasks = self._load_all_torrent_tasks()
         subscribe_titles = self.__get_subscribe_titles()

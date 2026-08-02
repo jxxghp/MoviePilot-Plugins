@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, f as formatBytes, t as taskStateMeta, u as unwrapResponse } from './_plugin-vue_export-helper-C4PrwzwL.js';
+import { _ as _export_sfc, f as formatBytes, t as taskStateMeta, u as unwrapResponse } from './_plugin-vue_export-helper-siiMRnxS.js';
 
 const {createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,unref:_unref,resolveComponent:_resolveComponent,createVNode:_createVNode,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createTextVNode:_createTextVNode,createCommentVNode:_createCommentVNode,createBlock:_createBlock} = await importShared('vue');
 
@@ -68,7 +68,7 @@ return (_ctx, _cache) => {
     _createElementVNode("div", _hoisted_2, [
       _createElementVNode("div", null, [
         _cache[0] || (_cache[0] = _createElementVNode("span", null, "运行任务", -1)),
-        _createElementVNode("strong", null, _toDisplayString(status.value.summary.enabled_count || 0) + " / " + _toDisplayString(status.value.summary.task_count || 0), 1)
+        _createElementVNode("strong", null, _toDisplayString(status.value.summary.running_count ?? status.value.summary.enabled_count ?? 0) + " / " + _toDisplayString(status.value.summary.task_count || 0), 1)
       ]),
       _createElementVNode("div", null, [
         _cache[1] || (_cache[1] = _createElementVNode("span", null, "活跃种子", -1)),
@@ -121,6 +121,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5f0f8291"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ae31c45e"]]);
 
 export { Dashboard as default };

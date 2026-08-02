@@ -4,6 +4,8 @@ import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from brushflow import BrushFlow, BrushTaskConfig
 from brushflow.models import BrushFlowSettingsPayload, BrushTaskPayload
 
@@ -81,6 +83,106 @@ def test_services_are_registered_per_task():
     assert len(services) == 4
     assert len({service["id"] for service in services}) == 4
     assert {service["func_kwargs"]["task_id"] for service in services} == {"task-a", "task-b"}
+
+
+def test_site_ratio_control_requires_target():
+    """开启站点分享率控制但未设置目标时，请求模型应拒绝保存。"""
+    with pytest.raises(ValueError, match="目标分享率"):
+        BrushTaskPayload(
+            name="A 站",
+            site_id=1,
+            downloader="主下载器",
+            site_ratio_control=True,
+        )
+
+
+def test_site_ratio_control_blocks_at_target_and_keeps_task_enabled():
+    """站点分享率达到目标时应暂停新增种子，但不能关闭任务调度。"""
+    task = BrushTaskConfig(
+        {
+            **_make_task("task-a").to_dict(),
+            "site_ratio_control": True,
+            "site_ratio_target": 2.5,
+        }
+    )
+    plugin = _make_runtime_plugin(task)
+    plugin._get_task_data = MagicMock(return_value={})
+    site = SimpleNamespace(id=1, name="A 站", domain="tracker.example.com", public=False)
+    user_data = SimpleNamespace(
+        domain="example.com",
+        ratio=2.5,
+        upload=250,
+        download=100,
+        updated_day="2026-08-02",
+        updated_time="12:00:00",
+    )
+
+    with patch("brushflow.SiteOper") as site_oper:
+        site_oper.return_value.get.return_value = site
+        site_oper.return_value.get_userdata_latest.return_value = [user_data]
+        passed, reason, status = plugin._evaluate_site_ratio_control(task, site=site)
+        summary = plugin._task_summary(task.id)
+
+    assert passed is False
+    assert "已达到目标" in reason
+    assert status["current"] == 2.5
+    assert status["reached"] is True
+    assert task.enabled is True
+    assert summary["state"] == "waiting_ratio"
+    assert len(plugin.get_service()) == 2
+
+
+def test_site_ratio_control_allows_brushing_below_target():
+    """站点分享率低于目标时应允许任务继续新增种子。"""
+    task = BrushTaskConfig(
+        {
+            **_make_task("task-a").to_dict(),
+            "site_ratio_control": True,
+            "site_ratio_target": 3,
+        }
+    )
+    plugin = _make_runtime_plugin(task)
+    site = SimpleNamespace(id=1, name="A 站", domain="example.com", public=False)
+    user_data = SimpleNamespace(
+        domain="example.com",
+        ratio=2.99,
+        upload=299,
+        download=100,
+        updated_day="2026-08-02",
+        updated_time="12:00:00",
+    )
+
+    with patch("brushflow.SiteOper") as site_oper:
+        site_oper.return_value.get.return_value = site
+        site_oper.return_value.get_userdata_latest.return_value = [user_data]
+        passed, reason, status = plugin._evaluate_site_ratio_control(task, site=site)
+
+    assert passed is True
+    assert reason is None
+    assert status["current"] == 2.99
+    assert status["reached"] is False
+
+
+def test_site_ratio_control_waits_when_statistics_are_unavailable():
+    """显式启用控制但无站点统计时应等待数据，避免无法判断时继续刷流。"""
+    task = BrushTaskConfig(
+        {
+            **_make_task("task-a").to_dict(),
+            "site_ratio_control": True,
+            "site_ratio_target": 2,
+        }
+    )
+    plugin = _make_runtime_plugin(task)
+    site = SimpleNamespace(id=1, name="A 站", domain="example.com", public=False)
+
+    with patch("brushflow.SiteOper") as site_oper:
+        site_oper.return_value.get.return_value = site
+        site_oper.return_value.get_userdata_latest.return_value = []
+        passed, reason, status = plugin._evaluate_site_ratio_control(task, site=site)
+
+    assert passed is False
+    assert "等待数据更新" in reason
+    assert status["available"] is False
 
 
 def test_cleanup_unused_task_tag_removes_orphan_qb_tag():

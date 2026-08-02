@@ -312,6 +312,13 @@ function torrentStateText(item) {
   return progress >= 100 ? '做种' : `下载 ${progress}%`
 }
 
+// 将站点分享率状态格式化为当前值、无限或暂无数据。
+function formatSiteRatio(siteRatio) {
+  if (!siteRatio?.available) return '-'
+  if (siteRatio.unlimited) return '∞'
+  return Number(siteRatio.current || 0).toFixed(2)
+}
+
 watch(
   () => props.initialTab,
   value => {
@@ -345,7 +352,7 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
       </div>
       <div class="brushflow-page__actions">
         <VChip v-if="status.summary.task_count" size="small" variant="tonal">
-          {{ status.summary.enabled_count || 0 }} / {{ status.summary.task_count }} 运行
+          {{ status.summary.running_count ?? status.summary.enabled_count ?? 0 }} / {{ status.summary.task_count }} 运行
         </VChip>
         <VMenu v-model="settingsMenu" :close-on-content-click="false" location="bottom end">
           <template #activator="{ props: menuProps }">
@@ -548,9 +555,14 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                   <VProgressLinear v-if="taskConfig.disksize" :model-value="seedingPercent" height="4" color="primary" />
                 </VSheet>
                 <VSheet class="brushflow-stat app-surface-static">
-                  <span>最近刷新</span>
-                  <strong>{{ latestBrushRun ? `${latestBrushRun.added_count || 0} / ${latestBrushRun.source_count || 0}` : '-' }}</strong>
-                  <small>新增 / 候选</small>
+                  <span>{{ taskConfig.site_ratio_control ? '站点分享率' : '最近刷新' }}</span>
+                  <strong>
+                    {{ taskConfig.site_ratio_control ? formatSiteRatio(selectedTask.site_ratio) : latestBrushRun ? `${latestBrushRun.added_count || 0} / ${latestBrushRun.source_count || 0}` : '-' }}
+                  </strong>
+                  <small v-if="taskConfig.site_ratio_control">
+                    {{ selectedTask.site_ratio?.available ? `目标 ${Number(taskConfig.site_ratio_target || 0).toFixed(2)}` : '暂无站点统计数据' }}
+                  </small>
+                  <small v-else>新增 / 候选</small>
                 </VSheet>
               </div>
 
@@ -567,6 +579,7 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                     <div><dt>刷新周期</dt><dd>{{ taskConfig.cron || `每 ${selectedTask.brush_interval} 分钟` }}</dd></div>
                     <div><dt>检查周期</dt><dd>每 {{ selectedTask.check_interval }} 分钟</dd></div>
                     <div><dt>开启时段</dt><dd>{{ taskConfig.active_time_range || '全天' }}</dd></div>
+                    <div v-if="taskConfig.site_ratio_control"><dt>站点分享率</dt><dd>{{ formatSiteRatio(selectedTask.site_ratio) }} / {{ Number(taskConfig.site_ratio_target || 0).toFixed(2) }}</dd></div>
                     <div><dt>选种来源</dt><dd>{{ taskConfig.rss_support ? 'RSS' : '站点列表页' }}</dd></div>
                     <div><dt>促销要求</dt><dd>{{ taskConfig.freeleech === '2xfree' ? '2X 免费' : taskConfig.freeleech === 'free' ? '免费' : '全部' }}</dd></div>
                     <div><dt>删种策略</dt><dd>{{ taskConfig.proxy_delete ? `动态 ${taskConfig.delete_size_range || '-' } GB` : '满足任一条件' }}</dd></div>
@@ -766,6 +779,7 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                     <div><dt>包含规则</dt><dd>{{ taskConfig.include || '无' }}</dd></div>
                     <div><dt>排除规则</dt><dd>{{ taskConfig.exclude || '无' }}</dd></div>
                     <div><dt>保种上限</dt><dd>{{ taskConfig.disksize ? `${taskConfig.disksize} GB` : '不限' }}</dd></div>
+                    <div><dt>目标分享率</dt><dd>{{ taskConfig.site_ratio_control ? Number(taskConfig.site_ratio_target || 0).toFixed(2) : '关闭' }}</dd></div>
                     <div><dt>归档天数</dt><dd>{{ taskConfig.auto_archive_days || '不自动归档' }}</dd></div>
                   </dl>
                 </VSheet>
@@ -1243,7 +1257,12 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
   display: flex;
   flex-direction: column;
   gap: 13px;
+  max-block-size: min(30rem, 52dvh);
   margin-block-start: 18px;
+  padding-inline-end: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .brushflow-reason > div {
@@ -1272,7 +1291,12 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
   display: flex;
   flex-direction: column;
   gap: 12px;
+  max-block-size: min(30rem, 52dvh);
   margin-block-start: 16px;
+  padding-inline-end: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .brushflow-events article {
