@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import AgentTokensManager from './AgentTokensManager.vue'
+import AgentTokensSettingsMenu from './AgentTokensSettingsMenu.vue'
 import { cloneConfig } from '../provider'
 
 const props = defineProps({
@@ -35,6 +36,14 @@ function saveConfig() {
   emit('save', cloneConfig(localConfig.value))
 }
 
+// 将菜单中的插件开关写回本地配置，并交由宿主持久化完整配置。
+function saveSettings(settings) {
+  localConfig.value.enabled = Boolean(settings?.enabled)
+  localConfig.value.show_sidebar_nav = Boolean(settings?.show_sidebar_nav)
+  saveConfig()
+  return true
+}
+
 onMounted(() => {
   localConfig.value = cloneConfig(props.initialConfig)
   if (localConfig.value.show_sidebar_nav === undefined) {
@@ -51,6 +60,7 @@ onMounted(() => {
     <VToolbar density="comfortable" color="transparent">
       <div class="text-h6 ms-3">Agent Tokens 配置</div>
       <VSpacer />
+      <AgentTokensSettingsMenu :settings="localConfig" :save-settings="saveSettings" />
       <VBtn icon="mdi-content-save" variant="text" color="primary" @click="saveConfig" />
       <VBtn icon="mdi-close" variant="text" @click="emit('close')" />
     </VToolbar>

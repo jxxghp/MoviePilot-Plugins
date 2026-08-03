@@ -48,22 +48,33 @@ async function loadStatus() {
 }
 
 // 保存完整插件配置并刷新服务端标准化后的状态。
-async function saveConfig() {
+async function saveConfig(overrides = {}) {
   saving.value = true
   error.value = ''
   try {
+    const nextConfig = { ...config.value, ...overrides }
     const payload = {
-      enabled: Boolean(config.value.enabled),
-      show_sidebar_nav: Boolean(config.value.show_sidebar_nav),
-      providers: [...(config.value.providers || [])],
+      enabled: Boolean(nextConfig.enabled),
+      show_sidebar_nav: Boolean(nextConfig.show_sidebar_nav),
+      providers: [...(nextConfig.providers || [])],
     }
     const response = await props.api.post(`${pluginBase.value}/config`, payload)
     status.value = unwrapResponse(response) || status.value
+    return true
   } catch (err) {
     error.value = err?.message || '保存失败'
+    return false
   } finally {
     saving.value = false
   }
+}
+
+// 仅覆盖插件开关设置，并保留当前供应商配置后统一保存。
+async function saveSettings(settings) {
+  return saveConfig({
+    enabled: Boolean(settings?.enabled),
+    show_sidebar_nav: Boolean(settings?.show_sidebar_nav),
+  })
 }
 
 // 重置指定供应商的运行记录。
@@ -90,8 +101,10 @@ async function resetAllUsage() {
 }
 
 defineExpose({
+  config,
   loadStatus,
   saveConfig,
+  saveSettings,
   loading,
   saving,
 })
@@ -107,6 +120,7 @@ onMounted(loadStatus)
     :error="error"
     :loading="loading"
     :saving="saving"
+    :save-settings="saveSettings"
     :hide-title="hideTitle"
     @refresh="loadStatus"
     @save="saveConfig"

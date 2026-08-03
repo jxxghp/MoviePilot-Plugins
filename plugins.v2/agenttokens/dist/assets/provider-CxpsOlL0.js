@@ -1,3 +1,11 @@
+const _export_sfc = (sfc, props) => {
+  const target = sfc.__vccOpts || sfc;
+  for (const [key, val] of props) {
+    target[key] = val;
+  }
+  return target;
+};
+
 const PROVIDER_TYPE_OPTIONS = [
   { title: 'OpenAI Compatible', value: 'openai' },
   { title: 'DeepSeek', value: 'deepseek' },
@@ -131,13 +139,5 @@ function buildProviderSummary(rows) {
     limited_usage_percent: limitedUsagePercent,
   }
 }
-
-const _export_sfc = (sfc, props) => {
-  const target = sfc.__vccOpts || sfc;
-  for (const [key, val] of props) {
-    target[key] = val;
-  }
-  return target;
-};
 
 export { PROVIDER_TYPE_OPTIONS as P, _export_sfc as _, buildProviderSummary as a, buildProviderRows as b, cloneConfig as c, createProvider as d, duplicateProvider as e, formatTokens as f, getNextProviderPriority as g, normalizeProvider as n, unwrapResponse as u };

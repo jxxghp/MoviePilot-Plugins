@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { A as AgentTokensManager } from './AgentTokensManager-BhgUM_1J.js';
-import { u as unwrapResponse } from './_plugin-vue_export-helper-CwgBSK_U.js';
+import { A as AgentTokensManager } from './AgentTokensManager-CQCyaX9O.js';
+import { u as unwrapResponse } from './provider-CxpsOlL0.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock} = await importShared('vue');
 
@@ -58,22 +58,33 @@ async function loadStatus() {
 }
 
 // 保存完整插件配置并刷新服务端标准化后的状态。
-async function saveConfig() {
+async function saveConfig(overrides = {}) {
   saving.value = true;
   error.value = '';
   try {
+    const nextConfig = { ...config.value, ...overrides };
     const payload = {
-      enabled: Boolean(config.value.enabled),
-      show_sidebar_nav: Boolean(config.value.show_sidebar_nav),
-      providers: [...(config.value.providers || [])],
+      enabled: Boolean(nextConfig.enabled),
+      show_sidebar_nav: Boolean(nextConfig.show_sidebar_nav),
+      providers: [...(nextConfig.providers || [])],
     };
     const response = await props.api.post(`${pluginBase.value}/config`, payload);
     status.value = unwrapResponse(response) || status.value;
+    return true
   } catch (err) {
     error.value = err?.message || '保存失败';
+    return false
   } finally {
     saving.value = false;
   }
+}
+
+// 仅覆盖插件开关设置，并保留当前供应商配置后统一保存。
+async function saveSettings(settings) {
+  return saveConfig({
+    enabled: Boolean(settings?.enabled),
+    show_sidebar_nav: Boolean(settings?.show_sidebar_nav),
+  })
 }
 
 // 重置指定供应商的运行记录。
@@ -100,8 +111,10 @@ async function resetAllUsage() {
 }
 
 __expose({
+  config,
   loadStatus,
   saveConfig,
+  saveSettings,
   loading,
   saving,
 });
@@ -116,6 +129,7 @@ return (_ctx, _cache) => {
     error: error.value,
     loading: loading.value,
     saving: saving.value,
+    "save-settings": saveSettings,
     "hide-title": __props.hideTitle,
     onRefresh: loadStatus,
     onSave: saveConfig,

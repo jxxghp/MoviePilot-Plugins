@@ -1,5 +1,143 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, f as formatTokens, P as PROVIDER_TYPE_OPTIONS, d as createProvider, b as buildProviderRows, a as buildProviderSummary, g as getNextProviderPriority, e as duplicateProvider, n as normalizeProvider } from './_plugin-vue_export-helper-CwgBSK_U.js';
+import { _ as _export_sfc, f as formatTokens, P as PROVIDER_TYPE_OPTIONS, d as createProvider, b as buildProviderRows, a as buildProviderSummary, g as getNextProviderPriority, e as duplicateProvider, n as normalizeProvider } from './provider-CxpsOlL0.js';
+
+const {resolveComponent:_resolveComponent$5,mergeProps:_mergeProps$1,createVNode:_createVNode$5,withCtx:_withCtx$5,createTextVNode:_createTextVNode$5,openBlock:_openBlock$5,createBlock:_createBlock$5} = await importShared('vue');
+
+
+const {ref: ref$1} = await importShared('vue');
+
+
+
+const _sfc_main$5 = {
+  __name: 'AgentTokensSettingsMenu',
+  props: {
+  settings: {
+    type: Object,
+    default: () => ({ enabled: false, show_sidebar_nav: true }),
+  },
+  saving: {
+    type: Boolean,
+    default: false,
+  },
+  disabled: {
+    type: Boolean,
+    default: false,
+  },
+  saveSettings: {
+    type: Function,
+    default: null,
+  },
+},
+  setup(__props) {
+
+const props = __props;
+
+const settingsMenu = ref$1(false);
+const settingsDraft = ref$1({ enabled: false, show_sidebar_nav: true });
+
+// 从已保存配置创建菜单草稿，取消菜单时不污染当前页面配置。
+function syncSettingsDraft() {
+  settingsDraft.value = {
+    enabled: Boolean(props.settings?.enabled),
+    show_sidebar_nav: props.settings?.show_sidebar_nav !== false,
+  };
+}
+
+// 切换菜单显示状态，并在每次打开时同步最新配置。
+function setMenuOpen(open) {
+  if (open) syncSettingsDraft();
+  settingsMenu.value = open;
+}
+
+// 保存插件开关设置，失败时保留菜单以便用户调整或重试。
+async function submitSettings() {
+  if (typeof props.saveSettings !== 'function') return
+  const saved = await props.saveSettings({
+    enabled: Boolean(settingsDraft.value.enabled),
+    show_sidebar_nav: Boolean(settingsDraft.value.show_sidebar_nav),
+  });
+  if (saved !== false) settingsMenu.value = false;
+}
+
+return (_ctx, _cache) => {
+  const _component_VBtn = _resolveComponent$5("VBtn");
+  const _component_VSwitch = _resolveComponent$5("VSwitch");
+  const _component_VCardText = _resolveComponent$5("VCardText");
+  const _component_VSpacer = _resolveComponent$5("VSpacer");
+  const _component_VCardActions = _resolveComponent$5("VCardActions");
+  const _component_VCard = _resolveComponent$5("VCard");
+  const _component_VMenu = _resolveComponent$5("VMenu");
+
+  return (_openBlock$5(), _createBlock$5(_component_VMenu, {
+    "model-value": settingsMenu.value,
+    "close-on-content-click": false,
+    location: "bottom end",
+    "onUpdate:modelValue": setMenuOpen
+  }, {
+    activator: _withCtx$5(({ props: menuProps }) => [
+      _createVNode$5(_component_VBtn, _mergeProps$1(menuProps, {
+        icon: "mdi-tune-variant",
+        variant: "text",
+        "aria-label": "插件设置",
+        title: "插件设置",
+        disabled: __props.disabled
+      }), null, 16, ["disabled"])
+    ]),
+    default: _withCtx$5(() => [
+      _createVNode$5(_component_VCard, {
+        class: "agenttokens-settings-menu",
+        title: "插件设置"
+      }, {
+        default: _withCtx$5(() => [
+          _createVNode$5(_component_VCardText, { class: "agenttokens-settings-menu__body" }, {
+            default: _withCtx$5(() => [
+              _createVNode$5(_component_VSwitch, {
+                modelValue: settingsDraft.value.enabled,
+                "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((settingsDraft.value.enabled) = $event)),
+                color: "primary",
+                "hide-details": "",
+                inset: "",
+                label: "启用插件"
+              }, null, 8, ["modelValue"]),
+              _createVNode$5(_component_VSwitch, {
+                modelValue: settingsDraft.value.show_sidebar_nav,
+                "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((settingsDraft.value.show_sidebar_nav) = $event)),
+                color: "primary",
+                "hide-details": "",
+                inset: "",
+                label: "显示侧栏入口"
+              }, null, 8, ["modelValue"])
+            ]),
+            _: 1
+          }),
+          _createVNode$5(_component_VCardActions, null, {
+            default: _withCtx$5(() => [
+              _createVNode$5(_component_VSpacer),
+              _createVNode$5(_component_VBtn, {
+                color: "primary",
+                variant: "flat",
+                loading: __props.saving,
+                onClick: submitSettings
+              }, {
+                default: _withCtx$5(() => [...(_cache[2] || (_cache[2] = [
+                  _createTextVNode$5("保存", -1)
+                ]))]),
+                _: 1
+              }, 8, ["loading"])
+            ]),
+            _: 1
+          })
+        ]),
+        _: 1
+      })
+    ]),
+    _: 1
+  }, 8, ["model-value"]))
+}
+}
+
+};
+const AgentTokensSettingsMenu = /*#__PURE__*/_export_sfc(_sfc_main$5, [['__scopeId',"data-v-a38d4879"]]);
 
 const {createElementVNode:_createElementVNode$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$2,createCommentVNode:_createCommentVNode$2,renderList:_renderList$1,Fragment:_Fragment$1,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,withCtx:_withCtx$4,unref:_unref$4,mergeProps:_mergeProps,createBlock:_createBlock$4} = await importShared('vue');
 
@@ -656,14 +794,13 @@ const _hoisted_2 = {
   key: 0,
   class: "agenttokens-header"
 };
-const _hoisted_3 = { class: "agenttokens-control-panel__switches" };
-const _hoisted_4 = { class: "agenttokens-overview-grid" };
+const _hoisted_3 = { class: "agenttokens-overview-grid" };
+const _hoisted_4 = { class: "agenttokens-stat-card__value" };
 const _hoisted_5 = { class: "agenttokens-stat-card__value" };
-const _hoisted_6 = { class: "agenttokens-stat-card__value" };
-const _hoisted_7 = { class: "agenttokens-stat-card__hint" };
-const _hoisted_8 = { class: "agenttokens-stat-card__value" };
-const _hoisted_9 = { class: "agenttokens-tabs-row" };
-const _hoisted_10 = { class: "agenttokens-table-actions" };
+const _hoisted_6 = { class: "agenttokens-stat-card__hint" };
+const _hoisted_7 = { class: "agenttokens-stat-card__value" };
+const _hoisted_8 = { class: "agenttokens-tabs-row" };
+const _hoisted_9 = { class: "agenttokens-table-actions" };
 
 const {computed,ref} = await importShared('vue');
 
@@ -694,6 +831,10 @@ const _sfc_main = {
   saving: {
     type: Boolean,
     default: false,
+  },
+  saveSettings: {
+    type: Function,
+    default: null,
   },
   hideTitle: {
     type: Boolean,
@@ -778,9 +919,8 @@ return (_ctx, _cache) => {
   const _component_VSpacer = _resolveComponent("VSpacer");
   const _component_VBtn = _resolveComponent("VBtn");
   const _component_VAlert = _resolveComponent("VAlert");
-  const _component_VSwitch = _resolveComponent("VSwitch");
-  const _component_VSheet = _resolveComponent("VSheet");
   const _component_VIcon = _resolveComponent("VIcon");
+  const _component_VSheet = _resolveComponent("VSheet");
   const _component_VTab = _resolveComponent("VTab");
   const _component_VTabs = _resolveComponent("VTabs");
   const _component_VDivider = _resolveComponent("VDivider");
@@ -790,7 +930,7 @@ return (_ctx, _cache) => {
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
     (!__props.hideTitle)
       ? (_openBlock(), _createElementBlock("div", _hoisted_2, [
-          _cache[7] || (_cache[7] = _createElementVNode("h2", { class: "text-2xl font-bold leading-7 text-gray-100 truncate sm:text-3xl sm:leading-9" }, [
+          _cache[5] || (_cache[5] = _createElementVNode("h2", { class: "text-2xl font-bold leading-7 text-gray-100 truncate sm:text-3xl sm:leading-9" }, [
             _createElementVNode("span", { class: "text-moviepilot" }, "Agent Tokens 管理")
           ], -1)),
           _createVNode(_component_VSpacer),
@@ -800,6 +940,12 @@ return (_ctx, _cache) => {
             loading: __props.loading,
             onClick: _cache[0] || (_cache[0] = $event => (emit('refresh')))
           }, null, 8, ["loading"]),
+          _createVNode(AgentTokensSettingsMenu, {
+            settings: configValue.value,
+            saving: __props.saving,
+            disabled: __props.loading,
+            "save-settings": __props.saveSettings
+          }, null, 8, ["settings", "saving", "disabled", "save-settings"]),
           _createVNode(_component_VBtn, {
             icon: "mdi-content-save",
             variant: "text",
@@ -822,34 +968,7 @@ return (_ctx, _cache) => {
           _: 1
         }))
       : _createCommentVNode("", true),
-    _createVNode(_component_VSheet, {
-      border: "",
-      rounded: "",
-      class: "agenttokens-control-panel"
-    }, {
-      default: _withCtx(() => [
-        _createElementVNode("div", _hoisted_3, [
-          _createVNode(_component_VSwitch, {
-            modelValue: configValue.value.enabled,
-            "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((configValue.value.enabled) = $event)),
-            color: "primary",
-            "hide-details": "",
-            inset: "",
-            label: "启用插件"
-          }, null, 8, ["modelValue"]),
-          _createVNode(_component_VSwitch, {
-            modelValue: configValue.value.show_sidebar_nav,
-            "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((configValue.value.show_sidebar_nav) = $event)),
-            color: "primary",
-            "hide-details": "",
-            inset: "",
-            label: "侧边栏入口"
-          }, null, 8, ["modelValue"])
-        ])
-      ]),
-      _: 1
-    }),
-    _createElementVNode("div", _hoisted_4, [
+    _createElementVNode("div", _hoisted_3, [
       _createVNode(UsageOverviewCard, {
         class: "agenttokens-overview-card",
         summary: displaySummary.value
@@ -865,8 +984,8 @@ return (_ctx, _cache) => {
             color: "success"
           }),
           _createElementVNode("div", null, [
-            _cache[8] || (_cache[8] = _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "可用供应商", -1)),
-            _createElementVNode("div", _hoisted_5, _toDisplayString(displaySummary.value.available_count || 0) + " / " + _toDisplayString(displaySummary.value.enabled_count || 0), 1)
+            _cache[6] || (_cache[6] = _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "可用供应商", -1)),
+            _createElementVNode("div", _hoisted_4, _toDisplayString(displaySummary.value.available_count || 0) + " / " + _toDisplayString(displaySummary.value.enabled_count || 0), 1)
           ])
         ]),
         _: 1
@@ -882,9 +1001,9 @@ return (_ctx, _cache) => {
             color: "primary"
           }),
           _createElementVNode("div", null, [
-            _cache[9] || (_cache[9] = _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "累计使用", -1)),
-            _createElementVNode("div", _hoisted_6, _toDisplayString(_unref(formatTokens)(displaySummary.value.total_used)), 1),
-            _createElementVNode("div", _hoisted_7, " 限量 " + _toDisplayString(_unref(formatTokens)(limitedUsed.value)) + " / 不限量 " + _toDisplayString(_unref(formatTokens)(unlimitedUsed.value)), 1)
+            _cache[7] || (_cache[7] = _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "累计使用", -1)),
+            _createElementVNode("div", _hoisted_5, _toDisplayString(_unref(formatTokens)(displaySummary.value.total_used)), 1),
+            _createElementVNode("div", _hoisted_6, " 限量 " + _toDisplayString(_unref(formatTokens)(limitedUsed.value)) + " / 不限量 " + _toDisplayString(_unref(formatTokens)(unlimitedUsed.value)), 1)
           ])
         ]),
         _: 1
@@ -900,8 +1019,8 @@ return (_ctx, _cache) => {
             color: "info"
           }),
           _createElementVNode("div", null, [
-            _cache[10] || (_cache[10] = _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "限量总额度", -1)),
-            _createElementVNode("div", _hoisted_8, _toDisplayString(displaySummary.value.total_limit ? _unref(formatTokens)(displaySummary.value.total_limit) : '不限'), 1)
+            _cache[8] || (_cache[8] = _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "限量总额度", -1)),
+            _createElementVNode("div", _hoisted_7, _toDisplayString(displaySummary.value.total_limit ? _unref(formatTokens)(displaySummary.value.total_limit) : '不限'), 1)
           ])
         ]),
         _: 1
@@ -913,21 +1032,21 @@ return (_ctx, _cache) => {
       class: "agenttokens-content-panel"
     }, {
       default: _withCtx(() => [
-        _createElementVNode("div", _hoisted_9, [
+        _createElementVNode("div", _hoisted_8, [
           _createVNode(_component_VTabs, {
             modelValue: activeTab.value,
-            "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((activeTab).value = $event)),
+            "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((activeTab).value = $event)),
             density: "comfortable"
           }, {
             default: _withCtx(() => [
               _createVNode(_component_VTab, { value: "usage" }, {
-                default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
+                default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
                   _createTextVNode("用量", -1)
                 ]))]),
                 _: 1
               }),
               _createVNode(_component_VTab, { value: "config" }, {
-                default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
+                default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
                   _createTextVNode("配置", -1)
                 ]))]),
                 _: 1
@@ -939,7 +1058,7 @@ return (_ctx, _cache) => {
         _createVNode(_component_VDivider),
         _createVNode(_component_VWindow, {
           modelValue: activeTab.value,
-          "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((activeTab).value = $event)),
+          "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((activeTab).value = $event)),
           touch: false,
           class: "agenttokens-window"
         }, {
@@ -955,14 +1074,14 @@ return (_ctx, _cache) => {
             }),
             _createVNode(_component_VWindowItem, { value: "config" }, {
               default: _withCtx(() => [
-                _createElementVNode("div", _hoisted_10, [
+                _createElementVNode("div", _hoisted_9, [
                   _createVNode(_component_VBtn, {
                     "prepend-icon": "mdi-plus",
                     color: "primary",
                     variant: "tonal",
                     onClick: addProvider
                   }, {
-                    default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
+                    default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
                       _createTextVNode("新增", -1)
                     ]))]),
                     _: 1
@@ -973,7 +1092,7 @@ return (_ctx, _cache) => {
                     variant: "tonal",
                     onClick: resetAllUsage
                   }, {
-                    default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
+                    default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
                       _createTextVNode(" 重置用量 ", -1)
                     ]))]),
                     _: 1
@@ -998,7 +1117,7 @@ return (_ctx, _cache) => {
     }),
     _createVNode(_sfc_main$3, {
       modelValue: showEditor.value,
-      "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((showEditor).value = $event)),
+      "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((showEditor).value = $event)),
       provider: editedProvider.value,
       "editor-index": editorIndex.value,
       onCommit: commitProvider
@@ -1008,6 +1127,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AgentTokensManager = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1f84ec00"]]);
+const AgentTokensManager = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c2958f61"]]);
 
-export { AgentTokensManager as A };
+export { AgentTokensManager as A, AgentTokensSettingsMenu as a };
