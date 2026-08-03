@@ -1,6 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import _sfc_main$1 from './__federation_expose_AppPage-sbni8D09.js';
-import { _ as _export_sfc } from './_plugin-vue_export-helper-CwgBSK_U.js';
+import _sfc_main$1 from './__federation_expose_AppPage-BSsGvr_G.js';
+import { a as AgentTokensSettingsMenu } from './AgentTokensManager-CQCyaX9O.js';
+import { _ as _export_sfc } from './provider-CxpsOlL0.js';
 
 const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
 
@@ -46,6 +47,12 @@ return (_ctx, _cache) => {
           loading: pageRef.value?.loading,
           onClick: _cache[0] || (_cache[0] = $event => (pageRef.value?.loadStatus()))
         }, null, 8, ["loading"]),
+        _createVNode(AgentTokensSettingsMenu, {
+          settings: pageRef.value?.config,
+          saving: pageRef.value?.saving,
+          disabled: pageRef.value?.loading,
+          "save-settings": pageRef.value?.saveSettings
+        }, null, 8, ["settings", "saving", "disabled", "save-settings"]),
         _createVNode(_component_VBtn, {
           icon: "mdi-content-save",
           variant: "text",
@@ -74,6 +81,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2f12fb0f"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-22d0c455"]]);
 
 export { Page as default };

@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { A as AgentTokensManager } from './AgentTokensManager-BhgUM_1J.js';
-import { c as cloneConfig } from './_plugin-vue_export-helper-CwgBSK_U.js';
+import { a as AgentTokensSettingsMenu, A as AgentTokensManager } from './AgentTokensManager-CQCyaX9O.js';
+import { c as cloneConfig } from './provider-CxpsOlL0.js';
 
 const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
 
@@ -48,6 +48,14 @@ function saveConfig() {
   emit('save', cloneConfig(localConfig.value));
 }
 
+// 将菜单中的插件开关写回本地配置，并交由宿主持久化完整配置。
+function saveSettings(settings) {
+  localConfig.value.enabled = Boolean(settings?.enabled);
+  localConfig.value.show_sidebar_nav = Boolean(settings?.show_sidebar_nav);
+  saveConfig();
+  return true
+}
+
 onMounted(() => {
   localConfig.value = cloneConfig(props.initialConfig);
   if (localConfig.value.show_sidebar_nav === undefined) {
@@ -72,6 +80,10 @@ return (_ctx, _cache) => {
       default: _withCtx(() => [
         _cache[1] || (_cache[1] = _createElementVNode("div", { class: "text-h6 ms-3" }, "Agent Tokens 配置", -1)),
         _createVNode(_component_VSpacer),
+        _createVNode(AgentTokensSettingsMenu, {
+          settings: localConfig.value,
+          "save-settings": saveSettings
+        }, null, 8, ["settings"]),
         _createVNode(_component_VBtn, {
           icon: "mdi-content-save",
           variant: "text",
