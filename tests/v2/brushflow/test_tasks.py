@@ -1,8 +1,10 @@
 """BrushFlow V5 多任务配置、调度和联邦宿主契约测试。"""
 
 import threading
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -83,6 +85,65 @@ def test_services_are_registered_per_task():
     assert len(services) == 4
     assert len({service["id"] for service in services}) == 4
     assert {service["func_kwargs"]["task_id"] for service in services} == {"task-a", "task-b"}
+
+
+def test_promotion_expiry_service_uses_nearest_incomplete_torrent():
+    """启用促销到期删除后，应按最近一项未完成下载注册一次性检查。"""
+    task = BrushTaskConfig({**_make_task("task-a").to_dict(), "del_no_free": True})
+    plugin = _make_runtime_plugin(task)
+    timezone = ZoneInfo("Asia/Shanghai")
+    now = datetime.now(timezone)
+    nearest = now + timedelta(minutes=10)
+    later = now + timedelta(minutes=20)
+    plugin._get_task_data = MagicMock(
+        return_value={
+            "nearest": {
+                "freedate": nearest.strftime("%Y-%m-%d %H:%M:%S"),
+                "size": 100,
+                "downloaded": 50,
+                "deleted": False,
+            },
+            "later": {
+                "freedate": later.strftime("%Y-%m-%d %H:%M:%S"),
+                "size": 100,
+                "downloaded": 0,
+                "deleted": False,
+            },
+            "completed": {
+                "freedate": (now + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S"),
+                "size": 100,
+                "downloaded": 100,
+                "deleted": False,
+            },
+        }
+    )
+
+    services = plugin.get_service()
+
+    expiry_service = next(service for service in services if service["id"].endswith("PromotionExpiry"))
+    assert expiry_service["trigger"] == "date"
+    assert expiry_service["kwargs"]["run_date"] == nearest.replace(microsecond=0)
+    assert expiry_service["func_kwargs"] == {"task_id": task.id}
+
+
+def test_promotion_expiry_applies_site_timezone_offset():
+    """站点截止时间应加上本机与站点的时差后再进行到期判断。"""
+    expiry = BrushFlow._promotion_expiry_at("2026-08-04T12:00:00Z", 8)
+
+    assert expiry == datetime(2026, 8, 4, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+
+def test_promotion_expiry_callback_waits_and_rebuilds_schedule():
+    """促销到期回调应等待任务空闲，并在检查完成后安排下一截止时间。"""
+    task = _make_task("task-a")
+    plugin = _make_runtime_plugin(task)
+    plugin.check = MagicMock()
+    plugin._refresh_scheduler = MagicMock()
+
+    plugin._check_promotion_expiry(task.id)
+
+    plugin.check.assert_called_once_with(task.id, wait_for_lock=True)
+    plugin._refresh_scheduler.assert_called_once_with()
 
 
 def test_site_ratio_control_requires_target():
