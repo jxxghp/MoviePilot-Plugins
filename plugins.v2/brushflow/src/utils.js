@@ -114,6 +114,8 @@ export function normalizeSettings(settings = {}) {
     const value = Number(result[key] || 0)
     result[key] = value > 0 ? value : null
   })
+  result.global_proxy_delete = Boolean(result.global_proxy_delete)
+  result.global_delete_size_range = String(result.global_delete_size_range || '').trim() || null
   return result
 }
 

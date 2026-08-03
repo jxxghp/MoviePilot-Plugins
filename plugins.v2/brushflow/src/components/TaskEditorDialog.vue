@@ -8,6 +8,7 @@ const props = defineProps({
   task: { type: Object, default: () => ({}) },
   sites: { type: Array, default: () => [] },
   downloaders: { type: Array, default: () => [] },
+  globalDynamicDelete: { type: Boolean, default: false },
   saving: { type: Boolean, default: false },
 })
 
@@ -305,15 +306,19 @@ async function saveTask() {
               <section class="editor-section">
                 <header class="editor-section__head">
                   <div>
-                    <div class="text-subtitle-1 font-weight-medium">删除模式</div>
-                    <div class="text-body-2 text-medium-emphasis">动态模式会在超过体积阈值后按现有算法托管删种</div>
+                    <div class="text-subtitle-1 font-weight-medium">
+                      {{ globalDynamicDelete ? '全局删种托管' : '删除模式' }}
+                    </div>
+                    <div class="text-body-2 text-medium-emphasis">
+                      {{ globalDynamicDelete ? '选择此任务是否参加全局阈值兜底淘汰' : '动态模式会在超过体积阈值后按现有算法托管删种' }}
+                    </div>
                   </div>
                 </header>
                 <VBtnToggle v-model="localTask.proxy_delete" mandatory color="primary" divided>
-                  <VBtn :value="false">按条件删除</VBtn>
-                  <VBtn :value="true">动态删种</VBtn>
+                  <VBtn :value="false">{{ globalDynamicDelete ? '不参与托管' : '按条件删除' }}</VBtn>
+                  <VBtn :value="true">{{ globalDynamicDelete ? '参与全局托管' : '动态删种' }}</VBtn>
                 </VBtnToggle>
-                <VRow v-if="localTask.proxy_delete">
+                <VRow v-if="localTask.proxy_delete && !globalDynamicDelete">
                   <VCol cols="12">
                     <VTextField
                       v-model="localTask.delete_size_range"
