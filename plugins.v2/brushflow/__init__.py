@@ -1875,11 +1875,15 @@ class BrushFlow(_PluginBase):
             return selected, remaining_size, False
 
         for candidate in candidates:
+            if remaining_size <= min_size:
+                break
             if not candidate.get("proxy_delete") and candidate.get("conditional_reason"):
                 select(candidate, candidate["conditional_reason"])
 
         if remaining_size > min_size:
             for candidate in candidates:
+                if remaining_size <= min_size:
+                    break
                 if candidate.get("proxy_delete") and candidate.get("conditional_reason"):
                     select(candidate, f"触发全局动态删除阈值，{candidate['conditional_reason']}")
 

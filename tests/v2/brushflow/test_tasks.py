@@ -509,6 +509,39 @@ def test_global_dynamic_delete_plan_restores_v4_priority():
     assert remaining_size == 50 * gib
 
 
+@pytest.mark.parametrize("proxy_delete", [False, True])
+def test_global_dynamic_delete_condition_stages_stop_at_lower_bound(proxy_delete):
+    """托管与非托管普通条件阶段均应在达到区间下限后停止选择。"""
+    gib = 1024 ** 3
+    task = BrushTaskConfig({**_make_task("task-a").to_dict(), "proxy_delete": proxy_delete})
+    candidates = [
+        {
+            "task": task,
+            "torrent_hash": f"hash-{index}",
+            "downloader_name": task.downloader,
+            "size": 10 * gib,
+            "pre_delete_reason": "",
+            "conditional_reason": "做种时间达到 10 小时",
+            "proxy_delete": proxy_delete,
+            "completed": True,
+            "hit_and_run": False,
+            "seeding_time": index,
+        }
+        for index in range(3)
+    ]
+
+    selected, remaining_size, triggered = BrushFlow._select_global_dynamic_deletions(
+        candidates,
+        total_size=120 * gib,
+        min_size=100 * gib,
+        max_size=110 * gib,
+    )
+
+    assert triggered is True
+    assert [entry["torrent_hash"] for entry in selected] == ["hash-0", "hash-1"]
+    assert remaining_size == 100 * gib
+
+
 def test_global_dynamic_delete_preconditions_run_below_threshold():
     """未达到全局上限时仍应执行非 H&R 促销过期或下载超时预删。"""
     task = BrushTaskConfig({**_make_task("managed").to_dict(), "proxy_delete": True})
