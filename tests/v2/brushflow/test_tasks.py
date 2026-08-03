@@ -413,6 +413,17 @@ def test_global_dynamic_delete_requires_valid_range():
         )
 
 
+def test_disabled_global_dynamic_delete_ignores_invalid_hidden_range():
+    """关闭全局动态删种时应清理隐藏的非法阈值并允许保存设置。"""
+    payload = BrushFlowSettingsPayload(
+        global_proxy_delete=False,
+        global_delete_size_range="invalid",
+    )
+
+    assert payload.global_proxy_delete is False
+    assert payload.global_delete_size_range is None
+
+
 def test_global_dynamic_delete_plan_restores_v4_priority():
     """全局计划应依次执行预删、普通条件、托管条件和最长做种兜底。"""
     gib = 1024 ** 3
@@ -642,6 +653,86 @@ def test_global_dynamic_delete_does_not_mark_failed_downloader_deletion():
     assert record["deleted"] is False
     plugin._save_task_data.assert_not_called()
     plugin._recalculate_statistics.assert_not_called()
+
+
+def test_global_dynamic_delete_aborts_when_downloader_snapshot_is_unavailable():
+    """任一启用下载器缺少实时快照时不得用陈旧记录触发全局删种。"""
+    task = BrushTaskConfig({**_make_task("task-a").to_dict(), "proxy_delete": True})
+    plugin = _make_runtime_plugin(task)
+    plugin._get_task_data = MagicMock(return_value={"stale": {"size": 200 * 1024 ** 3}})
+    downloader_helper = MagicMock()
+    downloader_helper.get_service.return_value = None
+
+    with patch("brushflow.DownloaderHelper", return_value=downloader_helper):
+        with pytest.raises(RuntimeError, match="实时状态.*本轮已中止"):
+            plugin._collect_global_dynamic_delete_candidates()
+
+
+def test_global_dynamic_delete_writes_back_success_before_later_batch_exception():
+    """后续下载器抛出异常时应保留并回写此前已经成功删除的批次。"""
+    gib = 1024 ** 3
+    first = BrushTaskConfig({**_make_task("task-a").to_dict(), "proxy_delete": True})
+    second = BrushTaskConfig(
+        {**_make_task("task-b", site_id=2).to_dict(), "proxy_delete": True, "downloader": "备用下载器"}
+    )
+    plugin = _make_runtime_plugin(first, second)
+    plugin._global_proxy_delete = True
+    plugin._global_delete_size_range = "50-100"
+    plugin.post_message = MagicMock()
+    first_record = {"title": "A", "deleted": False}
+    second_record = {"title": "B", "deleted": False}
+
+    def candidate(task, torrent_hash, record, seeding_time):
+        """构造跨下载器异常回写测试所需的全局候选。"""
+        return {
+            "task": task,
+            "torrent_hash": torrent_hash,
+            "torrent_task": record,
+            "downloader_name": task.downloader,
+            "size": 40 * gib,
+            "pre_delete_reason": "",
+            "conditional_reason": "",
+            "proxy_delete": True,
+            "completed": True,
+            "hit_and_run": False,
+            "seeding_time": seeding_time,
+        }
+
+    first_downloader = MagicMock()
+    first_downloader.delete_torrents.return_value = True
+    second_downloader = MagicMock()
+    second_downloader.delete_torrents.side_effect = RuntimeError("downloader failed")
+    plugin._collect_global_dynamic_delete_candidates = MagicMock(
+        return_value=(
+            [
+                candidate(first, "hash-a", first_record, 200),
+                candidate(second, "hash-b", second_record, 100),
+            ],
+            120 * gib,
+            {first.id: {"hash-a": first_record}, second.id: {"hash-b": second_record}},
+            {
+                first.downloader: SimpleNamespace(instance=first_downloader),
+                second.downloader: SimpleNamespace(instance=second_downloader),
+            },
+        )
+    )
+    plugin._save_task_data = MagicMock()
+    plugin._recalculate_statistics = MagicMock()
+    downloader_helper = MagicMock()
+    downloader_helper.is_downloader.return_value = False
+
+    with patch("brushflow.DownloaderHelper", return_value=downloader_helper):
+        deleted_count = plugin._run_global_dynamic_delete()
+
+    assert deleted_count == 1
+    assert first_record["deleted"] is True
+    assert second_record["deleted"] is False
+    plugin._save_task_data.assert_called_once_with(
+        first.id,
+        "torrents",
+        {"hash-a": first_record},
+    )
+    plugin._recalculate_statistics.assert_called_once_with(first.id)
 
 
 def test_task_check_runs_global_delete_after_releasing_task_lock():

@@ -1909,7 +1909,7 @@ class BrushFlow(_PluginBase):
         total_size = 0.0
         task_records: Dict[str, Dict[str, dict]] = {}
         services: Dict[str, ServiceInfo] = {}
-        downloader_cache: Dict[str, Tuple[Optional[ServiceInfo], List[Any]]] = {}
+        downloader_cache: Dict[str, Tuple[ServiceInfo, List[Any]]] = {}
         downloader_helper = DownloaderHelper()
 
         for task in self._task_configs.values():
@@ -1920,21 +1920,18 @@ class BrushFlow(_PluginBase):
             if task.downloader not in downloader_cache:
                 service = downloader_helper.get_service(name=task.downloader)
                 if not service or not service.instance or service.instance.is_inactive():
-                    downloader_cache[task.downloader] = (None, [])
-                else:
-                    torrents, error = service.instance.get_torrents()
-                    if error:
-                        logger.warning(f"全局动态删种获取下载器 [{task.downloader}] 种子失败")
-                        downloader_cache[task.downloader] = (None, [])
-                    else:
-                        downloader_cache[task.downloader] = (service, torrents or [])
-                        services[task.downloader] = service
+                    raise RuntimeError(
+                        f"全局动态删种无法获取下载器 [{task.downloader}] 实时状态，本轮已中止"
+                    )
+                torrents, error = service.instance.get_torrents()
+                if error:
+                    raise RuntimeError(
+                        f"全局动态删种获取下载器 [{task.downloader}] 种子失败，本轮已中止"
+                    )
+                downloader_cache[task.downloader] = (service, torrents or [])
+                services[task.downloader] = service
 
             service, downloader_torrents = downloader_cache[task.downloader]
-            if not service:
-                total_size += self.__calculate_seeding_torrents_size(torrent_tasks)
-                continue
-
             with self._task_scope(task.id):
                 downloader_torrent_map: Dict[str, Any] = {}
                 for torrent in downloader_torrents:
@@ -2077,11 +2074,17 @@ class BrushFlow(_PluginBase):
                                 service.instance.qbc.torrents_reannounce(torrent_hashes=torrent_hashes)
                         except Exception as err:
                             logger.warning(f"全局动态删种重新汇报下载器 [{downloader_name}] 失败：{str(err)}")
-                    if service.instance.delete_torrents(ids=torrent_hashes, delete_file=True):
-                        deleted_entries.extend(entries)
+                    try:
+                        if service.instance.delete_torrents(ids=torrent_hashes, delete_file=True):
+                            deleted_entries.extend(entries)
+                    except Exception as err:
+                        logger.error(
+                            f"全局动态删种调用下载器 [{downloader_name}] 删除失败：{str(err)}"
+                        )
 
                 deleted_at = time.time()
                 affected_task_ids: Set[str] = set()
+                recorded_entries: List[dict] = []
                 for entry in deleted_entries:
                     task = entry["task"]
                     torrent_hash = entry["torrent_hash"]
@@ -2090,12 +2093,7 @@ class BrushFlow(_PluginBase):
                         continue
                     torrent_task.update({"deleted": True, "deleted_time": deleted_at})
                     affected_task_ids.add(task.id)
-                    with self._task_scope(task.id):
-                        self.__send_delete_message(torrent_task, entry["delete_reason"])
-                    logger.info(
-                        f"全局动态删种删除任务 [{task.name}] 种子："
-                        f"{torrent_task.get('title')}，原因：{entry['delete_reason']}"
-                    )
+                    recorded_entries.append(entry)
 
                 for affected_task_id in affected_task_ids:
                     self._save_task_data(
@@ -2105,13 +2103,29 @@ class BrushFlow(_PluginBase):
                     )
                     self._recalculate_statistics(affected_task_id)
 
+                for entry in recorded_entries:
+                    task = entry["task"]
+                    torrent_task = task_records[task.id][entry["torrent_hash"]]
+                    try:
+                        with self._task_scope(task.id):
+                            self.__send_delete_message(torrent_task, entry["delete_reason"])
+                    except Exception as err:
+                        logger.warning(f"全局动态删种发送任务 [{task.name}] 通知失败：{str(err)}")
+                    logger.info(
+                        f"全局动态删种删除任务 [{task.name}] 种子："
+                        f"{torrent_task.get('title')}，原因：{entry['delete_reason']}"
+                    )
+
                 remaining_size = max(
                     total_size - sum(float(entry.get("size") or 0) for entry in deleted_entries),
                     0,
                 )
-                if threshold_triggered and len(limits) > 1 and deleted_entries:
-                    self._send_global_dynamic_delete_summary(deleted_entries, remaining_size)
-                return len(deleted_entries)
+                if threshold_triggered and len(limits) > 1 and recorded_entries:
+                    try:
+                        self._send_global_dynamic_delete_summary(recorded_entries, remaining_size)
+                    except Exception as err:
+                        logger.warning(f"全局动态删种发送汇总通知失败：{str(err)}")
+                return len(recorded_entries)
         finally:
             global_lock.release()
 

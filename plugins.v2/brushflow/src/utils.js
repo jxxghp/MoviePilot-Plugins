@@ -115,7 +115,9 @@ export function normalizeSettings(settings = {}) {
     result[key] = value > 0 ? value : null
   })
   result.global_proxy_delete = Boolean(result.global_proxy_delete)
-  result.global_delete_size_range = String(result.global_delete_size_range || '').trim() || null
+  result.global_delete_size_range = result.global_proxy_delete
+    ? String(result.global_delete_size_range || '').trim() || null
+    : null
   return result
 }
 

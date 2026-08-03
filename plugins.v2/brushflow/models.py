@@ -180,6 +180,19 @@ class BrushFlowSettingsPayload(BaseModel):
     global_proxy_delete: bool = False
     global_delete_size_range: Optional[str] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def clear_global_delete_size_range_when_disabled(cls, data):
+        """关闭全局动态删种时忽略隐藏阈值，确保无效草稿不会阻止保存。"""
+        if not isinstance(data, dict):
+            return data
+        enabled = data.get("global_proxy_delete", False)
+        if enabled not in (False, None, 0, "", "0", "false", "False"):
+            return data
+        normalized = dict(data)
+        normalized["global_delete_size_range"] = None
+        return normalized
+
     @field_validator(
         "global_disksize",
         "global_maxdlcount",
