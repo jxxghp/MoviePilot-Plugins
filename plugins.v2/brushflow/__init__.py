@@ -8,7 +8,7 @@ from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
-from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
 
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Query
@@ -207,7 +207,7 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流"
     plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "5.1.0"
+    plugin_version = "5.1.1"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -1882,12 +1882,23 @@ class BrushFlow(_PluginBase):
         if not result_path:
             return response.text
         data = response.json()
+        success_key = request_params.get("success")
+        if success_key and not data.get(success_key):
+            return None
         for key in str(result_path).split("."):
             if not isinstance(data, dict):
                 return None
             data = data.get(key)
             if data is None:
                 return None
+        result_url_path = request_params.get("result_path")
+        result_query_param = request_params.get("result_query_param")
+        if result_url_path and result_query_param:
+            result_url = urljoin(
+                f"{str(request_params.get('result_base_url')).rstrip('/')}/",
+                str(result_url_path).lstrip("/"),
+            )
+            return f"{result_url}?{urlencode({result_query_param: data})}"
         return str(data)
 
     @staticmethod
