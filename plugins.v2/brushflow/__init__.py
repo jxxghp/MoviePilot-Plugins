@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
+from zoneinfo import ZoneInfo
 
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Query
@@ -207,7 +208,7 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流"
     plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "5.1.1"
+    plugin_version = "5.1.2"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -440,6 +441,18 @@ class BrushFlow(_PluginBase):
                     "func_kwargs": {"task_id": task.id},
                 }
             )
+            promotion_expiry = self._next_promotion_expiry(task)
+            if promotion_expiry:
+                services.append(
+                    {
+                        "id": f"Task_{task.id}_PromotionExpiry",
+                        "name": f"促销到期检查 - {task.name}",
+                        "trigger": "date",
+                        "func": self._check_promotion_expiry,
+                        "kwargs": {"run_date": promotion_expiry},
+                        "func_kwargs": {"task_id": task.id},
+                    }
+                )
         return services
 
     def stop_service(self) -> None:
@@ -609,6 +622,49 @@ class BrushFlow(_PluginBase):
             Scheduler().update_plugin_job(self.__class__.__name__)
         except Exception as err:
             logger.error(f"更新站点刷流调度失败：{str(err)}")
+
+    @staticmethod
+    def _promotion_expiry_at(freedate_origin: Any, timezone_offset: float) -> Optional[datetime]:
+        """把站点促销截止时间换算为宿主时区中的实际到期时刻"""
+        if not freedate_origin:
+            return None
+        try:
+            freedate_text = str(freedate_origin).strip().replace("T", " ").removesuffix("Z")
+            site_expiry = datetime.strptime(freedate_text, "%Y-%m-%d %H:%M:%S")
+            local_expiry = site_expiry + timedelta(hours=timezone_offset)
+            return local_expiry.replace(tzinfo=ZoneInfo(settings.TZ))
+        except (TypeError, ValueError) as err:
+            logger.warning(f"解析促销截止时间失败：{str(err)}")
+            return None
+
+    def _next_promotion_expiry(self, task: BrushTaskConfig) -> Optional[datetime]:
+        """返回任务中下一项未完成下载的促销截止时间"""
+        if not task.del_no_free:
+            return None
+        now = datetime.now(ZoneInfo(settings.TZ))
+        expiries: List[datetime] = []
+        torrent_tasks = self._get_task_data(task.id, "torrents") or {}
+        for torrent_task in torrent_tasks.values():
+            if not isinstance(torrent_task, dict) or torrent_task.get("deleted"):
+                continue
+            try:
+                total_size = float(torrent_task.get("size") or 0)
+                downloaded = float(torrent_task.get("downloaded") or 0)
+            except (TypeError, ValueError):
+                total_size = downloaded = 0
+            if total_size > 0 and downloaded >= total_size:
+                continue
+            expiry = self._promotion_expiry_at(torrent_task.get("freedate"), task.timezone_offset)
+            if expiry and expiry > now:
+                expiries.append(expiry)
+        return min(expiries) if expiries else None
+
+    def _check_promotion_expiry(self, task_id: str) -> None:
+        """在最近促销截止时等待当前操作结束，检查后重排下一截止任务"""
+        try:
+            self.check(task_id, wait_for_lock=True)
+        finally:
+            self._refresh_scheduler()
 
     def _validate_task_reference(self, task: BrushTaskConfig, notify: bool = True) -> bool:
         """校验任务引用的私有站点和下载器是否仍然存在"""
@@ -1139,6 +1195,8 @@ class BrushFlow(_PluginBase):
             self._append_run(task.id, report)
             self._set_runtime(task.id, state="idle", operation=None)
             task_lock.release()
+            if report.get("added_count"):
+                self._refresh_scheduler()
 
     def _run_brush(self, task: BrushTaskConfig, report: dict) -> None:
         """在已绑定任务上下文中执行刷流核心流程"""
@@ -1466,13 +1524,13 @@ class BrushFlow(_PluginBase):
                 return False, "发布时间不在范围内"
         return True, None
 
-    def check(self, task_id: Optional[str] = None) -> None:
-        """执行单个任务的下载器状态同步、删种和归档流程"""
+    def check(self, task_id: Optional[str] = None, wait_for_lock: bool = False) -> None:
+        """执行状态同步、删种和归档，到期检查可等待同任务的当前操作"""
         task = self._get_task_config(task_id)
         if not task or not self.get_state() or not task.enabled:
             return
         task_lock = self._task_locks.setdefault(task.id, threading.Lock())
-        if not task_lock.acquire(blocking=False):
+        if not task_lock.acquire(blocking=wait_for_lock):
             logger.info(f"刷流任务 [{task.name}] 已有操作执行中，本轮检查跳过")
             return
         report = self._new_run_report("check")
@@ -1672,16 +1730,11 @@ class BrushFlow(_PluginBase):
             or torrent_info.get("downloaded", 0) >= torrent_info.get("total_size", 0)
         ):
             return False, ""
-        freedate_origin = torrent_task.get("freedate")
-        if not freedate_origin:
+        expiry = self._promotion_expiry_at(torrent_task.get("freedate"), task.timezone_offset)
+        if not expiry:
             return False, ""
-        try:
-            freedate = datetime.strptime(str(freedate_origin).replace("T", " ").replace("Z", ""), "%Y-%m-%d %H:%M:%S")
-            delta_minutes = (freedate - datetime.now()).total_seconds() / 60 - task.timezone_offset * 60
-            return (delta_minutes <= 0, "促销已过期" if delta_minutes <= 0 else "")
-        except (TypeError, ValueError) as err:
-            logger.warning(f"解析促销截止时间失败：{str(err)}")
-            return False, ""
+        expired = datetime.now(expiry.tzinfo) >= expiry
+        return expired, "促销已过期" if expired else ""
 
     def __delete_torrent_for_evaluate_conditions(
         self,
