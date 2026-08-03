@@ -11,7 +11,12 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import schemas
-from app.core.auth_bridge import create_plugin_auth_ticket
+try:
+    from app.core.auth import create_plugin_auth_ticket
+except ModuleNotFoundError as err:
+    if err.name != "app.core.auth":
+        raise
+    from app.core.auth_bridge import create_plugin_auth_ticket
 from app.core.config import settings
 from app.db.models.user import User
 from app.db.user_oper import get_current_active_user
@@ -29,7 +34,7 @@ class OidcAuth(_PluginBase):
         "通过 OpenID Connect Provider 为 MoviePilot 提供插件化登录与账号绑定。"
     )
     plugin_icon = "Oidcauth_A.png"
-    plugin_version = "0.3.1"
+    plugin_version = "0.3.2"
     plugin_author = "ui-beam-9,jxxghp"
     author_url = "https://github.com/ui-beam-9"
     plugin_label = "认证,OIDC,SSO"
