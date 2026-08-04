@@ -174,30 +174,6 @@
     inset: auto; margin: 0; left: 50%; bottom: 8%; transform: translateX(-50%);
   }
 
-  /* 倒数 3 秒进入全屏的遮罩 */
-  .fs-countdown {
-    position: fixed; inset: 0; z-index: 999;
-    background: rgba(0,0,0,.72);
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    color: #fff; cursor: pointer;
-    transition: opacity .5s ease;
-  }
-  .fs-countdown.fs-cd-fade { opacity: 0; pointer-events: none; }
-  /* 降级：不遮挡画面的右下角小提示 */
-  .fs-countdown.fs-cd-mini {
-    inset: auto; right: 18px; bottom: 18px;
-    background: rgba(20,20,24,.85);
-    border: 1px solid rgba(255,255,255,.18);
-    border-radius: 999px;
-    padding: 10px 18px;
-    display: block;
-    cursor: pointer;
-  }
-  .fs-countdown.fs-cd-mini .fs-cd-hint { font-size: 13px; opacity: .9; margin: 0; }
-  .fs-cd-num { font-size: 120px; font-weight: 800; line-height: 1; text-shadow: 0 4px 30px rgba(0,0,0,.6); }
-  .fs-cd-hint { font-size: 16px; opacity: .75; margin-top: 18px; }
-
   /* 环形画廊：3D 圆柱环 + 步进旋转聚焦 */
   .effect-ring3d .rg-root { position: absolute; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 30%, #101318 0%, #000 70%); }
   /* 极光光斑：两团缓慢漂移的柔光 */
@@ -463,6 +439,7 @@
     const base = domain || 'https://image.tmdb.org/t/p/original';
     const urls = paths.filter(Boolean).map(p => {
       if (/^https?:/.test(p)) return p;
+      if (p.startsWith('/api/')) return p; // 本插件代理等站内路径，不拼 TMDB 域名
       if (p.startsWith('/')) return base + p;
       return base + '/' + p;
     });
@@ -512,13 +489,14 @@
   function noteNativeFail(it, url, imageType, domain) {
     if (!it || imageType !== 'logo' || !url) return;
     const base = domain || 'https://image.tmdb.org/t/p/original';
-    const natives = [it.thumb_path, it.fanart_poster_path].filter(Boolean).map(p => (/^https?:/.test(p) ? p : p.startsWith('/') ? base + p : base + '/' + p));
+    const natives = [it.thumb_path, it.fanart_poster_path].filter(Boolean).map(p => (/^https?:/.test(p) ? p : p.startsWith('/api/') ? p : p.startsWith('/') ? base + p : base + '/' + p));
     it.__native_failed = natives.indexOf(url) === -1;
   }
   function logoUrl(item, domain) {
     if (!item || !item.logo_path) return '';
     const path = item.logo_path;
     if (/^https?:/.test(path)) return path;
+    if (path.startsWith('/api/')) return path;
     if (path.startsWith('/')) return (domain || 'https://image.tmdb.org/t/p/original') + path;
     return (domain || 'https://image.tmdb.org/t/p/original') + '/' + path;
   }
@@ -1668,7 +1646,7 @@
       }
       setTopBar(cfg, items);
       renderEffect(cfg, items);
-      startFullscreenCountdown();
+      setupFullscreenOnGesture();
     } catch (e) {
       renderError('数据加载失败：' + (e && e.message || e));
     }
@@ -1676,50 +1654,21 @@
   boot();
 })();
 
-// 倒数 3 秒后尝试进入全屏；浏览器要求用户手势，
-// 若自动进入失败则降级为右下角常驻提示，点击任意处即进全屏
-function startFullscreenCountdown() {
-  const ov = document.createElement('div');
-  ov.className = 'fs-countdown';
-  ov.innerHTML = '<div class="fs-cd-num">3</div><div class="fs-cd-hint">秒后进入全屏 · 点击立即进入</div>';
-  document.body.appendChild(ov);
-  let n = 3;
-  let finished = false;
-  const numEl = ov.querySelector('.fs-cd-num');
-  const hintEl = ov.querySelector('.fs-cd-hint');
-  function cleanup() {
-    finished = true;
-    clearInterval(iv);
-    ov.remove();
-    document.removeEventListener('click', onClick, true);
-    document.removeEventListener('keydown', onClick, true);
+// 去掉倒数遮罩（手机/电视盒子上会卡住）：直接开播。
+// 浏览器要求用户手势才能全屏——加载后先静默试一次（部分电视浏览器允许），
+// 之后点击/按键监听常驻，第一次交互即进全屏，成功后自动移除监听。
+function setupFullscreenOnGesture() {
+  function tryFS() {
+    if (document.fullscreenElement) {
+      document.removeEventListener('click', tryFS, true);
+      document.removeEventListener('keydown', tryFS, true);
+      return;
+    }
+    document.documentElement.requestFullscreen().catch(() => {});
   }
-  function tryFullscreen() {
-    if (document.fullscreenElement) { cleanup(); return; }
-    document.documentElement.requestFullscreen()
-      .then(() => cleanup())
-      .catch(() => {
-        // 无用户手势：降级为不遮挡的小提示，2.5 秒后自动隐藏；
-        // 点击/按键监听保持常驻，第一次交互即进全屏
-        ov.classList.add('fs-cd-mini');
-        numEl.style.display = 'none';
-        hintEl.textContent = '点击任意处进入全屏';
-        setTimeout(() => {
-          if (!finished && document.body.contains(ov)) {
-            ov.classList.add('fs-cd-fade');
-            setTimeout(() => ov.remove(), 600);
-          }
-        }, 2500);
-      });
-  }
-  function onClick() { if (!finished) tryFullscreen(); }
-  document.addEventListener('click', onClick, true);
-  document.addEventListener('keydown', onClick, true);
-  const iv = setInterval(() => {
-    n--;
-    if (n <= 0) { clearInterval(iv); tryFullscreen(); return; }
-    numEl.textContent = n;
-  }, 1000);
+  tryFS(); // 无手势时静默失败，不影响播放
+  document.addEventListener('click', tryFS, true);
+  document.addEventListener('keydown', tryFS, true);
 }
 </script>
 </body>

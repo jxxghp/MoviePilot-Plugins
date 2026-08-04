@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { P as PhotosSlideshow, a as ShiftingTiles, R as RingGallery, D as DepthTunnel, S as SlidingPanels, F as Floating, V as VintagePrints, L as LightDance } from './DepthTunnel-D-a57S9M.js';
+import { P as PhotosSlideshow, a as ShiftingTiles, R as RingGallery, D as DepthTunnel, S as SlidingPanels, F as Floating, V as VintagePrints, L as LightDance } from './DepthTunnel-ChvEYrno.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
 const {createElementVNode:_createElementVNode,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,Fragment:_Fragment,resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createBlock:_createBlock,renderList:_renderList,normalizeClass:_normalizeClass,resolveDynamicComponent:_resolveDynamicComponent,Teleport:_Teleport} = await importShared('vue');
@@ -83,7 +83,7 @@ function getApi() {
 // ─── 状态 ─────────────────────────────────────────────────
 const config = ref({
   enabled: false,
-  sources: ['trending', 'tmdb_movies', 'tmdb_tvs'],
+  source_config: {},
   effect: 'photos',
   image_type: 'backdrop',
   interval: 8,
@@ -495,6 +495,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1c9a421d"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-681c4c64"]]);
 
 export { Page as default };
