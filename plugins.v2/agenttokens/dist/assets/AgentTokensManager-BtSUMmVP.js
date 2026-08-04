@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, f as formatTokens, P as PROVIDER_TYPE_OPTIONS, d as createProvider, b as buildProviderRows, a as buildProviderSummary, g as getNextProviderPriority, e as duplicateProvider, n as normalizeProvider } from './provider-CxpsOlL0.js';
+import { _ as _export_sfc, f as formatTokens, P as PROVIDER_TYPE_OPTIONS, a as createProvider, b as buildProviderRows, d as buildProviderSummary, g as getNextProviderPriority, e as duplicateProvider, n as normalizeProvider } from './provider-pRHHIZkt.js';
 
 const {resolveComponent:_resolveComponent$5,mergeProps:_mergeProps$1,createVNode:_createVNode$5,withCtx:_withCtx$5,createTextVNode:_createTextVNode$5,openBlock:_openBlock$5,createBlock:_createBlock$5} = await importShared('vue');
 
@@ -385,6 +385,8 @@ return (_ctx, _cache) => {
                         modelValue: __props.provider.name,
                         "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((__props.provider.name) = $event)),
                         label: "名称",
+                        hint: "用于在供应商列表和用量统计中识别此配置",
+                        "persistent-hint": "",
                         variant: "outlined",
                         density: "comfortable"
                       }, null, 8, ["modelValue"])
@@ -401,6 +403,8 @@ return (_ctx, _cache) => {
                         "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((__props.provider.priority) = $event)),
                         modelModifiers: { number: true },
                         label: "优先级",
+                        hint: "数值越小优先级越高，不可用时按顺序切换",
+                        "persistent-hint": "",
                         type: "number",
                         variant: "outlined"
                       }, null, 8, ["modelValue"])
@@ -417,6 +421,8 @@ return (_ctx, _cache) => {
                         "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((__props.provider.provider) = $event)),
                         items: _unref$3(PROVIDER_TYPE_OPTIONS),
                         label: "类型",
+                        hint: "选择与目标 API 接口兼容的供应商协议",
+                        "persistent-hint": "",
                         variant: "outlined"
                       }, null, 8, ["modelValue", "items"])
                     ]),
@@ -431,6 +437,8 @@ return (_ctx, _cache) => {
                         modelValue: __props.provider.model,
                         "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((__props.provider.model) = $event)),
                         label: "模型",
+                        hint: "填写供应商接口使用的模型标识",
+                        "persistent-hint": "",
                         variant: "outlined"
                       }, null, 8, ["modelValue"])
                     ]),
@@ -442,6 +450,8 @@ return (_ctx, _cache) => {
                         modelValue: __props.provider.base_url,
                         "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((__props.provider.base_url) = $event)),
                         label: "API 地址",
+                        hint: "填写供应商兼容接口的基础地址",
+                        "persistent-hint": "",
                         variant: "outlined"
                       }, null, 8, ["modelValue"])
                     ]),
@@ -453,6 +463,8 @@ return (_ctx, _cache) => {
                         modelValue: __props.provider.api_key,
                         "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((__props.provider.api_key) = $event)),
                         label: "API Key",
+                        hint: "填写访问供应商接口所需的密钥",
+                        "persistent-hint": "",
                         type: "password",
                         variant: "outlined"
                       }, null, 8, ["modelValue"])
@@ -465,6 +477,8 @@ return (_ctx, _cache) => {
                         modelValue: __props.provider.user_agent,
                         "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((__props.provider.user_agent) = $event)),
                         label: "User-Agent",
+                        hint: "可选；自定义请求标识，留空时使用系统默认值",
+                        "persistent-hint": "",
                         variant: "outlined"
                       }, null, 8, ["modelValue"])
                     ]),
@@ -493,6 +507,8 @@ return (_ctx, _cache) => {
                         "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((__props.provider.token_limit) = $event)),
                         modelModifiers: { number: true },
                         label: "Token 额度",
+                        hint: "填写 0 表示不限量，达到额度后自动切换供应商",
+                        "persistent-hint": "",
                         type: "number",
                         variant: "outlined"
                       }, null, 8, ["modelValue"])
@@ -509,6 +525,8 @@ return (_ctx, _cache) => {
                         "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((__props.provider.used_tokens) = $event)),
                         modelModifiers: { number: true },
                         label: "初始已用",
+                        hint: "用于录入已有消耗量，新供应商通常填写 0",
+                        "persistent-hint": "",
                         type: "number",
                         variant: "outlined"
                       }, null, 8, ["modelValue"])
@@ -1129,4 +1147,4 @@ return (_ctx, _cache) => {
 };
 const AgentTokensManager = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c2958f61"]]);
 
-export { AgentTokensManager as A, AgentTokensSettingsMenu as a };
+export { AgentTokensSettingsMenu as A, AgentTokensManager as a };

@@ -37,25 +37,71 @@ function commitProvider() {
       <VCardText>
         <VRow>
           <VCol cols="12" md="8">
-            <VTextField v-model="provider.name" label="名称" variant="outlined" density="comfortable" />
+            <VTextField
+              v-model="provider.name"
+              label="名称"
+              hint="用于在供应商列表和用量统计中识别此配置"
+              persistent-hint
+              variant="outlined"
+              density="comfortable"
+            />
           </VCol>
           <VCol cols="12" md="4">
-            <VTextField v-model.number="provider.priority" label="优先级" type="number" variant="outlined" />
+            <VTextField
+              v-model.number="provider.priority"
+              label="优先级"
+              hint="数值越小优先级越高，不可用时按顺序切换"
+              persistent-hint
+              type="number"
+              variant="outlined"
+            />
           </VCol>
           <VCol cols="12" md="6">
-            <VSelect v-model="provider.provider" :items="PROVIDER_TYPE_OPTIONS" label="类型" variant="outlined" />
+            <VSelect
+              v-model="provider.provider"
+              :items="PROVIDER_TYPE_OPTIONS"
+              label="类型"
+              hint="选择与目标 API 接口兼容的供应商协议"
+              persistent-hint
+              variant="outlined"
+            />
           </VCol>
           <VCol cols="12" md="6">
-            <VTextField v-model="provider.model" label="模型" variant="outlined" />
+            <VTextField
+              v-model="provider.model"
+              label="模型"
+              hint="填写供应商接口使用的模型标识"
+              persistent-hint
+              variant="outlined"
+            />
           </VCol>
           <VCol cols="12">
-            <VTextField v-model="provider.base_url" label="API 地址" variant="outlined" />
+            <VTextField
+              v-model="provider.base_url"
+              label="API 地址"
+              hint="填写供应商兼容接口的基础地址"
+              persistent-hint
+              variant="outlined"
+            />
           </VCol>
           <VCol cols="12">
-            <VTextField v-model="provider.api_key" label="API Key" type="password" variant="outlined" />
+            <VTextField
+              v-model="provider.api_key"
+              label="API Key"
+              hint="填写访问供应商接口所需的密钥"
+              persistent-hint
+              type="password"
+              variant="outlined"
+            />
           </VCol>
           <VCol cols="12">
-            <VTextField v-model="provider.user_agent" label="User-Agent" variant="outlined" />
+            <VTextField
+              v-model="provider.user_agent"
+              label="User-Agent"
+              hint="可选；自定义请求标识，留空时使用系统默认值"
+              persistent-hint
+              variant="outlined"
+            />
           </VCol>
           <VCol cols="12">
             <VSwitch
@@ -67,10 +113,24 @@ function commitProvider() {
             />
           </VCol>
           <VCol cols="12" md="6">
-            <VTextField v-model.number="provider.token_limit" label="Token 额度" type="number" variant="outlined" />
+            <VTextField
+              v-model.number="provider.token_limit"
+              label="Token 额度"
+              hint="填写 0 表示不限量，达到额度后自动切换供应商"
+              persistent-hint
+              type="number"
+              variant="outlined"
+            />
           </VCol>
           <VCol cols="12" md="6">
-            <VTextField v-model.number="provider.used_tokens" label="初始已用" type="number" variant="outlined" />
+            <VTextField
+              v-model.number="provider.used_tokens"
+              label="初始已用"
+              hint="用于录入已有消耗量，新供应商通常填写 0"
+              persistent-hint
+              type="number"
+              variant="outlined"
+            />
           </VCol>
         </VRow>
       </VCardText>
