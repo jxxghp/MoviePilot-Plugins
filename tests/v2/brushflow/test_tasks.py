@@ -564,6 +564,44 @@ def test_global_dynamic_delete_condition_stages_stop_at_lower_bound(proxy_delete
     assert remaining_size == 100 * gib
 
 
+def test_global_dynamic_delete_preserves_each_tasks_delete_reason():
+    """共享种子应在删除计划中保留每个关联任务各自满足的条件原因。"""
+    first = BrushTaskConfig({**_make_task("task-a").to_dict(), "proxy_delete": True})
+    second = BrushTaskConfig(
+        {**_make_task("task-b", site_id=2).to_dict(), "proxy_delete": True}
+    )
+    candidate = {
+        "task": first,
+        "torrent_hash": "shared-hash",
+        "downloader_name": first.downloader,
+        "size": 20,
+        "pre_delete_reason": "",
+        "conditional_reason": "做种时间达到 10 小时",
+        "proxy_delete": True,
+        "completed": True,
+        "hit_and_run": False,
+        "seeding_time": 100,
+        "associated_records": [(first, {}), (second, {})],
+        "task_condition_reasons": {
+            first.id: {"conditional_reason": "做种时间达到 10 小时"},
+            second.id: {"conditional_reason": "分享率达到 2"},
+        },
+    }
+
+    selected, _, triggered = BrushFlow._select_global_dynamic_deletions(
+        [candidate],
+        total_size=120,
+        min_size=100,
+        max_size=110,
+    )
+
+    assert triggered is True
+    assert selected[0]["task_delete_reasons"] == {
+        first.id: "触发全局动态删除阈值，做种时间达到 10 小时",
+        second.id: "触发全局动态删除阈值，分享率达到 2",
+    }
+
+
 def test_global_dynamic_delete_preconditions_run_below_threshold():
     """未达到全局上限时仍应执行非 H&R 促销过期或下载超时预删。"""
     task = BrushTaskConfig({**_make_task("managed").to_dict(), "proxy_delete": True})
@@ -759,6 +797,15 @@ def test_global_dynamic_delete_deduplicates_physical_torrents_and_tracks_all_rec
     assert len(candidates) == 1
     assert candidates[0]["proxy_delete"] is False
     assert {task.id for task, _ in candidates[0]["associated_records"]} == {first.id, second.id}
+
+    second.enabled = False
+    with patch("brushflow.DownloaderHelper", return_value=downloader_helper):
+        protected_candidates, protected_total_size, _, _ = (
+            plugin._collect_global_dynamic_delete_candidates()
+        )
+
+    assert protected_total_size == 60 * gib
+    assert protected_candidates == []
 
 
 def test_global_dynamic_delete_updates_all_records_for_deduplicated_torrent():
