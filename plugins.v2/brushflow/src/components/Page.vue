@@ -5,7 +5,7 @@ defineProps({
   api: { type: Object, default: () => ({}) },
 })
 
-defineEmits(['action', 'switch', 'close'])
+defineEmits(['action', 'close'])
 </script>
 
 <template>
@@ -13,10 +13,8 @@ defineEmits(['action', 'switch', 'close'])
     :api="api"
     plugin-id="BrushFlow"
     show-close
-    show-switch
     compact
     @action="$emit('action')"
-    @switch="$emit('switch')"
     @close="$emit('close')"
   />
 </template>

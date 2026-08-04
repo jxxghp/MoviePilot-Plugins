@@ -17,11 +17,10 @@ const props = defineProps({
   pluginId: { type: String, default: 'BrushFlow' },
   initialTab: { type: String, default: 'overview' },
   showClose: { type: Boolean, default: false },
-  showSwitch: { type: Boolean, default: false },
   compact: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'switch', 'action'])
+const emit = defineEmits(['close', 'action'])
 const loading = ref(false)
 const taskLoading = ref(false)
 const saving = ref(false)
@@ -428,7 +427,6 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
             </VCardActions>
           </VCard>
         </VMenu>
-        <VBtn v-if="showSwitch" icon="mdi-cog-outline" variant="text" aria-label="切换配置" @click="emit('switch')" />
         <VBtn v-if="showClose" icon="mdi-close" variant="text" aria-label="关闭" @click="emit('close')" />
       </div>
     </header>
@@ -496,7 +494,9 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
               </span>
             </button>
           </div>
-          <VBtn block variant="tonal" prepend-icon="mdi-plus" @click="openCreateTask">新建任务</VBtn>
+          <VBtn class="brushflow-create-task" block variant="tonal" prepend-icon="mdi-plus" @click="openCreateTask">
+            新建任务
+          </VBtn>
         </VSheet>
 
         <main v-if="selectedTask" class="brushflow-workspace">
@@ -1008,6 +1008,10 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
   gap: 6px;
 }
 
+.brushflow-create-task {
+  flex: 0 0 auto;
+}
+
 .brushflow-task-item {
   appearance: none;
   display: flex;
@@ -1339,6 +1343,49 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
 .brushflow-config-actions :deep(.v-btn) {
   align-self: flex-start;
   margin-block-start: 8px;
+}
+
+@media (min-width: 960px) {
+  /* 详情弹窗由宿主提供固定高度，内部只让右侧工作区承担页面滚动。 */
+  .brushflow-page--compact {
+    block-size: calc(100dvh - 48px);
+    min-block-size: 0;
+    overflow: hidden;
+  }
+
+  .brushflow-page--compact .brushflow-layout {
+    flex: 1 1 auto;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: stretch;
+    min-block-size: 0;
+    overflow: hidden;
+  }
+
+  .brushflow-page--compact .brushflow-task-rail {
+    position: static;
+    block-size: 100%;
+    min-block-size: 0;
+    max-block-size: none;
+    overflow: hidden;
+  }
+
+  .brushflow-page--compact .brushflow-task-list {
+    flex: 1 1 auto;
+    min-block-size: 0;
+    padding-inline-end: 2px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .brushflow-page--compact .brushflow-workspace {
+    block-size: 100%;
+    min-block-size: 0;
+    padding-inline-end: 4px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
 }
 
 @media (max-width: 1199px) {

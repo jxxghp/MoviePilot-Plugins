@@ -2,17 +2,17 @@ const currentImports = {};
       const exportSet = new Set(['Module', '__esModule', 'default', '_export_sfc']);
       let moduleMap = {
 "./Page":()=>{
-      dynamicLoadingCss(["BrushFlowWorkbench-BdoHuzAO.css"], false, './Page');
-      return __federation_import('./__federation_expose_Page-BOhNUjIa.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      dynamicLoadingCss(["BrushFlowWorkbench-BEWjZIOj.css"], false, './Page');
+      return __federation_import('./__federation_expose_Page-B1npCekW.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Config":()=>{
-      dynamicLoadingCss(["BrushFlowWorkbench-BdoHuzAO.css"], false, './Config');
-      return __federation_import('./__federation_expose_Config-D_0TrK3R.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      dynamicLoadingCss(["BrushFlowWorkbench-BEWjZIOj.css"], false, './Config');
+      return __federation_import('./__federation_expose_Config-Bad0Oo2o.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Dashboard":()=>{
       dynamicLoadingCss(["__federation_expose_Dashboard--DrqsysV.css"], false, './Dashboard');
-      return __federation_import('./__federation_expose_Dashboard-6_D7m9Kn.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      return __federation_import('./__federation_expose_Dashboard-DMUC0pO2.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./AppPage":()=>{
-      dynamicLoadingCss(["BrushFlowWorkbench-BdoHuzAO.css"], false, './AppPage');
-      return __federation_import('./__federation_expose_AppPage-Rk5nvYvC.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
+      dynamicLoadingCss(["BrushFlowWorkbench-BEWjZIOj.css"], false, './AppPage');
+      return __federation_import('./__federation_expose_AppPage-C_LBV9Zh.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
       const seen = {};
       const dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName) => {
         const metaUrl = import.meta.url;

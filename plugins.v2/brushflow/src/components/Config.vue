@@ -7,7 +7,7 @@ defineProps({
   api: { type: Object, default: () => ({}) },
 })
 
-const emit = defineEmits(['layout', 'switch', 'close'])
+const emit = defineEmits(['layout', 'close'])
 
 onMounted(() => {
   emit('layout', { maxWidth: '80rem' })
@@ -20,9 +20,7 @@ onMounted(() => {
     plugin-id="BrushFlow"
     initial-tab="config"
     show-close
-    show-switch
     compact
-    @switch="$emit('switch')"
     @close="$emit('close')"
   />
 </template>

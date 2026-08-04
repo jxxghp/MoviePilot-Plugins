@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { B as BrushFlowWorkbench } from './BrushFlowWorkbench-BbB1pw3Q.js';
+import { B as BrushFlowWorkbench } from './BrushFlowWorkbench-ByYFfUXn.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock} = await importShared('vue');
 
@@ -13,7 +13,7 @@ const _sfc_main = {
   initialConfig: { type: Object, default: () => ({}) },
   api: { type: Object, default: () => ({}) },
 },
-  emits: ['layout', 'switch', 'close'],
+  emits: ['layout', 'close'],
   setup(__props, { emit: __emit }) {
 
 
@@ -30,10 +30,8 @@ return (_ctx, _cache) => {
     "plugin-id": "BrushFlow",
     "initial-tab": "config",
     "show-close": "",
-    "show-switch": "",
     compact: "",
-    onSwitch: _cache[0] || (_cache[0] = $event => (_ctx.$emit('switch'))),
-    onClose: _cache[1] || (_cache[1] = $event => (_ctx.$emit('close')))
+    onClose: _cache[0] || (_cache[0] = $event => (_ctx.$emit('close')))
   }, null, 8, ["api"]))
 }
 }

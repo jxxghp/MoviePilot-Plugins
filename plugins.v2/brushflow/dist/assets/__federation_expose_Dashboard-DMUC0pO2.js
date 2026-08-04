@@ -104,7 +104,7 @@ return (_ctx, _cache) => {
       (!runningTasks.value.length)
         ? (_openBlock(), _createElementBlock("div", _hoisted_4, [
             _createVNode(_component_VIcon, { icon: "mdi-sync-off" }),
-            _cache[4] || (_cache[4] = _createTextVNode(" 暂无启用的刷流任务 ", -1))
+            _cache[4] || (_cache[4] = _createTextVNode(" 暂无启用的刷流任务 "))
           ]))
         : _createCommentVNode("", true)
     ]),
