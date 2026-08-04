@@ -1871,7 +1871,12 @@ class BrushFlow(_PluginBase):
         selected_keys: Set[Tuple[str, str]] = set()
         remaining_size = total_size
 
-        def select(candidate: dict, reason: str) -> None:
+        def select(
+            candidate: dict,
+            reason: str,
+            reason_field: Optional[str] = None,
+            dynamic_reason: bool = False,
+        ) -> None:
             """把未选候选加入计划并扣减预计做种体积"""
             nonlocal remaining_size
             candidate_key = (
@@ -1881,12 +1886,35 @@ class BrushFlow(_PluginBase):
             if candidate_key in selected_keys:
                 return
             selected_keys.add(candidate_key)
-            selected.append({**candidate, "delete_reason": reason})
+            task_delete_reasons: Dict[str, str] = {}
+            for task, _ in candidate.get(
+                "associated_records",
+                [(candidate["task"], candidate.get("torrent_task"))],
+            ):
+                task_reason = (
+                    candidate.get("task_condition_reasons", {}).get(task.id, {}).get(reason_field)
+                    if reason_field
+                    else None
+                ) or reason
+                if dynamic_reason:
+                    task_reason = f"触发全局动态删除阈值，{task_reason}"
+                task_delete_reasons[task.id] = task_reason
+            selected.append(
+                {
+                    **candidate,
+                    "delete_reason": reason,
+                    "task_delete_reasons": task_delete_reasons,
+                }
+            )
             remaining_size = max(remaining_size - float(candidate.get("size") or 0), 0)
 
         for candidate in candidates:
             if candidate.get("pre_delete_reason"):
-                select(candidate, candidate["pre_delete_reason"])
+                select(
+                    candidate,
+                    candidate["pre_delete_reason"],
+                    reason_field="pre_delete_reason",
+                )
 
         threshold_triggered = remaining_size >= max_size
         if not threshold_triggered:
@@ -1896,14 +1924,23 @@ class BrushFlow(_PluginBase):
             if remaining_size <= min_size:
                 break
             if not candidate.get("proxy_delete") and candidate.get("conditional_reason"):
-                select(candidate, candidate["conditional_reason"])
+                select(
+                    candidate,
+                    candidate["conditional_reason"],
+                    reason_field="conditional_reason",
+                )
 
         if remaining_size > min_size:
             for candidate in candidates:
                 if remaining_size <= min_size:
                     break
                 if candidate.get("proxy_delete") and candidate.get("conditional_reason"):
-                    select(candidate, f"触发全局动态删除阈值，{candidate['conditional_reason']}")
+                    select(
+                        candidate,
+                        f"触发全局动态删除阈值，{candidate['conditional_reason']}",
+                        reason_field="conditional_reason",
+                        dynamic_reason=True,
+                    )
 
         fallback_candidates = sorted(
             (
@@ -1937,10 +1974,18 @@ class BrushFlow(_PluginBase):
         downloader_helper = DownloaderHelper()
 
         for task in self._task_configs.values():
-            if not task.enabled:
-                continue
             torrent_tasks: Dict[str, dict] = self._get_task_data(task.id, "torrents") or {}
             task_records[task.id] = torrent_tasks
+            for torrent_hash, torrent_task in torrent_tasks.items():
+                if torrent_task.get("deleted"):
+                    continue
+                torrent_key = (task.downloader, torrent_hash)
+                associated_records.setdefault(torrent_key, []).append((task, torrent_task))
+
+        for task in self._task_configs.values():
+            if not task.enabled:
+                continue
+            torrent_tasks = task_records[task.id]
             if task.downloader not in downloader_cache:
                 service = downloader_helper.get_service(name=task.downloader)
                 if not service or not service.instance or service.instance.is_inactive():
@@ -1981,7 +2026,6 @@ class BrushFlow(_PluginBase):
                     if not torrent_task or torrent_task.get("deleted"):
                         continue
                     torrent_key = (task.downloader, torrent_hash)
-                    associated_records.setdefault(torrent_key, []).append((task, torrent_task))
                     if torrent_key not in counted_torrents:
                         torrent_info = self.__get_torrent_info(torrent)
                         total_size += float(
@@ -2055,6 +2099,13 @@ class BrushFlow(_PluginBase):
                         else ""
                     ),
                     "seeding_time": max(row["seeding_time"] for row in rows),
+                    "task_condition_reasons": {
+                        row["task"].id: {
+                            "pre_delete_reason": row["pre_delete_reason"],
+                            "conditional_reason": row["conditional_reason"],
+                        }
+                        for row in rows
+                    },
                 }
             )
             candidates.append(candidate)
@@ -2167,9 +2218,13 @@ class BrushFlow(_PluginBase):
                         torrent_task = task_records.get(task.id, {}).get(torrent_hash)
                         if not torrent_task:
                             continue
+                        delete_reason = entry.get("task_delete_reasons", {}).get(
+                            task.id,
+                            entry["delete_reason"],
+                        )
                         torrent_task.update({"deleted": True, "deleted_time": deleted_at})
                         affected_task_ids.add(task.id)
-                        notification_entries.append((task, torrent_task, entry["delete_reason"]))
+                        notification_entries.append((task, torrent_task, delete_reason))
                         entry_recorded = True
                     if entry_recorded:
                         recorded_entries.append(entry)
