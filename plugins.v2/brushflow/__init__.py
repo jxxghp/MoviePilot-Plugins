@@ -116,6 +116,11 @@ GLOBAL_LIMIT_FIELDS = (
     "global_maxdlspeed",
 )
 
+GLOBAL_DYNAMIC_DELETE_FIELDS = (
+    "global_proxy_delete",
+    "global_delete_size_range",
+)
+
 
 class BrushTaskConfig:
     """
@@ -208,7 +213,7 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流"
     plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "5.1.2"
+    plugin_version = "5.2.0"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -226,6 +231,7 @@ class BrushFlow(_PluginBase):
         self._task_context = threading.local()
         self._task_locks: Dict[str, threading.Lock] = {}
         self._brush_lock = threading.Lock()
+        self._global_delete_lock = threading.Lock()
         self._runtime_lock = threading.Lock()
         self._runtime: Dict[str, dict] = {}
         self._subscribe_infos: Dict[str, List[str]] = {}
@@ -239,6 +245,15 @@ class BrushFlow(_PluginBase):
                 value = raw_config.get(field.removeprefix("global_"))
             parsed_value = BrushTaskConfig._parse_number(value)
             setattr(self, f"_{field}", parsed_value if parsed_value and parsed_value > 0 else None)
+        global_proxy_delete = raw_config.get(
+            "global_proxy_delete",
+            raw_config.get("proxy_delete", False) if legacy_config else False,
+        )
+        legacy_delete_range = raw_config.get("delete_size_range") if legacy_config else None
+        self._global_proxy_delete, self._global_delete_size_range = self._validate_global_dynamic_delete_config(
+            global_proxy_delete,
+            raw_config.get("global_delete_size_range", legacy_delete_range),
+        )
 
         task_rows = raw_config.get("tasks") if isinstance(raw_config.get("tasks"), list) else None
         migrated = task_rows is None and bool(raw_config.get("brushsites"))
@@ -488,10 +503,17 @@ class BrushFlow(_PluginBase):
 
     def update_settings(self, payload: BrushFlowSettingsPayload) -> schemas.Response:
         """更新插件全局开关并刷新宿主任务调度"""
+        global_dynamic_delete_was_enabled = self._global_dynamic_delete_enabled()
         self._enabled = payload.enabled
         self._show_sidebar_nav = payload.show_sidebar_nav
         for field in GLOBAL_LIMIT_FIELDS:
             setattr(self, f"_{field}", getattr(payload, field))
+        for field in GLOBAL_DYNAMIC_DELETE_FIELDS:
+            setattr(self, f"_{field}", getattr(payload, field))
+        if global_dynamic_delete_was_enabled and not self._global_dynamic_delete_enabled():
+            for task in self._task_configs.values():
+                if task.proxy_delete and not task.delete_size_range:
+                    task.proxy_delete = False
         self._save_config()
         self._refresh_scheduler()
         return schemas.Response(success=True, data=self._build_status_data())
@@ -610,6 +632,7 @@ class BrushFlow(_PluginBase):
             "tasks": [task.to_dict() for task in getattr(self, "_task_configs", {}).values()],
         }
         config.update({field: getattr(self, f"_{field}", None) for field in GLOBAL_LIMIT_FIELDS})
+        config.update({field: getattr(self, f"_{field}", None) for field in GLOBAL_DYNAMIC_DELETE_FIELDS})
         return config
 
     def _save_config(self) -> None:
@@ -622,6 +645,28 @@ class BrushFlow(_PluginBase):
             Scheduler().update_plugin_job(self.__class__.__name__)
         except Exception as err:
             logger.error(f"更新站点刷流调度失败：{str(err)}")
+
+    def _global_dynamic_delete_enabled(self) -> bool:
+        """返回全局动态删种开关与阈值是否同时有效"""
+        return bool(
+            getattr(self, "_global_proxy_delete", False)
+            and getattr(self, "_global_delete_size_range", None)
+        )
+
+    @staticmethod
+    def _validate_global_dynamic_delete_config(enabled: Any, size_range: Any) -> Tuple[bool, Optional[str]]:
+        """复用设置模型校验持久化或迁移得到的全局动态删种配置。"""
+        try:
+            payload = BrushFlowSettingsPayload.model_validate(
+                {
+                    "global_proxy_delete": enabled,
+                    "global_delete_size_range": size_range,
+                }
+            )
+        except ValueError as err:
+            logger.warning(f"全局动态删种配置无效，已自动关闭：{str(err)}")
+            return False, None
+        return payload.global_proxy_delete, payload.global_delete_size_range
 
     @staticmethod
     def _promotion_expiry_at(freedate_origin: Any, timezone_offset: float) -> Optional[datetime]:
@@ -853,6 +898,20 @@ class BrushFlow(_PluginBase):
             else:
                 self._task_context.task_id = previous
 
+    @contextmanager
+    def _all_task_locks_scope(self) -> Iterator[None]:
+        """按任务 ID 顺序锁定全部任务，保护跨任务删种的数据一致性"""
+        acquired_locks: List[threading.Lock] = []
+        try:
+            for task_id in sorted(self._task_configs):
+                task_lock = self._task_locks.setdefault(task_id, threading.Lock())
+                task_lock.acquire()
+                acquired_locks.append(task_lock)
+            yield
+        finally:
+            for task_lock in reversed(acquired_locks):
+                task_lock.release()
+
     def _get_task_config(self, task_id: Optional[str] = None) -> Optional[BrushTaskConfig]:
         """获取显式任务或当前线程绑定的任务配置"""
         resolved_id = task_id or getattr(self._task_context, "task_id", None)
@@ -986,6 +1045,7 @@ class BrushFlow(_PluginBase):
             "enabled": self.get_state(),
             "show_sidebar_nav": self._show_sidebar_nav,
             **{field: getattr(self, f"_{field}", None) for field in GLOBAL_LIMIT_FIELDS},
+            **{field: getattr(self, f"_{field}", None) for field in GLOBAL_DYNAMIC_DELETE_FIELDS},
             "summary": aggregate,
             "tasks": task_rows,
             "options": {"sites": site_options, "downloaders": downloader_options},
@@ -1544,10 +1604,19 @@ class BrushFlow(_PluginBase):
             self._set_runtime(task.id, last_error=str(err))
             logger.error(f"刷流任务 [{task.name}] 检查失败：{str(err)}")
         finally:
-            report["finished_at"] = self._now_iso()
-            self._append_run(task.id, report)
-            self._set_runtime(task.id, state="idle", operation=None)
             task_lock.release()
+        if self._global_dynamic_delete_enabled():
+            try:
+                global_deleted_count = self._run_global_dynamic_delete()
+                report["global_deleted_count"] = global_deleted_count
+                report["deleted_count"] = report.get("deleted_count", 0) + global_deleted_count
+            except Exception as err:
+                report.update({"success": False, "error": str(err)})
+                self._set_runtime(task.id, last_error=str(err))
+                logger.error(f"全局动态删种失败：{str(err)}")
+        report["finished_at"] = self._now_iso()
+        self._append_run(task.id, report)
+        self._set_runtime(task.id, state="idle", operation=None)
 
     def _run_check(self, task: BrushTaskConfig, report: dict) -> None:
         """在已绑定任务上下文中执行刷流种子检查"""
@@ -1573,7 +1642,9 @@ class BrushFlow(_PluginBase):
         self.__update_torrent_tasks_state(check_torrents, torrent_tasks)
         self.__update_undeleted_torrents_missing_in_downloader(torrent_tasks, check_hashes, seeding_torrents)
         filtered_torrents = self.__filter_torrents_by_tag(check_torrents, task.delete_except_tags)
-        if task.proxy_delete and task.delete_size_range:
+        if self._global_dynamic_delete_enabled():
+            need_delete_hashes = []
+        elif task.proxy_delete and task.delete_size_range:
             need_delete_hashes = self.__delete_torrent_for_proxy(filtered_torrents, torrent_tasks)
         else:
             need_delete_hashes = self.__delete_torrent_for_evaluate_conditions(filtered_torrents, torrent_tasks)
@@ -1787,6 +1858,353 @@ class BrushFlow(_PluginBase):
             delete_hashes.append(torrent_hash)
             self.__send_delete_message(torrent_task, reason)
         return delete_hashes
+
+    @staticmethod
+    def _select_global_dynamic_deletions(
+        candidates: List[dict],
+        total_size: float,
+        min_size: float,
+        max_size: float,
+    ) -> Tuple[List[dict], float, bool]:
+        """按 V4 优先级从跨任务候选中生成全局动态删种计划"""
+        selected: List[dict] = []
+        selected_keys: Set[Tuple[str, str]] = set()
+        remaining_size = total_size
+
+        def select(candidate: dict, reason: str) -> None:
+            """把未选候选加入计划并扣减预计做种体积"""
+            nonlocal remaining_size
+            candidate_key = (
+                candidate["downloader_name"],
+                candidate["torrent_hash"],
+            )
+            if candidate_key in selected_keys:
+                return
+            selected_keys.add(candidate_key)
+            selected.append({**candidate, "delete_reason": reason})
+            remaining_size = max(remaining_size - float(candidate.get("size") or 0), 0)
+
+        for candidate in candidates:
+            if candidate.get("pre_delete_reason"):
+                select(candidate, candidate["pre_delete_reason"])
+
+        threshold_triggered = remaining_size >= max_size
+        if not threshold_triggered:
+            return selected, remaining_size, False
+
+        for candidate in candidates:
+            if remaining_size <= min_size:
+                break
+            if not candidate.get("proxy_delete") and candidate.get("conditional_reason"):
+                select(candidate, candidate["conditional_reason"])
+
+        if remaining_size > min_size:
+            for candidate in candidates:
+                if remaining_size <= min_size:
+                    break
+                if candidate.get("proxy_delete") and candidate.get("conditional_reason"):
+                    select(candidate, f"触发全局动态删除阈值，{candidate['conditional_reason']}")
+
+        fallback_candidates = sorted(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.get("proxy_delete")
+                and candidate.get("completed")
+                and not candidate.get("hit_and_run")
+            ),
+            key=lambda item: item.get("seeding_time", 0),
+            reverse=True,
+        )
+        for candidate in fallback_candidates:
+            if remaining_size <= min_size:
+                break
+            select(candidate, "触发全局动态删除阈值，系统按做种时间清理")
+
+        return selected, remaining_size, True
+
+    def _collect_global_dynamic_delete_candidates(
+        self,
+    ) -> Tuple[List[dict], float, Dict[str, Dict[str, dict]], Dict[str, ServiceInfo]]:
+        """汇总启用任务的最新下载器状态、做种体积和全局删种候选"""
+        candidate_rows: Dict[Tuple[str, str], List[dict]] = {}
+        total_size = 0.0
+        task_records: Dict[str, Dict[str, dict]] = {}
+        services: Dict[str, ServiceInfo] = {}
+        downloader_cache: Dict[str, Tuple[ServiceInfo, List[Any]]] = {}
+        counted_torrents: Set[Tuple[str, str]] = set()
+        associated_records: Dict[Tuple[str, str], List[Tuple[BrushTaskConfig, dict]]] = {}
+        downloader_helper = DownloaderHelper()
+
+        for task in self._task_configs.values():
+            if not task.enabled:
+                continue
+            torrent_tasks: Dict[str, dict] = self._get_task_data(task.id, "torrents") or {}
+            task_records[task.id] = torrent_tasks
+            if task.downloader not in downloader_cache:
+                service = downloader_helper.get_service(name=task.downloader)
+                if not service or not service.instance or service.instance.is_inactive():
+                    raise RuntimeError(
+                        f"全局动态删种无法获取下载器 [{task.downloader}] 实时状态，本轮已中止"
+                    )
+                torrents, error = service.instance.get_torrents()
+                if error:
+                    raise RuntimeError(
+                        f"全局动态删种获取下载器 [{task.downloader}] 种子失败，本轮已中止"
+                    )
+                downloader_cache[task.downloader] = (service, torrents or [])
+                services[task.downloader] = service
+
+            service, downloader_torrents = downloader_cache[task.downloader]
+            with self._task_scope(task.id):
+                downloader_torrent_map: Dict[str, Any] = {}
+                for torrent in downloader_torrents:
+                    torrent_hash = self.__get_hash(torrent)
+                    if torrent_hash:
+                        downloader_torrent_map[torrent_hash] = torrent
+                check_hashes = list(torrent_tasks)
+                check_torrents = [
+                    downloader_torrent_map[torrent_hash]
+                    for torrent_hash in check_hashes
+                    if torrent_hash in downloader_torrent_map
+                ]
+                self.__update_torrent_tasks_state(check_torrents, torrent_tasks)
+                self.__update_undeleted_torrents_missing_in_downloader(
+                    torrent_tasks,
+                    check_hashes,
+                    downloader_torrents,
+                )
+                self._save_task_data(task.id, "torrents", torrent_tasks)
+                for torrent in check_torrents:
+                    torrent_hash = self.__get_hash(torrent)
+                    torrent_task = torrent_tasks.get(torrent_hash)
+                    if not torrent_task or torrent_task.get("deleted"):
+                        continue
+                    torrent_key = (task.downloader, torrent_hash)
+                    associated_records.setdefault(torrent_key, []).append((task, torrent_task))
+                    if torrent_key not in counted_torrents:
+                        torrent_info = self.__get_torrent_info(torrent)
+                        total_size += float(
+                            torrent_info.get("total_size") or torrent_task.get("size") or 0
+                        )
+                        counted_torrents.add(torrent_key)
+
+                filtered_torrents = self.__filter_torrents_by_tag(check_torrents, task.delete_except_tags)
+                for torrent in filtered_torrents:
+                    torrent_hash = self.__get_hash(torrent)
+                    torrent_task = torrent_tasks.get(torrent_hash)
+                    if not torrent_task or torrent_task.get("deleted"):
+                        continue
+                    torrent_key = (task.downloader, torrent_hash)
+                    torrent_info = self.__get_torrent_info(torrent)
+                    pre_delete_reason = ""
+                    if not torrent_task.get("hit_and_run"):
+                        expired, expired_reason = self.__promotion_expired(torrent_info, torrent_task)
+                        timed_out = bool(
+                            task.download_time
+                            and torrent_info.get("downloaded", 0) < torrent_info.get("total_size", 0)
+                            and torrent_info.get("dltime", 0) >= float(task.download_time) * 3600
+                        )
+                        if expired:
+                            pre_delete_reason = expired_reason
+                        elif timed_out:
+                            pre_delete_reason = f"下载耗时达到 {task.download_time} 小时"
+                    should_delete, conditional_reason = self.__evaluate_conditions_for_delete(
+                        torrent_info,
+                        torrent_task,
+                    )
+                    torrent_size = float(torrent_info.get("total_size") or torrent_task.get("size") or 0)
+                    candidate_rows.setdefault(torrent_key, []).append(
+                        {
+                            "task": task,
+                            "torrent_hash": torrent_hash,
+                            "torrent_task": torrent_task,
+                            "downloader_name": task.downloader,
+                            "size": torrent_size,
+                            "pre_delete_reason": pre_delete_reason,
+                            "conditional_reason": conditional_reason if should_delete else "",
+                            "proxy_delete": task.proxy_delete,
+                            "completed": bool(
+                                torrent_size > 0 and torrent_info.get("downloaded", 0) >= torrent_size
+                            ),
+                            "hit_and_run": bool(torrent_task.get("hit_and_run")),
+                            "seeding_time": torrent_info.get("seeding_time", 0),
+                        }
+                    )
+
+        candidates: List[dict] = []
+        for torrent_key, rows in candidate_rows.items():
+            associations = associated_records.get(torrent_key, [])
+            if len(rows) != len(associations):
+                continue
+            candidate = dict(rows[0])
+            candidate.update(
+                {
+                    "associated_records": associations,
+                    "proxy_delete": all(row["proxy_delete"] for row in rows),
+                    "completed": all(row["completed"] for row in rows),
+                    "hit_and_run": any(row["hit_and_run"] for row in rows),
+                    "pre_delete_reason": (
+                        rows[0]["pre_delete_reason"]
+                        if all(row["pre_delete_reason"] for row in rows)
+                        else ""
+                    ),
+                    "conditional_reason": (
+                        rows[0]["conditional_reason"]
+                        if all(row["conditional_reason"] for row in rows)
+                        else ""
+                    ),
+                    "seeding_time": max(row["seeding_time"] for row in rows),
+                }
+            )
+            candidates.append(candidate)
+        return candidates, total_size, task_records, services
+
+    def _send_global_dynamic_delete_summary(
+        self,
+        deleted_entries: List[dict],
+        remaining_size: float,
+    ) -> None:
+        """按受影响任务通知开关发送全局区间删种汇总"""
+        notified_tasks = {
+            task.id: task
+            for entry in deleted_entries
+            for task, _ in entry.get(
+                "associated_records",
+                [(entry["task"], entry.get("torrent_task"))],
+            )
+            if task.notify
+        }
+        if not notified_tasks:
+            return
+        task_names = "、".join(task.name for task in notified_tasks.values())
+        self.post_message(
+            mtype=NotificationType.SiteMessage,
+            title="【刷流任务全局动态删除】",
+            text=(
+                f"任务：{task_names}\n"
+                f"删除：{len(deleted_entries)} 个种子\n"
+                f"当前做种：{self.__bytes_to_gb(remaining_size):.1f} GB"
+            ),
+        )
+
+    def _run_global_dynamic_delete(self) -> int:
+        """串行执行跨任务、跨下载器的全局动态删种并返回成功删除数"""
+        if not self._global_dynamic_delete_enabled():
+            return 0
+        global_lock = getattr(self, "_global_delete_lock", None)
+        if global_lock is None:
+            self._global_delete_lock = threading.Lock()
+            global_lock = self._global_delete_lock
+        if not global_lock.acquire(blocking=False):
+            logger.info("已有全局动态删种正在执行，本轮跳过")
+            return 0
+
+        try:
+            with self._all_task_locks_scope():
+                candidates, total_size, task_records, services = self._collect_global_dynamic_delete_candidates()
+                limits = [
+                    float(value) * 1024 ** 3
+                    for value in str(self._global_delete_size_range).split("-")
+                ]
+                min_size = limits[0]
+                max_size = limits[1] if len(limits) > 1 else limits[0]
+                delete_plan, _, threshold_triggered = self._select_global_dynamic_deletions(
+                    candidates,
+                    total_size,
+                    min_size,
+                    max_size,
+                )
+                if not delete_plan:
+                    if threshold_triggered:
+                        logger.info(
+                            f"全局做种体积 {self.__bytes_to_gb(total_size):.1f} GB 已达到动态删种上限，"
+                            "但没有符合任务策略的可删除种子"
+                        )
+                    else:
+                        logger.info(
+                            f"全局做种体积 {self.__bytes_to_gb(total_size):.1f} GB，"
+                            f"未达到动态删种上限 {self.__bytes_to_gb(max_size):.1f} GB"
+                        )
+                    return 0
+
+                plan_by_downloader: Dict[str, List[dict]] = {}
+                for entry in delete_plan:
+                    plan_by_downloader.setdefault(entry["downloader_name"], []).append(entry)
+
+                deleted_entries: List[dict] = []
+                downloader_helper = DownloaderHelper()
+                for downloader_name, entries in plan_by_downloader.items():
+                    service = services.get(downloader_name)
+                    if not service or not service.instance:
+                        continue
+                    torrent_hashes = list(dict.fromkeys(entry["torrent_hash"] for entry in entries))
+                    if downloader_helper.is_downloader("qbittorrent", service=service):
+                        try:
+                            if getattr(service.instance, "qbc", None):
+                                service.instance.qbc.torrents_reannounce(torrent_hashes=torrent_hashes)
+                        except Exception as err:
+                            logger.warning(f"全局动态删种重新汇报下载器 [{downloader_name}] 失败：{str(err)}")
+                    try:
+                        if service.instance.delete_torrents(ids=torrent_hashes, delete_file=True):
+                            deleted_entries.extend(entries)
+                    except Exception as err:
+                        logger.error(
+                            f"全局动态删种调用下载器 [{downloader_name}] 删除失败：{str(err)}"
+                        )
+
+                deleted_at = time.time()
+                affected_task_ids: Set[str] = set()
+                recorded_entries: List[dict] = []
+                notification_entries: List[Tuple[BrushTaskConfig, dict, str]] = []
+                for entry in deleted_entries:
+                    torrent_hash = entry["torrent_hash"]
+                    entry_recorded = False
+                    for task, _ in entry.get(
+                        "associated_records",
+                        [(entry["task"], entry.get("torrent_task"))],
+                    ):
+                        torrent_task = task_records.get(task.id, {}).get(torrent_hash)
+                        if not torrent_task:
+                            continue
+                        torrent_task.update({"deleted": True, "deleted_time": deleted_at})
+                        affected_task_ids.add(task.id)
+                        notification_entries.append((task, torrent_task, entry["delete_reason"]))
+                        entry_recorded = True
+                    if entry_recorded:
+                        recorded_entries.append(entry)
+
+                for affected_task_id in affected_task_ids:
+                    self._save_task_data(
+                        affected_task_id,
+                        "torrents",
+                        task_records[affected_task_id],
+                    )
+                    self._recalculate_statistics(affected_task_id)
+
+                for task, torrent_task, delete_reason in notification_entries:
+                    try:
+                        with self._task_scope(task.id):
+                            self.__send_delete_message(torrent_task, delete_reason)
+                    except Exception as err:
+                        logger.warning(f"全局动态删种发送任务 [{task.name}] 通知失败：{str(err)}")
+                    logger.info(
+                        f"全局动态删种删除任务 [{task.name}] 种子："
+                        f"{torrent_task.get('title')}，原因：{delete_reason}"
+                    )
+
+                remaining_size = max(
+                    total_size - sum(float(entry.get("size") or 0) for entry in deleted_entries),
+                    0,
+                )
+                if threshold_triggered and len(limits) > 1 and recorded_entries:
+                    try:
+                        self._send_global_dynamic_delete_summary(recorded_entries, remaining_size)
+                    except Exception as err:
+                        logger.warning(f"全局动态删种发送汇总通知失败：{str(err)}")
+                return len(recorded_entries)
+        finally:
+            global_lock.release()
 
     def __delete_torrent_for_proxy(
         self,

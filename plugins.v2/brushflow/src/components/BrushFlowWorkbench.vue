@@ -50,6 +50,8 @@ const settingsDraft = ref({
   global_maxdlcount: null,
   global_maxupspeed: null,
   global_maxdlspeed: null,
+  global_proxy_delete: false,
+  global_delete_size_range: null,
 })
 const hostToast = inject('moviepilot:toast', null)
 let refreshTimer
@@ -121,6 +123,8 @@ async function loadStatus({ preserveSelection = true, loadDetail = true } = {}) 
       global_maxdlcount: status.value.global_maxdlcount ?? null,
       global_maxupspeed: status.value.global_maxupspeed ?? null,
       global_maxdlspeed: status.value.global_maxdlspeed ?? null,
+      global_proxy_delete: Boolean(status.value.global_proxy_delete),
+      global_delete_size_range: status.value.global_delete_size_range ?? null,
     }
     const selectedStillExists = tasks.value.some(item => item.id === selectedTaskId.value)
     if (!preserveSelection || !selectedStillExists) selectedTaskId.value = tasks.value[0]?.id || ''
@@ -367,6 +371,22 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                 color="primary"
                 hide-details
                 inset
+              />
+              <VDivider />
+              <VSwitch
+                v-model="settingsDraft.global_proxy_delete"
+                label="全局动态删种"
+                color="primary"
+                hide-details
+                inset
+              />
+              <VTextField
+                v-if="settingsDraft.global_proxy_delete"
+                v-model="settingsDraft.global_delete_size_range"
+                label="全局动态删种阈值（GB）"
+                placeholder="50-100"
+                clearable
+                hide-details
               />
               <VDivider />
               <VTextField
@@ -817,6 +837,7 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
       :task="editorTask"
       :sites="status.options.sites"
       :downloaders="status.options.downloaders"
+      :global-dynamic-delete="Boolean(status.global_proxy_delete)"
       :saving="saving"
       @save="saveTask"
     />
@@ -927,6 +948,8 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
 .settings-menu__body {
   display: grid;
   gap: 8px;
+  max-block-size: min(70vh, 34rem);
+  overflow-y: auto;
 }
 
 .brushflow-settings-menu {

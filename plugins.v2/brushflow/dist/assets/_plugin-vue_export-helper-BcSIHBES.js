@@ -114,6 +114,10 @@ function normalizeSettings(settings = {}) {
     const value = Number(result[key] || 0);
     result[key] = value > 0 ? value : null;
   });
+  result.global_proxy_delete = Boolean(result.global_proxy_delete);
+  result.global_delete_size_range = result.global_proxy_delete
+    ? String(result.global_delete_size_range || '').trim() || null
+    : null;
   return result
 }
 
@@ -178,4 +182,4 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-export { _export_sfc as _, formatDateTime as a, formatDuration as b, cloneTask as c, normalizeTask as d, torrentProgress as e, formatBytes as f, normalizeSettings as n, taskStateMeta as t, unwrapResponse as u };
+export { _export_sfc as _, formatDateTime as a, formatDuration as b, cloneTask as c, torrentProgress as d, normalizeSettings as e, formatBytes as f, normalizeTask as n, taskStateMeta as t, unwrapResponse as u };
