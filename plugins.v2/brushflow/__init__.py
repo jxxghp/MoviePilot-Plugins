@@ -245,15 +245,14 @@ class BrushFlow(_PluginBase):
                 value = raw_config.get(field.removeprefix("global_"))
             parsed_value = BrushTaskConfig._parse_number(value)
             setattr(self, f"_{field}", parsed_value if parsed_value and parsed_value > 0 else None)
-        self._global_proxy_delete = bool(
-            raw_config.get(
-                "global_proxy_delete",
-                raw_config.get("proxy_delete", False) if legacy_config else False,
-            )
+        global_proxy_delete = raw_config.get(
+            "global_proxy_delete",
+            raw_config.get("proxy_delete", False) if legacy_config else False,
         )
         legacy_delete_range = raw_config.get("delete_size_range") if legacy_config else None
-        self._global_delete_size_range = BrushTaskConfig._clean_text(
-            raw_config.get("global_delete_size_range", legacy_delete_range)
+        self._global_proxy_delete, self._global_delete_size_range = self._validate_global_dynamic_delete_config(
+            global_proxy_delete,
+            raw_config.get("global_delete_size_range", legacy_delete_range),
         )
 
         task_rows = raw_config.get("tasks") if isinstance(raw_config.get("tasks"), list) else None
@@ -504,12 +503,17 @@ class BrushFlow(_PluginBase):
 
     def update_settings(self, payload: BrushFlowSettingsPayload) -> schemas.Response:
         """更新插件全局开关并刷新宿主任务调度"""
+        global_dynamic_delete_was_enabled = self._global_dynamic_delete_enabled()
         self._enabled = payload.enabled
         self._show_sidebar_nav = payload.show_sidebar_nav
         for field in GLOBAL_LIMIT_FIELDS:
             setattr(self, f"_{field}", getattr(payload, field))
         for field in GLOBAL_DYNAMIC_DELETE_FIELDS:
             setattr(self, f"_{field}", getattr(payload, field))
+        if global_dynamic_delete_was_enabled and not self._global_dynamic_delete_enabled():
+            for task in self._task_configs.values():
+                if task.proxy_delete and not task.delete_size_range:
+                    task.proxy_delete = False
         self._save_config()
         self._refresh_scheduler()
         return schemas.Response(success=True, data=self._build_status_data())
@@ -648,6 +652,21 @@ class BrushFlow(_PluginBase):
             getattr(self, "_global_proxy_delete", False)
             and getattr(self, "_global_delete_size_range", None)
         )
+
+    @staticmethod
+    def _validate_global_dynamic_delete_config(enabled: Any, size_range: Any) -> Tuple[bool, Optional[str]]:
+        """复用设置模型校验持久化或迁移得到的全局动态删种配置。"""
+        try:
+            payload = BrushFlowSettingsPayload.model_validate(
+                {
+                    "global_proxy_delete": enabled,
+                    "global_delete_size_range": size_range,
+                }
+            )
+        except ValueError as err:
+            logger.warning(f"全局动态删种配置无效，已自动关闭：{str(err)}")
+            return False, None
+        return payload.global_proxy_delete, payload.global_delete_size_range
 
     @staticmethod
     def _promotion_expiry_at(freedate_origin: Any, timezone_offset: float) -> Optional[datetime]:
@@ -1849,16 +1868,15 @@ class BrushFlow(_PluginBase):
     ) -> Tuple[List[dict], float, bool]:
         """按 V4 优先级从跨任务候选中生成全局动态删种计划"""
         selected: List[dict] = []
-        selected_keys: Set[Tuple[str, str, str]] = set()
+        selected_keys: Set[Tuple[str, str]] = set()
         remaining_size = total_size
 
         def select(candidate: dict, reason: str) -> None:
             """把未选候选加入计划并扣减预计做种体积"""
             nonlocal remaining_size
             candidate_key = (
-                candidate["task"].id,
-                candidate["torrent_hash"],
                 candidate["downloader_name"],
+                candidate["torrent_hash"],
             )
             if candidate_key in selected_keys:
                 return
@@ -1909,11 +1927,13 @@ class BrushFlow(_PluginBase):
         self,
     ) -> Tuple[List[dict], float, Dict[str, Dict[str, dict]], Dict[str, ServiceInfo]]:
         """汇总启用任务的最新下载器状态、做种体积和全局删种候选"""
-        candidates: List[dict] = []
+        candidate_rows: Dict[Tuple[str, str], List[dict]] = {}
         total_size = 0.0
         task_records: Dict[str, Dict[str, dict]] = {}
         services: Dict[str, ServiceInfo] = {}
         downloader_cache: Dict[str, Tuple[ServiceInfo, List[Any]]] = {}
+        counted_torrents: Set[Tuple[str, str]] = set()
+        associated_records: Dict[Tuple[str, str], List[Tuple[BrushTaskConfig, dict]]] = {}
         downloader_helper = DownloaderHelper()
 
         for task in self._task_configs.values():
@@ -1955,7 +1975,19 @@ class BrushFlow(_PluginBase):
                     downloader_torrents,
                 )
                 self._save_task_data(task.id, "torrents", torrent_tasks)
-                total_size += self.__calculate_seeding_torrents_size(torrent_tasks)
+                for torrent in check_torrents:
+                    torrent_hash = self.__get_hash(torrent)
+                    torrent_task = torrent_tasks.get(torrent_hash)
+                    if not torrent_task or torrent_task.get("deleted"):
+                        continue
+                    torrent_key = (task.downloader, torrent_hash)
+                    associated_records.setdefault(torrent_key, []).append((task, torrent_task))
+                    if torrent_key not in counted_torrents:
+                        torrent_info = self.__get_torrent_info(torrent)
+                        total_size += float(
+                            torrent_info.get("total_size") or torrent_task.get("size") or 0
+                        )
+                        counted_torrents.add(torrent_key)
 
                 filtered_torrents = self.__filter_torrents_by_tag(check_torrents, task.delete_except_tags)
                 for torrent in filtered_torrents:
@@ -1963,6 +1995,7 @@ class BrushFlow(_PluginBase):
                     torrent_task = torrent_tasks.get(torrent_hash)
                     if not torrent_task or torrent_task.get("deleted"):
                         continue
+                    torrent_key = (task.downloader, torrent_hash)
                     torrent_info = self.__get_torrent_info(torrent)
                     pre_delete_reason = ""
                     if not torrent_task.get("hit_and_run"):
@@ -1981,7 +2014,7 @@ class BrushFlow(_PluginBase):
                         torrent_task,
                     )
                     torrent_size = float(torrent_info.get("total_size") or torrent_task.get("size") or 0)
-                    candidates.append(
+                    candidate_rows.setdefault(torrent_key, []).append(
                         {
                             "task": task,
                             "torrent_hash": torrent_hash,
@@ -1999,6 +2032,32 @@ class BrushFlow(_PluginBase):
                         }
                     )
 
+        candidates: List[dict] = []
+        for torrent_key, rows in candidate_rows.items():
+            associations = associated_records.get(torrent_key, [])
+            if len(rows) != len(associations):
+                continue
+            candidate = dict(rows[0])
+            candidate.update(
+                {
+                    "associated_records": associations,
+                    "proxy_delete": all(row["proxy_delete"] for row in rows),
+                    "completed": all(row["completed"] for row in rows),
+                    "hit_and_run": any(row["hit_and_run"] for row in rows),
+                    "pre_delete_reason": (
+                        rows[0]["pre_delete_reason"]
+                        if all(row["pre_delete_reason"] for row in rows)
+                        else ""
+                    ),
+                    "conditional_reason": (
+                        rows[0]["conditional_reason"]
+                        if all(row["conditional_reason"] for row in rows)
+                        else ""
+                    ),
+                    "seeding_time": max(row["seeding_time"] for row in rows),
+                }
+            )
+            candidates.append(candidate)
         return candidates, total_size, task_records, services
 
     def _send_global_dynamic_delete_summary(
@@ -2007,7 +2066,15 @@ class BrushFlow(_PluginBase):
         remaining_size: float,
     ) -> None:
         """按受影响任务通知开关发送全局区间删种汇总"""
-        notified_tasks = {entry["task"].id: entry["task"] for entry in deleted_entries if entry["task"].notify}
+        notified_tasks = {
+            task.id: task
+            for entry in deleted_entries
+            for task, _ in entry.get(
+                "associated_records",
+                [(entry["task"], entry.get("torrent_task"))],
+            )
+            if task.notify
+        }
         if not notified_tasks:
             return
         task_names = "、".join(task.name for task in notified_tasks.values())
@@ -2089,15 +2156,23 @@ class BrushFlow(_PluginBase):
                 deleted_at = time.time()
                 affected_task_ids: Set[str] = set()
                 recorded_entries: List[dict] = []
+                notification_entries: List[Tuple[BrushTaskConfig, dict, str]] = []
                 for entry in deleted_entries:
-                    task = entry["task"]
                     torrent_hash = entry["torrent_hash"]
-                    torrent_task = task_records.get(task.id, {}).get(torrent_hash)
-                    if not torrent_task:
-                        continue
-                    torrent_task.update({"deleted": True, "deleted_time": deleted_at})
-                    affected_task_ids.add(task.id)
-                    recorded_entries.append(entry)
+                    entry_recorded = False
+                    for task, _ in entry.get(
+                        "associated_records",
+                        [(entry["task"], entry.get("torrent_task"))],
+                    ):
+                        torrent_task = task_records.get(task.id, {}).get(torrent_hash)
+                        if not torrent_task:
+                            continue
+                        torrent_task.update({"deleted": True, "deleted_time": deleted_at})
+                        affected_task_ids.add(task.id)
+                        notification_entries.append((task, torrent_task, entry["delete_reason"]))
+                        entry_recorded = True
+                    if entry_recorded:
+                        recorded_entries.append(entry)
 
                 for affected_task_id in affected_task_ids:
                     self._save_task_data(
@@ -2107,17 +2182,15 @@ class BrushFlow(_PluginBase):
                     )
                     self._recalculate_statistics(affected_task_id)
 
-                for entry in recorded_entries:
-                    task = entry["task"]
-                    torrent_task = task_records[task.id][entry["torrent_hash"]]
+                for task, torrent_task, delete_reason in notification_entries:
                     try:
                         with self._task_scope(task.id):
-                            self.__send_delete_message(torrent_task, entry["delete_reason"])
+                            self.__send_delete_message(torrent_task, delete_reason)
                     except Exception as err:
                         logger.warning(f"全局动态删种发送任务 [{task.name}] 通知失败：{str(err)}")
                     logger.info(
                         f"全局动态删种删除任务 [{task.name}] 种子："
-                        f"{torrent_task.get('title')}，原因：{entry['delete_reason']}"
+                        f"{torrent_task.get('title')}，原因：{delete_reason}"
                     )
 
                 remaining_size = max(
