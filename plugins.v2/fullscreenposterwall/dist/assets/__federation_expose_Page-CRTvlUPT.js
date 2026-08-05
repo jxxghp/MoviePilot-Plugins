@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { P as PhotosSlideshow, a as ShiftingTiles, R as RingGallery, D as DepthTunnel, S as SlidingPanels, F as Floating, V as VintagePrints, L as LightDance } from './DepthTunnel-ChvEYrno.js';
+import { P as PhotosSlideshow, a as ShiftingTiles, R as RingGallery, D as DepthTunnel, S as SlidingPanels, F as Floating, V as VintagePrints, L as LightDance } from './DepthTunnel-CmuaBcYd.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
 const {createElementVNode:_createElementVNode,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,Fragment:_Fragment,resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createBlock:_createBlock,renderList:_renderList,normalizeClass:_normalizeClass,resolveDynamicComponent:_resolveDynamicComponent,Teleport:_Teleport} = await importShared('vue');
@@ -129,16 +129,31 @@ const effectName = computed(() => {
   const e = effects.find(x => x.key === config.value.effect);
   return e ? e.name : '照片'
 });
+// Logo 拉取就绪数（logo 模式下显示在标题行）
+const logoReady = computed(() => items.value.filter(i => i.logo_path).length);
 const sourceChips = computed(() => {
+  // 动态数据源：{api_path: [types]} → 短名 chips（内置源映射，第三方源取路径末段）
   const map = {
-    trending: '流行趋势',
-    tmdb_movies: 'TMDB热门电影',
-    tmdb_tvs: 'TMDB热门电视剧',
+    'recommend/tmdb_trending': '流行趋势',
+    'recommend/douban_showing': '正在热映',
+    'recommend/bangumi_calendar': 'Bangumi放送',
+    'recommend/tmdb_movies': 'TMDB电影',
+    'recommend/tmdb_tvs': 'TMDB电视剧',
+    'recommend/douban_movie_hot': '豆瓣热影',
+    'recommend/douban_tv_hot': '豆瓣热剧',
+    'recommend/douban_tv_animation': '豆瓣动漫',
+    'recommend/douban_movies': '豆瓣新影',
+    'recommend/douban_tvs': '豆瓣新剧',
+    'recommend/douban_movie_top250': '豆瓣TOP250',
+    'recommend/douban_tv_weekly_chinese': '国产剧榜',
+    'recommend/douban_tv_weekly_global': '全球剧榜',
+    'anilist/trending': 'AniList趋势',
+    'anilist/popular_this_season': 'AniList本季',
   };
-  const list = config.value.sources || [];
-  return list
-    .filter(s => map[s])
-    .map(s => ({ key: s, name: map[s] }))
+  const cfg = config.value.source_config || {};
+  return Object.keys(cfg)
+    .filter(k => (cfg[k] || []).length)
+    .map(k => ({ key: k, name: map[k] || k.split('/').pop() }))
 });
 const imageTypeName = computed(() => {
   const m = { poster: '海报 (poster)', backdrop: '背景大图 (backdrop)', both: '海报 + 背景' };
@@ -308,14 +323,20 @@ return (_ctx, _cache) => {
     (!playing.value)
       ? (_openBlock(), _createElementBlock("div", _hoisted_2, [
           _createElementVNode("div", _hoisted_3, [
-            _cache[2] || (_cache[2] = _createElementVNode("div", { class: "fspw-icon" }, "🎬", -1)),
+            _cache[3] || (_cache[3] = _createElementVNode("div", { class: "fspw-icon" }, "🎬", -1)),
             _createElementVNode("div", null, [
-              _cache[1] || (_cache[1] = _createElementVNode("h2", { class: "ma-0" }, "全屏海报墙", -1)),
+              _cache[2] || (_cache[2] = _createElementVNode("h2", { class: "ma-0" }, "全屏海报墙", -1)),
               _createElementVNode("div", _hoisted_4, [
                 (!items.value.length)
-                  ? (_openBlock(), _createElementBlock("span", _hoisted_5, "请等候拉取图片…"))
+                  ? (_openBlock(), _createElementBlock("span", _hoisted_5, "请等候拉取图片/Logo…"))
                   : (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
-                      _createTextVNode(_toDisplayString(items.value.length) + " 张海报已就绪 ·", 1)
+                      _createTextVNode(_toDisplayString(items.value.length) + " 张已就绪 ", 1),
+                      (config.value.image_type === 'logo' && logoReady.value > 0)
+                        ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
+                            _createTextVNode(" · Logo " + _toDisplayString(logoReady.value) + "/" + _toDisplayString(items.value.length) + " 就绪" + _toDisplayString(logoReady.value >= items.value.length ? ' · 完成' : ''), 1)
+                          ], 64))
+                        : _createCommentVNode("", true),
+                      _cache[1] || (_cache[1] = _createTextVNode(" · ", -1))
                     ], 64)),
                 _createElementVNode("strong", null, _toDisplayString(effectName.value), 1),
                 _createTextVNode(" · " + _toDisplayString(config.value.interval) + " 秒切换 ", 1)
@@ -338,7 +359,7 @@ return (_ctx, _cache) => {
               disabled: !loaded.value,
               class: "ml-2"
             }, {
-              default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
+              default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
                 _createTextVNode(" 进入全屏播放 ", -1)
               ]))]),
               _: 1
@@ -362,7 +383,7 @@ return (_ctx, _cache) => {
               onClick: _cache[0] || (_cache[0] = $event => (reloadItems(true))),
               class: "ml-2"
             }, {
-              default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
+              default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
                 _createTextVNode("重试", -1)
               ]))]),
               _: 1
@@ -373,7 +394,7 @@ return (_ctx, _cache) => {
       : _createCommentVNode("", true),
     (!playing.value)
       ? (_openBlock(), _createElementBlock("div", _hoisted_7, [
-          _cache[16] || (_cache[16] = _createElementVNode("div", { class: "fspw-section-title" }, [
+          _cache[17] || (_cache[17] = _createElementVNode("div", { class: "fspw-section-title" }, [
             _createTextVNode(" 播放效果 "),
             _createElementVNode("span", { class: "fspw-section-hint" }, "当前生效的效果由「插件设置」决定（彩色=选中，灰色=未选中）。")
           ], -1)),
@@ -392,10 +413,10 @@ return (_ctx, _cache) => {
               ], 2)
             }), 64))
           ]),
-          _cache[17] || (_cache[17] = _createElementVNode("div", { class: "fspw-section-title mt-5" }, "当前设置", -1)),
+          _cache[18] || (_cache[18] = _createElementVNode("div", { class: "fspw-section-title mt-5" }, "当前设置", -1)),
           _createElementVNode("div", _hoisted_13, [
             _createElementVNode("div", _hoisted_14, [
-              _cache[5] || (_cache[5] = _createElementVNode("span", { class: "k" }, "推荐数据源", -1)),
+              _cache[6] || (_cache[6] = _createElementVNode("span", { class: "k" }, "推荐数据源", -1)),
               _createElementVNode("span", _hoisted_15, [
                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(sourceChips.value, (s) => {
                   return (_openBlock(), _createBlock(_component_v_chip, {
@@ -414,28 +435,28 @@ return (_ctx, _cache) => {
               ])
             ]),
             _createElementVNode("div", _hoisted_16, [
-              _cache[6] || (_cache[6] = _createElementVNode("span", { class: "k" }, "图片来源", -1)),
+              _cache[7] || (_cache[7] = _createElementVNode("span", { class: "k" }, "图片来源", -1)),
               _createElementVNode("span", _hoisted_17, _toDisplayString(imageTypeName.value), 1)
             ]),
             _createElementVNode("div", _hoisted_18, [
-              _cache[7] || (_cache[7] = _createElementVNode("span", { class: "k" }, "切换间隔", -1)),
+              _cache[8] || (_cache[8] = _createElementVNode("span", { class: "k" }, "切换间隔", -1)),
               _createElementVNode("span", _hoisted_19, _toDisplayString(config.value.interval) + " 秒切换", 1)
             ]),
             _createElementVNode("div", _hoisted_20, [
-              _cache[8] || (_cache[8] = _createElementVNode("span", { class: "k" }, "随机乱序", -1)),
+              _cache[9] || (_cache[9] = _createElementVNode("span", { class: "k" }, "随机乱序", -1)),
               _createElementVNode("span", _hoisted_21, _toDisplayString(config.value.shuffle ? '开' : '关'), 1)
             ]),
             _createElementVNode("div", _hoisted_22, [
-              _cache[9] || (_cache[9] = _createElementVNode("span", { class: "k" }, "隐藏文字", -1)),
+              _cache[10] || (_cache[10] = _createElementVNode("span", { class: "k" }, "隐藏文字", -1)),
               _createElementVNode("span", _hoisted_23, _toDisplayString(config.value.hide_text ? '开' : '关'), 1)
             ])
           ]),
           _createElementVNode("div", _hoisted_24, [
-            _cache[11] || (_cache[11] = _createTextVNode(" 💡 修改以上效果/间隔/数据源等：", -1)),
-            _cache[12] || (_cache[12] = _createElementVNode("strong", null, "右上齿轮按钮", -1)),
-            _cache[13] || (_cache[13] = _createTextVNode(" 打开插件设置保存。 ", -1)),
-            _cache[14] || (_cache[14] = _createElementVNode("br", null, null, -1)),
-            _cache[15] || (_cache[15] = _createTextVNode(" 💡 在同一 Wi-Fi 内的手机/电脑浏览器直接打开（无需登录）： ", -1)),
+            _cache[12] || (_cache[12] = _createTextVNode(" 💡 修改以上效果/间隔/数据源等：", -1)),
+            _cache[13] || (_cache[13] = _createElementVNode("strong", null, "右上齿轮按钮", -1)),
+            _cache[14] || (_cache[14] = _createTextVNode(" 打开插件设置保存。 ", -1)),
+            _cache[15] || (_cache[15] = _createElementVNode("br", null, null, -1)),
+            _cache[16] || (_cache[16] = _createTextVNode(" 💡 在同一 Wi-Fi 内的手机/电脑浏览器直接打开（无需登录）： ", -1)),
             _createElementVNode("span", _hoisted_25, [
               _createElementVNode("code", _hoisted_26, _toDisplayString(lanWallUrl.value), 1),
               _createVNode(_component_v_btn, {
@@ -458,7 +479,7 @@ return (_ctx, _cache) => {
                 "prepend-icon": "mdi-open-in-new",
                 onClick: openLanUrl
               }, {
-                default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
+                default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
                   _createTextVNode("打开", -1)
                 ]))]),
                 _: 1
@@ -495,6 +516,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-681c4c64"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b52ea814"]]);
 
 export { Page as default };
