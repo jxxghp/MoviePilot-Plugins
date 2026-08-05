@@ -1,4 +1,5 @@
 import ipaddress
+from datetime import datetime, timezone
 from typing import List, Tuple, Dict, Any, Optional
 
 from app.core.event import eventmanager, Event
@@ -12,6 +13,8 @@ from app.utils.ip import IpUtils
 
 
 class SpeedLimiter(_PluginBase):
+    """根据外网媒体播放状态动态调整下载器限速。"""
+
     # 插件名称
     plugin_name = "播放限速"
     # 插件描述
@@ -19,7 +22,7 @@ class SpeedLimiter(_PluginBase):
     # 插件图标
     plugin_icon = "Librespeed_A.png"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "Shurelol"
     # 作者主页
@@ -36,6 +39,8 @@ class SpeedLimiter(_PluginBase):
     _enabled: bool = False
     _notify: bool = False
     _interval: int = 60
+    # Jellyfin 客户端通常会持续上报播放进度；超过该时间未上报的残留会话视为脏数据。
+    _jellyfin_session_timeout: int = 120
     _downloader: list = []
     _play_up_speed: float = 0
     _play_down_speed: float = 0
@@ -52,6 +57,7 @@ class SpeedLimiter(_PluginBase):
     _exclude_path = ""
 
     def init_plugin(self, config: dict = None):
+        """读取插件配置并初始化限速状态。"""
 
         # 读取配置
         if config:
@@ -88,13 +94,16 @@ class SpeedLimiter(_PluginBase):
             self._downloader = config.get("downloader") or []
 
     def get_state(self) -> bool:
+        """返回插件是否已启用。"""
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """返回插件命令定义；当前插件未注册命令。"""
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """返回插件 API 定义；当前插件未暴露 API。"""
         pass
 
     def get_service(self) -> List[Dict[str, Any]]:
@@ -121,6 +130,7 @@ class SpeedLimiter(_PluginBase):
         return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        """返回播放限速配置表单及默认值。"""
         return [
             {
                 'component': 'VForm',
@@ -388,6 +398,7 @@ class SpeedLimiter(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
+        """返回插件详情页；当前插件未提供详情页。"""
         pass
 
     @property
@@ -420,7 +431,7 @@ class SpeedLimiter(_PluginBase):
     @eventmanager.register(EventType.WebhookMessage)
     def check_playing_sessions(self, event: Event = None):
         """
-        检查播放会话
+        检查播放会话；Webhook 仅用于加速触发，定时轮询始终作为兼容兜底。
         """
         if not self.service_infos:
             return
@@ -437,7 +448,8 @@ class SpeedLimiter(_PluginBase):
                 "playback.stop"
             ]:
                 return
-        # 当前播放的总比特率
+        # 播放状态与比特率必须分开统计，避免 Jellyfin 未返回比特率时误判为未播放。
+        has_remote_playback = False
         total_bit_rate = 0
         media_servers = MediaServerHelper().get_services()
         if not media_servers:
@@ -454,7 +466,7 @@ class SpeedLimiter(_PluginBase):
                         sessions = res.json()
                         for session in sessions:
                             if session.get("NowPlayingItem") and not session.get("PlayState", {}).get("IsPaused"):
-                                if not self.__path_execluded(session.get("NowPlayingItem").get("Path")):
+                                if not self.__path_excluded(session.get("NowPlayingItem").get("Path")):
                                     playing_sessions.append(session)
 
                 except Exception as e:
@@ -466,39 +478,29 @@ class SpeedLimiter(_PluginBase):
                     if self._unlimited_ips["ipv4"] or self._unlimited_ips["ipv6"]:
                         if not self.__allow_access(self._unlimited_ips, session.get("RemoteEndPoint")) \
                                 and session.get("NowPlayingItem", {}).get("MediaType") == "Video":
+                            has_remote_playback = True
                             total_bit_rate += int(session.get("NowPlayingItem", {}).get("Bitrate") or 0)
                     # 未设置不限速范围，则默认不限速内网ip
                     elif not IpUtils.is_private_ip(session.get("RemoteEndPoint")) \
                             and session.get("NowPlayingItem", {}).get("MediaType") == "Video":
+                        has_remote_playback = True
                         total_bit_rate += int(session.get("NowPlayingItem", {}).get("Bitrate") or 0)
             elif service.type == "jellyfin":
-                req_url = "[HOST]Sessions?api_key=[APIKEY]"
+                req_url = (f"[HOST]Sessions?api_key=[APIKEY]&"
+                           f"activeWithinSeconds={self._jellyfin_session_timeout}")
                 try:
                     res = service.instance.get_data(req_url)
                     if res and res.status_code == 200:
-                        sessions = res.json()
+                        sessions = self.__extract_jellyfin_sessions(res.json())
                         for session in sessions:
-                            if session.get("NowPlayingItem") and not session.get("PlayState", {}).get("IsPaused"):
-                                if not self.__path_execluded(session.get("NowPlayingItem").get("Path")):
-                                    playing_sessions.append(session)
+                            bit_rate = self.__jellyfin_session_bitrate(session)
+                            if bit_rate is None:
+                                continue
+                            has_remote_playback = True
+                            total_bit_rate += bit_rate
                 except Exception as e:
                     logger.error(f"获取Jellyfin播放会话失败：{str(e)}")
                     continue
-                # 计算有效比特率
-                for session in playing_sessions:
-                    # 设置了不限速范围则判断session ip是否在不限速范围内
-                    if self._unlimited_ips["ipv4"] or self._unlimited_ips["ipv6"]:
-                        if not self.__allow_access(self._unlimited_ips, session.get("RemoteEndPoint")) \
-                                and session.get("NowPlayingItem", {}).get("MediaType") == "Video":
-                            media_streams = session.get("NowPlayingItem", {}).get("MediaStreams") or []
-                            for media_stream in media_streams:
-                                total_bit_rate += int(media_stream.get("BitRate") or 0)
-                    # 未设置不限速范围，则默认不限速内网ip
-                    elif not IpUtils.is_private_ip(session.get("RemoteEndPoint")) \
-                            and session.get("NowPlayingItem", {}).get("MediaType") == "Video":
-                        media_streams = session.get("NowPlayingItem", {}).get("MediaStreams") or []
-                        for media_stream in media_streams:
-                            total_bit_rate += int(media_stream.get("BitRate") or 0)
             elif service.type == "plex":
                 _plex = service.instance.get_plex()
                 if _plex:
@@ -516,13 +518,16 @@ class SpeedLimiter(_PluginBase):
                         if self._unlimited_ips["ipv4"] or self._unlimited_ips["ipv6"]:
                             if not self.__allow_access(self._unlimited_ips, session.get("address")) \
                                     and session.get("type") == "Video":
+                                has_remote_playback = True
                                 total_bit_rate += int(session.get("bitrate") or 0)
                         # 未设置不限速范围，则默认不限速内网ip
                         elif not IpUtils.is_private_ip(session.get("address")) \
                                 and session.get("type") == "Video":
+                            has_remote_playback = True
                             total_bit_rate += int(session.get("bitrate") or 0)
 
-        if total_bit_rate:
+        if has_remote_playback:
+            logger.debug(f"外网播放总比特率：{total_bit_rate}")
             # 开启智能限速计算上传限速
             if self._auto_limit:
                 play_up_speed = self.__calc_limit(total_bit_rate)
@@ -537,23 +542,221 @@ class SpeedLimiter(_PluginBase):
             self.__set_limiter(limit_type="未播放", upload_limit=self._noplay_up_speed,
                                download_limit=self._noplay_down_speed)
 
-    def __path_execluded(self, path: str) -> bool:
+    @staticmethod
+    def __get_compatible_value(data: dict, *keys: str) -> Any:
+        """按候选字段名读取 Jellyfin 数据，兼容 PascalCase 与 camelCase 序列化。"""
+        if not isinstance(data, dict):
+            return None
+        for key in keys:
+            if key in data:
+                return data.get(key)
+        return None
+
+    @classmethod
+    def __extract_jellyfin_sessions(cls, payload: Any) -> List[dict]:
+        """从列表或常见包装对象中提取 Jellyfin 会话列表。"""
+        if isinstance(payload, list):
+            return [session for session in payload if isinstance(session, dict)]
+        if not isinstance(payload, dict):
+            return []
+        sessions = cls.__get_compatible_value(payload, "Items", "items", "Sessions", "sessions", "Data", "data")
+        if not isinstance(sessions, list):
+            return []
+        return [session for session in sessions if isinstance(session, dict)]
+
+    @staticmethod
+    def __parse_jellyfin_datetime(value: Any) -> Optional[datetime]:
+        """解析 Jellyfin 的 ISO 时间，无法识别时返回空以保留旧版本兼容。"""
+        if not isinstance(value, str) or not value.strip():
+            return None
+        normalized = value.strip()
+        if normalized.endswith("Z"):
+            normalized = f"{normalized[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    @staticmethod
+    def __as_bool(value: Any) -> bool:
+        """兼容布尔值及字符串形式的 Jellyfin 状态字段。"""
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @staticmethod
+    def __normalize_remote_ip(remote_endpoint: Any) -> str:
+        """去除 Jellyfin 远端地址中的端口和 IPv6 方括号。"""
+        if not isinstance(remote_endpoint, str):
+            return ""
+        endpoint = remote_endpoint.strip()
+        if not endpoint:
+            return ""
+        try:
+            return str(ipaddress.ip_address(endpoint.split("%", 1)[0]))
+        except ValueError:
+            pass
+        if endpoint.startswith("[") and "]" in endpoint:
+            endpoint = endpoint[1:endpoint.index("]")]
+        elif endpoint.count(":") == 1 and "." in endpoint:
+            endpoint = endpoint.rsplit(":", 1)[0]
+        try:
+            return str(ipaddress.ip_address(endpoint.split("%", 1)[0]))
+        except ValueError:
+            return ""
+
+    @classmethod
+    def __is_video_item(cls, item: dict) -> bool:
+        """判断 Jellyfin 当前媒体是否为视频，兼容字符串与枚举数值。"""
+        media_type = cls.__get_compatible_value(item, "MediaType", "mediaType")
+        if isinstance(media_type, str):
+            normalized = media_type.strip().lower()
+            if normalized in {"video", "1"}:
+                return True
+            if normalized:
+                return False
+        elif media_type is not None:
+            return media_type == 1
+        item_type = cls.__get_compatible_value(item, "Type", "type")
+        return str(item_type or "").lower() in {"movie", "episode", "video", "trailer", "musicvideo"}
+
+    @staticmethod
+    def __coerce_bitrate(value: Any) -> int:
+        """把 Jellyfin 不同层级返回的比特率安全转换为非负整数。"""
+        try:
+            return max(0, int(float(value or 0)))
+        except (TypeError, ValueError):
+            return 0
+
+    @classmethod
+    def __sum_media_stream_bitrate(cls, streams: Any) -> int:
+        """汇总音视频流比特率，忽略字幕等非传输码率字段。"""
+        if not isinstance(streams, list):
+            return 0
+        total = 0
+        for stream in streams:
+            if not isinstance(stream, dict):
+                continue
+            stream_type = cls.__get_compatible_value(stream, "Type", "type")
+            if stream_type is not None and str(stream_type).lower() not in {"video", "audio", "0", "1"}:
+                continue
+            total += cls.__coerce_bitrate(
+                cls.__get_compatible_value(stream, "BitRate", "bitRate", "Bitrate", "bitrate")
+            )
+        return total
+
+    @classmethod
+    def __get_jellyfin_bitrate(cls, session: dict, item: dict) -> int:
+        """按转码信息、媒体源和媒体流的优先级提取当前播放比特率。"""
+        transcoding = cls.__get_compatible_value(session, "TranscodingInfo", "transcodingInfo")
+        if isinstance(transcoding, dict):
+            bit_rate = cls.__coerce_bitrate(
+                cls.__get_compatible_value(transcoding, "Bitrate", "bitrate", "BitRate", "bitRate")
+            )
+            if bit_rate:
+                return bit_rate
+
+        bit_rate = cls.__coerce_bitrate(
+            cls.__get_compatible_value(item, "Bitrate", "bitrate", "BitRate", "bitRate")
+        )
+        if bit_rate:
+            return bit_rate
+
+        play_state = cls.__get_compatible_value(session, "PlayState", "playState") or {}
+        media_source_id = cls.__get_compatible_value(play_state, "MediaSourceId", "mediaSourceId")
+        media_sources = cls.__get_compatible_value(item, "MediaSources", "mediaSources") or []
+        if isinstance(media_sources, list):
+            selected_sources = [source for source in media_sources if isinstance(source, dict)]
+            if media_source_id:
+                selected_sources.sort(
+                    key=lambda source: cls.__get_compatible_value(source, "Id", "id") != media_source_id
+                )
+            for source in selected_sources:
+                bit_rate = cls.__coerce_bitrate(
+                    cls.__get_compatible_value(source, "Bitrate", "bitrate", "BitRate", "bitRate")
+                )
+                if bit_rate:
+                    return bit_rate
+                bit_rate = cls.__sum_media_stream_bitrate(
+                    cls.__get_compatible_value(source, "MediaStreams", "mediaStreams")
+                )
+                if bit_rate:
+                    return bit_rate
+
+        return cls.__sum_media_stream_bitrate(
+            cls.__get_compatible_value(item, "MediaStreams", "mediaStreams")
+        )
+
+    def __jellyfin_session_bitrate(self, session: dict) -> Optional[int]:
+        """校验 Jellyfin 会话是否为新鲜的外网视频播放，并返回其比特率。"""
+        item = self.__get_compatible_value(session, "NowPlayingItem", "nowPlayingItem", "Item", "item")
+        if not isinstance(item, dict):
+            return None
+
+        is_active = self.__get_compatible_value(session, "IsActive", "isActive")
+        if is_active is not None and not self.__as_bool(is_active):
+            return None
+
+        play_state = self.__get_compatible_value(session, "PlayState", "playState") or {}
+        if self.__as_bool(self.__get_compatible_value(play_state, "IsPaused", "isPaused")):
+            return None
+
+        last_check_in_value = self.__get_compatible_value(
+            session, "LastPlaybackCheckIn", "lastPlaybackCheckIn"
+        ) or self.__get_compatible_value(session, "LastActivityDate", "lastActivityDate")
+        last_check_in = self.__parse_jellyfin_datetime(last_check_in_value)
+        if last_check_in:
+            elapsed = (datetime.now(timezone.utc) - last_check_in).total_seconds()
+            if elapsed > self._jellyfin_session_timeout:
+                logger.debug(f"忽略超过 {self._jellyfin_session_timeout} 秒未上报的 Jellyfin 残留会话")
+                return None
+
+        if not self.__is_video_item(item):
+            return None
+        if self.__path_excluded(self.__get_compatible_value(item, "Path", "path")):
+            return None
+
+        remote_ip = self.__normalize_remote_ip(
+            self.__get_compatible_value(
+                session, "RemoteEndPoint", "remoteEndPoint", "RemoteEndpoint", "remoteEndpoint"
+            )
+        )
+        if not remote_ip:
+            logger.debug("Jellyfin 播放会话缺少有效远端地址，跳过限速")
+            return None
+        if self._unlimited_ips.get("ipv4") or self._unlimited_ips.get("ipv6"):
+            if self.__allow_access(self._unlimited_ips, remote_ip):
+                return None
+        elif IpUtils.is_private_ip(remote_ip):
+            return None
+
+        bit_rate = self.__get_jellyfin_bitrate(session, item)
+        if not bit_rate:
+            logger.debug("检测到 Jellyfin 外网视频播放，但当前会话未提供可用比特率")
+        return bit_rate
+
+    def __path_excluded(self, path: Optional[str]) -> bool:
         """
         判断是否在不限速路径内
         """
-        if self._exclude_path:
-            exclude_paths = self._exclude_path.split("\n")
-            for exclude_path in exclude_paths:
-                if exclude_path in path:
-                    logger.info(f"{path} 在不限速路径：{exclude_path} 内，跳过限速")
-                    return True
+        if not self._exclude_path or not path:
+            return False
+        exclude_paths = [exclude_path.strip() for exclude_path in self._exclude_path.splitlines()
+                         if exclude_path.strip()]
+        for exclude_path in exclude_paths:
+            if exclude_path in path:
+                logger.info(f"{path} 在不限速路径：{exclude_path} 内，跳过限速")
+                return True
         return False
     
     def __calc_limit(self, total_bit_rate: float) -> float:
         """
         计算智能上传限速
         """
-        if not self._bandwidth:
+        if not self._bandwidth or total_bit_rate > self._bandwidth:
             return 10
         return round((self._bandwidth - total_bit_rate) / 8 / 1024, 2)
 
@@ -646,32 +849,36 @@ class SpeedLimiter(_PluginBase):
         if not allow_ips:
             return True
         try:
-            ipaddr = ipaddress.ip_address(ip)
+            normalized_ip = SpeedLimiter.__normalize_remote_ip(ip)
+            if not normalized_ip:
+                return False
+            ipaddr = ipaddress.ip_address(normalized_ip)
             if ipaddr.version == 4:
                 if not allow_ips.get('ipv4'):
                     return True
                 allow_ipv4s = allow_ips.get('ipv4').split(",")
                 for allow_ipv4 in allow_ipv4s:
-                    if ipaddr in ipaddress.ip_network(allow_ipv4, strict=False):
+                    if allow_ipv4.strip() and ipaddr in ipaddress.ip_network(allow_ipv4.strip(), strict=False):
                         return True
             elif ipaddr.ipv4_mapped:
                 if not allow_ips.get('ipv4'):
                     return True
                 allow_ipv4s = allow_ips.get('ipv4').split(",")
                 for allow_ipv4 in allow_ipv4s:
-                    if ipaddr.ipv4_mapped in ipaddress.ip_network(allow_ipv4, strict=False):
+                    if allow_ipv4.strip() and ipaddr.ipv4_mapped in ipaddress.ip_network(allow_ipv4.strip(), strict=False):
                         return True
             else:
                 if not allow_ips.get('ipv6'):
                     return True
                 allow_ipv6s = allow_ips.get('ipv6').split(",")
                 for allow_ipv6 in allow_ipv6s:
-                    if ipaddr in ipaddress.ip_network(allow_ipv6, strict=False):
+                    if allow_ipv6.strip() and ipaddr in ipaddress.ip_network(allow_ipv6.strip(), strict=False):
                         return True
-        except Exception as err:
-            print(str(err))
+        except (TypeError, ValueError) as err:
+            logger.debug(f"解析不限速地址失败：{str(err)}")
             return False
         return False
 
     def stop_service(self):
+        """停止插件服务；当前没有需要主动释放的资源。"""
         pass
