@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { D as DepthTunnel, R as RingGallery, S as SlidingPanels, a as ShiftingTiles, L as LightDance, V as VintagePrints, F as Floating, P as PhotosSlideshow } from './DepthTunnel-ChvEYrno.js';
+import { D as DepthTunnel, R as RingGallery, S as SlidingPanels, a as ShiftingTiles, L as LightDance, V as VintagePrints, F as Floating, P as PhotosSlideshow } from './DepthTunnel-CmuaBcYd.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
 const {createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,resolveDynamicComponent:_resolveDynamicComponent,openBlock:_openBlock,createBlock:_createBlock,normalizeStyle:_normalizeStyle,normalizeClass:_normalizeClass,Fragment:_Fragment,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,Teleport:_Teleport} = await importShared('vue');
@@ -65,12 +65,15 @@ const effectName = computed(() => {
 });
 const hideText = computed(() => !!cfg.value?.hide_text);
 
-// 小窗格缩放系数：按窗格与视口的比例整体缩放动效（vw/px 单位都生效）
+// 小窗格缩放系数：按窗格与视口的比例整体缩放动效（vw/px 单位都生效）。
+// 用 max 而非 min（cover 语义）：窗格宽高比与视口不同时，
+// min 会让内容缩得过小、右侧/下侧露出大块空白；max 铺满窗格、
+// 超出部分由 .dash-stage 的 overflow:hidden 裁掉，观感更好。
 const stageZoom = ref(0.2);
 function updateStageZoom() {
   const el = stageRef.value;
   if (!el) return
-  stageZoom.value = Math.min(
+  stageZoom.value = Math.max(
     el.clientWidth / window.innerWidth,
     el.clientHeight / window.innerHeight
   );
@@ -303,6 +306,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-dfcdf531"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f269f7f6"]]);
 
 export { Dashboard as default };

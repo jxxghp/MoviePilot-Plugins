@@ -174,6 +174,17 @@
     inset: auto; margin: 0; left: 50%; bottom: 8%; transform: translateX(-50%);
   }
 
+  /* 未全屏时的右上角浮动全屏按钮 */
+  .fs-fab {
+    position: fixed; top: 14px; right: 14px; z-index: 998;
+    background: rgba(20,20,24,.6); color: #fff;
+    border: 1px solid rgba(255,255,255,.25); border-radius: 999px;
+    padding: 8px 16px; font-size: 14px; cursor: pointer;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    transition: background .2s;
+  }
+  .fs-fab:hover { background: rgba(40,40,48,.85); }
+
   /* 环形画廊：3D 圆柱环 + 步进旋转聚焦 */
   .effect-ring3d .rg-root { position: absolute; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 30%, #101318 0%, #000 70%); }
   /* 极光光斑：两团缓慢漂移的柔光 */
@@ -415,7 +426,7 @@
 </head>
 <body>
 <div id="app">
-  <div class="placeholder" id="placeholder">正在加载海报...</div>
+  <div class="placeholder" id="placeholder">正在拉取图片与 Logo…</div>
 </div>
 
 <script>
@@ -436,6 +447,10 @@
     if (imageType === 'poster') paths = [item.poster_path, item.backdrop_path];
     else if (imageType === 'logo') paths = [item.thumb_path, item.fanart_poster_path, item.backdrop_path, item.poster_path];
     else paths = [item.backdrop_path, item.poster_path];
+    // 竖屏优化：竖屏设备 poster（2:3 竖图）优先，横屏行为完全不变
+    if (imageType !== 'poster' && window.innerWidth < window.innerHeight) {
+      paths = [item.poster_path].concat(paths.filter(p => p && p !== item.poster_path));
+    }
     const base = domain || 'https://image.tmdb.org/t/p/original';
     const urls = paths.filter(Boolean).map(p => {
       if (/^https?:/.test(p)) return p;
@@ -504,12 +519,20 @@
   function shuffle(a) { const x = a.slice(); for (let i = x.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [x[i], x[j]] = [x[j], x[i]]; } return x; }
   function escapeHtml(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 
-  function setTopBar(cfg, items) {
+  function setTopBar(cfg, items, meta) {
     const tb = document.createElement('div');
     tb.className = 'topbar';
     const effectName = ({photos:'照片',floating:'浮动',vintage:'怀旧冲印',lightdance:'光舞',shiftingtiles:'流动拼贴',slidingpanels:'滑动面板',ring3d:'环形画廊',depthtunnel:'纵深穿梭'})[cfg.effect] || cfg.effect;
+    // 拉取状态：图片/Logo 就绪数（logo 模式下显示 Logo 进度）
+    const m = meta || {};
+    const imgPill = m.with_image != null
+      ? '<div class="pill">图片 ' + m.with_image + '/' + m.total + ' 就绪</div>'
+      : '<div class="pill">' + items.length + ' 张</div>';
+    const logoPill = (cfg.image_type === 'logo' && m.with_logo != null && m.with_logo > 0)
+      ? '<div class="pill">Logo ' + m.with_logo + '/' + m.total + (m.logos_done ? ' 就绪' : ' 拉取中') + '</div>'
+      : '';
     tb.innerHTML = '<div class="pill"><span class="dot"></span>' + effectName + ' · 每 ' + cfg.interval + ' 秒</div>' +
-                   '<div class="pill">' + items.length + ' 张</div>' +
+                   imgPill + logoPill +
                    (cfg.shuffle ? '<div class="pill">随机乱序</div>' : '') +
                    (cfg.hide_text ? '<div class="pill">去文字</div>' : '');
     document.body.appendChild(tb);
@@ -522,7 +545,7 @@
     const cfg = data.config || {};
     let items = data.items || [];
     if (cfg.shuffle) items = shuffle(items);
-    return { cfg, items };
+    return { cfg, items, meta: data.meta || null };
   }
 
   function clearApp() { const app = document.getElementById('app'); app.innerHTML = ''; return app; }
@@ -577,7 +600,7 @@
         '</div>');
       card.style.width = size + 'px';
       card.style.height = (size * 1.5) + 'px';
-      const obj = { el: card, item: it, x: Math.random() * (w - size), y: Math.random() * (h - size), vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, size, rot: 0, fade: 0 };
+      const obj = { el: card, item: it, x: Math.random() * (w - size), y: Math.random() * (h - size), vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, size, rot: 0, baseRot: (Math.random() - 0.5) * 6, phase: Math.random() * Math.PI * 2, fade: 0 };
       inner.appendChild(card);
       cards.push(obj);
       return obj;
@@ -600,7 +623,8 @@
         if (m.y < -m.size * 0.3) { m.y = -m.size * 0.3; m.vy = Math.abs(m.vy); }
         if (m.y > h - m.size * 0.5) { m.y = h - m.size * 0.5; m.vy = -Math.abs(m.vy); }
         m.fade = Math.min(1, m.fade + 0.02);
-        m.rot += Math.sin((now / 1000 + m.x) * 0.0003) * 0.02;
+        // 有界摆动（不累积）：最大倾角 ≈ baseRot ± 2°（峰值 ~5°），长时间运行不越发越斜
+        m.rot = m.baseRot + Math.sin(now / 1000 * 0.5 + m.phase) * 2;
         m.el.style.transform = 'translate(' + m.x + 'px, ' + m.y + 'px) rotate(' + m.rot + 'deg)';
         m.el.style.opacity = String(m.fade);
       }
@@ -1631,12 +1655,12 @@
 
   function renderWaiting() {
     const app = document.getElementById('app');
-    app.innerHTML = '<div class="placeholder waiting">请等候拉取图片数据…</div>';
+    app.innerHTML = '<div class="placeholder waiting">请等候拉取图片/Logo 数据…</div>';
   }
 
   async function boot() {
     try {
-      const { cfg, items } = await load();
+      const { cfg, items, meta } = await load();
       if (!cfg.enabled) { renderError('插件未启用。请在 MoviePilot 启用"全屏海报墙"插件。'); return; }
       if (!items.length) {
         // 数据未就绪：红字闪烁提示，每 5 秒重试
@@ -1644,7 +1668,7 @@
         setTimeout(boot, 5000);
         return;
       }
-      setTopBar(cfg, items);
+      setTopBar(cfg, items, meta);
       renderEffect(cfg, items);
       setupFullscreenOnGesture();
     } catch (e) {
@@ -1657,6 +1681,7 @@
 // 去掉倒数遮罩（手机/电视盒子上会卡住）：直接开播。
 // 浏览器要求用户手势才能全屏——加载后先静默试一次（部分电视浏览器允许），
 // 之后点击/按键监听常驻，第一次交互即进全屏，成功后自动移除监听。
+// 未全屏时右上角显示一个浮动「全屏」按钮（进全屏后自动隐藏）。
 function setupFullscreenOnGesture() {
   function tryFS() {
     if (document.fullscreenElement) {
@@ -1669,6 +1694,17 @@ function setupFullscreenOnGesture() {
   tryFS(); // 无手势时静默失败，不影响播放
   document.addEventListener('click', tryFS, true);
   document.addEventListener('keydown', tryFS, true);
+
+  const btn = document.createElement('button');
+  btn.className = 'fs-fab';
+  btn.textContent = '⛶ 全屏';
+  btn.addEventListener('click', e => { e.stopPropagation(); tryFS(); });
+  document.body.appendChild(btn);
+  function syncFab() {
+    btn.style.display = document.fullscreenElement ? 'none' : '';
+  }
+  document.addEventListener('fullscreenchange', syncFab);
+  syncFab();
 }
 </script>
 </body>

@@ -16,18 +16,39 @@ from app.schemas.types import MediaType
 from fastapi import Request, Response
 
 
-def _proxy_image_url(url: Optional[str]) -> Optional[str]:
-    """防盗链/需 UA 的图床 URL → 本插件免登录代理。
+# 走插件代理的图床白名单：
+#  - doubanio/douban：Referer 防盗链（直链 403/418）
+#  - anilist.co：无 UA 直链 403
+#  - TMDB/Fanart：直链虽可用，但走服务器代理可多设备共享磁盘缓存 7 天、
+#    并借 MoviePilot 的代理配置绕过浏览器侧 CDN 不可达（Fanart 尤其明显）
+_PROXY_IMAGE_HOSTS: Tuple[str, ...] = (
+    "doubanio.com", "douban.com", "anilist.co",
+    "image.tmdb.org", "assets.fanart.tv", "images.fanart.tv",
+)
 
-    覆盖：豆瓣 doubanio（Referer 防盗链，顺带 m_ratio→l_ratio 升清晰度）、
-    AniList s4.anilist.co（无 UA 直链 403）。其余 URL 原样返回。
+
+def _proxy_image_url(
+    url: Optional[str],
+    tmdb_domain: str = "",
+) -> Optional[str]:
+    """图床 URL → 本插件免登录代理（白名单内主机）。
+
+    相对路径（/abc.jpg）先按 TMDB 域名补全再判断。豆瓣顺带
+    m_ratio→l_ratio 升清晰度。已是 /api/ 代理路径的原样返回。
     代理路径用相对地址，lan-wall 在任何主机/端口都能用。
     """
     if not url or not isinstance(url, str):
         return url
-    if not any(h in url for h in ("doubanio.com", "douban.com", "anilist.co")):
+    if url.startswith("/api/"):
         return url
-    upgraded = url.replace("s_ratio_poster", "l_ratio_poster").replace(
+    full = url
+    if url.startswith("/"):
+        full = (tmdb_domain or "https://image.tmdb.org/t/p/original") + url
+    if not full.startswith("http"):
+        return url
+    if not any(h in full for h in _PROXY_IMAGE_HOSTS):
+        return url
+    upgraded = full.replace("s_ratio_poster", "l_ratio_poster").replace(
         "m_ratio_poster", "l_ratio_poster"
     )
     return (
@@ -107,7 +128,7 @@ class FullScreenPosterWall(_PluginBase):
     plugin_name = "全屏海报墙"
     plugin_desc = "这是一个全屏海报墙插件，让所有终端可以播放精美的电影海报。抓取 MoviePilot 推荐媒体（流行趋势/TMDB热门电影/TMDB热门电视剧）的海报图片，以照片/拼贴/纵深穿梭/滑动面板/浮动/怀旧冲印/光舞等多种动效全屏展示，支持局域网海报墙页面。"
     plugin_icon = "https://raw.githubusercontent.com/ltdstudio/posterwall/main/icons/fullscreenposterwall.png"
-    plugin_version = "1.15.4"
+    plugin_version = "1.15.9"
     plugin_label = "媒体展示"
     plugin_author = "ltdstudio"
     plugin_config_prefix = "fullscreenposterwall_"
@@ -384,6 +405,37 @@ class FullScreenPosterWall(_PluginBase):
             pass
         return []
 
+    def _build_meta(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """本轮拉取状态：图片/Logo 就绪数。补抓是同步的——响应返回时本轮已结束。"""
+        logo_mode = self._image_type == "logo"
+        return {
+            "total": len(items),
+            "with_image": sum(
+                1 for i in items
+                if i.get("backdrop_path") or i.get("poster_path") or i.get("thumb_path")
+            ),
+            "with_logo": (
+                sum(1 for i in items if i.get("logo_path")) if logo_mode else 0
+            ),
+            "logo_mode": logo_mode,
+            "images_done": True,
+            "logos_done": (not logo_mode) or self._logo_enrich_done,
+        }
+
+    # 参与代理改写的图字段
+    _IMAGE_FIELDS: Tuple[str, ...] = (
+        "poster_path", "backdrop_path", "logo_path",
+        "thumb_path", "fanart_poster_path",
+    )
+
+    def _proxy_items(self, items: List[Dict[str, Any]]) -> None:
+        """把条目的全部图字段改写到插件代理（幂等）。"""
+        for it in items:
+            for field in self._IMAGE_FIELDS:
+                v = it.get(field)
+                if v:
+                    it[field] = _proxy_image_url(v)
+
     @staticmethod
     def _match_types(item: Dict[str, Any], types: List[str]) -> bool:
         """条目类型是否命中所选（type 缺失时放行，避免误杀）。"""
@@ -585,10 +637,10 @@ class FullScreenPosterWall(_PluginBase):
             "tmdb_image_domain": "https://image.tmdb.org/t/p/original",
         }
         if not self._enabled:
-            return {"config": cfg, "items": []}
+            return {"config": cfg, "items": [], "meta": self._build_meta([])}
         # 复用 recommend 的缓存逻辑
         rec = self.api_get_recommend()
-        return {"config": cfg, "items": rec.get("data", [])}
+        return {"config": cfg, "items": rec.get("data", []), "meta": rec.get("meta")}
 
     def api_proxy_image(self, url: str = "") -> Any:
         """免登录图片代理：只放行白名单域名（豆瓣图床防盗链）。
@@ -604,8 +656,7 @@ class FullScreenPosterWall(_PluginBase):
             host = url.split("/", 3)[2].lower()
         except Exception:
             return Response(status_code=400, content="invalid url")
-        allowed = ("doubanio.com", "douban.com", "anilist.co")
-        if not any(host == d or host.endswith("." + d) for d in allowed):
+        if not any(host == d or host.endswith("." + d) for d in _PROXY_IMAGE_HOSTS):
             return Response(status_code=403, content="host not allowed")
         try:
             from app.helper.image import ImageHelper
@@ -733,13 +784,14 @@ class FullScreenPosterWall(_PluginBase):
             ):
                 self._logo_enrich_done = True
                 self._enrich_logos(self._cache)
+                self._proxy_items(self._cache)
             data = list(self._cache)
             should_shuffle = shuffle or bool(self._shuffle)
             if should_shuffle:
                 import random
 
                 random.shuffle(data)
-            return {"success": True, "data": data, "cached": True}
+            return {"success": True, "data": data, "cached": True, "meta": self._build_meta(data)}
 
         source_config = self._source_config or self._default_source_config()
         active_sources = [p for p, t in source_config.items() if t]
@@ -778,6 +830,10 @@ class FullScreenPosterWall(_PluginBase):
         if self._image_type == "logo":
             self._enrich_logos(unique)
 
+        # 全部图字段统一走服务器代理（多设备共享 7 天磁盘缓存，
+        # 且绕过浏览器侧 CDN 不可达/防盗链）；幂等，已是 /api/ 的跳过
+        self._proxy_items(unique)
+
         self._cache = unique
         self._cache_time = now
         # 抓取阶段已按当前 image_type 处理过 Logo，本缓存周期标记为已尝试
@@ -788,7 +844,7 @@ class FullScreenPosterWall(_PluginBase):
             import random
 
             random.shuffle(data)
-        return {"success": True, "data": data, "cached": False, "count": len(data)}
+        return {"success": True, "data": data, "cached": False, "count": len(data), "meta": self._build_meta(data)}
 
     @staticmethod
     def _normalize(data: Any, source: str) -> Optional[Dict[str, Any]]:
@@ -808,8 +864,8 @@ class FullScreenPosterWall(_PluginBase):
             "type": data.get("type") or "",
             "overview": data.get("overview") or "",
             "vote_average": data.get("vote_average") or 0,
-            "poster_path": _proxy_image_url(data.get("poster_path")),
-            "backdrop_path": _proxy_image_url(data.get("backdrop_path")),
+            "poster_path": data.get("poster_path"),
+            "backdrop_path": data.get("backdrop_path"),
             "logo_path": data.get("logo_path"),
             "thumb_path": data.get("thumb_path"),
             "fanart_poster_path": data.get("fanart_poster_path"),

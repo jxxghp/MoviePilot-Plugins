@@ -37,32 +37,32 @@
 .meta-center .meta-logo[data-v-5f839bc4] { margin: 0 auto; object-position: center bottom;
 }
 
-.float-root[data-v-b43f3d57] { width: 100vw; height: 100vh; background: linear-gradient(135deg, #0a0a0a, #1a1a2e); overflow: hidden; position: relative;
+.float-root[data-v-74a494ab] { width: 100vw; height: 100vh; background: linear-gradient(135deg, #0a0a0a, #1a1a2e); overflow: hidden; position: relative;
 }
-.float-card[data-v-b43f3d57] {
+.float-card[data-v-74a494ab] {
   position: absolute; top: 0; left: 0;
   background: #111; border-radius: 8px; overflow: hidden;
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
   transition: opacity 1.2s ease;
   will-change: transform, opacity;
 }
-.float-card img[data-v-b43f3d57] { width: 100%; height: 100%; object-fit: cover; display: block;
+.float-card img[data-v-74a494ab] { width: 100%; height: 100%; object-fit: cover; display: block;
 }
-.float-caption[data-v-b43f3d57] {
+.float-caption[data-v-74a494ab] {
   position: absolute; bottom: 0; left: 0; right: 0;
   padding: 8px 10px; background: linear-gradient(transparent, rgba(0,0,0,.85));
   color: #fff;
 }
-.float-caption-title[data-v-b43f3d57] {
+.float-caption-title[data-v-74a494ab] {
   font-size: 13px; font-weight: 500;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.float-caption-overview[data-v-b43f3d57] {
+.float-caption-overview[data-v-74a494ab] {
   font-size: 11px; opacity: .8; margin-top: 3px; line-height: 1.4;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.meta-logo-sm[data-v-b43f3d57] { max-width: 200px; max-height: 56px; object-fit: contain; object-position: left bottom;
+.meta-logo-sm[data-v-74a494ab] { max-width: 200px; max-height: 56px; object-fit: contain; object-position: left bottom;
 }
 
 .vintage-root[data-v-5c0e3850] { width: 100vw; height: 100vh; background: #1a1108; overflow: hidden;
