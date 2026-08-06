@@ -1,21 +1,20 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
-const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,createVNode:_createVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock} = await importShared('vue');
+const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,createVNode:_createVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,normalizeProps:_normalizeProps,guardReactiveProps:_guardReactiveProps,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "fspw-config-root pa-4" };
 const _hoisted_2 = { class: "mb-3" };
 const _hoisted_3 = { class: "d-flex align-center mb-1" };
-const _hoisted_4 = { class: "source-name" };
-const _hoisted_5 = { class: "source-nat text-grey" };
-const _hoisted_6 = {
+const _hoisted_4 = { class: "source-name text-caption" };
+const _hoisted_5 = {
   key: 1,
   class: "text-grey text-caption"
 };
-const _hoisted_7 = { class: "d-flex justify-end gap-2" };
+const _hoisted_6 = { class: "d-flex justify-end gap-2" };
 
-const {reactive,ref,onMounted} = await importShared('vue');
+const {reactive,ref,computed,onMounted} = await importShared('vue');
 
 
 const API_BASE = 'plugin/FullScreenPosterWall';
@@ -92,24 +91,31 @@ const sourcesError = ref('');
 function natLabel(nat) {
   return nat === 'movie' ? '电影源' : nat === 'tv' ? '剧集源' : '混合源'
 }
-function isSourceOn(apiPath) {
-  const t = local.source_config?.[apiPath];
-  return Array.isArray(t) && t.length > 0
-}
 function hasType(apiPath, type) {
   const t = local.source_config?.[apiPath];
   return Array.isArray(t) && t.includes(type)
 }
-function toggleSource(s, on) {
-  const cfg = { ...(local.source_config || {}) };
-  if (on) {
-    // 按来源天然类型给默认勾选：混合源全开，单类型源只开对应侧
-    cfg[s.api_path] = s.nat === 'movie' ? ['movie'] : s.nat === 'tv' ? ['tv'] : ['movie', 'tv'];
-  } else {
-    delete cfg[s.api_path];
-  }
-  local.source_config = cfg;
-}
+// 下拉选中集 ↔ source_config 双向映射：
+// 勾选时按天然类型给默认（混合源全开，单类型源只开对应侧）
+const selectedPaths = computed({
+  get: () => Object.entries(local.source_config || {})
+    .filter(([, t]) => Array.isArray(t) && t.length)
+    .map(([k]) => k),
+  set: (paths) => {
+    const cfg = {};
+    for (const p of paths) {
+      const s = sourceList.value.find(x => x.api_path === p);
+      const prev = (local.source_config || {})[p];
+      if (Array.isArray(prev) && prev.length) { cfg[p] = prev; continue }
+      cfg[p] = !s ? ['movie', 'tv'] : s.nat === 'movie' ? ['movie'] : s.nat === 'tv' ? ['tv'] : ['movie', 'tv'];
+    }
+    local.source_config = cfg;
+  },
+});
+// 只有已勾选的混合源才展开电影/电视剧行
+const enabledMixedSources = computed(() =>
+  sourceList.value.filter(s => s.nat === 'mixed' && selectedPaths.value.includes(s.api_path))
+);
 function toggleType(apiPath, type, on) {
   const cfg = { ...(local.source_config || {}) };
   const cur = new Set(Array.isArray(cfg[apiPath]) ? cfg[apiPath] : []);
@@ -175,10 +181,11 @@ return (_ctx, _cache) => {
   const _component_v_switch = _resolveComponent("v-switch");
   const _component_v_alert = _resolveComponent("v-alert");
   const _component_v_progress_circular = _resolveComponent("v-progress-circular");
-  const _component_v_checkbox = _resolveComponent("v-checkbox");
   const _component_v_chip = _resolveComponent("v-chip");
-  const _component_v_spacer = _resolveComponent("v-spacer");
+  const _component_v_list_item = _resolveComponent("v-list-item");
   const _component_v_select = _resolveComponent("v-select");
+  const _component_v_spacer = _resolveComponent("v-spacer");
+  const _component_v_checkbox = _resolveComponent("v-checkbox");
   const _component_v_text_field = _resolveComponent("v-text-field");
   const _component_v_divider = _resolveComponent("v-divider");
   const _component_v_btn = _resolveComponent("v-btn");
@@ -205,14 +212,14 @@ return (_ctx, _cache) => {
           class: "mb-4",
           density: "compact"
         }, {
-          default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
+          default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
             _createTextVNode(" 启用后，插件详情页（Page）会提供全屏海报墙入口。 ", -1)
           ]))]),
           _: 1
         }),
         _createElementVNode("div", _hoisted_2, [
           _createElementVNode("div", _hoisted_3, [
-            _cache[11] || (_cache[11] = _createElementVNode("span", { class: "text-subtitle-2" }, "推荐数据源（每个来源分别勾选电影/电视剧）", -1)),
+            _cache[12] || (_cache[12] = _createElementVNode("span", { class: "text-subtitle-2" }, "推荐数据源（下拉勾选，不占页面）", -1)),
             (sourcesLoading.value)
               ? (_openBlock(), _createBlock(_component_v_progress_circular, {
                   key: 0,
@@ -237,70 +244,71 @@ return (_ctx, _cache) => {
                 _: 1
               }))
             : _createCommentVNode("", true),
-          (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(sourceList.value, (s) => {
+          _createVNode(_component_v_select, {
+            modelValue: selectedPaths.value,
+            "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((selectedPaths).value = $event)),
+            items: sourceList.value,
+            "item-title": "name",
+            "item-value": "api_path",
+            label: "勾选数据源（可多选）",
+            multiple: "",
+            chips: "",
+            "closable-chips": "",
+            density: "comfortable",
+            "menu-props": { maxHeight: 400 }
+          }, {
+            item: _withCtx(({ props: itemProps, item }) => [
+              _createVNode(_component_v_list_item, _normalizeProps(_guardReactiveProps(itemProps)), {
+                append: _withCtx(() => [
+                  _createVNode(_component_v_chip, {
+                    size: "x-small",
+                    variant: "tonal",
+                    class: "ml-1",
+                    color: item.raw.builtin ? undefined : 'purple'
+                  }, {
+                    default: _withCtx(() => [
+                      _createTextVNode(_toDisplayString(item.raw.builtin ? '' : '第三方·') + _toDisplayString(natLabel(item.raw.nat)), 1)
+                    ]),
+                    _: 2
+                  }, 1032, ["color"])
+                ]),
+                _: 2
+              }, 1040)
+            ]),
+            _: 1
+          }, 8, ["modelValue", "items"]),
+          (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(enabledMixedSources.value, (s) => {
             return (_openBlock(), _createElementBlock("div", {
               key: s.api_path,
-              class: "d-flex align-center source-row"
+              class: "d-flex align-center mixed-row"
             }, [
+              _createElementVNode("span", _hoisted_4, _toDisplayString(s.name) + "（混合源）", 1),
+              _createVNode(_component_v_spacer),
               _createVNode(_component_v_checkbox, {
-                "model-value": isSourceOn(s.api_path),
+                label: "电影",
+                "model-value": hasType(s.api_path, 'movie'),
                 "hide-details": "",
                 density: "compact",
-                class: "source-enable",
-                "onUpdate:modelValue": v => toggleSource(s, v)
+                class: "type-check",
+                "onUpdate:modelValue": v => toggleType(s.api_path, 'movie', v)
               }, null, 8, ["model-value", "onUpdate:modelValue"]),
-              _createElementVNode("span", _hoisted_4, [
-                _createTextVNode(_toDisplayString(s.name) + " ", 1),
-                (!s.builtin)
-                  ? (_openBlock(), _createBlock(_component_v_chip, {
-                      key: 0,
-                      size: "x-small",
-                      color: "purple",
-                      variant: "tonal",
-                      class: "ml-1"
-                    }, {
-                      default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
-                        _createTextVNode("第三方", -1)
-                      ]))]),
-                      _: 1
-                    }))
-                  : _createCommentVNode("", true),
-                _createElementVNode("span", _hoisted_5, _toDisplayString(natLabel(s.nat)), 1)
-              ]),
-              _createVNode(_component_v_spacer),
-              (s.nat !== 'tv')
-                ? (_openBlock(), _createBlock(_component_v_checkbox, {
-                    key: 0,
-                    label: "电影",
-                    "model-value": hasType(s.api_path, 'movie'),
-                    disabled: !isSourceOn(s.api_path),
-                    "hide-details": "",
-                    density: "compact",
-                    class: "type-check",
-                    "onUpdate:modelValue": v => toggleType(s.api_path, 'movie', v)
-                  }, null, 8, ["model-value", "disabled", "onUpdate:modelValue"]))
-                : _createCommentVNode("", true),
-              (s.nat !== 'movie')
-                ? (_openBlock(), _createBlock(_component_v_checkbox, {
-                    key: 1,
-                    label: "电视剧",
-                    "model-value": hasType(s.api_path, 'tv'),
-                    disabled: !isSourceOn(s.api_path),
-                    "hide-details": "",
-                    density: "compact",
-                    class: "type-check",
-                    "onUpdate:modelValue": v => toggleType(s.api_path, 'tv', v)
-                  }, null, 8, ["model-value", "disabled", "onUpdate:modelValue"]))
-                : _createCommentVNode("", true)
+              _createVNode(_component_v_checkbox, {
+                label: "电视剧",
+                "model-value": hasType(s.api_path, 'tv'),
+                "hide-details": "",
+                density: "compact",
+                class: "type-check",
+                "onUpdate:modelValue": v => toggleType(s.api_path, 'tv', v)
+              }, null, 8, ["model-value", "onUpdate:modelValue"])
             ]))
           }), 128)),
           (!sourcesLoading.value && !sourceList.value.length && !sourcesError.value)
-            ? (_openBlock(), _createElementBlock("div", _hoisted_6, " 未发现可用数据源 "))
+            ? (_openBlock(), _createElementBlock("div", _hoisted_5, " 未发现可用数据源 "))
             : _createCommentVNode("", true)
         ]),
         _createVNode(_component_v_select, {
           modelValue: local.effect,
-          "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((local.effect) = $event)),
+          "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((local.effect) = $event)),
           items: effectOptions,
           label: "播放方式",
           density: "comfortable",
@@ -308,7 +316,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"]),
         _createVNode(_component_v_select, {
           modelValue: local.image_type,
-          "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((local.image_type) = $event)),
+          "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((local.image_type) = $event)),
           items: imageTypeOptions,
           label: "图片来源",
           density: "comfortable",
@@ -316,7 +324,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"]),
         _createVNode(_component_v_select, {
           modelValue: local.poster_count,
-          "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((local.poster_count) = $event)),
+          "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((local.poster_count) = $event)),
           modelModifiers: { number: true },
           items: posterCountOptions,
           label: "海报数量（每次拉取）",
@@ -325,7 +333,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"]),
         _createVNode(_component_v_text_field, {
           modelValue: local.interval,
-          "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((local.interval) = $event)),
+          "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((local.interval) = $event)),
           modelModifiers: { number: true },
           label: "切换间隔（秒）",
           type: "number",
@@ -336,7 +344,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"]),
         _createVNode(_component_v_text_field, {
           modelValue: local.refresh_minutes,
-          "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((local.refresh_minutes) = $event)),
+          "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((local.refresh_minutes) = $event)),
           modelModifiers: { number: true },
           label: "数据刷新间隔（分钟）",
           type: "number",
@@ -347,7 +355,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"]),
         _createVNode(_component_v_switch, {
           modelValue: local.autoplay,
-          "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((local.autoplay) = $event)),
+          "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((local.autoplay) = $event)),
           label: "进入页面后自动播放",
           color: "primary",
           "hide-details": "",
@@ -356,7 +364,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"]),
         _createVNode(_component_v_switch, {
           modelValue: local.show_dashboard,
-          "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((local.show_dashboard) = $event)),
+          "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((local.show_dashboard) = $event)),
           label: "在首页仪表板显示此小窗格",
           color: "primary",
           "hide-details": "",
@@ -365,7 +373,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"]),
         _createVNode(_component_v_switch, {
           modelValue: local.shuffle,
-          "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((local.shuffle) = $event)),
+          "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((local.shuffle) = $event)),
           label: "随机乱序（每次全屏顺序不同）",
           color: "primary",
           "hide-details": "",
@@ -374,7 +382,7 @@ return (_ctx, _cache) => {
         }, null, 8, ["modelValue"]),
         _createVNode(_component_v_switch, {
           modelValue: local.hide_text,
-          "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((local.hide_text) = $event)),
+          "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((local.hide_text) = $event)),
           label: "隐藏文字（只看海报不看标题/年份）",
           color: "primary",
           "hide-details": "",
@@ -382,7 +390,7 @@ return (_ctx, _cache) => {
           class: "mb-4"
         }, null, 8, ["modelValue"]),
         _createVNode(_component_v_divider, { class: "my-3" }),
-        _createElementVNode("div", _hoisted_7, [
+        _createElementVNode("div", _hoisted_6, [
           _createVNode(_component_v_btn, {
             variant: "text",
             onClick: onReset
@@ -424,6 +432,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e5ccba41"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f6b45f02"]]);
 
 export { Config as default };
