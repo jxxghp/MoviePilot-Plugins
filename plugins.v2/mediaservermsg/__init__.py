@@ -38,7 +38,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.8.2.3"
+    plugin_version = "1.8.2.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -524,19 +524,8 @@ class MediaServerMsg(_PluginBase):
                 return
 
             # 构造消息标题
-            item_type = getattr(event_info, 'item_type', '')
-            item_name = getattr(event_info, 'item_name', '')
-
-            message_title = ""
             event_action = self._webhook_actions.get(event_action_type, event_type)
-            if item_type in ["TV", "SHOW"]:
-                message_title = f"{event_action}剧集 {item_name}"
-            elif item_type == "MOV":
-                message_title = f"{event_action}电影 {item_name}"
-            elif item_type == "AUD":
-                message_title = f"{event_action}有声书 {item_name}"
-            else:
-                message_title = f"{event_action}"
+            message_title = self._build_message_title(event_info, event_action)
 
             # 构造消息内容
             message_texts = []
@@ -1245,6 +1234,64 @@ class MediaServerMsg(_PluginBase):
         获取事件对应的消息动作文案。
         """
         return self._webhook_actions.get(self._get_event_action_type(event_type))
+
+    @staticmethod
+    def _clean_metadata_text(value: Any) -> str:
+        """清理Webhook元数据文本，避免将None/null拼进通知标题。"""
+        if value is None:
+            return ""
+        text = str(value).strip()
+        if text.lower() in {"none", "null"}:
+            return ""
+        return text
+
+    @classmethod
+    def _get_plex_track_info(cls, event_info: WebhookEventInfo) -> Optional[Tuple[str, str]]:
+        """从Plex原始Webhook中提取音乐曲目和歌手。"""
+        channel = cls._clean_metadata_text(getattr(event_info, 'channel', None)).lower()
+        if channel != "plex":
+            return None
+
+        json_object = getattr(event_info, 'json_object', None)
+        if not isinstance(json_object, dict):
+            return None
+
+        metadata = json_object.get("Metadata")
+        if not isinstance(metadata, dict):
+            return None
+
+        metadata_type = cls._clean_metadata_text(metadata.get("type")).lower()
+        if metadata_type != "track":
+            return None
+
+        track_title = cls._clean_metadata_text(metadata.get("title"))
+        if not track_title:
+            item_name = cls._clean_metadata_text(getattr(event_info, 'item_name', None))
+            track_title = re.sub(r"\s+\((?:none|null)\)\s*$", "", item_name, flags=re.IGNORECASE)
+
+        artist = cls._clean_metadata_text(metadata.get("grandparentTitle"))
+        return track_title, artist
+
+    @classmethod
+    def _build_message_title(cls, event_info: WebhookEventInfo, event_action: str) -> str:
+        """根据Webhook信息构造通知标题，并单独处理Plex音乐曲目。"""
+        plex_track_info = cls._get_plex_track_info(event_info)
+        if plex_track_info is not None:
+            track_title, artist = plex_track_info
+            track_display = (
+                f"{track_title} - {artist}" if track_title and artist else track_title or artist
+            )
+            return f"{event_action}音乐{f' {track_display}' if track_display else ''}"
+
+        item_type = getattr(event_info, 'item_type', '')
+        item_name = getattr(event_info, 'item_name', '')
+        if item_type in ["TV", "SHOW"]:
+            return f"{event_action}剧集 {item_name}"
+        if item_type == "MOV":
+            return f"{event_action}电影 {item_name}"
+        if item_type == "AUD":
+            return f"{event_action}有声书 {item_name}"
+        return f"{event_action}"
 
     def _get_play_link(self, event_info: WebhookEventInfo) -> Optional[str]:
         """
