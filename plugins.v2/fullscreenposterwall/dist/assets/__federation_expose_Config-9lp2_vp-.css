@@ -1,0 +1,11 @@
+
+.fspw-config-root[data-v-f6b45f02] { width: 100%;
+}
+.gap-2[data-v-f6b45f02] > * + * { margin-left: 8px;
+}
+.mixed-row[data-v-f6b45f02] { min-height: 32px;
+}
+.source-name[data-v-f6b45f02] { font-size: 0.8rem;
+}
+.type-check[data-v-f6b45f02] { flex: 0 0 auto; margin-left: 8px;
+}
