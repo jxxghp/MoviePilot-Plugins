@@ -1,6 +1,7 @@
 """V2 媒体库服务器通知插件的Plex音乐消息测试。"""
 
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 from mediaservermsg import MediaServerMsg
 
@@ -70,3 +71,34 @@ def test_non_plex_track_does_not_change_existing_classification():
     title = MediaServerMsg._build_message_title(event_info, "开始播放")
 
     assert title == "开始播放剧集 现有媒体项"
+
+
+def test_send_reads_item_type_for_image_processing():
+    """普通Webhook消息在图片处理阶段也应能访问媒体类型。"""
+    plugin = object.__new__(MediaServerMsg)
+    plugin._enabled = True
+    plugin._types = ["playback.start"]
+    plugin._mediaservers = ["测试媒体库"]
+    plugin._aggregate_enabled = False
+    plugin._add_play_link = False
+    plugin._webhook_msg_keys = {}
+    plugin.service_infos = lambda type_filter=None: {"测试媒体库": object()}
+    plugin.service_info = lambda name: object()
+    plugin.post_message = MagicMock()
+    plugin._MediaServerMsg__get_elements = MagicMock(return_value=[])
+    plugin._MediaServerMsg__add_element = MagicMock()
+    plugin._MediaServerMsg__remove_element = MagicMock()
+
+    event = SimpleNamespace(
+        event_data=SimpleNamespace(
+            event="playback.start",
+            item_id="movie-1",
+            item_type="MOV",
+            item_name="测试电影",
+            channel="plex",
+        )
+    )
+
+    plugin.send(event)
+
+    plugin.post_message.assert_called_once()

@@ -38,7 +38,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.8.3"
+    plugin_version = "1.8.4"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -477,6 +477,9 @@ class MediaServerMsg(_PluginBase):
                 # 添加到去重缓存（30秒过期）
                 self.__add_element(dedupe_key, duration=self.DEDUPE_EXPIRATION_TIME)
 
+            # 后续图片处理也需要媒体类型；这里在事件处理外层读取，避免只在聚合判断函数内定义。
+            item_type = getattr(event_info, 'item_type', '')
+
             # TV剧集结入库聚合处理
             logger.debug("检查是否需要进行TV剧集聚合处理")
 
@@ -488,8 +491,8 @@ class MediaServerMsg(_PluginBase):
                 if event_action_type != "library.new":
                     return False
 
-                item_type = getattr(event_info, 'item_type', None)
-                if item_type not in ["TV", "SHOW"]:
+                aggregate_item_type = getattr(event_info, 'item_type', None)
+                if aggregate_item_type not in ["TV", "SHOW"]:
                     return False
 
                 json_object = getattr(event_info, 'json_object', None)
