@@ -213,7 +213,7 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流"
     plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "5.2.2"
+    plugin_version = "5.2.3"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -737,6 +737,15 @@ class BrushFlow(_PluginBase):
         }
         return tag in tags
 
+    @staticmethod
+    def _delete_qbittorrent_tags(service: Any, tags: Union[str, List[str]]) -> bool:
+        """删除 qBittorrent 全局标签定义，不调用需要种子 Hash 的 removeTags。"""
+        client = getattr(getattr(service, "instance", None), "qbc", None)
+        if not client or not tags:
+            return False
+        client.torrents_delete_tags(tags=tags)
+        return True
+
     def _cleanup_unused_task_tag(
         self,
         task: BrushTaskConfig,
@@ -757,7 +766,7 @@ class BrushFlow(_PluginBase):
                     return
             if any(self._torrent_has_tag(torrent, task.brush_tag) for torrent in torrents or []):
                 return
-            if service.instance.delete_torrents_tag(ids=None, tag=task.brush_tag):
+            if self._delete_qbittorrent_tags(service, task.brush_tag):
                 logger.info(f"清理刷流任务 [{task.name}] 未使用标签：{task.brush_tag}")
         except Exception as err:
             # 标签清理失败不应影响刷流检查或任务删除主流程。
@@ -793,7 +802,7 @@ class BrushFlow(_PluginBase):
                     }
                 }
                 unused_tags = [tag for tag in task_tags if tag not in used_tags]
-                if unused_tags and service.instance.delete_torrents_tag(ids=None, tag=unused_tags):
+                if unused_tags and self._delete_qbittorrent_tags(service, unused_tags):
                     logger.info(f"清理下载器 [{downloader_name}] 未使用刷流标签：{','.join(unused_tags)}")
         except Exception as err:
             logger.warning(f"扫描清理历史刷流标签失败：{str(err)}")

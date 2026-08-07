@@ -255,7 +255,7 @@ def test_cleanup_unused_task_tag_removes_orphan_qb_tag():
     plugin = _make_runtime_plugin(task)
     downloader = MagicMock()
     downloader.get_torrents.return_value = ([{"tags": "已整理,刷流"}], False)
-    downloader.delete_torrents_tag.return_value = True
+    downloader.qbc.torrents_delete_tags.return_value = None
     service = SimpleNamespace(name="主下载器", type="qbittorrent", instance=downloader)
     helper = MagicMock()
     helper.get_service.return_value = service
@@ -264,7 +264,8 @@ def test_cleanup_unused_task_tag_removes_orphan_qb_tag():
     with patch("brushflow.DownloaderHelper", return_value=helper):
         plugin._cleanup_unused_task_tag(task)
 
-    downloader.delete_torrents_tag.assert_called_once_with(ids=None, tag=task.brush_tag)
+    downloader.qbc.torrents_delete_tags.assert_called_once_with(tags=task.brush_tag)
+    downloader.delete_torrents_tag.assert_not_called()
 
 
 def test_cleanup_unused_task_tag_keeps_tag_used_by_torrent():
@@ -290,7 +291,7 @@ def test_cleanup_unused_task_tags_removes_historical_orphans():
     downloader = MagicMock()
     downloader.qbc.torrents_tags.return_value = ["刷流-deadbeef", "刷流-live123", "其他标签"]
     downloader.get_torrents.return_value = ([{"tags": "刷流-live123"}], False)
-    downloader.delete_torrents_tag.return_value = True
+    downloader.qbc.torrents_delete_tags.return_value = None
     service = SimpleNamespace(name="主下载器", type="qbittorrent", instance=downloader)
     helper = MagicMock()
     helper.get_configs.return_value = {"主下载器": SimpleNamespace(name="主下载器")}
@@ -300,7 +301,8 @@ def test_cleanup_unused_task_tags_removes_historical_orphans():
     with patch("brushflow.DownloaderHelper", return_value=helper):
         plugin._cleanup_unused_task_tags()
 
-    downloader.delete_torrents_tag.assert_called_once_with(ids=None, tag=["刷流-deadbeef"])
+    downloader.qbc.torrents_delete_tags.assert_called_once_with(tags=["刷流-deadbeef"])
+    downloader.delete_torrents_tag.assert_not_called()
 
 
 def test_legacy_config_migrates_timezone_and_site_overrides():
