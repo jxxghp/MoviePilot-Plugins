@@ -127,7 +127,7 @@ class FullScreenPosterWall(_PluginBase):
     # ─── 插件元数据 ─────────────────────────────────────────
     plugin_name = "全屏海报墙"
     plugin_desc = "这是一个全屏海报墙插件，让所有终端可以播放精美的电影海报。抓取 MoviePilot 推荐媒体（流行趋势/TMDB热门电影/TMDB热门电视剧）的海报图片，以照片/拼贴/纵深穿梭/滑动面板/浮动/怀旧冲印/光舞等多种动效全屏展示，支持局域网海报墙页面。"
-    plugin_icon = "https://ltdstudio.github.io/posterwall/icons/fullscreenposterwall.png"
+    plugin_icon = "fullscreenposterwall.png"
     plugin_version = "1.15.11"
     plugin_label = "媒体展示"
     plugin_author = "ltdstudio"
