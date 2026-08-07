@@ -1101,7 +1101,7 @@
     "description": "屏蔽所有带H&R的种子，搜索、订阅等任何场景都不会选中H&R种子。",
     "labels": "站点",
     "version": "1.2.0",
-    "icon": "https://ltdstudio.github.io/hrblocker/icons/hrblocker.png",
+    "icon": "hrblocker.png",
     "author": "ltdstudio",
     "level": 1,
     "system_version": ">=2.12.0",

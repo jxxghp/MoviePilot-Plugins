@@ -110,7 +110,7 @@ class HRBlocker(_PluginBase):
     # 插件描述
     plugin_desc = "屏蔽所有带H&R的种子，搜索、订阅等任何场景都不会选中H&R种子。"
     # 插件图标
-    plugin_icon = "https://ltdstudio.github.io/hrblocker/icons/hrblocker.png"
+    plugin_icon = "hrblocker.png"
     # 插件版本
     plugin_version = "1.2.0"
     # 插件作者
