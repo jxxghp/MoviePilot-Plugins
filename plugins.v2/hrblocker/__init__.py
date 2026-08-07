@@ -1,4 +1,6 @@
 from datetime import datetime
+import re
+import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.core.event import Event, eventmanager
@@ -10,6 +12,97 @@ from app.schemas import NotificationType
 from app.schemas.event import ResourceDownloadEventData, ResourceSelectionEventData
 from app.schemas.types import ChainEventType
 
+# region 搜索结果显示层过滤（运行时包装 SearchChain）
+# MoviePilot 未为搜索结果列表提供插件钩子（搜索链无链式事件、系统过滤规则不支持 hit_and_run 字段），
+# 只能在运行时包装 SearchChain 的搜索方法，在结果返回前剔除 H&R 种子。
+# 包装器在插件未启用/实例不存在时完全放行，过滤异常时同样放行原结果（不影响系统搜索）。
+_search_patch = {
+    "installed": False,
+    "instance": None,
+}
+
+
+def _hrb_get_instance():
+    inst = _search_patch.get("instance")
+    return inst if inst and getattr(inst, "_enabled", False) else None
+
+
+def _hrb_wrap_list_sync(orig):
+    def wrapper(*args, **kwargs):
+        result = orig(*args, **kwargs)
+        inst = _hrb_get_instance()
+        if not inst or not result:
+            return result
+        try:
+            return inst.hr_filter_contexts(result)
+        except Exception as e:
+            logger.error(f"【H&R Blocker】搜索结果过滤异常（已放行原结果）：{e}")
+            return result
+    wrapper.__hrb_wrapped__ = True
+    return wrapper
+
+
+def _hrb_wrap_list_async(orig):
+    async def wrapper(*args, **kwargs):
+        result = await orig(*args, **kwargs)
+        inst = _hrb_get_instance()
+        if not inst or not result:
+            return result
+        try:
+            return inst.hr_filter_contexts(result)
+        except Exception as e:
+            logger.error(f"【H&R Blocker】搜索结果过滤异常（已放行原结果）：{e}")
+            return result
+    wrapper.__hrb_wrapped__ = True
+    return wrapper
+
+
+def _hrb_wrap_stream(orig):
+    async def wrapper(*args, **kwargs):
+        removed_cum = 0
+        async for event in orig(*args, **kwargs):
+            inst = _hrb_get_instance()
+            if inst and isinstance(event, dict):
+                try:
+                    event, removed_cum = inst.hr_filter_event(event, removed_cum)
+                except Exception as e:
+                    logger.error(f"【H&R Blocker】搜索事件过滤异常（已放行原事件）：{e}")
+            yield event
+    wrapper.__hrb_wrapped__ = True
+    return wrapper
+
+
+def _hrb_install_search_patch():
+    """幂等地为 SearchChain 安装搜索结果显示过滤包装器"""
+    if _search_patch["installed"]:
+        return
+    try:
+        from app.chain.search import SearchChain
+    except Exception as e:
+        logger.error(f"【H&R Blocker】导入 SearchChain 失败，搜索显示过滤不可用：{e}")
+        return
+    targets = {
+        "process": _hrb_wrap_list_sync,
+        "search_by_id": _hrb_wrap_list_sync,
+        "search_by_title": _hrb_wrap_list_sync,
+        "async_process": _hrb_wrap_list_async,
+        "async_search_by_id": _hrb_wrap_list_async,
+        "async_search_by_title": _hrb_wrap_list_async,
+        "async_process_stream": _hrb_wrap_stream,
+        "async_search_by_title_stream": _hrb_wrap_stream,
+    }
+    patched = []
+    for name, wrap in targets.items():
+        fn = getattr(SearchChain, name, None)
+        if callable(fn) and not getattr(fn, "__hrb_wrapped__", False):
+            setattr(SearchChain, name, wrap(fn))
+            patched.append(name)
+    _search_patch["installed"] = True
+    logger.info(f"【H&R Blocker】搜索结果显示过滤已就绪（已包装 {len(patched)} 个 SearchChain 方法）")
+
+
+# endregion
+
 
 class HRBlocker(_PluginBase):
     # 插件名称
@@ -17,9 +110,9 @@ class HRBlocker(_PluginBase):
     # 插件描述
     plugin_desc = "屏蔽所有带H&R的种子，搜索、订阅等任何场景都不会选中H&R种子。"
     # 插件图标
-    plugin_icon = "https://raw.githubusercontent.com/ltdstudio/hrblocker/main/icons/hrblocker.png"
+    plugin_icon = "hrblocker.png"
     # 插件版本
-    plugin_version = "1.1.3"
+    plugin_version = "1.2.0"
     # 插件作者
     plugin_author = "ltdstudio"
     # 作者主页
@@ -45,6 +138,9 @@ class HRBlocker(_PluginBase):
     _records: List[Dict[str, Any]] = []
     # 记录保留条数
     MAX_RECORDS = 100
+    # 全站H&R站点缓存（60秒）
+    _hr_sites_cache_ts = 0.0
+    _hr_sites_cache_ids: Set[int] = set()
 
     def init_plugin(self, config: dict = None):
         if config:
@@ -62,6 +158,9 @@ class HRBlocker(_PluginBase):
             })
         # 加载历史屏蔽记录
         self._records = self.get_data("records") or []
+        # 注册当前实例并安装搜索显示层包装（未启用时包装器自动放行）
+        _search_patch["instance"] = self
+        _hrb_install_search_patch()
         if self._enabled:
             hr_sites = self.__get_hr_active_sites()
             logger.info(f"【{self.plugin_name}】已启用，逐种子H&R标记屏蔽：{'开' if self._block_marked else '关'}，"
@@ -91,6 +190,13 @@ class HRBlocker(_PluginBase):
                 "methods": ["GET"],
                 "summary": "屏蔽记录",
                 "description": "查看最近屏蔽的H&R种子记录（最多100条）",
+            },
+            {
+                "path": "/records/clear",
+                "endpoint": self.api_clear_records,
+                "methods": ["POST"],
+                "summary": "清空屏蔽记录",
+                "description": "清空全部屏蔽记录",
             }
         ]
 
@@ -220,7 +326,8 @@ class HRBlocker(_PluginBase):
         return "vue", "dist/assets"
 
     def stop_service(self):
-        pass
+        # 摘除实例引用，搜索包装器自动放行
+        _search_patch["instance"] = None
 
     # region 事件处理
 
@@ -314,6 +421,75 @@ class HRBlocker(_PluginBase):
 
     # region 私有方法
 
+    def _hr_sites_cached(self) -> Set[int]:
+        """全站H&R站点ID集合（60秒缓存，避免渐进式搜索每批事件都查库）"""
+        now = time.time()
+        if now - self._hr_sites_cache_ts > 60:
+            self._hr_sites_cache_ids = set(self.__get_hr_active_sites().keys())
+            self._hr_sites_cache_ts = now
+        return self._hr_sites_cache_ids
+
+    def hr_is_item_blocked(self, item: Any) -> bool:
+        """判定搜索结果条目（Context.to_dict() 字典）是否为H&R种子"""
+        try:
+            ti = (item or {}).get("torrent_info") or {}
+            if self._block_marked and ti.get("hit_and_run"):
+                return True
+            if self._sync_assistant:
+                sid = ti.get("site")
+                if sid and sid in self._hr_sites_cached():
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def hr_filter_contexts(self, contexts: List[Any]) -> List[Any]:
+        """从 Context 列表中剔除H&R种子（供搜索链包装器调用）"""
+        kept, removed = [], 0
+        for context in contexts:
+            try:
+                blocked, _ = self.__is_hr_context(context)
+            except Exception:
+                blocked = False
+            if blocked:
+                removed += 1
+            else:
+                kept.append(context)
+        if removed:
+            logger.info(f"【{self.plugin_name}】搜索结果已过滤 {removed} 个H&R种子，剩余 {len(kept)} 个")
+        return kept
+
+    def hr_filter_event(self, event: Dict[str, Any], removed_cum: int) -> Tuple[Dict[str, Any], int]:
+        """
+        过滤渐进式搜索（SSE）事件中的H&R种子（供搜索链包装器调用）
+        :param event: 搜索事件字典（append/replace/done/progress 等）
+        :param removed_cum: append 阶段已累计剔除数（total_items 为累计值，需同步扣减）
+        :return: (过滤后的事件, 新的累计剔除数)
+        """
+        etype = event.get("type")
+        items = event.get("items")
+        if isinstance(items, list) and items:
+            kept = [it for it in items if not self.hr_is_item_blocked(it)]
+            removed = len(items) - len(kept)
+            if removed:
+                event["items"] = kept
+                if etype == "append":
+                    removed_cum += removed
+                    if isinstance(event.get("total_items"), int):
+                        event["total_items"] = max(0, event["total_items"] - removed_cum)
+                else:
+                    # replace/done：items 为最终全量，直接以过滤后数量为准
+                    if isinstance(event.get("total_items"), int):
+                        event["total_items"] = len(kept)
+                    text = event.get("text")
+                    if isinstance(text, str):
+                        event["text"] = re.sub(r"共\s*\d+\s*个资源", f"共 {len(kept)} 个资源", text)
+                logger.info(f"【{self.plugin_name}】搜索结果已过滤 {removed} 个H&R种子（{etype}）")
+        contexts = event.get("contexts")
+        if isinstance(contexts, list) and contexts:
+            event["contexts"] = self.hr_filter_contexts(contexts)
+        return event, removed_cum
+
     def __add_record(self, title: str, site: str, reason: str, source: str, stage: str):
         """
         追加一条屏蔽记录（最新在前，上限 MAX_RECORDS 条，持久化到插件数据）
@@ -404,6 +580,19 @@ class HRBlocker(_PluginBase):
             "total": len(records),
             "max_records": self.MAX_RECORDS,
             "records": records,
+        }
+
+    def api_clear_records(self) -> Dict[str, Any]:
+        """
+        清空全部屏蔽记录
+        """
+        self._records = []
+        self.save_data("records", [])
+        logger.info(f"【{self.plugin_name}】屏蔽记录已清空")
+        return {
+            "total": 0,
+            "max_records": self.MAX_RECORDS,
+            "records": [],
         }
 
     def api_status(self) -> Dict[str, Any]:

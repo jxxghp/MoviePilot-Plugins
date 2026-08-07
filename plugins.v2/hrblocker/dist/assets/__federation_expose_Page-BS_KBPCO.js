@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,renderList:_renderList} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,withCtx:_withCtx,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,createBlock:_createBlock,renderList:_renderList} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "hrb-page" };
@@ -45,7 +45,10 @@ const version = ref('');
 const hrSites = ref(0);
 const loading = ref(false);
 const dialog = ref(false);
+const clearing = ref(false);
+const confirmClear = ref(false);
 let timer = null;
+let confirmTimer = null;
 
 function getApi() {
   return props.api || (typeof window !== 'undefined' ? window.MoviePilotAPI : null)
@@ -92,6 +95,33 @@ function openSettings() {
   emit('switch'); // 宿主切到 Config 弹窗
 }
 
+// 两段式确认：第一次点击变为「确认清除」（3秒内有效），第二次真正清空
+function onClearClick() {
+  if (!confirmClear.value) {
+    confirmClear.value = true;
+    confirmTimer = setTimeout(() => { confirmClear.value = false; }, 3000);
+    return
+  }
+  if (confirmTimer) clearTimeout(confirmTimer);
+  confirmClear.value = false;
+  clearRecords();
+}
+
+async function clearRecords() {
+  const api = getApi();
+  if (!api) return
+  clearing.value = true;
+  try {
+    await api.post('plugin/HRBlocker/records/clear');
+    records.value = [];
+    total.value = 0;
+  } catch (e) {
+    console.error('[HRBlocker] 清空屏蔽记录失败', e);
+  } finally {
+    clearing.value = false;
+  }
+}
+
 function openDialog() {
   dialog.value = true;
   fetchRecords();
@@ -106,6 +136,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer);
+  if (confirmTimer) clearTimeout(confirmTimer);
 });
 
 return (_ctx, _cache) => {
@@ -144,7 +175,7 @@ return (_ctx, _cache) => {
             })
           ]),
           _createElementVNode("div", _hoisted_5, [
-            _createTextVNode(" 已屏蔽 " + _toDisplayString(total.value) + " 条 H&R 种子 ", 1),
+            _createTextVNode(" 已屏蔽 " + _toDisplayString(total.value) + "/" + _toDisplayString(maxRecords.value) + " 条 H&R 种子 ", 1),
             (hrSites.value > 0)
               ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
                   _createTextVNode(" · 联动 " + _toDisplayString(hrSites.value) + " 个全站H&R站点", 1)
@@ -168,7 +199,7 @@ return (_ctx, _cache) => {
         ]))]),
         _: 1
       }),
-      _createElementVNode("div", _hoisted_7, " 保留最近 " + _toDisplayString(maxRecords.value) + " 条 ", 1)
+      _createElementVNode("div", _hoisted_7, " 已屏蔽 " + _toDisplayString(total.value) + "/" + _toDisplayString(maxRecords.value) + " 条（保留最近 " + _toDisplayString(maxRecords.value) + " 条） ", 1)
     ]),
     _createVNode(_component_v_btn, {
       class: "hrb-settings-btn",
@@ -214,6 +245,22 @@ return (_ctx, _cache) => {
                   _: 1
                 }),
                 _createVNode(_component_v_spacer),
+                (records.value.length > 0)
+                  ? (_openBlock(), _createBlock(_component_v_btn, {
+                      key: 0,
+                      size: "small",
+                      color: confirmClear.value ? 'error' : undefined,
+                      variant: confirmClear.value ? 'flat' : 'text',
+                      "prepend-icon": "mdi-delete-sweep-outline",
+                      loading: clearing.value,
+                      onClick: onClearClick
+                    }, {
+                      default: _withCtx(() => [
+                        _createTextVNode(_toDisplayString(confirmClear.value ? '确认清除' : '清除记录'), 1)
+                      ]),
+                      _: 1
+                    }, 8, ["color", "variant", "loading"]))
+                  : _createCommentVNode("", true),
                 _createVNode(_component_v_btn, {
                   icon: "mdi-refresh",
                   variant: "text",
@@ -296,6 +343,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f18e04a0"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7686036f"]]);
 
 export { Page as default };
