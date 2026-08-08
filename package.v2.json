@@ -1116,5 +1116,17 @@
       "v1.1.0": "新增插件页「H&R 屏蔽记录」固定面板（Vue联邦），保留最近100条屏蔽记录",
       "v1.0.0": "初始版本：资源选择+资源下载双事件拦截，支持站点H&R标记种子与全站H&R站点屏蔽（联动H&R助手）"
     }
+  },
+  "PTSiteOpener": {
+    "name": "PT站点自动打开",
+    "description": "按用户设置的计划任务，通过远程 CDP 打开 MoviePilot 中已启用的站点。",
+    "labels": "站点,计划任务,CDP",
+    "version": "1.0.0",
+    "icon": "Moviepilot_A.png",
+    "author": "Lin-max1032",
+    "level": 1,
+    "history": {
+      "1.0.0": "新增按 Cron 计划打开 MoviePilot 启用站点，并在保留时间到期后只关闭本插件创建的标签页。"
+    }
   }
 }
