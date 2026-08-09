@@ -28,6 +28,8 @@ from ruamel.yaml import CommentedMap
 
 
 class AutoSignIn(_PluginBase):
+    """按配置执行站点签到和模拟登录，并记录结果与发送通知。"""
+
     # 插件名称
     plugin_name = "站点自动签到"
     # 插件描述
@@ -35,7 +37,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "2.9.1"
+    plugin_version = "2.9.2"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页

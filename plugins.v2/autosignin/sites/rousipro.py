@@ -16,6 +16,27 @@ class RousiPro(_ISiteSigninHandler):
     # 匹配的站点Url，每一个实现类都需要设置为自己的站点Url
     site_url = "rousi.pro"
 
+    @staticmethod
+    def _bearer_auth(value: str) -> str:
+        """
+        将 API Key 或 Authorization Token 规范化为 Bearer 认证值。
+        """
+        value = str(value or "").strip()
+        return value if value.lower().startswith("bearer ") else f"Bearer {value}"
+
+    @staticmethod
+    def _response_code(res) -> int:
+        """
+        安全读取 Rousi Pro JSON 响应中的业务状态码。
+        """
+        if res is None:
+            return -1
+        try:
+            payload = res.json() or {}
+        except (TypeError, ValueError):
+            return -1
+        return payload.get("code", -1) if isinstance(payload, dict) else -1
+
     @classmethod
     def match(cls, url: str) -> bool:
         """
@@ -33,39 +54,66 @@ class RousiPro(_ISiteSigninHandler):
         """
         site = site_info.get("name")
         ua = site_info.get("ua")
-        token = site_info.get("token")
+        apikey = str(site_info.get("apikey") or "").strip()
+        token = str(site_info.get("token") or "").strip()
         timeout = site_info.get("timeout")
-        if not token or token.strip() == "":
-            logger.error(f"{site} 签到失败，缺少 Authorization 信息")
-            return False, "签到失败，缺少 Authorization 信息"
+        if not apikey and not token:
+            logger.error(f"{site} 签到失败，缺少 API Key 或 Authorization 信息")
+            return False, "签到失败，缺少 API Key 或 Authorization 信息"
 
-        headers = {
+        base_headers = {
             "Content-Type": "application/json",
             "User-Agent": ua,
             "Accept": "application/json, text/plain, */*",
-            "Authorization": token if token.startswith("Bearer ") else f"Bearer {token}"
         }
         body = {
             "mode": "fixed"
         }
-        res = RequestUtils(
-            headers=headers,
-            timeout=timeout,
-            proxies=settings.PROXY if site_info.get("proxy") else None,
-        ).post_res(
-            url="https://rousi.pro/api/points/attendance",
-            json=body
-        )
+        request_options = {
+            "timeout": timeout,
+            "proxies": settings.PROXY if site_info.get("proxy") else None,
+        }
+        res = None
+        auth_type = "API Key"
 
-        if res is not None and res.status_code == 200 and res.json().get("code", -1) == 0:
+        if apikey:
+            res = RequestUtils(
+                headers={**base_headers, "api-token": apikey},
+                **request_options,
+            ).post_res(
+                url="https://rousi.pro/api/points/attendance",
+                json=body
+            )
+            code = self._response_code(res)
+            if res is not None and res.status_code == 200 and code == 0:
+                logger.info(f"{site} 签到成功")
+                return True, "签到成功"
+            if res is not None and res.status_code == 400 and code == 1:
+                logger.info(f"{site} 今日已签到")
+                return True, "今日已签到"
+            if token:
+                logger.info(f"{site} API Key 签到认证未成功，回退 Authorization")
+
+        if token:
+            auth_type = "Authorization"
+            res = RequestUtils(
+                headers={**base_headers, "Authorization": self._bearer_auth(token)},
+                **request_options,
+            ).post_res(
+                url="https://rousi.pro/api/points/attendance",
+                json=body
+            )
+
+        code = self._response_code(res)
+        if res is not None and res.status_code == 200 and code == 0:
             logger.info(f"{site} 签到成功")
             return True, "签到成功"
-        elif res is not None and res.status_code == 400 and res.json().get("code", -1) == 1:
+        elif res is not None and res.status_code == 400 and code == 1:
             logger.info(f"{site} 今日已签到")
             return True, "今日已签到"
         elif res is not None and res.status_code == 401:
-            logger.error(f"{site} 签到失败，Authorization 已失效")
-            return False, "签到失败，Authorization 已失效"
+            logger.error(f"{site} 签到失败，{auth_type} 已失效或不支持签到")
+            return False, f"签到失败，{auth_type} 已失效或不支持签到"
         elif res is not None:
             logger.error(f"{site} 签到失败，状态码：{res.status_code}")
             return False, f"签到失败，状态码：{res.status_code}"
@@ -81,31 +129,48 @@ class RousiPro(_ISiteSigninHandler):
         """
         site = site_info.get("name")
         ua = site_info.get("ua")
-        token = site_info.get("token")
+        apikey = str(site_info.get("apikey") or "").strip()
+        token = str(site_info.get("token") or "").strip()
         timeout = site_info.get("timeout")
-        if not token or token.strip() == "":
-            logger.error(f"{site} 模拟登录失败，缺少 Authorization 信息")
-            return False, "模拟登录失败，缺少 Authorization 信息"
+        if not apikey and not token:
+            logger.error(f"{site} 模拟登录失败，缺少 API Key 或 Authorization 信息")
+            return False, "模拟登录失败，缺少 API Key 或 Authorization 信息"
 
-        headers = {
+        base_headers = {
             "User-Agent": ua,
             "Accept": "application/json, text/plain, */*",
-            "Authorization": token if token.startswith("Bearer ") else f"Bearer {token}"
         }
-        res = RequestUtils(
-            headers=headers,
-            timeout=timeout,
-            proxies=settings.PROXY if site_info.get("proxy") else None,
-        ).get_res(
-            url="https://rousi.pro/api/points/attendance/stats"
-        )
+        request_options = {
+            "timeout": timeout,
+            "proxies": settings.PROXY if site_info.get("proxy") else None,
+        }
+        res = None
+        auth_type = "API Key"
 
-        if res is not None and res.status_code == 200 and res.json().get("code", -1) == 0:
+        if apikey:
+            res = RequestUtils(
+                headers={**base_headers, "Authorization": self._bearer_auth(apikey)},
+                **request_options,
+            ).get_res(url="https://rousi.pro/api/v1/profile")
+            if res is not None and res.status_code == 200 and self._response_code(res) == 0:
+                logger.info(f"{site} 模拟登录成功")
+                return True, "模拟登录成功"
+            if token:
+                logger.info(f"{site} API Key 模拟登录认证未成功，回退 Authorization")
+
+        if token:
+            auth_type = "Authorization"
+            res = RequestUtils(
+                headers={**base_headers, "Authorization": self._bearer_auth(token)},
+                **request_options,
+            ).get_res(url="https://rousi.pro/api/points/attendance/stats")
+
+        if res is not None and res.status_code == 200 and self._response_code(res) == 0:
             logger.info(f"{site} 模拟登录成功")
             return True, "模拟登录成功"
         elif res is not None and res.status_code == 401:
-            logger.error(f"{site} 模拟登录失败，Authorization 已失效")
-            return False, "模拟登录失败，Authorization 已失效"
+            logger.error(f"{site} 模拟登录失败，{auth_type} 已失效")
+            return False, f"模拟登录失败，{auth_type} 已失效"
         elif res is not None:
             logger.error(f"{site} 模拟登录失败，状态码：{res.status_code}")
             return False, f"模拟登录失败，状态码：{res.status_code}"
