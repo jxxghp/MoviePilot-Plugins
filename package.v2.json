@@ -1116,5 +1116,18 @@
       "v1.1.0": "新增插件页「H&R 屏蔽记录」固定面板（Vue联邦），保留最近100条屏蔽记录",
       "v1.0.0": "初始版本：资源选择+资源下载双事件拦截，支持站点H&R标记种子与全站H&R站点屏蔽（联动H&R助手）"
     }
+  },
+  "MusicCoverProxy": {
+    "name": "音乐封面代理",
+    "description": "将音乐探索封面图片 URL 重定向到自定义代理，解决 coverartarchive.org 无法访问导致的封面不显示问题。",
+    "labels": "媒体管理",
+    "version": "1.0.0",
+    "icon": "music.png",
+    "author": "local",
+    "level": 1,
+    "system_version": ">=2.0.0",
+    "history": {
+      "v1.0.0": "初始版本"
+    }
   }
 }
