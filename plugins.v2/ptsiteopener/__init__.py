@@ -11,10 +11,12 @@ from urllib.parse import urlsplit, urlunsplit
 
 from apscheduler.triggers.cron import CronTrigger
 
+from app.api.endpoints.plugin import register_plugin_api
+from app.core.event import Event, eventmanager
 from app.db.site_oper import SiteOper
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas.types import NotificationType
+from app.schemas.types import EventType, NotificationType
 
 
 DEFAULT_CDP_URL = "http://music.lulin.fun:5656/json/version"
@@ -167,7 +169,7 @@ class PTSiteOpener(_PluginBase):
     plugin_name = "PT站点自动打开"
     plugin_desc = "按用户设置的计划任务，通过远程 CDP 打开 MoviePilot 中已启用的站点。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.1.1"
+    plugin_version = "1.1.2"
     plugin_author = "Codex"
     author_url = "https://github.com/Lin-max1032/MoviePilot-Plugins"
     plugin_config_prefix = "ptsiteopener_"
@@ -402,34 +404,6 @@ class PTSiteOpener(_PluginBase):
                             },
                         ],
                     },
-                    {
-                        "component": "VRow",
-                        "props": {"class": "mt-1"},
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VBtn",
-                                        "props": {
-                                            "color": "primary",
-                                            "variant": "tonal",
-                                            "block": True,
-                                            "prepend-icon": "mdi-play-circle",
-                                        },
-                                        "text": "立即执行",
-                                        "events": {
-                                            "click": {
-                                                "api": f"plugin/{PLUGIN_ID}/run",
-                                                "method": "post",
-                                            }
-                                        },
-                                    }
-                                ],
-                            }
-                        ],
-                    },
                 ],
             }
         ], {
@@ -451,8 +425,43 @@ class PTSiteOpener(_PluginBase):
                     "variant": "tonal",
                     "text": self._config_error or self._last_result,
                 },
-            }
+            },
+            {
+                "component": "VRow",
+                "props": {"class": "mt-2"},
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
+                        "content": [
+                            {
+                                "component": "VBtn",
+                                "props": {
+                                    "color": "primary",
+                                    "variant": "tonal",
+                                    "block": True,
+                                    "prepend-icon": "mdi-play-circle",
+                                },
+                                "text": "立即执行",
+                                "events": {
+                                    "click": {
+                                        "api": f"plugin/{self.__class__.__name__}/run",
+                                        "method": "post",
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
         ]
+
+    @eventmanager.register(EventType.PluginReload)
+    def reload(self, event: Event) -> None:
+        """重新加载插件后重新注册动态 API 路由。"""
+        event_data = getattr(event, "event_data", None) or {}
+        if event_data.get("plugin_id") == self.__class__.__name__:
+            register_plugin_api(plugin_id=self.__class__.__name__)
 
     def _connect_cdp(self) -> _CdpConnection:
         return _connect_cdp(self._cdp_url)
