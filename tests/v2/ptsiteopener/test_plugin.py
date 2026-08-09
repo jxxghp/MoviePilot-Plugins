@@ -56,11 +56,32 @@ class QuietLogger:
         self.messages.append(("error", message))
 
 
+class FakeEventManager:
+    def register(self, _event_type):
+        def decorator(func):
+            return func
+
+        return decorator
+
+
 class PluginTestCase(unittest.TestCase):
     def setUp(self):
         app_module = types.ModuleType("app")
+        api_module = types.ModuleType("app.api")
+        api_endpoints_module = types.ModuleType("app.api.endpoints")
+        plugin_api_module = types.ModuleType("app.api.endpoints.plugin")
+        self.registered_api_plugins = []
+
+        def register_plugin_api(plugin_id=None):
+            self.registered_api_plugins.append(plugin_id)
+
+        plugin_api_module.register_plugin_api = register_plugin_api
         plugins_module = types.ModuleType("app.plugins")
         plugins_module._PluginBase = FakeBase
+        core_module = types.ModuleType("app.core")
+        event_module = types.ModuleType("app.core.event")
+        event_module.Event = types.SimpleNamespace
+        event_module.eventmanager = FakeEventManager()
         db_module = types.ModuleType("app.db")
         site_oper_module = types.ModuleType("app.db.site_oper")
         site_oper_module.SiteOper = lambda: None
@@ -74,10 +95,16 @@ class PluginTestCase(unittest.TestCase):
         cron_module.CronTrigger = FakeCronTrigger
         schemas_types_module = types.ModuleType("app.schemas.types")
         schemas_types_module.NotificationType = types.SimpleNamespace(Plugin="plugin")
+        schemas_types_module.EventType = types.SimpleNamespace(PluginReload="plugin_reload")
 
         modules = {
             "app": app_module,
+            "app.api": api_module,
+            "app.api.endpoints": api_endpoints_module,
+            "app.api.endpoints.plugin": plugin_api_module,
             "app.plugins": plugins_module,
+            "app.core": core_module,
+            "app.core.event": event_module,
             "app.db": db_module,
             "app.db.site_oper": site_oper_module,
             "app.log": log_module,
@@ -158,27 +185,47 @@ class PluginTestCase(unittest.TestCase):
         collect(form)
         self.assertIn("VRow", components)
         self.assertIn("VCol", components)
-        self.assertIn("VBtn", components)
         self.assertIn("VSwitch", components)
         schedule_field = next(
             item for item in nodes if item.get("props", {}).get("model") == "schedule"
         )
-        self.assertEqual(schedule_field["props"]["label"], "计划任务 Cron（五段）")
+        self.assertEqual(schedule_field["props"]["label"], "???? Cron????")
         self.assertNotIn("hint", schedule_field["props"])
-
-        button = next(
-            item
-            for item in form[0]["content"][-1]["content"][0]["content"]
-            if item.get("component") == "VBtn"
-        )
-        self.assertEqual(button["text"], "立即执行")
-        self.assertEqual(button["events"]["click"]["api"], "plugin/PTSiteOpener/run")
-        self.assertEqual(button["events"]["click"]["method"], "post")
 
         api = plugin.get_api()
         self.assertEqual(len(api), 1)
         self.assertEqual(api[0]["path"], "/run")
         self.assertEqual(api[0]["methods"], ["POST"])
+
+    def test_manual_run_button_is_on_data_page_not_config_form(self):
+        plugin = self.module.PTSiteOpener()
+        plugin.init_plugin({"enabled": True})
+
+        form, _ = plugin.get_form()
+        form_buttons = []
+        page_buttons = []
+
+        def collect(items, buttons):
+            for item in items:
+                if item.get("component") == "VBtn":
+                    buttons.append(item)
+                collect(item.get("content", []), buttons)
+
+        collect(form, form_buttons)
+        collect(plugin.get_page(), page_buttons)
+
+        self.assertFalse(form_buttons)
+        self.assertEqual(len(page_buttons), 1)
+        self.assertEqual(page_buttons[0]["text"], "????")
+        self.assertEqual(page_buttons[0]["events"]["click"]["api"], "plugin/PTSiteOpener/run")
+        self.assertEqual(page_buttons[0]["events"]["click"]["method"], "post")
+
+    def test_plugin_reload_re_registers_api_routes(self):
+        plugin = self.module.PTSiteOpener()
+
+        plugin.reload(types.SimpleNamespace(event_data={"plugin_id": "PTSiteOpener"}))
+
+        self.assertEqual(self.registered_api_plugins, ["PTSiteOpener"])
 
     def test_invalid_cron_disables_service(self):
         plugin = self.module.PTSiteOpener()
@@ -247,7 +294,7 @@ class PluginTestCase(unittest.TestCase):
 
         self.assertEqual(response["success"], True)
         self.assertEqual(response["opened"], ["https://one.example/"])
-        self.assertIn("已打开 1 个站点", response["message"])
+        self.assertIn("??? 1 ???", response["message"])
         self.assertEqual(len(plugin.messages), 1)
         self.assertEqual(plugin.messages[0]["title"], plugin.plugin_name)
         self.assertIn("https://one.example/", plugin.messages[0]["text"])
@@ -267,7 +314,7 @@ class PluginTestCase(unittest.TestCase):
 
         self.assertEqual(response["success"], True)
         self.assertEqual(response["opened"], ["https://one.example/"])
-        self.assertTrue(any("收到立即执行请求" in message for _, message in self.logger.messages))
+        self.assertTrue(any("????????" in message for _, message in self.logger.messages))
 
 
 class FakeCdp:
