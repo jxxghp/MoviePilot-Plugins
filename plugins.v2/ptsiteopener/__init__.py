@@ -14,6 +14,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app.db.site_oper import SiteOper
 from app.log import logger
 from app.plugins import _PluginBase
+from app.schemas.types import NotificationType
 
 
 DEFAULT_CDP_URL = "http://music.lulin.fun:5656/json/version"
@@ -166,7 +167,7 @@ class PTSiteOpener(_PluginBase):
     plugin_name = "PT站点自动打开"
     plugin_desc = "按用户设置的计划任务，通过远程 CDP 打开 MoviePilot 中已启用的站点。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.0"
+    plugin_version = "1.1.0"
     plugin_author = "Codex"
     author_url = "https://github.com/Lin-max1032/MoviePilot-Plugins"
     plugin_config_prefix = "ptsiteopener_"
@@ -180,6 +181,7 @@ class PTSiteOpener(_PluginBase):
         self._cdp_url = DEFAULT_CDP_URL
         self._schedule = DEFAULT_SCHEDULE
         self._ttl_minutes = DEFAULT_TTL_MINUTES
+        self._notify_enabled = False
         self._site_mode = "all"
         self._selected_site_ids: List[str] = []
         self._runs: List[_OpenRun] = []
@@ -194,6 +196,7 @@ class PTSiteOpener(_PluginBase):
         self._cdp_url = str(config.get("cdp_url") or DEFAULT_CDP_URL).strip()
         self._schedule = str(config.get("schedule") or DEFAULT_SCHEDULE).strip()
         self._ttl_minutes = self._coerce_ttl(config.get("ttl_minutes", DEFAULT_TTL_MINUTES))
+        self._notify_enabled = bool(config.get("notify_enabled", False))
         self._site_mode = str(config.get("site_mode") or "all")
         if self._site_mode not in {"all", "selected"}:
             self._site_mode = "all"
@@ -226,7 +229,16 @@ class PTSiteOpener(_PluginBase):
         return []
 
     def get_api(self) -> List[Dict[str, Any]]:
-        return []
+        return [
+            {
+                "path": "/run",
+                "endpoint": self.run_now,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "立即打开 PT 站点",
+                "description": "立即执行一次站点打开任务",
+            }
+        ]
 
     def get_service(self) -> List[Dict[str, Any]]:
         if not self.get_state():
@@ -267,57 +279,156 @@ class PTSiteOpener(_PluginBase):
                 "component": "VForm",
                 "content": [
                     {
-                        "component": "VSwitch",
-                        "props": {"model": "enabled", "label": "启用插件"},
+                        "component": "VRow",
+                        "props": {"class": "mb-2"},
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {"model": "enabled", "label": "启用插件"},
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "notify_enabled",
+                                            "label": "开启通知推送",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
                     },
                     {
-                        "component": "VTextField",
-                        "props": {
-                            "model": "cdp_url",
-                            "label": "远程 CDP 地址",
-                            "placeholder": DEFAULT_CDP_URL,
-                        },
+                        "component": "VRow",
+                        "props": {"class": "mb-2"},
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "cdp_url",
+                                            "label": "远程 CDP 地址",
+                                            "placeholder": DEFAULT_CDP_URL,
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
                     },
                     {
-                        "component": "VTextField",
-                        "props": {
-                            "model": "schedule",
-                            "label": "计划任务 Cron",
-                            "placeholder": DEFAULT_SCHEDULE,
-                            "hint": "五段 Cron 表达式，例如 0 */6 * * *",
-                            "persistentHint": True,
-                        },
+                        "component": "VRow",
+                        "props": {"class": "mb-2"},
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 8},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "schedule",
+                                            "label": "计划任务 Cron（五段）",
+                                            "placeholder": DEFAULT_SCHEDULE,
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "ttl_minutes",
+                                            "label": "标签页保留时间（分钟）",
+                                            "type": "number",
+                                            "min": 0,
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
                     },
                     {
-                        "component": "VTextField",
-                        "props": {
-                            "model": "ttl_minutes",
-                            "label": "标签页保留时间（分钟）",
-                            "type": "number",
-                            "min": 0,
-                        },
+                        "component": "VRow",
+                        "props": {"class": "mb-2"},
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSelect",
+                                        "props": {
+                                            "model": "site_mode",
+                                            "label": "站点范围",
+                                            "items": [
+                                                {"title": "全部启用站点", "value": "all"},
+                                                {"title": "指定启用站点", "value": "selected"},
+                                            ],
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 8},
+                                "content": [
+                                    {
+                                        "component": "VSelect",
+                                        "props": {
+                                            "model": "site_ids",
+                                            "label": "指定站点",
+                                            "multiple": True,
+                                            "chips": True,
+                                            "clearable": True,
+                                            "items": site_items,
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
                     },
                     {
-                        "component": "VSelect",
-                        "props": {
-                            "model": "site_mode",
-                            "label": "站点范围",
-                            "items": [
-                                {"title": "全部启用站点", "value": "all"},
-                                {"title": "指定启用站点", "value": "selected"},
-                            ],
-                        },
-                    },
-                    {
-                        "component": "VSelect",
-                        "props": {
-                            "model": "site_ids",
-                            "label": "指定站点",
-                            "multiple": True,
-                            "chips": True,
-                            "clearable": True,
-                            "items": site_items,
-                        },
+                        "component": "VRow",
+                        "props": {"class": "mt-1"},
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VBtn",
+                                        "props": {
+                                            "color": "primary",
+                                            "variant": "tonal",
+                                            "block": True,
+                                            "prepend-icon": "mdi-play-circle",
+                                        },
+                                        "text": "立即执行",
+                                        "events": {
+                                            "click": {
+                                                "api": f"plugin/{PLUGIN_ID}/run",
+                                                "method": "post",
+                                            }
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
                     },
                 ],
             }
@@ -326,6 +437,7 @@ class PTSiteOpener(_PluginBase):
             "cdp_url": DEFAULT_CDP_URL,
             "schedule": DEFAULT_SCHEDULE,
             "ttl_minutes": DEFAULT_TTL_MINUTES,
+            "notify_enabled": False,
             "site_mode": "all",
             "site_ids": [],
         }
@@ -345,6 +457,45 @@ class PTSiteOpener(_PluginBase):
     def _connect_cdp(self) -> _CdpConnection:
         return _connect_cdp(self._cdp_url)
 
+    def _record_result(
+        self,
+        message: str,
+        opened_urls: Optional[Iterable[str]] = None,
+        level: str = "info",
+    ) -> None:
+        """Store the latest result and optionally publish it through MoviePilot."""
+        self._last_result = message
+        getattr(logger, level)(message)
+        if not self._notify_enabled:
+            return
+
+        text = message
+        urls = list(opened_urls or [])
+        if urls:
+            text = f"{message}\n打开地址：\n" + "\n".join(urls)
+        try:
+            self.post_message(
+                mtype=NotificationType.Plugin,
+                title=self.plugin_name,
+                text=text,
+            )
+        except Exception as error:
+            logger.warning(f"发送 PT 站点执行通知失败：{error}")
+
+    def run_now(self) -> Dict[str, Any]:
+        """Run one task from the configuration page button."""
+        if not self.get_state():
+            message = self._config_error or "插件未启用"
+            self._last_result = message
+            return {"success": False, "message": message, "opened": []}
+
+        opened_urls = self.run_once()
+        return {
+            "success": bool(opened_urls),
+            "message": self._last_result,
+            "opened": opened_urls,
+        }
+
     def run_once(self) -> List[str]:
         """Execute one scheduled run and return successfully opened URLs."""
         if not self.get_state():
@@ -358,20 +509,17 @@ class PTSiteOpener(_PluginBase):
                 selected_site_ids=self._selected_site_ids,
             )
         except Exception as error:
-            self._last_result = f"读取站点失败：{error}"
-            logger.error(self._last_result)
+            self._record_result(f"读取站点失败：{error}", level="error")
             return []
 
         if not urls:
-            self._last_result = "没有可打开的启用站点"
-            logger.info(self._last_result)
+            self._record_result("没有可打开的启用站点")
             return []
 
         try:
             cdp = self._connect_cdp()
         except Exception as error:
-            self._last_result = f"连接远程 CDP 失败：{error}"
-            logger.error(self._last_result)
+            self._record_result(f"连接远程 CDP 失败：{error}", level="error")
             return []
 
         run = _OpenRun(cdp=cdp)
@@ -415,12 +563,14 @@ class PTSiteOpener(_PluginBase):
                 run.timer.start()
 
         if has_targets:
-            self._last_result = f"已打开 {len(opened_urls)} 个站点，{self._ttl_minutes} 分钟后关闭"
+            self._record_result(
+                f"已打开 {len(opened_urls)} 个站点，{self._ttl_minutes} 分钟后关闭",
+                opened_urls,
+            )
         else:
             self._cleanup_run(run)
-            self._last_result = "没有成功打开站点"
+            self._record_result("没有成功打开站点", opened_urls)
 
-        logger.info(self._last_result)
         return opened_urls
 
     def _cleanup_run(self, run: _OpenRun) -> None:

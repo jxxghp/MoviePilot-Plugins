@@ -17,9 +17,13 @@ PLUGIN_PATH = (
 class FakeBase:
     def __init__(self):
         self._config = {}
+        self.messages = []
 
     def update_config(self, config):
         self._config = config
+
+    def post_message(self, **kwargs):
+        self.messages.append(kwargs)
 
 
 class FakeCronTrigger:
@@ -67,6 +71,8 @@ class PluginTestCase(unittest.TestCase):
         triggers_module = types.ModuleType("apscheduler.triggers")
         cron_module = types.ModuleType("apscheduler.triggers.cron")
         cron_module.CronTrigger = FakeCronTrigger
+        schemas_types_module = types.ModuleType("app.schemas.types")
+        schemas_types_module.NotificationType = types.SimpleNamespace(Plugin="plugin")
 
         modules = {
             "app": app_module,
@@ -74,6 +80,7 @@ class PluginTestCase(unittest.TestCase):
             "app.db": db_module,
             "app.db.site_oper": site_oper_module,
             "app.log": log_module,
+            "app.schemas.types": schemas_types_module,
             "apscheduler": apscheduler_module,
             "apscheduler.triggers": triggers_module,
             "apscheduler.triggers.cron": cron_module,
@@ -130,12 +137,47 @@ class PluginTestCase(unittest.TestCase):
         self.assertTrue(form)
         self.assertEqual(model["schedule"], "0 */6 * * *")
         self.assertEqual(model["ttl_minutes"], 5)
+        self.assertFalse(model["notify_enabled"])
         self.assertTrue(plugin.get_state())
 
         services = plugin.get_service()
         self.assertEqual(len(services), 1)
         self.assertEqual(services[0]["trigger"].expression, "0 */6 * * *")
         self.assertEqual(services[0]["func"], plugin.run_once)
+
+        components = []
+        nodes = []
+
+        def collect(items):
+            for item in items:
+                nodes.append(item)
+                components.append(item.get("component"))
+                collect(item.get("content", []))
+
+        collect(form)
+        self.assertIn("VRow", components)
+        self.assertIn("VCol", components)
+        self.assertIn("VBtn", components)
+        self.assertIn("VSwitch", components)
+        schedule_field = next(
+            item for item in nodes if item.get("props", {}).get("model") == "schedule"
+        )
+        self.assertEqual(schedule_field["props"]["label"], "计划任务 Cron（五段）")
+        self.assertNotIn("hint", schedule_field["props"])
+
+        button = next(
+            item
+            for item in form[0]["content"][-1]["content"][0]["content"]
+            if item.get("component") == "VBtn"
+        )
+        self.assertEqual(button["text"], "立即执行")
+        self.assertEqual(button["events"]["click"]["api"], "plugin/PTSiteOpener/run")
+        self.assertEqual(button["events"]["click"]["method"], "post")
+
+        api = plugin.get_api()
+        self.assertEqual(len(api), 1)
+        self.assertEqual(api[0]["path"], "/run")
+        self.assertEqual(api[0]["methods"], ["POST"])
 
     def test_invalid_cron_disables_service(self):
         plugin = self.module.PTSiteOpener()
@@ -188,6 +230,26 @@ class PluginTestCase(unittest.TestCase):
         self.assertEqual(cdp.closed, ["opened-1"])
         self.assertFalse(cdp.connected)
         self.assertTrue(FakeTimer.instances[0].cancelled)
+
+    def test_manual_run_api_opens_sites_and_returns_result(self):
+        sites = [types.SimpleNamespace(id=1, url="https://one.example/", is_active=True)]
+        cdp = FakeCdp()
+        self.module.SiteOper = lambda: types.SimpleNamespace(list_active=lambda: sites)
+        self.module.threading.Timer = FakeTimer
+        FakeTimer.instances.clear()
+
+        plugin = self.module.PTSiteOpener()
+        plugin.init_plugin({"enabled": True, "notify_enabled": True})
+        plugin._connect_cdp = lambda: cdp
+
+        response = plugin.get_api()[0]["endpoint"]()
+
+        self.assertEqual(response["success"], True)
+        self.assertEqual(response["opened"], ["https://one.example/"])
+        self.assertIn("已打开 1 个站点", response["message"])
+        self.assertEqual(len(plugin.messages), 1)
+        self.assertEqual(plugin.messages[0]["title"], plugin.plugin_name)
+        self.assertIn("https://one.example/", plugin.messages[0]["text"])
 
 
 class FakeCdp:
