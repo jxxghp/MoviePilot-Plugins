@@ -212,7 +212,7 @@ class PluginTestCase(unittest.TestCase):
         plugin = self.module.PTSiteOpener()
         form, _ = plugin.get_form()
 
-        self.assertEqual(plugin.plugin_version, "1.1.3")
+        self.assertEqual(plugin.plugin_version, "1.2.0")
         self.assertNotIn("?", plugin.plugin_name)
         self.assertNotIn("?", plugin.plugin_desc)
 
