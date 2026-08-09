@@ -26,6 +26,20 @@ PLUGIN_ID = "PTSiteOpener"
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
+def parse_site_cookie(cookie: Any) -> List[Tuple[str, str]]:
+    """Parse MoviePilot's semicolon-separated site cookie string."""
+    if not isinstance(cookie, str):
+        return []
+
+    pairs = []
+    for segment in cookie.split(";"):
+        name, separator, value = segment.strip().partition("=")
+        if not separator or not name:
+            continue
+        pairs.append((name.strip(), value.strip()))
+    return pairs
+
+
 def select_site_urls(
     sites: Iterable[Any],
     site_mode: str = "all",
@@ -184,6 +198,7 @@ class PTSiteOpener(_PluginBase):
         self._schedule = DEFAULT_SCHEDULE
         self._ttl_minutes = DEFAULT_TTL_MINUTES
         self._notify_enabled = False
+        self._reuse_site_cookie = True
         self._site_mode = "all"
         self._selected_site_ids: List[str] = []
         self._runs: List[_OpenRun] = []
@@ -199,6 +214,7 @@ class PTSiteOpener(_PluginBase):
         self._schedule = str(config.get("schedule") or DEFAULT_SCHEDULE).strip()
         self._ttl_minutes = self._coerce_ttl(config.get("ttl_minutes", DEFAULT_TTL_MINUTES))
         self._notify_enabled = bool(config.get("notify_enabled", False))
+        self._reuse_site_cookie = bool(config.get("reuse_site_cookie", True))
         self._site_mode = str(config.get("site_mode") or "all")
         if self._site_mode not in {"all", "selected"}:
             self._site_mode = "all"
@@ -286,7 +302,7 @@ class PTSiteOpener(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -296,13 +312,26 @@ class PTSiteOpener(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "notify_enabled",
                                             "label": "开启通知推送",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "reuse_site_cookie",
+                                            "label": "复用站点 Cookie",
                                         },
                                     }
                                 ],
@@ -412,6 +441,7 @@ class PTSiteOpener(_PluginBase):
             "schedule": DEFAULT_SCHEDULE,
             "ttl_minutes": DEFAULT_TTL_MINUTES,
             "notify_enabled": False,
+            "reuse_site_cookie": True,
             "site_mode": "all",
             "site_ids": [],
         }

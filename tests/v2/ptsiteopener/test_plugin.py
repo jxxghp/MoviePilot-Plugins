@@ -230,6 +230,36 @@ class PluginTestCase(unittest.TestCase):
         for key in ("name", "description", "labels"):
             self.assertNotIn("?", metadata[key])
 
+    def test_parse_site_cookie_preserves_equals_and_skips_invalid_segments(self):
+        self.assertEqual(
+            self.module.parse_site_cookie(
+                "sid=abc==; invalid; theme=dark; =missing-name;"
+            ),
+            [("sid", "abc=="), ("theme", "dark")],
+        )
+        self.assertEqual(self.module.parse_site_cookie(None), [])
+
+    def test_cookie_reuse_switch_defaults_to_enabled(self):
+        plugin = self.module.PTSiteOpener()
+        plugin.init_plugin({"enabled": True})
+
+        form, model = plugin.get_form()
+
+        self.assertTrue(model["reuse_site_cookie"])
+        switches = []
+
+        def collect(items):
+            for item in items:
+                if item.get("component") == "VSwitch":
+                    switches.append(item)
+                collect(item.get("content", []))
+
+        collect(form)
+        self.assertIn(
+            "reuse_site_cookie",
+            [item.get("props", {}).get("model") for item in switches],
+        )
+
     def test_manual_run_button_is_on_data_page_not_config_form(self):
         plugin = self.module.PTSiteOpener()
         plugin.init_plugin({"enabled": True})
