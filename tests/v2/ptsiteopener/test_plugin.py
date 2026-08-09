@@ -333,6 +333,84 @@ class PluginTestCase(unittest.TestCase):
         self.assertEqual(cdp.closed, ["opened-1", "opened-2"])
         self.assertFalse(cdp.connected)
 
+    def test_run_once_injects_site_cookie_before_navigation(self):
+        sites = [
+            types.SimpleNamespace(
+                id=1,
+                name="One",
+                url="https://one.example/",
+                is_active=True,
+                cookie="sid=abc==; theme=dark;",
+            )
+        ]
+        cdp = FakeCdp()
+        self.module.SiteOper = lambda: types.SimpleNamespace(list_active=lambda: sites)
+        self.module.threading.Timer = FakeTimer
+        FakeTimer.instances.clear()
+
+        plugin = self.module.PTSiteOpener()
+        plugin.init_plugin({"enabled": True, "ttl_minutes": 5})
+        plugin._connect_cdp = lambda: cdp
+
+        result = plugin.run_once()
+
+        self.assertEqual(result, ["https://one.example/"])
+        self.assertEqual(
+            [method for method, _, _ in cdp.calls],
+            [
+                "Target.createTarget",
+                "Target.attachToTarget",
+                "Network.setCookie",
+                "Network.setCookie",
+                "Page.navigate",
+                "Target.activateTarget",
+            ],
+        )
+        self.assertEqual(cdp.calls[0][1]["url"], "about:blank")
+        self.assertEqual(cdp.calls[2][2], "session-1")
+        self.assertEqual(cdp.calls[2][1]["name"], "sid")
+        self.assertEqual(cdp.calls[2][1]["value"], "abc==")
+        self.assertEqual(cdp.calls[4][2], "session-1")
+        self.assertEqual(cdp.calls[4][1]["url"], "https://one.example/")
+        self.assertEqual(len(FakeTimer.instances), 1)
+
+    def test_cookie_injection_failure_logs_and_notifies_without_exposing_value(self):
+        sites = [
+            types.SimpleNamespace(
+                id=1,
+                name="One",
+                url="https://one.example/",
+                is_active=True,
+                cookie="sid=abc==;",
+            )
+        ]
+        cdp = FakeCdp(cookie_failure=True)
+        self.module.SiteOper = lambda: types.SimpleNamespace(list_active=lambda: sites)
+        self.module.threading.Timer = FakeTimer
+        FakeTimer.instances.clear()
+
+        plugin = self.module.PTSiteOpener()
+        plugin.init_plugin({"enabled": True, "notify_enabled": True})
+        plugin._connect_cdp = lambda: cdp
+
+        result = plugin.run_once()
+
+        self.assertEqual(result, ["https://one.example/"])
+        warning_texts = [
+            message for level, message in self.logger.messages if level == "warning"
+        ]
+        self.assertTrue(any("Cookie 注入失败" in message for message in warning_texts))
+        self.assertTrue(all("abc==" not in message for message in warning_texts))
+        failure_messages = [
+            message["text"]
+            for message in plugin.messages
+            if "Cookie 注入失败" in message["text"]
+        ]
+        self.assertEqual(len(failure_messages), 1)
+        self.assertIn("https://one.example/", failure_messages[0])
+        self.assertIn("cookie rejected", failure_messages[0])
+        self.assertNotIn("abc==", failure_messages[0])
+
     def test_stop_service_cleans_outstanding_run(self):
         sites = [types.SimpleNamespace(id=1, url="https://one.example/", is_active=True)]
         cdp = FakeCdp()
@@ -390,20 +468,29 @@ class PluginTestCase(unittest.TestCase):
 
 
 class FakeCdp:
-    def __init__(self):
+    def __init__(self, cookie_failure=False):
         self.calls = []
         self.closed = []
         self.connected = True
         self.next_target = 0
+        self.cookie_failure = cookie_failure
 
-    def send(self, method, params=None):
+    def send(self, method, params=None, session_id=None):
         params = params or {}
-        self.calls.append((method, params))
+        self.calls.append((method, params, session_id))
         if method == "Target.createTarget":
             if params["url"] == "https://failed.example/":
                 raise RuntimeError("target rejected")
             self.next_target += 1
             return {"targetId": f"opened-{self.next_target}"}
+        if method == "Target.attachToTarget":
+            return {"sessionId": "session-1"}
+        if method == "Network.setCookie":
+            if self.cookie_failure:
+                raise RuntimeError("cookie rejected")
+            return {"success": True}
+        if method == "Page.navigate":
+            return {"frameId": "frame-1"}
         if method == "Target.activateTarget":
             return {}
         if method == "Target.closeTarget":
