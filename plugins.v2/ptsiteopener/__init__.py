@@ -169,7 +169,7 @@ class PTSiteOpener(_PluginBase):
     plugin_name = "PT站点自动打开"
     plugin_desc = "按用户设置的计划任务，通过远程 CDP 打开 MoviePilot 中已启用的站点。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.1.2"
+    plugin_version = "1.1.3"
     plugin_author = "Codex"
     author_url = "https://github.com/Lin-max1032/MoviePilot-Plugins"
     plugin_config_prefix = "ptsiteopener_"
