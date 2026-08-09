@@ -167,7 +167,7 @@ class PTSiteOpener(_PluginBase):
     plugin_name = "PT站点自动打开"
     plugin_desc = "按用户设置的计划任务，通过远程 CDP 打开 MoviePilot 中已启用的站点。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.1.0"
+    plugin_version = "1.1.1"
     plugin_author = "Codex"
     author_url = "https://github.com/Lin-max1032/MoviePilot-Plugins"
     plugin_config_prefix = "ptsiteopener_"
@@ -484,21 +484,29 @@ class PTSiteOpener(_PluginBase):
 
     def run_now(self) -> Dict[str, Any]:
         """Run one task from the configuration page button."""
-        if not self.get_state():
-            message = self._config_error or "插件未启用"
-            self._last_result = message
+        logger.info("收到立即执行请求")
+        if self._config_error:
+            message = f"配置无效，无法执行：{self._config_error}"
+            self._record_result(message, level="error")
             return {"success": False, "message": message, "opened": []}
 
-        opened_urls = self.run_once()
+        opened_urls = self.run_once(manual=True)
         return {
             "success": bool(opened_urls),
             "message": self._last_result,
             "opened": opened_urls,
         }
 
-    def run_once(self) -> List[str]:
-        """Execute one scheduled run and return successfully opened URLs."""
-        if not self.get_state():
+    def run_once(self, manual: bool = False) -> List[str]:
+        """Execute one scheduled or manual run and return successfully opened URLs."""
+        if self._config_error:
+            self._record_result(
+                f"配置无效，无法执行：{self._config_error}",
+                level="error",
+            )
+            return []
+        if not manual and not self._enabled:
+            logger.info("插件未启用，跳过计划执行")
             return []
 
         try:
