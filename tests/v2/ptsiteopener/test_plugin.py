@@ -66,6 +66,7 @@ class PluginTestCase(unittest.TestCase):
         site_oper_module.SiteOper = lambda: None
         log_module = types.ModuleType("app.log")
         log_module.logger = QuietLogger()
+        self.logger = log_module.logger
 
         apscheduler_module = types.ModuleType("apscheduler")
         triggers_module = types.ModuleType("apscheduler.triggers")
@@ -250,6 +251,23 @@ class PluginTestCase(unittest.TestCase):
         self.assertEqual(len(plugin.messages), 1)
         self.assertEqual(plugin.messages[0]["title"], plugin.plugin_name)
         self.assertIn("https://one.example/", plugin.messages[0]["text"])
+
+    def test_manual_run_api_works_when_schedule_is_disabled_and_logs_entry(self):
+        sites = [types.SimpleNamespace(id=1, url="https://one.example/", is_active=True)]
+        cdp = FakeCdp()
+        self.module.SiteOper = lambda: types.SimpleNamespace(list_active=lambda: sites)
+        self.module.threading.Timer = FakeTimer
+        FakeTimer.instances.clear()
+
+        plugin = self.module.PTSiteOpener()
+        plugin.init_plugin({"enabled": False})
+        plugin._connect_cdp = lambda: cdp
+
+        response = plugin.get_api()[0]["endpoint"]()
+
+        self.assertEqual(response["success"], True)
+        self.assertEqual(response["opened"], ["https://one.example/"])
+        self.assertTrue(any("收到立即执行请求" in message for _, message in self.logger.messages))
 
 
 class FakeCdp:
