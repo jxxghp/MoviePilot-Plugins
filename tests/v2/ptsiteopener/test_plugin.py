@@ -159,6 +159,15 @@ class PluginTestCase(unittest.TestCase):
             "ws://music.lulin.fun:5656/devtools/browser/id",
         )
 
+    def test_cdp_send_includes_target_session_id(self):
+        socket = FakeSocket([json.dumps({"id": 1, "result": {}})])
+        connection = self.module._CdpConnection(socket)
+
+        connection.send("Network.enable", session_id="session-1")
+
+        message = json.loads(socket.sent[0])
+        self.assertEqual(message["sessionId"], "session-1")
+
     def test_plugin_registers_user_cron_and_has_expected_defaults(self):
         plugin = self.module.PTSiteOpener()
         plugin.init_plugin({"enabled": True})
@@ -404,6 +413,21 @@ class FakeCdp:
 
     def close(self):
         self.connected = False
+
+
+class FakeSocket:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.sent = []
+
+    def send(self, message):
+        self.sent.append(message)
+
+    def recv(self):
+        return self.responses.pop(0)
+
+    def close(self):
+        pass
 
 
 class FakeTimer:

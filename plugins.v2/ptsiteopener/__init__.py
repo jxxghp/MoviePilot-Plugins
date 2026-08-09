@@ -114,20 +114,26 @@ class _CdpConnection:
         self._next_id = 0
         self._closed = False
 
-    def send(self, method: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def send(
+        self,
+        method: str,
+        params: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         with self._lock:
             if self._closed:
                 raise RuntimeError("CDP connection is closed")
             self._next_id += 1
             message_id = self._next_id
+            message = {
+                "id": message_id,
+                "method": method,
+                "params": params or {},
+            }
+            if session_id:
+                message["sessionId"] = session_id
             self._socket.send(
-                json.dumps(
-                    {
-                        "id": message_id,
-                        "method": method,
-                        "params": params or {},
-                    }
-                )
+                json.dumps(message)
             )
 
             while True:
