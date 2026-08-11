@@ -29,6 +29,26 @@ Rules:
 """.strip()
 
 
+DEFAULT_MUSIC_RECOGNIZE_PROMPT = """
+You are a music title recognition engine for MoviePilot.
+
+Parse the music file or release title provided by the user and return exactly one JSON object:
+{"name":string,"artist":string,"album":string,"year":string}
+
+Rules:
+- Return JSON only. Do not wrap it in Markdown and do not add explanations.
+- Use the most likely official song title in "name"; remove release group, source, codec, bitrate, track number, disc number, and site tags.
+- Put the performer or artist name in "artist" when it can be reliably determined; otherwise use an empty string.
+- Put the album name in "album" when it can be reliably determined; otherwise use an empty string.
+- Put a four-digit release year in "year" when it is clearly present; otherwise use an empty string.
+- If the title contains Chinese homophones, pinyin, initials, or letter substitutions, infer the most likely real Chinese song title and artist.
+""".strip()
+
+
+# 音乐名称识别链式事件，旧版 MoviePilot 不存在该事件类型时为 None，插件仍可正常加载
+MUSIC_NAME_RECOGNIZE_EVENT = getattr(ChainEventType, "MusicNameRecognize", None)
+
+
 class ChatGPT(_PluginBase):
     """
     ChatGPT 识别增强插件，仅保留媒体名称辅助识别能力。
@@ -49,7 +69,7 @@ class ChatGPT(_PluginBase):
     # 插件图标
     plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "3.0.6"
+    plugin_version = "3.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -66,6 +86,8 @@ class ChatGPT(_PluginBase):
     _model_source = MODEL_SOURCE_SYSTEM
     _notify = False
     _customize_prompt = DEFAULT_RECOGNIZE_PROMPT
+    _music_prompt = DEFAULT_MUSIC_RECOGNIZE_PROMPT
+    _music_recognize = True
     _recognize_cache: Dict[str, dict] = {}
     _usage_stats: Dict[str, Any] = {}
 
@@ -87,13 +109,29 @@ class ChatGPT(_PluginBase):
         self._model_source = model_source
         self._notify = bool(config.get("notify"))
         self._customize_prompt = self._clean_text(config.get("customize_prompt")) or DEFAULT_RECOGNIZE_PROMPT
+        self._music_prompt = self._clean_text(config.get("music_prompt")) or DEFAULT_MUSIC_RECOGNIZE_PROMPT
+        # 音乐识别开关缺省视为开启，仅在明确关闭时禁用
+        self._music_recognize = bool(config.get("music_recognize", True))
         self.openai = None
 
         # 初始化时从数据库加载缓存到内存
         self._load_cache_from_db()
         self._load_usage_stats_from_db()
 
+        self._register_music_event()
         self._sync_event_handler_state()
+
+    def _register_music_event(self) -> None:
+        """
+        动态注册音乐名称识别链式事件处理器，旧版 MoviePilot 缺少该事件类型时自动跳过。
+        """
+        if MUSIC_NAME_RECOGNIZE_EVENT is None:
+            logger.info("当前 MoviePilot 版本不支持音乐名称辅助识别，跳过音乐识别事件注册")
+            return
+        try:
+            eventmanager.register(MUSIC_NAME_RECOGNIZE_EVENT)(self.recognize_music)
+        except Exception as exc:
+            logger.warning(f"注册 ChatGPT 音乐识别事件处理器失败: {exc}")
 
     def _load_cache_from_db(self) -> None:
         """
@@ -123,6 +161,7 @@ class ChatGPT(_PluginBase):
         """
         按插件开关启用或禁用链式识别事件处理器。
         """
+        # 影视识别仅受插件总开关控制
         try:
             if self._enabled:
                 eventmanager.enable_event_handler(self.recognize)
@@ -130,31 +169,43 @@ class ChatGPT(_PluginBase):
                 eventmanager.disable_event_handler(self.recognize)
         except Exception as exc:
             logger.debug(f"同步 ChatGPT 识别事件处理器状态失败: {exc}")
+        # 音乐识别额外受音乐识别开关控制，旧版主仓无该事件类型时跳过
+        if MUSIC_NAME_RECOGNIZE_EVENT is None:
+            return
+        try:
+            if self._enabled and self._music_recognize:
+                eventmanager.enable_event_handler(self.recognize_music)
+            else:
+                eventmanager.disable_event_handler(self.recognize_music)
+        except Exception as exc:
+            logger.debug(f"同步 ChatGPT 音乐识别事件处理器状态失败: {exc}")
 
-    def _get_cache_key(self, title: str) -> str:
+    def _get_cache_key(self, title: str, namespace: str = "") -> str:
         """
-        生成缓存 key，使用标题的 MD5 哈希。
+        生成缓存 key，使用标题的 MD5 哈希，命名空间区分影视与音乐识别结果。
         """
-        return hashlib.md5(title.encode("utf-8")).hexdigest()
+        return hashlib.md5(f"{namespace}{title}".encode("utf-8")).hexdigest()
 
-    def _get_cached_result(self, title: str) -> Optional[dict]:
+    def _get_cached_result(self, title: str, namespace: str = "") -> Optional[dict]:
         """
         从内存缓存获取识别结果。
         """
-        cache_key = self._get_cache_key(title)
+        cache_key = self._get_cache_key(title, namespace=namespace)
         return self._recognize_cache.get(cache_key)
 
-    def _cache_result(self, title: str, result: dict) -> None:
+    def _cache_result(self, title: str, result: dict, namespace: str = "") -> None:
         """
         缓存识别结果，同时写入内存和数据库。
         """
-        cache_key = self._get_cache_key(title)
+        cache_key = self._get_cache_key(title, namespace=namespace)
         cache_entry = {
             "title": title,
             "name": result.get("name"),
             "year": result.get("year"),
             "season": result.get("season"),
             "episode": result.get("episode"),
+            "artist": result.get("artist"),
+            "album": result.get("album"),
         }
         # 写入内存
         self._recognize_cache[cache_key] = cache_entry
@@ -455,6 +506,26 @@ class ChatGPT(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "music_recognize",
+                                            "label": "启用音乐识别增强",
+                                            "hint": "开启后监听音乐名称辅助识别链式事件，解析曲名、艺术家、专辑、年份",
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
                                 "props": {"cols": 12},
                                 "content": [
                                     {
@@ -525,8 +596,31 @@ class ChatGPT(_PluginBase):
                                             "rows": 8,
                                             "auto-grow": True,
                                             "model": "customize_prompt",
-                                            "label": "识别增强系统提示词",
-                                            "hint": "用于约束模型只返回 MoviePilot 可消费的 JSON 识别结果",
+                                            "label": "电影电视剧识别系统提示词",
+                                            "hint": "用于约束模型只返回 MoviePilot 可消费的影视 JSON 识别结果",
+                                            "clearable": True,
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "rows": 8,
+                                            "auto-grow": True,
+                                            "model": "music_prompt",
+                                            "label": "音乐识别系统提示词",
+                                            "hint": "用于约束模型只返回曲名、艺术家、专辑、年份的 JSON 识别结果",
                                             "clearable": True,
                                             "persistent-hint": True,
                                         },
@@ -541,7 +635,9 @@ class ChatGPT(_PluginBase):
             "enabled": False,
             "model_source": self.MODEL_SOURCE_SYSTEM,
             "notify": False,
+            "music_recognize": True,
             "customize_prompt": DEFAULT_RECOGNIZE_PROMPT,
+            "music_prompt": DEFAULT_MUSIC_RECOGNIZE_PROMPT,
         }
 
     def get_page(self) -> List[dict]:
@@ -932,10 +1028,64 @@ class ChatGPT(_PluginBase):
             self._event_set(event_data, key, response.get(key))
         self._event_set(event_data, "source_plugin", self.__class__.__name__)
 
+    def _write_music_recognition_result(self, event_data: Any, response: Dict[str, Any]) -> None:
+        """
+        将模型识别结果写回音乐名称识别链式事件。
+        """
+        for key in ("name", "artist", "album", "year"):
+            self._event_set(event_data, key, response.get(key))
+        self._event_set(event_data, "source_plugin", self.__class__.__name__)
+
+    def _invoke_recognition(
+            self,
+            title: str,
+            namespace: str,
+            prompt: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        执行一次模型识别调用，统一处理缓存、模型初始化、用量统计与错误通知。
+
+        :param title: 待识别标题
+        :param namespace: 缓存命名空间（影视/音乐）
+        :param prompt: 本次调用使用的系统提示词
+        :return: 模型识别结果字典，失败或无效时返回 None
+        """
+        # 检查内存缓存
+        cached = self._get_cached_result(title, namespace=namespace)
+        if cached:
+            logger.info(f"ChatGPT 识别缓存命中：{title}")
+            return cached
+
+        model_config, error = self._resolve_model_config()
+        if error:
+            self._notify_error(f"ChatGPT 识别增强不可用：{error}")
+            return None
+        if not self.init_openai(model_config) or not self.openai:
+            self._notify_error("ChatGPT 识别增强不可用：LLM 客户端初始化失败")
+            return None
+
+        response = self.openai.get_media_name(filename=title, prompt=prompt)
+        logger.info(f"ChatGPT 识别增强返回结果：{response}")
+        is_error, error_msg = self.is_api_error(response)
+        usage = self.openai.get_last_usage() if self.openai else {}
+        self._record_usage_stats(usage, success=not is_error)
+        self._record_agent_tokens_usage(model_config, usage, success=not is_error, error=error_msg)
+
+        if is_error:
+            self._notify_error(f"ChatGPT 识别增强调用失败：{error_msg}")
+            return None
+        if not isinstance(response, dict) or not response.get("name"):
+            self._notify_error(f"ChatGPT 识别增强未返回有效名称：{title}")
+            return None
+
+        # 缓存识别结果到内存和数据库
+        self._cache_result(title, response, namespace=namespace)
+        return response
+
     @eventmanager.register(ChainEventType.NameRecognize)
     def recognize(self, event: Event):
         """
-        监听名称识别链式事件，使用 LLM 进行辅助识别。
+        监听名称识别链式事件，使用 LLM 进行影视辅助识别。
         """
         if not self._enabled or not event or not event.event_data:
             return
@@ -946,45 +1096,38 @@ class ChatGPT(_PluginBase):
         if not title:
             return
 
-        # 检查内存缓存
-        cached = self._get_cached_result(title)
-        if cached:
-            logger.info(f"ChatGPT 识别缓存命中：{title}")
-            self._write_recognition_result(event.event_data, cached)
+        response = self._invoke_recognition(title=title, namespace="", prompt=self._customize_prompt)
+        if response is None:
             return
-
-        model_config, error = self._resolve_model_config()
-        if error:
-            self._notify_error(f"ChatGPT 识别增强不可用：{error}")
-            return
-        if not self.init_openai(model_config) or not self.openai:
-            self._notify_error("ChatGPT 识别增强不可用：LLM 客户端初始化失败")
-            return
-
-        response = self.openai.get_media_name(filename=title)
-        logger.info(f"ChatGPT 识别增强返回结果：{response}")
-        is_error, error_msg = self.is_api_error(response)
-        usage = self.openai.get_last_usage() if self.openai else {}
-        self._record_usage_stats(usage, success=not is_error)
-        self._record_agent_tokens_usage(model_config, usage, success=not is_error, error=error_msg)
-
-        if is_error:
-            self._notify_error(f"ChatGPT 识别增强调用失败：{error_msg}")
-            return
-        if not isinstance(response, dict) or not response.get("name"):
-            self._notify_error(f"ChatGPT 识别增强未返回有效名称：{title}")
-            return
-
-        # 缓存识别结果到内存和数据库
-        self._cache_result(title, response)
-
         self._write_recognition_result(event.event_data, response)
+
+    def recognize_music(self, event: Event):
+        """
+        监听音乐名称识别链式事件，使用 LLM 解析音乐标题要素。
+        """
+        if not self._enabled or not self._music_recognize or not event or not event.event_data:
+            return
+        if self._event_get(event.event_data, "source_plugin") or self._event_get(event.event_data, "name"):
+            return
+
+        title = self._clean_text(self._event_get(event.event_data, "title"))
+        if not title:
+            return
+
+        response = self._invoke_recognition(title=title, namespace="music:", prompt=self._music_prompt)
+        if response is None:
+            return
+        self._write_music_recognition_result(event.event_data, response)
 
     def stop_service(self):
         """
         停止插件时禁用识别事件处理器。
         """
-        try:
-            eventmanager.disable_event_handler(self.recognize)
-        except Exception as exc:
-            logger.debug(f"禁用 ChatGPT 识别事件处理器失败: {exc}")
+        handlers = [self.recognize]
+        if MUSIC_NAME_RECOGNIZE_EVENT is not None:
+            handlers.append(self.recognize_music)
+        for handler in handlers:
+            try:
+                eventmanager.disable_event_handler(handler)
+            except Exception as exc:
+                logger.debug(f"禁用 ChatGPT 识别事件处理器失败: {exc}")

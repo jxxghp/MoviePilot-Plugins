@@ -223,9 +223,12 @@ class OpenAi:
             return text[start:end + 1]
         return text
 
-    def get_media_name(self, filename: str) -> Dict[str, Any]:
+    def get_media_name(self, filename: str, prompt: str = None) -> Dict[str, Any]:
         """
         从媒体文件名中提取结构化识别信息。
+
+        :param filename: 待识别的媒体标题
+        :param prompt: 本次调用使用的系统提示词，缺省时使用初始化时的提示词
         """
         self._last_usage = {}
         if not self.get_state():
@@ -236,7 +239,7 @@ class OpenAi:
             llm = self._get_llm()
             completion = llm.invoke(
                 [
-                    SystemMessage(content=self._prompt),
+                    SystemMessage(content=prompt or self._prompt),
                     HumanMessage(content=str(filename or "")),
                 ]
             )
