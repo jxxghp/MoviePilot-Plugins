@@ -17,4 +17,4 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Check plugin versions
-        run: python .github/scripts/check_plugin_versions.py package.json package.v2.json
+        run: python .github/scripts/check_plugin_versions.py package.json package.v2.json package.v3.json

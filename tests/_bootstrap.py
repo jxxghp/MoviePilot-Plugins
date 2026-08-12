@@ -1,7 +1,7 @@
 """插件仓单测引导薄壳：定位同级 MoviePilot 后端并入 ``sys.path``，引导逻辑委托主程序 ``app.testing.bootstrap``。
 
 chicken-egg：导入主程序共享引导之前，必须先由本仓定位后端、加入 ``sys.path``——这一步不可消除，
-故每个插件仓只保留这层极薄 shim；隔离 CONFIG_DIR / 建表 / 插件目录注入 / v1·v2 marker 等
+故每个插件仓只保留这层极薄 shim；隔离 CONFIG_DIR / 建表 / 插件目录注入 / 代际 marker 等
 实际逻辑均在主程序 ``app/testing`` 维护一处，所有插件仓行为与修复保持一致。
 
 所有引导函数都必须在首次 ``import app.*`` 或导入任一插件包之前调用，否则隔离与路径注入不生效。
@@ -63,6 +63,11 @@ def prepare_backend() -> None:
 def prepare_v2_backend() -> None:
     """v2 插件单测引导：后端 + 本仓 ``plugins.v2/``（委托主程序共享实现）。"""
     _bootstrap.prepare_v2_backend(_PLUGINS_REPO)
+
+
+def prepare_v3_backend() -> None:
+    """v3 插件单测引导：后端 + 本仓 ``plugins.v3/``（委托主程序共享实现）。"""
+    _bootstrap.prepare_v3_backend(_PLUGINS_REPO)
 
 
 def prepare_v1_backend() -> None:

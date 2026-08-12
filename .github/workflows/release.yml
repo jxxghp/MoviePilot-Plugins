@@ -6,6 +6,7 @@ on:
     paths:
       - 'package.json'
       - 'package.v2.json'
+      - 'package.v3.json'
   workflow_dispatch:
 
 permissions:
@@ -26,7 +27,7 @@ jobs:
           sudo apt-get install -y jq zip
 
       - name: Check plugin versions
-        run: python .github/scripts/check_plugin_versions.py package.json package.v2.json
+        run: python .github/scripts/check_plugin_versions.py package.json package.v2.json package.v3.json
 
       - name: Build and release changed plugins
         env:
@@ -56,14 +57,15 @@ jobs:
               plugin_version="${entry##*|}"
               plugin_id_lc="$(echo "$plugin_id" | tr '[:upper:]' '[:lower:]')"
 
-              dir1="plugins/${plugin_id_lc}"
-              dir2="plugins.v2/${plugin_id_lc}"
-              plugin_dir=""
-              if [ -d "$dir1" ]; then plugin_dir="$dir1"; fi
-              if [ -d "$dir2" ]; then plugin_dir="$dir2"; fi
+              case "$pkg_file" in
+                package.v3.json) plugin_root="plugins.v3" ;;
+                package.v2.json) plugin_root="plugins.v2" ;;
+                *) plugin_root="plugins" ;;
+              esac
+              plugin_dir="${plugin_root}/${plugin_id_lc}"
 
-              if [ -z "$plugin_dir" ]; then
-                echo "WARN: directory for $plugin_id not found under plugins/ or plugins.v2/, skip."
+              if [ ! -d "$plugin_dir" ]; then
+                echo "WARN: directory for $plugin_id not found under $plugin_root/, skip."
                 continue
               fi
 
@@ -120,3 +122,4 @@ jobs:
 
           process_package "package.json"
           process_package "package.v2.json"
+          process_package "package.v3.json"

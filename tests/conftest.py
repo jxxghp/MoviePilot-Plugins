@@ -1,7 +1,7 @@
 """pytest 全局引导：按目标选择插件代际，CI 工具测试不加载后端。
 
-``tests/run.py`` 会把 v1/v2 放到独立 pytest 进程中运行；这里据本次目标路径只注入对应
-插件目录，避免同一进程同时加载 ``plugins`` 与 ``plugins.v2`` 的同名包。``tests/ci``
+``tests/run.py`` 会把 v1/v2/v3 放到独立 pytest 进程中运行；这里据本次目标路径只注入对应
+插件目录，避免同一进程同时加载不同代的同名包。``tests/ci``
 只校验仓库工具和 workflow，不需要 MoviePilot 运行时。
 """
 
@@ -15,16 +15,19 @@ from ._bootstrap import (
     block_real_network,  # noqa: F401  导入即注册主程序共享 autouse 网络守卫
     prepare_v1_backend,
     prepare_v2_backend,
+    prepare_v3_backend,
 )
 
 
 def _selected_generation(config) -> str:
-    """根据 pytest 本次目标路径判断插件代际，禁止同一进程混跑 v1/v2。"""
+    """根据 pytest 本次目标路径判断插件代际，禁止同一进程混跑不同代。"""
     generations = set()
     for arg in config.args:
         file_part = arg.split("::", 1)[0]
         path = Path(file_part).resolve().as_posix().replace("\\", "/")
-        if "tests/v2" in path:
+        if "tests/v3" in path:
+            generations.add("v3")
+        elif "tests/v2" in path:
             generations.add("v2")
         elif "tests/v1" in path:
             generations.add("v1")
@@ -32,7 +35,7 @@ def _selected_generation(config) -> str:
             generations.add("ci")
     if len(generations) == 1:
         return next(iter(generations))
-    raise RuntimeError("插件仓单测必须按 tests/run.py 分 v1/v2 独立会话运行，避免同名插件包冲突")
+    raise RuntimeError("插件仓单测必须按 tests/run.py 分代独立会话运行，避免同名插件包冲突")
 
 
 def pytest_configure(config) -> None:
@@ -40,7 +43,9 @@ def pytest_configure(config) -> None:
     generation = _selected_generation(config)
     if generation == "ci":
         return
-    if generation == "v2":
+    if generation == "v3":
+        prepare_v3_backend()
+    elif generation == "v2":
         prepare_v2_backend()
     else:
         prepare_v1_backend()

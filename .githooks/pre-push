@@ -5,4 +5,4 @@ set -eu
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-python3 .github/scripts/check_plugin_versions.py package.json package.v2.json
+python3 .github/scripts/check_plugin_versions.py package.json package.v2.json package.v3.json

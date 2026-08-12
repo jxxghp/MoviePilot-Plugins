@@ -27,7 +27,7 @@
 
 - 某个 `get_api()` 为什么没有被挂载，应该先看 `MoviePilot/app/api/endpoints/plugin.py`
 - 某个 Vue 远程页面为什么没有出现在侧栏，应该先看 `MoviePilot-Frontend` 的联邦加载与菜单逻辑
-- 某个插件为什么在插件市场里没显示，才应该先看本仓库的 `package.json` / `package.v2.json`
+- 某个插件为什么在插件市场里没显示，才应该先看本仓库对应代的 `package*.json`
 
 ## 2. 目录结构
 
@@ -37,10 +37,12 @@
 MoviePilot-Plugins/
 ├── plugins/                 # 默认插件目录
 ├── plugins.v2/              # V2 专用插件目录
+├── plugins.v3/              # V3 专用插件目录
 ├── icons/                   # 插件图标
 ├── docs/                    # 文档
 ├── package.json             # 默认插件索引
 ├── package.v2.json          # V2 优先插件索引
+├── package.v3.json          # V3 专用插件索引
 └── .github/workflows/       # 自动发布工作流
 ```
 
@@ -79,7 +81,11 @@ MoviePilot-Plugins/
 
 V2 优先插件索引文件。MoviePilot 在 V2 环境下会优先读取这里的条目；找不到时，才会回退到 `package.json` 中声明了 `"v2": true` 的兼容插件。
 
-### 3.3 常用字段
+### 3.3 `package.v3.json`
+
+V3 专用插件索引文件，对应源码必须放在 `plugins.v3/<plugin_id_lower>/`。当条目存在 V3 专用副本时，旧索引中的同名条目应声明 `"v3": false`，避免 V3 回退到旧合同实现。
+
+### 3.4 常用字段
 
 每个索引条目通常包含：
 
@@ -94,6 +100,7 @@ V2 优先插件索引文件。MoviePilot 在 V2 环境下会优先读取这里�
 - `history`：更新日志
 - `release`：是否使用 GitHub Release 压缩包发布
 - `v2`：默认索引中的插件是否兼容 V2
+- `v3`：旧索引中的插件是否允许 V3 回退使用；`false` 表示存在不兼容或已有 V3 专用实现
 
 这些字段是“插件市场展示元数据”，而不是运行时唯一真相。真正加载后的插件类仍然需要在代码里声明自己的 `plugin_name`、`plugin_desc`、`plugin_version` 等属性。两者必须同步。
 
@@ -101,10 +108,10 @@ V2 优先插件索引文件。MoviePilot 在 V2 环境下会优先读取这里�
 
 MoviePilot 当前的插件版本选择逻辑可以概括为：
 
-1. 先确定当前宿主版本标识，例如 `v2`
-2. 优先检查 `package.v2.json` 中是否存在该插件
-3. 若不存在，再检查 `package.json`
-4. 只有当 `package.json` 中对应条目显式声明 `"v2": true` 时，才会作为 V2 兼容插件继续使用
+1. 先确定当前宿主版本标识，例如 `v2` 或 `v3`
+2. 优先检查当前代专用索引，例如 `package.v3.json`
+3. V3 专用索引无条目时，可回退到未声明 `"v3": false` 的 V2 实现
+4. V2 专用索引无条目时，仅回退到 `package.json` 中声明了 `"v2": true` 的实现
 5. 如果条目声明了 `system_version`，安装、更新检测和本地插件同步会继续检查当前 MoviePilot 主程序版本是否落在该范围内；未声明则不检查
 
 这意味着：
@@ -112,6 +119,7 @@ MoviePilot 当前的插件版本选择逻辑可以概括为：
 - 同一个插件若在 `package.v2.json` 中已有专用实现，就不要再依赖 `package.json` 中的兼容声明做“隐式覆盖”。
 - 新写的 V2 专用插件，优先放 `plugins.v2/`，并把元数据写入 `package.v2.json`。
 - 真正跨版本共用一套实现时，再使用 `package.json + "v2": true` 的方式。
+- 依赖 V3 新合同的实现必须放入 `plugins.v3/` 并在 `package.v3.json` 声明 `system_version: ">=3.0.0"`。
 - 依赖宿主新增能力的插件需要同步声明 `system_version`，否则旧版 MoviePilot 仍可能看到更新入口但安装后无法加载。
 
 ## 5. 与宿主仓库的协作边界
@@ -164,10 +172,10 @@ MoviePilot 当前的插件版本选择逻辑可以概括为：
 
 最小步骤通常是：
 
-1. 在 `plugins/` 或 `plugins.v2/` 下新建目录
+1. 在目标代 `plugins/`、`plugins.v2/` 或 `plugins.v3/` 下新建目录
 2. 在 `__init__.py` 中实现插件类
 3. 如有依赖，增加 `requirements.txt`
-4. 在 `package.json` 或 `package.v2.json` 中补齐元数据
+4. 在对应代 `package*.json` 中补齐元数据
 5. 如有插件文档，在插件目录补充 `README.md`
 6. 如有 Vue UI，构建后把产物放进 `dist/assets/`
 
@@ -179,6 +187,9 @@ MoviePilot 当前的插件版本选择逻辑可以概括为：
 - 插件类里的 `plugin_version`
 - `history` 中最新一条变更说明
 
+历史记录必须以当前版本置顶并按语义版本降序排列。旧代插件复制为 V3 专用实现时，版本按
+`x.y.z -> (x+1).0.0` 跃迁，避免把代际合同变化误标成普通补丁更新。
+
 ## 7. 校验建议
 
 这个仓库没有独立的完整测试宿主，因此校验应该尽量贴近真实运行层。
@@ -189,10 +200,10 @@ MoviePilot 当前的插件版本选择逻辑可以概括为：
 
 ```bash
 # 对修改过的插件文件做语法检查
-python3 -m py_compile plugins.v2/myplugin/__init__.py
+python3 -m py_compile plugins.v3/myplugin/__init__.py
 
 # 或者对整个插件目录做批量编译检查
-python3 -m compileall plugins.v2/myplugin
+python3 -m compileall plugins.v3/myplugin
 
 # 顺手检查 diff 中是否有空白符问题
 git diff --check
@@ -234,9 +245,9 @@ yarn dev
 
 本仓库的自动发布逻辑位于 `.github/workflows/release.yml`，当前规则如下：
 
-- 只有当 `package.json` 或 `package.v2.json` 发生变更时，工作流才会触发
+- 任一 `package*.json` 发生变更时，工作流会触发
 - 只有索引条目中声明了 `"release": true` 的插件会参与自动打包
-- 工作流会尝试在 `plugins/<plugin_id_lower>` 和 `plugins.v2/<plugin_id_lower>` 中寻找插件目录
+- 工作流会按索引文件严格映射到 `plugins/`、`plugins.v2/` 或 `plugins.v3/` 查找目录
 - Release Tag 格式为 `插件ID_v插件版本号`
 - 压缩包文件名格式为 `插件目录小写_v插件版本号.zip`
 - 若插件目录自上一个 Tag 以来没有变化，则会跳过打包

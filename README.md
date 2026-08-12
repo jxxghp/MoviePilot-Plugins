@@ -30,9 +30,11 @@ MoviePilot 官方插件仓库，也是 MoviePilot 插件市场默认读取的插
 MoviePilot-Plugins/
 ├── plugins/                 # 默认插件目录，通常也是兼容旧版本或通用版本的入口
 ├── plugins.v2/              # V2 专用插件目录
+├── plugins.v3/              # V3 专用插件目录
 ├── icons/                   # 插件图标资源
 ├── package.json             # 默认插件索引；可通过 "v2": true 声明兼容 V2
 ├── package.v2.json          # V2 优先插件索引
+├── package.v3.json          # V3 专用插件索引
 ├── docs/                    # 开发与维护文档
 └── .github/workflows/       # 发布工作流
 ```
@@ -42,9 +44,10 @@ MoviePilot-Plugins/
 - MoviePilot 会优先读取 `package.v2.json` 中与当前版本标识匹配的插件定义。
 - 如果某个插件不在 `package.v2.json` 中，但其 `package.json` 条目声明了 `"v2": true`，则会作为“兼容 V2 的默认插件”继续显示和安装。
 - `package.v2.json` 中的插件代码通常放在 `plugins.v2/<plugin_id_lower>/`；`package.json` 中的插件代码通常放在 `plugins/<plugin_id_lower>/`。
+- MoviePilot V3 优先读取 `package.v3.json` 与 `plugins.v3/`；未提供 V3 专用实现时，可回退到未声明 `"v3": false` 的 V2 实现。
 - 插件如果依赖特定主系统版本，可在条目中增加 `system_version`，格式参考 pip 依赖版本范围，例如 `">=2.12.0,<3"`；未定义该字段时不做主系统版本检查。
 - 插件目录名必须是插件类名的小写形式，插件主类必须定义在对应目录的 `__init__.py` 中。
-- 插件市场里看到的版本、图标、作者、权限级别，都来自 `package.json` / `package.v2.json`；运行时真正生效的类属性来自插件代码中的 `plugin_*` 字段，两者必须保持同步。
+- 插件市场里看到的版本、图标、作者、权限级别，都来自对应代 `package*.json`；运行时真正生效的类属性来自插件代码中的 `plugin_*` 字段，两者必须保持同步。
 
 ## 第三方插件库开发说明
 > 请不要开发用于破解 MoviePilot 用户认证、色情、赌博等违法违规内容的插件，共同维护健康的开发环境。
@@ -52,8 +55,8 @@ MoviePilot-Plugins/
 
 ### 1. 目录结构
 - 插件仓库建议直接 fork 本项目并保持同样的目录布局，仅支持 GitHub 仓库。
-- `plugins` 和 `plugins.v2` 都是“一个插件一个目录”的结构，**目录名必须为插件类名的小写**，插件主类放在对应目录的 `__init__.py` 中。
-- `package.json` / `package.v2.json` 是插件市场的索引文件。MoviePilot 会按版本选择合适的索引读取插件信息，因此这两个文件中的元数据需要和插件代码保持一致。
+- `plugins`、`plugins.v2` 和 `plugins.v3` 都是“一个插件一个目录”的结构，**目录名必须为插件类名的小写**，插件主类放在对应目录的 `__init__.py` 中。
+- `package.json` / `package.v2.json` / `package.v3.json` 是插件市场的索引文件。MoviePilot 会按版本选择合适的索引读取插件信息，因此元数据需要和对应代插件代码保持一致。
 - 如果插件带有独立文档、示例或远程组件产物，建议放在插件目录下并在插件目录内提供 `README.md` 说明。
 
 ### 2. 插件图标
@@ -93,7 +96,7 @@ MoviePilot-Plugins/
 - 对 Python 插件代码，建议在宿主仓库环境中执行最小校验，例如：
   - `python3 -m py_compile <touched_files>`
   - `python3 -m compileall <touched_plugin_dirs>`
-  - `python3 .github/scripts/check_plugin_versions.py package.json package.v2.json`
+  - `python3 .github/scripts/check_plugin_versions.py package.json package.v2.json package.v3.json`
   - `git diff --check`
 - 如果插件带有 Vue 远程组件，建议在对应前端工程中执行：
   - `yarn typecheck`
@@ -101,9 +104,10 @@ MoviePilot-Plugins/
 - 如果插件接口依赖 MoviePilot 新增的后端能力或前端入口，请同步更新对应主仓库文档，避免文档和运行时行为脱节。
 
 ### 7. 元数据同步要求
-- `package.json` / `package.v2.json` 中的 `version` 必须与插件类中的 `plugin_version` 保持一致，否则用户会看到错误的升级提示。
+- 对应代 `package*.json` 中的 `version` 必须与插件类中的 `plugin_version` 保持一致，否则用户会看到错误的升级提示。
 - `name`、`description`、`icon`、`author`、`level` 建议与插件类属性保持一致，避免插件市场展示与实际运行信息不一致。
-- `history` 用于展示插件更新日志，建议每次发布都补齐一条可读变更说明。
+- `history` 用于展示插件更新日志；当前版本记录必须置顶，全部版本按语义版本降序排列。
+- 旧代实现复制为 V3 专用插件时，插件版本必须跃迁到下一主版本并归零次版本与修订号，例如 `2.6.1 -> 3.0.0`。
 - `system_version` 用于声明插件可安装的 MoviePilot 主系统版本范围，格式参考 pip 依赖版本约束；例如插件依赖 v2.12.0 新增能力时填写 `">=2.12.0"`。
 - 需要走 GitHub Release 压缩包分发的插件，请在对应索引条目中增加 `"release": true`，并确保仓库中的发布工作流能够定位到对应目录。
 - 本仓库提供可选的本地 pre-push hook，用于在推送前检查索引版本与插件 `plugin_version` 是否一致。Git 不会自动启用仓库内 hook；需要本地执行一次 `git config core.hooksPath .githooks`。
@@ -137,7 +141,7 @@ MoviePilot-Plugins/
 
 ### 1. 如何发布插件版本？
 - 修改插件代码后，需要同步更新对应索引文件中的 `version`，MoviePilot 才会提示用户有更新。这里的版本号需要与插件类中的 `plugin_version` 保持一致。
-- 默认插件改 `package.json`，V2 专用插件改 `package.v2.json`；如果一个插件同时在两个索引文件中维护，需要分别确认目标版本与兼容策略。
+- 默认插件改 `package.json`，V2 专用插件改 `package.v2.json`，V3 专用插件改 `package.v3.json`；如果一个插件同时维护多个实现，需要分别确认目标版本与兼容策略。
 - 索引中的 `level` 用于定义插件用户可见权限：
   - `1`：所有用户可见
   - `2`：站点认证用户可见
@@ -152,13 +156,14 @@ MoviePilot-Plugins/
   }
 }
 ```
+- 新增历史必须置顶，并确保全部历史按语义版本降序排列；V3 专用副本使用旧代版本的下一主版本 `.0.0`。
 - 新增加的插件建议追加在索引文件末尾，便于在插件市场中作为较新的条目出现。
 - 如果插件目录文件较多，或你希望用户直接下载压缩包安装，可以在对应索引条目中增加 `"release": true`。
-- 当前仓库的 GitHub Actions 发布工作流只会在 `package.json` 或 `package.v2.json` 发生变更时触发，并且只处理声明了 `"release": true` 的插件。
-- PR 会运行 `Plugin release gate`，用于提前发现 `package.json` / `package.v2.json` 中的 `version` 与插件 `__init__.py` 中 `plugin_version` 不一致的问题。
+- 当前仓库的 GitHub Actions 发布工作流会在任一 `package*.json` 发生变更时触发，并且只处理声明了 `"release": true` 的插件。
+- PR 会运行 `Plugin release gate`，用于提前发现各代索引中的 `version` 与对应插件 `__init__.py` 中 `plugin_version` 不一致的问题。
 - Release 工作流会在打包前再次运行版本门禁；即使变更通过直接推送进入目标分支，版本不一致也会在打包前失败，不会继续生成错误版本的压缩包。
 - 发布工作流会按下面的规则打包与创建 Release：
-  - 插件目录优先在 `plugins/<plugin_id_lower>` 和 `plugins.v2/<plugin_id_lower>` 中查找
+  - 插件目录按索引文件严格映射到 `plugins/`、`plugins.v2/` 或 `plugins.v3/`
   - Tag 格式为 `插件ID_v插件版本号`
   - 资产文件名格式为 `插件目录小写_v插件版本号.zip`
   - 如果自上一个同插件 Tag 以来目录没有变化，则会跳过打包

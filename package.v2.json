@@ -21,6 +21,7 @@
     }
   },
   "BrushFlow": {
+    "v3": false,
     "name": "站点刷流",
     "description": "多站点刷流任务独立调度、托管、统计与运行诊断。",
     "labels": "刷流,仪表板",
@@ -78,6 +79,7 @@
     }
   },
   "DownloadSiteTag": {
+    "v3": false,
     "name": "下载任务分类与标签",
     "description": "自动给下载任务分类与打站点标签、剧集名称标签",
     "labels": "下载管理",
@@ -109,6 +111,7 @@
     }
   },
   "MediaServerMsg": {
+    "v3": false,
     "name": "媒体库服务器通知",
     "description": "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。",
     "labels": "消息通知,媒体库",
@@ -183,6 +186,7 @@
     }
   },
   "RssSubscribe": {
+    "v3": false,
     "name": "自定义订阅",
     "description": "定时刷新RSS报文，识别内容后添加订阅或直接下载。",
     "labels": "订阅",
@@ -209,6 +213,7 @@
     }
   },
   "LibraryScraper": {
+    "v3": false,
     "name": "媒体库刮削",
     "description": "定时对媒体库进行刮削，补齐缺失元数据和图片。",
     "labels": "刮削",
@@ -227,6 +232,7 @@
     }
   },
   "PersonMeta": {
+    "v3": false,
     "name": "演职人员刮削",
     "description": "刮削演职人员图片以及中文名称。",
     "labels": "媒体库,刮削",
@@ -264,6 +270,7 @@
     }
   },
   "AutoClean": {
+    "v3": false,
     "name": "定时清理媒体库",
     "description": "定时清理用户下载的种子、源文件、媒体库文件。",
     "labels": "媒体库",
@@ -351,6 +358,7 @@
     }
   },
   "HistoryToV2": {
+    "v3": false,
     "name": "历史记录迁移",
     "description": "将MoviePilot V1版本的整理历史记录迁移至V2版本。",
     "labels": "整理,历史记录",
@@ -453,6 +461,7 @@
     }
   },
   "DoubanRank": {
+    "v3": false,
     "name": "豆瓣榜单订阅",
     "description": "监控豆瓣热门榜单，自动添加订阅。",
     "labels": "订阅",
@@ -466,6 +475,7 @@
     }
   },
   "DoubanSync": {
+    "v3": false,
     "name": "豆瓣想看",
     "description": "同步豆瓣想看数据，自动添加订阅。",
     "labels": "订阅",
@@ -480,6 +490,7 @@
     }
   },
   "TvdbDiscover": {
+    "v3": false,
     "name": "TheTVDB探索",
     "description": "让探索支持TheTVDB的数据浏览。",
     "labels": "探索",
@@ -527,6 +538,7 @@
     }
   },
   "ImdbSource": {
+    "v3": false,
     "name": "IMDb源",
     "description": "让探索，推荐和媒体识别支持IMDb数据源。",
     "labels": "探索",
@@ -813,6 +825,7 @@
     }
   },
   "AgentResourceOfficer": {
+    "v3": false,
     "name": "Agent影视助手",
     "description": "龙虾agent稳定控制 MP：飞书入口、盘搜/影巢搜索、115/夸克转存、智能评分推荐。",
     "labels": "Agent,影巢,HDHive,115,夸克,Quark,智能体,转存,解锁",
@@ -932,6 +945,7 @@
     }
   },
   "MaoyanRank": {
+    "v3": false,
     "name": "猫眼榜单订阅",
     "description": "监控猫眼数据，自动添加订阅。",
     "version": "3.2",

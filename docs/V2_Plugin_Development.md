@@ -620,13 +620,14 @@ def run_with_downloader(self, name: str):
 ```bash
 python3 -m py_compile plugins.v2/myplugin/__init__.py
 python3 -m compileall plugins.v2/myplugin
-python3 .github/scripts/check_plugin_versions.py package.json package.v2.json
+python3 .github/scripts/check_plugin_versions.py package.json package.v2.json package.v3.json
 git diff --check
 ```
 
-版本门禁只检查索引中 `"release": true` 的插件，并按索引文件定位对应目录：
-`package.json` 对应 `plugins/`，`package.v2.json` 对应 `plugins.v2/`。索引里的
-`version` 必须与插件 `__init__.py` 中的 `plugin_version` 一致。
+版本门禁按索引文件定位对应目录：`package.json` 对应 `plugins/`，
+`package.v2.json` 对应 `plugins.v2/`，`package.v3.json` 对应 `plugins.v3/`。V1/V2
+沿用只检查 `"release": true` 条目的规则；V3 是独立实现，所有索引条目都必须通过版本一致性检查。
+索引里的 `version` 必须与插件 `__init__.py` 中的 `plugin_version` 一致。
 
 如果希望在本地推送前提前发现版本不一致，可以启用仓库提供的 pre-push hook：
 

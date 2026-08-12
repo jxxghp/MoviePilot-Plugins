@@ -581,6 +581,7 @@
     "v2": true
   },
   "EpisodeGroupMeta": {
+    "v3": false,
     "name": "TMDB剧集组刮削",
     "description": "从TMDB剧集组刮削季集的实际顺序。",
     "labels": "刮削",
@@ -708,6 +709,7 @@
     }
   },
   "NeoDBSync": {
+    "v3": false,
     "name": "NeoDB 想看",
     "description": "同步 NeoDB 想看条目，自动添加订阅。",
     "labels": "订阅",
@@ -1023,6 +1025,7 @@
     }
   },
   "BangumiColl": {
+    "v3": false,
     "name": "Bangumi收藏订阅",
     "description": "Bangumi用户收藏添加到订阅",
     "labels": "订阅",
