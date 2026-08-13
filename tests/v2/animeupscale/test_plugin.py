@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import animeupscale
 from animeupscale import AnimeUpscale
 from animeupscale.database import Database
+from animeupscale.ffmpeg import encoder_command, remux_command
 
 
 def _plugin(tmp_path, enabled=False, **config):
@@ -71,6 +72,8 @@ def test_plan_jobs_keeps_recursive_relative_directories(tmp_path):
         output,
         recursive=True,
         model="starsample_v2_lite",
+        input_root=tmp_path / "input",
+        output_root=output,
     )
 
     assert planned == [
@@ -79,6 +82,82 @@ def test_plan_jobs_keeps_recursive_relative_directories(tmp_path):
             output / "Series" / "Season 01" / "Episode 01.starsample-2x.mkv",
         )
     ]
+
+
+def test_plan_jobs_rejects_input_symlink_outside_root(tmp_path):
+    plugin = _plugin(tmp_path)
+    input_root = tmp_path / "input"
+    output_root = tmp_path / "output"
+    outside = tmp_path / "outside.mkv"
+    input_root.mkdir()
+    output_root.mkdir()
+    outside.write_bytes(b"video")
+    (input_root / "linked.mkv").symlink_to(outside)
+
+    try:
+        plugin._plan_jobs(
+            input_root,
+            output_root,
+            recursive=True,
+            model="starsample_v2_lite",
+            input_root=input_root,
+            output_root=output_root,
+        )
+    except ValueError as error:
+        assert "输入文件" in str(error)
+    else:
+        raise AssertionError("未拒绝指向输入根目录外的符号链接")
+
+
+def test_plan_jobs_rejects_output_symlink_outside_root(tmp_path):
+    plugin = _plugin(tmp_path)
+    input_root = tmp_path / "input"
+    output_root = tmp_path / "output"
+    outside = tmp_path / "outside"
+    (input_root / "Series").mkdir(parents=True)
+    output_root.mkdir()
+    outside.mkdir()
+    (input_root / "Series" / "episode.mkv").write_bytes(b"video")
+    (output_root / "Series").symlink_to(outside, target_is_directory=True)
+
+    try:
+        plugin._plan_jobs(
+            input_root,
+            output_root,
+            recursive=True,
+            model="starsample_v2_lite",
+            input_root=input_root,
+            output_root=output_root,
+        )
+    except ValueError as error:
+        assert "输出目标" in str(error)
+    else:
+        raise AssertionError("未拒绝指向输出根目录外的符号链接")
+
+
+def test_encoder_command_uses_configured_gpu(tmp_path):
+    command = encoder_command(
+        tmp_path / "video.mkv", 3840, 2160, "24000/1001", "1/1", 18, 2
+    )
+
+    assert command[command.index("-gpu") + 1] == "2"
+    assert command[command.index("-c:v") + 1] == "hevc_nvenc"
+
+
+def test_remux_command_only_transcodes_mov_text_subtitles(tmp_path):
+    command = remux_command(
+        tmp_path / "video.mkv",
+        tmp_path / "input.mp4",
+        tmp_path / "output.mkv",
+        ["mov_text", "ass", "mov_text"],
+    )
+
+    assert command[command.index("-c") + 1] == "copy"
+    assert [command[command.index(option) + 1] for option in ("-c:s:0", "-c:s:2")] == [
+        "srt",
+        "srt",
+    ]
+    assert "-c:s:1" not in command
 
 
 def test_database_queue_cancel_retry_and_recovery(tmp_path):
