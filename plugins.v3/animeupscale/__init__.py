@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import Body
-from fastapi.responses import JSONResponse
 
+from app import schemas
 from app.helper.thread import ThreadHelper
 from app.log import logger
 from app.plugins import _PluginBase
@@ -32,7 +32,7 @@ class AnimeUpscale(_PluginBase):
     plugin_name = "动漫视频超分"
     plugin_desc = "在 MoviePilot 内直接使用 GPU 完成动漫视频 2 倍超分与 HEVC Main10 编码。"
     plugin_icon = "ffmpeg.png"
-    plugin_version = "1.1.1"
+    plugin_version = "2.0.0"
     plugin_author = "RWDai"
     author_url = "https://github.com/RWDai/anime-upscale"
     plugin_config_prefix = "animeupscale_"
@@ -244,15 +244,15 @@ class AnimeUpscale(_PluginBase):
             except Exception as error:
                 logger.warning(f"动漫视频超分模型下载退出异常：{error}")
 
-    def api_status(self) -> JSONResponse:
+    def api_status(self) -> schemas.Response:
         """返回插件内部运行状态"""
-        return JSONResponse(content=self._status())
+        return schemas.Response(success=True, data=self._status())
 
-    def api_jobs(self) -> JSONResponse:
+    def api_jobs(self) -> schemas.Response:
         """返回本地任务队列"""
-        return JSONResponse(content={"jobs": self._database.list()})
+        return schemas.Response(success=True, data={"jobs": self._database.list()})
 
-    def api_create_jobs(self, payload: Optional[dict] = Body(default=None)) -> JSONResponse:
+    def api_create_jobs(self, payload: Optional[dict] = Body(default=None)) -> schemas.Response:
         """校验根目录边界并将视频加入本地任务队列"""
         if not self._enabled:
             return self._response(409, "插件未启用")
@@ -301,9 +301,9 @@ class AnimeUpscale(_PluginBase):
         except Exception as error:
             return self._response(409, f"创建任务失败：{error}")
         self._start_worker()
-        return JSONResponse(status_code=201, content={"created": len(jobs), "jobs": jobs})
+        return schemas.Response(success=True, data={"created": len(jobs), "jobs": jobs})
 
-    def api_cancel_job(self, payload: dict = Body(...)) -> JSONResponse:
+    def api_cancel_job(self, payload: dict = Body(...)) -> schemas.Response:
         """取消排队中或运行中的任务"""
         job_id = self._job_id(payload)
         if not job_id:
@@ -313,9 +313,9 @@ class AnimeUpscale(_PluginBase):
         if job_id == self._current_job_id and self._current_cancel:
             self._current_cancel.set()
             self._terminate_active_processes()
-        return JSONResponse(content={"ok": True})
+        return schemas.Response(success=True, data={"ok": True})
 
-    def api_retry_job(self, payload: dict = Body(...)) -> JSONResponse:
+    def api_retry_job(self, payload: dict = Body(...)) -> schemas.Response:
         """将失败或取消的任务重新加入队列"""
         job_id = self._job_id(payload)
         if not job_id:
@@ -323,15 +323,15 @@ class AnimeUpscale(_PluginBase):
         if not self._database.retry(job_id):
             return self._response(409, "只有失败或已取消的任务可以重试")
         self._start_worker()
-        return JSONResponse(content={"ok": True})
+        return schemas.Response(success=True, data={"ok": True})
 
-    def api_verify_models(self) -> JSONResponse:
+    def api_verify_models(self) -> schemas.Response:
         """清除摘要缓存并重新校验模型"""
         self._hash_cache.clear()
         self._download_state = {key: value for key, value in self._download_state.items() if value.get("state") == "downloading"}
-        return JSONResponse(content={"models": self._model_statuses(force=True)})
+        return schemas.Response(success=True, data={"models": self._model_statuses(force=True)})
 
-    def api_download_model(self, payload: dict = Body(...)) -> JSONResponse:
+    def api_download_model(self, payload: dict = Body(...)) -> schemas.Response:
         """提交单个模型下载任务"""
         model_id = str((payload or {}).get("model") or "")
         if model_id not in self.MODELS:
@@ -350,7 +350,7 @@ class AnimeUpscale(_PluginBase):
         except Exception as error:
             self._download_lock.release()
             return self._response(500, f"模型下载任务提交失败：{error}")
-        return JSONResponse(status_code=202, content={"ok": True, "detail": "模型下载已开始"})
+        return schemas.Response(success=True, message="模型下载已开始", data={"ok": True})
 
     def _start_worker(self) -> None:
         with self._worker_guard:
@@ -741,8 +741,9 @@ class AnimeUpscale(_PluginBase):
             return default
 
     @staticmethod
-    def _response(status: int, detail: str) -> JSONResponse:
-        return JSONResponse(status_code=status, content={"detail": detail})
+    def _response(_status: int, detail: str) -> schemas.Response:
+        """V3 普通插件接口统一使用宿主响应 envelope。"""
+        return schemas.Response(success=False, message=detail)
 
     def _default_job_payload(self) -> dict:
         return {"input_path": self._input_path, "output_subdir": self._output_subdir, "recursive": self._recursive, "cq": self._cq, "model": self._model}

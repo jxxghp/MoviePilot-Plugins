@@ -365,5 +365,22 @@
       "v1.1": "需要MoviePilot v2.2.7-1+ 版本，否则无法显示图片"
     },
     "system_version": ">=3.0.0"
+  },
+  "AnimeUpscale": {
+    "name": "动漫视频超分",
+    "description": "在 MoviePilot 内直接使用 GPU 完成动漫视频 2 倍超分与 HEVC Main10 编码。",
+    "labels": "动漫,视频处理,GPU",
+    "version": "2.0.0",
+    "icon": "ffmpeg.png",
+    "author": "RWDai",
+    "level": 1,
+    "release": true,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v2.0.0": "V3 独立大版本：适配统一插件 API 响应，并内嵌 GPU 超分、队列与 FFmpeg 流水线。",
+      "v1.1.1": "修复符号链接越界、非默认 GPU 的 NVENC 编码和 mov_text 字幕封装",
+      "v1.1.0": "将任务队列、GPU 推理和 FFmpeg 流水线直接集成到 MoviePilot 插件",
+      "v1.0.0": "首个版本：支持服务状态、模型下载与校验、任务提交和管理"
+    }
   }
 }
