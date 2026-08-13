@@ -2,8 +2,9 @@
 
 本文面向需要在 MoviePilot V3 中继续调用媒体识别、搜索、订阅、下载、整理、
 刮削、媒体库或中心服务能力的插件作者。V3 将通用媒体主身份统一为
-`MediaSource` 枚举和来源原生 `media_id`，同时调整了音乐链职责和普通 REST
-响应结构。
+`MediaSource` 来源标识和来源原生 `media_id`，同时调整了音乐链职责和普通 REST
+响应结构。`MediaSource` 为内置来源提供枚举常量，也允许插件注册新的来源标识，
+不是只能使用主程序当前列出的来源。
 
 如果插件完全不读取媒体身份、不调用上述链路，也不通过 HTTP 调用宿主接口，
 通常无需为本次合同变化建立 V3 专用副本。
@@ -27,15 +28,15 @@ V3 默认兼容 V2 插件。只有插件使用了 V3 已变更的合同，才需
 
 ## 2. 通用媒体身份合同
 
-### 2.1 固定来源枚举
+### 2.1 内置枚举与插件扩展来源
 
-插件应从宿主导入枚举，不要自行维护字符串集合：
+使用内置来源时应从宿主导入枚举，不要自行维护内置字符串集合：
 
 ```python
 from app.schemas.types import MediaSource
 ```
 
-当前固定值如下：
+当前内置常量如下；该表不是插件来源白名单：
 
 | 枚举 | 传输与存储值 |
 | --- | --- |
@@ -53,9 +54,49 @@ from app.schemas.types import MediaSource
 | `MediaSource.MiguVideo` | `migu` |
 | `MediaSource.TencentVideo` | `tencentvideodiscover` |
 
+插件提供新数据源时，使用全局稳定的扩展标识构造同一类型：
+
+```python
+from app.schemas.types import MediaSource
+
+PLUGIN_SOURCE = MediaSource("acmevideo")
+```
+
+扩展标识必须以小写字母开头，只能包含小写字母、数字、点、下划线或短横线，
+最长 64 个字符；发布后不能随显示名称或 API 地址变化。建议使用能避免与其他
+插件冲突的品牌或插件命名空间，例如 `acmevideo` 或 `acme.video`。不要修改宿主
+枚举源码来增加插件来源，宿主会把合法扩展标识解析为动态 `MediaSource` 成员。
+
 `media_source` 与 `media_id` 是一个不可拆分的身份对：两者必须同时为空，或
-同时有效。空字符串、未知来源和字符串 `"0"` 都不是有效身份。不要把枚举名
-`TMDB` 当成传输值；需要序列化时使用 `media_source.value`。
+同时有效。空字符串、格式非法的来源和字符串 `"0"` 都不是有效身份。不要把
+枚举名 `TMDB` 当成传输值；内置与扩展成员序列化时都使用 `media_source.value`。
+
+插件注册探索来源时，`DiscoverMediaSource.media_source` 使用上述扩展成员；旧版
+`mediaid_prefix` 可以继续传入同一个稳定标识，V3 模型会在缺少其中一项时双向
+补齐：
+
+```python
+source = schemas.DiscoverMediaSource(
+    name="Acme Video",
+    media_source=PLUGIN_SOURCE,
+    api_path="plugin/AcmeVideo/discover",
+)
+```
+
+插件返回的每个 `MediaInfo` 也必须使用同一 `PLUGIN_SOURCE` 和该来源原生
+`media_id`。如需参与跨源转换，实现 `ChainEventType.MediaRecognizeConvert`，读取
+`event.event_data.media_source`、`media_id` 和 `target_media_source`，再把带目标
+身份的结果写入 `media_dict`。`MediaChain.convert_media_identity()` 对内置转换
+无匹配时会继续分派该插件事件。
+
+插件提供音乐元数据源时，不需要修改宿主的音乐来源集合。按能力注册现有插件
+模块端口即可：搜索实现 `search_music`（异步插件方法也可直接实现为协程），识别
+实现 `recognize_media` / `async_recognize_media`，专辑和艺术家详情按需实现
+`music_album`、`music_album_related`、`music_artist`、`music_artist_albums`、
+`music_artist_related`。这些端口都接收同一扩展 `media_source`；插件只处理自身
+来源并返回带完整 `media_source`、`media_id` 的 `MusicInfo`、`MusicAlbumInfo` 或
+`MusicArtistInfo`。通用搜索与详情 REST 路由会把合法扩展来源原样传给这些端口；
+MusicBrainz 榜单、豆瓣音乐分类等来源专属浏览接口不属于扩展入口。
 
 ### 2.2 调用通用链路
 
@@ -167,8 +208,8 @@ tmdb_info = MediaChain().convert_media_identity(
 4. 复合 key 使用 `build_media_key()`；需要更换 key 时先保存新 key，成功后再
    删除旧 key。
 5. 找不到有效回填来源时保留原记录，不要为了“清理”而丢失数据。
-6. 迁移必须可重复执行，并覆盖 `None`、空白、`"0"`、未知来源、半对和目标
-   key 已存在等情况。
+6. 迁移必须可重复执行，并覆盖 `None`、空白、`"0"`、格式非法来源、半对和
+   目标 key 已存在等情况；合法的插件扩展来源必须原样保留。
 
 示例：
 
@@ -297,8 +338,10 @@ if (response.success) {
 
 - 通用方法调用、事件载荷、任务模型和插件数据只使用成对的
   `media_source` / `media_id`。
-- 来源使用 `MediaSource` 枚举；ID 在持久化与比较前转换为规范字符串。
-- 半对、空白、未知来源和 `"0"` 不会进入缓存、数据库或插件数据。
+- 内置来源使用 `MediaSource` 常量；插件来源使用稳定的扩展成员；ID 在持久化与
+  比较前转换为规范字符串。
+- 半对、空白、格式非法来源和 `"0"` 不会进入缓存、数据库或插件数据，合法
+  插件来源不会被内置列表过滤。
 - 插件自有数据迁移幂等，且不会先删旧数据再保存新数据。
 - 已移除 `MusicChain` 导入，并按职责使用 `MediaChain`、`RecommendChain`、
   `SearchChain`、`ScrapingChain` 或来源链。

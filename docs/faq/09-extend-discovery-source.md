@@ -7,7 +7,10 @@
 - 1. 实现`ChainEventType.DiscoverSource`链式事件响应，将额外的媒体数据源塞入事件数据`extra_sources`数组中（注意：如果事件中已经有其它数据源，需要叠加而不是替换，避免影响其它插件塞入的数据）
   
   - `name`：数据源名称
-  - `media_source`：固定的 `MediaSource` 枚举，是 V3 规范数据源身份
+  - `media_source`：V3 规范数据源身份；内置来源使用 `MediaSource` 常量，插件
+    新来源使用稳定扩展成员（例如 `MediaSource("acmevideo")`），不受当前内置
+    来源列表限制。标识必须以小写字母开头，仅包含小写字母、数字、点、下划线
+    或短横线，最长 64 个字符
   - `mediaid_prefix`：旧插件和前端标签使用的兼容前缀；V3 新代码只提供
     `media_source` 即可，宿主会双向补齐
   - `api_path`：数据获取API相对路径，需要在插件中实现API接口功能，GET模式接收过滤参数（注意：page参数默认需要有），endpoint 返回 `List[schemas.MediaInfo]` 业务数据（HTTP 层由宿主包装为统一响应）；每个 `MediaInfo` 必须设置 `media_source` 和 `media_id`，用于唯一索引媒体详细信息和转换媒体数据
@@ -21,7 +24,7 @@ class DiscoverMediaSource(BaseModel):
     探索媒体数据源的基类
     """
     name: str = Field(..., description="数据源名称")
-    media_source: MediaSource = Field(..., description="媒体来源枚举")
+    media_source: MediaSource = Field(..., description="内置或插件扩展媒体来源")
     mediaid_prefix: str = Field(..., description="兼容插件使用的媒体ID前缀")
     api_path: str = Field(..., description="媒体数据源API地址")
     filter_params: Optional[Dict[str, Any]] = Field(default=None, description="过滤参数")
@@ -40,9 +43,9 @@ class DiscoverSourceEventData(ChainEventData):
 
 - 2. 实现`ChainEventType.MediaRecognizeConvert`链式事件响应（**可选**，如不实现则默认按标题重新识别媒体信息），根据规范输入身份与目标来源返回对应媒体数据，并将结果注入事件数据`media_dict`中。通用转换也可参考 `MediaChain.convert_media_identity()`。
 
-  - `media_source`：输入媒体来源枚举
+  - `media_source`：输入的内置或插件扩展媒体来源
   - `media_id`：输入来源原生 ID
-  - `target_media_source`：目标媒体来源枚举
+  - `target_media_source`：目标的内置或插件扩展媒体来源
   - `media_dict`：转换后的目标来源媒体数据；能够确定目标身份时同时写入目标
     `media_source` 和 `media_id`
 
