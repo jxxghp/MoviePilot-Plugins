@@ -10,7 +10,6 @@ MoviePilot 官方插件仓库，也是 MoviePilot 插件市场默认读取的插
 - [仓库指南](./docs/Repository_Guide.md)：先看这份，了解本仓库的目录、元数据、发布链路，以及和主仓库/前端仓库的边界。
 - [V2 插件开发指南](./docs/V2_Plugin_Development.md)：开发或迁移 V2 插件时的主文档，覆盖生命周期、渲染模式、接口能力和校验建议。
 - [V3 插件适配指南](./docs/V3_Plugin_Adaptation.md)：适配统一媒体身份、音乐链职责、插件数据迁移和 V3 发布规则时必读。
-- [V3 插件 API 响应适配指南](./docs/V3_API_Response_Adaptation.md)：迁移 `get_api()`、宿主 HTTP 调用、Vue 远程组件、统一反馈和原生响应时必读。
 - [MoviePilot 前端模块联邦开发指南](https://github.com/jxxghp/MoviePilot-Frontend/blob/v2/docs/module-federation-guide.md)：当插件需要使用 Vue 远程组件时必读。
 - [常见问题索引](./docs/FAQ.md)：FAQ 已拆分为独立文档，适合按场景查阅。
 
@@ -177,7 +176,7 @@ MoviePilot-Plugins/
 }
 ```
 
-### 2. 如何开发V2版本的插件以及实现插件多版本兼容？
+### 2. 如何开发V2、V3版本的插件以及实现插件多版本兼容？
 
-- 请参阅 [V2 版本插件开发指南](./docs/V2_Plugin_Development.md)。
+- 请参阅 [多版本插件开发指南](./docs/V2_Plugin_Development.md)。
 - 如果你要先理解本仓库与 `MoviePilot` / `MoviePilot-Frontend` 的分工，以及元数据和发布链路，再开始写代码，建议先看 [仓库指南](./docs/Repository_Guide.md)。
