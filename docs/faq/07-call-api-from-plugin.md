@@ -26,6 +26,15 @@
   `get_api()` 的 endpoint 直接返回业务对象即可，宿主会自动包装；不要手工再套一层
   同名字典。Vue 远程组件通过宿主传入的 `api` 或 `window.MoviePilotAPI` 调用时会
   保留完整结构，业务对象从返回值的 `data` 字段读取。
+- 注入客户端的 `baseURL` 已经是 `/api/v1/`，Vue 组件使用
+  `plugin/MyPlugin/path` 相对路径，不要再次拼接 `/api/v1/`。默认失败 Toast 已由
+  宿主统一处理；轮询或自行展示上下文错误时使用 `feedback: 'silent'`，避免重复
+  弹窗。
+- Python HTTP 客户端要先检查 HTTP 状态，再检查顶层 `success`；不要把
+  `response.json()` 直接当作列表或业务对象。原 `/api/v2` 路径统一迁移到
+  `/api/v1`。
+- 完整的后端模型、Python 解包、Vue 错误处理、多语言和原生响应示例见
+  [V3 插件 API 响应适配指南](../V3_API_Response_Adaptation.md)。
 - 媒体相关通用接口必须成对传递 `media_source` 与 `media_id`；明确单数据源的插件
   自有 API 可以继续按该来源原生合同设计参数。完整边界见
   [V3 插件适配指南](../V3_Plugin_Adaptation.md)。

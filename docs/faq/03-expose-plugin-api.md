@@ -1,17 +1,53 @@
-# 如何在插件中对外暴露API？
+# 如何在插件中对外暴露 API？
 
 返回 [README](../../README.md) | [FAQ 索引](../FAQ.md)
 
-- 实现 `get_api()` 方法，按以下格式返回API列表：
-    ```json
-    [{
-        "path": "/refresh_by_domain", // API路径，必须以/开始
-        "endpoint": self.refresh_by_domain, // API响应方法
-        "methods": ["GET"], // 请求方式：GET/POST/PUT/DELETE
-        "summary": "刷新站点数据", // API名称
-        "description": "刷新对应域名的站点数据", // API描述
-    }]
-    ```
-  注意：在插件中暴露API接口时注意安全控制，推荐使用`settings.API_TOKEN`进行身份验证。
-  
-- 在对应的方法中实现API响应方法逻辑，通过 `http://localhost:3001/docs` 查看API文档和调试
+V3 普通 JSON API 使用统一的 `{ success, message, data }` 响应。完整的输出模型、
+业务失败、原生响应和 Vue 调用规范见
+[V3 插件 API 响应适配指南](../V3_API_Response_Adaptation.md)。
+
+- 实现 `get_api()` 方法，返回 API 列表：
+
+  ```python
+  from typing import Any, Dict, List
+
+  from pydantic import BaseModel
+
+
+  class RefreshResultData(BaseModel):
+      """刷新接口的业务数据。"""
+
+      refreshed: bool
+
+
+  def refresh_by_domain(self, domain: str) -> RefreshResultData:
+      """刷新指定域名并返回结果。"""
+      self._refresh(domain)
+      return RefreshResultData(refreshed=True)
+
+
+  def get_api(self) -> List[Dict[str, Any]]:
+      """注册插件 API。"""
+      return [
+          {
+              "path": "/refresh_by_domain",
+              "endpoint": self.refresh_by_domain,
+              "methods": ["GET"],
+              "auth": "bear",
+              "summary": "刷新站点数据",
+              "description": "刷新对应域名的站点数据",
+              "response_model": RefreshResultData,
+          }
+      ]
+  ```
+
+- 普通业务对象由宿主自动放入 `data`。不要手工返回同名 envelope 字典，否则会
+  形成双层 `data`。
+- 每个普通 JSON endpoint 都必须声明具体 `response_model`，确保输出结构可在
+  `http://localhost:3001/docs` 中查询。
+- 需要主动设置 `success` 或 `message` 时，返回并声明参数化的
+  `schemas.Response[DataModel]`。
+- SSE、文件、图片、HTML 和 204 才使用原生响应，并显式声明 `response_class`、
+  `response_model=None` 与 OpenAPI content。
+- `auth: "bear"` 适用于宿主前端登录态；外部自动化调用可按插件安全边界选择
+  默认 API key 认证。不要自行把令牌放入响应或日志。

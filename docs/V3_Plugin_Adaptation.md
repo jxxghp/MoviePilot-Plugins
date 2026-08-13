@@ -226,6 +226,10 @@ if media_source:
 
 ## 5. 普通 REST 响应合同
 
+本节只列迁移结论。后端输出模型、Python HTTP 调用、Vue 远程组件、统一 Toast、
+多语言和原生响应的完整示例见
+[V3 插件 API 响应适配指南](./V3_API_Response_Adaptation.md)。
+
 MoviePilot 普通 JSON API 统一返回三个顶层字段：
 
 ```json
@@ -251,11 +255,14 @@ Vue 远程组件应使用宿主注入的 `api` 属性或 `window.MoviePilotAPI`�
 对象位于其 `data` 字段：
 
 ```javascript
-const response = await window.MoviePilotAPI.get('/api/v1/plugin/MyPlugin/items')
+const response = await window.MoviePilotAPI.get('plugin/MyPlugin/items')
 if (response.success) {
   items.value = response.data
 }
 ```
+
+注入客户端的 `baseURL` 已包含 `/api/v1/`。默认错误 Toast 也由宿主统一处理，
+远程组件不要再为同一次失败重复提示。
 
 ## 6. 明确保留来源专用 ID 的边界
 
@@ -296,6 +303,8 @@ if (response.success) {
 - 已移除 `MusicChain` 导入，并按职责使用 `MediaChain`、`RecommendChain`、
   `SearchChain`、`ScrapingChain` 或来源链。
 - REST 调用按统一 envelope 读取 `success`、`message`、`data`。
+- `get_api()` 的普通 JSON endpoint 声明具体输出模型，且没有手工双层套壳。
+- Vue 远程组件使用相对 API 路径，并避免重复错误 Toast。
 - 自定义识别词和重命名格式仍使用历史来源专用 ID。
 - V3 专用副本位于 `plugins.v3/`，版本完成主版本跃迁，且声明
   `system_version: ">=3.0.0"`。
