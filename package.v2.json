@@ -1135,14 +1135,16 @@
   },
   "AnimeUpscale": {
     "name": "动漫视频超分",
-    "description": "连接 Anime Upscale GPU 服务，管理模型并提交、取消和重试视频超分任务。",
+    "description": "在 MoviePilot 内直接使用 GPU 完成动漫视频 2 倍超分与 HEVC Main10 编码。",
     "labels": "动漫,视频处理,GPU",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "icon": "ffmpeg.png",
     "author": "RWDai",
     "level": 1,
+    "release": true,
     "system_version": ">=2.12.0",
     "history": {
+      "v1.1.0": "将任务队列、GPU 推理和 FFmpeg 流水线直接集成到 MoviePilot 插件",
       "v1.0.0": "首个版本：支持服务状态、模型下载与校验、任务提交和管理"
     }
   }
