@@ -6,7 +6,8 @@
 - 实现`ChainEventType.RecommendSource`链式事件响应，将额外的媒体数据源塞入事件数据`extra_sources`数组中（注意：如果事件中已经有其它数据源，需要叠加而不是替换，避免影响其它插件塞入的数据）
 
   - `name`：数据源名称
-  - `api_path`：数据获取API相对路径，需要在插件中实现API接口功能，GET模式接收过滤参数（注意：page参数默认需要有），返回`List[schemas.MediaInfo])`格式数据，参考`app/api/endpoints/recommend.py` 中的 `tmdb_trending`。
+  - `api_path`：数据获取API相对路径，需要在插件中实现API接口功能，GET模式接收过滤参数（注意：page参数默认需要有），endpoint 返回 `List[schemas.MediaInfo]` 业务数据，HTTP 层由宿主包装为统一响应；参考 `app/api/endpoints/recommend.py`
+  - `type`：前端用于分组展示的数据源类型
 
 ```python
 class RecommendMediaSource(BaseModel):
@@ -15,6 +16,7 @@ class RecommendMediaSource(BaseModel):
     """
     name: str = Field(..., description="数据源名称")
     api_path: str = Field(..., description="媒体数据源API地址")
+    type: str = Field(..., description="类型")
 
 class RecommendSourceEventData(ChainEventData):
     """
@@ -26,3 +28,7 @@ class RecommendSourceEventData(ChainEventData):
     # 输出参数
     extra_sources: List[RecommendMediaSource] = Field(default_factory=list, description="额外媒体数据源")
 ```
+
+返回的每个 `MediaInfo` 如携带主媒体身份，必须同时提供 `media_source` 和
+`media_id`。插件 endpoint 直接返回业务列表，不要手工套统一响应字典；完整说明见
+[V3 插件适配指南](../V3_Plugin_Adaptation.md)。

@@ -14,10 +14,18 @@
       "method": "get", // GET/POST
       "params": {
         // API上送参数
-        "doubanid": ""
+        "media_source": "douban",
+        "media_id": "1295644"
       }
     }
   }
 }
 ```
 - 每次API调用完成后，均会自动刷新一次插件数据页。
+- V3 的普通 JSON API 返回 `{ "success", "message", "data" }` 统一结构。插件
+  `get_api()` 的 endpoint 直接返回业务对象即可，宿主会自动包装；不要手工再套一层
+  同名字典。Vue 远程组件通过宿主传入的 `api` 或 `window.MoviePilotAPI` 调用时会
+  保留完整结构，业务对象从返回值的 `data` 字段读取。
+- 媒体相关通用接口必须成对传递 `media_source` 与 `media_id`；明确单数据源的插件
+  自有 API 可以继续按该来源原生合同设计参数。完整边界见
+  [V3 插件适配指南](../V3_Plugin_Adaptation.md)。

@@ -122,6 +122,10 @@ MoviePilot 当前的插件版本选择逻辑可以概括为：
 - 依赖 V3 新合同的实现必须放入 `plugins.v3/` 并在 `package.v3.json` 声明 `system_version: ">=3.0.0"`。
 - 依赖宿主新增能力的插件需要同步声明 `system_version`，否则旧版 MoviePilot 仍可能看到更新入口但安装后无法加载。
 
+涉及媒体识别、搜索、订阅、下载、整理、刮削、媒体库事件、插件自有媒体数据、
+音乐链或宿主 REST API 的插件，还必须按
+[V3 插件适配指南](./V3_Plugin_Adaptation.md)检查统一媒体身份、链职责和响应合同。
+
 ## 5. 与宿主仓库的协作边界
 
 ### 5.1 与 `MoviePilot` 后端的边界
