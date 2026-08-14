@@ -26,7 +26,7 @@ import threading
 import time
 import traceback
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
@@ -60,6 +60,9 @@ class DeletionTask:
     deleted_inode: int
     deleted_add_time: datetime
     timestamp: datetime
+    # 删除事件发生时已存在的同实体路径（正常硬链接），用于延迟到期后
+    # 区分“原有硬链接”与“重新整理产生的新路径”
+    known_paths: Optional[List[str]] = None
     processed: bool = False
 
 
@@ -81,6 +84,14 @@ except ImportError:  # pragma: no cover
 
         def __init__(self, src_path: str, is_directory: bool = False):
             self.src_path = src_path
+            self.is_directory = is_directory
+
+    class _WatchfilesMoveEvent:
+        """watchfiles 移动事件包装（重命名）"""
+
+        def __init__(self, src_path: str, dest_path: str, is_directory: bool = False):
+            self.src_path = src_path
+            self.dest_path = dest_path
             self.is_directory = is_directory
 
     class _WatchfilesObserver:
@@ -120,14 +131,38 @@ except ImportError:  # pragma: no cover
             """watchfiles 监控循环，将变更事件转发给事件处理器。"""
             from watchfiles import Change, watch
 
+            # 记录已观察路径 -> (dev, inode)，用于把同一批次中 inode 相同的
+            # added + deleted 事件配对为移动（重命名），避免重命名被当作删除处理
+            known_identities: Dict[str, Tuple[int, int]] = {}
+
             for changes in watch(path, recursive=recursive, stop_event=self._stop_event):
+                added_paths = [str(p) for c, p in changes if c == Change.added]
+                for changed_path in added_paths:
+                    try:
+                        stat_info = Path(changed_path).stat()
+                        known_identities[changed_path] = (stat_info.st_dev, stat_info.st_ino)
+                    except OSError:
+                        known_identities.pop(changed_path, None)
+                    event_handler.on_created(
+                        _WatchfilesEvent(changed_path, Path(changed_path).is_dir())
+                    )
                 for change, changed_path in changes:
                     changed_path = str(changed_path)
-                    if change == Change.added:
-                        event_handler.on_created(
-                            _WatchfilesEvent(changed_path, Path(changed_path).is_dir())
-                        )
-                    elif change == Change.deleted:
+                    if change != Change.deleted:
+                        continue
+                    old_identity = known_identities.pop(changed_path, None)
+                    moved = False
+                    if old_identity is not None:
+                        for new_path in added_paths:
+                            if new_path == changed_path or known_identities.get(new_path) != old_identity:
+                                continue
+                            logger.debug(f"watchfiles 回退：{changed_path} -> {new_path} 识别为移动，不进入删除流程")
+                            event_handler.on_moved(
+                                _WatchfilesMoveEvent(changed_path, new_path, Path(new_path).is_dir())
+                            )
+                            moved = True
+                            break
+                    if not moved:
                         event_handler.on_deleted(_WatchfilesEvent(changed_path))
 
     PollingObserver = _WatchfilesObserver
@@ -283,7 +318,7 @@ class ScrapeFileClean(_PluginBase):
     plugin_name = "源文件联动清理"
     plugin_desc = "为手动清理下载目录设计：手动删除源文件后，自动联动清理媒体库中对应的硬链接文件、刮削文件（元数据、图片、字幕）与转移记录，支持延迟删除防止误删"
     plugin_icon = "clean.png"
-    plugin_version = "1.0.4"
+    plugin_version = "1.0.5"
     plugin_author = "xlmc"
     author_url = "https://github.com/xlmc"
     plugin_config_prefix = "scrapefileclean_"
@@ -495,12 +530,21 @@ class ScrapeFileClean(_PluginBase):
         if self._delayed_deletion:
             # 延迟删除模式：入队，稍后统一校验执行
             logger.info(f"文件 {file_path.name} 加入延迟删除队列，延迟 {self._delay_seconds} 秒")
+            # 记录删除事件发生时已存在的同实体路径（正常硬链接），
+            # 延迟到期后用于区分“原有硬链接”与“重新整理产生的新路径”
+            with state_lock:
+                known_paths = [
+                    path
+                    for path, file_info in self.file_state.items()
+                    if self._same_file_identity(file_info, deleted_dev, deleted_inode)
+                ]
             task = DeletionTask(
                 file_path=file_path,
                 deleted_dev=deleted_dev,
                 deleted_inode=deleted_inode,
                 deleted_add_time=deleted_add_time,
                 timestamp=datetime.now(),
+                known_paths=known_paths,
             )
             with deletion_queue_lock:
                 self.deletion_queue.append(task)
@@ -617,21 +661,28 @@ class ScrapeFileClean(_PluginBase):
     def _execute_delayed_deletion(self, task: DeletionTask):
         """执行延迟删除任务：先校验再执行"""
         try:
-            # 文件已被重新创建，说明是误删/重整，跳过
+            # 文件已重新创建：仅当仍是原文件实体（同 dev/inode）时才视为误删/重整并跳过；
+            # 若同路径被不同 inode 的文件占用，说明旧文件实体确实已删除，继续清理
             if task.file_path.exists():
-                logger.info(f"文件 {task.file_path} 已被重新创建，跳过删除操作")
-                return
+                try:
+                    stat_info = task.file_path.stat()
+                except OSError:
+                    stat_info = None
+                if stat_info is not None and (
+                    stat_info.st_dev == task.deleted_dev and stat_info.st_ino == task.deleted_inode
+                ):
+                    logger.info(f"文件 {task.file_path} 已重新创建为原文件实体，跳过删除操作")
+                    return
 
-            # 检查是否有相同 inode 的新路径（重新整理/重命名产生的硬链接）
+            # 检查延迟期间是否出现“删除事件时并不存在”的同 inode 新路径
+            # （重新整理/重命名产生的硬链接）：仅删除后新增的路径判定为重整理，
+            # 删除前已存在的正常硬链接不受影响
             with state_lock:
+                known_paths = set(task.known_paths or [])
                 for path, file_info in self.file_state.items():
                     if self._same_file_identity(file_info, task.deleted_dev, task.deleted_inode) and path != str(task.file_path):
-                        # 候选路径必须在删除事件附近创建，避免把“下载器删除源文件”
-                        # 误判为重新硬链接（事件乱序时接受删除事件前后一个延迟窗口内的路径）
-                        rehardlink_window = timedelta(seconds=max(5, self._delay_seconds))
-                        is_recent = file_info.add_time >= task.timestamp - rehardlink_window
-                        if file_info.add_time > task.deleted_add_time and is_recent:
-                            logger.info(f"检测到相同文件实体的新文件 {path}，可能是重新硬链接，跳过硬链接删除")
+                        if path not in known_paths:
+                            logger.info(f"检测到删除后新增的同文件实体路径 {path}，可能是重新硬链接，跳过硬链接删除")
                             # 只清理旧路径同名刮削文件，不删除新硬链接/转移记录/种子
                             self.delete_scrap_infos(task.file_path)
                             return
@@ -767,6 +818,25 @@ class ScrapeFileClean(_PluginBase):
             return True
         return not name[len(media_stem)].isalnum()
 
+    @classmethod
+    def _belongs_to_other_media(cls, scrap_name: str, media_stem: str, other_media_stems: set) -> bool:
+        """判断刮削文件名是否属于同目录中的其他媒体文件。
+
+        仅当其他媒体名比当前媒体名更长、且刮削文件名以该媒体名为前缀并紧跟
+        非字母数字边界时，才认为刮削文件属于其他媒体（如 Film-2.nfo 属于
+        Film-2 而非 Film），避免误删其他媒体关联的元数据。
+        """
+        for stem in other_media_stems:
+            if len(stem) <= len(media_stem):
+                continue
+            if not scrap_name.startswith(stem):
+                continue
+            if len(scrap_name) == len(stem):
+                continue
+            if not scrap_name[len(stem)].isalnum():
+                return True
+        return False
+
     def delete_scrap_infos(self, path: Path):
         """清理与 path 相关的刮削文件（同名前缀 + 刮削目录）"""
         if not self._delete_scrap_infos:
@@ -778,10 +848,19 @@ class ScrapeFileClean(_PluginBase):
         try:
             if not self._is_scrap_file(path):
                 name_prefix = path.stem
+                # 同目录中其他媒体文件名（非刮削文件），用于排除属于其他媒体的刮削文件
+                other_media_stems = {
+                    f.stem
+                    for f in path.parent.iterdir()
+                    if not f.is_dir() and f.name != path.name and not self._is_scrap_file(f)
+                }
                 for file in path.parent.iterdir():
                     if not self._same_media_scrap_name(file, name_prefix):
                         continue
                     if self.__is_keyword_excluded(file) or self.__is_excluded(file):
+                        continue
+                    if self._belongs_to_other_media(file.name, name_prefix, other_media_stems):
+                        logger.debug(f"刮削文件 {file} 属于同目录其他媒体，跳过")
                         continue
                     if file.is_dir() and file.suffix.lower() in self.SCRAP_DIR_SUFFIXES:
                         shutil.rmtree(file)
