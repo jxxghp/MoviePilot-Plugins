@@ -160,7 +160,7 @@ class FileMonitorHandler(FileSystemEventHandler):
             return
         with state_lock:
             try:
-                if not file_path.exists() or file_path.is_dir():
+                if not file_path.exists() or file_path.is_dir() or file_path.is_symlink():
                     return
                 stat_info = file_path.stat()
                 self.sync.file_state[str(file_path)] = FileInfo(
@@ -217,6 +217,11 @@ class FileMonitorHandler(FileSystemEventHandler):
         if event.is_directory:
             # 文件夹被整体删除：触发下载器助手联动删除种子
             if self.sync._delete_torrents:
+                if self.sync.exclude_keywords:
+                    for keyword in self.sync.exclude_keywords.split("\n"):
+                        if keyword and keyword in str(file_path):
+                            logger.info(f"{file_path} 命中过滤关键字 {keyword}，不处理")
+                            return
                 logger.info(f"监测到删除文件夹：{file_path}")
                 eventmanager.send_event(EventType.DownloadFileDeleted, {"src": str(file_path)})
             return
@@ -248,7 +253,7 @@ def update_state(monitor_dirs: List[str]) -> Dict[str, FileInfo]:
                 for file_name in files:
                     file_path = Path(root) / file_name
                     try:
-                        if not file_path.exists():
+                        if not file_path.exists() or file_path.is_symlink():
                             continue
                         stat_info = file_path.stat()
                         file_state[str(file_path)] = FileInfo(
@@ -278,7 +283,7 @@ class ScrapeFileClean(_PluginBase):
     plugin_name = "源文件联动清理"
     plugin_desc = "为手动清理下载目录设计：手动删除源文件后，自动联动清理媒体库中对应的硬链接文件、刮削文件（元数据、图片、字幕）与转移记录，支持延迟删除防止误删"
     plugin_icon = "clean.png"
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.4"
     plugin_author = "xlmc"
     author_url = "https://github.com/xlmc"
     plugin_config_prefix = "scrapefileclean_"
@@ -766,7 +771,7 @@ class ScrapeFileClean(_PluginBase):
         """清理与 path 相关的刮削文件（同名前缀 + 刮削目录）"""
         if not self._delete_scrap_infos:
             return
-        if self.__is_keyword_excluded(path):
+        if self.__is_keyword_excluded(path) or self.__is_excluded(path):
             return
         if not os.path.exists(path.parent):
             return
@@ -776,7 +781,7 @@ class ScrapeFileClean(_PluginBase):
                 for file in path.parent.iterdir():
                     if not self._same_media_scrap_name(file, name_prefix):
                         continue
-                    if self.__is_keyword_excluded(file):
+                    if self.__is_keyword_excluded(file) or self.__is_excluded(file):
                         continue
                     if file.is_dir() and file.suffix.lower() in self.SCRAP_DIR_SUFFIXES:
                         shutil.rmtree(file)
@@ -806,7 +811,7 @@ class ScrapeFileClean(_PluginBase):
             try:
                 if self.scrape_files_left(parent_path):
                     for file in parent_path.iterdir():
-                        if self.__is_keyword_excluded(file):
+                        if self.__is_keyword_excluded(file) or self.__is_excluded(file):
                             continue
                         if file.is_dir():
                             shutil.rmtree(file)
