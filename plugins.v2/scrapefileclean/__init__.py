@@ -204,6 +204,14 @@ class FileMonitorHandler(FileSystemEventHandler):
                     return True
         return False
 
+    def _is_within_monitor(self, file_path: Path) -> bool:
+        """判断路径是否在任一监控目录内"""
+        for mon_dir in self.sync.monitor_dirs.split("\n"):
+            mon_dir = mon_dir.strip()
+            if mon_dir and self.sync._is_same_or_child_path(file_path, mon_dir):
+                return True
+        return False
+
     def _add_file_to_state(self, file_path: Path):
         """把新增文件加入监控状态"""
         if self._is_excluded_file(file_path):
@@ -250,12 +258,20 @@ class FileMonitorHandler(FileSystemEventHandler):
             src_file_info is None
             or not self.sync._same_file_identity(old_dest_file_info, src_file_info.dev, src_file_info.inode)
         ):
-            with state_lock:
-                self.sync.file_state[str(dest_path)] = old_dest_file_info
-            logger.info(f"移动目标 {dest_path} 的原文件实体已被覆盖，按删除处理旧实体")
-            self.sync.handle_deleted(dest_path)
-            with state_lock:
-                self.sync.file_state.pop(str(dest_path), None)
+            if self.sync._delayed_deletion:
+                # 延迟模式：入队后由延迟校验处理，执行时路径已被新实体占用，只清理旧实体硬链接
+                with state_lock:
+                    self.sync.file_state[str(dest_path)] = old_dest_file_info
+                logger.info(f"移动目标 {dest_path} 的原文件实体已被覆盖，按删除处理旧实体")
+                self.sync.handle_deleted(dest_path)
+                with state_lock:
+                    self.sync.file_state.pop(str(dest_path), None)
+            else:
+                # 立即模式：路径已被新实体占用，只清理旧实体硬链接，不做路径关联副作用
+                logger.info(f"移动目标 {dest_path} 的原文件实体已被覆盖，仅清理旧实体硬链接")
+                self.sync._execute_deletion(
+                    dest_path, old_dest_file_info.dev, old_dest_file_info.inode, skip_path_effects=True
+                )
 
         # 尝试接管目标路径
         self._add_file_to_state(dest_path)
@@ -269,6 +285,11 @@ class FileMonitorHandler(FileSystemEventHandler):
             not dest_file_info
             or not self.sync._same_file_identity(dest_file_info, src_file_info.dev, src_file_info.inode)
         ):
+            # 目标仍在监控目录内但未被跟踪（临时文件/过滤关键字等忽略目标）：
+            # 这是重命名而非删除，不触发源文件清理
+            if self._is_within_monitor(dest_path):
+                logger.info(f"移动目标 {dest_path} 仍在监控范围内但被忽略，按重命名处理，不触发清理")
+                return
             logger.info(f"移动目标未进入监控或文件实体不一致，按删除处理源文件：{src_path}")
             with state_lock:
                 self.sync.file_state[str(src_path)] = src_file_info
@@ -348,7 +369,7 @@ class ScrapeFileClean(_PluginBase):
     plugin_name = "源文件联动清理"
     plugin_desc = "为手动清理下载目录设计：手动删除源文件后，自动联动清理媒体库中对应的硬链接文件、刮削文件（元数据、图片、字幕）与转移记录，支持延迟删除防止误删"
     plugin_icon = "clean.png"
-    plugin_version = "1.0.6"
+    plugin_version = "1.0.7"
     plugin_author = "xlmc"
     author_url = "https://github.com/xlmc"
     plugin_config_prefix = "scrapefileclean_"
@@ -585,17 +606,21 @@ class ScrapeFileClean(_PluginBase):
             # 立即删除模式
             self._execute_deletion(file_path, deleted_dev, deleted_inode)
 
-    def _execute_deletion(self, file_path: Path, deleted_dev: int, deleted_inode: int):
+    def _execute_deletion(self, file_path: Path, deleted_dev: int, deleted_inode: int, skip_path_effects: bool = False):
         """
         执行删除动作：清理刮削文件、联动删除种子、删除转移记录、删除硬链接。
+
+        skip_path_effects=True 时仅清理旧实体硬链接，不做任何路径关联的副作用
+        （路径已被新实体占用时使用，避免误伤现存的新文件）。
         """
         deleted_files: List[str] = []
 
-        # 源文件侧清理
-        self.delete_scrap_infos(file_path)
-        if self._delete_torrents and not self._is_scrap_file(file_path):
-            eventmanager.send_event(EventType.DownloadFileDeleted, {"src": str(file_path)})
-        self.delete_history(str(file_path))
+        # 源文件侧清理（路径关联副作用；路径已被新实体占用时跳过）
+        if not skip_path_effects:
+            self.delete_scrap_infos(file_path)
+            if self._delete_torrents and not self._is_scrap_file(file_path):
+                eventmanager.send_event(EventType.DownloadFileDeleted, {"src": str(file_path)})
+            self.delete_history(str(file_path))
 
         try:
             with state_lock:
@@ -703,6 +728,11 @@ class ScrapeFileClean(_PluginBase):
                 ):
                     logger.info(f"文件 {task.file_path} 已重新创建为原文件实体，跳过删除操作")
                     return
+                # 路径被不同 inode 的新文件占用：旧实体确实已删除，
+                # 但路径上的新文件不能误伤，只清理旧实体的剩余硬链接
+                logger.info(f"路径 {task.file_path} 已被其他文件实体占用，仅清理旧实体硬链接")
+                self._execute_deletion(task.file_path, task.deleted_dev, task.deleted_inode, skip_path_effects=True)
+                return
 
             # 检查延迟期间是否出现“删除事件时并不存在”的同 inode 新路径
             # （重新整理/重命名产生的硬链接）：仅删除后新增的路径判定为重整理，
