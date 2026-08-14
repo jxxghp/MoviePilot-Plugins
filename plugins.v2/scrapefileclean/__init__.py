@@ -41,6 +41,8 @@ from app.schemas.types import EventType
 state_lock = threading.Lock()
 # 延迟删除队列锁
 deletion_queue_lock = threading.Lock()
+# 临时文件后缀：不进入监控状态，也不触发清理流程（全量扫描与增量监控共用）
+TEMP_FILE_SUFFIXES = (".!qb", ".part", ".mp", ".tmp", ".temp")
 
 
 class FileInfo(NamedTuple):
@@ -134,6 +136,19 @@ except ImportError:  # pragma: no cover
             # 记录已观察路径 -> (dev, inode)，用于把同一批次中 inode 相同的
             # added + deleted 事件配对为移动（重命名），避免重命名被当作删除处理
             known_identities: Dict[str, Tuple[int, int]] = {}
+            # 初始建表：为监控启动前已存在的文件建立身份快照，
+            # 否则回退模式下重命名既有文件仍会被误判为删除
+            try:
+                for root, _, files in os.walk(path):
+                    for file_name in files:
+                        file_path = Path(root) / file_name
+                        try:
+                            stat_info = file_path.stat()
+                            known_identities[str(file_path)] = (stat_info.st_dev, stat_info.st_ino)
+                        except OSError:
+                            continue
+            except OSError as e:
+                logger.warning(f"watchfiles 回退：初始身份建表失败：{e}")
 
             for changes in watch(path, recursive=recursive, stop_event=self._stop_event):
                 added_paths = [str(p) for c, p in changes if c == Change.added]
@@ -180,7 +195,7 @@ class FileMonitorHandler(FileSystemEventHandler):
 
     def _is_excluded_file(self, file_path: Path) -> bool:
         """检查文件是否命中排除规则（临时文件 / 关键字）"""
-        if file_path.suffix.lower() in [".!qb", ".part", ".mp", ".tmp", ".temp"]:
+        if file_path.suffix.lower() in TEMP_FILE_SUFFIXES:
             return True
         if self.sync.exclude_keywords:
             for keyword in self.sync.exclude_keywords.split("\n"):
@@ -225,9 +240,22 @@ class FileMonitorHandler(FileSystemEventHandler):
         dest_path = Path(event.dest_path)
         logger.info(f"监测到文件移动：{src_path} -> {dest_path}")
 
-        # 取出源路径的监控信息
+        # 取出源路径的监控信息，同时取出目标路径原记录（可能被新实体覆盖）
         with state_lock:
             src_file_info = self.sync.file_state.pop(str(src_path), None)
+            old_dest_file_info = self.sync.file_state.pop(str(dest_path), None)
+
+        # 目标路径原本存在且实体与源不一致：旧实体已被替换删除，进入清理流程
+        if old_dest_file_info is not None and (
+            src_file_info is None
+            or not self.sync._same_file_identity(old_dest_file_info, src_file_info.dev, src_file_info.inode)
+        ):
+            with state_lock:
+                self.sync.file_state[str(dest_path)] = old_dest_file_info
+            logger.info(f"移动目标 {dest_path} 的原文件实体已被覆盖，按删除处理旧实体")
+            self.sync.handle_deleted(dest_path)
+            with state_lock:
+                self.sync.file_state.pop(str(dest_path), None)
 
         # 尝试接管目标路径
         self._add_file_to_state(dest_path)
@@ -260,7 +288,7 @@ class FileMonitorHandler(FileSystemEventHandler):
                 logger.info(f"监测到删除文件夹：{file_path}")
                 eventmanager.send_event(EventType.DownloadFileDeleted, {"src": str(file_path)})
             return
-        if file_path.suffix.lower() in [".!qb", ".part", ".mp"]:
+        if file_path.suffix.lower() in TEMP_FILE_SUFFIXES:
             return
         if self.sync.exclude_keywords:
             for keyword in self.sync.exclude_keywords.split("\n"):
@@ -287,6 +315,8 @@ def update_state(monitor_dirs: List[str]) -> Dict[str, FileInfo]:
             for root, _, files in os.walk(mon_path):
                 for file_name in files:
                     file_path = Path(root) / file_name
+                    if file_path.suffix.lower() in TEMP_FILE_SUFFIXES:
+                        continue
                     try:
                         if not file_path.exists() or file_path.is_symlink():
                             continue
@@ -318,7 +348,7 @@ class ScrapeFileClean(_PluginBase):
     plugin_name = "源文件联动清理"
     plugin_desc = "为手动清理下载目录设计：手动删除源文件后，自动联动清理媒体库中对应的硬链接文件、刮削文件（元数据、图片、字幕）与转移记录，支持延迟删除防止误删"
     plugin_icon = "clean.png"
-    plugin_version = "1.0.5"
+    plugin_version = "1.0.6"
     plugin_author = "xlmc"
     author_url = "https://github.com/xlmc"
     plugin_config_prefix = "scrapefileclean_"
@@ -827,6 +857,9 @@ class ScrapeFileClean(_PluginBase):
         Film-2 而非 Film），避免误删其他媒体关联的元数据。
         """
         for stem in other_media_stems:
+            # 同 stem 的其他媒体文件：刮削文件为两者共享，删除当前媒体时不能清理
+            if stem == media_stem:
+                return True
             if len(stem) <= len(media_stem):
                 continue
             if not scrap_name.startswith(stem):
