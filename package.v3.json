@@ -3,11 +3,12 @@
     "name": "Agent影视助手",
     "description": "龙虾agent稳定控制 MP：飞书入口、盘搜/影巢搜索、115/夸克转存、智能评分推荐。",
     "labels": "Agent,影巢,HDHive,115,夸克,Quark,智能体,转存,解锁",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "icon": "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png",
     "author": "liuyuexi1987",
     "level": 1,
     "history": {
+      "1.0.1": "修复 p115client 依赖版本号错误（0.0.8.5.1.1 不存在），固定为 PyPI 实际存在的 0.0.9.6.5.1，解决依赖安装失败问题。",
       "1.0.0": "V3 独立大版本：统一搜索、订阅、下载与历史查询的媒体来源和媒体 ID。",
       "0.3.1": "回退并固定 p115client 到 0.0.8.5.1.1，避免与 MoviePilot 当前环境和 115 插件依赖版本冲突。",
       "0.3.0": "精简 Agent/MCP 暴露工具集，仅保留核心业务能力工具，移除自建计划、会话和自描述脚手架噪声；保留飞书与 HTTP 端点。",
