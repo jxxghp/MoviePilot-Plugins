@@ -278,7 +278,7 @@ class ScrapeFileClean(_PluginBase):
     plugin_name = "源文件联动清理"
     plugin_desc = "为手动清理下载目录设计：手动删除源文件后，自动联动清理媒体库中对应的硬链接文件、刮削文件（元数据、图片、字幕）与转移记录，支持延迟删除防止误删"
     plugin_icon = "clean.png"
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     plugin_author = "xlmc"
     author_url = "https://github.com/xlmc"
     plugin_config_prefix = "scrapefileclean_"
@@ -438,7 +438,7 @@ class ScrapeFileClean(_PluginBase):
         return None
 
     def stop_service(self):
-        """停止监控、定时器，并处理剩余的延迟删除任务"""
+        """停止监控、定时器，放弃未到期的延迟删除任务"""
         logger.debug("开始停止服务")
 
         # 停止文件监控
@@ -460,16 +460,13 @@ class ScrapeFileClean(_PluginBase):
                 logger.error(f"停止延迟删除定时器失败：{str(e)}")
             self._deletion_timer = None
 
-        # 处理剩余的延迟删除任务
-        tasks_to_process: List[DeletionTask] = []
+        # 未到期的延迟删除任务不做提前执行：停止服务时保留文件原状，
+        # 避免媒体重整理期间误删硬链接，重新启用后由全量扫描重建状态
         with deletion_queue_lock:
-            if self.deletion_queue:
-                logger.info(f"处理剩余的 {len(self.deletion_queue)} 个延迟删除任务")
-                tasks_to_process = [t for t in self.deletion_queue if not t.processed]
-                self.deletion_queue.clear()
-
-        for task in tasks_to_process:
-            self._execute_delayed_deletion(task)
+            pending = [t for t in self.deletion_queue if not t.processed]
+            if pending:
+                logger.info(f"放弃 {len(pending)} 个未到期的延迟删除任务（停止服务时不提前执行）")
+            self.deletion_queue.clear()
 
         logger.debug("服务停止完成")
 
@@ -674,6 +671,16 @@ class ScrapeFileClean(_PluginBase):
                 return True
         return False
 
+    def __is_keyword_excluded(self, file_path: Path) -> bool:
+        """路径包含过滤关键字的文件不处理（与事件过滤语义一致）"""
+        if not self.exclude_keywords:
+            return False
+        for keyword in self.exclude_keywords.split("\n"):
+            if keyword and keyword in str(file_path):
+                logger.debug(f"文件 {file_path} 命中过滤关键字 {keyword}，不处理")
+                return True
+        return False
+
     def _unlink_tracked_file(self, file: Path, state_key: str, action: str) -> bool:
         """
         删除 file_state 中记录的硬链接文件。
@@ -681,6 +688,9 @@ class ScrapeFileClean(_PluginBase):
         """
         if self.__is_excluded(file):
             logger.debug(f"文件 {file} 在不删除目录中，跳过")
+            return False
+        if self.__is_keyword_excluded(file):
+            logger.debug(f"文件 {file} 命中过滤关键字，跳过")
             return False
         try:
             logger.info(f"{action}硬链接文件：{state_key}")
@@ -741,9 +751,22 @@ class ScrapeFileClean(_PluginBase):
         except OSError:
             return False
 
+    @staticmethod
+    def _same_media_scrap_name(file: Path, media_stem: str) -> bool:
+        """刮削文件是否属于该媒体：名称以媒体名为前缀且紧跟非字母数字边界，
+        避免 S01E01 误匹配 S01E010 等其他媒体的文件"""
+        name = file.name
+        if not name.startswith(media_stem):
+            return False
+        if len(name) == len(media_stem):
+            return True
+        return not name[len(media_stem)].isalnum()
+
     def delete_scrap_infos(self, path: Path):
         """清理与 path 相关的刮削文件（同名前缀 + 刮削目录）"""
         if not self._delete_scrap_infos:
+            return
+        if self.__is_keyword_excluded(path):
             return
         if not os.path.exists(path.parent):
             return
@@ -751,7 +774,9 @@ class ScrapeFileClean(_PluginBase):
             if not self._is_scrap_file(path):
                 name_prefix = path.stem
                 for file in path.parent.iterdir():
-                    if not file.name.startswith(name_prefix):
+                    if not self._same_media_scrap_name(file, name_prefix):
+                        continue
+                    if self.__is_keyword_excluded(file):
                         continue
                     if file.is_dir() and file.suffix.lower() in self.SCRAP_DIR_SUFFIXES:
                         shutil.rmtree(file)
@@ -766,19 +791,23 @@ class ScrapeFileClean(_PluginBase):
     def delete_empty_folders(self, path: Path):
         """从指定路径向上逐级删除空目录，直到遇到非空目录或监控目录为止"""
         monitor_dirs = [d.strip() for d in self.monitor_dirs.split("\n") if d.strip()]
+        normalized_roots = [self._normalize_config_path(d) for d in monitor_dirs]
         while True:
             parent_path = path.parent
-            if self.__is_excluded(parent_path):
+            if self.__is_excluded(parent_path) or self.__is_keyword_excluded(parent_path):
                 break
             if not os.path.exists(parent_path):
                 break
-            if str(parent_path) in monitor_dirs:
+            # 规范化后再比较，避免配置带尾斜杠时误删监控根目录并继续向上清理
+            if self._normalize_config_path(str(parent_path)) in normalized_roots:
                 break
 
             # 目录只包含刮削文件时，清空整个目录
             try:
                 if self.scrape_files_left(parent_path):
                     for file in parent_path.iterdir():
+                        if self.__is_keyword_excluded(file):
+                            continue
                         if file.is_dir():
                             shutil.rmtree(file)
                             logger.info(f"删除刮削目录：{file}")
