@@ -3,8 +3,9 @@
 本文面向需要在 MoviePilot V3 中继续调用媒体识别、搜索、订阅、下载、整理、
 刮削、媒体库或中心服务能力的插件作者。V3 将通用媒体主身份统一为
 `MediaSource` 来源标识和来源原生 `media_id`，同时调整了音乐链职责和普通 REST
-响应结构。`MediaSource` 为内置来源提供枚举常量，也允许插件注册新的来源标识，
-不是只能使用主程序当前列出的来源。
+响应结构，并对后端模块重新分层。`MediaSource` 为内置来源提供枚举常量，也允许
+插件注册新的来源标识，不是只能使用主程序当前列出的来源；已登记的旧模块导入
+由宿主兼容层继续承接，新代码则应优先依赖稳定 SDK。
 
 如果插件完全不读取媒体身份、不调用上述链路，也不通过 HTTP 调用宿主接口，
 通常无需为本次合同变化建立 V3 专用副本。
@@ -26,9 +27,86 @@ V3 默认兼容 V2 插件。只有插件使用了 V3 已变更的合同，才需
 未建立 V3 专用副本的 V2 插件默认兼容 V3；无需为了声明兼容而批量增加
 `"v3": true`。只有确认不兼容或已有 V3 专用副本时才设置 `"v3": false`。
 
-## 2. 通用媒体身份合同
+## 2. 旧导入路径兼容与迁移
 
-### 2.1 内置枚举与插件扩展来源
+MoviePilot V3 对后端模块重新分层后，`app.core`、`app.helper` 和 `app.utils`
+不再是物理源码目录。宿主提供精确的旧导入兼容层：映射表中已经登记的旧路径
+仍可导入，并会绑定到新位置上的同一个模块对象。因此，插件不会仅仅因为这些
+文件被移动就必须立即发布新版本。
+
+兼容层不是通配转发，也不会根据类名猜测新位置。未登记的旧模块仍会抛出
+`ModuleNotFoundError`；兼容层也不代表旧路径会永久作为新插件 API。新代码应优先
+依赖 `app.sdk` 提供的稳定出口，避免继续耦合宿主的 `application`、`domain`、
+`foundation`、`adapters` 或 `runtime` 内部布局。
+
+例如，以下旧代码目前仍可运行：
+
+```python
+from app.core.config import settings
+from app.core.event import EventManager
+from app.utils.string import StringUtils
+```
+
+插件维护时应改为：
+
+```python
+from app.sdk.config import settings
+from app.sdk.events import EventManager
+from app.sdk.utilities import StringUtils
+```
+
+仅出现旧导入 Debug 警告，不代表必须建立 V3 专用副本。如果同一份插件代码仍需
+运行在尚未提供这些 SDK 出口的 V2 宿主，可以暂时保留已登记的旧路径，并把警告
+视为明确的兼容债务；不要通过拼接模块名或非字面量动态导入来隐藏警告。插件已经
+是 V3 专用实现，或最低系统版本已提升到 V3 时，再统一迁移到 SDK。
+
+常用迁移方向如下。具体符号是否公开，以对应 SDK 模块的 `__all__` 为准：
+
+| 旧导入类别 | 插件推荐入口 |
+| --- | --- |
+| `app.log` | `app.sdk.logging` |
+| `app.core.config` | `app.sdk.config` |
+| `app.core.event` | `app.sdk.events` |
+| `app.core.cache` | `app.sdk.cache` |
+| `app.core.module`、`app.core.plugin` | `app.sdk.plugins` |
+| `app.core.context`、`app.core.meta*`、`app.core.metainfo`、`app.utils.media`、`app.utils.tokens` | `app.sdk.media` |
+| `app.utils.string`、`app.domain.string` 以及常用加密、DOM、反射、OTP、单例、系统和定时工具 | `app.sdk.utilities` |
+| `app.utils.http`、`app.utils.ip`、`app.utils.url`、`app.utils.security`、`app.utils.site`、`app.utils.web` | `app.sdk.network` |
+| 下载器、媒体服务器、通知、规则、存储、系统状态及服务发现类 Helper | `app.sdk.services` |
+
+`StringUtils` 的实现已经按文本、容量、时间、URL、DOM、媒体标题、剧集、站点和
+种子等职责拆分；这些内部实现位置不是插件合同。插件若仍需要历史的完整静态方法
+集合，应统一从 `app.sdk.utilities` 导入 `StringUtils`。旧的
+`app.utils.string` 和 `app.domain.string` 会映射到同一个 SDK 兼容门面，方法名、
+旧关键字参数和常见边缘行为均继续保留。
+
+### 2.1 处理 Debug 兼容警告
+
+当宿主启用 `DEBUG=true` 时，插件加载器会记录运行时命中的旧导入，并扫描插件
+Python 源码，输出类似下面的警告：
+
+```text
+[兼容导入] 插件 MyPlugin（__init__.py:12）使用旧路径 app.utils.string，已映射到 app.sdk.string；请迁移到 app.sdk.utilities
+```
+
+源码扫描用于补足模块已被其他插件加载、Python 直接复用 `sys.modules` 而不再触发
+导入钩子的情况。警告会按插件和旧路径去重；生产模式保持静默，不会因为警告阻止
+插件加载。
+
+处理警告时遵循以下顺序：
+
+1. 按警告末尾给出的推荐路径修改导入，不要从实际内部目标路径反向导入。
+2. 只迁移插件实际使用的符号；不要为了消除警告复制宿主实现或创建自己的兼容包。
+3. 在 `DEBUG=true` 的 V3 宿主中重新加载插件，确认该插件不再产生旧导入警告。
+4. 再执行插件原有功能回归；导入成功只说明路径兼容，不代表调用参数或返回合同未变化。
+
+完整兼容清单以 MoviePilot 主仓库的
+[`app/runtime/compat/manifest.py`](https://github.com/jxxghp/MoviePilot/blob/v3/app/runtime/compat/manifest.py)
+为准。插件仓文档只维护迁移原则和稳定 SDK 入口，不复制整份映射表。
+
+## 3. 通用媒体身份合同
+
+### 3.1 内置枚举与插件扩展来源
 
 使用内置来源时应从宿主导入枚举，不要自行维护内置字符串集合：
 
@@ -98,7 +176,7 @@ source = schemas.DiscoverMediaSource(
 `MusicArtistInfo`。通用搜索与详情 REST 路由会把合法扩展来源原样传给这些端口；
 MusicBrainz 榜单、豆瓣音乐分类等来源专属浏览接口不属于扩展入口。
 
-### 2.2 调用通用链路
+### 3.2 调用通用链路
 
 旧的来源专用参数不再用于通用入口：
 
@@ -140,7 +218,7 @@ same_media = (
 )
 ```
 
-### 2.3 规范化、复合键和来源转换
+### 3.3 规范化、复合键和来源转换
 
 统一使用宿主工具处理不可信输入：
 
@@ -176,7 +254,7 @@ tmdb_info = MediaChain().convert_media_identity(
 
 不要在插件中重新实现来源别名、复合键或跨源匹配规则。
 
-### 2.4 常用替换速查
+### 3.4 常用替换速查
 
 | 旧写法 | V3 写法 |
 | --- | --- |
@@ -188,7 +266,7 @@ tmdb_info = MediaChain().convert_media_identity(
 | 用裸 ID 查询下载/整理历史 | `get_by_media_identity(media_source, media_id, ...)` |
 | 从普通 REST 顶层读取业务字段 | 从统一 envelope 的 `data` 读取 |
 
-## 3. 插件自有数据的迁移
+## 4. 插件自有数据的迁移
 
 插件新写入的数据只保存 `media_source` 和 `media_id`，不再同时保存
 `tmdbid`、`doubanid`、`bangumiid` 等冗余主身份字段。推荐结构如下：
@@ -247,7 +325,7 @@ if media_source:
 迁移代码读取旧字段是允许的；迁移完成后的业务流程不应继续把旧字段作为通用
 主身份。
 
-## 4. 链职责变化
+## 5. 链职责变化
 
 `MusicChain` 已删除，插件需要按能力归属修改导入和调用：
 
@@ -265,7 +343,7 @@ if media_source:
 歌词属于刮削流程；需要完整刮削时调用 `ScrapingChain`，不要在插件中复制歌词、
 封面和标签写入逻辑。
 
-## 5. 普通 REST 响应合同
+## 6. 普通 REST 响应合同
 
 本节只列迁移结论。后端输出模型、Python HTTP 调用、Vue 远程组件、统一 Toast、
 多语言和原生响应的完整示例见
@@ -305,7 +383,7 @@ if (response.success) {
 注入客户端的 `baseURL` 已包含 `/api/v1/`。默认错误 Toast 也由宿主统一处理，
 远程组件不要再为同一次失败重复提示。
 
-## 6. 明确保留来源专用 ID 的边界
+## 7. 明确保留来源专用 ID 的边界
 
 统一身份合同针对通用业务链路，不要求抹掉真实的单数据源协议：
 
@@ -322,7 +400,7 @@ if (response.success) {
 调用明确单源接口前，应先判断统一主身份是否属于该来源；如果只有跨源辅助 ID，
 需明确这是单源适配行为，不能静默改写对象的主身份。
 
-## 7. 两个不参与统一的用户格式
+## 8. 两个不参与统一的用户格式
 
 以下两个用户配置继续保留历史来源专用 ID 格式：
 
@@ -334,10 +412,12 @@ if (response.success) {
 不要把它们改成 `media_source` / `media_id`。曾经出现过的统一字段格式没有正式
 发布，因此插件不需要为该短暂格式增加兼容解析或配置迁移。
 
-## 8. 发布前检查清单
+## 9. 发布前检查清单
 
 - 通用方法调用、事件载荷、任务模型和插件数据只使用成对的
   `media_source` / `media_id`。
+- 新增代码优先从 `app.sdk` 导入宿主能力；在 `DEBUG=true` 的 V3 宿主中加载时，
+  插件不再产生能够迁移的旧导入警告。
 - 内置来源使用 `MediaSource` 常量；插件来源使用稳定的扩展成员；ID 在持久化与
   比较前转换为规范字符串。
 - 半对、空白、格式非法来源和 `"0"` 不会进入缓存、数据库或插件数据，合法

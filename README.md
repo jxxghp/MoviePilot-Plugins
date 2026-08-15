@@ -9,7 +9,7 @@ MoviePilot 官方插件仓库，也是 MoviePilot 插件市场默认读取的插
 
 - [仓库指南](./docs/Repository_Guide.md)：先看这份，了解本仓库的目录、元数据、发布链路，以及和主仓库/前端仓库的边界。
 - [V2 插件开发指南](./docs/V2_Plugin_Development.md)：开发或迁移 V2 插件时的主文档，覆盖生命周期、渲染模式、接口能力和校验建议。
-- [V3 插件适配指南](./docs/V3_Plugin_Adaptation.md)：适配统一媒体身份、音乐链职责、插件数据迁移和 V3 发布规则时必读。
+- [V3 插件适配指南](./docs/V3_Plugin_Adaptation.md)：适配旧导入路径、稳定 SDK、统一媒体身份、音乐链职责、插件数据迁移和 V3 发布规则时必读。
 - [MoviePilot 前端模块联邦开发指南](https://github.com/jxxghp/MoviePilot-Frontend/blob/v2/docs/module-federation-guide.md)：当插件需要使用 Vue 远程组件时必读。
 - [常见问题索引](./docs/FAQ.md)：FAQ 已拆分为独立文档，适合按场景查阅。
 
