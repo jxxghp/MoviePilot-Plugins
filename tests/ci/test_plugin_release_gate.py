@@ -149,7 +149,7 @@ def test_checker_validates_all_v3_entries_in_v3_directory(tmp_path: Path) -> Non
 
 
 def test_checker_rejects_v3_patch_bump_and_unsorted_history(tmp_path: Path) -> None:
-    """V3 副本误用补丁版本或历史倒序时必须被发布门禁拒绝。"""
+    """V3 副本停留旧代主版本或历史倒序时必须被发布门禁拒绝（V3 大版本内补丁发布允许）。"""
     repo = tmp_path / "repo"
     plugin_dir = repo / "plugins.v3/example"
     plugin_dir.mkdir(parents=True)
@@ -178,7 +178,7 @@ def test_checker_rejects_v3_patch_bump_and_unsorted_history(tmp_path: Path) -> N
 
     assert result.returncode == 1
     assert "history 未按语义版本降序排列" in result.stdout
-    assert "V3 版本应从旧代 2.6.1 跃迁至 3.0.0" in result.stdout
+    assert "V3 版本应与旧代 2.6.1 保持大版本跃迁" in result.stdout
 
 
 def test_pre_push_propagates_version_gate_failure(tmp_path: Path) -> None:

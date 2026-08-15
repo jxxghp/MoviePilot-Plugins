@@ -118,11 +118,11 @@ def _check_v3_release_contract(path: Path, plugin_id: str, meta: dict) -> list[s
             break
     legacy_version = _semantic_version(legacy_meta.get("version")) if isinstance(legacy_meta, dict) else None
     if parsed_version and legacy_version:
-        expected = f"{legacy_version[0] + 1}.0.0"
-        if package_version != expected:
+        expected_major = legacy_version[0] + 1
+        if parsed_version[0] != expected_major:
             errors.append(
-                f"{path}: {plugin_id} V3 版本应从旧代 {legacy_meta.get('version')} 跃迁至 {expected}，"
-                f"当前为 {package_version}"
+                f"{path}: {plugin_id} V3 版本应与旧代 {legacy_meta.get('version')} 保持大版本跃迁"
+                f"（主版本 {expected_major}.x），当前为 {package_version}"
             )
     return errors
 

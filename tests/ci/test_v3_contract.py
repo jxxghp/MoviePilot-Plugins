@@ -82,7 +82,7 @@ def test_v3_versions_use_next_major_and_descending_history() -> None:
     for plugin_id, metadata in package.items():
         old_metadata = package_v2.get(plugin_id) or package_v1.get(plugin_id)
         old_major = _semantic_version(old_metadata["version"])[0]
-        assert metadata["version"] == f"{old_major + 1}.0.0"
+        assert _semantic_version(metadata["version"])[0] == old_major + 1
 
         history_versions = list(metadata["history"])
         assert _normalized_version(history_versions[0]) == _normalized_version(metadata["version"])
