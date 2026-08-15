@@ -66,6 +66,7 @@ class BrushTaskPayload(BaseModel):
     site_hr_active: bool = False
     site_skip_tips: bool = False
     rss_support: bool = False
+    tag: Optional[str] = None
 
     @field_validator(
         "disksize",
@@ -111,6 +112,7 @@ class BrushTaskPayload(BaseModel):
         "save_path",
         "delete_except_tags",
         "qb_category",
+        "tag",
         mode="before",
     )
     @classmethod
@@ -120,6 +122,14 @@ class BrushTaskPayload(BaseModel):
             return None
         cleaned = str(value).strip()
         return cleaned or None
+
+    @field_validator("tag")
+    @classmethod
+    def validate_tag(cls, value: Optional[str]) -> Optional[str]:
+        """qBittorrent 标签不允许包含逗号"""
+        if value and "," in value:
+            raise ValueError("下载器标签不能包含逗号")
+        return value
 
     @field_validator("size", "seeder", "pubtime", "delete_size_range")
     @classmethod

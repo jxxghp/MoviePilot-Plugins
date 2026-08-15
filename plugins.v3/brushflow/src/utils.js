@@ -43,6 +43,7 @@ export const taskDefaults = {
   site_hr_active: false,
   site_skip_tips: false,
   rss_support: false,
+  tag: null,
 }
 
 /** 统一提取宿主 API 客户端与标准响应模型中的业务数据。 */
@@ -91,6 +92,7 @@ export function normalizeTask(task) {
     'save_path',
     'delete_except_tags',
     'qb_category',
+    'tag',
   ]
   nullableNumbers.forEach(key => {
     const value = result[key] === '' || result[key] === null ? null : Number(result[key])

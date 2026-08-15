@@ -386,6 +386,15 @@ async function saveTask() {
                   <VCol cols="12" md="6">
                     <VTextField v-model.number="localTask.auto_archive_days" type="number" min="0" label="自动归档天数" />
                   </VCol>
+                  <VCol cols="12">
+                    <VTextField
+                      v-model="localTask.tag"
+                      label="下载器标签（可选）"
+                      placeholder="默认：刷流-站点名"
+                      hint="下载器中的种子标签，留空自动使用「刷流-站点名」；同一站点存在多个任务时请设置为不同标签"
+                      persistent-hint
+                    />
+                  </VCol>
                 </VRow>
                 <div class="editor-switches">
                   <VSwitch v-model="localTask.site_skip_tips" label="自动跳过下载提示" color="primary" hide-details inset />

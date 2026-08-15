@@ -82,6 +82,7 @@ TASK_CONFIG_FIELDS = (
     "site_hr_active",
     "site_skip_tips",
     "rss_support",
+    "tag",
 )
 
 LEGACY_SITE_OVERRIDE_FIELDS = {
@@ -173,11 +174,15 @@ class BrushTaskConfig:
         self.site_hr_active = bool(config.get("site_hr_active", False))
         self.site_skip_tips = bool(config.get("site_skip_tips", False))
         self.rss_support = bool(config.get("rss_support", False))
+        self.tag = self._clean_text(config.get("tag"))
 
     @property
     def brush_tag(self) -> str:
-        """返回当前任务在下载器中使用的唯一标签"""
-        return f"刷流-{self.id[:8]}"
+        """返回当前任务在下载器中使用的标签（默认按站点名称生成，保证可读性）"""
+        if self.tag:
+            return self.tag
+        site_name = BrushFlow._get_site_name(self.site_id) if self.site_id else None
+        return f"刷流-{site_name}" if site_name else f"刷流-{self.id[:8]}"
 
     @staticmethod
     def _clean_text(value: Any) -> Optional[str]:
@@ -213,7 +218,7 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流"
     plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "6.0.0"
+    plugin_version = "6.0.1"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -2513,7 +2518,7 @@ class BrushFlow(_PluginBase):
                 download_dir=task.save_path,
                 cookie=cookies,
                 category=task.qb_category,
-                tag=["已整理", self.GLOBAL_BRUSH_TAG, task.brush_tag, random_tag],
+                tag=[task.brush_tag, random_tag],
                 upload_limit=up_limit,
                 download_limit=down_limit,
             ):
@@ -2533,7 +2538,7 @@ class BrushFlow(_PluginBase):
                 content=torrent_content,
                 download_dir=task.save_path,
                 cookie=cookies,
-                labels=["已整理", self.GLOBAL_BRUSH_TAG, task.brush_tag],
+                labels=[task.brush_tag],
             )
             if not added_torrent:
                 return None
@@ -2683,7 +2688,7 @@ class BrushFlow(_PluginBase):
             return 0
 
     def __get_global_downloading_count(self) -> int:
-        """按下载器去重汇总带全局刷流标签的下载中种子数量。"""
+        """按下载器去重汇总带全局刷流标签或任务标签的下载中种子数量。"""
         total_count = 0
         downloader_names = {task.downloader for task in self._task_configs.values() if task.downloader}
         downloader_helper = DownloaderHelper()
@@ -2692,8 +2697,13 @@ class BrushFlow(_PluginBase):
                 service = downloader_helper.get_service(name=downloader_name)
                 if not service or not service.instance:
                     continue
-                torrents = service.instance.get_downloading_torrents(tags=self.GLOBAL_BRUSH_TAG)
-                total_count += len(torrents or [])
+                task_tags = {
+                    task.brush_tag for task in self._task_configs.values() if task.downloader == downloader_name
+                } | {self.GLOBAL_BRUSH_TAG}
+                torrents = service.instance.get_downloading_torrents()
+                total_count += sum(
+                    1 for torrent in torrents or [] if task_tags.intersection(self.__get_label(torrent))
+                )
             except Exception as err:
                 logger.error(f"获取下载器 [{downloader_name}] 全局刷流下载数量失败：{str(err)}")
         return total_count
