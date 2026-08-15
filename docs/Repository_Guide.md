@@ -2,6 +2,9 @@
 
 本文档面向维护者和插件开发者，说明 `MoviePilot-Plugins` 在整个 MoviePilot 体系中的职责、目录约定、元数据规则、发布流程，以及与 `MoviePilot` / `MoviePilot-Frontend` 两个主仓库的边界。
 
+本指南负责仓库维护与发布规则；从零开发当前 V3 插件，请从
+[MoviePilot 插件开发指南（V3）](./Plugin_Development.md) 开始。
+
 ## 1. 仓库职责
 
 `MoviePilot-Plugins` 不是独立运行时，而是插件市场和插件源码仓库。
@@ -35,14 +38,15 @@
 
 ```text
 MoviePilot-Plugins/
-├── plugins/                 # 默认插件目录
-├── plugins.v2/              # V2 专用插件目录
-├── plugins.v3/              # V3 专用插件目录
+├── plugins.v3/              # 当前 V3 专用插件目录
+├── tests/v3/                # 当前 V3 插件测试
+├── package.v3.json          # 当前 V3 插件索引
+├── plugins.v2/              # V2 历史专用插件目录
+├── package.v2.json          # V2 历史索引
+├── plugins/                 # 默认历史或存量跨版本插件目录
+├── package.json             # 默认历史索引
 ├── icons/                   # 插件图标
 ├── docs/                    # 文档
-├── package.json             # 默认插件索引
-├── package.v2.json          # V2 优先插件索引
-├── package.v3.json          # V3 专用插件索引
 └── .github/workflows/       # 自动发布工作流
 ```
 
@@ -59,9 +63,20 @@ MoviePilot-Plugins/
 
 ## 3. 元数据文件说明
 
-### 3.1 `package.json`
+### 3.1 `package.v3.json`
 
-默认插件索引文件，用于：
+当前 V3 插件索引文件，对应源码必须放在
+`plugins.v3/<plugin_id_lower>/`。新插件从这里开始；当条目存在 V3 专用副本时，
+旧索引中的同名条目应声明 `"v3": false`，避免 V3 回退到旧合同实现。
+
+### 3.2 `package.v2.json`
+
+V2 历史插件索引文件。MoviePilot 在 V2 环境下会优先读取这里的条目；找不到时，
+才会回退到 `package.json` 中声明了 `"v2": true` 的兼容插件。
+
+### 3.3 `package.json`
+
+默认历史索引文件，用于：
 
 - 旧版兼容或默认版本插件
 - 对 V2 兼容但不需要单独维护代码目录的插件
@@ -76,14 +91,6 @@ MoviePilot-Plugins/
   }
 }
 ```
-
-### 3.2 `package.v2.json`
-
-V2 优先插件索引文件。MoviePilot 在 V2 环境下会优先读取这里的条目；找不到时，才会回退到 `package.json` 中声明了 `"v2": true` 的兼容插件。
-
-### 3.3 `package.v3.json`
-
-V3 专用插件索引文件，对应源码必须放在 `plugins.v3/<plugin_id_lower>/`。当条目存在 V3 专用副本时，旧索引中的同名条目应声明 `"v3": false`，避免 V3 回退到旧合同实现。
 
 ### 3.4 常用字段
 
@@ -116,15 +123,17 @@ MoviePilot 当前的插件版本选择逻辑可以概括为：
 
 这意味着：
 
+- 新开发的 V3 插件放入 `plugins.v3/`，元数据写入 `package.v3.json`。
 - 同一个插件若在 `package.v2.json` 中已有专用实现，就不要再依赖 `package.json` 中的兼容声明做“隐式覆盖”。
-- 新写的 V2 专用插件，优先放 `plugins.v2/`，并把元数据写入 `package.v2.json`。
-- 真正跨版本共用一套实现时，再使用 `package.json + "v2": true` 的方式。
+- 只有维护历史 V2 插件时，才继续使用 `plugins.v2/` 和 `package.v2.json`。
+- 旧插件确实跨版本共用一套实现时，才使用 `package.json + "v2": true` 的方式。
 - 依赖 V3 新合同的实现必须放入 `plugins.v3/` 并在 `package.v3.json` 声明 `system_version: ">=3.0.0"`。
 - 依赖宿主新增能力的插件需要同步声明 `system_version`，否则旧版 MoviePilot 仍可能看到更新入口但安装后无法加载。
 
 涉及媒体识别、搜索、订阅、下载、整理、刮削、媒体库事件、插件自有媒体数据、
 音乐链或宿主 REST API 的插件，还必须按
-[V3 插件适配指南](./V3_Plugin_Adaptation.md)检查统一媒体身份、链职责和响应合同。
+[V2 插件迁移到 V3](./V3_Plugin_Adaptation.md)检查统一媒体身份、链职责和存量数据；
+从零开发流程统一参考 [MoviePilot 插件开发指南（V3）](./Plugin_Development.md)。
 
 ## 5. 与宿主仓库的协作边界
 
@@ -159,7 +168,7 @@ MoviePilot 当前的插件版本选择逻辑可以概括为：
 
 如果你在本仓库写了 Vue 模式插件，需要同时关注：
 
-- `MoviePilot-Frontend/docs/module-federation-guide.md`
+- `MoviePilot-Frontend` V3 分支的 `docs/module-federation-guide.md`
 - `MoviePilot-Frontend/src/utils/federationLoader.ts`
 - `MoviePilot-Frontend` 中与插件页面、侧栏导航、仪表板相关的组件
 
@@ -169,8 +178,9 @@ MoviePilot 当前的插件版本选择逻辑可以概括为：
 
 - 只是扩展后端能力、配置项简单：优先写 Vuetify JSON 模式插件
 - 需要复杂交互或完整页面：使用 Vue 联邦模式
-- 只是给现有插件补 V2 兼容：优先评估能否复用 `package.json + "v2": true`
-- 已经与 V1 / 默认版本差异很大：直接转为 `plugins.v2/ + package.v2.json`
+- 新开发 V3 插件：使用 `plugins.v3/ + package.v3.json`
+- 迁移现有 V2 插件：先判断能否继续依赖兼容层，再决定是否建立 V3 专用副本
+- 仍维护 V2 历史实现：保留 `plugins.v2/ + package.v2.json`，不要反向改坏 V3 实现
 
 ### 6.2 再落目录与元数据
 
@@ -281,14 +291,19 @@ yarn dev
 推荐文档分工：
 
 - 本仓库 `README.md`：总览与主入口
+- 本仓库 `docs/Plugin_Development.md`：当前 V3 完整开发主指南
 - 本仓库 `docs/FAQ.md`：FAQ 索引与场景入口
 - 本仓库 `docs/Repository_Guide.md`：仓库维护与发布规则
-- 本仓库 `docs/V2_Plugin_Development.md`：V2 插件开发主文档
+- 本仓库 `docs/V3_Plugin_Adaptation.md`：V2 插件迁移到 V3 的差异专题
+- 本仓库 `docs/V3_API_Response_Adaptation.md`：插件 API 专题
+- 本仓库 `docs/V2_Plugin_Development.md`：V2 历史版本参考
 - 前端仓库 `docs/module-federation-guide.md`：Vue 联邦远程组件开发规范
 
 ## 10. 开始之前先读哪一份
 
 - 想知道“这个仓库该怎么维护、改哪个文件、怎么发布”：看本文档
-- 想直接开发一个 V2 插件：看 `docs/V2_Plugin_Development.md`
+- 想开发一个当前 V3 插件：从 `docs/Plugin_Development.md` 开始
+- 想把旧插件迁移到 V3：看 `docs/V3_Plugin_Adaptation.md`
+- 仍然维护 V2 历史实现：看 `docs/V2_Plugin_Development.md`
 - 想做 Vue 远程组件或侧栏全页：看前端仓库模块联邦文档
 - 想按功能场景抄现成模式：看 `docs/FAQ.md` 和 `docs/faq/` 下的独立 FAQ 文档

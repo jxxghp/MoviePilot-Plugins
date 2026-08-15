@@ -1,6 +1,8 @@
 # MoviePilot 插件常见问题
 
-常见问题已从主 README 拆分为独立文档，按主题查阅即可。
+这里是功能专题索引，不代替完整开发流程。第一次开发插件请先阅读
+[MoviePilot 插件开发指南（V3）](./Plugin_Development.md)，遇到具体扩展场景时再按
+下面的主题查阅。
 
 - [1. 如何扩展消息推送渠道？](./faq/01-extend-notification-channel.md)
 - [2. 如何在插件中实现远程命令响应？](./faq/02-remote-command-handler.md)

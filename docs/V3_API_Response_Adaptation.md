@@ -1,5 +1,8 @@
 # MoviePilot V3 插件 API 响应适配指南
 
+本文是 API 专题，不是插件开发总入口。第一次开发 V3 插件，请先阅读
+[MoviePilot 插件开发指南（V3）](./Plugin_Development.md)。
+
 本文面向以下插件作者：
 
 - 通过 `get_api()` 暴露普通 JSON API；
@@ -9,7 +12,7 @@
 
 不提供 HTTP API、也不调用宿主 HTTP API 的纯后台插件，不需要因为本次响应合同
 单独建立 V3 实现。媒体身份、链职责和插件数据迁移仍请同时参阅
-[V3 插件适配指南](./V3_Plugin_Adaptation.md)。
+[V2 插件迁移到 V3](./V3_Plugin_Adaptation.md)。
 
 ## 1. 必须遵守的合同
 
@@ -349,5 +352,5 @@ from starlette.responses import StreamingResponse
 - 远程组件测试 mock 的是最终 envelope，不是 AxiosResponse。
 
 如果插件仅因本合同而与 V2 实现不兼容，应按
-[V3 插件适配指南](./V3_Plugin_Adaptation.md)建立 `plugins.v3/` 副本、升级主版本、
+[V2 插件迁移到 V3](./V3_Plugin_Adaptation.md)建立 `plugins.v3/` 副本、升级主版本、
 声明 `system_version: ">=3.0.0"`，并保持原 V1/V2 实现不变。

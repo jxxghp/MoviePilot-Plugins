@@ -37,4 +37,4 @@
   [V3 插件 API 响应适配指南](../V3_API_Response_Adaptation.md)。
 - 媒体相关通用接口必须成对传递 `media_source` 与 `media_id`；明确单数据源的插件
   自有 API 可以继续按该来源原生合同设计参数。完整边界见
-  [V3 插件适配指南](../V3_Plugin_Adaptation.md)。
+  [V2 插件迁移到 V3](../V3_Plugin_Adaptation.md)。

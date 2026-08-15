@@ -31,4 +31,4 @@ class RecommendSourceEventData(ChainEventData):
 
 返回的每个 `MediaInfo` 如携带主媒体身份，必须同时提供 `media_source` 和
 `media_id`。插件 endpoint 直接返回业务列表，不要手工套统一响应字典；完整说明见
-[V3 插件适配指南](../V3_Plugin_Adaptation.md)。
+[V2 插件迁移到 V3](../V3_Plugin_Adaptation.md)。

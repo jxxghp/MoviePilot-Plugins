@@ -71,4 +71,4 @@ class MediaRecognizeConvertEventData(ChainEventData):
 - 3. 启用插件后，点击探索功能将自动生成额外的数据源标签及页面，页面中选择不同的过滤条件时会重新触发API请求。
 
 V3 新插件应直接按以上统一字段实现；`mediaid_prefix` 仅用于读取尚未升级的已安装
-插件。完整迁移和单源例外见 [V3 插件适配指南](../V3_Plugin_Adaptation.md)。
+插件。完整迁移和单源例外见 [V2 插件迁移到 V3](../V3_Plugin_Adaptation.md)。

@@ -1,6 +1,10 @@
-# MoviePilot V2 插件开发指南
+# MoviePilot V2 插件开发指南（历史版本）
 
-本文档说明如何开发适用于 MoviePilot V2 的插件，并尽量以当前 `MoviePilot` 与 `MoviePilot-Frontend` 主仓库的真实实现为准，而不是停留在早期兼容阶段的概念说明。
+> 本文只供仍在维护 MoviePilot V2 实现的开发者参考。当前新插件统一面向 V3，
+> 请从 [MoviePilot 插件开发指南（V3）](./Plugin_Development.md) 开始；把已有 V2
+> 插件迁移到 V3 时，再查看 [V2 插件迁移到 V3](./V3_Plugin_Adaptation.md)。
+
+本文档说明如何维护适用于 MoviePilot V2 的历史插件实现。
 
 关联阅读：
 
