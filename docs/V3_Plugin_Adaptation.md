@@ -76,6 +76,7 @@ from app.sdk.utilities import StringUtils
 | `app.utils.string`、`app.domain.string` 以及常用加密、DOM、反射、OTP、单例、系统和定时工具 | `app.sdk.utilities` |
 | `app.utils.http`、`app.utils.ip`、`app.utils.url`、`app.utils.security`、`app.utils.site`、`app.utils.web` | `app.sdk.network` |
 | 下载器、媒体服务器、通知、规则、存储、系统状态及服务发现类 Helper | `app.sdk.services` |
+| `app.helper.browser`（PlaywrightHelper 等浏览器操作） | `app.sdk.browser` |
 
 `StringUtils` 的实现已经按文本、容量、时间、URL、DOM、媒体标题、剧集、站点和
 种子等职责拆分；这些内部实现位置不是插件合同。插件若仍需要历史的完整静态方法
@@ -421,6 +422,8 @@ if (response.success) {
   `media_source` / `media_id`。
 - 新增代码优先从 `app.sdk` 导入宿主能力；在 `DEBUG=true` 的 V3 宿主中加载时，
   插件不再产生能够迁移的旧导入警告。
+- 不直接依赖 `app.sdk._legacy`，也不新增 `app.core.*`、`app.helper.*`、
+  `app.utils.*` 旧路径导入。
 - 内置来源使用 `MediaSource` 常量；插件来源使用稳定的扩展成员；ID 在持久化与
   比较前转换为规范字符串。
 - 半对、空白、格式非法来源和 `"0"` 不会进入缓存、数据库或插件数据，合法
