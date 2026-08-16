@@ -3,7 +3,7 @@ QB上传限速插件（MoviePilot v2/v3）。
 
 功能：
 1. 定时轮询已选下载器（qBittorrent / Transmission）中的种子；
-2. 种子分享率（上传量 / 下载量）达到全局或站点单独阈值后，自动限制该种子上传速度为指定值（KB/s）；上传速度填 0 时不做限速处理；
+2. 种子分享率（上传量 / 下载量）达到全局或站点单独阈值后，自动限制该种子上传速度为指定值（KB/s）；qBittorrent 全局上传限速更低时自动采用全局值，上传速度填 0 时不做限速处理；
 3. 支持按站点筛选和按站点单独设置分享率阈值；未配置单独阈值的站点回退使用全局阈值；
 4. 停用或卸载插件时，自动将本插件限速过的种子恢复为不限速；
 5. 限速通知支持多选 MoviePilot 已启用通知渠道，测试通知仅首次发送；
@@ -37,9 +37,9 @@ class QbUploadLimiter(_PluginBase):
     """
 
     plugin_name = "QB上传限速"
-    plugin_desc = "当 qBittorrent / Transmission 中已下载的种子分享率达到全局或站点单独阈值时，自动限制该种子的上传速度，支持多下载器、站点筛选、定时检测和停用恢复。"
+    plugin_desc = "种子分享率达到全局或站点单独阈值时自动限制上传速度；qBittorrent 会与全局上传限速比较并采用较小值，支持多下载器、站点筛选、定时检测和停用恢复。"
     plugin_icon = "Qbittorrent_A.png"
-    plugin_version = "1.3.0"
+    plugin_version = "1.3.1"
     plugin_author = "xlmc"
     author_url = "https://github.com/xlmc"
     plugin_config_prefix = "qbuploadlimiter_"
@@ -425,7 +425,7 @@ class QbUploadLimiter(_PluginBase):
                                         "props": {
                                             "model": "upload_limit",
                                             "label": "上传速度（KB/s）",
-                                            "placeholder": "例如 2000；0 表示达到阈值后不做限速处理",
+                                            "placeholder": "例如 2000；qB 全局上传限速更低时采用全局值；0 表示不做限速处理",
                                             "type": "number",
                                             "min": 0,
                                             "step": 1,
@@ -636,6 +636,39 @@ class QbUploadLimiter(_PluginBase):
             return fallback
         return self._site_share_ratios.get(site_key, fallback)
 
+    def _effective_upload_limit(self, downloader: Any, downloader_type: str, configured_limit: int) -> float:
+        """
+        返回下载器实际应使用的单种子上传限速（KB/s）。
+
+        qBittorrent 启用了全局上传限速时，插件配置与 qB 全局值取较小者；
+        qB 全局值为 0（不限速）、读取失败或下载器为 Transmission 时使用插件配置。
+        """
+        limit = max(self._to_int(configured_limit, 0), 0)
+        if limit <= 0 or str(downloader_type or "").strip().lower() != "qbittorrent":
+            return limit
+
+        get_speed_limit = getattr(downloader, "get_speed_limit", None)
+        if not callable(get_speed_limit):
+            logger.warning(f"{self.LOG_TAG}当前 qBittorrent 下载器不支持读取全局上传限速，使用插件配置 {self._format_limit(limit)}")
+            return limit
+
+        try:
+            speed_limits = get_speed_limit()
+            if not isinstance(speed_limits, (tuple, list)) or len(speed_limits) < 2:
+                raise ValueError("返回值格式无效")
+            qb_upload_limit = float(speed_limits[1] or 0)
+        except Exception as err:
+            logger.warning(f"{self.LOG_TAG}读取 qBittorrent 全局上传限速失败，使用插件配置 {self._format_limit(limit)}：{err}")
+            return limit
+
+        # qB 全局上传限速为 0 表示不限速；NaN 等无效值同样回退插件配置。
+        if qb_upload_limit <= 0 or qb_upload_limit != qb_upload_limit:
+            return limit
+
+        effective_limit = min(float(limit), qb_upload_limit)
+        # 常见的整数 KB/s 保持整数显示；非整 KB/s 则保留 qB 返回的精确值。
+        return int(effective_limit) if effective_limit.is_integer() else effective_limit
+
     def _set_torrent_limits(self, share_ratio: int, upload_limit: int, channel: Any = None) -> bool:
         """
         检测所有选中下载器中的种子分享率，达到阈值的设置上传限速。
@@ -683,6 +716,7 @@ class QbUploadLimiter(_PluginBase):
         for service_name, service_info in services.items():
             downloader = service_info.instance
             downloader_type = getattr(service_info, "type", "")
+            effective_limit = self._effective_upload_limit(downloader, downloader_type, limit)
             try:
                 torrents, error = downloader.get_torrents()
                 if error:
@@ -694,13 +728,13 @@ class QbUploadLimiter(_PluginBase):
 
                 now = time.time()
                 # 刷新已完成种子的监控计时与速度达标记录，并清理已不存在的种子状态
-                self._refresh_torrent_state(service_name, torrents, downloader_type, limit, now)
+                self._refresh_torrent_state(service_name, torrents, downloader_type, effective_limit, now)
                 # 站点识别缓存：{种子Hash: 站点名称}，同一轮内每个种子只计算一次
                 site_cache: Dict[str, str] = {}
                 # 「下载完成后监控超时」覆盖所有已完成且未认领的种子（不依赖分享率达标）：
                 # 持续低速达到设定秒数即取消监控，避免速度回升清除计时后仍可能被限速
                 timeout_canceled = 0
-                if self._complete_timeout > 0 and limit > 0:
+                if self._complete_timeout > 0 and effective_limit > 0:
                     history_sites: Dict[str, str] = {}
                     if selected:
                         hashes = [self._torrent_hash(t, downloader_type) for t in torrents]
@@ -721,7 +755,7 @@ class QbUploadLimiter(_PluginBase):
                             site = self._resolve_site(torrent, torrent_hash, downloader_type, history_sites, site_cache)
                             if not site or site.lower() not in selected:
                                 continue
-                        if self._check_complete_timeout(service_name, torrent, downloader_type, torrent_hash, limit, now):
+                        if self._check_complete_timeout(service_name, torrent, downloader_type, torrent_hash, effective_limit, now):
                             self._cancel_monitoring(
                                 service_name,
                                 torrent_hash,
@@ -746,7 +780,7 @@ class QbUploadLimiter(_PluginBase):
                     downloader=downloader,
                     downloader_type=downloader_type,
                     matched=matched,
-                    limit=limit,
+                    limit=effective_limit,
                     threshold=threshold,
                     channel=channel,
                     site_cache=site_cache,
@@ -755,6 +789,10 @@ class QbUploadLimiter(_PluginBase):
                 # 兜底重试「已取消监控但恢复失败」的种子：下载器短暂离线导致的
                 # 恢复失败，在下载器恢复后由每轮检测顺带重试，无需等待停用/卸载
                 self._retry_stuck_restores(service_name, downloader)
+                if effective_limit < limit:
+                    summary_lines.append(
+                        f"{service_name}：插件上传限速 {self._format_limit(limit)} 高于 qB 全局上传限速，实际采用 {self._format_limit(effective_limit)}"
+                    )
                 summary_lines.append(
                     f"{service_name}：达标 {len(matched)} 个，新限速 {new_limited} 个，已满足 {already} 个，失败 {failed} 个，取消监控 {canceled + timeout_canceled} 个"
                 )
@@ -822,7 +860,7 @@ class QbUploadLimiter(_PluginBase):
         return matched
 
     def _refresh_torrent_state(
-        self, service_name: str, torrents: List[Any], downloader_type: str, limit: int, now: float
+        self, service_name: str, torrents: List[Any], downloader_type: str, limit: float, now: float
     ):
         """
         每个检测周期刷新种子监控状态：
@@ -869,7 +907,7 @@ class QbUploadLimiter(_PluginBase):
         downloader: Any,
         downloader_type: str,
         matched: List[Any],
-        limit: int,
+        limit: float,
         threshold: int,
         channel: Any,
         site_cache: Dict[str, str],
@@ -1158,7 +1196,7 @@ class QbUploadLimiter(_PluginBase):
             return 0.0
 
     @staticmethod
-    def _torrent_current_limit(torrent: Any, downloader_type: str, limit_kb: int) -> bool:
+    def _torrent_current_limit(torrent: Any, downloader_type: str, limit_kb: float) -> bool:
         """
         判断种子当前上传限速是否已是目标值，避免重复调用下载器接口。
 
@@ -1167,13 +1205,18 @@ class QbUploadLimiter(_PluginBase):
         if downloader_type == "qbittorrent":
             if not isinstance(torrent, dict):
                 return False
-            return torrent.get("up_limit") == limit_kb * 1024
+            try:
+                current_limit = int(torrent.get("up_limit") or 0)
+                target_limit = int(float(limit_kb) * 1024)
+            except (TypeError, ValueError):
+                return False
+            return current_limit == target_limit
         upload_limited = bool(getattr(torrent, "uploadLimited", False))
         upload_limit = int(getattr(torrent, "uploadLimit", 0) or 0)
         if limit_kb == 0:
             # 目标是不限速：只要当前没有开启限速即视为已满足
             return not upload_limited
-        return upload_limited and upload_limit == limit_kb
+        return upload_limited and upload_limit == int(float(limit_kb))
 
     @staticmethod
     def _torrent_upload_speed(torrent: Any, downloader_type: str) -> float:
@@ -1336,7 +1379,7 @@ class QbUploadLimiter(_PluginBase):
         logger.info(f"{self.LOG_TAG}[{service_name}] 种子 [{torrent_name}] 已取消监控（{reason}），不再设置限速")
 
     # ---------------------------------------------------------------- 通知
-    def _send_limit_notify(self, site: str, torrent_name: str, limit: int, channels: List[str]) -> bool:
+    def _send_limit_notify(self, site: str, torrent_name: str, limit: float, channels: List[str]) -> bool:
         """
         发送单条限速通知：{站点}所下的{种子}已经限速{速度} KB/s，变量加粗；支持多个通知渠道。
 
@@ -1745,6 +1788,10 @@ class QbUploadLimiter(_PluginBase):
             return default
 
     @staticmethod
-    def _format_limit(limit: int) -> str:
+    def _format_limit(limit: float) -> str:
         """格式化限速显示。"""
-        return "不限速" if limit <= 0 else f"{limit} KB/s"
+        if limit <= 0:
+            return "不限速"
+        value = float(limit)
+        display = int(value) if value.is_integer() else round(value, 3)
+        return f"{display} KB/s"
