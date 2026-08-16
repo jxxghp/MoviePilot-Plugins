@@ -3,8 +3,8 @@ QB上传限速插件（MoviePilot v2/v3）。
 
 功能：
 1. 定时轮询已选下载器（qBittorrent / Transmission）中的种子；
-2. 种子分享率（上传量 / 下载量）达到设定阈值后，自动限制该种子上传速度为指定值（KB/s）；上传速度填 0 时不做限速处理；
-3. 支持按站点筛选：勾选站点时仅处理所选站点下载的种子，未勾选时处理全部种子；
+2. 种子分享率（上传量 / 下载量）达到全局或站点单独阈值后，自动限制该种子上传速度为指定值（KB/s）；上传速度填 0 时不做限速处理；
+3. 支持按站点筛选和按站点单独设置分享率阈值；未配置单独阈值的站点回退使用全局阈值；
 4. 停用或卸载插件时，自动将本插件限速过的种子恢复为不限速；
 5. 限速通知支持多选 MoviePilot 已启用通知渠道，测试通知仅首次发送；
 6. 支持监控超时取消：下载完成后达不到限速值、或限速后持续超时/速度低于限速值 80% 时，取消监控并立即恢复该种子不限速。
@@ -37,9 +37,9 @@ class QbUploadLimiter(_PluginBase):
     """
 
     plugin_name = "QB上传限速"
-    plugin_desc = "当 qBittorrent 中已下载的种子分享率达到设定阈值时，自动将该种子的上传速度限制为指定值（KB/s），支持多下载器、按站点筛选、定时检测和停用恢复。"
+    plugin_desc = "当 qBittorrent / Transmission 中已下载的种子分享率达到全局或站点单独阈值时，自动限制该种子的上传速度，支持多下载器、站点筛选、定时检测和停用恢复。"
     plugin_icon = "Qbittorrent_A.png"
-    plugin_version = "1.2.30"
+    plugin_version = "1.3.0"
     plugin_author = "xlmc"
     author_url = "https://github.com/xlmc"
     plugin_config_prefix = "qbuploadlimiter_"
@@ -53,8 +53,12 @@ class QbUploadLimiter(_PluginBase):
     _onlyonce = False
     # 已选择的通知渠道类型（如 telegram / wechat），留空表示不发通知
     _notify_channel = []
-    # 分享率阈值（正整数）
+    # 全局分享率阈值（正整数）
     _share_ratio = 1
+    # 站点名称（小写）-> 单独分享率阈值；未命中时使用全局阈值
+    _site_share_ratios: Dict[str, int] = {}
+    # 站点单独阈值表单的规范化文本（每行「站点=阈值」）
+    _site_share_ratios_text = ""
     # 上传速度 KB/s，0 表示分享率达到阈值后不做限速处理
     _upload_limit = 2000
     # 定时检测间隔（秒）
@@ -123,6 +127,9 @@ class QbUploadLimiter(_PluginBase):
         self._onlyonce = bool(config.get("onlyonce"))
         self._notify_channel = self._normalize_channels(config.get("notify_channel"))
         self._share_ratio = max(self._to_int(config.get("share_ratio"), 1), 1)
+        self._site_share_ratios, self._site_share_ratios_text = self._normalize_site_share_ratios(
+            config.get("site_share_ratios")
+        )
         self._upload_limit = max(self._to_int(config.get("upload_limit"), 2000), 0)
         self._interval_seconds = max(self._to_int(config.get("interval_seconds"), 30), 10)
         # 监控超时取消配置（秒），0 表示不启用
@@ -242,9 +249,10 @@ class QbUploadLimiter(_PluginBase):
         插件设置表单：
         第一行：启用插件 / 立即运行一次 / 发送通知（多选渠道）；
         第二行：下载器（多选）/ 站点（多选，按站点筛选）；
-        第三行：分享率阈值 / 上传速度 / 定时检测间隔；
-        第四行：下载完成后监控超时 / 限速后取消监控超时；
-        第五行：功能说明。
+        第三行：全局分享率阈值 / 上传速度 / 定时检测间隔；
+        第四行：按站点单独分享率阈值；
+        第五行：下载完成后监控超时 / 限速后取消监控超时；
+        第六行：功能说明。
         """
         # 下载器下拉：MoviePilot 已配置并启用的 qBittorrent / Transmission
         downloader_items = []
@@ -395,8 +403,8 @@ class QbUploadLimiter(_PluginBase):
                                         "component": "VTextField",
                                         "props": {
                                             "model": "share_ratio",
-                                            "label": "分享率阈值",
-                                            "placeholder": "正整数（≥1），不允许填 0；分享率达到该值后限速",
+                                            "label": "全局分享率阈值",
+                                            "placeholder": "正整数（≥1）；站点未配置单独阈值时使用该值",
                                             "type": "number",
                                             "min": 1,
                                             "step": 1,
@@ -447,6 +455,30 @@ class QbUploadLimiter(_PluginBase):
                                     }
                                 ],
                             },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "site_share_ratios",
+                                            "label": "按站点单独分享率阈值",
+                                            "placeholder": "一行一个，例如：\n站点A=3\n站点B=5",
+                                            "rows": 3,
+                                            "auto-grow": True,
+                                            "clearable": True,
+                                            "hint": "格式：站点名称=正整数阈值（≥1）。对应站点使用单独阈值；未配置或无法识别站点时回退使用全局分享率阈值。",
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            }
                         ],
                     },
                     {
@@ -506,7 +538,7 @@ class QbUploadLimiter(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "本插件按分享率逐种子限速：种子分享率（上传量/下载量）达到设定的正整数阈值（不允许填 0）后，其上传速度将被限制为设定值（KB/s）。上传速度填 0 表示分享率达到阈值后不做限速处理；上传速度、检测间隔与两个监控超时均须为正整数（两个监控超时填 0 表示不启用对应功能）。支持 qBittorrent 和 Transmission。",
+                                            "text": "本插件按分享率逐种子限速：种子分享率（上传量/下载量）达到全局或站点单独设置的正整数阈值后，其上传速度将被限制为设定值（KB/s）。站点单独阈值使用「站点名称=阈值」格式，一行一个；未配置或无法识别站点时使用全局阈值。上传速度填 0 表示不做限速处理；两个监控超时填 0 表示不启用对应功能。支持 qBittorrent 和 Transmission。",
                                         },
                                     }
                                 ],
@@ -524,6 +556,7 @@ class QbUploadLimiter(_PluginBase):
             "onlyonce": self._onlyonce,
             "notify_channel": self._notify_channel,
             "share_ratio": self._share_ratio,
+            "site_share_ratios": self._site_share_ratios_text,
             "upload_limit": self._upload_limit,
             "interval_seconds": self._interval_seconds,
             "complete_timeout": self._complete_timeout,
@@ -596,6 +629,13 @@ class QbUploadLimiter(_PluginBase):
         sites = [str(site).strip() for site in (self._sites or []) if str(site).strip()]
         return {site.lower() for site in sites} if sites else None
 
+    def _threshold_for_site(self, site: str, fallback: int) -> int:
+        """返回种子所属站点的单独分享率阈值，未配置或站点未知时使用全局阈值。"""
+        site_key = str(site or "").strip().lower()
+        if not site_key:
+            return fallback
+        return self._site_share_ratios.get(site_key, fallback)
+
     def _set_torrent_limits(self, share_ratio: int, upload_limit: int, channel: Any = None) -> bool:
         """
         检测所有选中下载器中的种子分享率，达到阈值的设置上传限速。
@@ -633,6 +673,11 @@ class QbUploadLimiter(_PluginBase):
         summary_lines = []
         if selected:
             summary_lines.append(f"站点筛选：{'、'.join(sorted(self._sites))}")
+        if self._site_share_ratios_text:
+            summary_lines.append(
+                f"站点单独阈值：{self._site_share_ratios_text.replace(chr(10), '、')}"
+                f"（其他站点使用全局阈值 {threshold}）"
+            )
         failed_names = []
 
         for service_name, service_info in services.items():
@@ -685,13 +730,15 @@ class QbUploadLimiter(_PluginBase):
                                 downloader=downloader,
                             )
                             timeout_canceled += 1
-                # 筛选出达标且（可选）属于勾选站点的种子
+                # 筛选出达标且（可选）属于勾选站点的种子；记录每个达标种子实际使用的阈值
+                threshold_cache: Dict[str, int] = {}
                 matched = self._collect_matched_torrents(
                     torrents=torrents,
                     downloader_type=downloader_type,
                     threshold=threshold,
                     selected=selected,
                     site_cache=site_cache,
+                    threshold_cache=threshold_cache,
                 )
                 # 对达标种子应用限速并统计结果
                 new_limited, already, failed, canceled = self._apply_limits(
@@ -703,6 +750,7 @@ class QbUploadLimiter(_PluginBase):
                     threshold=threshold,
                     channel=channel,
                     site_cache=site_cache,
+                    threshold_cache=threshold_cache,
                 )
                 # 兜底重试「已取消监控但恢复失败」的种子：下载器短暂离线导致的
                 # 恢复失败，在下载器恢复后由每轮检测顺带重试，无需等待停用/卸载
@@ -733,16 +781,19 @@ class QbUploadLimiter(_PluginBase):
         threshold: int,
         selected: Optional[Set[str]],
         site_cache: Dict[str, str],
+        threshold_cache: Dict[str, int],
     ) -> List[Any]:
         """
         从种子列表中筛选出达到分享率阈值且（可选）属于勾选站点的种子。
 
-        站点筛选启用时，先一次性批量查询下载历史（hash -> 站点），
-        优先使用 MoviePilot 记录的权威站点信息，避免逐种子猜测。
+        启用站点筛选或配置了站点单独阈值时，一次性批量查询下载历史
+        （hash -> 站点），优先使用 MoviePilot 记录的权威站点信息。
+        每个达标种子实际使用的阈值写入 threshold_cache，供日志准确显示。
         """
-        # 仅当勾选站点时才需要做站点识别，避免无谓的数据库查询
+        # 站点筛选或站点单独阈值至少启用一项时，才需要识别种子所属站点
+        need_site = bool(selected or self._site_share_ratios)
         history_sites: Dict[str, str] = {}
-        if selected:
+        if need_site:
             hashes = [self._torrent_hash(t, downloader_type) for t in torrents]
             history_sites = self._load_history_sites(hashes)
 
@@ -754,14 +805,19 @@ class QbUploadLimiter(_PluginBase):
             # 只处理已下载完成的种子，下载中的种子即使分享率达标也不限速
             if not self._torrent_completed(torrent, downloader_type):
                 continue
-            # 站点筛选：识别站点并校验是否属于勾选列表
-            if selected:
+
+            site = ""
+            if need_site:
                 site = self._resolve_site(torrent, torrent_hash, downloader_type, history_sites, site_cache)
-                if not site or site.lower() not in selected:
-                    continue
-            # 分享率筛选
-            if self._torrent_ratio(torrent, downloader_type) < threshold:
+            # 站点筛选：无法识别或不属于勾选列表时跳过
+            if selected and (not site or site.lower() not in selected):
                 continue
+
+            # 已识别且配置了单独阈值的站点使用单独值，否则回退到全局阈值
+            torrent_threshold = self._threshold_for_site(site, threshold)
+            if self._torrent_ratio(torrent, downloader_type) < torrent_threshold:
+                continue
+            threshold_cache[torrent_hash] = torrent_threshold
             matched.append(torrent)
         return matched
 
@@ -817,6 +873,7 @@ class QbUploadLimiter(_PluginBase):
         threshold: int,
         channel: Any,
         site_cache: Dict[str, str],
+        threshold_cache: Dict[str, int],
     ) -> Tuple[int, int, int, int]:
         """
         对达标种子逐个设置上传限速，返回 (新增限速数, 已满足数, 失败数, 取消监控数)。
@@ -836,6 +893,7 @@ class QbUploadLimiter(_PluginBase):
         for torrent in matched:
             torrent_hash = self._torrent_hash(torrent, downloader_type)
             torrent_name = self._torrent_name(torrent, downloader_type) or torrent_hash
+            torrent_threshold = threshold_cache.get(torrent_hash, threshold)
             # 已取消监控的种子：跳过，不再设置限速
             if torrent_hash in canceled_hashes:
                 continue
@@ -881,7 +939,7 @@ class QbUploadLimiter(_PluginBase):
                 self._limited_times.setdefault(service_name, {})[torrent_hash] = now
                 new_limited += 1
                 logger.info(
-                    f"{self.LOG_TAG}[{service_name}] 种子 [{torrent_name}] 分享率达到 {threshold}，"
+                    f"{self.LOG_TAG}[{service_name}] 种子 [{torrent_name}] 分享率达到 {torrent_threshold}，"
                     f"已限速 {self._format_limit(limit)}"
                 )
                 if channels:
@@ -1579,6 +1637,65 @@ class QbUploadLimiter(_PluginBase):
             self._retry_stuck_restores(service_name, service_info.instance)
 
     # ---------------------------------------------------------------- 工具方法
+
+    def _normalize_site_share_ratios(self, value: Any) -> Tuple[Dict[str, int], str]:
+        """
+        解析并规范化站点单独分享率阈值。
+
+        表单使用每行「站点名称=正整数阈值」格式；同时兼容字典、字符串列表和
+        {site/name/sitename, ratio/share_ratio/threshold} 字典列表，便于兼容历史或 API 配置。
+        站点名称按小写匹配，重复站点以最后一项为准，非法项会被忽略。
+        """
+        ratios: Dict[str, int] = {}
+        labels: Dict[str, str] = {}
+        invalid_count = 0
+
+        def add_entry(raw_name: Any, raw_ratio: Any):
+            nonlocal invalid_count
+            name = str(raw_name or "").strip()
+            ratio = self._to_int(raw_ratio, 0)
+            if not name or ratio < 1:
+                invalid_count += 1
+                return
+            key = name.lower()
+            ratios[key] = ratio
+            labels[key] = name
+
+        def add_text(raw_text: Any):
+            nonlocal invalid_count
+            for raw_line in str(raw_text or "").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#") or line.startswith("//"):
+                    continue
+                separator = next((item for item in ("=", "：", ":") if item in line), "")
+                if not separator:
+                    invalid_count += 1
+                    continue
+                name, ratio = line.split(separator, 1)
+                add_entry(name, ratio)
+
+        if isinstance(value, dict):
+            for name, ratio in value.items():
+                add_entry(name, ratio)
+        elif isinstance(value, (list, tuple, set)):
+            for item in value:
+                if isinstance(item, dict):
+                    name = item.get("site") or item.get("name") or item.get("sitename")
+                    ratio = item.get("ratio")
+                    if ratio is None:
+                        ratio = item.get("share_ratio")
+                    if ratio is None:
+                        ratio = item.get("threshold")
+                    add_entry(name, ratio)
+                else:
+                    add_text(item)
+        else:
+            add_text(value)
+
+        if invalid_count:
+            logger.warning(f"{self.LOG_TAG}站点单独分享率阈值中有 {invalid_count} 项格式无效，已忽略")
+        normalized_text = "\n".join(f"{labels[key]}={ratio}" for key, ratio in ratios.items())
+        return ratios, normalized_text
 
     @staticmethod
     def _normalize_config_list(value: Any) -> List[str]:
