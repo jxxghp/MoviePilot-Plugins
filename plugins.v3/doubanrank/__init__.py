@@ -12,15 +12,15 @@ from app import schemas
 from app.chain.download import DownloadChain
 from app.chain.media import MediaChain
 from app.chain.subscribe import SubscribeChain
-from app.core.config import settings
-from app.core.context import MediaInfo
-from app.core.metainfo import MetaInfo
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.media import MediaInfo
+from app.sdk.media import MetaInfo
+from app.sdk.logging import logger
 from app.plugins import _PluginBase
 from app.schemas import MediaSource, MediaType
-from app.utils.dom import DomUtils
-from app.utils.http import RequestUtils
-from app.utils.media import resolve_media_identity
+from app.sdk.utilities import DomUtils
+from app.sdk.network import RequestUtils
+from app.sdk.media import resolve_media_identity
 
 
 class DoubanRank(_PluginBase):
@@ -31,7 +31,7 @@ class DoubanRank(_PluginBase):
     # 插件图标
     plugin_icon = "movie.jpg"
     # 插件版本
-    plugin_version = "3.0.0"
+    plugin_version = "3.1.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页

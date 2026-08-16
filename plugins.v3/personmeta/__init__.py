@@ -17,17 +17,17 @@ from requests import RequestException
 from app import schemas
 from app.chain.mediaserver import MediaServerChain
 from app.chain.tmdb import TmdbChain
-from app.core.config import settings
-from app.core.event import eventmanager, Event
-from app.core.meta import MetaBase
-from app.helper.mediaserver import MediaServerHelper
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.events import eventmanager, Event
+from app.sdk.media import MetaBase
+from app.sdk.services import MediaServerHelper
+from app.sdk.logging import logger
 from app.plugins import _PluginBase
 from app.schemas import MediaInfo, MediaServerItem, ServiceInfo
 from app.schemas.types import EventType, MediaSource, MediaType
-from app.utils.common import retry
-from app.utils.http import RequestUtils
-from app.utils.string import StringUtils
+from app.sdk.utilities import retry
+from app.sdk.network import RequestUtils
+from app.sdk.utilities import StringUtils
 
 
 class PersonMeta(_PluginBase):
@@ -38,7 +38,7 @@ class PersonMeta(_PluginBase):
     # 插件图标
     plugin_icon = "actor.png"
     # 插件版本
-    plugin_version = "3.0.0"
+    plugin_version = "3.1.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页

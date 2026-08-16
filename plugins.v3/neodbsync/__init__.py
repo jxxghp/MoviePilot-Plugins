@@ -10,14 +10,14 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.chain.download import DownloadChain
 from app.chain.subscribe import SubscribeChain
-from app.core.config import settings
-from app.core.event import Event
-from app.core.event import eventmanager
-from app.core.metainfo import MetaInfo
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.events import Event
+from app.sdk.events import eventmanager
+from app.sdk.media import MetaInfo
+from app.sdk.logging import logger
 from app.plugins import _PluginBase
 from app.schemas.types import EventType, MediaSource, MediaType
-from app.utils.media import normalize_media_source, resolve_media_identity
+from app.sdk.media import normalize_media_source, resolve_media_identity
 
 lock = Lock()
 
@@ -30,7 +30,7 @@ class NeoDBSync(_PluginBase):
     # 插件图标
     plugin_icon = "NeoDB.jpeg"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.1.0"
     # 插件作者
     plugin_author = "hcplantern"
     # 作者主页

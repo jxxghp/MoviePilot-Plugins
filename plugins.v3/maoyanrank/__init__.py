@@ -12,15 +12,15 @@ from apscheduler.triggers.cron import CronTrigger
 from app.chain.download import DownloadChain
 from app.chain.subscribe import SubscribeChain
 from app.chain.tmdb import TmdbChain
-from app.core.config import settings
-from app.core.context import MediaInfo
-from app.helper.browser import BrowserPage, PlaywrightHelper
-from app.core.metainfo import MetaInfo
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.media import MediaInfo
+from app.sdk.browser import launch_browser_context
+from app.sdk.media import MetaInfo
+from app.sdk.logging import logger
 from app.plugins import _PluginBase
 from app.schemas import MediaSource, MediaType
-from app.utils.http import RequestUtils
-from app.utils.media import normalize_media_source, resolve_media_identity
+from app.sdk.network import RequestUtils
+from app.sdk.media import normalize_media_source, resolve_media_identity
 
 
 class MaoyanRank(_PluginBase):
@@ -44,7 +44,7 @@ class MaoyanRank(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg"
     # 插件版本
-    plugin_version = "4.0.0"
+    plugin_version = "4.1.0"
     # 插件作者
     plugin_author = "逗猫"
     # 作者主页
@@ -1276,7 +1276,7 @@ class MaoyanRank(_PluginBase):
 
     @staticmethod
     def get_cookies():
-        def page_handler(page: BrowserPage) -> dict:
+        def page_handler(page) -> dict:
             """
             从 MoviePilot 浏览器上下文中读取猫眼下发的 Cookie。
             """
@@ -1285,6 +1285,14 @@ class MaoyanRank(_PluginBase):
             return {c['name']: c['value'] for c in cookies}
 
         # 复用主程序的浏览器适配层，避免直接调用 Playwright 时浏览器可执行文件路径失配。
-        return PlaywrightHelper().action(url='https://piaofang.maoyan.com',
-                                         callback=page_handler,
-                                         headless=True) or {}
+        context = launch_browser_context(headless=True)
+        page = None
+        try:
+            page = context.new_page()
+            page.goto('https://piaofang.maoyan.com')
+            page.wait_for_load_state('networkidle', timeout=60000)
+            return page_handler(page) or {}
+        finally:
+            if page:
+                page.close()
+            context.close()

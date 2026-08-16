@@ -16,10 +16,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import Body
 
 from app import schemas
-from app.helper.thread import ThreadHelper
-from app.log import logger
+from app.runtime.thread import ThreadHelper
+from app.sdk.logging import logger
 from app.plugins import _PluginBase
-from app.utils.http import RequestUtils
+from app.sdk.network import RequestUtils
 
 from .config import RuntimeSettings
 from .database import Database
@@ -32,7 +32,7 @@ class AnimeUpscale(_PluginBase):
     plugin_name = "动漫视频超分"
     plugin_desc = "在 MoviePilot 内直接使用 GPU 完成动漫视频 2 倍超分与 HEVC Main10 编码。"
     plugin_icon = "ffmpeg.png"
-    plugin_version = "2.0.0"
+    plugin_version = "2.1.0"
     plugin_author = "RWDai"
     author_url = "https://github.com/RWDai/anime-upscale"
     plugin_config_prefix = "animeupscale_"

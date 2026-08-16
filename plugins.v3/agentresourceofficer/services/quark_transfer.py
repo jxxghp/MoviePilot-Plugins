@@ -8,10 +8,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlparse, urlencode
 from urllib.request import Request as UrlRequest, urlopen
 
-from app.log import logger
+from app.sdk.logging import logger
 
 try:
-    from app.core.config import settings
+    from app.sdk.config import settings
 except Exception:
     settings = None
 

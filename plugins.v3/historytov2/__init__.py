@@ -4,11 +4,11 @@ from typing import Any, List, Dict, Tuple, Optional
 
 from app.db import SessionFactory
 from app.db.models import TransferHistory
-from app.log import logger
+from app.sdk.logging import logger
 from app.plugins import _PluginBase
 from app.schemas.types import MediaSource
-from app.utils.http import RequestUtils
-from app.utils.media import resolve_media_identity
+from app.sdk.network import RequestUtils
+from app.sdk.media import resolve_media_identity
 
 
 class HistoryToV2(_PluginBase):
@@ -21,7 +21,7 @@ class HistoryToV2(_PluginBase):
     # 插件图标
     plugin_icon = "Moviepilot_A.png"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.1.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页

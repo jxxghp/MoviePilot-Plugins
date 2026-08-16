@@ -7,17 +7,17 @@ from typing import Any, List, Dict, Tuple, Optional, Union
 from pydantic import BaseModel
 from requests import RequestException
 from app import schemas
-from app.core.config import settings
-from app.core.event import eventmanager, Event
-from app.core.meta import MetaBase
-from app.log import logger
-from app.helper.mediaserver import MediaServerHelper
+from app.sdk.config import settings
+from app.sdk.events import eventmanager, Event
+from app.sdk.media import MetaBase
+from app.sdk.logging import logger
+from app.sdk.services import MediaServerHelper
 from app.modules.themoviedb.tmdbv3api import TV
 from app.plugins import _PluginBase
 from app.schemas.types import EventType, MediaSource
-from app.utils.common import retry
-from app.utils.http import RequestUtils
-from app.utils.media import (
+from app.sdk.utilities import retry
+from app.sdk.network import RequestUtils
+from app.sdk.media import (
     build_media_key,
     normalize_media_source,
     parse_media_key,
@@ -49,7 +49,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 主题色
     plugin_color = "#098663"
     # 插件版本
-    plugin_version = "3.0.0"
+    plugin_version = "3.1.0"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -699,7 +699,7 @@ class EpisodeGroupMeta(_PluginBase):
             # 实际传递的不是基于BaseModel的实例
             mediainfo_dict = mediainfo.dict()
         except Exception as e:
-            # app.core.context.MediaInfo
+            # app.sdk.media.MediaInfo
             try:
                 mediainfo_dict = mediainfo.to_dict()
             except Exception as e:

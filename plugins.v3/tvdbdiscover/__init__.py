@@ -3,13 +3,13 @@ from typing import Any, List, Dict, Tuple, Optional
 from cachetools import cached, TTLCache
 
 from app import schemas
-from app.core.config import settings
-from app.core.event import eventmanager, Event
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.events import eventmanager, Event
+from app.sdk.logging import logger
 from app.plugins import _PluginBase
 from app.schemas import DiscoverSourceEventData
 from app.schemas.types import ChainEventType, MediaSource
-from app.utils.http import RequestUtils
+from app.sdk.network import RequestUtils
 
 
 class TvdbDiscover(_PluginBase):
@@ -20,7 +20,7 @@ class TvdbDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "TheTVDB_A.png"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.1.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页

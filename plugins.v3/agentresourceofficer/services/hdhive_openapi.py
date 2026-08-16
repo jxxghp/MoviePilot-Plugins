@@ -9,9 +9,9 @@ from zoneinfo import ZoneInfo
 import requests
 
 try:
-    from app.helper.browser import PlaywrightHelper
+    from app.sdk.browser import launch_browser_context
 except Exception:
-    PlaywrightHelper = None
+    launch_browser_context = None
 
 try:
     from app.chain.media import MediaChain
@@ -21,7 +21,7 @@ except Exception:
     MediaSource = None
 
 try:
-    from app.core.config import settings
+    from app.sdk.config import settings
 except Exception:
     settings = None
 
@@ -824,8 +824,8 @@ class HDHiveOpenApiService:
         else:
             server_action_message = "未解析到登录 Action"
 
-        if PlaywrightHelper is None:
-            return False, "", server_action_message or "自动登录失败，且 MoviePilot PlaywrightHelper 不可用"
+        if launch_browser_context is None:
+            return False, "", server_action_message or "自动登录失败，且 MoviePilot 浏览器上下文不可用"
 
         def _login_with_page(page: Any) -> List[Dict[str, Any]]:
             for selector in [
@@ -896,20 +896,24 @@ class HDHiveOpenApiService:
 
         try:
             proxy_config = getattr(settings, "PROXY", None) if settings is not None else None
-            cookies = PlaywrightHelper().action(
-                login_url,
-                callback=_login_with_page,
-                proxies=proxy_config,
-                headless=True,
-                timeout=max(30, self.timeout),
-            ) or []
+            context = launch_browser_context(headless=True, proxy=proxy_config)
+            page = None
+            try:
+                page = context.new_page()
+                page.goto(login_url)
+                page.wait_for_load_state("networkidle", timeout=max(30, self.timeout) * 1000)
+                cookies = _login_with_page(page) or []
+            finally:
+                if page:
+                    page.close()
+                context.close()
         except Exception as exc:
-            return False, "", f"PlaywrightHelper 自动登录失败: {exc}"
+            return False, "", f"浏览器自动登录失败: {exc}"
 
         cookie_map = {str(item.get("name") or ""): str(item.get("value") or "") for item in cookies or []}
         cookie_string = self._cookie_string_from_mapping(cookie_map)
         if cookie_string:
-            return True, cookie_string, "PlaywrightHelper 登录成功"
+            return True, cookie_string, "浏览器登录成功"
         return False, "", server_action_message or "自动登录失败，未获取到有效 Cookie"
 
     @classmethod

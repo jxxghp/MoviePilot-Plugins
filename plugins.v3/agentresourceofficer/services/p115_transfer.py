@@ -10,11 +10,11 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from zoneinfo import ZoneInfo
 
 try:
-    from app.core.config import settings
+    from app.sdk.config import settings
 except Exception:
     settings = None
 try:
-    from app.core.plugin import PluginManager
+    from app.sdk.plugins import PluginManager
 except Exception:
     PluginManager = None
 

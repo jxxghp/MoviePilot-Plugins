@@ -9,15 +9,15 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app import schemas
 from app.chain.scraping import ScrapingChain
-from app.core.config import settings
-from app.core.metainfo import MetaInfoPath
-from app.db.transferhistory_oper import TransferHistoryOper
-from app.helper.nfo import NfoReader
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.media import MetaInfoPath
+from app.db.oper.transferhistory import TransferHistoryOper
+from app.sdk.media import NfoReader
+from app.sdk.logging import logger
 from app.plugins import _PluginBase
 from app.schemas import MediaSource, MediaType
-from app.utils.media import resolve_media_identity
-from app.utils.system import SystemUtils
+from app.sdk.media import resolve_media_identity
+from app.sdk.utilities import SystemUtils
 
 
 class LibraryScraper(_PluginBase):
@@ -28,7 +28,7 @@ class LibraryScraper(_PluginBase):
     # 插件图标
     plugin_icon = "scraper.png"
     # 插件版本
-    plugin_version = "3.0.0"
+    plugin_version = "3.1.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页

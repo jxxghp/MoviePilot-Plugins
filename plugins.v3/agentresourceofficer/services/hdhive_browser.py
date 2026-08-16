@@ -1,7 +1,7 @@
 """
 影巢（HDHive）网页方式资源搜索/解锁服务。
 
-通过 MoviePilot 官方 app.helper.browser.PlaywrightHelper（cloakbrowser 后端，
+通过 MoviePilot 官方 app.sdk.browser.launch_browser_context（cloakbrowser 后端，
 内置反检测与 FlareSolverr），用账号 cookie 在影巢网页上搜索资源、解锁拿 115 链接，
 不依赖影巢 OpenAPI。仅在 MoviePilot docker 容器内 headless 运行。
 
@@ -17,8 +17,8 @@ import re
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from app.helper.browser import PlaywrightHelper
-from app.log import logger
+from app.sdk.browser import launch_browser_context
+from app.sdk.logging import logger
 
 # 改编自 DDSRem-Dev p115strmhelper browser.py::_scrape_resource_cards_js (GPL v3)
 _SCRAPE_CARDS_JS = r"""
@@ -177,22 +177,24 @@ class HDHiveBrowserService:
         """Run MoviePilot's sync Playwright helper outside the active async request loop."""
         helper_timeout = max(60, self.timeout)
 
-        def _callback_with_context_cookies(page: Any) -> Any:
-            context_cookies = self._context_cookies()
-            if context_cookies:
-                page.context.add_cookies(context_cookies)
-                page.goto(url)
-                page.wait_for_load_state("networkidle", timeout=helper_timeout * 1000)
-            return callback(page)
+        def _worker() -> Any:
+            context = launch_browser_context(headless=False)
+            page = None
+            try:
+                page = context.new_page()
+                context_cookies = self._context_cookies()
+                if context_cookies:
+                    page.context.add_cookies(context_cookies)
+                    page.goto(url)
+                    page.wait_for_load_state("networkidle", timeout=helper_timeout * 1000)
+                return callback(page)
+            finally:
+                if page:
+                    page.close()
+                context.close()
 
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="hdhive-browser")
-        future = executor.submit(
-            lambda: PlaywrightHelper().action(
-                url,
-                callback=_callback_with_context_cookies,
-                timeout=helper_timeout,
-            )
-        )
+        future = executor.submit(_worker)
         try:
             return future.result(timeout=helper_timeout + 30)
         except concurrent.futures.TimeoutError as exc:

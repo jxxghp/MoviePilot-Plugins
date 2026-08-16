@@ -22,11 +22,11 @@ try:
 except Exception:
     CronTrigger = None
 try:
-    from app.core.config import settings
+    from app.sdk.config import settings
 except Exception:
     settings = None
 try:
-    from app.log import logger
+    from app.sdk.logging import logger
 except Exception:
     class _FallbackLogger:
         @staticmethod
@@ -43,7 +43,7 @@ except Exception:
 
     logger = _FallbackLogger()
 try:
-    from app.utils.crypto import CryptoJsUtils
+    from app.sdk.utilities import CryptoJsUtils
 except Exception:
     CryptoJsUtils = None
 try:
@@ -51,7 +51,7 @@ try:
 except Exception:
     moviepilot_tool_manager = None
 try:
-    from app.core.plugin import PluginManager
+    from app.sdk.plugins import PluginManager
 except Exception:
     PluginManager = None
 try:
@@ -128,7 +128,7 @@ class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
     plugin_desc = "龙虾agent稳定控制 MP：飞书入口、盘搜/影巢搜索、115/夸克转存、智能评分推荐。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "1.0.1"
+    plugin_version = "1.1.0"
     moviepilot_tested_version = "v3.0.0"
     moviepilot_tested_release_url = "https://github.com/jxxghp/MoviePilot/releases/tag/v3.0.0"
     request_templates_schema_version = "request_templates.v1"

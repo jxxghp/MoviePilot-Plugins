@@ -17,24 +17,24 @@ from fastapi import Query
 from app import schemas
 from app.api.endpoints.plugin import register_plugin_api
 from app.chain.torrents import TorrentsChain
-from app.core.config import settings
-from app.core.context import MediaInfo
-from app.core.event import Event, eventmanager
-from app.core.metainfo import MetaInfo
-from app.db.site_oper import SiteOper
-from app.db.subscribe_oper import SubscribeOper
-from app.helper.downloader import DownloaderHelper
-from app.helper.sites import SitesHelper
-from app.helper.thread import ThreadHelper
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.media import MediaInfo
+from app.sdk.events import Event, eventmanager
+from app.sdk.media import MetaInfo
+from app.db.oper.site import SiteOper
+from app.db.oper.subscribe import SubscribeOper
+from app.sdk.services import DownloaderHelper
+from app.sdk.network import SitesHelper
+from app.runtime.thread import ThreadHelper
+from app.sdk.logging import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
 from app.scheduler import Scheduler
 from app.schemas import MediaType, NotificationType, ServiceInfo, TorrentInfo
 from app.schemas.types import EventType
-from app.utils.http import RequestUtils
-from app.utils.string import StringUtils
+from app.sdk.network import RequestUtils
+from app.sdk.utilities import StringUtils
 
 from .models import BrushFlowSettingsPayload, BrushTaskPayload, BrushTaskStatePayload
 
@@ -218,7 +218,7 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流"
     plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "6.0.1"
+    plugin_version = "6.1.0"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"

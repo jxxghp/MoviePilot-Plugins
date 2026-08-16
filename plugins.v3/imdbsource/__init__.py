@@ -11,21 +11,21 @@ from fastapi import Query
 
 from app import schemas
 from app.chain import ChainBase
-from app.core.cache import cached
-from app.core.config import settings
-from app.core.context import MediaInfo
-from app.core.event import eventmanager, Event
-from app.core.meta import MetaBase
+from app.sdk.cache import cached
+from app.sdk.config import settings
+from app.sdk.media import MediaInfo
+from app.sdk.events import eventmanager, Event
+from app.sdk.media import MetaBase
 from app.plugins import _PluginBase
 from app.plugins.imdbsource.imdbhelper import ImdbHelper
 from app.plugins.imdbsource.officialapi import INTERESTS_ID
 from app.plugins.imdbsource.schema import StaffPickEntry, ImdbTitle, StaffPickApiResponse, ImdbMediaInfo, SearchParams
-from app.log import logger
+from app.sdk.logging import logger
 from app.schemas import DiscoverSourceEventData, MediaRecognizeConvertEventData, RecommendSourceEventData
 from app.schemas.types import ChainEventType, MediaSource, MediaType, EventType
 from app.scheduler import Scheduler
-from app.utils.http import AsyncRequestUtils, RequestUtils
-from app.utils.media import resolve_media_identity
+from app.sdk.network import AsyncRequestUtils, RequestUtils
+from app.sdk.media import resolve_media_identity
 
 
 class ImdbSource(_PluginBase):
@@ -36,7 +36,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.1.0"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
