@@ -3,11 +3,12 @@ QB上传限速插件（MoviePilot v2/v3）。
 
 功能：
 1. 定时轮询已选下载器（qBittorrent / Transmission）中的种子；
-2. 种子分享率（上传量 / 下载量）达到全局或站点单独阈值后，自动限制该种子上传速度为指定值（KB/s）；qBittorrent 全局上传限速更低时自动采用全局值，上传速度填 0 时不做限速处理；
-3. 支持按站点筛选和按站点单独设置分享率阈值；未配置单独阈值的站点回退使用全局阈值；
-4. 停用或卸载插件时，自动将本插件限速过的种子恢复为不限速；
-5. 限速通知支持多选 MoviePilot 已启用通知渠道，测试通知仅首次发送；
-6. 支持监控超时取消：下载完成后达不到限速值、或限速后持续超时/速度低于限速值 80% 时，取消监控并立即恢复该种子不限速。
+2. 仅处理 MoviePilot 已「整理入库成功」的种子：种子入库成功前对插件完全不可见，不监控、不限速（等同于插件未开启），入库成功后才按分享率限速；
+3. 种子分享率（上传量 / 下载量）达到全局或站点单独阈值后，自动限制该种子上传速度为指定值（KB/s）；qBittorrent 全局上传限速更低时自动采用全局值，上传速度填 0 时不做限速处理；
+4. 支持按站点筛选和按站点单独设置分享率阈值；未配置单独阈值的站点回退使用全局阈值；
+5. 停用或卸载插件时，自动将本插件限速过的种子恢复为不限速；
+6. 限速通知支持多选 MoviePilot 已启用通知渠道，测试通知仅首次发送；
+7. 支持监控超时取消：下载完成后达不到限速值、或限速后持续超时/速度低于限速值 80% 时，取消监控并立即恢复该种子不限速。
 """
 
 import datetime
@@ -37,9 +38,9 @@ class QbUploadLimiter(_PluginBase):
     """
 
     plugin_name = "QB上传限速"
-    plugin_desc = "种子分享率达到全局或站点单独阈值时自动限制上传速度；qBittorrent 会与全局上传限速比较并采用较小值，支持多下载器、站点筛选、定时检测和停用恢复。"
+    plugin_desc = "仅处理 MoviePilot 已整理入库成功的种子：种子入库成功前插件不监控不限速（等同未开启），入库成功且分享率达到全局或站点单独阈值时自动限制上传速度；qBittorrent 会与全局上传限速比较并采用较小值，支持多下载器、站点筛选、定时检测和停用恢复。"
     plugin_icon = "Qbittorrent_A.png"
-    plugin_version = "1.3.2"
+    plugin_version = "1.3.3"
     plugin_author = "xlmc"
     author_url = "https://github.com/xlmc"
     plugin_config_prefix = "qbuploadlimiter_"
@@ -538,7 +539,7 @@ class QbUploadLimiter(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "本插件按分享率逐种子限速：种子分享率（上传量/下载量）达到全局或站点单独设置的正整数阈值后，其上传速度将被限制为设定值（KB/s）。站点单独阈值使用「站点名称=阈值」格式，一行一个；未配置或无法识别站点时使用全局阈值。上传速度填 0 表示不做限速处理；两个监控超时填 0 表示不启用对应功能。支持 qBittorrent 和 Transmission。",
+                                            "text": "本插件仅处理 MoviePilot 已整理入库成功的种子：种子入库成功前不监控、不限速（等同于插件未开启），入库成功后按分享率逐种子限速——分享率（上传量/下载量）达到全局或站点单独设置的正整数阈值后，其上传速度将被限制为设定值（KB/s）。站点单独阈值使用「站点名称=阈值」格式，一行一个；未配置或无法识别站点时使用全局阈值。上传速度填 0 表示不做限速处理；两个监控超时填 0 表示不启用对应功能。支持 qBittorrent 和 Transmission。",
                                         },
                                     }
                                 ],
@@ -726,9 +727,22 @@ class QbUploadLimiter(_PluginBase):
                 # 空列表是下载器中没有任何种子的合法成功结果，不是获取失败
                 torrents = torrents or []
 
+                # 入库成功门禁：先批量查询 MP 整理入库记录，得到「已入库成功」的种子集合；
+                # 种子入库成功前对插件完全不可见（不监控、不限速），等同于插件未开启
+                transferred_hashes = self._load_transferred_hashes(
+                    [self._torrent_hash(t, downloader_type) for t in torrents]
+                )
+                eligible_torrents = [
+                    t for t in torrents if self._torrent_hash(t, downloader_type) in transferred_hashes
+                ]
+
                 now = time.time()
-                # 刷新已完成种子的监控计时与速度达标记录，并清理已不存在的种子状态
-                self._refresh_torrent_state(service_name, torrents, downloader_type, effective_limit, now)
+                # 状态刷新用完整列表（确保仅清理真正已移除的种子状态），
+                # 监控计时仅对已入库种子维护
+                self._refresh_torrent_state(
+                    service_name, torrents, downloader_type, effective_limit, now,
+                    transferred_hashes=transferred_hashes,
+                )
                 # 站点识别缓存：{种子Hash: 站点名称}，同一轮内每个种子只计算一次
                 site_cache: Dict[str, str] = {}
                 # 「下载完成后监控超时」覆盖所有已完成且未认领的种子（不依赖分享率达标）：
@@ -737,12 +751,12 @@ class QbUploadLimiter(_PluginBase):
                 if self._complete_timeout > 0 and effective_limit > 0:
                     history_sites: Dict[str, str] = {}
                     if selected:
-                        hashes = [self._torrent_hash(t, downloader_type) for t in torrents]
+                        hashes = [self._torrent_hash(t, downloader_type) for t in eligible_torrents]
                         history_sites = self._load_history_sites(hashes)
                     canceled_hashes = self._canceled_hashes.get(service_name, set())
                     owned_hashes = (self._limited_hashes.get(service_name, set())
                                     | self._restore_hashes.get(service_name, set()))
-                    for torrent in torrents:
+                    for torrent in eligible_torrents:
                         torrent_hash = self._torrent_hash(torrent, downloader_type)
                         if not torrent_hash or torrent_hash in canceled_hashes:
                             continue
@@ -764,10 +778,10 @@ class QbUploadLimiter(_PluginBase):
                                 downloader=downloader,
                             )
                             timeout_canceled += 1
-                # 筛选出达标且（可选）属于勾选站点的种子；记录每个达标种子实际使用的阈值
+                # 筛选出已入库且达标且（可选）属于勾选站点的种子；记录每个达标种子实际使用的阈值
                 threshold_cache: Dict[str, int] = {}
                 matched = self._collect_matched_torrents(
-                    torrents=torrents,
+                    torrents=eligible_torrents,
                     downloader_type=downloader_type,
                     threshold=threshold,
                     selected=selected,
@@ -794,7 +808,7 @@ class QbUploadLimiter(_PluginBase):
                         f"{service_name}：插件上传限速 {self._format_limit(limit)} 高于 qB 全局上传限速，实际采用 {self._format_limit(effective_limit)}"
                     )
                 summary_lines.append(
-                    f"{service_name}：达标 {len(matched)} 个，新限速 {new_limited} 个，已满足 {already} 个，失败 {failed} 个，取消监控 {canceled + timeout_canceled} 个"
+                    f"{service_name}：达标 {len(matched)} 个，新限速 {new_limited} 个，已满足 {already} 个，失败 {failed} 个，取消监控 {canceled + timeout_canceled} 个，未入库忽略 {len(torrents) - len(eligible_torrents)} 个"
                 )
             except Exception as err:
                 failed_names.append(service_name)
@@ -860,11 +874,17 @@ class QbUploadLimiter(_PluginBase):
         return matched
 
     def _refresh_torrent_state(
-        self, service_name: str, torrents: List[Any], downloader_type: str, limit: float, now: float
+        self,
+        service_name: str,
+        torrents: List[Any],
+        downloader_type: str,
+        limit: float,
+        now: float,
+        transferred_hashes: Optional[Set[str]] = None,
     ):
         """
         每个检测周期刷新种子监控状态：
-        - 为已下载完成的种子维护「上传速度持续低于限速值」的连续低速计时：
+        - 为已下载完成且已入库成功的种子维护「上传速度持续低于限速值」的连续低速计时：
           速度低于限速值时开始/延续计时，速度回升到限速值即清零重新计时
           （仅「下载完成后监控超时」启用且限速值大于 0 时需要）；
         - 清理已不在下载器中的种子状态，避免记录无限增长。
@@ -875,7 +895,12 @@ class QbUploadLimiter(_PluginBase):
             if not torrent_hash:
                 continue
             current_hashes.add(torrent_hash)
-            if self._complete_timeout > 0 and limit > 0 and self._torrent_completed(torrent, downloader_type):
+            if (
+                self._complete_timeout > 0
+                and limit > 0
+                and self._torrent_completed(torrent, downloader_type)
+                and (transferred_hashes is None or torrent_hash in transferred_hashes)
+            ):
                 slow_map = self._complete_slow_since.setdefault(service_name, {})
                 if self._torrent_upload_speed(torrent, downloader_type) < limit * 1024:
                     if torrent_hash not in slow_map:
@@ -1037,8 +1062,41 @@ class QbUploadLimiter(_PluginBase):
                 if history and (history.torrent_site or "").strip()
             }
         except Exception as err:
-            logger.warning(f"{self.LOG_TAG}查询下载历史站点失败：{err}")
+            logger.warning(f"{QbUploadLimiter.LOG_TAG}查询下载历史站点失败：{err}")
             return {}
+
+    @staticmethod
+    def _load_transferred_hashes(hashes: List[str]) -> Set[str]:
+        """
+        批量查询已「整理入库成功」的种子 Hash 集合。
+
+        MoviePilot 在下载完成并将媒体转移刮削进媒体库时会写入整理记录
+        （TransferHistory，status=True），据此判断种子是否已完成入库。
+        种子入库成功前对插件完全不可见（不监控、不限速）。
+        """
+        # 去重且过滤空值，减少一次数据库查询的行数
+        hashes = [h for h in dict.fromkeys(hashes) if h]
+        if not hashes:
+            return set()
+        try:
+            from app.db import SessionFactory
+            from app.db.models.transferhistory import TransferHistory
+            db = SessionFactory()
+            try:
+                rows = (
+                    db.query(TransferHistory)
+                    .filter(
+                        TransferHistory.download_hash.in_(hashes),
+                        TransferHistory.status == True,
+                    )
+                    .all()
+                )
+            finally:
+                db.close()
+            return {row.download_hash for row in rows if row and row.download_hash}
+        except Exception as err:
+            logger.warning(f"{QbUploadLimiter.LOG_TAG}查询整理入库记录失败：{err}")
+            return set()
 
     def _resolve_site(
         self,
