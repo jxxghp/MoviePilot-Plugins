@@ -45,7 +45,7 @@ class QbUploadLimiter(_PluginBase):
     plugin_name = "QB上传限速"
     plugin_desc = "仅处理 MoviePilot 已整理入库成功的种子：分享率达到全局或站点单独阈值后自动限制上传速度（qBittorrent 与全局上传限速取较小值）；可选 AI 智能限速——调用系统设置的大模型按种子分享率、上传活跃度与站点账号分享率逐种子智能决策限速；支持多下载器、站点筛选、定时检测，停用/卸载自动恢复不限速。"
     plugin_icon = "Qbittorrent_A.png"
-    plugin_version = "1.3.8"
+    plugin_version = "1.3.9"
     plugin_author = "xlmc"
     author_url = "https://github.com/xlmc"
     plugin_config_prefix = "qbuploadlimiter_"
@@ -1305,12 +1305,13 @@ class QbUploadLimiter(_PluginBase):
             raise error["exc"]
         return result.get("value")
 
-    def _ai_invoke(self, prompt: str, timeout: int = 120) -> str:
+    def _ai_invoke(self, prompt: str, timeout: int = 180) -> str:
         """
         调用 MoviePilot 系统设置中已配置的大模型（智能体），返回模型回复文本。
 
         复用系统级 LLM 配置（provider/model/api_key/base_url），插件不做任何
         API 密钥配置；调用失败或超时抛异常，由调用方回退常规阈值规则。
+        带思考（reasoning）的模型可能较慢，默认超时放宽到 180 秒。
         """
         try:
             from app.agent.llm import LLMHelper
@@ -1336,7 +1337,9 @@ class QbUploadLimiter(_PluginBase):
             raise RuntimeError("系统设置未配置大模型")
         self._ai_config_missing = False
         response = llm.invoke(prompt, config={"configurable": {"timeout": timeout}})
-        return LLMHelper.extract_text_content(getattr(response, "content", response))
+        # 带思考（reasoning）的模型 content 可能为空或缺失，兜底为空串，
+        # 解析失败时由调用方回退常规阈值规则，避免 extract_text_content 收到空值报错
+        return LLMHelper.extract_text_content(getattr(response, "content", response)) or ""
 
     @staticmethod
     def _build_ai_prompt(items: List[dict], site_lines: str, max_limit: int) -> str:
@@ -1362,7 +1365,7 @@ class QbUploadLimiter(_PluginBase):
             "2. 站点账号分享率越高，说明该站上传指标越充足，该站种子可放心限速；"
             "站点分享率低（如低于 1.5）时该站种子应放宽，继续积攒上传量；\n"
             "3. 种子最近仍在上传（当前速度或窗口增量大于 0）才值得限速；\n"
-            "4. 限速值单位为 KB/s，必须为正整数，且不超过上限 {max_limit}；"
+            f"4. 限速值单位为 KB/s，必须为正整数，且不超过上限 {max_limit}；"
             "action 为 no_limit 时表示不限速，limit_kb 填 0；\n"
             "5. 严格只输出 JSON，不要输出任何其他文字，格式："
             "{{\"results\": [{{\"index\": 序号, \"action\": \"limit\" 或 \"no_limit\", "
