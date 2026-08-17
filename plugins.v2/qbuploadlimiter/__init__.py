@@ -39,7 +39,7 @@ class QbUploadLimiter(_PluginBase):
     plugin_name = "QB上传限速"
     plugin_desc = "种子分享率达到全局或站点单独阈值时自动限制上传速度；qBittorrent 会与全局上传限速比较并采用较小值，支持多下载器、站点筛选、定时检测和停用恢复。"
     plugin_icon = "Qbittorrent_A.png"
-    plugin_version = "1.3.1"
+    plugin_version = "1.3.2"
     plugin_author = "xlmc"
     author_url = "https://github.com/xlmc"
     plugin_config_prefix = "qbuploadlimiter_"
@@ -954,7 +954,7 @@ class QbUploadLimiter(_PluginBase):
                     canceled += 1
                     continue
                 # 当前限速已是目标值：计入「已满足」，避免重复调用下载器接口
-                if self._torrent_current_limit(torrent, downloader_type, limit):
+                if self._torrent_current_limit(torrent, downloader_type, limit, service_name, torrent_hash):
                     limited_hashes.add(torrent_hash)
                     already += 1
                     continue
@@ -962,7 +962,7 @@ class QbUploadLimiter(_PluginBase):
                 # 未认领种子：当前限速已等于目标值且并非本插件所设，不认领所有权，
                 # 避免停用/卸载时误将外部设置的限速恢复为不限速
                 # （「下载完成后监控超时」已在每轮检测前对所有已完成未认领种子统一处理）
-                if self._torrent_current_limit(torrent, downloader_type, limit):
+                if self._torrent_current_limit(torrent, downloader_type, limit, service_name, torrent_hash):
                     already += 1
                     continue
 
@@ -980,7 +980,9 @@ class QbUploadLimiter(_PluginBase):
                     f"{self.LOG_TAG}[{service_name}] 种子 [{torrent_name}] 分享率达到 {torrent_threshold}，"
                     f"已限速 {self._format_limit(limit)}"
                 )
-                if channels:
+                # 仅首次新限速的种子逐条通知；已认领种子被外部改回后重新应用限速
+                # 不再重复发送通知，避免每轮检测重复推送
+                if channels and not owned:
                     site = site_cache.get(torrent_hash, "") or self._torrent_site(torrent, downloader_type)
                     self._send_limit_notify(site=site, torrent_name=torrent_name, limit=limit, channels=channels)
             except Exception as err:
@@ -1195,12 +1197,21 @@ class QbUploadLimiter(_PluginBase):
         except (TypeError, ValueError):
             return 0.0
 
-    @staticmethod
-    def _torrent_current_limit(torrent: Any, downloader_type: str, limit_kb: float) -> bool:
+    def _torrent_current_limit(
+        self, torrent: Any, downloader_type: str, limit_kb: float, service_name: str, torrent_hash: str
+    ) -> bool:
         """
         判断种子当前上传限速是否已是目标值，避免重复调用下载器接口。
 
+        qBittorrent 读取 up_limit（字节/秒）直接比较；Transmission 的核心下载器
+        get_torrents 未请求单种限速字段（uploadLimited/uploadLimit），无法可靠读取
+        实际单种限速，字段缺失时退化为插件自身「已限速」记录（_limited_times）判断：
+        本插件设置过限速的种子视为仍处于目标限速，避免每轮重复设置限速、重复发送
+        通知，并保证「限速后超时」的持续限速计时不会被误重置。
+
         :param limit_kb: 目标限速 KB/s，0 表示不限速
+        :param service_name: 下载器名称，Transmission 回退到插件记录时用于定位种子
+        :param torrent_hash: 种子 Hash，Transmission 回退到插件记录时用于定位种子
         """
         if downloader_type == "qbittorrent":
             if not isinstance(torrent, dict):
@@ -1211,12 +1222,15 @@ class QbUploadLimiter(_PluginBase):
             except (TypeError, ValueError):
                 return False
             return current_limit == target_limit
+        # Transmission：uploadLimit 单位为 KB/s；字段缺失时回退到插件记录判断
         upload_limited = bool(getattr(torrent, "uploadLimited", False))
         upload_limit = int(getattr(torrent, "uploadLimit", 0) or 0)
-        if limit_kb == 0:
-            # 目标是不限速：只要当前没有开启限速即视为已满足
-            return not upload_limited
-        return upload_limited and upload_limit == int(float(limit_kb))
+        if upload_limited or upload_limit:
+            if limit_kb == 0:
+                # 目标是不限速：只要当前没有开启限速即视为已满足
+                return not upload_limited
+            return upload_limited and upload_limit == int(float(limit_kb))
+        return bool(self._limited_times.get(service_name, {}).get(torrent_hash))
 
     @staticmethod
     def _torrent_upload_speed(torrent: Any, downloader_type: str) -> float:
@@ -1326,7 +1340,7 @@ class QbUploadLimiter(_PluginBase):
         # 让后续流程优先重新应用本插件限速而不是直接取消监控
         limit_time = self._limited_times.get(service_name, {}).get(torrent_hash)
         if limit_time:
-            if not self._torrent_current_limit(torrent, downloader_type, limit):
+            if not self._torrent_current_limit(torrent, downloader_type, limit, service_name, torrent_hash):
                 # 外部改回非目标限速：全部超时计时状态重新起算，
                 # 低速计时同样不沿用旧时长，避免提前取消监控
                 # （setdefault 确保下载器首次出现时计时写入真实字典而非临时副本）
