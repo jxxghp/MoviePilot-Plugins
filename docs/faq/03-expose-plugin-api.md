@@ -2,8 +2,8 @@
 
 返回 [README](../../README.md) | [FAQ 索引](../FAQ.md)
 
-V3 普通 JSON API 使用统一的 `{ success, message, data }` 响应。完整的输出模型、
-业务失败、原生响应和 Vue 调用规范见
+V3 插件 API 可自行选择裸业务模型或 `{ success, message, data }` 响应。完整的
+输出模型、业务失败、原生响应和 Vue 调用规范见
 [V3 插件 API 响应适配指南](../V3_API_Response_Adaptation.md)。
 
 - 实现 `get_api()` 方法，返回 API 列表：
@@ -41,11 +41,10 @@ V3 普通 JSON API 使用统一的 `{ success, message, data }` 响应。完整�
       ]
   ```
 
-- 普通业务对象由宿主自动放入 `data`。不要手工返回同名 envelope 字典，否则会
-  形成双层 `data`。
+- 上述 endpoint 的实际响应就是 `RefreshResultData`，宿主不会把它放入 `data`。
 - 每个普通 JSON endpoint 都必须声明具体 `response_model`，确保输出结构可在
   `http://localhost:3001/docs` 中查询。
-- 需要主动设置 `success` 或 `message` 时，返回并声明参数化的
+- 需要接入宿主普通数据页面、统一反馈或保持三段式合同时，显式返回并声明参数化的
   `schemas.Response[DataModel]`。
 - SSE、文件、图片、HTML 和 204 才使用原生响应，并显式声明 `response_class`、
   `response_model=None` 与 OpenAPI content。

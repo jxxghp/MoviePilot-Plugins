@@ -22,10 +22,10 @@
 }
 ```
 - 每次API调用完成后，均会自动刷新一次插件数据页。
-- V3 的普通 JSON API 返回 `{ "success", "message", "data" }` 统一结构。插件
-  `get_api()` 的 endpoint 直接返回业务对象即可，宿主会自动包装；不要手工再套一层
-  同名字典。Vue 远程组件通过宿主传入的 `api` 或 `window.MoviePilotAPI` 调用时会
-  保留完整结构，业务对象从返回值的 `data` 字段读取。
+- V3 宿主普通 JSON API 返回 `{ "success", "message", "data" }` 统一结构；插件
+  `get_api()` 的 endpoint 自行决定响应结构，宿主不会隐式包装。Vue 远程组件通过
+  宿主传入的 `api` 或 `window.MoviePilotAPI` 调用时会得到 endpoint 的最终 payload：
+  裸数据接口直接读取业务对象，显式 envelope 接口从 `data` 读取。
 - 注入客户端的 `baseURL` 已经是 `/api/v1/`，Vue 组件使用
   `plugin/MyPlugin/path` 相对路径，不要再次拼接 `/api/v1/`。默认失败 Toast 已由
   宿主统一处理；轮询或自行展示上下文错误时使用 `feedback: 'silent'`，避免重复

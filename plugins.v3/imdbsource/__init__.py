@@ -36,7 +36,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "2.1.0"
+    plugin_version = "2.1.1"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -1065,11 +1065,12 @@ class ImdbSource(_PluginBase):
                 return True
         return False
 
-    async def trending(self, interest: str, page: int = 1) -> List[schemas.MediaInfo]:
+    async def trending(self, interest: str, page: int = 1) -> schemas.Response[List[schemas.MediaInfo]]:
+        """返回显式统一响应格式的 IMDb 兴趣趋势数据。"""
         if not self._imdb_helper:
-            return []
+            return schemas.Response(success=True, data=[])
         if interest not in self._imdb_helper.get_interests_id():
-            return []
+            return schemas.Response(success=True, data=[])
         title_types = ("tvSeries", "tvMiniSeries", "tvShort", 'tvMovie', 'movie')
         first_page = False
         if page == 1:
@@ -1082,11 +1083,12 @@ class ImdbSource(_PluginBase):
         for edge in results:
             mediainfo = ImdbHelper.title_to_mediainfo(edge.node.title)
             res.append(mediainfo)
-        return res
+        return schemas.Response(success=True, data=res)
 
-    async def imdb_top_250(self, page: int = 1) -> List[schemas.MediaInfo]:
+    async def imdb_top_250(self, page: int = 1) -> schemas.Response[List[schemas.MediaInfo]]:
+        """返回显式统一响应格式的 IMDb Top 250 数据。"""
         if not self._imdb_helper:
-            return []
+            return schemas.Response(success=True, data=[])
         title_types = ("movie",)
         first_page = False
         if page == 1:
@@ -1102,11 +1104,12 @@ class ImdbSource(_PluginBase):
         for edge in results:
             mediainfo = ImdbHelper.title_to_mediainfo(edge.node.title)
             res.append(mediainfo)
-        return res
+        return schemas.Response(success=True, data=res)
 
-    async def imdb_trending(self, page: int = 1) -> List[schemas.MediaInfo]:
+    async def imdb_trending(self, page: int = 1) -> schemas.Response[List[schemas.MediaInfo]]:
+        """返回显式统一响应格式的 IMDb 全站趋势数据。"""
         if not self._imdb_helper:
-            return []
+            return schemas.Response(success=True, data=[])
         title_types = ("tvSeries", "tvMiniSeries", "tvShort", 'movie')
         first_page = False
         if page == 1:
@@ -1121,7 +1124,7 @@ class ImdbSource(_PluginBase):
         for edge in results:
             mediainfo = ImdbHelper.title_to_mediainfo(edge.node.title)
             res.append(mediainfo)
-        return res
+        return schemas.Response(success=True, data=res)
 
     async def imdb_discover(self, mtype: str = "series",
                             country: str | None = None,
@@ -1135,10 +1138,11 @@ class ImdbSource(_PluginBase):
                             year: str | None = None,
                             award: str | None = None,
                             ranked_list: str | None = None,
-                            page: int = 1) -> List[schemas.MediaInfo]:
+                            page: int = 1) -> schemas.Response[List[schemas.MediaInfo]]:
+        """返回显式统一响应格式的 IMDb 探索数据。"""
 
         if not self._imdb_helper:
-            return []
+            return schemas.Response(success=True, data=[])
         title_type = ("tvSeries", "tvMiniSeries", "tvShort")
         if mtype == 'movies':
             title_type = ("movie",)
@@ -1193,7 +1197,7 @@ class ImdbSource(_PluginBase):
         for edge in results:
             mediainfo = ImdbHelper.title_to_mediainfo(edge.node.title)
             res.append(mediainfo)
-        return res
+        return schemas.Response(success=True, data=res)
 
     def get_api(self) -> List[Dict[str, Any]]:
         """
@@ -1213,6 +1217,7 @@ class ImdbSource(_PluginBase):
                 "auth": 'bear',
                 "summary": "IMDb探索数据源",
                 "description": "获取 IMDb探索 数据",
+                "response_model": schemas.Response[List[schemas.MediaInfo]],
             },
             {
                 "path": "/imdb-trending",
@@ -1221,6 +1226,7 @@ class ImdbSource(_PluginBase):
                 "auth": 'bear',
                 "summary": "IMDb Trending",
                 "description": "获取 IMDb Trending 数据",
+                "response_model": schemas.Response[List[schemas.MediaInfo]],
             },
             {
                 "path": "/imdb-top-250",
@@ -1229,6 +1235,7 @@ class ImdbSource(_PluginBase):
                 "auth": 'bear',
                 "summary": "IMDb Top 250 Movies",
                 "description": "获取 IMDb Top 250 Movies 数据",
+                "response_model": schemas.Response[List[schemas.MediaInfo]],
             },
             {
                 "path": "/trending",
@@ -1237,6 +1244,7 @@ class ImdbSource(_PluginBase):
                 "auth": 'bear',
                 "summary": "Trending on IMDb",
                 "description": "获取 Trending on IMDb 数据",
+                "response_model": schemas.Response[List[schemas.MediaInfo]],
             }
         ]
         return apis

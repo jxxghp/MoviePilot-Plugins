@@ -20,7 +20,7 @@ class TvdbDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "TheTVDB_A.png"
     # 插件版本
-    plugin_version = "2.1.0"
+    plugin_version = "2.1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -67,6 +67,7 @@ class TvdbDiscover(_PluginBase):
             "methods": ["GET"],
             "summary": "TheTVDB探索数据源",
             "description": "获取TheTVDB探索数据",
+            "response_model": schemas.Response[List[schemas.MediaInfo]],
         }]
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -193,9 +194,9 @@ class TvdbDiscover(_PluginBase):
                       company: int = None, contentRating: int = None, country: str = "usa",
                       genre: int = None, lang: str = "eng", sort: str = "score", sortType: str = "desc",
                       status: int = None, year: int = None,
-                      page: int = 1, count: int = 30) -> List[schemas.MediaInfo]:
+                      page: int = 1, count: int = 30) -> schemas.Response[List[schemas.MediaInfo]]:
         """
-        获取TheTVDB探索数据
+        获取显式统一响应格式的 TheTVDB 探索数据。
         """
 
         def __movie_to_media(movie_info: dict) -> schemas.MediaInfo:
@@ -281,7 +282,7 @@ class TvdbDiscover(_PluginBase):
             )
 
         if apikey != settings.API_TOKEN:
-            return []
+            return schemas.Response(success=True, data=[])
         try:
             # 计算页码，TVDB为固定每页500条
             if page * count > 500:
@@ -303,14 +304,17 @@ class TvdbDiscover(_PluginBase):
             )
         except Exception as err:
             logger.error(str(err))
-            return []
+            return schemas.Response(success=True, data=[])
         if not result:
-            return []
+            return schemas.Response(success=True, data=[])
         if mtype == "movies":
             results = [__movie_to_media(movie) for movie in result]
         else:
             results = [__series_to_media(series) for series in result]
-        return results[(page - 1) * count:page * count]
+        return schemas.Response(
+            success=True,
+            data=results[(page - 1) * count:page * count],
+        )
 
     @staticmethod
     def tvdb_filter_ui() -> List[dict]:
