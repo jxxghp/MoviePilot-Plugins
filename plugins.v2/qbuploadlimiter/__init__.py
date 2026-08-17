@@ -38,9 +38,9 @@ class QbUploadLimiter(_PluginBase):
     """
 
     plugin_name = "QB上传限速"
-    plugin_desc = "仅处理 MoviePilot 已整理入库成功的种子：种子入库成功前插件不监控不限速（等同未开启），入库成功且分享率达到全局或站点单独阈值时自动限制上传速度；qBittorrent 会与全局上传限速比较并采用较小值，支持多下载器、站点筛选、定时检测和停用恢复。"
+    plugin_desc = "仅处理 MoviePilot 已整理入库成功的种子：分享率达到全局或站点单独阈值后自动限制上传速度（qBittorrent 与全局上传限速取较小值）；支持多下载器、站点筛选、定时检测，停用/卸载自动恢复不限速。"
     plugin_icon = "Qbittorrent_A.png"
-    plugin_version = "1.3.3"
+    plugin_version = "1.3.4"
     plugin_author = "xlmc"
     author_url = "https://github.com/xlmc"
     plugin_config_prefix = "qbuploadlimiter_"
