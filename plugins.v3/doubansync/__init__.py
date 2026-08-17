@@ -36,7 +36,7 @@ class DoubanSync(_PluginBase):
     # 插件图标
     plugin_icon = "douban.png"
     # 插件版本
-    plugin_version = "3.1.0"
+    plugin_version = "3.1.1"
     # 插件作者
     plugin_author = "jxxghp,dwhmofly"
     # 作者主页
@@ -667,16 +667,24 @@ class DoubanSync(_PluginBase):
                             mtype=meta.type,
                         )
                         if not tmdbinfo:
-                            logger.warn(f'未能通过豆瓣ID {douban_id} 获取到TMDB信息，标题：{title}，豆瓣ID：{douban_id}')
-                            continue
-                        mediainfo = self.chain.recognize_media(
-                            meta=meta,
-                            media_source=MediaSource.TMDB,
-                            media_id=str(tmdbinfo.get("id")),
-                        )
-                        if not mediainfo:
-                            logger.warn(f'TMDBID {tmdbinfo.get("id")} 未识别到媒体信息')
-                            continue
+                            logger.warn(f'未能通过豆瓣ID {douban_id} 获取到TMDB信息，标题：{title}，尝试使用豆瓣数据识别')
+                            mediainfo = self.chain.recognize_media(
+                                meta=meta,
+                                media_source=MediaSource.Douban,
+                                media_id=str(douban_id),
+                            )
+                            if not mediainfo:
+                                logger.warn(f'豆瓣ID {douban_id} 未识别到媒体信息')
+                                continue
+                        else:
+                            mediainfo = self.chain.recognize_media(
+                                meta=meta,
+                                media_source=MediaSource.TMDB,
+                                media_id=str(tmdbinfo.get("id")),
+                            )
+                            if not mediainfo:
+                                logger.warn(f'TMDBID {tmdbinfo.get("id")} 未识别到媒体信息')
+                                continue
                     else:
                         mediainfo = self.chain.recognize_media(
                             meta=meta,
