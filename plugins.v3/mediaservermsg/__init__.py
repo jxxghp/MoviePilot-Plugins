@@ -4,18 +4,18 @@ import time
 from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional
 
-from app.core.cache import cached
-from app.core.config import settings
-from app.core.event import eventmanager, Event
-from app.core.metainfo import MetaInfoPath
-from app.helper.mediaserver import MediaServerHelper
-from app.log import logger
+from app.sdk.cache import cached
+from app.sdk.config import settings
+from app.sdk.events import eventmanager, Event
+from app.sdk.media import MetaInfoPath
+from app.sdk.services import MediaServerHelper
+from app.sdk.logging import logger
 from app.modules.themoviedb import CategoryHelper
 from app.plugins import _PluginBase
 from app.schemas import WebhookEventInfo, ServiceInfo, MediaServerItem
 from app.schemas.types import EventType, MediaSource, MediaType, MediaImageType, NotificationType
-from app.utils.media import resolve_media_identity
-from app.utils.web import WebUtils
+from app.sdk.media import resolve_media_identity
+from app.sdk.network import WebUtils
 
 
 class MediaServerMsg(_PluginBase):
@@ -41,7 +41,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.1.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页

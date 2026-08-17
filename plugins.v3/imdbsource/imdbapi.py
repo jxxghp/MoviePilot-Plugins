@@ -3,10 +3,10 @@ from typing import Any, AsyncGenerator, Dict, Generator, List, Optional, Final
 import requests
 import httpx
 
-from app.core.cache import cached
-from app.log import logger
-from app.utils.common import retry
-from app.utils.http import RequestUtils, AsyncRequestUtils
+from app.sdk.cache import cached
+from app.sdk.logging import logger
+from app.sdk.utilities import retry
+from app.sdk.network import RequestUtils, AsyncRequestUtils
 
 from .schema.imdbapi import ImdbApiTitle, ImdbApiEpisode, ImdbApiCredit, ImdbapiImage
 from .schema.imdbapi import (ImdbApiSearchTitlesResponse, ImdbApiListTitlesResponse, ImdbApiListTitleEpisodesResponse,

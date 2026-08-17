@@ -35,7 +35,7 @@ class DoubanSync(_PluginBase):
     # 插件图标
     plugin_icon = "douban.png"
     # 插件版本
-    plugin_version = "2.1.0"
+    plugin_version = "2.1.1"
     # 插件作者
     plugin_author = "jxxghp,dwhmofly"
     # 作者主页
@@ -617,12 +617,16 @@ class DoubanSync(_PluginBase):
                     if settings.RECOGNIZE_SOURCE == "themoviedb":
                         tmdbinfo = mediachain.get_tmdbinfo_by_doubanid(doubanid=douban_id, mtype=meta.type)
                         if not tmdbinfo:
-                            logger.warn(f'未能通过豆瓣ID {douban_id} 获取到TMDB信息，标题：{title}，豆瓣ID：{douban_id}')
-                            continue
-                        mediainfo = self.chain.recognize_media(meta=meta, tmdbid=tmdbinfo.get("id"))
-                        if not mediainfo:
-                            logger.warn(f'TMDBID {tmdbinfo.get("id")} 未识别到媒体信息')
-                            continue
+                            logger.warn(f'未能通过豆瓣ID {douban_id} 获取到TMDB信息，标题：{title}，尝试使用豆瓣数据识别')
+                            mediainfo = self.chain.recognize_media(meta=meta, doubanid=douban_id)
+                            if not mediainfo:
+                                logger.warn(f'豆瓣ID {douban_id} 未识别到媒体信息')
+                                continue
+                        else:
+                            mediainfo = self.chain.recognize_media(meta=meta, tmdbid=tmdbinfo.get("id"))
+                            if not mediainfo:
+                                logger.warn(f'TMDBID {tmdbinfo.get("id")} 未识别到媒体信息')
+                                continue
                     else:
                         mediainfo = self.chain.recognize_media(meta=meta, doubanid=douban_id)
                         if not mediainfo:
@@ -717,6 +721,7 @@ class DoubanSync(_PluginBase):
             year=mediainfo.year,
             mtype=mediainfo.type,
             tmdbid=mediainfo.tmdb_id,
+            doubanid=mediainfo.douban_id,
             season=meta.begin_season,
             exist_ok=True,
             username=real_name or f"豆瓣{nickname}想看"

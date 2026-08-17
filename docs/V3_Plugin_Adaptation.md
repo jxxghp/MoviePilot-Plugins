@@ -76,6 +76,7 @@ from app.sdk.utilities import StringUtils
 | `app.utils.string`、`app.domain.string` 以及常用加密、DOM、反射、OTP、单例、系统和定时工具 | `app.sdk.utilities` |
 | `app.utils.http`、`app.utils.ip`、`app.utils.url`、`app.utils.security`、`app.utils.site`、`app.utils.web` | `app.sdk.network` |
 | 下载器、媒体服务器、通知、规则、存储、系统状态及服务发现类 Helper | `app.sdk.services` |
+| `app.helper.browser`（PlaywrightHelper 等浏览器操作） | `app.sdk.browser` |
 
 `StringUtils` 的实现已经按文本、容量、时间、URL、DOM、媒体标题、剧集、站点和
 种子等职责拆分；这些内部实现位置不是插件合同。插件若仍需要历史的完整静态方法
@@ -367,14 +368,13 @@ MoviePilot 普通 JSON API 统一返回三个顶层字段：
 不要依赖旧的额外顶层字段。SSE、文件、图片、HTML、OAuth2、OpenAI、
 Anthropic 和 MCP JSON-RPC 等标准协议端点保持各自原生响应。
 
-插件通过 `get_api()` 注册的普通 JSON endpoint 同样由宿主自动包装。endpoint
-直接返回业务对象即可；需要显式返回操作结果时使用宿主的
-`app.schemas.Response`。不要手工返回一个普通 `{success, message, data}` 字典，
-否则它会再次进入自动包装并形成双层 `data`。
+插件通过 `get_api()` 注册的路由不进入宿主统一响应路由，宿主不会隐式包装插件
+返回值。插件可直接返回业务模型，也可显式返回 `app.schemas.Response[T]`；路由的
+`response_model` 必须与所选结构一致。接入宿主探索、推荐等普通数据页面的接口应
+显式使用 envelope，因为这些页面按宿主普通 JSON 合同读取 `data`。
 
-Vue 远程组件应使用宿主注入的 `api` 属性或 `window.MoviePilotAPI`。该客户端为
-插件保留完整 envelope，因此返回值本身是 `{ success, message, data }`，业务
-对象位于其 `data` 字段：
+Vue 远程组件应使用宿主注入的 `api` 属性或 `window.MoviePilotAPI`。该客户端会
+原样返回插件 payload；下例插件显式选择 envelope，因此业务对象位于 `data`：
 
 ```javascript
 const response = await window.MoviePilotAPI.get('plugin/MyPlugin/items')
@@ -421,6 +421,8 @@ if (response.success) {
   `media_source` / `media_id`。
 - 新增代码优先从 `app.sdk` 导入宿主能力；在 `DEBUG=true` 的 V3 宿主中加载时，
   插件不再产生能够迁移的旧导入警告。
+- 不直接依赖 `app.sdk._legacy`，也不新增 `app.core.*`、`app.helper.*`、
+  `app.utils.*` 旧路径导入。
 - 内置来源使用 `MediaSource` 常量；插件来源使用稳定的扩展成员；ID 在持久化与
   比较前转换为规范字符串。
 - 半对、空白、格式非法来源和 `"0"` 不会进入缓存、数据库或插件数据，合法
@@ -428,8 +430,10 @@ if (response.success) {
 - 插件自有数据迁移幂等，且不会先删旧数据再保存新数据。
 - 已移除 `MusicChain` 导入，并按职责使用 `MediaChain`、`RecommendChain`、
   `SearchChain`、`ScrapingChain` 或来源链。
-- REST 调用按统一 envelope 读取 `success`、`message`、`data`。
-- `get_api()` 的普通 JSON endpoint 声明具体输出模型，且没有手工双层套壳。
+- 调用宿主普通 REST API 时按统一 envelope 读取 `success`、`message`、`data`；
+  调用插件自有 API 时按该 endpoint 声明的裸数据或 envelope 合同解析。
+- `get_api()` 的普通 JSON endpoint 声明与实际结构一致的输出模型，且不依赖宿主
+  隐式包装。
 - Vue 远程组件使用相对 API 路径，并避免重复错误 Toast。
 - 自定义识别词和重命名格式仍使用历史来源专用 ID。
 - V3 专用副本位于 `plugins.v3/`，版本完成主版本跃迁，且声明

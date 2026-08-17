@@ -11,22 +11,22 @@ from sqlalchemy.orm import Session
 # 项目库
 from app.chain.download import DownloadChain
 from app.chain.subscribe import SubscribeChain
-from app.core.config import settings
-from app.core.context import MediaInfo
-from app.core.event import eventmanager, Event
-from app.core.meta import MetaBase
-from app.core.metainfo import MetaInfo
+from app.sdk.config import settings
+from app.sdk.media import MediaInfo
+from app.sdk.events import eventmanager, Event
+from app.sdk.media import MetaBase
+from app.sdk.media import MetaInfo
 from app.db.models.subscribehistory import SubscribeHistory
-from app.db.site_oper import SiteOper
-from app.db.subscribe_oper import SubscribeOper
+from app.db.oper.site import SiteOper
+from app.db.oper.subscribe import SubscribeOper
 from app.db import db_query
-from app.helper.server import MoviePilotServerHelper
-from app.log import logger
+from app.adapters.external.server import MoviePilotServerHelper
+from app.sdk.logging import logger
 from app.modules.themoviedb import TmdbApi
 from app.plugins import _PluginBase
 from app.schemas.types import EventType, MediaSource, MediaType, NotificationType
-from app.utils.http import RequestUtils
-from app.utils.media import build_media_key
+from app.sdk.network import RequestUtils
+from app.sdk.media import build_media_key
 
 
 class BangumiColl(_PluginBase):
@@ -37,7 +37,7 @@ class BangumiColl(_PluginBase):
     # 插件图标
     plugin_icon = "bangumi_b.png"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.1.0"
     # 插件作者
     plugin_author = "Attente"
     # 作者主页

@@ -244,8 +244,10 @@ V3 已为插件整理稳定 SDK。新插件应优先从 `app.sdk` 导入，不�
 | 缓存 | `app.sdk.cache` |
 | 媒体上下文、名称解析和媒体身份 | `app.sdk.media` |
 | HTTP、URL、站点和安全网络工具 | `app.sdk.network` |
+| 浏览器自动化（Playwright 上下文管理与页面操作） | `app.sdk.browser` |
 | 插件和模块管理 | `app.sdk.plugins` |
 | 下载器、媒体服务器、通知、规则和存储服务 | `app.sdk.services` |
+| 文本门面（`StringUtils` 文本与格式化能力） | `app.sdk.string` |
 | StringUtils、加密、DOM、反射、OTP 等通用工具 | `app.sdk.utilities` |
 
 示例：
@@ -257,9 +259,27 @@ from app.sdk.logging import logger
 from app.sdk.utilities import StringUtils
 ```
 
-`app.schemas`、`app.schemas.types`、`app.chain`、`app.plugins` 和
-`app.agent.tools.base` 是插件仍会使用的既有公开入口。使用具体能力前，应查看
-当前 V3 方法签名和对应专题文档，不要从目录名字推断合同。
+需要浏览器自动化时，统一使用 `app.sdk.browser.launch_browser_context` 启动
+浏览器上下文，不要自行实例化宿主的 Playwright 适配器：
+
+```python
+from app.sdk.browser import launch_browser_context
+
+with launch_browser_context(cookies=..., browser_type="chromium") as ctx:
+    page = ctx.pages[0]
+```
+
+以下既有公开入口仍可稳定使用：`app.schemas`、`app.schemas.types`、
+`app.chain.*`、`app.plugins.*`、`app.modules.*`、`app.agent.*`、
+`app.api.endpoints.plugin`、`app.scheduler`、`app.db.models`、
+`app.db.oper.*`。使用具体能力前，应查看当前 V3 方法签名和对应专题文档，
+不要从目录名字推断合同。
+
+以下入口属于兼容桥接，新插件代码禁止使用：
+
+- `app.sdk._legacy`：仅供存量 V2 插件的自动迁移桥接，新插件不得直接依赖。
+- `app.core.*`、`app.helper.*`、`app.utils.*`：仅由宿主精确映射兼容层承接存量
+  导入；新增或新发布的插件不得继续使用这些旧路径。
 
 已发布插件中的 `app.core.*`、`app.helper.*`、`app.utils.*` 等旧导入，由精确映射
 兼容层承接；`DEBUG=true` 时宿主会提示推荐迁移路径。完整说明见

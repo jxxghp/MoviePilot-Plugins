@@ -44,29 +44,29 @@ def _optional_import(module_name: str, attr_name: str) -> Any:
 
 
 DownloadChain = _optional_import("app.chain.download", "DownloadChain")
-DownloadHistoryOper = _optional_import("app.db.downloadhistory_oper", "DownloadHistoryOper")
+DownloadHistoryOper = _optional_import("app.db.oper.downloadhistory", "DownloadHistoryOper")
 DownloadHistory = _optional_import("app.db.models.downloadhistory", "DownloadHistory")
 TransferHistory = _optional_import("app.db.models.transferhistory", "TransferHistory")
 MediaChain = _optional_import("app.chain.media", "MediaChain")
 SearchChain = _optional_import("app.chain.search", "SearchChain")
-SiteOper = _optional_import("app.db.site_oper", "SiteOper")
+SiteOper = _optional_import("app.db.oper.site", "SiteOper")
 SubscribeChain = _optional_import("app.chain.subscribe", "SubscribeChain")
-MoviePilotServerHelper = _optional_import("app.helper.server", "MoviePilotServerHelper")
-SubscribeOper = _optional_import("app.db.subscribe_oper", "SubscribeOper")
-SystemConfigOper = _optional_import("app.db.systemconfig_oper", "SystemConfigOper")
-eventmanager = _optional_import("app.core.event", "eventmanager")
-MetaInfo = _optional_import("app.core.metainfo", "MetaInfo")
-PluginManager = _optional_import("app.core.plugin", "PluginManager")
+MoviePilotServerHelper = _optional_import("app.adapters.external.server", "MoviePilotServerHelper")
+SubscribeOper = _optional_import("app.db.oper.subscribe", "SubscribeOper")
+SystemConfigOper = _optional_import("app.db.oper.systemconfig", "SystemConfigOper")
+eventmanager = _optional_import("app.sdk.events", "eventmanager")
+MetaInfo = _optional_import("app.sdk.media", "MetaInfo")
+PluginManager = _optional_import("app.sdk.plugins", "PluginManager")
 Scheduler = _optional_import("app.scheduler", "Scheduler")
 EventType = _optional_import("app.schemas.types", "EventType")
 SystemConfigKey = _optional_import("app.schemas.types", "SystemConfigKey")
 TorrentStatus = _optional_import("app.schemas.types", "TorrentStatus")
 media_type_to_agent = _optional_import("app.schemas.types", "media_type_to_agent")
-RequestUtils = _optional_import("app.utils.http", "RequestUtils")
-StringUtils = _optional_import("app.utils.string", "StringUtils")
+RequestUtils = _optional_import("app.sdk.network", "RequestUtils")
+StringUtils = _optional_import("app.sdk.utilities", "StringUtils")
 
 try:
-    from app.log import logger
+    from app.sdk.logging import logger
 except Exception:
     class _FallbackLogger:
         @staticmethod

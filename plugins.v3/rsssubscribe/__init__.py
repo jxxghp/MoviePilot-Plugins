@@ -12,15 +12,15 @@ from apscheduler.triggers.cron import CronTrigger
 from app import schemas
 from app.chain.download import DownloadChain
 from app.chain.subscribe import SubscribeChain
-from app.core.config import settings
-from app.core.context import MediaInfo, TorrentInfo, Context
-from app.core.metainfo import MetaInfo
-from app.helper.rss import RssHelper
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.media import MediaInfo, TorrentInfo, Context
+from app.sdk.media import MetaInfo
+from app.sdk.network import RssHelper
+from app.sdk.logging import logger
 from app.plugins import _PluginBase
 from app.schemas import ExistMediaInfo
 from app.schemas.types import MediaSource, SystemConfigKey, MediaType
-from app.utils.media import normalize_media_source, resolve_media_identity
+from app.sdk.media import normalize_media_source, resolve_media_identity
 
 lock = Lock()
 
@@ -33,7 +33,7 @@ class RssSubscribe(_PluginBase):
     # 插件图标
     plugin_icon = "rss.png"
     # 插件版本
-    plugin_version = "3.0.0"
+    plugin_version = "3.1.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页

@@ -13,7 +13,7 @@
     或短横线，最长 64 个字符
   - `mediaid_prefix`：旧插件和前端标签使用的兼容前缀；V3 新代码只提供
     `media_source` 即可，宿主会双向补齐
-  - `api_path`：数据获取API相对路径，需要在插件中实现API接口功能，GET模式接收过滤参数（注意：page参数默认需要有），endpoint 返回 `List[schemas.MediaInfo]` 业务数据（HTTP 层由宿主包装为统一响应）；每个 `MediaInfo` 必须设置 `media_source` 和 `media_id`，用于唯一索引媒体详细信息和转换媒体数据
+  - `api_path`：数据获取API相对路径，需要在插件中实现API接口功能，GET模式接收过滤参数（注意：page参数默认需要有）。探索页面使用宿主普通数据客户端，endpoint 必须显式返回并声明 `schemas.Response[List[schemas.MediaInfo]]`；宿主不会替插件包装。每个 `MediaInfo` 必须设置 `media_source` 和 `media_id`，用于唯一索引媒体详细信息和转换媒体数据
   - `filter_params`：数据源过滤参数名的字典，相关参数会传入插件API的GET请求中
   - `filter_ui`：数据过滤选项的UI配置json，与插件配置表单方式一致
   - `depends`: UI依赖关系字典Dict[str, list]，关过滤条件存在依赖关系时需要设置，以便上级条件变化时清空下级条件值

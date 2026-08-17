@@ -1,16 +1,16 @@
 """HDHiveBrowserService 纯函数测试（无需 pytest，直接 python3 运行）。
 
 绕开 AgentResourceOfficer 包（其 __init__.py 依赖 MoviePilot app.*），
-桩掉 app.helper.browser / app.log 后直接加载 services/hdhive_browser.py。
+桩掉 app.sdk.browser / app.sdk.logging 后直接加载 services/hdhive_browser.py。
 """
 import os
 import sys
 import types
 
-for _name in ("app", "app.helper", "app.helper.browser", "app.log"):
+for _name in ("app", "app.sdk", "app.sdk.browser", "app.sdk.logging"):
     sys.modules.setdefault(_name, types.ModuleType(_name))
-sys.modules["app.helper.browser"].PlaywrightHelper = object  # type: ignore[attr-defined]
-sys.modules["app.log"].logger = types.SimpleNamespace(  # type: ignore[attr-defined]
+sys.modules["app.sdk.browser"].launch_browser_context = object  # type: ignore[attr-defined]
+sys.modules["app.sdk.logging"].logger = types.SimpleNamespace(  # type: ignore[attr-defined]
     info=lambda *a, **k: None,
     warning=lambda *a, **k: None,
     error=lambda *a, **k: None,

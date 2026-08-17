@@ -3,21 +3,21 @@ import threading
 from typing import List, Tuple, Dict, Any, Optional
 
 import pytz
-from app.helper.sites import SitesHelper
+from app.sdk.network import SitesHelper
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.core.config import settings
-from app.core.context import Context
-from app.core.event import eventmanager, Event
-from app.db.downloadhistory_oper import DownloadHistoryOper
+from app.sdk.config import settings
+from app.sdk.media import Context
+from app.sdk.events import eventmanager, Event
+from app.db.oper.downloadhistory import DownloadHistoryOper
 from app.db.models.downloadhistory import DownloadHistory
-from app.helper.downloader import DownloaderHelper
-from app.log import logger
+from app.sdk.services import DownloaderHelper
+from app.sdk.logging import logger
 from app.plugins import _PluginBase
 from app.schemas import ServiceInfo
 from app.schemas.types import EventType, MediaSource, MediaType
-from app.utils.string import StringUtils
+from app.sdk.utilities import StringUtils
 
 
 class DownloadSiteTag(_PluginBase):
@@ -28,7 +28,7 @@ class DownloadSiteTag(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "3.0.0"
+    plugin_version = "3.1.0"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页

@@ -9,11 +9,11 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app import schemas
 from app.chain.storage import StorageChain
-from app.core.config import settings
-from app.core.event import eventmanager
-from app.db.downloadhistory_oper import DownloadHistoryOper
-from app.db.transferhistory_oper import TransferHistoryOper
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.events import eventmanager
+from app.db.oper.downloadhistory import DownloadHistoryOper
+from app.db.oper.transferhistory import TransferHistoryOper
+from app.sdk.logging import logger
 from app.plugins import _PluginBase
 from app.schemas import NotificationType, DownloadHistory
 from app.schemas.types import EventType
@@ -27,7 +27,7 @@ class AutoClean(_PluginBase):
     # 插件图标
     plugin_icon = "clean.png"
     # 插件版本
-    plugin_version = "3.0.0"
+    plugin_version = "3.1.0"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页

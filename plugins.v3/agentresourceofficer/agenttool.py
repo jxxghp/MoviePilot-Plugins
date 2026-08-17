@@ -3,7 +3,7 @@ from typing import Optional, Type
 from pydantic import BaseModel
 
 from app.agent.tools.base import MoviePilotTool
-from app.core.plugin import PluginManager
+from app.sdk.plugins import PluginManager
 
 from .schemas import (
     AssistantCapabilitiesToolInput,

@@ -9,21 +9,21 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app import schemas
 from app.chain.media import MediaChain
-from app.db.subscribe_oper import SubscribeOper
-from app.db.user_oper import UserOper
+from app.db.oper.subscribe import SubscribeOper
+from app.db.oper.user import UserOper
 from app.schemas.types import MediaType, MediaSource, EventType, SystemConfigKey
 
 from app.chain.download import DownloadChain
 from app.chain.search import SearchChain
 from app.chain.subscribe import SubscribeChain
-from app.core.config import settings
-from app.core.event import Event
-from app.core.event import eventmanager
-from app.core.metainfo import MetaInfo
-from app.helper.rss import RssHelper
-from app.log import logger
+from app.sdk.config import settings
+from app.sdk.events import Event
+from app.sdk.events import eventmanager
+from app.sdk.media import MetaInfo
+from app.sdk.network import RssHelper
+from app.sdk.logging import logger
 from app.plugins import _PluginBase
-from app.utils.media import normalize_media_source, resolve_media_identity
+from app.sdk.media import normalize_media_source, resolve_media_identity
 
 lock = Lock()
 
@@ -36,7 +36,7 @@ class DoubanSync(_PluginBase):
     # 插件图标
     plugin_icon = "douban.png"
     # 插件版本
-    plugin_version = "3.0.0"
+    plugin_version = "3.1.1"
     # 插件作者
     plugin_author = "jxxghp,dwhmofly"
     # 作者主页
@@ -667,16 +667,24 @@ class DoubanSync(_PluginBase):
                             mtype=meta.type,
                         )
                         if not tmdbinfo:
-                            logger.warn(f'未能通过豆瓣ID {douban_id} 获取到TMDB信息，标题：{title}，豆瓣ID：{douban_id}')
-                            continue
-                        mediainfo = self.chain.recognize_media(
-                            meta=meta,
-                            media_source=MediaSource.TMDB,
-                            media_id=str(tmdbinfo.get("id")),
-                        )
-                        if not mediainfo:
-                            logger.warn(f'TMDBID {tmdbinfo.get("id")} 未识别到媒体信息')
-                            continue
+                            logger.warn(f'未能通过豆瓣ID {douban_id} 获取到TMDB信息，标题：{title}，尝试使用豆瓣数据识别')
+                            mediainfo = self.chain.recognize_media(
+                                meta=meta,
+                                media_source=MediaSource.Douban,
+                                media_id=str(douban_id),
+                            )
+                            if not mediainfo:
+                                logger.warn(f'豆瓣ID {douban_id} 未识别到媒体信息')
+                                continue
+                        else:
+                            mediainfo = self.chain.recognize_media(
+                                meta=meta,
+                                media_source=MediaSource.TMDB,
+                                media_id=str(tmdbinfo.get("id")),
+                            )
+                            if not mediainfo:
+                                logger.warn(f'TMDBID {tmdbinfo.get("id")} 未识别到媒体信息')
+                                continue
                     else:
                         mediainfo = self.chain.recognize_media(
                             meta=meta,
