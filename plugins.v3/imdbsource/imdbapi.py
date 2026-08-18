@@ -4,6 +4,7 @@ import requests
 import httpx
 
 from app.sdk.cache import cached
+from app.sdk.config import settings
 from app.sdk.logging import logger
 from app.sdk.utilities import retry
 from app.sdk.network import RequestUtils, AsyncRequestUtils
@@ -21,20 +22,20 @@ CACHE_LIFESPAN: Final[int] = 86400
 class ImdbApiClient:
     BASE_URL = 'https://api.tiffara.com'
 
-    def __init__(self, proxies: Optional[Dict[str, str]] = None, ua: Optional[str] = None) -> None:
-        self._req = RequestUtils(ua=ua, accept_type="application/json",
-                                 proxies=proxies, session=requests.Session())
-        if proxies:
-            proxy_url = proxies.get("https") or proxies.get("http")
-        else:
-            proxy_url = None
-        self._free_api_client = httpx.AsyncClient(timeout=10, proxy=proxy_url)
-
-        self._async_req = AsyncRequestUtils(
-            ua=ua,
-            accept_type="application/json",
-            client=self._free_api_client
-        )
+    def __init__(
+            self,
+            session: requests.Session,
+            async_client: httpx.AsyncClient,
+            proxies: Optional[Dict[str, str]] = None,
+            ua: Optional[str] = None
+    ):
+        headers = {
+            "user-agent": ua or settings.NORMAL_USER_AGENT,
+            "accept": "application/json",
+            "sec-fetch-dest": "empty"
+        }
+        self._req = RequestUtils(headers=headers, proxies=proxies, session=session)
+        self._async_req = AsyncRequestUtils(headers=headers,  client=async_client)
 
     @retry(Exception, logger=logger, delay=1)
     @cached(maxsize=4096, ttl=CACHE_LIFESPAN)

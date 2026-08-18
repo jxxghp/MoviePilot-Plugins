@@ -4,6 +4,7 @@ import requests
 import httpx
 
 from app.core.cache import cached
+from app.core.config import settings
 from app.log import logger
 from app.utils.common import retry
 from app.utils.http import RequestUtils, AsyncRequestUtils
@@ -22,7 +23,12 @@ class ImdbApiClient:
     BASE_URL = 'https://api.tiffara.com'
 
     def __init__(self, proxies: Optional[Dict[str, str]] = None, ua: Optional[str] = None) -> None:
-        self._req = RequestUtils(ua=ua, accept_type="application/json",
+        headers = {
+            "user-agent": ua or settings.NORMAL_USER_AGENT,
+            "accept": "application/json",
+            "sec-fetch-dest": "empty"
+        }
+        self._req = RequestUtils(headers=headers, ua=ua, accept_type="application/json",
                                  proxies=proxies, session=requests.Session())
         if proxies:
             proxy_url = proxies.get("https") or proxies.get("http")
@@ -31,6 +37,7 @@ class ImdbApiClient:
         self._free_api_client = httpx.AsyncClient(timeout=10, proxy=proxy_url)
 
         self._async_req = AsyncRequestUtils(
+            headers=headers,
             ua=ua,
             accept_type="application/json",
             client=self._free_api_client

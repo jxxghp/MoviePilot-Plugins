@@ -5,27 +5,22 @@ from datetime import datetime
 from typing import Any, Callable, Coroutine, Dict, Optional, List, Tuple
 from urllib.parse import quote
 
-from zhconv_rs import zhconv as zhconv_convert
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Query
 
 from app import schemas
 from app.chain import ChainBase
-from app.sdk.cache import cached
 from app.sdk.config import settings
-from app.sdk.media import MediaInfo
+from app.sdk.media import MediaInfo, MetaBase
 from app.sdk.events import eventmanager, Event
-from app.sdk.media import MetaBase
 from app.plugins import _PluginBase
-from app.plugins.imdbsource.imdbhelper import ImdbHelper
-from app.plugins.imdbsource.officialapi import INTERESTS_ID
-from app.plugins.imdbsource.schema import StaffPickEntry, ImdbTitle, StaffPickApiResponse, ImdbMediaInfo, SearchParams
-from app.sdk.logging import logger
 from app.schemas import DiscoverSourceEventData, MediaRecognizeConvertEventData, RecommendSourceEventData
 from app.schemas.types import ChainEventType, MediaSource, MediaType, EventType
 from app.scheduler import Scheduler
-from app.sdk.network import AsyncRequestUtils, RequestUtils
-from app.sdk.media import resolve_media_identity
+
+from .imdbhelper import ImdbHelper
+from .officialapi import INTERESTS_ID
+from .schema import StaffPickEntry, ImdbTitle, StaffPickApiResponse, ImdbMediaInfo, SearchParams
 
 
 class ImdbSource(_PluginBase):
@@ -36,7 +31,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "2.1.1"
+    plugin_version = "2.1.2"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -56,8 +51,8 @@ class ImdbSource(_PluginBase):
     _interests: List[str] = []
     _component_size: str = 'medium'
     _chinese_component: bool = False
-    _recognition_mode: str = 'auxiliary'
     _interval: int = 10
+    _add_tmdbid: bool = False
 
     # 私有属性
     _imdb_helper: ImdbHelper = None
@@ -89,61 +84,13 @@ class ImdbSource(_PluginBase):
 
     def init_plugin(self, config: dict = None):
 
-        plugin_instance: ImdbSource = self
-
-        def patched_recognize_media(chain_self, *args, **kwargs):
-            # 调用原始方法
-            if not plugin_instance._original_method:
-                return None
-            result = plugin_instance._original_method(chain_self, *args, **kwargs)
-            if result is None and ImdbSource._enabled and ImdbSource._recognize_media:
-                logger.info(f"通过插件 {ImdbSource.plugin_name} 执行：recognize_media ...")
-                plugin_kwargs = plugin_instance._extract_method_kwargs(
-                    plugin_instance._original_method,
-                    chain_self,
-                    args,
-                    kwargs,
-                )
-                meta = plugin_kwargs.pop("meta", None)
-                mtype = plugin_kwargs.pop("mtype", None)
-                return plugin_instance.recognize_media(meta=meta, mtype=mtype, **plugin_kwargs)
-            return result
-
-        async def patched_async_recognize_media(chain_self, *args, **kwargs):
-            # 调用原始方法
-            if not plugin_instance._original_async_method:
-                return None
-            result = await plugin_instance._original_async_method(chain_self, *args, **kwargs)
-            if result is None and ImdbSource._enabled and ImdbSource._recognize_media:
-                logger.info(f"通过插件 {ImdbSource.plugin_name} 执行：async_recognize_media ...")
-                plugin_kwargs = plugin_instance._extract_method_kwargs(
-                    plugin_instance._original_async_method,
-                    chain_self,
-                    args,
-                    kwargs,
-                )
-                meta = plugin_kwargs.pop("meta", None)
-                mtype = plugin_kwargs.pop("mtype", None)
-                return await plugin_instance.async_recognize_media(meta=meta, mtype=mtype, **plugin_kwargs)
-            return result
-
-        # 给 patch 函数加唯一标记
-        setattr(patched_recognize_media, '_patched_by', id(self))
-        # 保存原始方法
-        if not getattr(ChainBase.recognize_media, "_patched_by", object()) == id(self):
-            self._original_method = getattr(ChainBase, "recognize_media", None)
-
-        setattr(patched_async_recognize_media, '_patched_by', id(self))
-        # 保存原始方法
-        if not getattr(ChainBase.async_recognize_media, "_patched_by", object()) == id(self):
-            self._original_async_method = getattr(ChainBase, "async_recognize_media", None)
-
         if config:
             self._enabled = bool(config.get("enabled"))
             self._proxy = bool(config.get("proxy"))
             self._staff_picks = bool(config.get("staff_picks"))
             self._recognize_media = bool(config.get("recognize_media"))
             self._chinese_component = bool(config.get("chinese_component"))
+            self._add_tmdbid = bool(config.get("add_tmdbid"))
             self._interval = int(config.get("interval") or 10)
             if 'interests' not in config:
                 self._interests = ['Anime', 'Documentary', 'Sitcom']
@@ -152,7 +99,6 @@ class ImdbSource(_PluginBase):
                 if isinstance(self._interests, str):
                     self._interests = [self._interests]
             self._component_size = config.get("component_size") or "medium"
-            self._recognition_mode = config.get("recognition_mode") or "auxiliary"
             self._update_config()
 
         self._imdb_helper = ImdbHelper(proxies=settings.PROXY if self._proxy else None)
@@ -160,23 +106,6 @@ class ImdbSource(_PluginBase):
             settings.SECURITY_IMAGE_DOMAINS.append("media-amazon.com")
         if "media-imdb.com" not in settings.SECURITY_IMAGE_DOMAINS:
             settings.SECURITY_IMAGE_DOMAINS.append("media-imdb.com")
-        if self._enabled:
-            if self._recognize_media and self._recognition_mode == 'auxiliary':
-                # 替换 ChainBase.recognize_media
-                if not (getattr(ChainBase.recognize_media, "_patched_by", object()) == id(self)):
-                    ChainBase.recognize_media = patched_recognize_media
-                # 替换 ChainBase.async_recognize_media
-                if not getattr(ChainBase.async_recognize_media, "_patched_by", object()) == id(self):
-                    ChainBase.async_recognize_media = patched_async_recognize_media
-            else:
-                # 恢复 ChainBase.recognize_media
-                if (getattr(ChainBase.recognize_media, "_patched_by", object()) == id(self) and
-                        self._original_method):
-                    ChainBase.recognize_media = self._original_method
-                # 恢复 ChainBase.async_recognize_media
-                if (getattr(ChainBase.async_recognize_media, "_patched_by", object()) == id(self) and
-                        self._original_async_method):
-                    ChainBase.async_recognize_media = self._original_async_method
         else:
             self.stop_service()
 
@@ -795,18 +724,15 @@ class ImdbSource(_PluginBase):
                                 },
                                 'content': [
                                     {
-                                        'component': 'VSelect',
+                                        'component': 'VSwitch',
                                         'props': {
-                                            'model': 'recognition_mode',
-                                            'label': '媒体识别工作模式',
-                                            'items': [
-                                                {"title": "仅当系统无法识别", "value": "auxiliary"},
-                                                {"title": "正常", "value": "hijacking"}
-                                            ]
+                                            "model": "add_tmdbid",
+                                            "label": "补充TMDB ID",
+                                            "hint": "用于在媒体详情页展示剧集组"
                                         }
                                     }
                                 ]
-                            }
+                            },
                         ],
                     },
                     {
@@ -968,12 +894,12 @@ class ImdbSource(_PluginBase):
                                             'border': 'start',
                                             'border-color': 'info',
                                             'variant': 'tonal',
-                                            'title': 'About IMDbAPI'
+                                            'title': 'About IMDxAPI'
                                         },
                                         'content': [
                                             {
                                                 'component': 'span',
-                                                'text': 'This plugin makes partial use of the Free IMDb API (imdbapi.dev), courtesy of '
+                                                'text': 'This plugin makes partial use of the Free IMDb API (tiffara.com), courtesy of '
                                             },
                                             {
                                                 'component': 'a',
@@ -1006,6 +932,7 @@ class ImdbSource(_PluginBase):
             "staff_picks": False,
             "recognize_media": False,
             "chinese_component": False,
+            "add_tmdbid": False,
             "interests": ['Anime', 'Documentary', 'Sitcom'],
             "component_size": "medium",
             "recognition_mode": "auxiliary",
@@ -1035,7 +962,7 @@ class ImdbSource(_PluginBase):
         }
         """
         modules = {}
-        if self._recognize_media and self._recognition_mode == 'hijacking':
+        if self._recognize_media:
             modules['async_recognize_media'] = self.async_recognize_media
             modules['recognize_media'] = self.recognize_media
         return modules
@@ -1049,9 +976,9 @@ class ImdbSource(_PluginBase):
                 "recognize_media": self._recognize_media,
                 "interests": self._interests,
                 "component_size": self._component_size,
-                "recognition_mode": self._recognition_mode,
                 "chinese_component": self._chinese_component,
-                "interval": self._interval
+                "interval": self._interval,
+                "add_tmdbid": self._add_tmdbid
             }
         )
 
@@ -1863,7 +1790,8 @@ class ImdbSource(_PluginBase):
             depends={
                 "ranked_list": ["mtype"]
             },
-            filter_ui=self.imdb_filter_ui()
+            filter_ui=self.imdb_filter_ui(),
+            mediaid_prefix="imdb"
         )
         if not event_data.extra_sources:
             event_data.extra_sources = [imdb_source]
@@ -1881,7 +1809,7 @@ class ImdbSource(_PluginBase):
             return
         if event_data.media_source != MediaSource.IMDb:
             return
-        tmdb_id = await self.async_imdb_to_tmdb(event_data.media_id)
+        tmdb_id = await self._imdb_helper.async_imdb_to_tmdb(event_data.media_id)
         if tmdb_id is not None:
             event_data.media_dict.update({
                 "id": tmdb_id,
@@ -1939,66 +1867,9 @@ class ImdbSource(_PluginBase):
         """
         if not self._enabled:
             return None
-        explicit_identity = media_source is not None or media_id is not None
-        if explicit_identity:
-            source, normalized_media_id = resolve_media_identity(
-                media_source=media_source,
-                media_id=media_id,
-            )
-            if source != MediaSource.IMDb or not normalized_media_id:
-                return None
-            info = self._imdb_helper.get_info_by_imdbid(normalized_media_id)
-        else:
-            if not meta:
-                return None
-            elif not meta.name:
-                logger.warn("识别媒体信息时未提供元数据名称")
-                return None
-            else:
-                if mtype:
-                    meta.type = mtype
-            info: Optional[ImdbMediaInfo] = None
-            # 简体名称
-            zh_name = zhconv_convert(meta.cn_name, 'zh-hans') if meta.cn_name else None
-            media_names = list(dict.fromkeys([k for k in [meta.cn_name, zh_name, meta.en_name] if k]))
-            names: list[str] = [name for name in media_names if isinstance(name, str)]
-            for name in names:
-                if meta.begin_season:
-                    logger.info(f"正在识别 {name} 第{meta.begin_season}季 ...")
-                else:
-                    logger.info(f"正在识别 {name} ...")
-                if meta.type == MediaType.UNKNOWN and not meta.year:
-                    info = self._imdb_helper.match_by(name)
-                else:
-                    if meta.type == MediaType.TV:
-                        info = self._imdb_helper.match(name=name, year=meta.year, mtype=meta.type, season_year=meta.year,
-                                                       season_number=meta.begin_season)
-                        if not info:
-                            # 去掉年份再查一次
-                            info = self._imdb_helper.match(name=name, mtype=meta.type)
-                    else:
-                        # 有年份先按电影查
-                        info = self._imdb_helper.match(name=name, year=meta.year, mtype=MediaType.MOVIE)
-                        # 没有再按电视剧查
-                        if not info:
-                            info = self._imdb_helper.match(name=name, year=meta.year, mtype=MediaType.TV)
-                        if not info:
-                            # 去掉年份和类型再查一次
-                            info = self._imdb_helper.match_by(name=name)
-                if info:
-                    break
-        if info:
-            info: ImdbMediaInfo = self._imdb_helper.update_info(info.id, info=info)
-            mediainfo = ImdbHelper.convert_mediainfo(info)
-            cat = ImdbHelper.get_category(ImdbHelper.type_to_mtype(info.type.value),
-                                          info.model_dump(by_alias=True, exclude_none=True))
-            mediainfo.set_category(cat)
-            name = meta.name if meta else mediainfo.title
-            logger.info(f"{name} IMDb 识别结果：{mediainfo.type.value} "
-                        f"{mediainfo.title_year} "
-                        f"{mediainfo.media_source}:{mediainfo.media_id}")
-            return mediainfo
-        return None
+        return self._imdb_helper.recognize_media(
+            meta=meta, mtype=mtype, media_source=media_source, media_id=media_id, add_tmdb_id=self._add_tmdbid
+        )
 
     async def async_fetch_staff_picks(self):
         data = await self._imdb_helper.async_fetch_staff_picks(self._chinese_component)
@@ -2020,161 +1891,9 @@ class ImdbSource(_PluginBase):
         """
         if not self._enabled:
             return None
-        explicit_identity = media_source is not None or media_id is not None
-        if explicit_identity:
-            source, normalized_media_id = resolve_media_identity(
-                media_source=media_source,
-                media_id=media_id,
-            )
-            if source != MediaSource.IMDb or not normalized_media_id:
-                return None
-            info = await self._imdb_helper.async_get_info_by_imdbid(normalized_media_id)
-        else:
-            if not meta:
-                return None
-            elif not meta.name:
-                logger.warn("识别媒体信息时未提供元数据名称")
-                return None
-            else:
-                if mtype:
-                    meta.type = mtype
-            info: Optional[ImdbMediaInfo] = None
-            # 简体名称
-            zh_name = zhconv_convert(meta.cn_name, 'zh-hans') if meta.cn_name else None
-            media_names = list(dict.fromkeys([k for k in [meta.cn_name, zh_name, meta.en_name] if k]))
-            names: list[str] = [name for name in media_names if isinstance(name, str)]
-            for name in names:
-                if meta.begin_season:
-                    logger.info(f"正在识别 {name} 第{meta.begin_season}季 ...")
-                else:
-                    logger.info(f"正在识别 {name} ...")
-                if meta.type == MediaType.UNKNOWN and not meta.year:
-                    info = await self._imdb_helper.async_match_by(name)
-                else:
-                    if meta.type == MediaType.TV:
-                        info = await self._imdb_helper.async_match(name=name, year=meta.year, mtype=meta.type,
-                                                                   season_year=meta.year,
-                                                                   season_number=meta.begin_season)
-                        if not info:
-                            # 去掉年份再查一次
-                            info = await self._imdb_helper.async_match(name=name, mtype=meta.type)
-                    else:
-                        # 有年份先按电影查
-                        info = await self._imdb_helper.async_match(name=name, year=meta.year, mtype=MediaType.MOVIE)
-                        # 没有再按电视剧查
-                        if not info:
-                            info = await self._imdb_helper.async_match(name=name, year=meta.year, mtype=MediaType.TV)
-                        if not info:
-                            # 去掉年份和类型再查一次
-                            info = await self._imdb_helper.async_match_by(name=name)
-                if info:
-                    break
-        if info:
-            info: ImdbMediaInfo = await self._imdb_helper.async_update_info(info.id, info=info)
-            mediainfo = ImdbHelper.convert_mediainfo(info)
-            cat = ImdbHelper.get_category(ImdbHelper.type_to_mtype(info.type.value),
-                                          info.model_dump(by_alias=True, exclude_none=True))
-            mediainfo.set_category(cat)
-            name = meta.name if meta else mediainfo.title
-            logger.info(f"{name} IMDb 识别结果：{mediainfo.type.value} "
-                        f"{mediainfo.title_year} "
-                        f"{mediainfo.media_source}:{mediainfo.media_id}")
-            return mediainfo
-        return None
-
-    @staticmethod
-    def _match_results(data: dict, media_info: Optional[MediaInfo] = None) -> Optional[int]:
-        # 合并两种结果
-        all_results = []
-        for key in ["movie_results", "tv_results"]:
-            all_results.extend(data.get(key, []))
-        if not all_results:
-            return None  # 无匹配结果
-
-        def pick_most_popular(results):
-            return max(results, key=lambda x: x.get("popularity", -1), default=None)
-
-        # 未提供 media_info：直接返回人气最高的
-        if not media_info:
-            most_popular = pick_most_popular(all_results)
-            return most_popular.get("id") if most_popular else None
-        # 按类型过滤
-        type_map = {
-            MediaType.TV: ['tv'],
-            MediaType.MOVIE: ['movie'],
-            None: ['tv', 'movie']
-        }
-        allowed_types = type_map.get(media_info.type, ['tv', 'movie'])
-        filtered = [res for res in all_results if res.get('media_type') in allowed_types]
-
-        # 定义一个过滤链：每次过滤后如果只剩一个结果就返回
-        def filter_and_return(results, predicate):
-            filtered_res = [res for res in results if predicate(res)]
-            if not filtered_res:
-                return None, []
-            if len(filtered_res) == 1:
-                return filtered_res[0].get("id"), []
-            return None, filtered_res
-
-        # 通过年份过滤
-        if media_info.year:
-            def match_year(res):
-                date = res.get('first_air_date') or res.get('release_date') or ''
-                return date[:4] == media_info.year
-
-            result_id, filtered = filter_and_return(filtered, match_year)
-            if result_id:
-                return result_id
-            if not filtered:
-                return None
-        # 通过名称过滤
-        if media_info.names:
-            def match_name(res):
-                name = res.get('name') or res.get('title') or ''
-                return ImdbHelper.compare_names(name, media_info.names)
-
-            result_id, filtered = filter_and_return(filtered, match_name)
-            if result_id:
-                return result_id
-            if not filtered:
-                return None
-        # 最终按人气返回
-        most_popular = pick_most_popular(filtered)
-        return most_popular.get("id") if most_popular else None
-
-    @cached(maxsize=4096, ttl=86400)
-    def find_imdb_id(self, imdb_id: str) -> Optional[dict]:
-        api_key = settings.TMDB_API_KEY
-        api_url = (
-            f"https://{settings.TMDB_API_DOMAIN}/3/find/{imdb_id}"
-            f"?api_key={api_key}&external_source=imdb_id"
+        return await self._imdb_helper.async_recognize_media(
+            meta=meta, mtype=mtype, media_source=media_source, media_id=media_id, add_tmdb_id=self._add_tmdbid
         )
-        data = RequestUtils(accept_type="application/json", proxies=settings.PROXY if self._proxy else None
-                            ).get_json(api_url)
-        return data
-
-    @cached(maxsize=4096, ttl=86400)
-    async def async_find_imdb_id(self, imdb_id: str) -> Optional[dict]:
-        api_key = settings.TMDB_API_KEY
-        api_url = (
-            f"https://{settings.TMDB_API_DOMAIN}/3/find/{imdb_id}"
-            f"?api_key={api_key}&external_source=imdb_id"
-        )
-        data = await AsyncRequestUtils(accept_type="application/json", proxies=settings.PROXY if self._proxy else None
-                            ).get_json(api_url)
-        return data
-
-    def imdb_to_tmdb(self, imdb_id: str, media_info: Optional[MediaInfo] = None) -> Optional[int]:
-        data = self.find_imdb_id(imdb_id)
-        if not data:
-            return None
-        return ImdbSource._match_results(data, media_info)
-
-    async def async_imdb_to_tmdb(self, imdb_id: str, media_info: Optional[MediaInfo] = None) -> Optional[int]:
-        data = await self.async_find_imdb_id(imdb_id)
-        if not data:
-            return None
-        return ImdbSource._match_results(data, media_info)
 
     @eventmanager.register(EventType.PluginReload)
     def reload(self, event):
