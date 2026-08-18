@@ -318,10 +318,11 @@ class CourseOrganizer(_PluginBase):
     plugin_config_prefix = "courseorganizer_"
     auth_level = 1
     plugin_order = 90
-    plugin_version = "1.7.0"
+    plugin_version = "1.7.2"
     plugin_desc = "稳定后识别、分类并整理到电视剧、电影或儿童媒体库"
     plugin_author = "OneBigMoon"
     plugin_icon = "icons/courseorganizer.svg"
+    plugin_repo = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
 
     MEDIA_EXTENSIONS = {".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".m4v", ".m4a"}
     SUBTITLE_EXTENSIONS = {".srt", ".ass", ".ssa", ".sub", ".vtt"}
@@ -751,6 +752,12 @@ class CourseOrganizer(_PluginBase):
                 "library_category_folder": bool(
                     self._directory_rule_value(rule, "library_category_folder", False)
                 ),
+                "naming_format": str(
+                    self._directory_rule_value(rule, "naming_format", "") or ""
+                ).strip(),
+                "movie_naming_format": str(
+                    self._directory_rule_value(rule, "movie_naming_format", "") or ""
+                ).strip(),
             }
             grouped[library].append(summary)
             summaries.append(summary)
@@ -2424,9 +2431,21 @@ class CourseOrganizer(_PluginBase):
             ascii(course_name),
             dest_dir,
         )
-        # 搬移后把媒体文件重组为标准剧集结构：Season N/ 文件夹 + S01E01 命名；多集合并文件保留。
+        # 搬移后把媒体文件重组为 MoviePilot 配置的重命名格式（按目标媒体库电视剧/电影选模板）；
+        # 无配置时回退为 Season N/S01E01 标准结构。
         try:
-            self._normalize_episode_tree(dest_dir)
+            naming_template = ""
+            if isinstance(rule, dict):
+                media_is_movie = str(decision.target_library) == "movie"
+                naming_template = str(
+                    rule.get("movie_naming_format") if media_is_movie else rule.get("naming_format")
+                    or ""
+                ).strip()
+            self._normalize_episode_tree(
+                dest_dir,
+                naming_template=naming_template,
+                final_title=str(getattr(decision, "value", "") or course_name),
+            )
         except Exception as exc:
             self._logger.error(
                 "CourseOrganizer[event=direct_transfer_reorg_failed] item_course_repr=%s reason=%s",
@@ -2505,8 +2524,24 @@ class CourseOrganizer(_PluginBase):
             return _cn_num(cn.group(1))
         return None
 
-    def _normalize_episode_tree(self, dest_dir: str) -> None:
-        """把目标目录下的媒体文件重组为 Season N/S01E01 标准结构；多集合并文件保留为 S01E01-E02。"""
+    @staticmethod
+    def _subst_naming_template(template: str, ctx: Dict[str, Any]) -> str:
+        """把 MoviePilot 重命名模板里的 {{field}} 替换为 ctx 值，未知字段留空。"""
+        def _rep(m):
+            key = m.group(1).strip()
+            return str(ctx.get(key, "") or "")
+        return re.sub(r"\{\{\s*([^}]+?)\s*\}\}", _rep, template)
+
+    def _normalize_episode_tree(self, dest_dir: str, naming_template: str = "", final_title: str = "") -> None:
+        """把目标目录下的媒体文件重组为 MoviePilot 配置的重命名格式；
+        无模板时回退为 Season N/S01E01 标准结构。多集合并文件保留。"""
+        # 从最终名称解析 (title, year)，year 形如 "标题 (2018)"
+        t_title = final_title
+        t_year = ""
+        m_year = re.search(r"\((\d{4})\)\s*$", final_title)
+        if m_year:
+            t_year = m_year.group(1)
+            t_title = final_title[: m_year.start()].rstrip(" (）")
         files = []
         for root, _, fnames in os.walk(dest_dir):
             rel_root = os.path.relpath(root, dest_dir)
@@ -2521,32 +2556,63 @@ class CourseOrganizer(_PluginBase):
             stem = os.path.splitext(fn)[0]
             parsed = self._parse_season_episode(stem)
             if parsed is None:
-                # 无 "S01E01/第N季第N集" 时，尝试文件名开头的序号作为集号（如 "10.标题"、"01-标题"），
-                # 季取所在 Season 文件夹（Season 1）。
                 bare_ep = self._parse_bare_episode(stem)
                 if bare_ep is not None:
                     parsed = (folder_season if folder_season is not None else 1, bare_ep, None)
             season = parsed[0] if parsed else folder_season
             if parsed is None and season is None:
-                # 无法识别季/集，保持原样（放一层 Season 1 或就在根）
                 season = 1
                 start = None
             else:
                 start = parsed[1] if parsed else None
             end = parsed[2] if parsed and parsed[2] is not None else None
-            season_dir = os.path.join(dest_dir, "Season {}".format(season))
-            os.makedirs(season_dir, exist_ok=True)
-            new_name = stem
-            if start is not None:
-                new_name = "S{:02d}E{:02d}".format(season, start)
-                if end is not None:
-                    new_name += "-E{:02d}".format(end)
-            new_name += os.path.splitext(fn)[1]
-            target = os.path.join(season_dir, new_name)
+
+            ext = os.path.splitext(fn)[1]
+            if naming_template and start is not None:
+                ctx = {
+                    "title": t_title,
+                    "name": t_title,
+                    "year": t_year,
+                    "season": season,
+                    "episode": start,
+                    "season2": season,
+                    "episode2": end if end is not None else start,
+                }
+                rendered = self._subst_naming_template(naming_template, ctx)
+                segs = [s for s in rendered.split("/") if s.strip() != ""]
+                if segs:
+                    # 模板第一段通常是 "{{title}} {{year}}" 标题文件夹，由最终名称文件夹承担，故剥离；
+                    # 其余段（如 Season N）作为子目录，最后一段为文件名校验模板。
+                    file_pat = segs[-1]
+                    folder_segs = segs[1:-1] if len(segs) > 1 else []
+                    folder_rel = "/".join(folder_segs)
+                    pat_ext = os.path.splitext(file_pat)[1]
+                    base = file_pat[: -len(pat_ext)] if pat_ext else file_pat
+                    new_name = base + ext
+                    target = os.path.join(dest_dir, folder_rel, new_name) if folder_rel else os.path.join(dest_dir, new_name)
+                else:
+                    season_dir = os.path.join(dest_dir, "Season {}".format(season))
+                    new_name = "S{:02d}E{:02d}".format(season, start)
+                    if end is not None:
+                        new_name += "-E{:02d}".format(end)
+                    new_name += ext
+                    target = os.path.join(season_dir, new_name)
+            else:
+                season_dir = os.path.join(dest_dir, "Season {}".format(season))
+                os.makedirs(season_dir, exist_ok=True)
+                new_name = stem
+                if start is not None:
+                    new_name = "S{:02d}E{:02d}".format(season, start)
+                    if end is not None:
+                        new_name += "-E{:02d}".format(end)
+                new_name += ext
+                target = os.path.join(season_dir, new_name)
+
             n = 1
             base_t = target
             while target in seen_targets or os.path.exists(target):
-                target = os.path.join(season_dir, "{}-{}".format(os.path.splitext(base_t)[0], n) + os.path.splitext(base_t)[1])
+                base_noext, _ = os.path.splitext(base_t)
+                target = "{}-{}{}".format(base_noext, n, os.path.splitext(base_t)[1])
                 n += 1
             src = os.path.join(root, fn)
             if os.path.abspath(src) != os.path.abspath(target):
@@ -2557,11 +2623,11 @@ class CourseOrganizer(_PluginBase):
         for root, dirs, fnames in os.walk(dest_dir, topdown=False):
             if root == dest_dir:
                 continue
-            if not os.listdir(root):
-                try:
+            try:
+                if not os.listdir(root):
                     os.rmdir(root)
-                except OSError:
-                    pass
+            except OSError:
+                pass
 
     @staticmethod
     def _tmdb_candidate_response(candidate: naming.MetadataCandidate) -> Dict[str, Any]:

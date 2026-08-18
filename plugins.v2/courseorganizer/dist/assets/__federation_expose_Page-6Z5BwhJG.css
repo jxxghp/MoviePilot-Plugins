@@ -1,83 +1,83 @@
 
-.course-review-page[data-v-e8ae754e] {
+.course-review-page[data-v-dae06eac] {
   min-width: 0;
   padding: 16px;
 }
-.course-review-toolbar[data-v-e8ae754e] {
+.course-review-toolbar[data-v-dae06eac] {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 16px;
 }
-.course-review-table-shell[data-v-e8ae754e] {
+.course-review-table-shell[data-v-dae06eac] {
   overflow-x: auto;
 }
-.course-review-table[data-v-e8ae754e] table {
+.course-review-table[data-v-dae06eac] table {
   min-width: 1050px;
 }
-.course-review-table th[data-v-e8ae754e],
-.course-review-table td[data-v-e8ae754e] {
+.course-review-table th[data-v-dae06eac],
+.course-review-table td[data-v-dae06eac] {
   vertical-align: middle;
   padding: 10px 12px;
 }
-.course-review-name[data-v-e8ae754e] {
+.course-review-name[data-v-dae06eac] {
   min-width: 180px;
   max-width: 260px;
   overflow-wrap: anywhere;
 }
-.course-review-edit-cell[data-v-e8ae754e] {
+.course-review-edit-cell[data-v-dae06eac] {
   min-width: 220px;
 }
-.course-review-library-cell[data-v-e8ae754e] {
+.course-review-library-cell[data-v-dae06eac] {
   min-width: 160px;
 }
-.course-review-path[data-v-e8ae754e] {
+.course-review-path[data-v-dae06eac] {
   max-width: 300px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.course-review-actions[data-v-e8ae754e] {
+.course-review-actions[data-v-dae06eac] {
   min-width: 220px;
   white-space: nowrap;
 }
-.course-tmdb-candidates[data-v-e8ae754e] {
+.course-tmdb-candidates[data-v-dae06eac] {
   max-width: 360px;
   background: transparent;
 }
-.course-tmdb-candidate[data-v-e8ae754e] {
+.course-tmdb-candidate[data-v-dae06eac] {
   justify-content: flex-start;
   min-height: 44px;
   white-space: normal;
   text-align: left;
 }
-.course-review-page[data-v-e8ae754e] .v-btn {
+.course-review-page[data-v-dae06eac] .v-btn {
   min-height: 44px;
   min-width: 44px;
 }
-.course-review-cards[data-v-e8ae754e] {
+.course-review-cards[data-v-dae06eac] {
   display: none;
 }
 @media (max-width: 700px) {
-.course-review-page[data-v-e8ae754e] {
+.course-review-page[data-v-dae06eac] {
     padding: 12px;
 }
-.course-review-toolbar[data-v-e8ae754e] {
+.course-review-toolbar[data-v-dae06eac] {
     align-items: stretch;
     flex-direction: column;
 }
-.course-review-toolbar .v-btn[data-v-e8ae754e] {
+.course-review-toolbar .v-btn[data-v-dae06eac] {
     align-self: flex-start;
 }
-.course-review-table-shell[data-v-e8ae754e] {
+.course-review-table-shell[data-v-dae06eac] {
     display: none;
 }
-.course-review-cards[data-v-e8ae754e] {
+.course-review-cards[data-v-dae06eac] {
     display: grid;
     gap: 12px;
 }
-.course-review-card[data-v-e8ae754e] .v-card-text {
+.course-review-card[data-v-dae06eac] .v-card-text {
     padding-top: 8px;
 }
 }

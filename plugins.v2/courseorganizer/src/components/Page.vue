@@ -406,9 +406,6 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
     <header class="course-review-toolbar">
       <div>
         <h1 id="course-review-title" class="text-h5">安全预览与人工确认</h1>
-        <p class="text-body-2 text-medium-emphasis mb-0">
-          修改名称和目标媒体库后，确认会立即整理这一条；失败时保留记录，可重试，不会触发全量扫描。
-        </p>
       </div>
       <VBtn
         prepend-icon="mdi-refresh"
@@ -427,37 +424,36 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
       />
     </header>
 
-    <VAlert type="info" variant="tonal" class="mb-4" role="note">
-      目录、搬运方式、重命名、刮削、通知和整理历史均来自 MoviePilot「设置 → 存储 &amp; 目录」。
-      <template #append>
-        <VBtn :href="settingsUrl" variant="tonal" color="primary" prepend-icon="mdi-folder-cog">
-          打开目录设置
-        </VBtn>
-      </template>
-    </VAlert>
-
-    <VAlert v-if="rulesMessage" type="warning" variant="tonal" class="mb-4" role="alert">
-      {{ rulesMessage }}
-    </VAlert>
-    <VAlert v-if="monitoringEnabled" type="warning" variant="tonal" class="mb-4" role="alert">
-      当前匹配规则仍启用了 MoviePilot 自动监控。人工复核期间请在目录设置中关闭这些规则的监控，
-      避免文件在确认前被自动整理。
-    </VAlert>
-
-    <VSheet v-if="directoryRules.length" border rounded class="course-directory-rules mb-4 pa-3">
-      <div class="text-subtitle-2 mb-2">MoviePilot 当前目录规则</div>
-      <div class="d-flex flex-wrap ga-2">
+    <div class="d-flex align-center flex-wrap ga-2 text-body-2 text-medium-emphasis mb-2">
+      <span>整理方式来自 MoviePilot「设置 → 存储 &amp; 目录」</span>
+      <VBtn
+        :href="settingsUrl"
+        variant="text"
+        color="primary"
+        size="small"
+        prepend-icon="mdi-folder-cog"
+      >
+        打开目录设置
+      </VBtn>
+      <span v-if="directoryRules.length" class="d-flex flex-wrap ga-2">
         <VChip
           v-for="rule in directoryRules"
           :key="`${rule.value}:${rule.download_path}:${rule.path}`"
+          size="small"
           variant="tonal"
-          color="primary"
           :title="`${rule.download_path} → ${rule.path}`"
         >
           {{ rule.title }}：{{ rule.download_path }} → {{ rule.path }}
         </VChip>
-      </div>
-    </VSheet>
+      </span>
+    </div>
+
+    <VAlert v-if="rulesMessage" type="warning" variant="tonal" density="compact" class="mb-2" role="alert">
+      {{ rulesMessage }}
+    </VAlert>
+    <VAlert v-if="monitoringEnabled" type="warning" variant="tonal" density="compact" class="mb-2" role="alert">
+      匹配规则启用了自动监控，人工复核期间请关闭监控，避免文件在确认前被自动整理。
+    </VAlert>
 
     <VAlert v-if="error" type="error" variant="tonal" class="mb-4" role="alert">
       {{ error }}
