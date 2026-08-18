@@ -1,0 +1,83 @@
+
+.course-review-page[data-v-e8ae754e] {
+  min-width: 0;
+  padding: 16px;
+}
+.course-review-toolbar[data-v-e8ae754e] {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.course-review-table-shell[data-v-e8ae754e] {
+  overflow-x: auto;
+}
+.course-review-table[data-v-e8ae754e] table {
+  min-width: 1050px;
+}
+.course-review-table th[data-v-e8ae754e],
+.course-review-table td[data-v-e8ae754e] {
+  vertical-align: middle;
+  padding: 10px 12px;
+}
+.course-review-name[data-v-e8ae754e] {
+  min-width: 180px;
+  max-width: 260px;
+  overflow-wrap: anywhere;
+}
+.course-review-edit-cell[data-v-e8ae754e] {
+  min-width: 220px;
+}
+.course-review-library-cell[data-v-e8ae754e] {
+  min-width: 160px;
+}
+.course-review-path[data-v-e8ae754e] {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.course-review-actions[data-v-e8ae754e] {
+  min-width: 220px;
+  white-space: nowrap;
+}
+.course-tmdb-candidates[data-v-e8ae754e] {
+  max-width: 360px;
+  background: transparent;
+}
+.course-tmdb-candidate[data-v-e8ae754e] {
+  justify-content: flex-start;
+  min-height: 44px;
+  white-space: normal;
+  text-align: left;
+}
+.course-review-page[data-v-e8ae754e] .v-btn {
+  min-height: 44px;
+  min-width: 44px;
+}
+.course-review-cards[data-v-e8ae754e] {
+  display: none;
+}
+@media (max-width: 700px) {
+.course-review-page[data-v-e8ae754e] {
+    padding: 12px;
+}
+.course-review-toolbar[data-v-e8ae754e] {
+    align-items: stretch;
+    flex-direction: column;
+}
+.course-review-toolbar .v-btn[data-v-e8ae754e] {
+    align-self: flex-start;
+}
+.course-review-table-shell[data-v-e8ae754e] {
+    display: none;
+}
+.course-review-cards[data-v-e8ae754e] {
+    display: grid;
+    gap: 12px;
+}
+.course-review-card[data-v-e8ae754e] .v-card-text {
+    padding-top: 8px;
+}
+}
