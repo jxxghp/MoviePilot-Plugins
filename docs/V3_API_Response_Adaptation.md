@@ -39,6 +39,11 @@ MoviePilot 宿主自身的普通 JSON API 固定使用三个顶层字段：
 顶层字段。选择 envelope 的插件不要增加 `message_i18n`、`error`、`result` 等额外
 顶层字段，业务对象应放在 `data` 中，不能借用 `message` 传输。
 
+这条边界也适用于宿主内部架构迁移：插件 API 只依赖 `get_api()` 的注册字段、路由
+合同和自身返回结构，不依赖宿主内部的 API、Application、Runtime 或 Adapter 文件
+位置。宿主会通过精确兼容映射保留已登记的旧导入；插件不需要为了宿主把
+`PluginManager` 拆到多个模块而复制导出或改写动态路由。
+
 `/api/v2` 套壳入口已经移除，HTTP 调用统一改为 `/api/v1`。这不等于删除
 `plugins.v2/`：插件目录版本仍按 V3 兼容规则保留，只有依赖新合同的插件才需要
 建立 `plugins.v3/` 专用实现。
@@ -50,7 +55,7 @@ MoviePilot 宿主自身的普通 JSON API 固定使用三个顶层字段：
 | 宿主普通 JSON REST | 固定三段式 envelope | 从 `data` 读取业务对象 |
 | `get_api()` 普通 JSON endpoint | 保留 endpoint 自己的响应 | 明确选择裸业务模型或 envelope，并声明匹配的 `response_model` |
 | endpoint 返回 `schemas.Response[T]` | 输出显式 envelope | 适用于接入宿主普通数据页面或统一反馈的接口 |
-| Vue 远程组件注入的 `api` | 原样返回插件 payload | 按插件自己的 API 合同读取裸数据或 envelope |
+| Vue 远程组件注入的 `api` | 非宿主 `Response` payload 原样返回；标准 envelope 仍按统一错误语义处理 | 按插件自己的 API 合同读取裸数据或 envelope |
 | SSE、文件、图片、HTML、204 | 保持原生协议 | 显式声明原生响应和 OpenAPI content |
 | OAuth2、OpenAI、Anthropic、MCP JSON-RPC | 保持标准协议原生响应 | 不按三段式解析 |
 
@@ -228,6 +233,17 @@ response.json()["message_i18n"]
 const response = await props.api.get('plugin/MyPlugin/status')
 status.value = response
 ```
+
+宿主公共 `pluginApi` 会先判断响应是否是严格的三字段 `Response` envelope：
+
+- 是 envelope：继续按 `success` 和 `message` 执行统一业务反馈，并把完整 envelope
+  交给插件远程组件；
+- 不是 envelope：不猜测字段、不补 `success/message/data`，直接把后端 payload
+  交给插件调用方；文件、流、HTML、标准协议和插件自定义 JSON 均按自身合同消费。
+
+因此，插件可以在不修改宿主公共组件的前提下自由选择裸业务模型或自定义结构；只有
+明确选择宿主 `Response[T]` 时，才应依赖统一 envelope 的 `success`、`message` 和
+`data` 字段。
 
 如果插件 endpoint 显式返回 `schemas.Response[PluginStatusData]`，则按 envelope
 读取：
