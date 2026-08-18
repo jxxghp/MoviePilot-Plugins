@@ -45,7 +45,7 @@ class QbUploadLimiter(_PluginBase):
     plugin_name = "QB上传限速"
     plugin_desc = "仅处理 MoviePilot 已整理入库成功的种子：分享率达到全局或站点单独阈值后自动限制上传速度（qBittorrent 与全局上传限速取较小值）；可选 AI 智能限速——调用系统设置的大模型按种子分享率、上传活跃度与站点账号分享率逐种子智能决策限速；支持多下载器、站点筛选、定时检测，停用/卸载自动恢复不限速。"
     plugin_icon = "Qbittorrent_A.png"
-    plugin_version = "1.3.9"
+    plugin_version = "1.3.10"
     plugin_author = "xlmc"
     author_url = "https://github.com/xlmc"
     plugin_config_prefix = "qbuploadlimiter_"
@@ -112,6 +112,12 @@ class QbUploadLimiter(_PluginBase):
     _last_ai_eval_at = 0.0
     # 系统设置未配置大模型标记：置位后本会话不再尝试调用大模型，避免每轮刷错误日志
     _ai_config_missing = False
+    # AI 智能限速已成功生效标记：至少一次大模型调用并解析成功后置位，
+    # 用于详情页（种子状态页）的显隐——未成功开启 AI 前保持点击卡片直接进设置
+    _ai_active = False
+    # 种子状态页快照：{下载器名称: {种子Hash: {name, site, state, limit_kb, reason}}}
+    # 每轮检测后更新，get_page 渲染时使用，避免页面请求时再访问下载器
+    _seed_page_snapshot: Dict[str, Dict[str, dict]] = {}
     # 种子状态常量
     _STATE_PENDING = "pending"      # 待评估：已入库+已完成+活跃，等待 AI/规则决策
     _STATE_LIMITED = "limited"      # 限速中：已被本插件限速且仍受监控
@@ -215,6 +221,10 @@ class QbUploadLimiter(_PluginBase):
         self._uploaded_snapshots = {}
         self._last_ai_eval_at = 0.0
         self._ai_config_missing = False
+        self._seed_page_snapshot = {}
+        # 重新初始化后 AI 生效标记与决策缓存一并清零：详情页显隐跟随新一轮
+        # 大模型调用结果重新判定，避免保存配置后出现「有页面无数据」或残留旧标记
+        self._ai_active = False
 
         # 「立即运行一次」与启用状态下的周期任务独立调度，互不覆盖
         self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -278,11 +288,114 @@ class QbUploadLimiter(_PluginBase):
         """返回插件启用状态。"""
         return bool(self._enabled)
 
-    def get_page(self) -> List[dict]:
+    _STATE_LABELS = {
+        "pending": "待评估",
+        "limited": "限速中",
+        "recovering": "恢复中",
+        "idle": "忽略",
+    }
+
+    def get_page(self) -> Optional[List[dict]]:
         """
-        无独立详情页：点击插件卡片或通知消息将直接打开插件设置。
+        种子状态详情页（彩蛋）：仅当 AI 智能限速已成功生效（至少一次大模型调用
+        并解析成功）时返回状态页面，点击插件卡片进入该页查看每个种子的状态；
+        未成功开启 AI 时返回 None，保持点击卡片直接进入插件设置的原有行为。
         """
-        pass
+        # AI 未启用或未成功生效：无详情页，点击卡片直接进设置
+        if not self._ai_enabled or not self._ai_active:
+            return None
+        # 汇总各下载器的种子状态快照
+        rows: List[dict] = []
+        for service_name, snapshot in self._seed_page_snapshot.items():
+            for info in snapshot.values():
+                rows.append({**info, "service": service_name})
+        if not rows:
+            return [
+                {
+                    "component": "div",
+                    "text": "AI 智能限速已生效，暂无已入库种子数据（等待下轮检测）",
+                    "props": {"class": "text-center"},
+                }
+            ]
+        # 状态排序：限速中 > 待评估 > 恢复中 > 忽略
+        order = {"limited": 0, "pending": 1, "recovering": 2, "idle": 3}
+        rows.sort(key=lambda r: (order.get(r.get("state"), 9), r.get("service", "")))
+        # 顶部状态统计卡片
+        counts: Dict[str, int] = {}
+        for row in rows:
+            label = self._STATE_LABELS.get(row.get("state"), row.get("state"))
+            counts[label] = counts.get(label, 0) + 1
+        header_cards = []
+        for label in ("待评估", "限速中", "恢复中", "忽略"):
+            header_cards.append(
+                {
+                    "component": "VCol",
+                    "props": {"cols": 6, "md": 3},
+                    "content": [
+                        {
+                            "component": "VCard",
+                            "props": {"class": "text-center"},
+                            "content": [
+                                {
+                                    "component": "VCardText",
+                                    "props": {"class": "pa-2 text-h6"},
+                                    "text": str(counts.get(label, 0)),
+                                },
+                                {
+                                    "component": "VCardText",
+                                    "props": {"class": "pa-2 pt-0 text-caption"},
+                                    "text": label,
+                                },
+                            ],
+                        }
+                    ],
+                }
+            )
+        # 种子状态列表
+        list_items = []
+        for row in rows:
+            state = row.get("state")
+            label = self._STATE_LABELS.get(state, state)
+            limit_kb = int(row.get("limit_kb") or 0)
+            limit_text = f"，限速 {limit_kb} KB/s" if state == "limited" and limit_kb > 0 else ""
+            site = str(row.get("site") or "").strip()
+            site_text = f"（{site}）" if site else ""
+            reason = str(row.get("reason") or "").strip()
+            reason_text = f"：{reason}" if reason else ""
+            list_items.append(
+                {
+                    "component": "VListItem",
+                    "props": {"class": "px-2"},
+                    "content": [
+                        {
+                            "component": "VListItemTitle",
+                            "text": f"[{row.get('service')}] {row.get('name')}{site_text}",
+                        },
+                        {
+                            "component": "VListItemSubtitle",
+                            "text": f"{label}{limit_text}{reason_text}",
+                        },
+                    ],
+                }
+            )
+        return [
+            {
+                "component": "VRow",
+                "content": header_cards,
+            },
+            {
+                "component": "VCard",
+                "props": {"class": "mt-2"},
+                "content": [
+                    {"component": "VCardTitle", "props": {"class": "text-subtitle-1"}, "text": "种子状态"},
+                    {
+                        "component": "VList",
+                        "props": {"density": "compact"},
+                        "content": list_items,
+                    },
+                ],
+            },
+        ]
 
     # ---------------------------------------------------------------- 设置表单
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -928,7 +1041,7 @@ class QbUploadLimiter(_PluginBase):
                 # 彩蛋：启用 AI 智能限速后，登记种子状态机（待评估/限速中/恢复中/忽略）
                 # 并在运行日志输出各状态数量；未启用 AI 时保持原有逻辑
                 if self._ai_enabled:
-                    self._refresh_seed_states(service_name, eligible_torrents, downloader_type)
+                    self._refresh_seed_states(service_name, eligible_torrents, downloader_type, site_cache=site_cache)
                     if self._seed_states.get(service_name):
                         state_counts = {}
                         for state in self._seed_states.get(service_name, {}).values():
@@ -1078,6 +1191,7 @@ class QbUploadLimiter(_PluginBase):
             self._uploaded_snapshots,
             self._seed_states,
             self._ai_decisions,
+            self._seed_page_snapshot,
         ):
             mapping = state.get(service_name)
             if not mapping:
@@ -1246,7 +1360,8 @@ class QbUploadLimiter(_PluginBase):
         delta = self._torrent_uploaded(torrent, downloader_type) - prev
         return delta if delta > 0 else 0.0
 
-    def _refresh_seed_states(self, service_name: str, eligible_torrents: List[Any], downloader_type: str):
+    def _refresh_seed_states(self, service_name: str, eligible_torrents: List[Any], downloader_type: str,
+                             site_cache: Optional[Dict[str, str]] = None):
         """
         推导并登记种子状态机（pending / limited / recovering / idle），清理已移除种子。
 
@@ -1255,8 +1370,12 @@ class QbUploadLimiter(_PluginBase):
         - 已被本插件限速 -> limited（限速中）；
         - 有待恢复记录 -> recovering（恢复中，含恢复失败待重试）；
         - 活跃 -> pending（待评估）；休眠 -> idle。
+
+        同时维护种子状态页快照（名称/站点/状态/限速值/AI 决策原因），供 get_page 渲染。
         """
         states = self._seed_states.setdefault(service_name, {})
+        snapshot = self._seed_page_snapshot.setdefault(service_name, {})
+        decisions = self._ai_decisions.get(service_name, {})
         current = set()
         for torrent in eligible_torrents:
             torrent_hash = self._torrent_hash(torrent, downloader_type)
@@ -1273,8 +1392,20 @@ class QbUploadLimiter(_PluginBase):
                 states[torrent_hash] = self._STATE_PENDING
             else:
                 states[torrent_hash] = self._STATE_IDLE
-        for torrent_hash in [h for h in states if h not in current]:
+            # 页面快照：名称/站点/状态/AI 决策（限速值与原因）
+            decision = decisions.get(torrent_hash) or {}
+            snapshot[torrent_hash] = {
+                "name": self._torrent_name(torrent, downloader_type) or torrent_hash,
+                "site": (site_cache or {}).get(torrent_hash) or self._torrent_site(torrent, downloader_type),
+                "state": states[torrent_hash],
+                "limit_kb": int(decision.get("limit_kb") or 0),
+                "reason": str(decision.get("reason") or ""),
+            }
+        # 清理已不在下载器中的种子：以状态与快照的并集为基准，
+        # 覆盖「上一轮只进了快照未进状态」或反之的边界情况
+        for torrent_hash in [h for h in set(states) | set(snapshot) if h not in current]:
             states.pop(torrent_hash, None)
+            snapshot.pop(torrent_hash, None)
 
     @staticmethod
     def _run_async_compatible(value: Any) -> Any:
@@ -1430,6 +1561,7 @@ class QbUploadLimiter(_PluginBase):
             logger.warning(f"{self.LOG_TAG}AI 智能限速输出解析失败，本轮回退常规阈值限速")
             return {}
         self._last_ai_eval_at = now
+        self._ai_active = True
         for torrent_hash, decision in parsed.items():
             decision["ts"] = now
             decisions[torrent_hash] = decision
