@@ -1,35 +1,54 @@
+import asyncio
 import base64
+import json
 from collections import OrderedDict
 from json import JSONDecodeError
-import json
 from typing import Dict, List, Optional, Union, AsyncGenerator, Any
 
+import httpx
+import requests
 from pydantic import ValidationError
+from zhconv_rs import zhconv as zhconv_convert
 
 from app import schemas
 from app.sdk.cache import cached
 from app.sdk.config import settings
-from app.sdk.media import MediaInfo
+from app.sdk.media import MediaInfo, MetaBase, resolve_media_identity
 from app.sdk.logging import logger
 from app.schemas.types import MediaSource, MediaType
-from app.sdk.network import AsyncRequestUtils
-from app.sdk.utilities import StringUtils
+from app.sdk.network import AsyncRequestUtils, RequestUtils
+from app.sdk.utilities import StringUtils, retry
 
 from .imdbapi import ImdbApiClient
 from .officialapi import SearchParams, OfficialApiClient, PersistedQueryNotFound
 from .schema import StaffPickApiResponse, ImdbMediaInfo, ImdbApiHash, TitleEdge
-from .schema.imdbapi import ImdbapiPrecisionDate, ImdbApiTitle
+from .schema.imdbapi import ImdbapiPrecisionDate, ImdbApiTitle, ImdbApiListTitleSeasonsResponse
 from .schema.imdbtypes import ImdbType, AkasNode, ImdbTitle, ImdbDate
-from ...utils.common import retry
 
 
 class ImdbHelper:
     MAX_STATES = 128
 
-    def __init__(self, proxies: Dict[str, str] = None):
+    def __init__(self, proxies: Dict[str, str] | None = None):
         self._proxies = proxies
-        self.imdbapi_client = ImdbApiClient(proxies=self._proxies, ua=settings.NORMAL_USER_AGENT)
-        self.official_api_client = OfficialApiClient(proxies=self._proxies, ua=settings.NORMAL_USER_AGENT)
+        self._session = requests.Session()
+        if proxies:
+            proxy_url = proxies.get("https") or proxies.get("http")
+        else:
+            proxy_url = None
+        self._async_client = httpx.AsyncClient(timeout=30, proxy=proxy_url)
+        self.imdbapi_client = ImdbApiClient(
+            session=self._session,
+            async_client=self._async_client,
+            proxies=self._proxies,
+            ua=settings.NORMAL_USER_AGENT
+        )
+        self.official_api_client = OfficialApiClient(
+            session=self._session,
+            async_client=self._async_client,
+            proxies=self._proxies,
+            ua=settings.NORMAL_USER_AGENT
+        )
         self._imdb_api_hash = ImdbApiHash(
             AdvancedTitleSearch='d32303ed2711e4d03bd5e36cfe0e5304bcffd7e31d1898695f6b6919736ff2a8'
         )
@@ -454,12 +473,13 @@ class ImdbHelper:
                 return info
         return None
 
-    def match(self, name: str,
-              mtype: MediaType,
-              year: Optional[str] = None,
-              season_year: Optional[str] = None,
-              season_number: Optional[int] = None,
-              ) -> Optional[ImdbMediaInfo]:
+    def match(
+            self, name: str,
+            mtype: MediaType,
+            year: Optional[str] = None,
+            season_year: Optional[str] = None,
+            season_number: Optional[int] = None,
+    ) -> Optional[ImdbMediaInfo]:
         """
         搜索 IMDb 中的媒体信息，匹配返回一条尽可能正确的信息
 
@@ -488,12 +508,13 @@ class ImdbHelper:
                 break
         return info
 
-    async def async_match(self, name: str,
-              mtype: MediaType,
-              year: Optional[str] = None,
-              season_year: Optional[str] = None,
-              season_number: Optional[int] = None,
-              ) -> Optional[ImdbMediaInfo]:
+    async def async_match(
+            self, name: str,
+            mtype: MediaType,
+            year: Optional[str] = None,
+            season_year: Optional[str] = None,
+            season_number: Optional[int] = None,
+    ) -> Optional[ImdbMediaInfo]:
 
         if not name:
             return None
@@ -534,17 +555,77 @@ class ImdbHelper:
                                         seasons=seasons.seasons if seasons else None)
 
     async def async_update_info(self, title_id: str, info: ImdbMediaInfo) -> ImdbMediaInfo:
-        details = await self.imdbapi_client.async_title(title_id) or info
-        akas = info.akas
-        if not akas:
+        """
+        异步更新 IMDb 媒体信息，使用 asyncio.gather 进行多接口并发请求优化
+        """
+        async def _fetch_akas():
+            if info and info.akas:
+                return info.akas
             resp = await self.imdbapi_client.async_akas(title_id)
-            akas = resp.akas if resp else []
-        credit_list = [credit async for credit in self.imdbapi_client.async_credits_generator(title_id)]
-        episodes = [episode async for episode in self.imdbapi_client.async_episodes_generator(title_id)]
-        images = [image async for image in self.imdbapi_client.async_images_generator(title_id)]
-        seasons = await self.imdbapi_client.async_seasons(title_id)
-        return ImdbMediaInfo.from_title(details, akas=akas, api_credits=credit_list, episodes=episodes, images=images,
-                                        seasons=seasons.seasons if seasons else None)
+            return resp.akas if resp else []
+
+        async def _fetch_credits():
+            return [credit async for credit in self.imdbapi_client.async_credits_generator(title_id)]
+
+        async def _fetch_episodes():
+            return [episode async for episode in self.imdbapi_client.async_episodes_generator(title_id)]
+
+        async def _fetch_images():
+            return [image async for image in self.imdbapi_client.async_images_generator(title_id)]
+
+        async def _fetch_seasons():
+            return await self.imdbapi_client.async_seasons(title_id)
+
+        async def _empty_list():
+            return []
+
+        async def _none():
+            return None
+
+        # 判断媒体类型是否为电影（电影不需要拉取剧集和季度信息）
+        is_movie = False
+        if info and info.type and info.type.value:
+            mtype = ImdbHelper.type_to_mtype(info.type.value)
+            if mtype == MediaType.MOVIE:
+                is_movie = True
+
+        title_task = self.imdbapi_client.async_title(title_id)
+        akas_task = _fetch_akas()
+        credits_task = _fetch_credits()
+        images_task = _fetch_images()
+
+        if is_movie:
+            episodes_task = _empty_list()
+            seasons_task = _none()
+        else:
+            episodes_task = _fetch_episodes()
+            seasons_task = _fetch_seasons()
+
+        details, akas, credit_list, episodes, images, seasons = await asyncio.gather(
+            title_task,
+            akas_task,
+            credits_task,
+            episodes_task,
+            images_task,
+            seasons_task,
+            return_exceptions=True
+        )
+
+        details = details if isinstance(details, ImdbApiTitle) else info
+        akas = akas if isinstance(akas, list) else (info.akas or [])
+        credit_list = credit_list if isinstance(credit_list, list) else []
+        episodes = episodes if isinstance(episodes, list) else []
+        images = images if isinstance(images, list) else []
+        seasons_resp = seasons if isinstance(seasons, ImdbApiListTitleSeasonsResponse) else None
+
+        return ImdbMediaInfo.from_title(
+            details,
+            akas=akas,
+            api_credits=credit_list,
+            episodes=episodes,
+            images=images,
+            seasons=seasons_resp.seasons if seasons_resp else None
+        )
 
     @staticmethod
     def convert_mediainfo(info: ImdbMediaInfo) -> MediaInfo:
@@ -554,8 +635,12 @@ class ImdbHelper:
         mediainfo.media_id = info.id
         mediainfo.type = ImdbHelper.type_to_mtype(info.type.value)
         mediainfo.title = info.primary_title or ""
+        mediainfo.en_title = info.primary_title
+
         mediainfo.year = f"{info.start_year}" if info.start_year else ""
         mediainfo.overview = info.plot or ""
+        mediainfo.imdb_id = info.id
+
         if info.spoken_languages:
             original_language = info.spoken_languages[0].code
             if original_language:
@@ -564,8 +649,10 @@ class ImdbHelper:
             mediainfo.original_title = info.original_title
         mediainfo.names = [aka.text for aka in info.akas]
         if info.origin_countries:
-            mediainfo.origin_country = [origin_country.code for origin_country in info.origin_countries if origin_country.code]
-            mediainfo.production_countries = [{"name": origin_country.name} for origin_country in info.origin_countries if origin_country.name]
+            mediainfo.origin_country = [origin_country.code for origin_country in info.origin_countries if
+                                        origin_country.code]
+            mediainfo.production_countries = [{"name": origin_country.name} for origin_country in info.origin_countries
+                                              if origin_country.name]
         if info.primary_image and info.primary_image.url:
             mediainfo.poster_path = info.primary_image.url
         if info.images:
@@ -576,12 +663,15 @@ class ImdbHelper:
         for credit in (info.credits or []):
             if not credit.name:
                 continue
-            if credit.category == 'DIRECTOR':
-                directors.append({'name': f"{credit.name.display_name or ''}"})
-            elif credit.category in ['CAST', 'ACTOR', 'ACTRESS']:
-                actors.append({'name': f"{credit.name.display_name or ''}"})
-        mediainfo.director = directors
-        mediainfo.actor = actors
+            category = credit.category.upper() if credit.category else ""
+            if category == "DIRECTOR":
+                directors.append(
+                    credit.to_media_credit().model_dump()
+                )
+            elif category in ["CAST", "ACTOR", "ACTRESS"]:
+                actors.append(credit.to_media_credit().model_dump())
+        mediainfo.directors = directors[:3]
+        mediainfo.actors = actors[:6]
         vote = info.rating.aggregate_rating if info.rating and info.rating.aggregate_rating else None
         if vote:
             mediainfo.vote_average = round(float(vote), 1)
@@ -608,8 +698,8 @@ class ImdbHelper:
                         season_years[season] = 0
                 if episode.season in season_info:
                     season_info[episode.season]['season_number'] = season
-                mediainfo.seasons.setdefault(season, []).append(episode.episode_number)
-                mediainfo.season_years[season] = season_years[season]
+                mediainfo.seasons.setdefault(season, []).append(episode.episode_number or 0)
+                mediainfo.season_years[season] = f"{season_years[season]}"
             mediainfo.season_info = list(season_info.values())
             mediainfo.number_of_seasons = len(info.seasons or [])
             mediainfo.number_of_episodes = len(info.episodes or [])
@@ -641,3 +731,257 @@ class ImdbHelper:
             mediainfo.release_date = ImdbHelper.release_date_string(info.release_date)
 
         return mediainfo
+
+    @cached(maxsize=4096, ttl=86400)
+    def find_imdb_id(self, imdb_id: str) -> Optional[dict]:
+        api_key = settings.TMDB_API_KEY
+        api_url = (
+            f"https://{settings.TMDB_API_DOMAIN}/3/find/{imdb_id}"
+            f"?api_key={api_key}&external_source=imdb_id"
+        )
+        data = RequestUtils(
+            accept_type="application/json",
+            proxies=settings.PROXY if self._proxies else None,
+            session=self._session
+        ).get_json(api_url)
+        return data
+
+    @cached(maxsize=4096, ttl=86400)
+    async def async_find_imdb_id(self, imdb_id: str) -> Optional[dict]:
+        api_key = settings.TMDB_API_KEY
+        api_url = (
+            f"https://{settings.TMDB_API_DOMAIN}/3/find/{imdb_id}"
+            f"?api_key={api_key}&external_source=imdb_id"
+        )
+        data = await AsyncRequestUtils(
+            accept_type="application/json",
+            proxies=settings.PROXY if self._proxies else None,
+            client=self._async_client
+        ).get_json(api_url)
+        return data
+
+    @staticmethod
+    def _match_results(data: dict, media_info: Optional[MediaInfo] = None) -> Optional[int]:
+        # 合并两种结果
+        all_results = []
+        for key in ["movie_results", "tv_results"]:
+            all_results.extend(data.get(key, []))
+        if not all_results:
+            return None  # 无匹配结果
+
+        def pick_most_popular(results):
+            return max(results, key=lambda x: x.get("popularity", -1), default=None)
+
+        # 未提供 media_info：直接返回人气最高的
+        if not media_info:
+            most_popular = pick_most_popular(all_results)
+            return most_popular.get("id") if most_popular else None
+        # 按类型过滤
+        type_map = {
+            MediaType.TV: ['tv'],
+            MediaType.MOVIE: ['movie'],
+            None: ['tv', 'movie']
+        }
+        allowed_types = type_map.get(media_info.type, ['tv', 'movie'])
+        filtered = [res for res in all_results if res.get('media_type') in allowed_types]
+
+        # 定义一个过滤链：每次过滤后如果只剩一个结果就返回
+        def filter_and_return(results, predicate):
+            filtered_res = [res for res in results if predicate(res)]
+            if not filtered_res:
+                return None, []
+            if len(filtered_res) == 1:
+                return filtered_res[0].get("id"), []
+            return None, filtered_res
+
+        # 通过年份过滤
+        if media_info.year:
+            def match_year(res):
+                date = res.get('first_air_date') or res.get('release_date') or ''
+                return date[:4] == media_info.year
+
+            result_id, filtered = filter_and_return(filtered, match_year)
+            if result_id:
+                return result_id
+            if not filtered:
+                return None
+        # 通过名称过滤
+        if media_info.names:
+            def match_name(res):
+                name = res.get('name') or res.get('title') or ''
+                return ImdbHelper.compare_names(name, media_info.names)
+
+            result_id, filtered = filter_and_return(filtered, match_name)
+            if result_id:
+                return result_id
+            if not filtered:
+                return None
+        # 最终按人气返回
+        most_popular = pick_most_popular(filtered)
+        return most_popular.get("id") if most_popular else None
+
+    def imdb_to_tmdb(self, imdb_id: str, media_info: Optional[MediaInfo] = None) -> Optional[int]:
+        data = self.find_imdb_id(imdb_id)
+        if not data:
+            return None
+        return ImdbHelper._match_results(data, media_info)
+
+    async def async_imdb_to_tmdb(self, imdb_id: str, media_info: Optional[MediaInfo] = None) -> Optional[int]:
+        data = await self.async_find_imdb_id(imdb_id)
+        if not data:
+            return None
+        return ImdbHelper._match_results(data, media_info)
+
+    def recognize_media(
+            self, meta: MetaBase = None,
+            mtype: MediaType = None,
+            media_source: MediaSource | None = None,
+            media_id: str | None = None,
+            add_tmdb_id: bool = False,
+    ) -> Optional[MediaInfo]:
+        """
+        识别媒体信息
+        :param meta: 识别的元数据
+        :param mtype: 识别的媒体类型
+        :param media_source: 媒体数据源
+        :param media_id: 数据源原生 ID,
+        :param add_tmdb_id: 添加 tmdb id 到元数据
+        :return: 识别的媒体信息，包括剧集信息
+        """
+        explicit_identity = media_source is not None or media_id is not None
+        if explicit_identity:
+            source, normalized_media_id = resolve_media_identity(
+                media_source=media_source,
+                media_id=media_id,
+            )
+            if source != MediaSource.IMDb or not normalized_media_id:
+                return None
+            info = self.get_info_by_imdbid(normalized_media_id)
+        else:
+            if not meta:
+                return None
+            elif not meta.name:
+                logger.warn("识别媒体信息时未提供元数据名称")
+                return None
+            else:
+                if mtype:
+                    meta.type = mtype
+            info: Optional[ImdbMediaInfo] = None
+            # 简体名称
+            zh_name = zhconv_convert(meta.cn_name, 'zh-hans') if meta.cn_name else None
+            media_names = list(dict.fromkeys([k for k in [meta.cn_name, zh_name, meta.en_name] if k]))
+            names: list[str] = [name for name in media_names if isinstance(name, str)]
+            for name in names:
+                if meta.begin_season:
+                    logger.info(f"正在识别 {name} 第{meta.begin_season}季 ...")
+                else:
+                    logger.info(f"正在识别 {name} ...")
+                if meta.type == MediaType.UNKNOWN and not meta.year:
+                    info = self.match_by(name)
+                else:
+                    if meta.type == MediaType.TV:
+                        info = self.match(name=name, year=meta.year, mtype=meta.type, season_year=meta.year,
+                                                       season_number=meta.begin_season)
+                        if not info:
+                            # 去掉年份再查一次
+                            info = self.match(name=name, mtype=meta.type)
+                    else:
+                        # 有年份先按电影查
+                        info = self.match(name=name, year=meta.year, mtype=MediaType.MOVIE)
+                        # 没有再按电视剧查
+                        if not info:
+                            info = self.match(name=name, year=meta.year, mtype=MediaType.TV)
+                        if not info:
+                            # 去掉年份和类型再查一次
+                            info = self.match_by(name=name)
+                if info:
+                    break
+        if info:
+            info: ImdbMediaInfo = self.update_info(info.id, info=info)
+            mediainfo = ImdbHelper.convert_mediainfo(info)
+            if add_tmdb_id:
+                tmdb_id = self.imdb_to_tmdb(info.id, mediainfo)
+                if tmdb_id:
+                    mediainfo.tmdb_id = tmdb_id
+            cat = ImdbHelper.get_category(ImdbHelper.type_to_mtype(info.type.value),
+                                          info.model_dump(by_alias=True, exclude_none=True))
+            mediainfo.set_category(cat)
+            name = meta.name if meta else mediainfo.title
+            logger.info(f"{name} IMDb 识别结果：{mediainfo.type.value} "
+                        f"{mediainfo.title_year} "
+                        f"{mediainfo.media_source}:{mediainfo.media_id}")
+            return mediainfo
+        return None
+
+    async def async_recognize_media(
+            self, meta: MetaBase = None,
+            mtype: MediaType = None,
+            media_source: MediaSource | None = None,
+            media_id: str | None = None,
+            add_tmdb_id: bool = False,
+    ) -> Optional[MediaInfo]:
+        explicit_identity = media_source is not None or media_id is not None
+        if explicit_identity:
+            source, normalized_media_id = resolve_media_identity(
+                media_source=media_source,
+                media_id=media_id,
+            )
+            if source != MediaSource.IMDb or not normalized_media_id:
+                return None
+            info = await self.async_get_info_by_imdbid(normalized_media_id)
+        else:
+            if not meta:
+                return None
+            elif not meta.name:
+                logger.warn("识别媒体信息时未提供元数据名称")
+                return None
+            else:
+                if mtype:
+                    meta.type = mtype
+            info: Optional[ImdbMediaInfo] = None
+            # 简体名称
+            zh_name = zhconv_convert(meta.cn_name, 'zh-hans') if meta.cn_name else None
+            media_names = list(dict.fromkeys([k for k in [meta.cn_name, zh_name, meta.en_name] if k]))
+            names: list[str] = [name for name in media_names if isinstance(name, str)]
+            for name in names:
+                if meta.begin_season:
+                    logger.info(f"正在识别 {name} 第{meta.begin_season}季 ...")
+                else:
+                    logger.info(f"正在识别 {name} ...")
+                if meta.type == MediaType.UNKNOWN and not meta.year:
+                    info = await self.async_match_by(name)
+                else:
+                    if meta.type == MediaType.TV:
+                        info = await self.async_match(name=name, year=meta.year, mtype=meta.type,
+                                                                   season_year=meta.year,
+                                                                   season_number=meta.begin_season)
+                        if not info:
+                            # 去掉年份再查一次
+                            info = await self.async_match(name=name, mtype=meta.type)
+                    else:
+                        # 有年份先按电影查
+                        info = await self.async_match(name=name, year=meta.year, mtype=MediaType.MOVIE)
+                        # 没有再按电视剧查
+                        if not info:
+                            info = await self.async_match(name=name, year=meta.year, mtype=MediaType.TV)
+                        if not info:
+                            # 去掉年份和类型再查一次
+                            info = await self.async_match_by(name=name)
+                if info:
+                    break
+        if info:
+            info: ImdbMediaInfo = await self.async_update_info(info.id, info=info)
+            mediainfo = ImdbHelper.convert_mediainfo(info)
+            if add_tmdb_id:
+                tmdb_id = await self.async_imdb_to_tmdb(info.id, mediainfo)
+                if tmdb_id:
+                    mediainfo.tmdb_id = tmdb_id
+            cat = ImdbHelper.get_category(ImdbHelper.type_to_mtype(info.type.value),
+                                          info.model_dump(by_alias=True, exclude_none=True))
+            mediainfo.set_category(cat)
+            name = meta.name if meta else mediainfo.title
+            logger.info(f"{name} IMDb 识别结果：{mediainfo.type.value} "
+                        f"{mediainfo.title_year} "
+                        f"{mediainfo.media_source}:{mediainfo.media_id}")
+            return mediainfo
+        return None

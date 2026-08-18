@@ -481,6 +481,7 @@ def get_service(self) -> list[dict]:
 - [工作流动作](./faq/13-integrate-workflow.md)
 - [Agent 工具](./faq/16-register-agent-tools.md)
 - [统一缓存](./faq/15-use-system-cache.md)
+- [媒体数据源](./faq/19-register-media-source.md)
 
 ## 10. V3 业务合同
 

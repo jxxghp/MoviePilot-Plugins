@@ -22,3 +22,4 @@
 - [16. 如何在插件中注册智能体工具？](./faq/16-register-agent-tools.md)
 - [17. 如何将插件页面注册到主界面左侧导航栏？](./faq/17-register-plugin-sidebar-nav.md)
 - [18. 如何限定插件可安装的 MoviePilot 主系统版本？](./faq/18-limit-moviepilot-version.md)
+- [19. 如何通过插件注册媒体数据源？](./faq/19-register-media-source.md)
