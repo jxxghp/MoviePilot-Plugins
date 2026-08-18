@@ -11,6 +11,7 @@ from app.sdk.cache import cached
 from app.sdk.logging import logger
 from app.sdk.utilities import retry
 from app.sdk.network import RequestUtils, AsyncRequestUtils
+from app.schemas.exception import ImmediateException
 
 from .schema.imdbtypes import ImdbType
 from .schema import VerticalList, AdvancedTitleSearchResponse, AdvancedTitleSearch, TitleEdge, SearchParams
@@ -345,7 +346,7 @@ IMDB_GRAPHQL_QUERY: Final[str] = dedent("""
 """)
 
 
-class PersistedQueryNotFound(Exception):
+class PersistedQueryNotFound(ImmediateException):
     def __init__(self, message: str, code: int = None):
         super().__init__(message)
         self.code = code
@@ -354,8 +355,13 @@ class PersistedQueryNotFound(Exception):
 class OfficialApiClient:
     BASE_URL = "https://caching.graphql.imdb.com/"
 
-    def __init__(self, proxies: Optional[Dict[str, str]] = None,
-                 ua: Optional[str] = None):
+    def __init__(
+            self,
+            session: requests.Session,
+            async_client: httpx.AsyncClient,
+            proxies: Dict[str, str] | None = None,
+            ua: Optional[str] = None
+    ):
         headers = {
             "accept": "application/graphql+json, application/json",
             "content-type": "application/json",
@@ -366,16 +372,11 @@ class OfficialApiClient:
             timeout=30,
             ua=ua,
             proxies=proxies,
-            session=requests.Session()
+            session=session
         )
-        if proxies:
-            proxy_url = proxies.get("https") or proxies.get("http")
-        else:
-            proxy_url = None
-        self._client = httpx.AsyncClient(timeout=30, proxy=proxy_url)
         self._async_req = AsyncRequestUtils(
             headers=headers,
-            client=self._client,
+            client=async_client,
             ua=ua,
         )
         self.flat_interest_id = {}

@@ -2,6 +2,9 @@ from typing import Optional, List
 
 from pydantic import BaseModel, Field
 
+from app.schemas import MediaImageSet
+from app.schemas.context import MediaCredit
+
 from .imdbtypes import ImdbType, RatingsSummary, AkasNode, ImdbDate
 
 
@@ -39,7 +42,6 @@ class ImdbApiPerson(BaseModel):
     death_location: Optional[str] = Field(None, alias='deathLocation')
     death_reason: Optional[str] = Field(None, alias='deathReason')
     meter_ranking: Optional[ImdbApiMeterRanking] = Field(None, alias='meterRanking')
-
 
 class ImdbApiCountry(BaseModel):
     # The ISO 3166-1 alpha-2 country code for the title, (e.g. "US" for the United States, "JP" for Japan)
@@ -139,6 +141,17 @@ class ImdbApiCredit(BaseModel):
     characters: Optional[List[str]] = None
     episode_count: Optional[int] = Field(None, alias='episodeCount')
 
+    def to_media_credit(self) -> MediaCredit:
+        if self.name:
+            return MediaCredit(
+                id=self.name.id,
+                name=self.name.display_name if self.name.display_name else "",
+                avatar=self.name.primary_image.url if self.name.primary_image else None,
+                url=f"https://www.imdb.com/name/{self.name.id}/",
+                character=self.characters[0] if self.characters else None,
+                images=MediaImageSet(large=self.name.primary_image.url) if self.name.primary_image else None
+            )
+        return MediaCredit()
 
 class ImdbApiListTitleCreditsResponse(PagedResponse):
     credits: List[ImdbApiCredit] = Field(default_factory=list)
