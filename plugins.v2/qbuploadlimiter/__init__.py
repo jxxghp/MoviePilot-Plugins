@@ -45,7 +45,7 @@ class QbUploadLimiter(_PluginBase):
     plugin_name = "QB上传限速"
     plugin_desc = "仅处理 MoviePilot 已整理入库成功的种子：分享率达到全局或站点单独阈值后自动限制上传速度（qBittorrent 与全局上传限速取较小值）；可选 AI 智能限速——调用系统设置的大模型按种子分享率、上传活跃度与站点账号分享率逐种子智能决策限速；支持多下载器、站点筛选、定时检测，停用/卸载自动恢复不限速。"
     plugin_icon = "Qbittorrent_A.png"
-    plugin_version = "1.3.10"
+    plugin_version = "1.3.11"
     plugin_author = "xlmc"
     author_url = "https://github.com/xlmc"
     plugin_config_prefix = "qbuploadlimiter_"
@@ -112,9 +112,12 @@ class QbUploadLimiter(_PluginBase):
     _last_ai_eval_at = 0.0
     # 系统设置未配置大模型标记：置位后本会话不再尝试调用大模型，避免每轮刷错误日志
     _ai_config_missing = False
-    # AI 智能限速已成功生效标记：至少一次大模型调用并解析成功后置位，
+    # AI 智能限速已成功生效标记：大模型自检通过或至少一次评估调用成功后置位，
     # 用于详情页（种子状态页）的显隐——未成功开启 AI 前保持点击卡片直接进设置
     _ai_active = False
+    # 自检序号：每次重新初始化递增，旧的自检线程完成时若已被新一轮取代则丢弃结果，
+    # 避免慢速自检在保存配置后误置位新一轮的生效标记
+    _ai_check_seq = 0
     # 种子状态页快照：{下载器名称: {种子Hash: {name, site, state, limit_kb, reason}}}
     # 每轮检测后更新，get_page 渲染时使用，避免页面请求时再访问下载器
     _seed_page_snapshot: Dict[str, Dict[str, dict]] = {}
@@ -225,6 +228,14 @@ class QbUploadLimiter(_PluginBase):
         # 重新初始化后 AI 生效标记与决策缓存一并清零：详情页显隐跟随新一轮
         # 大模型调用结果重新判定，避免保存配置后出现「有页面无数据」或残留旧标记
         self._ai_active = False
+        # AI 启用时保存配置即自动后台自检大模型连通性（不阻塞定时检测），
+        # 自检结果写入插件日志；自检通过即视为 AI 生效，详情页立即可用
+        if self._ai_enabled:
+            self._ai_check_seq += 1
+            seq = self._ai_check_seq
+            threading.Thread(
+                target=self._ai_background_check, args=(seq,), daemon=True, name="QbUploadLimiterAICheck"
+            ).start()
 
         # 「立即运行一次」与启用状态下的周期任务独立调度，互不覆盖
         self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -1471,6 +1482,50 @@ class QbUploadLimiter(_PluginBase):
         # 带思考（reasoning）的模型 content 可能为空或缺失，兜底为空串，
         # 解析失败时由调用方回退常规阈值规则，避免 extract_text_content 收到空值报错
         return LLMHelper.extract_text_content(getattr(response, "content", response)) or ""
+
+    def _ai_background_check(self, seq: int):
+        """
+        保存配置（开启 AI 开关）后自动后台自检大模型连通性。
+
+        用一个极小的探测提示词真实调用一次系统设置的大模型：能正常返回即视为
+        AI 生效（置位 `_ai_active`，详情页立即可用）；未配置/调用失败则保持隐藏，
+        本轮限速走常规阈值规则，全部结果写入插件日志供用户确认。
+        seq 为自检序号：完成时若与当前序号不一致（已被更新的初始化取代）则丢弃。
+        """
+        try:
+            logger.info(f"{self.LOG_TAG}AI 智能限速已开启，正在后台自检大模型连通性……")
+            answer = self._ai_invoke("请只回复两个字：正常", timeout=60)
+        except Exception as err:
+            if seq != self._ai_check_seq:
+                return
+            if self._ai_config_missing:
+                logger.warning(
+                    f"{self.LOG_TAG}AI 自检失败：系统设置未配置大模型（{err}）。"
+                    f"请前往 MoviePilot「系统设置 - 大模型」完成配置后重新保存插件配置；"
+                    f"期间限速回退常规分享率阈值规则，种子状态页保持隐藏"
+                )
+            else:
+                logger.warning(
+                    f"{self.LOG_TAG}AI 自检失败：大模型调用异常（{err}）。"
+                    f"请检查 MoviePilot「系统设置 - 大模型」配置与网络；"
+                    f"期间限速回退常规分享率阈值规则，种子状态页保持隐藏"
+                )
+            return
+        if seq != self._ai_check_seq:
+            return
+        if not answer.strip():
+            logger.warning(
+                f"{self.LOG_TAG}AI 自检失败：大模型返回内容为空。"
+                f"请检查 MoviePilot「系统设置 - 大模型」配置；"
+                f"期间限速回退常规分享率阈值规则，种子状态页保持隐藏"
+            )
+            return
+        self._ai_active = True
+        preview = answer.strip().replace("\n", " ")[:50]
+        logger.info(
+            f"{self.LOG_TAG}AI 自检成功：大模型连通正常（回复：{preview}），"
+            f"AI 智能限速已生效，种子状态页已开启（点击插件卡片查看）"
+        )
 
     @staticmethod
     def _build_ai_prompt(items: List[dict], site_lines: str, max_limit: int) -> str:
