@@ -12,12 +12,23 @@ const notice = ref('')
 const items = ref([])
 const libraries = ref([])
 const directoryRules = ref([])
+const rulesReady = ref(false)
 const rulesMessage = ref('')
 const monitoringEnabled = ref(false)
+const monitoringRules = ref([])
+const incomingPath = ref('')
 const settingsUrl = ref('#/setting')
+const rulesExpanded = ref(false)
+const helpOpen = ref(false)
+const selectedKeys = ref([])
+const batchRunning = ref(false)
+const batchCurrent = ref(0)
+const batchTotal = ref(0)
 const savingKeys = ref([])
 const organizingKey = ref('')
 const tmdbLoadingKeys = ref([])
+const tmdbSearchedKeys = ref([])
+const tmdbSearchFailedKeys = ref([])
 const tmdbCandidates = ref({})
 const selectedCandidates = ref({})
 const rowErrors = ref({})
@@ -27,6 +38,29 @@ const fileTransferValue = ref(null)
 const fileTransferSeenActive = ref(false)
 
 const hasItems = computed(() => items.value.length > 0)
+const reviewSummary = computed(() => (
+  hasItems.value ? `${items.value.length} 项待处理` : '检查名称与目标后再整理'
+))
+const directoryStatus = computed(() => {
+  if (!directoryRules.value.length) return '未读取到目录规则'
+  return rulesReady.value
+    ? `已读取 ${directoryRules.value.length} 条目录规则`
+    : '目录规则需要处理'
+})
+const monitoringRuleText = computed(() => (
+  monitoringRules.value.length ? `“${monitoringRules.value.join('”“')}”` : '相关目录规则'
+))
+const queueableItems = computed(() => items.value.filter(item => canQueue(item)))
+const selectedQueueableItems = computed(() => (
+  queueableItems.value.filter(item => selectedKeys.value.includes(item.raw_title))
+))
+const allQueueableSelected = computed(() => (
+  queueableItems.value.length > 0
+  && selectedQueueableItems.value.length === queueableItems.value.length
+))
+const someQueueableSelected = computed(() => (
+  selectedQueueableItems.value.length > 0 && !allQueueableSelected.value
+))
 
 function unwrap(response) {
   const body = response && Object.prototype.hasOwnProperty.call(response, 'success')
@@ -40,6 +74,11 @@ function unwrap(response) {
 
 function errorMessage(errorValue, fallback) {
   return errorValue?.message || fallback
+}
+
+function openMoviePilotSettings() {
+  const target = settingsUrl.value || '#/setting'
+  window.location.assign(target)
 }
 
 function rowErrorFor(row) {
@@ -147,10 +186,14 @@ async function loadReview() {
       libraries.value = []
     }
     directoryRules.value = Array.isArray(data?.directory_rules) ? data.directory_rules : []
+    rulesReady.value = Boolean(data?.rules_ready)
     rulesMessage.value = data?.rules_message || ''
     monitoringEnabled.value = Boolean(data?.monitoring_enabled)
+    monitoringRules.value = Array.isArray(data?.monitoring_rules) ? data.monitoring_rules : []
+    incomingPath.value = data?.incoming_path || ''
     settingsUrl.value = data?.settings_url || '#/setting'
     tmdbCandidates.value = {}
+    selectedKeys.value = []
   } catch (loadError) {
     error.value = errorMessage(loadError, '加载人工复核列表失败')
   } finally {
@@ -159,6 +202,7 @@ async function loadReview() {
 }
 
 async function refreshReview() {
+  if (batchRunning.value) return
   loading.value = true
   error.value = ''
   try {
@@ -173,11 +217,12 @@ async function refreshReview() {
 }
 
 async function searchTmdb(row, silent = false) {
-  if (isSaving(row) || isTmdbLoading(row)) return
+  if (batchRunning.value || isSaving(row) || isTmdbLoading(row)) return
   addKey(tmdbLoadingKeys, row.raw_title)
   error.value = ''
   if (!silent) notice.value = ''
   clearRowError(row)
+  removeKey(tmdbSearchFailedKeys, row.raw_title)
   tmdbCandidates.value = { ...tmdbCandidates.value, [row.raw_title]: [] }
   const sel = { ...selectedCandidates.value }
   delete sel[row.raw_title]
@@ -193,8 +238,10 @@ async function searchTmdb(row, silent = false) {
     tmdbCandidates.value = { ...tmdbCandidates.value, [row.raw_title]: candidates }
     if (!silent) notice.value = data?.message || '已找到 TMDB 候选'
   } catch (searchError) {
+    addKey(tmdbSearchFailedKeys, row.raw_title)
     if (!silent) setRowError(row, errorMessage(searchError, '搜索 TMDB 候选失败，请刷新后重试'))
   } finally {
+    addKey(tmdbSearchedKeys, row.raw_title)
     removeKey(tmdbLoadingKeys, row.raw_title)
   }
 }
@@ -207,7 +254,7 @@ async function autoSearchAll() {
 }
 
 async function associateTmdb(row, candidate) {
-  if (isSaving(row) || isTmdbLoading(row) || !candidate?.candidate_key) return
+  if (batchRunning.value || isSaving(row) || isTmdbLoading(row) || !candidate?.candidate_key) return
   addKey(savingKeys, row.raw_title)
   error.value = ''
   notice.value = ''
@@ -237,15 +284,18 @@ async function associateTmdb(row, candidate) {
   }
 }
 
-async function saveReview(row, action) {
-  if (isSaving(row) || isTmdbLoading(row)) return
-  if (action === 'confirm' && organizingKey.value) return
+async function saveReview(row, action, options = {}) {
+  const queued = Boolean(options.queued)
+  if ((batchRunning.value && !queued) || isSaving(row) || isTmdbLoading(row)) return false
+  if (action === 'confirm' && organizingKey.value) return false
   if (action === 'confirm' && (!row.final_title || !row.target_library)) {
     setRowError(row, '请填写建议名称并选择目标媒体库')
-    return
+    return false
   }
-  error.value = ''
-  notice.value = ''
+  if (!queued) {
+    error.value = ''
+    notice.value = ''
+  }
   clearRowError(row)
   const payload = {
     raw_title: row.raw_title,
@@ -268,25 +318,65 @@ async function saveReview(row, action) {
       const nextCandidates = { ...tmdbCandidates.value }
       delete nextCandidates[row.raw_title]
       tmdbCandidates.value = nextCandidates
-      notice.value = '整理完成'
+      removeKey(selectedKeys, row.raw_title)
+      if (!queued) notice.value = '整理完成'
     } else {
       notice.value = data?.message || '已保存人工决定'
+      if (action === 'ignore') removeKey(selectedKeys, row.raw_title)
       const updated = getUpdatedRow(row.raw_title, data)
       if (updated) {
         items.value = replaceRow(row.raw_title, updated)
       }
     }
+    return true
   } catch (saveError) {
     setRowError(row, errorMessage(
       saveError,
       action === 'confirm' ? '单条整理失败，记录已保留，请重试' : '保存人工决定失败，请刷新后重试',
     ))
+    return false
   } finally {
     if (action === 'confirm') {
       stopFileTransferProgress()
       organizingKey.value = ''
     } else {
       removeKey(savingKeys, row.raw_title)
+    }
+  }
+}
+
+async function organizeSelected() {
+  if (
+    batchRunning.value
+    || organizingKey.value
+    || tmdbLoadingKeys.value.length
+    || !selectedQueueableItems.value.length
+  ) return
+  const queue = [...selectedQueueableItems.value]
+  batchRunning.value = true
+  batchCurrent.value = 0
+  batchTotal.value = queue.length
+  error.value = ''
+  notice.value = ''
+  let succeeded = 0
+  let failed = 0
+  try {
+    for (let index = 0; index < queue.length; index += 1) {
+      batchCurrent.value = index + 1
+      const row = items.value.find(item => item.raw_title === queue[index].raw_title)
+      if (!row || !canQueue(row)) {
+        failed += 1
+        continue
+      }
+      if (await saveReview(row, 'confirm', { queued: true })) succeeded += 1
+      else failed += 1
+    }
+  } finally {
+    batchRunning.value = false
+    if (failed) {
+      error.value = `批量整理完成：成功 ${succeeded} 项，失败 ${failed} 项。失败项目已保留。`
+    } else {
+      notice.value = `批量整理完成，共 ${succeeded} 项。`
     }
   }
 }
@@ -349,7 +439,28 @@ function hasLibrary(row) {
 }
 
 function canConfirm(row) {
-  return !row.source_pending && hasLibrary(row)
+  return rulesReady.value && !row.source_pending && hasLibrary(row)
+}
+
+function canQueue(row) {
+  return canConfirm(row) && Boolean(String(row.final_title || '').trim()) && row.status_label !== '已跳过'
+}
+
+function isSelected(row) {
+  return selectedKeys.value.includes(row.raw_title)
+}
+
+function setSelected(row, selected) {
+  if (selected) addKey(selectedKeys, row.raw_title)
+  else removeKey(selectedKeys, row.raw_title)
+}
+
+function setAllQueueable(selected) {
+  if (!selected) {
+    selectedKeys.value = []
+    return
+  }
+  selectedKeys.value = queueableItems.value.map(item => item.raw_title)
 }
 
 function isSourcePending(row) {
@@ -363,12 +474,31 @@ function statusChipColor(row) {
   return 'warning'
 }
 
-function targetPath(row) {
+function targetRoot(row) {
   const library = libraries.value.find(item => item.value === row.target_library)
-  if (library?.path && row.final_title) {
-    return `${String(library.path).replace(/\/$/, '')}/${row.final_title}`
+  return library?.path || '请选择目标媒体库'
+}
+
+function handlingMode(row) {
+  return row.association_required ? '按标题整理' : 'TMDB 整理'
+}
+
+function transferTypeLabel(value) {
+  const normalized = String(value || '').toLowerCase()
+  if (!normalized || normalized === 'move' || normalized.startsWith('rclone_move')) return '移动'
+  if (normalized === 'copy' || normalized.startsWith('rclone_copy')) return '复制'
+  if (normalized.includes('hardlink')) return '硬链接'
+  if (normalized.includes('softlink') || normalized.includes('soft_link')) return '软链接'
+  return value
+}
+
+function tmdbSearchHint(row) {
+  if (isTmdbLoading(row)) return '正在查找 TMDB 候选…'
+  if (hasKey(tmdbSearchFailedKeys, row.raw_title)) return '自动匹配失败，可稍后重试'
+  if (hasKey(tmdbSearchedKeys, row.raw_title) && !tmdbCandidatesFor(row).length) {
+    return '未找到匹配，可修改名称后重试'
   }
-  return row.target_path || row.target_output_root || '待确认'
+  return ''
 }
 
 function tmdbCandidatesFor(row) {
@@ -405,59 +535,91 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
   <section class="course-review-page" aria-labelledby="course-review-title">
     <header class="course-review-toolbar">
       <div>
-        <h1 id="course-review-title" class="text-h5">安全预览与人工确认</h1>
-        <p class="text-body-2 text-medium-emphasis mb-0">
-          修改名称和目标媒体库后，确认会立即整理这一条；失败时保留记录，可重试，不会触发全量扫描。
-        </p>
+        <h1 id="course-review-title" class="text-h5">待整理项目</h1>
+        <div class="text-body-2 text-medium-emphasis mt-1">{{ reviewSummary }}</div>
       </div>
-      <VBtn
-        prepend-icon="mdi-refresh"
-        variant="tonal"
-        :loading="loading"
-        aria-label="刷新人工复核列表"
-        @click="refreshReview"
-      >
-        刷新
-      </VBtn>
-      <VBtn
-        icon="mdi-close"
-        variant="text"
-        aria-label="关闭人工复核"
-        @click="emit('close')"
-      />
+      <div class="course-review-toolbar__actions">
+        <VBtn icon="mdi-help-circle-outline" variant="text" aria-label="查看使用说明" @click="helpOpen = true" />
+        <VBtn
+          prepend-icon="mdi-refresh"
+          variant="tonal"
+          :loading="loading"
+          :disabled="batchRunning"
+          aria-label="重新扫描待整理项目"
+          @click="refreshReview"
+        >
+          重新扫描
+        </VBtn>
+        <VBtn icon="mdi-close" variant="text" :disabled="batchRunning" aria-label="关闭待整理项目" @click="emit('close')" />
+      </div>
     </header>
 
-    <VAlert type="info" variant="tonal" class="mb-4" role="note">
-      目录、搬运方式、重命名、刮削、通知和整理历史均来自 MoviePilot「设置 → 存储 &amp; 目录」。
-      <template #append>
-        <VBtn :href="settingsUrl" variant="tonal" color="primary" prepend-icon="mdi-folder-cog">
-          打开目录设置
-        </VBtn>
-      </template>
-    </VAlert>
+    <VSheet border rounded class="course-directory-summary mb-3">
+      <VIcon :icon="rulesReady ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline'" :color="rulesReady ? 'success' : 'warning'" />
+      <div class="flex-grow-1">
+        <div class="text-body-2 font-weight-medium">{{ directoryStatus }}</div>
+        <div class="text-caption text-medium-emphasis">
+          沿用 MoviePilot 的目录与整理设置<span v-if="incomingPath"> · 来源 {{ incomingPath }}</span>
+        </div>
+      </div>
+      <VBtn
+        v-if="directoryRules.length"
+        variant="text"
+        size="small"
+        :append-icon="rulesExpanded ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+        @click="rulesExpanded = !rulesExpanded"
+      >
+        {{ rulesExpanded ? '收起' : '查看规则' }}
+      </VBtn>
+      <VBtn
+        variant="text"
+        color="primary"
+        size="small"
+        prepend-icon="mdi-folder-cog"
+        :disabled="batchRunning"
+        @click.stop="openMoviePilotSettings"
+      >
+        目录设置
+      </VBtn>
+    </VSheet>
 
-    <VAlert v-if="rulesMessage" type="warning" variant="tonal" class="mb-4" role="alert">
+    <div v-if="rulesExpanded && directoryRules.length" class="course-directory-rules mb-3">
+      <VSheet
+        v-for="rule in directoryRules"
+        :key="`${rule.value}:${rule.download_path}:${rule.path}`"
+        border
+        rounded
+        class="course-directory-rule"
+      >
+        <div class="d-flex align-center flex-wrap ga-2 mb-1">
+          <strong class="text-body-2">{{ rule.title }}</strong>
+          <VChip size="x-small" variant="tonal">{{ transferTypeLabel(rule.transfer_type) }}</VChip>
+          <VChip size="x-small" variant="tonal" :color="rule.renaming ? 'success' : 'warning'">
+            {{ rule.renaming ? '智能重命名' : '未开启重命名' }}
+          </VChip>
+          <VChip v-if="rule.scraping" size="x-small" variant="tonal">影视刮削</VChip>
+          <VChip size="x-small" variant="tonal" :color="rule.monitor_type ? 'warning' : undefined">
+            {{ rule.monitor_type ? '自动监控' : '手动整理' }}
+          </VChip>
+        </div>
+        <div class="text-caption text-medium-emphasis text-break">
+          {{ rule.download_path }} → {{ rule.path }}
+        </div>
+      </VSheet>
+    </div>
+
+    <VAlert v-if="rulesMessage" type="warning" variant="tonal" density="compact" class="mb-2" role="alert">
       {{ rulesMessage }}
     </VAlert>
-    <VAlert v-if="monitoringEnabled" type="warning" variant="tonal" class="mb-4" role="alert">
-      当前匹配规则仍启用了 MoviePilot 自动监控。人工复核期间请在目录设置中关闭这些规则的监控，
-      避免文件在确认前被自动整理。
+    <VAlert v-if="monitoringEnabled" type="warning" variant="tonal" density="compact" class="mb-2" role="alert">
+      {{ monitoringRuleText }}已开启自动监控，确认前请先关闭，避免文件被提前整理。
     </VAlert>
-
-    <VSheet v-if="directoryRules.length" border rounded class="course-directory-rules mb-4 pa-3">
-      <div class="text-subtitle-2 mb-2">MoviePilot 当前目录规则</div>
-      <div class="d-flex flex-wrap ga-2">
-        <VChip
-          v-for="rule in directoryRules"
-          :key="`${rule.value}:${rule.download_path}:${rule.path}`"
-          variant="tonal"
-          color="primary"
-          :title="`${rule.download_path} → ${rule.path}`"
-        >
-          {{ rule.title }}：{{ rule.download_path }} → {{ rule.path }}
-        </VChip>
-      </div>
-    </VSheet>
+    <VAlert v-if="batchRunning || organizingKey" type="info" variant="tonal" density="compact" class="mb-2" role="status">
+      <template v-if="batchRunning">
+        批量队列正在处理第 {{ batchCurrent }}/{{ batchTotal }} 项，其余项目将按顺序执行。
+      </template>
+      <template v-else>当前一次只能整理一个项目，完成后可继续下一项。</template>
+    </VAlert>
 
     <VAlert v-if="error" type="error" variant="tonal" class="mb-4" role="alert">
       {{ error }}
@@ -466,15 +628,47 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
       {{ notice }}
     </VAlert>
 
+    <VSheet v-if="hasItems && !loading" border rounded class="course-batch-bar mb-3">
+      <VCheckbox
+        :model-value="allQueueableSelected"
+        :indeterminate="someQueueableSelected"
+        :disabled="batchRunning || !queueableItems.length"
+        hide-details
+        density="compact"
+        label="全选可整理项目"
+        aria-label="全选可整理项目"
+        @update:model-value="setAllQueueable"
+      />
+      <div class="text-body-2 text-medium-emphasis flex-grow-1">
+        已选 {{ selectedQueueableItems.length }} 项
+      </div>
+      <VBtn
+        color="primary"
+        variant="tonal"
+        prepend-icon="mdi-playlist-check"
+        :loading="batchRunning"
+        :disabled="batchRunning || Boolean(organizingKey) || Boolean(tmdbLoadingKeys.length) || !selectedQueueableItems.length"
+        @click="organizeSelected"
+      >
+        批量整理
+      </VBtn>
+    </VSheet>
+
     <VProgressLinear v-if="loading" indeterminate color="primary" aria-label="正在加载" />
-    <VAlert v-else-if="!hasItems" type="info" variant="tonal" role="status">
-      暂无可复核记录。运行安全预览后，这里会显示待确认目录。
-    </VAlert>
+    <VSheet v-else-if="!hasItems" border rounded class="course-empty-state" role="status">
+      <VIcon icon="mdi-folder-search-outline" size="42" color="primary" />
+      <div class="text-h6 mt-3">暂无待整理项目</div>
+      <div class="text-body-2 text-medium-emphasis mt-1 mb-4">重新扫描后，这里会显示需要确认的目录。</div>
+      <VBtn color="primary" variant="tonal" prepend-icon="mdi-refresh" :loading="loading" @click="refreshReview">
+        重新扫描
+      </VBtn>
+    </VSheet>
 
     <VSheet v-else border rounded class="course-review-table-shell">
       <VTable class="course-review-table" density="comfortable">
         <thead>
           <tr>
+            <th scope="col" class="course-review-select-column">选择</th>
             <th scope="col">原始名称</th>
             <th scope="col">建议名称（可改）</th>
             <th scope="col">目标媒体库</th>
@@ -484,6 +678,16 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
         </thead>
         <tbody>
           <tr v-for="row in items" :key="row.raw_title">
+            <td class="course-review-select-column">
+              <VCheckbox
+                :model-value="isSelected(row)"
+                :disabled="batchRunning || (!canQueue(row) && !isSelected(row))"
+                hide-details
+                density="compact"
+                :aria-label="`选择整理：${row.raw_title}`"
+                @update:model-value="value => setSelected(row, value)"
+              />
+            </td>
             <td class="course-review-name">{{ row.raw_title }}</td>
             <td class="course-review-edit-cell">
               <VTextField
@@ -493,7 +697,7 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
                 density="comfortable"
                 variant="outlined"
                 autocomplete="off"
-                :disabled="isSaving(row) || isOrganizing(row)"
+                :disabled="batchRunning || isSaving(row) || isOrganizing(row)"
                 placeholder="建议名称（可修改）"
               />
               <VProgressLinear
@@ -517,13 +721,15 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
                 variant="tonal"
                 min-width="132"
                 :loading="isTmdbLoading(row)"
-                :disabled="isSourcePending(row) || isSaving(row) || isTmdbLoading(row) || isOrganizing(row)"
-                :aria-label="`按名称搜索 TMDB：${row.raw_title}`"
+                :disabled="batchRunning || isSourcePending(row) || isSaving(row) || isTmdbLoading(row) || isOrganizing(row)"
+                :aria-label="`重新搜索 TMDB：${row.raw_title}`"
                 @click="searchTmdb(row)"
               >
-                按名称搜索 TMDB
+                重新搜索 TMDB
               </VBtn>
-              <div class="text-caption text-medium-emphasis mt-1">自动查找，或按上方建议名称(可改)搜索</div>
+              <div v-if="tmdbSearchHint(row)" class="text-caption text-medium-emphasis mt-1">
+                {{ tmdbSearchHint(row) }}
+              </div>
               <VSelect
                 v-if="tmdbCandidatesFor(row).length"
                 :model-value="selectedCandidateFor(row)"
@@ -536,7 +742,7 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
                 variant="outlined"
                 label="选择匹配的 TMDB 作品"
                 class="mt-1"
-                :disabled="isSaving(row) || isTmdbLoading(row) || isOrganizing(row)"
+                :disabled="batchRunning || isSaving(row) || isTmdbLoading(row) || isOrganizing(row)"
                 :aria-label="`选择 TMDB 候选：${row.raw_title}`"
               />
             </td>
@@ -550,10 +756,12 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
                 hide-details
                 density="comfortable"
                 variant="outlined"
-                :disabled="isSaving(row) || isOrganizing(row)"
+                :disabled="batchRunning || isSaving(row) || isOrganizing(row)"
               />
+              <div class="text-caption text-medium-emphasis mt-1 text-break">目标：{{ targetRoot(row) }}</div>
             </td>
             <td>
+              <VChip size="small" variant="tonal" class="mr-1">{{ handlingMode(row) }}</VChip>
               <VChip
                 v-if="isOrganizing(row)"
                 size="small"
@@ -580,17 +788,17 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
                 variant="tonal"
                 min-width="108"
                 :loading="isOrganizing(row)"
-                :disabled="Boolean(organizingKey) || !canConfirm(row) || isTmdbLoading(row)"
+                :disabled="batchRunning || Boolean(organizingKey) || !canConfirm(row) || isTmdbLoading(row)"
                 :aria-label="`确认整理：${row.raw_title}`"
                 @click="saveReview(row, 'confirm')"
               >
-                保存并整理
+                确认并整理
               </VBtn>
               <VBtn
                 v-if="row.status_label !== '已跳过'"
                 variant="text"
                 min-width="76"
-                :disabled="isSourcePending(row) || isSaving(row) || isOrganizing(row)"
+                :disabled="batchRunning || isSourcePending(row) || isSaving(row) || isOrganizing(row)"
                 :aria-label="`跳过：${row.raw_title}`"
                 @click="saveReview(row, 'ignore')"
               >
@@ -600,11 +808,11 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
                 v-else
                 variant="text"
                 min-width="76"
-                :disabled="isSourcePending(row) || Boolean(organizingKey) || !canConfirm(row) || isTmdbLoading(row)"
-                :aria-label="`重新确认：${row.raw_title}`"
-                @click="saveReview(row, 'confirm')"
+                :disabled="batchRunning || isSourcePending(row) || isSaving(row) || isOrganizing(row)"
+                :aria-label="`恢复处理：${row.raw_title}`"
+                @click="saveReview(row, 'restore')"
               >
-                重新确认
+                恢复处理
               </VBtn>
               <VAlert
                 v-if="rowErrorFor(row)"
@@ -626,7 +834,17 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
 
     <div v-if="hasItems" class="course-review-cards">
       <VCard v-for="row in items" :key="`card-${row.raw_title}`" border variant="outlined" class="course-review-card">
-          <VCardTitle class="text-subtitle-1 text-break">{{ row.raw_title }}</VCardTitle>
+          <VCardTitle class="course-review-card__title text-subtitle-1">
+            <VCheckbox
+              :model-value="isSelected(row)"
+              :disabled="batchRunning || (!canQueue(row) && !isSelected(row))"
+              hide-details
+              density="compact"
+              :aria-label="`选择整理：${row.raw_title}`"
+              @update:model-value="value => setSelected(row, value)"
+            />
+            <span class="text-break">{{ row.raw_title }}</span>
+          </VCardTitle>
           <VCardText>
             <VTextField
             v-model="row.final_title"
@@ -635,7 +853,7 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
             variant="outlined"
             density="comfortable"
             autocomplete="off"
-            :disabled="isSaving(row) || isOrganizing(row)"
+            :disabled="batchRunning || isSaving(row) || isOrganizing(row)"
             />
             <VProgressLinear
             v-if="isOrganizing(row)"
@@ -668,13 +886,15 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
             variant="tonal"
             min-width="132"
             :loading="isTmdbLoading(row)"
-            :disabled="isSourcePending(row) || isSaving(row) || isTmdbLoading(row) || isOrganizing(row)"
-            :aria-label="`按名称搜索 TMDB：${row.raw_title}`"
+            :disabled="batchRunning || isSourcePending(row) || isSaving(row) || isTmdbLoading(row) || isOrganizing(row)"
+            :aria-label="`重新搜索 TMDB：${row.raw_title}`"
             @click="searchTmdb(row)"
             >
-            按名称搜索 TMDB
+            重新搜索 TMDB
           </VBtn>
-            <div class="text-caption text-medium-emphasis mb-1">自动查找，或按上方建议名称(可改)搜索</div>
+            <div v-if="tmdbSearchHint(row)" class="text-caption text-medium-emphasis mb-1">
+              {{ tmdbSearchHint(row) }}
+            </div>
             <VSelect
             v-if="tmdbCandidatesFor(row).length"
             :model-value="selectedCandidateFor(row)"
@@ -687,7 +907,7 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
             variant="outlined"
             label="选择匹配的 TMDB 作品"
             class="mb-3"
-            :disabled="isSaving(row) || isTmdbLoading(row) || isOrganizing(row)"
+            :disabled="batchRunning || isSaving(row) || isTmdbLoading(row) || isOrganizing(row)"
             :aria-label="`选择 TMDB 候选：${row.raw_title}`"
             />
             <VSelect
@@ -699,10 +919,12 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
             :aria-label="`目标媒体库：${row.raw_title}`"
             variant="outlined"
             density="comfortable"
-            :disabled="isSaving(row) || isOrganizing(row)"
+            :disabled="batchRunning || isSaving(row) || isOrganizing(row)"
             />
+            <div class="text-caption text-medium-emphasis mt-n3 mb-3 text-break">目标：{{ targetRoot(row) }}</div>
           <div class="d-flex flex-wrap align-center ga-2">
             <VChip size="small" variant="tonal">{{ libraryLabel(row) }}</VChip>
+            <VChip size="small" variant="tonal">{{ handlingMode(row) }}</VChip>
             <VChip size="small" variant="tonal" :color="statusChipColor(row)">
             {{ row.status_label || '需要确认' }}
             </VChip>
@@ -712,17 +934,17 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
             variant="tonal"
             min-width="108"
             :loading="isOrganizing(row)"
-            :disabled="Boolean(organizingKey) || !canConfirm(row) || isTmdbLoading(row)"
+            :disabled="batchRunning || Boolean(organizingKey) || !canConfirm(row) || isTmdbLoading(row)"
             :aria-label="`确认整理：${row.raw_title}`"
             @click="saveReview(row, 'confirm')"
             >
-            保存并整理
+            确认并整理
             </VBtn>
             <VBtn
             v-if="row.status_label !== '已跳过'"
             variant="text"
             min-width="76"
-            :disabled="isSourcePending(row) || isSaving(row) || isOrganizing(row)"
+            :disabled="batchRunning || isSourcePending(row) || isSaving(row) || isOrganizing(row)"
             :aria-label="`跳过：${row.raw_title}`"
             @click="saveReview(row, 'ignore')"
             >
@@ -732,11 +954,11 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
             v-else
             variant="text"
             min-width="76"
-            :disabled="isSourcePending(row) || Boolean(organizingKey) || !canConfirm(row) || isTmdbLoading(row)"
-            :aria-label="`重新确认：${row.raw_title}`"
-            @click="saveReview(row, 'confirm')"
+            :disabled="batchRunning || isSourcePending(row) || isSaving(row) || isOrganizing(row)"
+            :aria-label="`恢复处理：${row.raw_title}`"
+            @click="saveReview(row, 'restore')"
             >
-            重新确认
+            恢复处理
             </VBtn>
           </div>
           <VAlert
@@ -753,6 +975,43 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
           </VCardText>
       </VCard>
     </div>
+
+    <VDialog v-model="helpOpen" max-width="680">
+      <VCard>
+        <VCardTitle class="d-flex align-center pa-4">
+          <span>使用说明</span>
+          <VSpacer />
+          <VBtn icon="mdi-close" variant="text" aria-label="关闭使用说明" @click="helpOpen = false" />
+        </VCardTitle>
+        <VDivider />
+        <VCardText class="course-help-content">
+          <div>
+            <strong>1. 目录来自 MoviePilot</strong>
+            <p>插件直接读取「设置 → 存储 &amp; 目录」，沿用媒体类型、媒体类别、存储、整理方式、智能重命名、影视刮削和自动监控。</p>
+          </div>
+          <div>
+            <strong>2. 先扫描，再确认</strong>
+            <p>重新扫描不会移动文件。检查建议名称和目标媒体库后，「确认并整理」才会执行文件操作。</p>
+          </div>
+          <div>
+            <strong>3. 两种整理方式</strong>
+            <p>已关联媒体信息的项目使用 MoviePilot 的 TMDB 整理；课程等无媒体 ID 的项目按确认后的标题整理。</p>
+          </div>
+          <div>
+            <strong>4. 人工确认期间</strong>
+            <p>请关闭相同来源目录的自动监控，避免文件在确认前被系统提前整理。</p>
+          </div>
+          <div>
+            <strong>5. 批量任务自动排队</strong>
+            <p>可勾选多个项目后批量整理。任务会按顺序逐项执行，失败项目保留并继续下一项。</p>
+          </div>
+        </VCardText>
+        <VCardActions class="pa-4 pt-0">
+          <VSpacer />
+          <VBtn color="primary" variant="tonal" @click="helpOpen = false">知道了</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
   </section>
 </template>
 
@@ -770,6 +1029,50 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
   margin-bottom: 16px;
 }
 
+.course-review-toolbar__actions,
+.course-directory-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.course-directory-summary {
+  padding: 10px 12px;
+}
+
+.course-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+}
+
+.course-directory-rules {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 8px;
+}
+
+.course-directory-rule {
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.course-empty-state {
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.course-help-content {
+  display: grid;
+  gap: 16px;
+}
+
+.course-help-content p {
+  margin: 4px 0 0;
+  color: rgb(var(--v-theme-on-surface-variant));
+}
+
 .course-review-table-shell {
   overflow-x: auto;
 }
@@ -782,6 +1085,16 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
 .course-review-table td {
   vertical-align: middle;
   padding: 10px 12px;
+}
+
+.course-review-select-column {
+  width: 64px;
+  min-width: 64px;
+  text-align: center;
+}
+
+.course-review-select-column :deep(.v-selection-control) {
+  justify-content: center;
 }
 
 .course-review-name {
@@ -831,6 +1144,12 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
   display: none;
 }
 
+.course-review-card__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 @media (max-width: 700px) {
   .course-review-page {
     padding: 12px;
@@ -841,8 +1160,14 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
     flex-direction: column;
   }
 
-  .course-review-toolbar .v-btn {
-    align-self: flex-start;
+  .course-review-toolbar__actions,
+  .course-directory-summary,
+  .course-batch-bar {
+    flex-wrap: wrap;
+  }
+
+  .course-batch-bar .v-btn {
+    width: 100%;
   }
 
   .course-review-table-shell {

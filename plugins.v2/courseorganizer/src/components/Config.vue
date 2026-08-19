@@ -38,30 +38,25 @@ function saveConfig() {
     saving.value = false
   }
 }
+
+function openMoviePilotSettings() {
+  window.location.assign('#/setting')
+}
 </script>
 
 <template>
-  <VForm class="course-config" aria-label="课程识别设置" @submit.prevent="saveConfig">
+  <VForm class="course-config" aria-label="整理识别设置" @submit.prevent="saveConfig">
     <VToolbar density="comfortable" color="transparent" class="course-config__toolbar">
-      <div class="text-h6">课程识别设置</div>
+      <div class="text-h6">整理识别设置</div>
       <VSpacer />
-      <VBtn
-        icon="mdi-content-save"
-        color="primary"
-        variant="text"
-        :loading="saving"
-        aria-label="保存课程识别设置"
-        @click="saveConfig"
-      />
       <VBtn icon="mdi-close" variant="text" aria-label="关闭设置" @click="emit('close')" />
     </VToolbar>
     <VDivider />
 
     <VAlert type="info" variant="tonal" class="ma-3" role="note">
-      来源目录、目标媒体库、搬运方式、重命名、刮削和通知统一使用
-      MoviePilot「设置 → 存储 &amp; 目录」，本插件不重复保存这些配置。
+      目录和整理规则沿用 MoviePilot 系统设置，本插件只保留识别选项。
       <template #append>
-        <VBtn href="#/setting" variant="tonal" color="primary" prepend-icon="mdi-folder-cog">
+        <VBtn variant="tonal" color="primary" prepend-icon="mdi-folder-cog" @click.stop="openMoviePilotSettings">
           打开目录设置
         </VBtn>
       </template>
@@ -110,6 +105,8 @@ function saveConfig() {
             v-model="localConfig.naming_clear_cache_once"
             label="一次性清空识别缓存"
             aria-label="一次性清空识别缓存"
+            hint="下次运行时清除旧识别结果；执行后自动复位"
+            persistent-hint
             color="error"
           />
         </VExpansionPanelText>

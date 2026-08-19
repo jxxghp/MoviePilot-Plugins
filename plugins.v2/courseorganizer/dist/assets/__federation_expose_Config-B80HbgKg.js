@@ -54,6 +54,10 @@ function saveConfig() {
   }
 }
 
+function openMoviePilotSettings() {
+  window.location.assign('#/setting');
+}
+
 return (_ctx, _cache) => {
   const _component_VSpacer = _resolveComponent("VSpacer");
   const _component_VBtn = _resolveComponent("VBtn");
@@ -69,7 +73,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock(), _createBlock(_component_VForm, {
     class: "course-config",
-    "aria-label": "课程识别设置",
+    "aria-label": "整理识别设置",
     onSubmit: _withModifiers(saveConfig, ["prevent"])
   }, {
     default: _withCtx(() => [
@@ -79,16 +83,8 @@ return (_ctx, _cache) => {
         class: "course-config__toolbar"
       }, {
         default: _withCtx(() => [
-          _cache[8] || (_cache[8] = _createElementVNode("div", { class: "text-h6" }, "课程识别设置", -1)),
+          _cache[8] || (_cache[8] = _createElementVNode("div", { class: "text-h6" }, "整理识别设置", -1)),
           _createVNode(_component_VSpacer),
-          _createVNode(_component_VBtn, {
-            icon: "mdi-content-save",
-            color: "primary",
-            variant: "text",
-            loading: saving.value,
-            "aria-label": "保存课程识别设置",
-            onClick: saveConfig
-          }, null, 8, ["loading"]),
           _createVNode(_component_VBtn, {
             icon: "mdi-close",
             variant: "text",
@@ -107,10 +103,10 @@ return (_ctx, _cache) => {
       }, {
         append: _withCtx(() => [
           _createVNode(_component_VBtn, {
-            href: "#/setting",
             variant: "tonal",
             color: "primary",
-            "prepend-icon": "mdi-folder-cog"
+            "prepend-icon": "mdi-folder-cog",
+            onClick: _withModifiers(openMoviePilotSettings, ["stop"])
           }, {
             default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
               _createTextVNode(" 打开目录设置 ", -1)
@@ -119,7 +115,7 @@ return (_ctx, _cache) => {
           })
         ]),
         default: _withCtx(() => [
-          _cache[10] || (_cache[10] = _createTextVNode(" 来源目录、目标媒体库、搬运方式、重命名、刮削和通知统一使用 MoviePilot「设置 → 存储 & 目录」，本插件不重复保存这些配置。 ", -1))
+          _cache[10] || (_cache[10] = _createTextVNode(" 目录和整理规则沿用 MoviePilot 系统设置，本插件只保留识别选项。 ", -1))
         ]),
         _: 1
       }),
@@ -183,6 +179,8 @@ return (_ctx, _cache) => {
                     "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((localConfig.value.naming_clear_cache_once) = $event)),
                     label: "一次性清空识别缓存",
                     "aria-label": "一次性清空识别缓存",
+                    hint: "下次运行时清除旧识别结果；执行后自动复位",
+                    "persistent-hint": "",
                     color: "error"
                   }, null, 8, ["modelValue"])
                 ]),
@@ -224,6 +222,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e9aecdc7"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d68d4aec"]]);
 
 export { Config as default };
