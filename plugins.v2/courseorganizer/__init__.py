@@ -318,10 +318,12 @@ class CourseOrganizer(_PluginBase):
     plugin_config_prefix = "courseorganizer_"
     auth_level = 1
     plugin_order = 90
-    plugin_version = "1.7.0"
+    plugin_version = "1.7.5"
     plugin_desc = "稳定后识别、分类并整理到电视剧、电影或儿童媒体库"
     plugin_author = "OneBigMoon"
+    author_url = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
     plugin_icon = "icons/courseorganizer.svg"
+    plugin_repo = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
 
     MEDIA_EXTENSIONS = {".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".m4v", ".m4a"}
     SUBTITLE_EXTENSIONS = {".srt", ".ass", ".ssa", ".sub", ".vtt"}
@@ -676,21 +678,27 @@ class CourseOrganizer(_PluginBase):
     @classmethod
     def _directory_rule_library(cls, rule: Any) -> str:
         name = str(cls._directory_rule_value(rule, "name", "") or "")
-        # The MoviePilot directory alias is the user's explicit library
-        # declaration.  Do not infer a child library from an arbitrary path
-        # segment such as ``courses``; paths are deployment-specific and can
-        # be used by an ordinary TV rule.
-        descriptor = name.lower()
-        if any(
-            token in descriptor
-            for token in ("儿童", "少儿", "幼儿", "课程", "早教", "宝宝", "亲子")
-        ):
-            return "children"
         media_type = str(
             cls._directory_rule_value(rule, "media_type", "") or ""
         ).strip()
         if media_type == "电影":
             return "movie"
+        category = str(
+            cls._directory_rule_value(
+                rule,
+                "media_category",
+                cls._directory_rule_value(rule, "category", ""),
+            )
+            or ""
+        ).strip()
+        # MoviePilot already has a media-category field. Prefer that system
+        # declaration and retain alias matching only for older directory data.
+        descriptor = f"{category} {name}".lower()
+        if any(
+            token in descriptor
+            for token in ("儿童", "少儿", "幼儿", "课程", "早教", "宝宝", "亲子")
+        ):
+            return "children"
         if media_type == "电视剧":
             return "tv"
         return ""
@@ -728,10 +736,19 @@ class CourseOrganizer(_PluginBase):
             rule_alias = str(
                 self._directory_rule_value(rule, "name", "") or labels[library]
             )
+            media_category = str(
+                self._directory_rule_value(
+                    rule,
+                    "media_category",
+                    self._directory_rule_value(rule, "category", ""),
+                )
+                or ""
+            ).strip()
             summary = {
                 "title": rule_alias,
                 "value": library,
                 "name": rule_alias,
+                "media_category": media_category,
                 "download_path": download_path,
                 "path": library_path,
                 "monitor_type": str(
@@ -751,9 +768,17 @@ class CourseOrganizer(_PluginBase):
                 "library_category_folder": bool(
                     self._directory_rule_value(rule, "library_category_folder", False)
                 ),
+                "naming_format": str(
+                    self._directory_rule_value(rule, "naming_format", "") or ""
+                ).strip(),
+                "movie_naming_format": str(
+                    self._directory_rule_value(rule, "movie_naming_format", "") or ""
+                ).strip(),
             }
             grouped[library].append(summary)
             summaries.append(summary)
+            if not summary["renaming"]:
+                issues.append(f"{rule_alias}规则未开启智能重命名")
 
         selected: Dict[str, Dict[str, Any]] = {}
         for library, candidates in grouped.items():
@@ -785,6 +810,9 @@ class CourseOrganizer(_PluginBase):
             "message": "；".join(dict.fromkeys(issues)),
             "settings_url": "#/setting",
             "monitoring_enabled": any(bool(item["monitor_type"]) for item in summaries),
+            "monitoring_rules": [
+                item["title"] for item in summaries if item["monitor_type"]
+            ],
         }
 
     def _review_path_config(
@@ -1749,6 +1777,8 @@ class CourseOrganizer(_PluginBase):
                 "rules_ready": directory_context["ready"],
                 "rules_message": directory_context["message"],
                 "monitoring_enabled": directory_context["monitoring_enabled"],
+                "monitoring_rules": directory_context["monitoring_rules"],
+                "incoming_path": directory_context["incoming"],
                 "settings_url": directory_context["settings_url"],
             },
         )
@@ -1893,6 +1923,35 @@ class CourseOrganizer(_PluginBase):
                 return False
             return True
 
+    def _restore_ignored_decision(
+        self, raw_title: str, expected_binding: Dict[str, Any]
+    ) -> bool:
+        """Remove only a matching ignore decision; never apply or move media."""
+        with self._review_data_lock:
+            try:
+                existing = self.get_data(self.MANUAL_DECISIONS_KEY)
+            except Exception:
+                return False
+            decision = self._manual_decision_for(raw_title, existing)
+            if (
+                decision is None
+                or decision.action != "ignore"
+                or self._manual_binding(decision) != expected_binding
+                or not isinstance(existing, dict)
+                or not isinstance(existing.get("items"), dict)
+            ):
+                return False
+            items = dict(existing["items"])
+            items.pop(raw_title, None)
+            try:
+                result = self.save_data(
+                    self.MANUAL_DECISIONS_KEY,
+                    {"schema": self.MANUAL_DECISIONS_SCHEMA, "items": items},
+                )
+            except Exception:
+                return False
+            return result is not False and self._manual_decision_consumed(raw_title)
+
     def save_review(self, payload: Optional[Dict[str, Any]] = Body(default=None)) -> Any:
         if not isinstance(payload, dict):
             return self._review_response(False, message="请求参数无效")
@@ -1904,7 +1963,7 @@ class CourseOrganizer(_PluginBase):
         if not isinstance(revision, str) or not revision:
             return self._review_response(False, message="缺少预览版本")
         action = str(payload.get("action", "")).strip().lower()
-        if action not in {"confirm", "ignore"}:
+        if action not in {"confirm", "ignore", "restore"}:
             return self._review_response(False, message="操作无效")
 
         with self._thread_lock:
@@ -1917,6 +1976,23 @@ class CourseOrganizer(_PluginBase):
             expected_binding = current.get("_source_binding")
             if not isinstance(expected_binding, dict):
                 return self._review_response(False, message="源目录已不存在或已变化，请刷新预览")
+
+            if action == "restore":
+                if current.get("status") != "ignore" or not self._restore_ignored_decision(
+                    raw_title, expected_binding
+                ):
+                    return self._review_response(False, message="恢复待处理状态失败，请刷新后重试")
+                self._resolver = None
+                self._resolver_signature = ()
+                latest = next(
+                    (
+                        item
+                        for item in self._review_rows(raw_title=raw_title)
+                        if item.get("raw_title") == raw_title
+                    ),
+                    None,
+                )
+                return self._review_response(True, latest or {}, "已恢复为待处理")
 
             final_title = payload.get("final_title", "")
             target_library = str(payload.get("target_library", "")).strip().lower()
@@ -2424,9 +2500,21 @@ class CourseOrganizer(_PluginBase):
             ascii(course_name),
             dest_dir,
         )
-        # 搬移后把媒体文件重组为标准剧集结构：Season N/ 文件夹 + S01E01 命名；多集合并文件保留。
+        # 搬移后把媒体文件重组为 MoviePilot 配置的重命名格式（按目标媒体库电视剧/电影选模板）；
+        # 无配置时回退为 Season N/S01E01 标准结构。
         try:
-            self._normalize_episode_tree(dest_dir)
+            naming_template = ""
+            if isinstance(rule, dict):
+                media_is_movie = str(decision.target_library) == "movie"
+                naming_template = str(
+                    rule.get("movie_naming_format") if media_is_movie else rule.get("naming_format")
+                    or ""
+                ).strip()
+            self._normalize_episode_tree(
+                dest_dir,
+                naming_template=naming_template,
+                final_title=str(getattr(decision, "value", "") or course_name),
+            )
         except Exception as exc:
             self._logger.error(
                 "CourseOrganizer[event=direct_transfer_reorg_failed] item_course_repr=%s reason=%s",
@@ -2505,8 +2593,24 @@ class CourseOrganizer(_PluginBase):
             return _cn_num(cn.group(1))
         return None
 
-    def _normalize_episode_tree(self, dest_dir: str) -> None:
-        """把目标目录下的媒体文件重组为 Season N/S01E01 标准结构；多集合并文件保留为 S01E01-E02。"""
+    @staticmethod
+    def _subst_naming_template(template: str, ctx: Dict[str, Any]) -> str:
+        """把 MoviePilot 重命名模板里的 {{field}} 替换为 ctx 值，未知字段留空。"""
+        def _rep(m):
+            key = m.group(1).strip()
+            return str(ctx.get(key, "") or "")
+        return re.sub(r"\{\{\s*([^}]+?)\s*\}\}", _rep, template)
+
+    def _normalize_episode_tree(self, dest_dir: str, naming_template: str = "", final_title: str = "") -> None:
+        """把目标目录下的媒体文件重组为 MoviePilot 配置的重命名格式；
+        无模板时回退为 Season N/S01E01 标准结构。多集合并文件保留。"""
+        # 从最终名称解析 (title, year)，year 形如 "标题 (2018)"
+        t_title = final_title
+        t_year = ""
+        m_year = re.search(r"\((\d{4})\)\s*$", final_title)
+        if m_year:
+            t_year = m_year.group(1)
+            t_title = final_title[: m_year.start()].rstrip(" (）")
         files = []
         for root, _, fnames in os.walk(dest_dir):
             rel_root = os.path.relpath(root, dest_dir)
@@ -2521,32 +2625,63 @@ class CourseOrganizer(_PluginBase):
             stem = os.path.splitext(fn)[0]
             parsed = self._parse_season_episode(stem)
             if parsed is None:
-                # 无 "S01E01/第N季第N集" 时，尝试文件名开头的序号作为集号（如 "10.标题"、"01-标题"），
-                # 季取所在 Season 文件夹（Season 1）。
                 bare_ep = self._parse_bare_episode(stem)
                 if bare_ep is not None:
                     parsed = (folder_season if folder_season is not None else 1, bare_ep, None)
             season = parsed[0] if parsed else folder_season
             if parsed is None and season is None:
-                # 无法识别季/集，保持原样（放一层 Season 1 或就在根）
                 season = 1
                 start = None
             else:
                 start = parsed[1] if parsed else None
             end = parsed[2] if parsed and parsed[2] is not None else None
-            season_dir = os.path.join(dest_dir, "Season {}".format(season))
-            os.makedirs(season_dir, exist_ok=True)
-            new_name = stem
-            if start is not None:
-                new_name = "S{:02d}E{:02d}".format(season, start)
-                if end is not None:
-                    new_name += "-E{:02d}".format(end)
-            new_name += os.path.splitext(fn)[1]
-            target = os.path.join(season_dir, new_name)
+
+            ext = os.path.splitext(fn)[1]
+            if naming_template and start is not None:
+                ctx = {
+                    "title": t_title,
+                    "name": t_title,
+                    "year": t_year,
+                    "season": season,
+                    "episode": start,
+                    "season2": season,
+                    "episode2": end if end is not None else start,
+                }
+                rendered = self._subst_naming_template(naming_template, ctx)
+                segs = [s for s in rendered.split("/") if s.strip() != ""]
+                if segs:
+                    # 模板第一段通常是 "{{title}} {{year}}" 标题文件夹，由最终名称文件夹承担，故剥离；
+                    # 其余段（如 Season N）作为子目录，最后一段为文件名校验模板。
+                    file_pat = segs[-1]
+                    folder_segs = segs[1:-1] if len(segs) > 1 else []
+                    folder_rel = "/".join(folder_segs)
+                    pat_ext = os.path.splitext(file_pat)[1]
+                    base = file_pat[: -len(pat_ext)] if pat_ext else file_pat
+                    new_name = base + ext
+                    target = os.path.join(dest_dir, folder_rel, new_name) if folder_rel else os.path.join(dest_dir, new_name)
+                else:
+                    season_dir = os.path.join(dest_dir, "Season {}".format(season))
+                    new_name = "S{:02d}E{:02d}".format(season, start)
+                    if end is not None:
+                        new_name += "-E{:02d}".format(end)
+                    new_name += ext
+                    target = os.path.join(season_dir, new_name)
+            else:
+                season_dir = os.path.join(dest_dir, "Season {}".format(season))
+                os.makedirs(season_dir, exist_ok=True)
+                new_name = stem
+                if start is not None:
+                    new_name = "S{:02d}E{:02d}".format(season, start)
+                    if end is not None:
+                        new_name += "-E{:02d}".format(end)
+                new_name += ext
+                target = os.path.join(season_dir, new_name)
+
             n = 1
             base_t = target
             while target in seen_targets or os.path.exists(target):
-                target = os.path.join(season_dir, "{}-{}".format(os.path.splitext(base_t)[0], n) + os.path.splitext(base_t)[1])
+                base_noext, _ = os.path.splitext(base_t)
+                target = "{}-{}{}".format(base_noext, n, os.path.splitext(base_t)[1])
                 n += 1
             src = os.path.join(root, fn)
             if os.path.abspath(src) != os.path.abspath(target):
@@ -2557,11 +2692,11 @@ class CourseOrganizer(_PluginBase):
         for root, dirs, fnames in os.walk(dest_dir, topdown=False):
             if root == dest_dir:
                 continue
-            if not os.listdir(root):
-                try:
+            try:
+                if not os.listdir(root):
                     os.rmdir(root)
-                except OSError:
-                    pass
+            except OSError:
+                pass
 
     @staticmethod
     def _tmdb_candidate_response(candidate: naming.MetadataCandidate) -> Dict[str, Any]:
@@ -2969,6 +3104,8 @@ class CourseOrganizer(_PluginBase):
                     "model": "naming_clear_cache_once",
                     "label": "一次性清空识别缓存",
                     "aria-label": "一次性清空识别缓存",
+                    "hint": "下次运行时清除旧识别结果；执行后自动复位",
+                    "persistent-hint": True,
                     "color": "error",
                 },
             },
@@ -2978,7 +3115,7 @@ class CourseOrganizer(_PluginBase):
                 "component": "VForm",
                 "props": {
                     "class": "courseorganizer-form",
-                    "aria-label": "课程识别设置",
+                    "aria-label": "整理识别设置",
                 },
                 "content": [
                     {
@@ -2988,10 +3125,7 @@ class CourseOrganizer(_PluginBase):
                             "variant": "tonal",
                             "class": "mb-3",
                         },
-                        "text": (
-                            "来源目录、目标媒体库、搬运方式、重命名、刮削和通知统一使用 "
-                            "MoviePilot 设置 → 存储 & 目录；本插件不重复保存这些配置。"
-                        ),
+                        "text": "目录和整理规则沿用 MoviePilot 系统设置，本插件只保留识别选项。",
                     },
                     {
                         "component": "VBtn",
