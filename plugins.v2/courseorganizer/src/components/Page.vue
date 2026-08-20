@@ -613,7 +613,7 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
     <VAlert v-if="rulesMessage" type="warning" variant="tonal" density="compact" class="mb-2" role="alert">
       {{ rulesMessage }}
     </VAlert>
-    <VAlert v-if="monitoringEnabled" type="warning" variant="tonal" density="compact" class="mb-2" role="alert">
+    <VAlert v-if="monitoringEnabled && hasItems" type="warning" variant="tonal" density="compact" class="mb-2" role="alert">
       {{ monitoringRuleText }}已开启自动监控，确认前请先关闭，避免文件被提前整理。
     </VAlert>
     <VAlert v-if="batchRunning || organizingKey" type="info" variant="tonal" density="compact" class="mb-2" role="status">

@@ -318,10 +318,11 @@ class CourseOrganizer(_PluginBase):
     plugin_config_prefix = "courseorganizer_"
     auth_level = 1
     plugin_order = 90
-    plugin_version = "1.7.7"
+    plugin_version = "1.7.8"
     plugin_desc = "稳定后识别、分类并整理到电视剧、电影或儿童媒体库"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
+    project_url = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
     plugin_icon = "icons/courseorganizer.svg"
     plugin_repo = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
 
