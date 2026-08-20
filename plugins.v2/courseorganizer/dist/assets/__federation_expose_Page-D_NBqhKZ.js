@@ -780,7 +780,7 @@ return (_ctx, _cache) => {
           _: 1
         }))
       : _createCommentVNode("", true),
-    (monitoringEnabled.value)
+    (monitoringEnabled.value && hasItems.value)
       ? (_openBlock(), _createBlock(_component_VAlert, {
           key: 2,
           type: "warning",
@@ -1426,6 +1426,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2f918eac"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e9cf5888"]]);
 
 export { Page as default };
