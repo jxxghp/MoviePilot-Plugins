@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 
 const props = defineProps({
   api: { type: Object, default: () => ({}) },
@@ -76,8 +76,10 @@ function errorMessage(errorValue, fallback) {
   return errorValue?.message || fallback
 }
 
-function openMoviePilotSettings() {
+async function openMoviePilotSettings() {
   const target = settingsUrl.value || '#/setting'
+  emit('close')
+  await nextTick()
   window.location.assign(target)
 }
 

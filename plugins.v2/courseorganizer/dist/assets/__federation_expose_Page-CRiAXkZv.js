@@ -57,7 +57,7 @@ const _hoisted_25 = {
 const _hoisted_26 = { class: "text-caption text-medium-emphasis mt-n3 mb-3 text-break" };
 const _hoisted_27 = { class: "d-flex flex-wrap align-center ga-2" };
 
-const {computed,onMounted,onUnmounted,ref} = await importShared('vue');
+const {computed,nextTick,onMounted,onUnmounted,ref} = await importShared('vue');
 
 
 
@@ -142,8 +142,10 @@ function errorMessage(errorValue, fallback) {
   return errorValue?.message || fallback
 }
 
-function openMoviePilotSettings() {
+async function openMoviePilotSettings() {
   const target = settingsUrl.value || '#/setting';
+  emit('close');
+  await nextTick();
   window.location.assign(target);
 }
 
@@ -1424,6 +1426,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-bd9d3feb"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2f918eac"]]);
 
 export { Page as default };
