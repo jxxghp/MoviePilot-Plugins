@@ -202,11 +202,12 @@ class SiteStatistic(_PluginBase):
         }
 
     @eventmanager.register(EventType.SiteRefreshed)
-    def send_msg(self, event: Event):
+    def send_msg(self, event: Event = None):
         """
         站点数据刷新事件时发送消息
         """
-        if not self._notify_type:
+        # 插件重载窗口期事件可能携带空 event 或未启用通知，此时直接返回避免误报
+        if not self._notify_type or not event:
             return
         if event.event_data.get('site_id') != "*":
             return

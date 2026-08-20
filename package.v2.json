@@ -31,11 +31,12 @@
     "name": "站点数据统计",
     "description": "站点统计数据图表。",
     "labels": "站点,仪表板",
-    "version": "1.9",
+    "version": "1.9.1",
     "icon": "statistic.png",
     "author": "lightolly,jxxghp",
     "level": 2,
     "history": {
+      "v1.9.1": "修复插件重载窗口期事件参数缺失报错",
       "v1.9": "过滤未启用的站点数据",
       "v1.8": "修复站点数据增量处理逻辑",
       "v1.7.1": "优化内存占用",
