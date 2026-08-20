@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 
 const props = defineProps({
   initialConfig: { type: Object, default: () => ({}) },
@@ -39,7 +39,9 @@ function saveConfig() {
   }
 }
 
-function openMoviePilotSettings() {
+async function openMoviePilotSettings() {
+  emit('close')
+  await nextTick()
   window.location.assign('#/setting')
 }
 </script>

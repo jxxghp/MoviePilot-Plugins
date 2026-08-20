@@ -6,7 +6,7 @@ const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent
 
 const _hoisted_1 = { class: "course-config__actions" };
 
-const {ref,watch} = await importShared('vue');
+const {nextTick,ref,watch} = await importShared('vue');
 
 
 
@@ -54,7 +54,9 @@ function saveConfig() {
   }
 }
 
-function openMoviePilotSettings() {
+async function openMoviePilotSettings() {
+  emit('close');
+  await nextTick();
   window.location.assign('#/setting');
 }
 
@@ -222,6 +224,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d68d4aec"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-06e0c65f"]]);
 
 export { Config as default };
