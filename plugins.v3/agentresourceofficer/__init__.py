@@ -128,7 +128,7 @@ class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
     plugin_desc = "龙虾agent稳定控制 MP：飞书入口、盘搜/影巢搜索、115/夸克转存、智能评分推荐。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "1.1.0"
+    plugin_version = "1.1.1"
     moviepilot_tested_version = "v3.0.0"
     moviepilot_tested_release_url = "https://github.com/jxxghp/MoviePilot/releases/tag/v3.0.0"
     request_templates_schema_version = "request_templates.v1"

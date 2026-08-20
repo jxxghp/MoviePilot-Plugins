@@ -250,7 +250,16 @@ def test_current_repository_passes_version_gate() -> None:
 
 
 def test_full_test_runner_includes_ci_gate_tests() -> None:
-    """push 前全量入口必须执行 CI 工具测试，防止门禁实现脱离常规回归。"""
+    """V3 全量入口必须执行 CI、专用实现和仍兼容 V3 的 V2 实现。"""
     runner = TEST_RUNNER.read_text(encoding="utf-8")
 
-    assert 'for generation in ("ci", "v3", "v2", "v1"):' in runner
+    assert 'for generation in ("ci", "v3", "v2"):' in runner
+    assert "compatible_v2_test_targets" in runner
+
+
+def test_pr_workflow_uses_uv_backend_environment() -> None:
+    """PR 门禁复用主程序锁定的 uv 测试环境。"""
+    workflow = PR_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "uv sync --locked" in workflow
+    assert "../MoviePilot/.venv/bin/python tests/run.py" in workflow

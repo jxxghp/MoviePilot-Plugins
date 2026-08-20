@@ -32,7 +32,7 @@ class AnimeUpscale(_PluginBase):
     plugin_name = "动漫视频超分"
     plugin_desc = "在 MoviePilot 内直接使用 GPU 完成动漫视频 2 倍超分与 HEVC Main10 编码。"
     plugin_icon = "ffmpeg.png"
-    plugin_version = "2.1.0"
+    plugin_version = "2.1.1"
     plugin_author = "RWDai"
     author_url = "https://github.com/RWDai/anime-upscale"
     plugin_config_prefix = "animeupscale_"

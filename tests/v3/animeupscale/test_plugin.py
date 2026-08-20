@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from animeupscale import AnimeUpscale
-from animeupscale.ffmpeg import encoder_command, remux_command
+from app.plugins.animeupscale import AnimeUpscale
+from app.plugins.animeupscale.ffmpeg import encoder_command, remux_command
 
 
 def _plugin(tmp_path, enabled=False, **config):
@@ -24,7 +24,7 @@ def test_v3_plugin_uses_next_major_and_response_envelope(tmp_path):
 
     response = plugin.api_status()
 
-    assert plugin.plugin_version == "2.0.0"
+    assert plugin.plugin_version == "2.1.1"
     assert response.success is True
     assert "ready" in response.data
     plugin.stop_service()

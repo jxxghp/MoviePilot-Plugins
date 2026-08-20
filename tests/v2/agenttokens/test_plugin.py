@@ -1,13 +1,18 @@
 """AgentTokens 插件单测（pytest 原生）。
 
 覆盖侧栏入口受 show_sidebar_nav 配置控制的逻辑。依赖 MoviePilot 后端（app.*）与
-插件包：根 conftest 会先隔离 CONFIG_DIR 并把后端、plugins.v2 注入 sys.path，
-再以顶层包名导入插件。
+插件包：根 conftest 会先隔离 CONFIG_DIR，再通过生产命名空间暴露对应插件源码。
 """
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from agenttokens import AgentTokens  # noqa: E402
+from app.plugins.agenttokens import AgentTokens  # noqa: E402
+
+
+def _plugin() -> AgentTokens:
+    """构造插件实例，隔离与被测逻辑无关的宿主 Chain 组合根。"""
+    with patch("app.plugins.PluginChian"):
+        return AgentTokens()
 
 
 def _provider(provider_id: str, priority: int, **overrides) -> dict:
@@ -28,7 +33,7 @@ def _provider(provider_id: str, priority: int, **overrides) -> dict:
 
 def _initialized_plugin(providers: list[dict]) -> AgentTokens:
     """创建启用状态的插件实例，并隔离配置持久化副作用。"""
-    plugin = AgentTokens()
+    plugin = _plugin()
     with patch.object(plugin, "update_config"):
         plugin.init_plugin({"enabled": True, "providers": providers})
     return plugin
@@ -39,7 +44,7 @@ def test_sidebar_nav_respects_config():
 
     init_plugin 内部会持久化配置，这里 patch 掉 update_config，仅隔离验证侧栏逻辑。
     """
-    plugin = AgentTokens()
+    plugin = _plugin()
     with patch.object(plugin, "update_config"):
         plugin.init_plugin({"enabled": True, "show_sidebar_nav": False, "providers": []})
         assert plugin.get_sidebar_nav() == []
@@ -52,7 +57,7 @@ def test_sidebar_nav_respects_config():
 
 def test_summary_separates_limited_progress_from_unlimited_usage():
     """混合限量和不限量供应商时，限量进度不应包含不限量调用量。"""
-    plugin = AgentTokens()
+    plugin = _plugin()
     usage_data = {
         "limited": {"total_tokens": 300, "input_tokens": 100, "output_tokens": 200},
         "unlimited": {"total_tokens": 900, "input_tokens": 400, "output_tokens": 500},

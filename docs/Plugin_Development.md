@@ -38,7 +38,7 @@ MoviePilot-Plugins/
 ├── plugins.v3/
 │   └── myplugin/
 │       ├── __init__.py
-│       ├── requirements.txt    # 可选
+│       ├── pyproject.toml      # 有额外 Python 依赖时使用
 │       └── README.md           # 推荐
 ├── tests/
 │   └── v3/
@@ -331,8 +331,23 @@ def write_report(self, content: str) -> None:
 
 ### 7.3 第三方依赖
 
-插件有额外 Python 依赖时，在插件目录放置 `requirements.txt`。依赖安装到宿主共享
-环境，因此必须遵守：
+插件有额外 Python 依赖时，在插件目录增加 `pyproject.toml`：
+
+```toml
+[project]
+name = "moviepilot-plugin-myplugin"
+dynamic = ["version"]
+requires-python = ">=3.12"
+dependencies = [
+    "example-package>=1",
+]
+```
+
+`dynamic = ["version"]` 只表示依赖清单不重复维护插件版本；宿主读取的是静态
+`project.dependencies`，不会从清单解析插件实际版本。插件不提交 `uv.lock`，也不要在
+插件代码中直接执行 pip 或 uv。V1/V2 历史实现继续使用 `requirements.txt`。
+
+依赖安装到宿主共享环境，因此必须遵守：
 
 - 只声明插件真正需要、宿主尚未提供的依赖。
 - 不要要求降级或覆盖 MoviePilot 核心依赖。
@@ -526,12 +541,15 @@ git diff --check
 ../MoviePilot/.venv/bin/python -m pytest tests/v3/myplugin
 ```
 
-提交前建议运行插件仓完整测试入口；它会把不同代插件放进独立进程，避免同名模块
-互相污染：
+提交前建议运行当前 V3 运行环境的默认回归；CI 工具、V3 专用实现和仍兼容 V3 的
+V2 实现会在独立进程中运行，避免同名模块互相污染：
 
 ```bash
 ../MoviePilot/.venv/bin/python tests/run.py
 ```
+
+插件测试使用与生产一致的 `app.plugins.<plugin_id>` 路径导入源码。不要在测试中把插件
+目录作为顶层包路径使用，否则同一插件可能以两个模块名加载，重复执行注册和初始化副作用。
 
 测试应覆盖插件最关键的纯逻辑、配置迁移和安全边界。外部网络、真实下载器、媒体
 服务器或第三方账号使用 mock 或明确的集成测试，不要让普通单测依赖公网状态。

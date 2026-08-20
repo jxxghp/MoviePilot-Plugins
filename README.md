@@ -71,7 +71,8 @@ V3 新插件使用 `plugins.v3/<plugin_id_lower>/`、`tests/v3/<plugin_id_lower>
 - 当前版本历史置顶，所有历史按语义版本降序排列。
 - V3 新代码优先使用 `app.sdk`；不要新增对宿主内部目录布局的无必要依赖。
 - 插件运行数据写入插件数据目录，不要写回源码目录。
-- 第三方依赖安装在宿主共享环境，不能降级或覆盖 MoviePilot 核心依赖。
+- V3 第三方依赖写入插件 `pyproject.toml`，不提交插件 `uv.lock`；V1/V2 保留 `requirements.txt`。
+- 第三方依赖安装在宿主共享环境，不能降级或覆盖 MoviePilot 核心依赖，也不要由插件直接执行包管理器。
 - 测试放在仓库根 `tests/v3/<plugin_id>/`，不要放进插件源码目录。
 - 提交前运行 Python 编译、版本门禁、相关测试和 `git diff --check`。
 

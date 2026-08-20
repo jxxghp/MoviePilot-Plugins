@@ -57,16 +57,9 @@ jobs:
               plugin_version="${entry##*|}"
               plugin_id_lc="$(echo "$plugin_id" | tr '[:upper:]' '[:lower:]')"
 
-              case "$pkg_file" in
-                package.v3.json) plugin_root="plugins.v3" ;;
-                package.v2.json) plugin_root="plugins.v2" ;;
-                *) plugin_root="plugins" ;;
-              esac
-              plugin_dir="${plugin_root}/${plugin_id_lc}"
-
-              if [ ! -d "$plugin_dir" ]; then
-                echo "WARN: directory for $plugin_id not found under $plugin_root/, skip."
-                continue
+              if ! plugin_dir="$(bash .github/scripts/select_plugin_release_dir.sh "$pkg_file" "$plugin_id_lc")"; then
+                echo "Missing plugin directory for $plugin_id in $pkg_file" >&2
+                exit 1
               fi
 
               tag="${plugin_id}_v${plugin_version}"
@@ -81,8 +74,11 @@ jobs:
                 continue
               fi
 
-              # Existing per-plugin tags make unchanged directories a no-op.
-              prev_tag="$(git tag --list "${plugin_id}_v*" --sort=-version:refname | head -n 1 || true)"
+              if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+                prev_tag="$tag"
+              else
+                prev_tag="$(git tag --list "${plugin_id}_v*" --sort=-version:refname | head -n 1 || true)"
+              fi
 
               changed=1
               if [ -n "$prev_tag" ]; then

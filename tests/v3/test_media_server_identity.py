@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import mediaservermsg
+from app.plugins import mediaservermsg
 from app.schemas.types import MediaSource
-from mediaservermsg import MediaServerMsg
+from app.plugins.mediaservermsg import MediaServerMsg
 
 
 def _plugin() -> MediaServerMsg:
@@ -20,7 +20,7 @@ def test_event_identity_rejects_zero_blank_unknown_and_half_pairs() -> None:
     invalid_events = (
         SimpleNamespace(media_source=MediaSource.TMDB, media_id="0", item_path=None),
         SimpleNamespace(media_source=MediaSource.TMDB, media_id="   ", item_path=None),
-        SimpleNamespace(media_source="unknown", media_id="123", item_path=None),
+        SimpleNamespace(media_source="Plugin Source:Invalid", media_id="123", item_path=None),
         SimpleNamespace(media_source=MediaSource.TMDB, media_id=None, item_path=None),
     )
 

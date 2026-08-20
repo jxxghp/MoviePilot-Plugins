@@ -21,32 +21,43 @@ tests/
 并使用带后端依赖的解释器（如 `<workspace>/.venv/bin/python`）。
 
 ```bash
-# 全量（推荐入口）：v1/v2/v3 各自独立会话依次跑，命令行参数透传给 pytest
+# 当前 V3 运行环境回归：CI 工具、V3 专用实现、仍兼容 V3 的 V2 实现分会话运行
 <workspace>/.venv/bin/python tests/run.py
 
-# 也可按代单独跑（v1/v2/v3 必须分会话，勿混跑）
+# 指定代际时仍须独立运行，勿与其他代混跑
 <workspace>/.venv/bin/python -m pytest tests/v3
 <workspace>/.venv/bin/python -m pytest tests/v2
 <workspace>/.venv/bin/python -m pytest tests/v1
 ```
 
-`tests/run.py` 把 v1/v2/v3 放在独立子进程依次运行、无用例的代自动跳过——不同代存在同名
-插件包（如 `brushflowlowfreq`、`torrentclassifier`），同一解释器进程无法同时加载、混跑
-会相互覆盖。隔离 `CONFIG_DIR`、建表、`app.helper.sites` 垫片、插件目录注入、v1/v2/v3 marker、
-autouse 网络守卫等引导逻辑统一在主程序 `app/testing`（`bootstrap` / `network_guard`）维护一处；
+`tests/run.py` 默认验证当前 V3 运行环境：CI 工具、V3 专用实现和仍兼容 V3 的 V2
+实现分别在独立子进程运行；
+`package.v2.json` 中显式声明 `v3: false` 的历史实现不进入 V3 主程序回归。不同代存在同名
+插件包，同一解释器进程无法同时加载。隔离 `CONFIG_DIR`、建表、`app.helper.sites` 垫片、
+插件目录注入和网络守卫等引导逻辑统一在主程序 `app/testing` 维护一处；
 本仓 `tests/_bootstrap.py` 仅是「定位后端入 `sys.path`」的薄壳 shim，故后端需为含 `app/testing/bootstrap`
 的较新 MoviePilot。共享 harness（`stub_modules` 等）在 bootstrap 后可直接复用。
 
+测试必须通过生产命名空间 `app.plugins.<plugin_id>` 导入插件及子模块，不要把插件目录加入
+`sys.path` 后使用顶层包名。单一模块身份可避免同一源码被重复执行，并防止事件订阅、类状态
+或插件实例因双重导入而重复创建。
+
+V1/V2 历史实现可能依赖对应宿主版本的运行时合同。需要维护完整历史行为时，应使用匹配的
+MoviePilot 环境；默认 V3 回归只承诺覆盖仍声明兼容 V3 的 V2 测试。
+
 ## 提 PR / push 前
 
-先本地 `python tests/run.py` 跑**全量并确认通过**，再 push / 提 PR。
+先本地运行 `python tests/run.py` 并确认默认回归通过，再 push / 提 PR。
+
+新增 V3 插件必须同时增加 `tests/v3/<plugin_id>/test_*.py`；V1/V2 历史实现仍可维护和
+发版，不受这个新增插件测试门禁约束。
 
 ## 新增用例
 
 1. 放到对应代际的插件独立目录：`tests/<v1|v2|v3>/<plugin_id>/`，例如
    `tests/v2/agenttokens/`；所有插件都按插件 ID 建目录，不把用例文件直接平铺在
    `tests/v1/` 或 `tests/v2/` 下；文件名使用 `test_*.py`，在插件独立目录内不再重复插件名前缀；
-2. 直接导入 `app.*` 与对应代际插件包；根 conftest 会按本次运行目标在用例导入前完成后端与插件目录注入；
+2. 使用 `app.plugins.<plugin_id>` 生产路径导入插件；根 conftest 会按本次运行目标在用例导入前完成后端与插件目录注入；
 3. 使用 pytest 风格编写测试：普通函数或测试类均可，断言使用 `assert`；不要新增
    `unittest.TestCase`、`unittest.main()` 或 `if __name__ == "__main__"` 入口；
 4. `unittest.mock` 可以继续作为 mock 工具使用；“不用 unittest”指测试组织与执行入口不使用
