@@ -3,9 +3,10 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import patch
 
-import speedlimiter as speedlimiter_module
-from speedlimiter import SpeedLimiter
+from app.plugins import speedlimiter as speedlimiter_module
+from app.plugins.speedlimiter import SpeedLimiter
 
 
 def _timestamp(offset_seconds: int = 0) -> str:
@@ -16,7 +17,8 @@ def _timestamp(offset_seconds: int = 0) -> str:
 
 def _plugin() -> SpeedLimiter:
     """创建隔离了可变类属性的插件实例。"""
-    plugin = SpeedLimiter()
+    with patch("app.plugins.PluginChian"):
+        plugin = SpeedLimiter()
     plugin._unlimited_ips = {"ipv4": "", "ipv6": ""}
     plugin._exclude_path = ""
     return plugin

@@ -2,8 +2,8 @@
 
 import asyncio
 
-import bangumiproxy
-from bangumiproxy import BangumiProxy
+from app.plugins import bangumiproxy
+from app.plugins.bangumiproxy import BangumiProxy
 
 
 class FakeBangumiApi:

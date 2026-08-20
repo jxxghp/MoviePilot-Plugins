@@ -1,7 +1,7 @@
 """ChatGPT 插件单测：音乐标题辅助识别、提示词分离与缓存命名空间隔离。
 
-依赖 MoviePilot 后端（app.*）与插件包：根 conftest 会先隔离 CONFIG_DIR 并把后端、
-plugins.v2 注入 sys.path，再以顶层包名导入插件。
+依赖 MoviePilot 后端（app.*）与插件包：根 conftest 会先隔离 CONFIG_DIR，再通过生产
+命名空间暴露对应插件源码。
 """
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
@@ -9,22 +9,24 @@ from unittest.mock import MagicMock, patch
 from app.core.event import eventmanager
 from app.core.plugin import PluginManager
 from app.schemas.types import ChainEventType
-from chatgpt import (  # noqa: E402
+from app.plugins.chatgpt import (  # noqa: E402
     DEFAULT_MUSIC_RECOGNIZE_PROMPT,
     DEFAULT_RECOGNIZE_PROMPT,
     MUSIC_NAME_RECOGNIZE_EVENT,
     ChatGPT,
 )
-from chatgpt.openai import OpenAi  # noqa: E402
+from app.plugins.chatgpt.openai import OpenAi  # noqa: E402
 
 
 def _plugin(config: dict = None) -> ChatGPT:
     """创建启用状态的插件实例，隔离缓存与统计的持久化副作用。
 
     链式事件分发依赖 PluginManager 路由到运行态插件实例，这里同步注册测试实例，
-    保证 send_event 能真实调度到本插件处理器。
+    保证 send_event 能真实调度到本插件处理器；与当前用例无关的宿主 Chain 组合根不在
+    插件仓测试中初始化。
     """
-    plugin = ChatGPT()
+    with patch("app.plugins.PluginChian"):
+        plugin = ChatGPT()
     with patch.object(plugin, "get_data", return_value=None), patch.object(plugin, "save_data"):
         plugin.init_plugin({"enabled": True, **(config or {})})
     plugin_manager = PluginManager()
