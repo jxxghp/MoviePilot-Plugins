@@ -171,6 +171,7 @@
     "icon": "Chatgpt_A.png",
     "author": "jxxghp",
     "level": 1,
+    "release": true,
     "system_version": ">=3.0.0",
     "history": {
       "v3.1": "支持音乐名称辅助识别，可解析曲名、艺术家、专辑、年份要素；拆分音乐与影视识别系统提示词，新增音乐识别开关。",
