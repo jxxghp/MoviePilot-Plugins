@@ -670,7 +670,7 @@ class SmartNamingResolver:
                             directory=directory_hints,
                             search_key=search_key,
                             decision_fingerprint=decision_fingerprint,
-                            candidates=evaluation.eligible,
+                            candidates=cached_candidates,
                             manual_local=has_matching_local_override,
                         )
                     return self.record_decision(

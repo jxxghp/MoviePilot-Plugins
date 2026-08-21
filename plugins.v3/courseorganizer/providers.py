@@ -381,7 +381,14 @@ class MoviePilotAIReviewer:
         self._query_prompt_chain_loaded = False
         if invoke_fn is None:
             self._llm = self._load_llm()
-            self._prompt_chain = self._build_prompt_chain(self._llm) if self._llm is not None else None
+            try:
+                self._prompt_chain = (
+                    self._build_prompt_chain(self._llm)
+                    if self._llm is not None
+                    else None
+                )
+            except Exception:
+                self._prompt_chain = None
         else:
             self._llm = None
             self._prompt_chain = None
@@ -464,11 +471,27 @@ class MoviePilotAIReviewer:
     def _get_query_prompt_chain(self) -> Optional[Any]:
         if not self._query_prompt_chain_loaded:
             self._query_prompt_chain_loaded = True
-            self._query_prompt_chain = self._build_query_prompt_chain(self._llm)
+            try:
+                self._query_prompt_chain = self._build_query_prompt_chain(self._llm)
+            except Exception:
+                self._query_prompt_chain = None
         return self._query_prompt_chain
 
     def _call_with_timeout(self, awaitable: Any) -> Any:
         return self._chain_wait(awaitable)
+
+    @staticmethod
+    def _run_callback_wait(
+        callback: Any,
+        payload: Dict[str, Any],
+        timeout_seconds: int,
+    ) -> Any:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(callback, payload)
+        try:
+            return future.result(timeout=max(0.001, float(timeout_seconds)))
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
 
     def _invoke_callback(self, payload: Dict[str, Any]) -> Any:
         """Invoke an injected test/host callback with the same retry contract."""
@@ -478,10 +501,17 @@ class MoviePilotAIReviewer:
             while attempts_left > 0:
                 attempts_left -= 1
                 try:
-                    result = self._invoke_fn(payload)
+                    result = self._run_callback_wait(
+                        self._invoke_fn,
+                        payload,
+                        self._timeout_seconds,
+                    )
                     if inspect.isawaitable(result):
                         return self._run_async(result)
                     return result
+                except concurrent.futures.TimeoutError as exc:
+                    last_error = exc
+                    break
                 except BaseException as exc:  # pragma: no cover - delegated tests
                     last_error = exc
             if last_error is not None:
@@ -754,7 +784,14 @@ class MoviePilotLibraryClassifier:
         self._max_attempts = max_attempts
         if invoke_fn is None:
             self._llm = MoviePilotAIReviewer._load_llm()
-            self._prompt_chain = self._build_prompt_chain(self._llm) if self._llm is not None else None
+            try:
+                self._prompt_chain = (
+                    self._build_prompt_chain(self._llm)
+                    if self._llm is not None
+                    else None
+                )
+            except Exception:
+                self._prompt_chain = None
         else:
             self._llm = None
             self._prompt_chain = None
@@ -786,12 +823,19 @@ class MoviePilotLibraryClassifier:
             while attempts_left > 0:
                 attempts_left -= 1
                 try:
-                    result = self._invoke_fn(payload)
+                    result = MoviePilotAIReviewer._run_callback_wait(
+                        self._invoke_fn,
+                        payload,
+                        self._timeout_seconds,
+                    )
                     if inspect.isawaitable(result):
                         return MoviePilotAIReviewer._run_async_wait(
                             result, timeout_seconds=self._timeout_seconds
                         )
                     return result
+                except concurrent.futures.TimeoutError as exc:
+                    last_error = exc
+                    break
                 except BaseException as exc:  # pragma: no cover - exercised by host failures
                     last_error = exc
             if last_error is not None:
