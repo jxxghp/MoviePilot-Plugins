@@ -258,10 +258,8 @@ class MoviePilotMetadataProvider:
         candidates: Dict[str, naming.MetadataCandidate] = {}
         errors: list[str] = []
         attempted_sources: list[str] = []
-        all_failed = True
 
         for source_index, source in enumerate(selected_sources):
-            source_succeeded = False
             for query in queries[:3]:
                 attempted_sources.append(source)
                 try:
@@ -270,7 +268,6 @@ class MoviePilotMetadataProvider:
                     errors.append(f"{source}:{query.text}:{exc}")
                     break
 
-                source_succeeded = True
                 for media_info in list(items or [])[:5]:
                     candidate = self._from_media_info(media_info, source, query, source_index)
                     if candidate is None:
@@ -282,14 +279,14 @@ class MoviePilotMetadataProvider:
                 if len(candidates) >= 20:
                     break
 
-            if source_succeeded:
-                # call at least once without exception marks this source as usable
-                all_failed = all_failed and False
-
             if len(candidates) >= 20:
                 break
 
-        all_failed = all_failed and not bool(candidates)
+        # An empty result is incomplete when any query failed, even if an
+        # earlier query reached the provider successfully but found nothing.
+        # Let callers apply the short error TTL instead of caching it as a
+        # successful no-match for 30 days.
+        all_failed = not bool(candidates) and bool(errors)
         return ProviderSearchResult(
             candidates=tuple(candidates.values()),
             errors=tuple(errors),

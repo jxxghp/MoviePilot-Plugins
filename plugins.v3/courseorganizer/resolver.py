@@ -586,6 +586,10 @@ class SmartNamingResolver:
         if identity is not None and self._identity_reusable(
             identity, search_key, now, has_matching_local_override, config.uncertain_policy
         ):
+            try:
+                identity_updated = int(identity.get("updated", now))
+            except (TypeError, ValueError):
+                identity_updated = now
             cached_candidates = identity_candidates
             adopted = self._identity_to_decision(
                 identity,
@@ -623,7 +627,7 @@ class SmartNamingResolver:
                         self._save_identity(
                             raw_title=raw_title,
                             decision=decision,
-                            now=now,
+                            now=identity_updated,
                             config=config,
                             hints=hints,
                             directory=directory_hints,
@@ -660,7 +664,7 @@ class SmartNamingResolver:
                         self._save_identity(
                             raw_title=raw_title,
                             decision=decision,
-                            now=now,
+                            now=identity_updated,
                             config=config,
                             hints=hints,
                             directory=directory_hints,
@@ -1213,7 +1217,12 @@ class SmartNamingResolver:
 
     @staticmethod
     def _valid_ai_confidence(confidence: Any) -> bool:
-        return isinstance(confidence, (int, float)) and math.isfinite(float(confidence)) and 0.85 <= float(confidence) <= 1.0
+        return (
+            not isinstance(confidence, bool)
+            and isinstance(confidence, (int, float))
+            and math.isfinite(float(confidence))
+            and 0.85 <= float(confidence) <= 1.0
+        )
 
     @staticmethod
     def _merge_reason_codes(
