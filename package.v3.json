@@ -430,5 +430,17 @@
       "v1.1.0": "将任务队列、GPU 推理和 FFmpeg 流水线直接集成到 MoviePilot 插件",
       "v1.0.0": "首个版本：支持服务状态、模型下载与校验、任务提交和管理"
     }
+  },
+  "MediaInfoRenameEnhancer": {
+    "name": "MediaInfo命名增强",
+    "description": "为整理模板提供 HDR、编码、音频、Atmos、字幕及发布组兜底字段。",
+    "labels": "文件整理,MediaInfo",
+    "version": "1.0.0",
+    "author": "annanygy",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v1.0.0": "V3 独立版本：在重命名模板渲染前读取 MediaInfo 并注入技术字段。"
+    }
   }
 }
