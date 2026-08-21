@@ -693,12 +693,18 @@ class SmartNamingResolver:
             )
 
         if not candidates:
+            fallback_status = (
+                "manual_review"
+                if config.uncertain_policy == "hold"
+                else "local_fallback"
+            )
             decision = self._decision(
-                status="local_fallback",
+                status=fallback_status,
                 raw_title=raw_title,
                 hints=hints,
                 reason_codes=self._merge_reason_codes(("no_candidates",), override_diagnostics),
                 source_errors=search_result.errors,
+                blocked_reason="manual_review" if fallback_status == "manual_review" else "",
             )
             self._save_identity(
                 raw_title=raw_title,
@@ -1017,24 +1023,33 @@ class SmartNamingResolver:
         extra_texts = []
         for cand in primary:
             seen.add(naming.normalize_title(cand.text))
-        # 关键：从本地标题/原始名生成回退短名
-        base = hints.local_title or hints.raw_title or raw_title
-        for cand in primary:
-            base = cand.text or base
-            break
-        variants = self._trim_variants(base)
-        for text in variants:
-            key = naming.normalize_title(text)
-            if key and key not in seen:
-                seen.add(key)
-                extra_texts.append(text)
+        # Derive short fallbacks from the parsed title and every primary query.
+        # An AI term can occupy slot zero, so using only the first candidate
+        # would otherwise miss a useful shorter rule-based form.
+        bases = [hints.local_title or hints.raw_title or raw_title]
+        bases.extend(candidate.text for candidate in primary if candidate.text)
+        for base in bases:
+            for text in self._trim_variants(base):
+                key = naming.normalize_title(text)
+                if key and key not in seen:
+                    seen.add(key)
+                    extra_texts.append(text)
         if not extra_texts:
             return hints
-        new_queries = list(primary) + [
+        fallback_queries = [
             naming.QueryCandidate(text=text, origin="fallback", quality_bonus=0)
             for text in extra_texts
         ]
-        return self._with_query_candidates(hints, new_queries[:3])
+        if len(primary) + len(fallback_queries) <= 3:
+            return self._with_query_candidates(hints, list(primary) + fallback_queries)
+
+        # The provider receives at most three terms.  When the parser already
+        # filled all three slots, reserve the last slot for a genuinely new
+        # shorter fallback while retaining the first (possibly AI) term.
+        return self._with_query_candidates(
+            hints,
+            list(primary[:2]) + [fallback_queries[0]],
+        )
 
     def _trim_variants(self, text: str) -> list:
         """生成从完整名逐步去掉常见修饰词后的短名变体。"""
@@ -1099,7 +1114,11 @@ class SmartNamingResolver:
 
         search_key = self._query_hash(hints, sources)
         identity = self._load_identity(raw_title)
-        if isinstance(identity, dict) and identity.get("raw_title", raw_title) == raw_title:
+        if (
+            isinstance(identity, dict)
+            and identity.get("raw_title", raw_title) == raw_title
+            and identity.get("search_key") == search_key
+        ):
             try:
                 updated = int(identity.get("updated", 0))
             except (TypeError, ValueError):

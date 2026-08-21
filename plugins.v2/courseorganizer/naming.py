@@ -100,7 +100,11 @@ def validate_manual_raw_title(value: object) -> Tuple[bool, str]:
 
 def normalize_title(value: str) -> str:
     normalized = _normalize_whitespace(value)
-    normalized = re.sub(r"[\s\-_.,/\\:;!！?？。；;、，()（）\\[\\]{}<>«»“”‘’'\"|]", "", normalized)
+    normalized = re.sub(
+        r"[\s\-_.,/\\:;!！?？。；、，()（）\[\]{}<>【】«»“”‘’'\"|]",
+        "",
+        normalized,
+    )
     return normalized.casefold()
 
 
