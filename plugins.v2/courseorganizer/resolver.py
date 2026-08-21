@@ -596,6 +596,7 @@ class SmartNamingResolver:
                     evaluation,
                     hints,
                     config,
+                    raw_title=raw_title,
                     source_errors=identity_source_errors,
                     reason_codes=override_diagnostics,
                     candidates=cached_candidates,
@@ -719,6 +720,7 @@ class SmartNamingResolver:
             evaluation,
             hints,
             config,
+            raw_title=raw_title,
             source_errors=search_result.errors,
             reason_codes=override_diagnostics,
             candidates=candidates,
@@ -1005,15 +1007,17 @@ class SmartNamingResolver:
         evaluation: naming.MatchEvaluation,
         hints: naming.TitleHints,
         config: NamingConfig,
+        raw_title: Optional[str] = None,
         source_errors: Tuple[str, ...] = (),
         reason_codes: Tuple[str, ...] = (),
         candidates: Optional[Sequence[naming.MetadataCandidate]] = None,
     ) -> NamingDecision:
         _ = candidates
+        decision_raw_title = raw_title if raw_title is not None else hints.raw_title
         if evaluation.top is None:
             return self._decision(
                 status=evaluation.status,
-                raw_title=hints.raw_title,
+                raw_title=decision_raw_title,
                 hints=hints,
                 margin=evaluation.margin,
                 reason_codes=self._merge_reason_codes(evaluation.reason_codes, reason_codes),
@@ -1030,7 +1034,7 @@ class SmartNamingResolver:
             )
         return self._decision(
             status=evaluation.status,
-            raw_title=hints.raw_title,
+            raw_title=decision_raw_title,
             hints=hints,
             candidate=top,
             score=evaluation.top.score,

@@ -780,7 +780,7 @@ return (_ctx, _cache) => {
           _: 1
         }))
       : _createCommentVNode("", true),
-    (monitoringEnabled.value && hasItems.value)
+    (monitoringEnabled.value && items.value.length > 0)
       ? (_openBlock(), _createBlock(_component_VAlert, {
           key: 2,
           type: "warning",
@@ -1381,19 +1381,23 @@ return (_ctx, _cache) => {
                   _createElementVNode("p", null, "插件直接读取「设置 → 存储 & 目录」，沿用媒体类型、媒体类别、存储、整理方式、智能重命名、影视刮削和自动监控。")
                 ], -1),
                 _createElementVNode("div", null, [
-                  _createElementVNode("strong", null, "2. 先扫描，再确认"),
+                  _createElementVNode("strong", null, "2. 文件夹何时显示"),
+                  _createElementVNode("p", null, "插件会递归检查整个文件夹。目录内没有正在下载的临时或缓存文件，并且内容保持稳定后，才会显示在待整理列表。")
+                ], -1),
+                _createElementVNode("div", null, [
+                  _createElementVNode("strong", null, "3. 先扫描，再确认"),
                   _createElementVNode("p", null, "重新扫描不会移动文件。检查建议名称和目标媒体库后，「确认并整理」才会执行文件操作。")
                 ], -1),
                 _createElementVNode("div", null, [
-                  _createElementVNode("strong", null, "3. 两种整理方式"),
+                  _createElementVNode("strong", null, "4. 两种整理方式"),
                   _createElementVNode("p", null, "已关联媒体信息的项目使用 MoviePilot 的 TMDB 整理；课程等无媒体 ID 的项目按确认后的标题整理。")
                 ], -1),
                 _createElementVNode("div", null, [
-                  _createElementVNode("strong", null, "4. 人工确认期间"),
+                  _createElementVNode("strong", null, "5. 人工确认期间"),
                   _createElementVNode("p", null, "请关闭相同来源目录的自动监控，避免文件在确认前被系统提前整理。")
                 ], -1),
                 _createElementVNode("div", null, [
-                  _createElementVNode("strong", null, "5. 批量任务自动排队"),
+                  _createElementVNode("strong", null, "6. 批量任务自动排队"),
                   _createElementVNode("p", null, "可勾选多个项目后批量整理。任务会按顺序逐项执行，失败项目保留并继续下一项。")
                 ], -1)
               ]))]),
@@ -1426,6 +1430,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e9cf5888"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8d4435d0"]]);
 
 export { Page as default };
