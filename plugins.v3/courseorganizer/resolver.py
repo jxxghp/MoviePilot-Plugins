@@ -304,6 +304,12 @@ class SmartNamingResolver:
         now = int(self._clock())
         config = NamingConfig.sanitize(config)
         hints = naming.parse_title(raw_title)
+        if config.mode == "off":
+            return self._decision(
+                status="local_fallback",
+                raw_title=raw_title,
+                hints=hints,
+            )
         directory_hints = naming.DirectoryHints(
             media_count=directory.media_count,
             seasons=directory.seasons,
@@ -589,13 +595,6 @@ class SmartNamingResolver:
                     legacy_output_root=legacy_output_root,
                     target_output_root=target_output_root,
                 )
-
-        if config.mode == "off":
-            return self._decision(
-                status="local_fallback",
-                raw_title=raw_title,
-                hints=hints,
-            )
 
         # AI only contributes a bounded search phrase.  All candidate scoring,
         # whitelisting, and final media selection remain on the normal path.
