@@ -8,7 +8,7 @@ import json
 import re
 import threading
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
 from . import naming
 
@@ -23,8 +23,11 @@ except Exception:  # pragma: no cover - host-only path
     settings = None
 
 try:
-    from pydantic import BaseModel, Field
+    from pydantic import BaseModel, Field, StrictFloat, StrictInt
 except Exception:  # pragma: no cover - test fallback
+    StrictFloat = float
+    StrictInt = int
+
     class Field:
         def __new__(cls, default: Any = None, default_factory: Any = None):  # noqa: B008
             return default if default_factory is None else default_factory()
@@ -62,7 +65,7 @@ class ProviderSearchResult:
 class AIReviewChoice(BaseModel):
     decision: str = "local"
     candidate_key: str = ""
-    confidence: float = 0.0
+    confidence: Union[StrictInt, StrictFloat] = 0.0
     reason_codes: Tuple[str, ...] = Field(default_factory=tuple)
 
 
@@ -84,7 +87,7 @@ class AIReviewResult:
 
 class LibraryRouteChoice(BaseModel):
     library: str = "hold"
-    confidence: float = 0.0
+    confidence: Union[StrictInt, StrictFloat] = 0.0
     reason_codes: Tuple[str, ...] = Field(default_factory=tuple)
 
 

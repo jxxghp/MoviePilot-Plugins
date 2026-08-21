@@ -834,6 +834,16 @@ class SmartNamingResolver:
             return False
         reason_codes = tuple(identity.get("reason_codes", ()))
         source_errors = tuple(identity.get("source_errors", ()))
+        manually_selected = bool(identity.get("manual_local", False)) or (
+            "manual_candidate" in reason_codes
+        )
+        if not manually_selected:
+            try:
+                updated = int(identity.get("updated", 0))
+            except (TypeError, ValueError):
+                updated = 0
+            if not 0 <= now - updated < self.SEARCH_TTL_SECONDS:
+                return False
         if status == "local_fallback" and (
             "all_search_failed" in reason_codes
             or "all_search_failed" in source_errors
@@ -1363,6 +1373,7 @@ class SmartNamingResolver:
                 "manual_override_config": config.manual_overrides,
             }
         )
+        identities.pop(raw_title, None)
         identities[raw_title] = identity
         self._prune_cache(identities, self.IDENTITY_MAX)
         self._save_data("naming_identity_v1", identities)
@@ -1503,19 +1514,21 @@ class SmartNamingResolver:
         return raw if raw is not None else default
 
     def _prune_cache(self, value: Any, max_items: int, by_key: str = "updated") -> None:
+        """Keep the most recently written entries using persisted collection order.
+
+        Wall-clock timestamps can move backwards after a VM/NAS snapshot restore.
+        JSON object/list order is stable, so writers touch refreshed entries by moving
+        them to the end and pruning always removes from the front.  ``by_key`` stays
+        in the signature for compatibility with older callers and stored payloads.
+        """
+        del by_key
         if isinstance(value, dict):
-            ordered = sorted(value.items(), key=lambda item: int(item[1].get(by_key, 0) if isinstance(item[1], dict) else 0))
-            if len(ordered) <= max_items:
-                return
-            value.clear()
-            for key, item in ordered[-max_items:]:
-                value[key] = item
+            overflow = len(value) - max_items
+            for key in tuple(value.keys())[:max(0, overflow)]:
+                value.pop(key, None)
             return
         if not isinstance(value, list):
             return
-        value.sort(
-            key=lambda item: int(item.get(by_key, 0)) if isinstance(item, dict) else 0,
-        )
         if len(value) > max_items:
             del value[: len(value) - max_items]
 
@@ -1623,12 +1636,13 @@ class SmartNamingResolver:
 
         for index, item in enumerate(rows):
             if isinstance(item, dict) and item.get("raw_title") == decision.raw_title:
-                rows[index] = row
+                rows.pop(index)
+                rows.append(row)
                 break
         else:
             rows.append(row)
 
-        self._prune_cache(rows, self.PREVIEW_MAX, by_key="timestamp")
+        self._prune_cache(rows, self.PREVIEW_MAX)
         self._save_data("naming_preview_v1", rows)
         return decision
 
@@ -1654,7 +1668,8 @@ class SmartNamingResolver:
                     return True
                 completed = dict(item)
                 completed["completed_at"] = completed_at
-                rows[index] = completed
+                rows.pop(index)
+                rows.append(completed)
                 try:
                     saved = self._save_data("naming_preview_v1", rows)
                 except Exception:
@@ -1717,6 +1732,7 @@ class SmartNamingResolver:
         if not isinstance(identities, dict):
             identities = {}
 
+        identities.pop(raw_title, None)
         identities[raw_title] = {
             "updated": now,
             "status": decision.status,
