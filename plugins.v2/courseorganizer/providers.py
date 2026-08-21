@@ -144,6 +144,12 @@ def _coerce_bool(value: Any) -> bool:
     return bool(value)
 
 
+def _strict_ai_confidence(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("invalid_confidence_type")
+    return float(value)
+
+
 def _parse_structured(model: Any, payload: Any) -> Any:
     parse_fn = getattr(model, "model_validate", None)
     if callable(parse_fn):
@@ -555,7 +561,11 @@ class MoviePilotAIReviewer:
         if hasattr(chain, "ainvoke"):
             return self._chain_wait(chain.ainvoke(payload))
 
-        result = chain.invoke(payload)
+        result = self._run_callback_wait(
+            chain.invoke,
+            payload,
+            self._timeout_seconds,
+        )
         if inspect.isawaitable(result):
             return self._chain_wait(result)
         return result
@@ -572,7 +582,11 @@ class MoviePilotAIReviewer:
             raise RuntimeError("llm_not_ready")
         if hasattr(chain, "ainvoke"):
             return self._chain_wait(chain.ainvoke(payload))
-        result = chain.invoke(payload)
+        result = self._run_callback_wait(
+            chain.invoke,
+            payload,
+            self._timeout_seconds,
+        )
         if inspect.isawaitable(result):
             return self._chain_wait(result)
         return result
@@ -691,7 +705,9 @@ class MoviePilotAIReviewer:
             reviewed = self._invoke_raw(payload)
             choice = self._parse_candidate_choice(reviewed)
             decision = str(getattr(choice, "decision", "") or "").strip().lower()
-            confidence = float(getattr(choice, "confidence", 0.0) or 0.0)
+            confidence = _strict_ai_confidence(
+                getattr(choice, "confidence", 0.0)
+            )
             candidate_key = str(getattr(choice, "candidate_key", "") or "").strip()
             reason_codes = _to_reason_codes(getattr(choice, "reason_codes", ()))
 
@@ -873,7 +889,11 @@ class MoviePilotLibraryClassifier:
             return MoviePilotAIReviewer._run_async_wait(
                 chain.ainvoke(payload), timeout_seconds=self._timeout_seconds
             )
-        result = chain.invoke(payload)
+        result = MoviePilotAIReviewer._run_callback_wait(
+            chain.invoke,
+            payload,
+            self._timeout_seconds,
+        )
         if inspect.isawaitable(result):
             return MoviePilotAIReviewer._run_async_wait(
                 result, timeout_seconds=self._timeout_seconds
@@ -910,7 +930,9 @@ class MoviePilotLibraryClassifier:
         try:
             choice = self._parse_choice(self._invoke_raw(payload))
             library = str(getattr(choice, "library", "hold") or "hold").strip().lower()
-            confidence = float(getattr(choice, "confidence", 0.0) or 0.0)
+            confidence = _strict_ai_confidence(
+                getattr(choice, "confidence", 0.0)
+            )
             reason_codes = _to_reason_codes(getattr(choice, "reason_codes", ()))
             if library not in {"tv", "movie", "children", "hold"}:
                 return LibraryRouteResult(False, "hold", confidence, ("invalid_library",), "invalid_library")
