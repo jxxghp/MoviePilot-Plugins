@@ -1378,7 +1378,6 @@ class SmartNamingResolver:
                 "last_query_key": search_key,
                 "last_query_candidates": [item.to_dict() for item in candidates],
                 "last_query_updated": now,
-                "updated": now,
                 "manual_override_config": config.manual_overrides,
             }
         )
