@@ -1700,7 +1700,7 @@ class SmartNamingResolver:
                 except Exception:
                     saved = False
                 if saved is False:
-                    continue
+                    break
                 try:
                     verified = copy.deepcopy(self._load_json("naming_preview_v1", []))
                 except Exception:
