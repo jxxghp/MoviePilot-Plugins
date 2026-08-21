@@ -243,7 +243,6 @@ async function loadReview() {
   loading.value = true;
   error.value = '';
   rowErrors.value = {};
-  selectedCandidates.value = {};   
   try {
     const response = await props.api.get('plugin/CourseOrganizer/review');
     const data = unwrap(response);
@@ -260,7 +259,18 @@ async function loadReview() {
     monitoringRules.value = Array.isArray(data?.monitoring_rules) ? data.monitoring_rules : [];
     incomingPath.value = data?.incoming_path || '';
     settingsUrl.value = data?.settings_url || '#/setting';
-    tmdbCandidates.value = {};
+    const restoredCandidates = {};
+    const restoredSelections = {};
+    for (const row of items.value) {
+      const candidate = row?.selected_candidate;
+      const candidateKey = row?.selected_candidate_key || candidate?.candidate_key || '';
+      if (candidate?.candidate_key && candidate.candidate_key === candidateKey) {
+        restoredCandidates[row.raw_title] = [candidate];
+        restoredSelections[row.raw_title] = candidateKey;
+      }
+    }
+    tmdbCandidates.value = restoredCandidates;
+    selectedCandidates.value = restoredSelections;
     selectedKeys.value = [];
   } catch (loadError) {
     error.value = errorMessage(loadError, '加载人工复核列表失败');
@@ -291,10 +301,8 @@ async function searchTmdb(row, silent = false) {
   if (!silent) notice.value = '';
   clearRowError(row);
   removeKey(tmdbSearchFailedKeys, row.raw_title);
-  tmdbCandidates.value = { ...tmdbCandidates.value, [row.raw_title]: [] };
-  const sel = { ...selectedCandidates.value };
-  delete sel[row.raw_title];
-  selectedCandidates.value = sel;
+  const selectedKey = selectedCandidateFor(row) || row.selected_candidate_key || '';
+  const selectedCandidate = row.selected_candidate;
   try {
     const response = await props.api.post('plugin/CourseOrganizer/review/tmdb/search', {
       raw_title: row.raw_title,
@@ -302,7 +310,14 @@ async function searchTmdb(row, silent = false) {
       search_name: (row.final_title && row.final_title.trim()) || row.raw_title,
     });
     const data = unwrap(response);
-    const candidates = Array.isArray(data?.items) ? data.items : [];
+    let candidates = Array.isArray(data?.items) ? data.items : [];
+    if (
+      selectedKey
+      && selectedCandidate?.candidate_key === selectedKey
+      && !candidates.some(candidate => candidate.candidate_key === selectedKey)
+    ) {
+      candidates = [selectedCandidate, ...candidates];
+    }
     tmdbCandidates.value = { ...tmdbCandidates.value, [row.raw_title]: candidates };
     if (!silent) notice.value = data?.message || '已找到 TMDB 候选';
   } catch (searchError) {
@@ -315,7 +330,7 @@ async function searchTmdb(row, silent = false) {
 }
 
 async function autoSearchAll() {
-  const todo = items.value.filter(item => !item.source_pending);
+  const todo = items.value.filter(item => !item.source_pending && !item.selected_candidate_key);
   for (const item of todo) {
     await searchTmdb(item, true);
   }
@@ -1015,11 +1030,11 @@ return (_ctx, _cache) => {
                                 "hide-details": "",
                                 density: "compact",
                                 variant: "outlined",
-                                label: "选择匹配的 TMDB 作品",
+                                label: selectedCandidateFor(row) ? '已关联的 TMDB 作品' : '选择匹配的 TMDB 作品',
                                 class: "mt-1",
                                 disabled: batchRunning.value || isSaving(row) || isTmdbLoading(row) || isOrganizing(row),
                                 "aria-label": `选择 TMDB 候选：${row.raw_title}`
-                              }, null, 8, ["model-value", "onUpdate:modelValue", "items", "disabled", "aria-label"]))
+                              }, null, 8, ["model-value", "onUpdate:modelValue", "items", "label", "disabled", "aria-label"]))
                             : _createCommentVNode("", true)
                         ]),
                         _createElementVNode("td", _hoisted_19, [
@@ -1236,11 +1251,11 @@ return (_ctx, _cache) => {
                           "hide-details": "",
                           density: "compact",
                           variant: "outlined",
-                          label: "选择匹配的 TMDB 作品",
+                          label: selectedCandidateFor(row) ? '已关联的 TMDB 作品' : '选择匹配的 TMDB 作品',
                           class: "mb-3",
                           disabled: batchRunning.value || isSaving(row) || isTmdbLoading(row) || isOrganizing(row),
                           "aria-label": `选择 TMDB 候选：${row.raw_title}`
-                        }, null, 8, ["model-value", "onUpdate:modelValue", "items", "disabled", "aria-label"]))
+                        }, null, 8, ["model-value", "onUpdate:modelValue", "items", "label", "disabled", "aria-label"]))
                       : _createCommentVNode("", true),
                     _createVNode(_component_VSelect, {
                       modelValue: row.target_library,
@@ -1430,6 +1445,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8d4435d0"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-34a29f02"]]);
 
 export { Page as default };

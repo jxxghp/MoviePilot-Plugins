@@ -318,7 +318,7 @@ class CourseOrganizer(_PluginBase):
     plugin_config_prefix = "courseorganizer_"
     auth_level = 1
     plugin_order = 90
-    plugin_version = "1.7.9"
+    plugin_version = "1.7.10"
     plugin_desc = "稳定后识别、分类并整理到电视剧、电影或儿童媒体库"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
@@ -1643,6 +1643,7 @@ class CourseOrganizer(_PluginBase):
                 if not self._source_bindings_equal(source_binding, expected_binding):
                     structured = naming.ManualOverride(raw_title, "invalid")
             override = structured if structured is not None else self._legacy_review_override(raw_title)
+            selected_candidate: Optional[naming.MetadataCandidate] = None
             if override is not None and override.action == "invalid":
                 item["status"] = "invalid_manual_decision"
                 item["target_library"] = ""
@@ -1657,11 +1658,11 @@ class CourseOrganizer(_PluginBase):
                 item["status"] = "local_fallback"
                 item["final_title"] = override.value
                 item["target_library"] = override.target_library
-                candidate = self._manual_candidate_for(raw_title, manual_payload)
-                if candidate is not None:
-                    item["source"] = candidate.source
-                    item["media_id"] = candidate.media_id
-                    item["media_type"] = candidate.media_type
+                selected_candidate = self._manual_candidate_for(raw_title, manual_payload)
+                if selected_candidate is not None:
+                    item["source"] = selected_candidate.source
+                    item["media_id"] = selected_candidate.media_id
+                    item["media_type"] = selected_candidate.media_type
                 elif isinstance(manual_payload, dict):
                     entry = manual_payload.get("items", {}).get(raw_title, {})
                     if isinstance(entry, dict):
@@ -1677,16 +1678,16 @@ class CourseOrganizer(_PluginBase):
                     "manual_confirm"
                 ]
             elif override is not None and override.action == "candidate":
-                candidate = self._manual_candidate_for(raw_title, manual_payload)
-                if candidate is None:
+                selected_candidate = self._manual_candidate_for(raw_title, manual_payload)
+                if selected_candidate is None:
                     item["status"] = "invalid_manual_decision"
                     item["target_library"] = ""
                     item["target_output_root"] = ""
                     item["reason_codes"] = ["invalid_manual_decision"]
                 else:
-                    item["source"] = candidate.source
-                    item["media_id"] = candidate.media_id
-                    item["media_type"] = candidate.media_type
+                    item["source"] = selected_candidate.source
+                    item["media_id"] = selected_candidate.media_id
+                    item["media_type"] = selected_candidate.media_type
                     entry = (
                         manual_payload.get("items", {}).get(raw_title, {})
                         if isinstance(manual_payload, dict)
@@ -1754,6 +1755,14 @@ class CourseOrganizer(_PluginBase):
                         item.get("source", ""),
                         item.get("reason_codes", ()),
                         override.action if override is not None else "",
+                    ),
+                    "selected_candidate_key": (
+                        selected_candidate.key if selected_candidate is not None else ""
+                    ),
+                    "selected_candidate": (
+                        self._tmdb_candidate_response(selected_candidate)
+                        if selected_candidate is not None
+                        else None
                     ),
                 }
             if include_internal:
