@@ -68,9 +68,6 @@ class NamingConfig:
 
     @classmethod
     def sanitize(cls, raw: Any) -> "NamingConfig":
-        if isinstance(raw, cls):
-            return raw
-
         def _read_field(mapping: Any, attr: str, default: Any) -> Any:
             if isinstance(mapping, dict):
                 return mapping.get(attr)
