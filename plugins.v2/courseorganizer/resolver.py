@@ -153,11 +153,15 @@ class NamingConfig:
         if mode not in {"off", "preview", "apply"}:
             mode = "off"
 
-        sources = tuple(
-            source
-            for source in _coerce_iter(sources_value if sources_value is not None else (), ())
-            if source in {"themoviedb", "douban"}
-        )
+        normalized_sources: List[str] = []
+        for source in _coerce_iter(
+            sources_value if sources_value is not None else (), ()
+        ):
+            if source in {"hk", "tw", "sg"}:
+                source = "themoviedb"
+            if source in {"themoviedb", "douban"} and source not in normalized_sources:
+                normalized_sources.append(source)
+        sources = tuple(normalized_sources)
         if not sources:
             sources = ("themoviedb", "douban")
 
@@ -475,8 +479,24 @@ class SmartNamingResolver:
                         margin=evaluation.margin,
                         reason_codes=self._merge_reason_codes(("manual_query",), override_diagnostics),
                         source_errors=search_result.errors,
-                        final_root=naming.format_root_name(query_hints, top.candidate, append_tmdb_id=config.append_tmdb_id),
-                        final_prefix=naming.format_file_prefix(naming.format_root_name(query_hints, top.candidate, append_tmdb_id=config.append_tmdb_id)),
+                        final_root=naming.format_root_name(
+                            query_hints,
+                            top.candidate,
+                            append_tmdb_id=(
+                                config.append_tmdb_id
+                                and top.candidate.source == "themoviedb"
+                            ),
+                        ),
+                        final_prefix=naming.format_file_prefix(
+                            naming.format_root_name(
+                                query_hints,
+                                top.candidate,
+                                append_tmdb_id=(
+                                    config.append_tmdb_id
+                                    and top.candidate.source == "themoviedb"
+                                ),
+                            )
+                        ),
                     )
                 else:
                     decision = self._decision(
@@ -539,7 +559,14 @@ class SmartNamingResolver:
                     candidate=candidate,
                     score=100,
                     margin=config.min_margin,
-                    final_root=naming.format_root_name(hints, candidate, append_tmdb_id=config.append_tmdb_id),
+                    final_root=naming.format_root_name(
+                        hints,
+                        candidate,
+                        append_tmdb_id=(
+                            config.append_tmdb_id
+                            and candidate.source == "themoviedb"
+                        ),
+                    ),
                     final_prefix=naming.format_file_prefix(
                         naming.format_root_name(hints, candidate, append_tmdb_id=False)
                     ),
