@@ -99,8 +99,10 @@ async function openMoviePilotSettings() {
           />
           <VSwitch
             v-model="localConfig.naming_ai_review"
-            label="启用 AI 辅助复核"
-            aria-label="启用 AI 辅助复核"
+            label="启用 AI 搜索与复核"
+            aria-label="启用 AI 搜索与复核"
+            hint="复杂目录会先精简名称再搜索"
+            persistent-hint
             color="primary"
           />
           <VSwitch

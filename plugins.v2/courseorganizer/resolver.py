@@ -219,6 +219,10 @@ class SmartNamingResolver:
     SEARCH_TTL_SECONDS = 30 * 24 * 60 * 60
     ERROR_TTL_SECONDS = 60 * 60
     SEARCH_CACHE_MAX = 500
+    AI_QUERY_TTL_SECONDS = 30 * 24 * 60 * 60
+    AI_QUERY_ERROR_TTL_SECONDS = 60 * 60
+    AI_QUERY_CACHE_MAX = 500
+    AI_QUERY_CACHE_KEY = "naming_ai_query_cache_v1"
     IDENTITY_MAX = 500
     PREVIEW_MAX = 200
     AI_ERROR_MAX = 100
@@ -239,6 +243,7 @@ class SmartNamingResolver:
 
     def clear(self) -> None:
         self._save_data("naming_search_cache_v1", {})
+        self._save_data(self.AI_QUERY_CACHE_KEY, {})
         self._save_data("naming_identity_v1", {})
         self._save_data("naming_preview_v1", [])
         self._save_data("naming_ai_errors_v1", [])
@@ -561,6 +566,9 @@ class SmartNamingResolver:
                 hints=hints,
             )
 
+        # AI only contributes a bounded search phrase.  All candidate scoring,
+        # whitelisting, and final media selection remain on the normal path.
+        hints = self._enrich_hints_with_ai_query(hints, raw_title, now, config)
         search_sources = self._provider_search_sources(config.sources)
         search_key = self._query_hash(hints, search_sources)
         identity = self._load_identity(raw_title)
@@ -870,6 +878,134 @@ class SmartNamingResolver:
             return tuple(getter(requested))
         return ("themoviedb", "douban")
 
+    @staticmethod
+    def _with_query_candidates(
+        hints: "naming.TitleHints",
+        candidates: Sequence["naming.QueryCandidate"],
+    ) -> "naming.TitleHints":
+        return naming.TitleHints(
+            raw_title=hints.raw_title,
+            local_title=hints.local_title,
+            year=hints.year,
+            season_hints=hints.season_hints,
+            query_candidates=tuple(candidates),
+            reason_codes=hints.reason_codes,
+        )
+
+    @staticmethod
+    def _needs_ai_query(hints: "naming.TitleHints") -> bool:
+        """Reserve LLM calls for names where rules have visibly removed noise."""
+        if len(hints.season_hints) >= 2:
+            return True
+        return naming.normalize_title(hints.raw_title) != naming.normalize_title(
+            hints.local_title
+        )
+
+    def _ai_query_schema(self) -> str:
+        return str(getattr(self._ai_reviewer, "QUERY_SCHEMA_VERSION", "1"))
+
+    def _ai_query_cache_key(self, hints: "naming.TitleHints") -> str:
+        return naming.query_hash(
+            raw_title=hints.raw_title,
+            queries=(
+                naming.QueryCandidate(
+                    text=hints.local_title,
+                    origin="ai_query_input",
+                    quality_bonus=0,
+                ),
+            ),
+            sources=("ai_query",),
+            provider_schema=self._ai_query_schema(),
+        )
+
+    def _prepend_ai_query(
+        self,
+        hints: "naming.TitleHints",
+        query: str,
+    ) -> "naming.TitleHints":
+        normalized = naming.normalize_title(query)
+        if not normalized:
+            return hints
+        remaining = [
+            candidate
+            for candidate in hints.query_candidates
+            if naming.normalize_title(candidate.text) != normalized
+        ]
+        return self._with_query_candidates(
+            hints,
+            (
+                naming.QueryCandidate(text=query, origin="ai_query", quality_bonus=5),
+                *remaining,
+            )[:3],
+        )
+
+    def _enrich_hints_with_ai_query(
+        self,
+        hints: "naming.TitleHints",
+        raw_title: str,
+        now: int,
+        config: NamingConfig,
+    ) -> "naming.TitleHints":
+        """Prepend a cached, safe LLM query without giving it decision authority."""
+        reviewer = self._ai_reviewer
+        suggest = getattr(reviewer, "suggest_query", None)
+        if (
+            not config.ai_review
+            or reviewer is None
+            or not callable(suggest)
+            or not self._needs_ai_query(hints)
+        ):
+            return hints
+
+        cache = self._load_json(self.AI_QUERY_CACHE_KEY, {})
+        if not isinstance(cache, dict):
+            cache = {}
+        cache_key = self._ai_query_cache_key(hints)
+        cached = cache.get(cache_key)
+        if isinstance(cached, dict):
+            parser_schema = str(cached.get("parser_schema", ""))
+            query_schema = str(cached.get("query_schema", ""))
+            if (
+                parser_schema == naming.PARSER_SCHEMA_VERSION
+                and query_schema == self._ai_query_schema()
+                and cached.get("raw_title") == hints.raw_title
+            ):
+                try:
+                    updated = int(cached.get("updated", 0))
+                except (TypeError, ValueError):
+                    updated = 0
+                ttl = (
+                    self.AI_QUERY_ERROR_TTL_SECONDS
+                    if bool(cached.get("failed", False))
+                    else self.AI_QUERY_TTL_SECONDS
+                )
+                if 0 <= now - updated < ttl:
+                    query = MoviePilotAIReviewer.validate_search_query(
+                        cached.get("query", "")
+                    )
+                    return self._prepend_ai_query(hints, query) if query else hints
+            cache.pop(cache_key, None)
+            self._save_data(self.AI_QUERY_CACHE_KEY, cache)
+
+        try:
+            query = MoviePilotAIReviewer.validate_search_query(
+                suggest(hints.raw_title, hints)
+            )
+        except Exception:
+            query = ""
+
+        cache[cache_key] = {
+            "updated": now,
+            "raw_title": hints.raw_title,
+            "query": query,
+            "failed": not bool(query),
+            "parser_schema": naming.PARSER_SCHEMA_VERSION,
+            "query_schema": self._ai_query_schema(),
+        }
+        self._prune_cache(cache, self.AI_QUERY_CACHE_MAX)
+        self._save_data(self.AI_QUERY_CACHE_KEY, cache)
+        return self._prepend_ai_query(hints, query) if query else hints
+
     def _augment_fallback_queries(
         self,
         hints: "naming.TitleHints",
@@ -892,22 +1028,13 @@ class SmartNamingResolver:
             if key and key not in seen:
                 seen.add(key)
                 extra_texts.append(text)
-        if not extra_texts or not hasattr(hints, "query_candidates"):
+        if not extra_texts:
             return hints
-        try:
-            from .naming import QueryCandidate
-        except Exception:
-            QueryCandidate = None
-        if QueryCandidate is None:
-            return hints
-        try:
-            new_queries = list(primary) + [
-                QueryCandidate(text=text, origin="fallback", quality_bonus=0)
-                for text in extra_texts
-            ]
-            return hints._replace(query_candidates=tuple(new_queries))
-        except Exception:
-            return hints
+        new_queries = list(primary) + [
+            naming.QueryCandidate(text=text, origin="fallback", quality_bonus=0)
+            for text in extra_texts
+        ]
+        return self._with_query_candidates(hints, new_queries[:3])
 
     def _trim_variants(self, text: str) -> list:
         """生成从完整名逐步去掉常见修饰词后的短名变体。"""
@@ -955,7 +1082,14 @@ class SmartNamingResolver:
         if "themoviedb" not in config.sources:
             return ProviderSearchResult((), ("themoviedb_not_enabled",), (), True)
 
+        try:
+            now = int(self._clock())
+        except (TypeError, ValueError, OverflowError):
+            now = int(time.time())
         hints = naming.parse_title(raw_title)
+        # Keep the AI term first when enabled; rule-generated variants remain
+        # available as low-cost fallbacks if the provider finds no exact match.
+        hints = self._enrich_hints_with_ai_query(hints, raw_title, now, config)
         # 搜索词自动回退：主解析词搜不到时，追加去掉常见修饰词后的短名，
         # 提高命中率（例如"黑冰高清修复版"→回退"黑冰"）。
         hints = self._augment_fallback_queries(hints, raw_title)
@@ -964,10 +1098,6 @@ class SmartNamingResolver:
             return ProviderSearchResult((), ("themoviedb_unavailable",), (), True)
 
         search_key = self._query_hash(hints, sources)
-        try:
-            now = int(self._clock())
-        except (TypeError, ValueError, OverflowError):
-            now = int(time.time())
         identity = self._load_identity(raw_title)
         if isinstance(identity, dict) and identity.get("raw_title", raw_title) == raw_title:
             try:

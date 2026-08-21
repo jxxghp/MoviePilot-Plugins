@@ -172,8 +172,10 @@ return (_ctx, _cache) => {
                   _createVNode(_component_VSwitch, {
                     modelValue: localConfig.value.naming_ai_review,
                     "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((localConfig.value.naming_ai_review) = $event)),
-                    label: "启用 AI 辅助复核",
-                    "aria-label": "启用 AI 辅助复核",
+                    label: "启用 AI 搜索与复核",
+                    "aria-label": "启用 AI 搜索与复核",
+                    hint: "复杂目录会先精简名称再搜索",
+                    "persistent-hint": "",
                     color: "primary"
                   }, null, 8, ["modelValue"]),
                   _createVNode(_component_VSwitch, {
@@ -224,6 +226,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-06e0c65f"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6c47cfca"]]);
 
 export { Config as default };

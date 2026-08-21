@@ -1015,15 +1015,19 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
             <p>重新扫描不会移动文件。检查建议名称和目标媒体库后，「确认并整理」才会执行文件操作。</p>
           </div>
           <div>
-            <strong>4. 两种整理方式</strong>
+            <strong>4. AI 搜索与复核</strong>
+            <p>开启后，复杂目录名会先由 MoviePilot 智能助手提取 TMDB 搜索词，再复核候选；AI 不可用时自动使用本地规则。</p>
+          </div>
+          <div>
+            <strong>5. 两种整理方式</strong>
             <p>已关联媒体信息的项目使用 MoviePilot 的 TMDB 整理；课程等无媒体 ID 的项目按确认后的标题整理。</p>
           </div>
           <div>
-            <strong>5. 人工确认期间</strong>
+            <strong>6. 人工确认期间</strong>
             <p>请关闭相同来源目录的自动监控，避免文件在确认前被系统提前整理。</p>
           </div>
           <div>
-            <strong>6. 批量任务自动排队</strong>
+            <strong>7. 批量任务自动排队</strong>
             <p>可勾选多个项目后批量整理。任务会按顺序逐项执行，失败项目保留并继续下一项。</p>
           </div>
         </VCardText>

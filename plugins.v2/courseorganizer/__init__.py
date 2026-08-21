@@ -318,7 +318,7 @@ class CourseOrganizer(_PluginBase):
     plugin_config_prefix = "courseorganizer_"
     auth_level = 1
     plugin_order = 90
-    plugin_version = "1.7.10"
+    plugin_version = "1.7.11"
     plugin_desc = "稳定后识别、分类并整理到电视剧、电影或儿童媒体库"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
@@ -3103,8 +3103,10 @@ class CourseOrganizer(_PluginBase):
                 "component": "VSwitch",
                 "props": {
                     "model": "naming_ai_review",
-                    "label": "启用 AI 辅助复核",
-                    "aria-label": "启用 AI 辅助复核",
+                    "label": "启用 AI 搜索与复核",
+                    "aria-label": "启用 AI 搜索与复核",
+                    "hint": "复杂目录会先精简名称再搜索",
+                    "persistent-hint": True,
                     "color": "primary",
                 },
             },
