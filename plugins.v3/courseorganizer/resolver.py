@@ -903,7 +903,14 @@ class SmartNamingResolver:
         getter = getattr(self._provider, "resolve_sources", None)
         if callable(getter):
             return tuple(getter(requested))
-        return ("themoviedb", "douban")
+        resolved: List[str] = []
+        for value in requested:
+            source = str(value or "").strip().lower()
+            if source in {"hk", "tw", "sg"}:
+                source = "themoviedb"
+            if source in {"themoviedb", "douban"} and source not in resolved:
+                resolved.append(source)
+        return tuple(resolved)
 
     @staticmethod
     def _with_query_candidates(

@@ -52,6 +52,7 @@ PROVIDER_SCHEMA_VERSION = "1"
 
 _SOURCE_ALIASES = {"hk": "themoviedb", "tw": "themoviedb", "sg": "themoviedb"}
 _SUPPORTED_SOURCES = {"themoviedb", "douban"}
+_SYNC_CALLBACK_SLOTS = threading.BoundedSemaphore(4)
 
 
 @dataclass(frozen=True)
@@ -478,12 +479,34 @@ class MoviePilotAIReviewer:
         payload: Dict[str, Any],
         timeout_seconds: int,
     ) -> Any:
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(callback, payload)
-        try:
-            return future.result(timeout=max(0.001, float(timeout_seconds)))
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
+        timeout = max(0.001, float(timeout_seconds))
+        gate = _SYNC_CALLBACK_SLOTS
+        if not gate.acquire(timeout=timeout):
+            raise concurrent.futures.TimeoutError("sync_callback_capacity")
+
+        completed = threading.Event()
+        outcome: Dict[str, Any] = {}
+
+        def _runner() -> None:
+            try:
+                outcome["result"] = callback(payload)
+            except BaseException as exc:  # pragma: no cover - host callback failures
+                outcome["error"] = exc
+            finally:
+                completed.set()
+                gate.release()
+
+        worker = threading.Thread(
+            target=_runner,
+            name="courseorganizer-ai-callback",
+            daemon=True,
+        )
+        worker.start()
+        if not completed.wait(timeout=timeout):
+            raise concurrent.futures.TimeoutError("sync_callback_timeout")
+        if "error" in outcome:
+            raise outcome["error"]
+        return outcome.get("result")
 
     def _invoke_callback(self, payload: Dict[str, Any]) -> Any:
         """Invoke an injected test/host callback with the same retry contract."""
