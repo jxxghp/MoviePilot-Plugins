@@ -846,7 +846,8 @@ class SmartNamingResolver:
                 updated = int(identity.get("updated", 0))
             except (TypeError, ValueError):
                 updated = 0
-            if not 0 <= now - updated < self.SEARCH_TTL_SECONDS:
+            ttl = self.ERROR_TTL_SECONDS if source_errors else self.SEARCH_TTL_SECONDS
+            if not 0 <= now - updated < ttl:
                 return False
         if status == "local_fallback" and (
             "all_search_failed" in reason_codes
@@ -1151,7 +1152,11 @@ class SmartNamingResolver:
                 updated = int(identity.get("updated", 0))
             except (TypeError, ValueError):
                 updated = 0
-            if 0 <= now - updated < self.SEARCH_TTL_SECONDS:
+            identity_errors = tuple(identity.get("source_errors", ()))
+            identity_ttl = (
+                self.ERROR_TTL_SECONDS if identity_errors else self.SEARCH_TTL_SECONDS
+            )
+            if 0 <= now - updated < identity_ttl:
                 identity_candidates = tuple(
                     candidate
                     for candidate in self._identity_candidates(identity)
@@ -1481,11 +1486,16 @@ class SmartNamingResolver:
                     if retry_failed and (
                         cached.get("all_failed", False)
                         or not cached.get("candidates")
+                        or cached.get("errors")
                     ):
                         cache.pop(search_key, None)
                         self._save_data("naming_search_cache_v1", cache)
                     else:
-                        ttl = self.ERROR_TTL_SECONDS if cached.get("all_failed", False) else self.SEARCH_TTL_SECONDS
+                        ttl = (
+                            self.ERROR_TTL_SECONDS
+                            if cached.get("all_failed", False) or cached.get("errors")
+                            else self.SEARCH_TTL_SECONDS
+                        )
                         try:
                             updated = int(cached.get("updated", 0))
                         except (TypeError, ValueError):

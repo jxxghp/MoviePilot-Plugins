@@ -311,10 +311,16 @@ class MoviePilotMetadataProvider:
         query: naming.QueryCandidate,
         source_rank: int = 0,
     ) -> Optional[naming.MetadataCandidate]:
-        actual_source = getattr(media_info, "media_source", source)
-        source = _normalize_source(getattr(actual_source, "value", actual_source))
-        if source not in _SUPPORTED_SOURCES:
+        requested_source = _normalize_source(source)
+        actual_source = getattr(media_info, "media_source", None)
+        if actual_source is None:
+            actual_source = getattr(media_info, "source", requested_source)
+        actual_source = _normalize_source(
+            getattr(actual_source, "value", actual_source)
+        )
+        if actual_source != requested_source:
             return None
+        source = requested_source
         title = str(getattr(media_info, "title", "") or "").strip()
         if not title:
             return None
