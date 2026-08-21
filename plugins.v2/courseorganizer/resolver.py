@@ -42,7 +42,14 @@ def _coerce_str(value: Any, default: str = "") -> str:
 
 def _coerce_iter(value: Any, default: Tuple[str, ...]) -> Tuple[str, ...]:
     if isinstance(value, (list, tuple)):
-        return tuple(item.strip().lower() for item in value if str(item).strip())
+        output: List[str] = []
+        for item in value:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if text:
+                output.append(text.lower())
+        return tuple(output)
     if isinstance(value, str):
         return tuple(item.strip().lower() for item in value.split(",") if item.strip())
     return default
@@ -1457,7 +1464,7 @@ class SmartNamingResolver:
                             updated = int(cached.get("updated", 0))
                         except (TypeError, ValueError):
                             updated = 0
-                        if now - updated < ttl:
+                        if 0 <= now - updated < ttl:
                             candidates = tuple(
                                 naming.MetadataCandidate.from_dict(item)
                                 for item in cached.get("candidates", ())
@@ -1621,7 +1628,7 @@ class SmartNamingResolver:
         else:
             rows.append(row)
 
-        self._prune_cache(rows, self.PREVIEW_MAX)
+        self._prune_cache(rows, self.PREVIEW_MAX, by_key="timestamp")
         self._save_data("naming_preview_v1", rows)
         return decision
 
