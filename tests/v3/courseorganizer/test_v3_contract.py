@@ -37,8 +37,8 @@ def test_v3_package_and_plugin_versions_are_consistent():
     package_v2 = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
     package_v3 = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
 
-    assert module.CourseOrganizer.plugin_version == "2.0.2"
-    assert package_v3["CourseOrganizer"]["version"] == "2.0.2"
+    assert module.CourseOrganizer.plugin_version == "2.0.3"
+    assert package_v3["CourseOrganizer"]["version"] == "2.0.3"
     assert package_v3["CourseOrganizer"]["system_version"] == ">=3.0.0"
     assert package_v2["CourseOrganizer"]["v3"] is False
 
@@ -206,3 +206,65 @@ def test_v3_metadata_provider_rejects_legacy_id_only_items():
     )
 
     assert provider._from_media_info(legacy_item, "themoviedb", query) is None
+
+
+def test_v3_manual_candidate_history_respects_current_source_allowlist():
+    module = load_v3_courseorganizer()
+    naming = sys.modules[f"{module.__name__}.naming"]
+    providers = sys.modules[f"{module.__name__}.providers"]
+    resolver_module = sys.modules[f"{module.__name__}.resolver"]
+    raw_title = "历史 TMDB 关联"
+    candidate = naming.MetadataCandidate(
+        key="themoviedb:123:tv",
+        source="themoviedb",
+        media_id="123",
+        media_type="tv",
+        title=raw_title,
+        year=2020,
+    )
+
+    class EmptyDoubanProvider:
+        def resolve_sources(self, requested):
+            return tuple(requested)
+
+        def search(self, queries, sources):
+            return providers.ProviderSearchResult(
+                candidates=(),
+                errors=(),
+                attempted_sources=tuple(sources),
+                all_failed=False,
+            )
+
+    for history_source in ("identity", "query", "manual"):
+        identity = {}
+        store = {}
+        if history_source == "identity":
+            identity["cached_candidates"] = [candidate.to_dict()]
+        elif history_source == "query":
+            identity["last_query_candidates"] = [candidate.to_dict()]
+        else:
+            store["naming_manual_decisions_v1"] = {
+                "schema": 1,
+                "items": {raw_title: {"candidate": candidate.to_dict()}},
+            }
+        if identity:
+            store["naming_identity_v1"] = {raw_title: identity}
+
+        resolver = resolver_module.SmartNamingResolver(
+            load_data=lambda key, default=None: store.get(key, default),
+            save_data=lambda key, value: store.__setitem__(key, value),
+            provider=EmptyDoubanProvider(),
+        )
+        decision = resolver.resolve(
+            raw_title,
+            naming.DirectoryHints(media_count=1, seasons=(1,), episodic=True),
+            resolver_module.NamingConfig(
+                mode="apply",
+                sources=("douban",),
+                manual_overrides=f"{raw_title} => candidate:{candidate.key}",
+            ),
+        )
+
+        assert decision.status == "invalid_override"
+        assert decision.blocked_reason == "candidate_not_found"
+        assert decision.source == ""

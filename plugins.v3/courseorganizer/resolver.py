@@ -531,18 +531,33 @@ class SmartNamingResolver:
             if matched_override.action == "candidate":
                 cached = self._load_query_candidate_cache(raw_title)
                 search_sources = self._provider_search_sources(config.sources)
+                allowed_sources = set(config.sources)
                 search_key = self._query_hash(hints, search_sources)
                 candidates_by_key = {
                     item.key: item
                     for item in self._identity_candidates(self._load_identity(raw_title))
+                    if item.source in allowed_sources
                 }
-                candidates_by_key.update({item.key: item for item in cached})
+                candidates_by_key.update(
+                    {
+                        item.key: item
+                        for item in cached
+                        if item.source in allowed_sources
+                    }
+                )
                 stored_candidate = self._load_manual_candidate(raw_title, matched_override.value)
-                if stored_candidate is not None:
+                if (
+                    stored_candidate is not None
+                    and stored_candidate.source in allowed_sources
+                ):
                     candidates_by_key[stored_candidate.key] = stored_candidate
                 if not candidates_by_key:
                     search_result = self._load_search_result(search_key, now, hints, search_sources)
-                    candidates_by_key = {item.key: item for item in search_result.candidates}
+                    candidates_by_key = {
+                        item.key: item
+                        for item in search_result.candidates
+                        if item.source in allowed_sources
+                    }
                 candidate = candidates_by_key.get(matched_override.value)
                 if candidate is None:
                     return self.record_decision(
