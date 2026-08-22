@@ -15,8 +15,10 @@ def test_discover_accepts_native_keyword_and_stops_after_first_source(monkeypatc
             calls.append((query, kwargs))
             return []
 
-    plugin = LunaTVSource()
-    plugin.init_plugin({"enabled": True})
+    plugin = object.__new__(LunaTVSource)
+    plugin._enabled = True
+    plugin._ai = type("Ai", (), {"normalize": lambda self, query, *args: (query, {})})()
+    plugin._logger = type("Logger", (), {"warning": lambda *args: None})()
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     assert plugin.api_discover(keyword="示例电影") == {"success": True, "data": []}
     assert calls == [("示例电影", {"limit": 30, "stop_after_first_source": True})]
@@ -30,8 +32,10 @@ def test_discover_source_declares_native_search_field(monkeypatch):
     schemas = type("Schemas", (), {"DiscoverMediaSource": DiscoverMediaSource})
     monkeypatch.setattr(plugin_module, "_schemas", schemas)
     monkeypatch.setattr(plugin_module, "_HostMediaSource", type("MediaSource", (), {}))
-    plugin = LunaTVSource()
-    plugin.init_plugin({"enabled": True})
+    plugin = object.__new__(LunaTVSource)
+    plugin._enabled = True
+    plugin._logger = type("Logger", (), {"debug": lambda *args: None})()
+    monkeypatch.setattr(plugin, "_host_media_source", lambda: "lunatv")
     event_data = type("EventData", (), {"extra_sources": []})()
     plugin._discover_source(type("Event", (), {"event_data": event_data})())
     source = event_data.extra_sources[0]
