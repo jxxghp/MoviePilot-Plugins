@@ -200,6 +200,10 @@ V3 的 `pyproject.toml` 只承载插件依赖：依赖写入 `[project].dependen
 统一解析，并保护主程序已锁定的核心依赖。需要额外包索引时使用 `tool.uv.index` 和
 `tool.uv.sources`，不要在插件代码中直接执行 pip 或 uv。
 
+V3 插件通过 `app.sdk.network.AsyncRequestUtils` 发起异步 HTTP 请求时使用 HTTPX2；自管客户端
+使用 `httpx2.AsyncClient`，不得通过 `httpx2.alias_httpx()` 改写进程级导入。第三方 SDK 继续使用
+其自身声明的 HTTP 客户端版本。
+
 插件测试统一使用生产命名空间 `app.plugins.<plugin_id>`。测试引导由主程序共享实现暴露
 对应代际源码，插件仓不维护顶层导入兼容层，避免同一源码形成重复模块和重复实例。
 

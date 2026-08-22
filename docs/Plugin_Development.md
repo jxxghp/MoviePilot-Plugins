@@ -377,6 +377,15 @@ dependencies = [
 
 宿主会保护核心依赖图；存在降级或不兼容要求时，插件安装会被拒绝。
 
+### 7.4 异步 HTTP 客户端
+
+V3 的 `app.sdk.network.AsyncRequestUtils` 使用 HTTPX2。默认请求返回 `httpx2.Response`，传入
+自管客户端时只使用 `httpx2.AsyncClient`；直接依赖响应或异常类型的插件代码应导入 `httpx2`。
+
+插件直接调用的第三方 SDK 仍使用该 SDK 声明的 HTTP 客户端版本，不需要为此替换其内部依赖。
+不要调用 `httpx2.alias_httpx()` 全局改写 `httpx`，同一进程内的主程序、其它插件和第三方 SDK
+共享导入状态，全局替换会越过插件边界。
+
 ## 8. 页面和仪表板
 
 ### 8.1 Vuetify JSON 模式

@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, Mock
 
+import httpx2
 import pytest
 from app.schemas.types import MediaSource
 from app.plugins.imdbsource import ImdbSource
@@ -22,6 +23,19 @@ def _build_helper() -> ImdbHelper:
     helper.get_info_by_imdbid = Mock(return_value=None)
     helper.async_get_info_by_imdbid = AsyncMock(return_value=None)
     return helper
+
+
+@pytest.mark.asyncio
+async def test_helper_uses_httpx2_client_for_host_request_adapter() -> None:
+    """IMDb 两条异步 API 复用同一个 HTTPX2 client。"""
+    helper = ImdbHelper()
+    try:
+        assert isinstance(helper._async_client, httpx2.AsyncClient)
+        assert helper.imdbapi_client._async_req._client is helper._async_client
+        assert helper.official_api_client._async_req._client is helper._async_client
+    finally:
+        helper._session.close()
+        await helper._async_client.aclose()
 
 
 def test_plugin_recognize_media_delegates_explicit_identity() -> None:
