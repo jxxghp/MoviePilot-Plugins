@@ -61,8 +61,20 @@ def _normalized_version(value: object, width: int = 4) -> tuple[int, ...]:
     return parsed + (0,) * (width - len(parsed))
 
 
+def _legacy_metadata(
+    plugin_id: str,
+    package_v2: dict,
+    package_v1: dict,
+) -> dict | None:
+    """返回插件的旧代索引元数据；V3 原生插件没有旧代条目。"""
+    metadata = package_v2.get(plugin_id)
+    if metadata is not None:
+        return metadata
+    return package_v1.get(plugin_id)
+
+
 def test_v3_index_has_matching_dedicated_plugins() -> None:
-    """V3 索引条目必须具有独立目录、最低系统版本和旧索引阻断标志。"""
+    """V3 条目必须具有独立目录；迁移插件还需在旧索引阻断 V3。"""
     package = _load_json(PACKAGE_PATH)
     package_v2 = _load_json(REPO_ROOT / "package.v2.json")
     package_v1 = _load_json(REPO_ROOT / "package.json")
@@ -70,19 +82,21 @@ def test_v3_index_has_matching_dedicated_plugins() -> None:
     for plugin_id, metadata in package.items():
         assert (V3_ROOT / plugin_id.lower() / "__init__.py").is_file()
         assert metadata.get("system_version") == ">=3.0.0"
-        old_metadata = package_v2.get(plugin_id) or package_v1.get(plugin_id)
-        assert old_metadata and old_metadata.get("v3") is False
+        old_metadata = _legacy_metadata(plugin_id, package_v2, package_v1)
+        if old_metadata is not None:
+            assert old_metadata.get("v3") is False
 
 
 def test_v3_versions_use_next_major_and_descending_history() -> None:
-    """旧代副本进入 V3 时必须跃迁主版本，且最新历史置顶并按语义版本降序。"""
+    """迁移插件进入 V3 时必须跃迁主版本，所有历史均按语义版本降序。"""
     package = _load_json(PACKAGE_PATH)
     package_v2 = _load_json(REPO_ROOT / "package.v2.json")
     package_v1 = _load_json(REPO_ROOT / "package.json")
     for plugin_id, metadata in package.items():
-        old_metadata = package_v2.get(plugin_id) or package_v1.get(plugin_id)
-        old_major = _semantic_version(old_metadata["version"])[0]
-        assert _semantic_version(metadata["version"])[0] == old_major + 1
+        old_metadata = _legacy_metadata(plugin_id, package_v2, package_v1)
+        if old_metadata is not None:
+            old_major = _semantic_version(old_metadata["version"])[0]
+            assert _semantic_version(metadata["version"])[0] == old_major + 1
 
         history_versions = list(metadata["history"])
         assert _normalized_version(history_versions[0]) == _normalized_version(metadata["version"])
