@@ -24,4 +24,3 @@ export default defineConfig({
   build: { target: 'esnext', minify: false, cssCodeSplit: true },
   css: { postcss: { plugins: [] } },
 })
-
