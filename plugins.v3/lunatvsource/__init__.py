@@ -148,7 +148,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.3.5"
+    plugin_version = "0.3.6"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -963,7 +963,7 @@ class LunaTVSource(_PluginBase):
                 str(payload.get("year") or ""),
                 str(payload.get("media_type") or ""),
             )
-            results = self._client().search(search_query)
+            results = self._client().search(search_query, stop_after_first_source=True)
             return {"success": True, "data": [self._result_payload(item) for item in results]}
         except Exception as exc:
             self._logger.warning("LunaTV search failed: %s", exc)
@@ -987,15 +987,26 @@ class LunaTVSource(_PluginBase):
             self._logger.warning("LunaTV TMDB candidate search failed: %s", exc)
             return {"success": False, "message": f"TMDB 搜索失败：{exc}", "data": []}
 
-    def api_discover(self, query: str = "", title: str = "", page: int = 1, count: int = 30) -> Dict[str, Any]:
+    def api_discover(
+        self,
+        keyword: str = "",
+        query: str = "",
+        title: str = "",
+        page: int = 1,
+        count: int = 30,
+    ) -> Dict[str, Any]:
         """V3 探索数据源接口，返回宿主统一 MediaInfo，而非插件自定义播放器。"""
         del page
-        query = str(query or title or "").strip()
+        query = str(keyword or query or title or "").strip()
         if not query:
             return {"success": True, "data": []}
         try:
             search_query, _ = (self._ai or AiTitleNormalizer(False)).normalize(query)
-            results = self._client().search(search_query, limit=max(1, min(int(count or 30), 50)))
+            results = self._client().search(
+                search_query,
+                limit=max(1, min(int(count or 30), 50)),
+                stop_after_first_source=True,
+            )
             data = []
             for result in results:
                 prepared, association = self._prepare_result(result)
@@ -1297,6 +1308,18 @@ class LunaTVSource(_PluginBase):
                 media_source=self._host_media_source(),
                 mediaid_prefix=PLUGIN_MEDIA_SOURCE,
                 api_path="plugin/LunaTVSource/discover",
+                filter_params={"keyword": ""},
+                filter_ui=[
+                    {
+                        "component": "VTextField",
+                        "props": {
+                            "model": "keyword",
+                            "label": "搜索电影或剧集",
+                            "clearable": True,
+                            "prepend-inner-icon": "mdi-magnify",
+                        },
+                    }
+                ],
             )
             if isinstance(event_data, dict):
                 event_data.setdefault("extra_sources", []).append(source)

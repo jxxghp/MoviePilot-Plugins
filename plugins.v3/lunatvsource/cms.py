@@ -392,10 +392,11 @@ class AppleCmsClient:
             return None
         return _result_from_item(source, self._enrich_item(source, items[0]))
 
-    def search(self, query: str, limit: int = 20) -> List[CmsResult]:
+    def search(self, query: str, limit: int = 20, stop_after_first_source: bool = False) -> List[CmsResult]:
         results: List[CmsResult] = []
         seen: set[Tuple[str, str]] = set()
         for source in self.sources:
+            source_result_count = len(results)
             try:
                 payload = self._request(source, ac="list", wd=query, pg=1)
                 items = self._items(payload)
@@ -411,4 +412,6 @@ class AppleCmsClient:
             except Exception:
                 # A single third-party source must not block the rest.
                 continue
+            if stop_after_first_source and len(results) > source_result_count:
+                break
         return results[:limit]

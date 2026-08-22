@@ -273,6 +273,8 @@ class DownloadQueue:
             "copy",
             "-bsf:a",
             "aac_adtstoasc",
+            "-f",
+            "mp4",
             str(output),
         ]
         completed = subprocess.run(command, capture_output=True, text=True, timeout=6 * 60 * 60)
