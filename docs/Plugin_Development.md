@@ -38,7 +38,7 @@ MoviePilot-Plugins/
 ├── plugins.v3/
 │   └── myplugin/
 │       ├── __init__.py
-│       ├── requirements.txt    # 可选
+│       ├── pyproject.toml      # 有额外 Python 依赖时使用
 │       └── README.md           # 推荐
 ├── tests/
 │   └── v3/
@@ -300,8 +300,9 @@ def _save_config(self) -> bool:
     })
 ```
 
-不要直接修改宿主配置文件。插件分身会改变运行类名，因此需要定位自身插件 ID 时
-优先使用 `self.__class__.__name__`，不要在业务代码中到处硬编码原始类名。
+不要直接修改宿主配置文件。V3 新建分身是“同一份源码、多个运行实例”：宿主会在
+实例专属模块命名空间中重新执行源码，并把运行类名设置为实例 ID。需要定位自身插件
+ID 时优先使用 `self.__class__.__name__`，不要在业务代码中硬编码原始类名。
 
 ### 7.2 结构化数据与文件
 
@@ -329,10 +330,45 @@ def write_report(self, content: str) -> None:
 
 不要把运行数据写回插件源码目录；插件更新时源码目录可能被替换。
 
-### 7.3 第三方依赖
+### 7.3 虚拟分身兼容
 
-插件有额外 Python 依赖时，在插件目录放置 `requirements.txt`。依赖安装到宿主共享
-环境，因此必须遵守：
+新分身不会复制插件目录，也不会改写 Python、JavaScript 或 CSS。配置、结构化数据、
+数据目录、事件绑定、动态 API 和定时服务均按运行实例 ID 隔离；源插件更新后，引用它
+的实例会一起重载。升级前已经生成的物理分身仍按旧目录继续加载，不要求迁移。
+
+为了让插件可以安全创建虚拟分身：
+
+- 配置和数据使用 `update_config()`、`get_config()`、`save_data()`、`get_data()`、
+  `del_data()` 与 `get_data_path()`，不要显式传入写死的源插件 ID。
+- 不要把可变状态放到进程级单例、宿主全局变量或源码目录；模块级状态虽然会按实例
+  重新执行，插件自行导入的第三方全局单例仍然是共享的。
+- 端口、外部账号、Webhook 名称、下载目录等排他资源需要由配置区分；宿主无法自动
+  隔离插件控制范围之外的外部资源。
+- 停止和重载必须释放线程、连接、文件句柄及监听端口，避免一个实例占用另一个实例
+  需要的资源。
+
+因此“共享源码”不等于“共享状态”。如果插件主动绕过基类存储，或依赖不可分配的
+进程级排他资源，应明确说明不适合创建多个实例。
+
+### 7.4 第三方依赖
+
+插件有额外 Python 依赖时，在插件目录增加 `pyproject.toml`：
+
+```toml
+[project]
+name = "moviepilot-plugin-myplugin"
+dynamic = ["version"]
+requires-python = ">=3.12"
+dependencies = [
+    "example-package>=1",
+]
+```
+
+`dynamic = ["version"]` 只表示依赖清单不重复维护插件版本；宿主读取的是静态
+`project.dependencies`，不会从清单解析插件实际版本。插件不提交 `uv.lock`，也不要在
+插件代码中直接执行 pip 或 uv。V1/V2 历史实现继续使用 `requirements.txt`。
+
+依赖安装到宿主共享环境，因此必须遵守：
 
 - 只声明插件真正需要、宿主尚未提供的依赖。
 - 不要要求降级或覆盖 MoviePilot 核心依赖。
@@ -373,6 +409,11 @@ Vue 模式下，前端构建产物放入插件目录，由后端暴露静态资�
 
 - [侧栏入口 FAQ](./faq/17-register-plugin-sidebar-nav.md)
 - [MoviePilot-Frontend V3 模块联邦指南](https://github.com/jxxghp/MoviePilot-Frontend/blob/v3/docs/module-federation-guide.md)
+
+虚拟分身复用源插件的同一份 `remoteEntry.js`。宿主会向配置页、数据页、仪表盘、
+侧栏全页和登录组件传入当前实例的 `pluginId`、源身份 `sourcePluginId`，以及实例作用域
+的 `api`。联邦组件应优先使用这些 props；不要只读取全局 `window.MoviePilotAPI`，也不要
+自行根据源插件 ID 创建另一套 HTTP 客户端，否则请求会绕过实例 API 命名空间。
 
 ## 9. 事件、API 和后台能力
 
@@ -526,12 +567,15 @@ git diff --check
 ../MoviePilot/.venv/bin/python -m pytest tests/v3/myplugin
 ```
 
-提交前建议运行插件仓完整测试入口；它会把不同代插件放进独立进程，避免同名模块
-互相污染：
+提交前建议运行当前 V3 运行环境的默认回归；CI 工具、V3 专用实现和仍兼容 V3 的
+V2 实现会在独立进程中运行，避免同名模块互相污染：
 
 ```bash
 ../MoviePilot/.venv/bin/python tests/run.py
 ```
+
+插件测试使用与生产一致的 `app.plugins.<plugin_id>` 路径导入源码。不要在测试中把插件
+目录作为顶层包路径使用，否则同一插件可能以两个模块名加载，重复执行注册和初始化副作用。
 
 测试应覆盖插件最关键的纯逻辑、配置迁移和安全边界。外部网络、真实下载器、媒体
 服务器或第三方账号使用 mock 或明确的集成测试，不要让普通单测依赖公网状态。

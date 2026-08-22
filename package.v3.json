@@ -3,11 +3,13 @@
     "name": "Agent影视助手",
     "description": "龙虾agent稳定控制 MP：飞书入口、盘搜/影巢搜索、115/夸克转存、智能评分推荐。",
     "labels": "Agent,影巢,HDHive,115,夸克,Quark,智能体,转存,解锁",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "icon": "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png",
     "author": "liuyuexi1987",
     "level": 1,
+    "release": true,
     "history": {
+      "v1.1.1": "依赖安装统一交由宿主管理，移除飞书 SDK 缺失时直接调用 pip 的自修复路径，并迁移至现代依赖清单。",
       "v1.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
       "1.0.1": "修复 p115client 依赖版本号错误（0.0.8.5.1.1 不存在），固定为 PyPI 实际存在的 0.0.9.6.5.1，解决依赖安装失败问题。",
       "1.0.0": "V3 独立大版本：统一搜索、订阅、下载与历史查询的媒体来源和媒体 ID。",
@@ -98,6 +100,27 @@
       "v4.1": "支持通过CRON表达式配置开启时间，固定10分钟为执行周期",
       "v4.0": "站点独立配置项支持配置NexusPHP 站点自动跳过下载提示页",
       "v3.9": "MoviePilot V2 版本站点刷流插件"
+    }
+  },
+  "ChatGPT": {
+    "name": "ChatGPT",
+    "description": "使用系统智能助手或 Agent Tokens 管理插件的 LLM 配置增强媒体名称识别。",
+    "labels": "AI,识别,LLM,媒体识别,Agent Tokens",
+    "version": "3.1",
+    "icon": "Chatgpt_A.png",
+    "author": "jxxghp",
+    "level": 1,
+    "release": true,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v3.1": "支持音乐名称辅助识别，可解析曲名、艺术家、专辑、年份要素；拆分音乐与影视识别系统提示词，新增音乐识别开关。",
+      "v3.0.6": "修复新版 MoviePilot 中 LLMHelper 文本提取接口变更导致识别增强调用失败的问题。",
+      "v3.0.5": "新增识别调用 Token 用量统计，详情页按千分位展示并支持清除统计，同时优化缓存说明文案。",
+      "v3.0.4": "重构缓存管理 UI，缓存数量改从数据库读取，新增插件详情页管理缓存。",
+      "v3.0.3": "添加识别结果持久化缓存，避免相同标题重复调用 LLM API，支持手动清除缓存并显示缓存数量。",
+      "v3.0.2": "修复插件入口误打开空详情页，并统一配置表单行列布局。",
+      "v3.0.1": "兼容系统智能助手和 Agent Tokens 供应商的 LLM 代理开关配置。",
+      "v3.0": "移除聊天功能，仅保留媒体识别增强；模型来源改为系统智能助手设置或 Agent Tokens 管理插件；重写英文识别提示词并优化配置界面。"
     }
   },
   "DoubanRank": {
@@ -393,18 +416,31 @@
     "name": "动漫视频超分",
     "description": "在 MoviePilot 内直接使用 GPU 完成动漫视频 2 倍超分与 HEVC Main10 编码。",
     "labels": "动漫,视频处理,GPU",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "icon": "ffmpeg.png",
     "author": "RWDai",
     "level": 1,
     "release": true,
     "system_version": ">=3.0.0",
     "history": {
+      "v2.1.1": "依赖清单迁移至 pyproject.toml，升级 PyTorch 2.5.1 以兼容 V3 的 NumPy 2 运行环境，并使用具名 CUDA 12.1 索引声明来源。",
       "v2.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
       "v2.0.0": "V3 独立大版本：适配统一插件 API 响应，并内嵌 GPU 超分、队列与 FFmpeg 流水线。",
       "v1.1.1": "修复符号链接越界、非默认 GPU 的 NVENC 编码和 mov_text 字幕封装",
       "v1.1.0": "将任务队列、GPU 推理和 FFmpeg 流水线直接集成到 MoviePilot 插件",
       "v1.0.0": "首个版本：支持服务状态、模型下载与校验、任务提交和管理"
+    }
+  },
+  "MediaInfoRenameEnhancer": {
+    "name": "MediaInfo命名增强",
+    "description": "为整理模板提供 HDR、编码、音频、Atmos、字幕及发布组兜底字段。",
+    "labels": "文件整理,MediaInfo",
+    "version": "1.0.0",
+    "author": "annanygy",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v1.0.0": "V3 独立版本：在重命名模板渲染前读取 MediaInfo 并注入技术字段。"
     }
   }
 }

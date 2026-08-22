@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from ruamel.yaml import CommentedMap
 
-from autosignin.sites.rousipro import RousiPro
+from app.plugins.autosignin.sites.rousipro import RousiPro
 
 
 def _response(status_code: int, code: int):
@@ -30,7 +30,7 @@ def _site_info(**overrides) -> CommentedMap:
 
 def test_signin_prefers_api_key_when_supported():
     """API Key 签到成功时不应再发送 Authorization 请求。"""
-    with patch("autosignin.sites.rousipro.RequestUtils") as request_utils:
+    with patch("app.plugins.autosignin.sites.rousipro.RequestUtils") as request_utils:
         request_utils.return_value.post_res.return_value = _response(200, 0)
 
         result = RousiPro().signin(_site_info())
@@ -44,7 +44,7 @@ def test_signin_prefers_api_key_when_supported():
 
 def test_signin_falls_back_to_authorization_when_api_key_is_rejected():
     """站点拒绝 API Key 签到时应自动使用短期 Authorization Token。"""
-    with patch("autosignin.sites.rousipro.RequestUtils") as request_utils:
+    with patch("app.plugins.autosignin.sites.rousipro.RequestUtils") as request_utils:
         request_utils.return_value.post_res.side_effect = [
             _response(401, -1),
             _response(200, 0),
@@ -63,7 +63,7 @@ def test_signin_falls_back_to_authorization_when_api_key_is_rejected():
 
 def test_login_uses_api_key_profile_without_authorization_token():
     """模拟登录应允许只配置 API Key，并通过 profile 接口完成认证。"""
-    with patch("autosignin.sites.rousipro.RequestUtils") as request_utils:
+    with patch("app.plugins.autosignin.sites.rousipro.RequestUtils") as request_utils:
         request_utils.return_value.get_res.return_value = _response(200, 0)
 
         result = RousiPro().login(_site_info(token=""))
@@ -77,7 +77,7 @@ def test_login_uses_api_key_profile_without_authorization_token():
 
 def test_login_falls_back_to_attendance_stats_with_authorization():
     """API Key 登录检测失败时应回退原有 Authorization 统计接口。"""
-    with patch("autosignin.sites.rousipro.RequestUtils") as request_utils:
+    with patch("app.plugins.autosignin.sites.rousipro.RequestUtils") as request_utils:
         request_utils.return_value.get_res.side_effect = [
             _response(401, -1),
             _response(200, 0),
@@ -95,7 +95,7 @@ def test_login_falls_back_to_attendance_stats_with_authorization():
 
 def test_missing_credentials_fails_without_request():
     """API Key 和 Authorization 均缺失时应直接返回明确错误。"""
-    with patch("autosignin.sites.rousipro.RequestUtils") as request_utils:
+    with patch("app.plugins.autosignin.sites.rousipro.RequestUtils") as request_utils:
         signin_result = RousiPro().signin(_site_info(apikey="", token=""))
         login_result = RousiPro().login(_site_info(apikey="", token=""))
 

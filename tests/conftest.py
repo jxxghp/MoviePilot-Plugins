@@ -1,8 +1,8 @@
 """pytest 全局引导：按目标选择插件代际，CI 工具测试不加载后端。
 
-``tests/run.py`` 会把 v1/v2/v3 放到独立 pytest 进程中运行；这里据本次目标路径只注入对应
-插件目录，避免同一进程同时加载不同代的同名包。``tests/ci``
-只校验仓库工具和 workflow，不需要 MoviePilot 运行时。
+``tests/run.py`` 默认把 CI、V3 专用实现和兼容 V3 的 V2 实现放到独立 pytest 进程中运行；
+手工执行历史代测试时仍按目标路径注入对应插件目录，避免同一进程同时加载不同代的同名包。
+``tests/ci`` 只校验仓库工具和 workflow，不初始化 MoviePilot 运行时。
 """
 
 from __future__ import annotations

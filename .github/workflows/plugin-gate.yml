@@ -15,6 +15,50 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Check plugin versions
         run: python .github/scripts/check_plugin_versions.py package.json package.v2.json package.v3.json
+
+      - name: Check new plugin tests
+        run: |
+          git fetch origin main:refs/remotes/origin/main --depth=1
+          python scripts/check_new_plugin_tests.py --base-ref origin/main
+
+  plugin-test-gate:
+    name: Plugin test gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout plugin repository
+        uses: actions/checkout@v6
+        with:
+          path: MoviePilot-Plugins-Official
+
+      - name: Checkout MoviePilot V3 backend
+        uses: actions/checkout@v6
+        with:
+          repository: jxxghp/MoviePilot
+          ref: v3
+          path: MoviePilot
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: '0.12.5'
+          python-version: '3.14'
+          enable-cache: true
+          cache-dependency-glob: |
+            MoviePilot/pyproject.toml
+            MoviePilot/uv.lock
+
+      - name: Install backend test environment
+        working-directory: MoviePilot
+        run: uv sync --locked
+
+      - name: Run V3 plugin tests
+        env:
+          MOVIEPILOT_BACKEND_PATH: ${{ github.workspace }}/MoviePilot
+        working-directory: MoviePilot-Plugins-Official
+        run: ../MoviePilot/.venv/bin/python tests/run.py

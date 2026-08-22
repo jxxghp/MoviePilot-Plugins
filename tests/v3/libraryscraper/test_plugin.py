@@ -1,10 +1,10 @@
 from pathlib import Path
 
-import libraryscraper
+from app.plugins import libraryscraper
 import pytest
 from app.core.config import settings
 from app.schemas import MediaSource, MediaType
-from libraryscraper import LibraryScraper
+from app.plugins.libraryscraper import LibraryScraper
 
 
 def test_scrape_item_preserves_unified_media_identity(monkeypatch) -> None:
@@ -133,7 +133,7 @@ def test_scrape_path_uses_pair_and_scraping_chain(tmp_path: Path, monkeypatch) -
     (
         (MediaSource.TMDB, "0"),
         (MediaSource.TMDB, "   "),
-        ("unknown", "123"),
+        ("Plugin Source:Invalid", "123"),
         (MediaSource.TMDB, None),
         (None, "123"),
     ),
@@ -142,10 +142,17 @@ def test_scrape_path_rejects_invalid_explicit_identity(
         tmp_path: Path,
         media_source,
         media_id,
+        monkeypatch,
 ) -> None:
     """零值、空白、未知来源和半对参数不得作为统一媒体身份传给识别链。"""
     media_file = tmp_path / "Movie.mkv"
     media_file.write_text("", encoding="utf-8")
+
+    class FakeMeta:
+        type = MediaType.MOVIE
+        name = "Movie"
+
+    monkeypatch.setattr(libraryscraper, "MetaInfoPath", lambda _path: FakeMeta())
 
     class FakeMediaChain:
         def __init__(self) -> None:

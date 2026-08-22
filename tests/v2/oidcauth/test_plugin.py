@@ -1,6 +1,6 @@
 """OidcAuth 插件与 MoviePilot 认证模块的兼容性回归测试。"""
 
-import oidcauth
+from app.plugins import oidcauth
 from app.core.auth import create_plugin_auth_ticket
 
 

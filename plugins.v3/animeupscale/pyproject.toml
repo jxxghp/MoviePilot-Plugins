@@ -1,0 +1,20 @@
+[project]
+name = "moviepilot-plugin-animeupscale"
+dynamic = ["version"]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2,<3",
+    "opencv-python-headless==4.10.0.84",
+    "safetensors>=0.4,<1",
+    "spandrel>=0.4,<0.5",
+    "spandrel-extra-arches>=0.2,<0.3",
+    "torch==2.5.1+cu121",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu121" }

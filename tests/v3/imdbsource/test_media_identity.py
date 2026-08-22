@@ -2,26 +2,41 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from app.schemas.types import MediaSource
-from imdbsource import ImdbSource
+from app.plugins.imdbsource import ImdbSource
+from app.plugins.imdbsource.imdbhelper import ImdbHelper
 
 
 def _build_plugin() -> ImdbSource:
-    """构造不触发插件初始化和外部请求的 IMDbSource 测试实例。"""
+    """构造只验证入口委托、不触发插件初始化的 IMDbSource 实例。"""
     plugin = object.__new__(ImdbSource)
     plugin._enabled = True
     plugin._imdb_helper = Mock()
-    plugin._imdb_helper.get_info_by_imdbid.return_value = None
-    plugin._imdb_helper.async_get_info_by_imdbid = AsyncMock(return_value=None)
+    plugin._imdb_helper.recognize_media = Mock(return_value=None)
+    plugin._imdb_helper.async_recognize_media = AsyncMock(return_value=None)
     return plugin
 
 
-def test_recognize_media_normalizes_explicit_imdb_identity() -> None:
-    """同步通用识别入口只把规范化后的 IMDb 身份传给单源 helper。"""
+def _build_helper() -> ImdbHelper:
+    """构造不触发网络请求的 ImdbHelper 实例。"""
+    helper = object.__new__(ImdbHelper)
+    helper.get_info_by_imdbid = Mock(return_value=None)
+    helper.async_get_info_by_imdbid = AsyncMock(return_value=None)
+    return helper
+
+
+def test_plugin_recognize_media_delegates_explicit_identity() -> None:
+    """插件入口只负责把统一识别参数委托给 IMDb helper。"""
     plugin = _build_plugin()
 
     assert plugin.recognize_media(media_source="imdb", media_id=" tt0111161 ") is None
 
-    plugin._imdb_helper.get_info_by_imdbid.assert_called_once_with("tt0111161")
+    plugin._imdb_helper.recognize_media.assert_called_once_with(
+        meta=None,
+        mtype=None,
+        media_source="imdb",
+        media_id=" tt0111161 ",
+        add_tmdb_id=False,
+    )
 
 
 @pytest.mark.parametrize(
@@ -39,16 +54,16 @@ def test_recognize_media_rejects_invalid_explicit_identity(
     media_id,
 ) -> None:
     """同步入口不得把零值、空白、半对或非 IMDb 身份发送到 IMDb。"""
-    plugin = _build_plugin()
+    helper = _build_helper()
 
-    assert plugin.recognize_media(media_source=media_source, media_id=media_id) is None
+    assert helper.recognize_media(media_source=media_source, media_id=media_id) is None
 
-    plugin._imdb_helper.get_info_by_imdbid.assert_not_called()
+    helper.get_info_by_imdbid.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_async_recognize_media_normalizes_explicit_imdb_identity() -> None:
-    """异步通用识别入口与同步入口采用相同的统一身份归一化规则。"""
+async def test_plugin_async_recognize_media_delegates_explicit_identity() -> None:
+    """插件异步入口只负责把统一识别参数委托给 IMDb helper。"""
     plugin = _build_plugin()
 
     assert await plugin.async_recognize_media(
@@ -56,7 +71,13 @@ async def test_async_recognize_media_normalizes_explicit_imdb_identity() -> None
         media_id=" tt0111161 ",
     ) is None
 
-    plugin._imdb_helper.async_get_info_by_imdbid.assert_awaited_once_with("tt0111161")
+    plugin._imdb_helper.async_recognize_media.assert_awaited_once_with(
+        meta=None,
+        mtype=None,
+        media_source=MediaSource.IMDb,
+        media_id=" tt0111161 ",
+        add_tmdb_id=False,
+    )
 
 
 @pytest.mark.asyncio
@@ -75,11 +96,11 @@ async def test_async_recognize_media_rejects_invalid_explicit_identity(
     media_id,
 ) -> None:
     """异步入口不得把无效统一身份发送到 IMDb。"""
-    plugin = _build_plugin()
+    helper = _build_helper()
 
-    assert await plugin.async_recognize_media(
+    assert await helper.async_recognize_media(
         media_source=media_source,
         media_id=media_id,
     ) is None
 
-    plugin._imdb_helper.async_get_info_by_imdbid.assert_not_awaited()
+    helper.async_get_info_by_imdbid.assert_not_awaited()
