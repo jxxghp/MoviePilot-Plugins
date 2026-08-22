@@ -18,6 +18,7 @@ import inspect
 import json
 import threading
 import time
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
@@ -1044,6 +1045,11 @@ class QbUploadLimiter(_PluginBase):
                 # 未配置大模型/调用失败/输出解析失败时回退常规阈值规则
                 ai_mode = False
                 ai_limits: Dict[str, float] = {}
+                # 本轮 _ai_evaluate 返回且仍有效的 no_limit 决策（限频期内复用缓存时
+                # 已经过新鲜度与账号门槛过滤），只有本轮有效的决策才能让种子跳过限速，
+                # 避免读取 _ai_decisions 原始缓存中已不适用（如账号分享率降到门槛以下）
+                # 的陈旧 no_limit 结论、导致本应回退常规阈值规则的种子被永久跳过
+                ai_no_limit: Set[str] = set()
                 if self._ai_enabled:
                     decisions = self._ai_evaluate(
                         service_name, eligible_torrents, downloader_type, self._load_site_ratios(), now
@@ -1053,6 +1059,10 @@ class QbUploadLimiter(_PluginBase):
                         ai_limits, ai_unlimit = self._build_ai_limits(
                             service_name, downloader_type, eligible_torrents, decisions
                         )
+                        ai_no_limit = {
+                            torrent_hash for torrent_hash, decision in decisions.items()
+                            if decision.get("action") == "no_limit"
+                        }
                         if ai_unlimit:
                             unlimit_count = self._apply_ai_unlimit(service_name, downloader, ai_unlimit)
                             summary_lines.append(f"{service_name}：AI 复核解限 {unlimit_count} 个种子")
@@ -1067,6 +1077,7 @@ class QbUploadLimiter(_PluginBase):
                     threshold_cache=threshold_cache,
                     ai_mode=ai_mode,
                     ai_limits=ai_limits,
+                    ai_no_limit=ai_no_limit,
                 )
                 # 对达标种子应用限速并统计结果
                 new_limited, already, failed, canceled = self._apply_limits(
@@ -1135,6 +1146,7 @@ class QbUploadLimiter(_PluginBase):
         threshold_cache: Dict[str, float],
         ai_mode: bool = False,
         ai_limits: Optional[Dict[str, float]] = None,
+        ai_no_limit: Optional[Set[str]] = None,
     ) -> List[Any]:
         """
         从种子列表中筛选出达到分享率阈值且（可选）属于勾选站点的种子。
@@ -1144,7 +1156,8 @@ class QbUploadLimiter(_PluginBase):
         每个达标种子实际使用的阈值写入 threshold_cache，供日志准确显示。
 
         AI 智能限速模式（ai_mode=True）：limit 决策按 AI 限速值限速；
-        no_limit 决策尊重不限速；无决策（限频期内新活跃、尚未评估）回退阈值规则兜底。
+        本轮有效的 no_limit 决策尊重不限速；无决策（限频期内新活跃、尚未评估、
+        账号分享率未达门槛等）回退阈值规则兜底。
         """
         # 站点筛选或站点单独阈值至少启用一项时，才需要识别种子所属站点
         need_site = bool(selected or self._site_share_ratios)
@@ -1166,15 +1179,14 @@ class QbUploadLimiter(_PluginBase):
             if selected and (not site or site.lower() not in selected):
                 continue
 
-            # AI 智能限速模式：limit 决策限速、no_limit 尊重不限速、
+            # AI 智能限速模式：limit 决策限速、本轮有效的 no_limit 决策尊重不限速、
             # 已限速种子未要求调整时维持现状、无决策回退阈值规则兜底，避免「漏管」
             if ai_mode:
                 ai_value = (ai_limits or {}).get(torrent_hash)
                 if ai_value is not None:
                     matched.append(torrent)
                     continue
-                ai_decision = self._ai_decisions.get(service_name, {}).get(torrent_hash)
-                if ai_decision and ai_decision.get("action") == "no_limit":
+                if torrent_hash in (ai_no_limit or set()):
                     continue
                 if torrent_hash in self._limited_hashes.get(service_name, set()):
                     # 已限速种子：AI 未要求调整（防抖维持现状/本轮未评估），跳过不重新按阈值限速
@@ -1457,13 +1469,21 @@ class QbUploadLimiter(_PluginBase):
                 states[torrent_hash] = self._STATE_PENDING
             else:
                 states[torrent_hash] = self._STATE_IDLE
-            # 页面快照：名称/站点/状态/AI 决策（限速值与原因）
+            # 页面快照：名称/站点/状态/AI 决策（限速值与原因）；
+            # 限速值取下载器中实际生效的值——防抖维持现状时实际值与 AI 原始建议不同，
+            # 常规规则回退产生的限速没有 AI 决策，取实际值才能如实展示种子限速状态
             decision = decisions.get(torrent_hash) or {}
+            actual_kb = 0.0
+            if states[torrent_hash] == self._STATE_LIMITED:
+                actual_kb = self._torrent_current_limit_kb(torrent, downloader_type)
+                if actual_kb <= 0:
+                    # 实际值暂时读取失败时回退 AI 原始建议，避免限速中种子显示无限速
+                    actual_kb = float(decision.get("limit_kb") or 0)
             snapshot[torrent_hash] = {
                 "name": self._torrent_name(torrent, downloader_type) or torrent_hash,
                 "site": (site_cache or {}).get(torrent_hash) or self._torrent_site(torrent, downloader_type),
                 "state": states[torrent_hash],
-                "limit_kb": int(decision.get("limit_kb") or 0),
+                "limit_kb": int(actual_kb),
                 "reason": str(decision.get("reason") or ""),
             }
         # 清理已不在下载器中的种子：以状态与快照的并集为基准，
@@ -2796,7 +2816,10 @@ class QbUploadLimiter(_PluginBase):
             return default
         if number != number:  # NaN
             return default
-        number = round(number, 1)
+        # 用十进制 ROUND_HALF_UP 做「四舍五入」归一化到 1 位小数：
+        # Python 内置 round 是银行家舍入（半偶），1.25 会被归一化为 1.2，
+        # 与表单承诺的多余小数位四舍五入（1.25 -> 1.3）语义不符
+        number = float(Decimal(str(number)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
         if number <= 0:
             return default
         return number
