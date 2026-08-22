@@ -148,7 +148,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.3.4"
+    plugin_version = "0.3.5"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -433,37 +433,6 @@ class LunaTVSource(_PluginBase):
                             "model": "config_url",
                             "label": "LunaTV 配置地址",
                             "placeholder": DEFAULT_CONFIG_URL,
-                        },
-                    },
-                    {
-                        "component": "VTextField",
-                        "props": {
-                            "model": "source_allowlist",
-                            "label": "资源站白名单（可留空）",
-                            "placeholder": DEFAULT_SOURCE_ALLOWLIST,
-                            "hint": "留空使用 LunaTV-config 全部站点；只在需要限制来源时填写。",
-                            "persistentHint": True,
-                        },
-                    },
-                    {
-                        "component": "VSelect",
-                        "props": {
-                            "model": "source_strategy",
-                            "label": "资源站策略",
-                            "items": [
-                                {"title": "按配置顺序选一个（推荐）", "value": "first"},
-                                {"title": "所有匹配源都排队", "value": "all"},
-                            ],
-                        },
-                    },
-                    {
-                        "component": "VTextField",
-                        "props": {
-                            "model": "download_root",
-                            "label": "下载目录覆盖（可留空）",
-                            "placeholder": "留空，复用 MoviePilot 目录设置",
-                            "hint": "目录、智能助手、TMDB、整理链和媒体库均默认复用 MoviePilot；这里只提供可选覆盖。",
-                            "persistentHint": True,
                         },
                     },
                     {
