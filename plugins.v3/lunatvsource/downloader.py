@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import os
+import re
 import subprocess
 import tempfile
 import threading
 import time
+import urllib.parse
+import urllib.request
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -247,40 +252,168 @@ class DownloadQueue:
                 temp_path.unlink(missing_ok=True)
             except OSError:
                 pass
+            self._remove_empty_parents(destination.parent, root)
             raise
         if not temp_path.exists() or temp_path.stat().st_size <= 0:
             try:
                 temp_path.unlink(missing_ok=True)
             except OSError:
                 pass
+            self._remove_empty_parents(destination.parent, root)
             raise IOError("ffmpeg 未生成有效文件")
         os.replace(temp_path, destination)
         return str(destination)
 
     @staticmethod
+    def _remove_empty_parents(path: Path, root: Path) -> None:
+        """Remove only empty directories below the configured download root."""
+        current = path
+        while current != root and root in current.parents:
+            try:
+                current.rmdir()
+            except OSError:
+                break
+            current = current.parent
+
+    @staticmethod
     def _run_ffmpeg(ffmpeg_path: str, url: str, output: Path) -> None:
-        command = [
-            ffmpeg_path or "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-protocol_whitelist",
-            "file,http,https,tcp,tls,crypto",
-            "-i",
-            url,
-            "-c",
-            "copy",
-            "-bsf:a",
-            "aac_adtstoasc",
-            "-f",
-            "mp4",
-            str(output),
+        with tempfile.TemporaryDirectory(prefix="lunatv-hls-") as temp_dir:
+            input_url = DownloadQueue._prepare_hls_input(url, Path(temp_dir))
+            command = [
+                ffmpeg_path or "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-protocol_whitelist",
+                "file,http,https,tcp,tls,crypto",
+                "-allowed_extensions",
+                "ALL",
+                "-allowed_segment_extensions",
+                "ALL",
+                "-extension_picky",
+                "0",
+                "-i",
+                input_url,
+                "-c",
+                "copy",
+                "-bsf:a",
+                "aac_adtstoasc",
+                "-f",
+                "mp4",
+                str(output),
+            ]
+            completed = subprocess.run(command, capture_output=True, text=True, timeout=6 * 60 * 60)
+            if completed.returncode != 0:
+                detail = (completed.stderr or completed.stdout or "ffmpeg 执行失败").strip()
+                raise RuntimeError(detail[-1200:])
+
+    @staticmethod
+    def _prepare_hls_input(url: str, temp_dir: Path) -> str:
+        """Materialize playlists locally so ffmpeg can read zstd HTTP responses.
+
+        Some Apple CMS CDNs apply ``Content-Encoding: zstd`` even when the
+        client did not request it. ffmpeg does not decode that HTTP content
+        encoding, so passing the remote URL directly makes a valid playlist
+        look like corrupt binary data.
+        """
+
+        visited: Dict[str, str] = {}
+
+        def materialize(playlist_url: str) -> str:
+            if playlist_url in visited:
+                return visited[playlist_url]
+            request = urllib.request.Request(
+                playlist_url,
+                headers={"User-Agent": "MoviePilot-LunaTV/1.0", "Accept-Encoding": "identity"},
+            )
+            with urllib.request.urlopen(request, timeout=30) as response:
+                payload = response.read()
+                encoding = (response.headers.get("Content-Encoding") or "").lower()
+            if encoding == "zstd" or payload.startswith(b"\x28\xb5\x2f\xfd"):
+                payload = DownloadQueue._decompress_zstd(payload)
+            try:
+                text = payload.decode("utf-8-sig")
+            except UnicodeDecodeError as exc:
+                raise RuntimeError("m3u8 响应不是可识别的文本格式") from exc
+            if "#EXTM3U" not in text[:100]:
+                raise RuntimeError("资源站返回的不是有效 m3u8")
+
+            local_path = temp_dir / f"playlist-{len(visited)}.m3u8"
+            visited[playlist_url] = str(local_path)
+            lines = text.splitlines()
+            rewritten: List[str] = []
+            child_playlist = False
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith("#EXT-X-STREAM-INF"):
+                    child_playlist = True
+                    rewritten.append(line)
+                    continue
+                if stripped and not stripped.startswith("#"):
+                    absolute = urllib.parse.urljoin(playlist_url, stripped)
+                    if child_playlist or urllib.parse.urlparse(absolute).path.lower().endswith(".m3u8"):
+                        rewritten.append(materialize(absolute))
+                    else:
+                        rewritten.append(absolute)
+                    child_playlist = False
+                    continue
+
+                def replace_uri(match: re.Match[str]) -> str:
+                    absolute = urllib.parse.urljoin(playlist_url, match.group(1))
+                    if stripped.startswith("#EXT-X-MEDIA"):
+                        absolute = materialize(absolute)
+                    return f'URI="{absolute}"'
+
+                rewritten.append(re.sub(r'URI="([^"]+)"', replace_uri, line))
+            local_path.write_text("\n".join(rewritten) + "\n", encoding="utf-8")
+            return str(local_path)
+
+        return materialize(url)
+
+    @staticmethod
+    def _decompress_zstd(payload: bytes) -> bytes:
+        try:
+            import zstandard  # type: ignore[import-not-found]
+
+            return zstandard.ZstdDecompressor().decompress(payload)
+        except ImportError:
+            pass
+
+        candidates = [
+            ctypes.util.find_library("zstd"),
+            "libzstd.so.1",
+            "libzstd.so",
+            "/opt/homebrew/lib/libzstd.dylib",
+            "libzstd.dylib",
         ]
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=6 * 60 * 60)
-        if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout or "ffmpeg 执行失败").strip()
-            raise RuntimeError(detail[-1200:])
+        library = None
+        for candidate in candidates:
+            if not candidate:
+                continue
+            try:
+                library = ctypes.CDLL(candidate)
+                break
+            except OSError:
+                continue
+        if library is None:
+            raise RuntimeError("资源站使用 zstd 压缩，但运行环境缺少 zstd 解码库")
+
+        library.ZSTD_getFrameContentSize.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+        library.ZSTD_getFrameContentSize.restype = ctypes.c_ulonglong
+        library.ZSTD_decompress.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t]
+        library.ZSTD_decompress.restype = ctypes.c_size_t
+        library.ZSTD_isError.argtypes = [ctypes.c_size_t]
+        library.ZSTD_isError.restype = ctypes.c_uint
+        source = ctypes.create_string_buffer(payload)
+        size = int(library.ZSTD_getFrameContentSize(source, len(payload)))
+        if size in {0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFE} or size <= 0:
+            raise RuntimeError("无法确定 zstd m3u8 的解压大小")
+        target = ctypes.create_string_buffer(size)
+        result = int(library.ZSTD_decompress(target, size, source, len(payload)))
+        if library.ZSTD_isError(result):
+            raise RuntimeError("zstd m3u8 解压失败")
+        return target.raw[:result]
 
     def stop(self) -> None:
         with self._lock:

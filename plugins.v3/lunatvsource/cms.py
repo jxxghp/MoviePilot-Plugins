@@ -392,7 +392,13 @@ class AppleCmsClient:
             return None
         return _result_from_item(source, self._enrich_item(source, items[0]))
 
-    def search(self, query: str, limit: int = 20, stop_after_first_source: bool = False) -> List[CmsResult]:
+    def search(
+        self,
+        query: str,
+        limit: int = 20,
+        stop_after_first_source: bool = False,
+        enrich: bool = True,
+    ) -> List[CmsResult]:
         results: List[CmsResult] = []
         seen: set[Tuple[str, str]] = set()
         for source in self.sources:
@@ -404,7 +410,10 @@ class AppleCmsClient:
                     payload = self._request(source, ac="list", wd=query, pg=1, pages=1)
                     items = self._items(payload)
                 for item in items[:limit]:
-                    result = _result_from_item(source, self._enrich_item(source, item))
+                    result = _result_from_item(
+                        source,
+                        self._enrich_item(source, item) if enrich else item,
+                    )
                     key = (result.source_key, result.vod_id)
                     if result.title and key not in seen:
                         seen.add(key)
