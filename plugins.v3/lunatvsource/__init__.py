@@ -148,7 +148,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.3.2"
+    plugin_version = "0.3.3"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -193,18 +193,8 @@ class LunaTVSource(_PluginBase):
         return "vue", "dist/assets"
 
     def get_sidebar_nav(self) -> List[Dict[str, Any]]:
-        if not self._enabled:
-            return []
-        return [
-            {
-                "nav_key": "main",
-                "title": "LunaTV 订阅",
-                "icon": "mdi-play-network",
-                "section": "subscribe",
-                "permission": "manage",
-                "order": 55,
-            }
-        ]
+        """Do not add a parallel subscription page; use MoviePilot's native one."""
+        return []
 
     def get_page(self) -> List[Dict[str, Any]]:
         """Keep the standard plugin detail page useful when the Vue workbench is unavailable."""
