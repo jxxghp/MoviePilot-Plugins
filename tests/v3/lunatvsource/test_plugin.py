@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 def test_status_exposes_serial_queue_and_ai_fallback():
-    plugin = LunaTVSource()
+    plugin = object.__new__(LunaTVSource)
     plugin.init_plugin({"enabled": True, "ai_enabled": False})
     status = plugin.api_status()["data"]
     assert status["enabled"] is True
@@ -17,7 +17,7 @@ def test_status_exposes_serial_queue_and_ai_fallback():
 
 
 def test_manual_download_rejects_non_http_url():
-    plugin = LunaTVSource()
+    plugin = object.__new__(LunaTVSource)
     plugin.init_plugin({"enabled": True, "download_root": "/tmp/lunatv-test"})
     result = plugin.api_download({"url": "file:///tmp/movie.m3u8"})
     assert result["success"] is False
@@ -38,7 +38,7 @@ def test_directory_settings_are_used_when_plugin_root_is_empty(monkeypatch):
             return [Directory()]
 
     monkeypatch.setattr(plugin_module, "_HostDirectoryHelper", DirectoryHelper)
-    plugin = LunaTVSource()
+    plugin = object.__new__(LunaTVSource)
     plugin.init_plugin({"enabled": True, "use_moviepilot_dirs": False})
     assert plugin._effective_root(media_type="tv") == "/media/courses"
     assert plugin.api_status()["data"]["directories"]["source"] == "MoviePilot 目录设置"
@@ -70,7 +70,7 @@ def test_tmdb_association_can_map_flat_seasons(monkeypatch):
     monkeypatch.setattr(plugin_module, "_HostMediaSource", Source)
     monkeypatch.setattr(plugin_module, "_HostMetaInfo", Meta)
     monkeypatch.setattr(plugin_module, "_HostMediaChain", MediaChain)
-    plugin = LunaTVSource()
+    plugin = object.__new__(LunaTVSource)
     plugin.init_plugin({"enabled": True, "tmdb_association": False})
     result = _result_from_item(
         CmsSource("demo", "演示", "https://cms.example/vod"),
@@ -113,7 +113,7 @@ def test_tmdb_candidate_search_returns_compact_choices(monkeypatch):
     monkeypatch.setattr(plugin_module, "_HostMediaSource", Source)
     monkeypatch.setattr(plugin_module, "_HostMetaInfo", Meta)
     monkeypatch.setattr(plugin_module, "_HostMediaChain", MediaChain)
-    plugin = LunaTVSource()
+    plugin = object.__new__(LunaTVSource)
     plugin.init_plugin({"enabled": True, "tmdb_association": True})
     response = plugin.api_tmdb_search({"title": "候选作品", "media_type": "movie"})
     assert response["success"] is True
@@ -137,7 +137,7 @@ def test_host_meta_info_uses_v3_function_signature(monkeypatch):
         return type("Meta", (), {"type": "电影"})()
 
     monkeypatch.setattr(plugin_module, "_HostMetaInfo", meta_info)
-    plugin = LunaTVSource()
+    plugin = object.__new__(LunaTVSource)
     plugin.init_plugin({"enabled": True})
     meta = plugin._host_meta_info("示例作品", "2024")
     assert calls == ["示例作品 (2024)"]
@@ -152,7 +152,7 @@ def test_discover_accepts_native_keyword_and_stops_after_first_source(monkeypatc
             calls.append((query, kwargs))
             return []
 
-    plugin = LunaTVSource()
+    plugin = object.__new__(LunaTVSource)
     plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     response = plugin.api_discover(keyword="示例电影")
@@ -175,7 +175,7 @@ def test_global_media_search_returns_lunatv_cards_without_explore_tab(monkeypatc
                 {"vod_id": "42", "vod_name": "示例电影", "type_name": "电影"},
             )]
 
-    plugin = LunaTVSource()
+    plugin = object.__new__(LunaTVSource)
     plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     monkeypatch.setattr(plugin, "_prepare_result", lambda result: (result, {}))
@@ -188,7 +188,7 @@ def test_global_media_search_returns_lunatv_cards_without_explore_tab(monkeypatc
 
 
 def test_global_media_search_respects_explicit_other_source():
-    plugin = LunaTVSource()
+    plugin = object.__new__(LunaTVSource)
     plugin.init_plugin({"enabled": True})
     meta = type("Meta", (), {"name": "示例电影"})()
     assert plugin.search_medias(meta=meta, media_source=("themoviedb",)) == []
@@ -214,7 +214,7 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
             )]
 
     monkeypatch.setattr(plugin_module, "_schemas", type("Schemas", (), {"TorrentInfo": TorrentInfo}))
-    plugin = LunaTVSource()
+    plugin = object.__new__(LunaTVSource)
     plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     items = plugin.search_torrents(site={"id": 1}, keyword="示例剧", page=0)
@@ -225,7 +225,7 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
 
 
 def test_native_download_is_enqueued_into_serial_queue(tmp_path: Path):
-    plugin = LunaTVSource()
+    plugin = object.__new__(LunaTVSource)
     plugin.init_plugin({"enabled": True})
     token = plugin._resource_token({
         "url": "https://example.test/movie.m3u8",
@@ -246,7 +246,7 @@ def test_native_download_is_enqueued_into_serial_queue(tmp_path: Path):
 
 
 def test_native_download_reports_duplicate_instead_of_fake_success(tmp_path: Path):
-    plugin = LunaTVSource()
+    plugin = object.__new__(LunaTVSource)
     plugin.init_plugin({"enabled": True})
     token = plugin._resource_token({
         "url": "https://example.test/movie.m3u8",
