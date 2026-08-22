@@ -382,6 +382,27 @@ dependencies = [
 V3 的 `app.sdk.network.AsyncRequestUtils` 使用 HTTPX2。默认请求返回 `httpx2.Response`，传入
 自管客户端时只使用 `httpx2.AsyncClient`；直接依赖响应或异常类型的插件代码应导入 `httpx2`。
 
+网络、代理、TLS 或超时错误默认由 `AsyncRequestUtils` 拦截并返回 `None`。需要区分失败原因时传入
+`raise_exception=True`，并捕获 `httpx2.RequestError` 或其具体子类：
+
+```python
+import httpx2
+
+from app.sdk.logging import logger
+from app.sdk.network import AsyncRequestUtils
+
+
+try:
+    response = await AsyncRequestUtils().get_res(url, raise_exception=True)
+except httpx2.RequestError as error:
+    logger.warning(f"请求失败：{error}")
+    return None
+```
+
+HTTP 4xx/5xx 响应不会因为 `raise_exception=True` 自动抛出。插件应按业务检查 `status_code`，或调用
+`response.raise_for_status()` 并处理 `httpx2.HTTPStatusError`。`httpx.RequestError` 不能捕获
+HTTPX2 异常。
+
 插件直接调用的第三方 SDK 仍使用该 SDK 声明的 HTTP 客户端版本，不需要为此替换其内部依赖。
 不要调用 `httpx2.alias_httpx()` 全局改写 `httpx`，同一进程内的主程序、其它插件和第三方 SDK
 共享导入状态，全局替换会越过插件边界。

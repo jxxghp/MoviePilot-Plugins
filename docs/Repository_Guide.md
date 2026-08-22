@@ -202,7 +202,8 @@ V3 的 `pyproject.toml` 只承载插件依赖：依赖写入 `[project].dependen
 
 V3 插件通过 `app.sdk.network.AsyncRequestUtils` 发起异步 HTTP 请求时使用 HTTPX2；自管客户端
 使用 `httpx2.AsyncClient`，不得通过 `httpx2.alias_httpx()` 改写进程级导入。第三方 SDK 继续使用
-其自身声明的 HTTP 客户端版本。
+其自身声明的 HTTP 客户端版本。SDK 默认把 HTTPX2 请求异常转换为 `None`；传入
+`raise_exception=True` 时捕获 `httpx2.RequestError`，HTTP 状态错误仍由插件按业务显式处理。
 
 插件测试统一使用生产命名空间 `app.plugins.<plugin_id>`。测试引导由主程序共享实现暴露
 对应代际源码，插件仓不维护顶层导入兼容层，避免同一源码形成重复模块和重复实例。
