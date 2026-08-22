@@ -28,7 +28,7 @@ const message = reactive({ text: '', type: 'info' });
 const defaults = {
   enabled: false,
   config_url: 'https://raw.githubusercontent.com/hafrey1/LunaTV-config/main/LunaTV-config.json',
-  source_allowlist: 'suonizy.net,suoniapi.com,kuaichezy.com,caiji.kuaichezy.org,www.hongniuzy.com,www.hongniuzy2.com,wujinzy.net,wujinzy.me,api.wujinapi.me,wujinapi.me,guangsuzy.com,api.guangsuapi.com,ukuzy0.com,api.ukuapi88.com,www.xinlangzy.com,xinlangapi.com,okzyw.cc',
+  source_allowlist: '',
   mode: 'download',
   source_strategy: 'first',
   download_root: '',
@@ -59,6 +59,9 @@ async function saveConfig() {
     // 这些能力由 MoviePilot 原生设置统一管理；旧版保存过的 false 值也不能关闭宿主桥接。
     const payload = {
       ...config,
+      source_allowlist: '',
+      source_strategy: 'first',
+      download_root: '',
       ai_enabled: true,
       tmdb_association: true,
       use_moviepilot_dirs: true,
@@ -89,9 +92,7 @@ return (_ctx, _cache) => {
   const _component_VAlert = _resolveComponent("VAlert");
   const _component_VSwitch = _resolveComponent("VSwitch");
   const _component_VCol = _resolveComponent("VCol");
-  const _component_VSelect = _resolveComponent("VSelect");
   const _component_VTextField = _resolveComponent("VTextField");
-  const _component_VTextarea = _resolveComponent("VTextarea");
   const _component_VRow = _resolveComponent("VRow");
 
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
@@ -106,7 +107,7 @@ return (_ctx, _cache) => {
           color: "primary",
           class: "me-2"
         }),
-        _cache[6] || (_cache[6] = _createElementVNode("div", { class: "text-h6" }, "LunaTV 原生桥接配置", -1)),
+        _cache[3] || (_cache[3] = _createElementVNode("div", { class: "text-h6" }, "LunaTV 原生桥接配置", -1)),
         _createVNode(_component_VSpacer),
         _createVNode(_component_VBtn, {
           icon: "mdi-content-save",
@@ -146,17 +147,14 @@ return (_ctx, _cache) => {
       density: "compact",
       class: "mb-4"
     }, {
-      default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
+      default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
         _createTextVNode(" 保存后，LunaTV/苹果 CMS 会作为 MoviePilot 的原生探索与媒体源出现；请直接使用 MoviePilot 的搜索、订阅和下载流程。 ", -1)
       ]))]),
       _: 1
     }),
     _createVNode(_component_VRow, { dense: "" }, {
       default: _withCtx(() => [
-        _createVNode(_component_VCol, {
-          cols: "12",
-          md: "6"
-        }, {
+        _createVNode(_component_VCol, { cols: "12" }, {
           default: _withCtx(() => [
             _createVNode(_component_VSwitch, {
               modelValue: config.enabled,
@@ -168,57 +166,13 @@ return (_ctx, _cache) => {
           ]),
           _: 1
         }),
-        _createVNode(_component_VCol, {
-          cols: "12",
-          md: "6"
-        }, {
-          default: _withCtx(() => [
-            _createVNode(_component_VSelect, {
-              modelValue: config.source_strategy,
-              "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((config.source_strategy) = $event)),
-              items: [{ title: '按配置顺序选一个（推荐）', value: 'first' }, { title: '所有匹配源都排队', value: 'all' }],
-              label: "资源站策略",
-              variant: "outlined",
-              density: "comfortable",
-              "hide-details": "auto"
-            }, null, 8, ["modelValue"])
-          ]),
-          _: 1
-        }),
-        _createVNode(_component_VCol, { cols: "12" }, {
-          default: _withCtx(() => [
-            _createVNode(_component_VTextField, {
-              modelValue: config.download_root,
-              "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((config.download_root) = $event)),
-              label: "下载目录（可留空，自动复用 MoviePilot）",
-              placeholder: "/media/incoming/lunatv",
-              hint: "留空按电影/电视剧读取 MoviePilot 的本地目录。",
-              "persistent-hint": "",
-              variant: "outlined"
-            }, null, 8, ["modelValue"])
-          ]),
-          _: 1
-        }),
         _createVNode(_component_VCol, { cols: "12" }, {
           default: _withCtx(() => [
             _createVNode(_component_VTextField, {
               modelValue: config.config_url,
-              "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((config.config_url) = $event)),
+              "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((config.config_url) = $event)),
               label: "LunaTV 配置地址",
               variant: "outlined"
-            }, null, 8, ["modelValue"])
-          ]),
-          _: 1
-        }),
-        _createVNode(_component_VCol, { cols: "12" }, {
-          default: _withCtx(() => [
-            _createVNode(_component_VTextarea, {
-              modelValue: config.source_allowlist,
-              "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((config.source_allowlist) = $event)),
-              label: "启用资源站（逗号分隔）",
-              rows: "2",
-              variant: "outlined",
-              "hide-details": "auto"
             }, null, 8, ["modelValue"])
           ]),
           _: 1
@@ -232,8 +186,8 @@ return (_ctx, _cache) => {
       density: "compact",
       class: "mt-3"
     }, {
-      default: _withCtx(() => [...(_cache[8] || (_cache[8] = [
-        _createTextVNode(" 目录、DeepSeek、TMDB、整理规则和媒体服务器均沿用 MoviePilot 设置；这里仅保留 LunaTV 源地址、资源站策略和可选目录覆盖。任务始终串行执行。 ", -1)
+      default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
+        _createTextVNode(" 目录、DeepSeek、TMDB、整理规则、媒体服务器和链接权限均沿用 MoviePilot 设置；订阅地址内的资源站全部读取。任务始终串行执行。 ", -1)
       ]))]),
       _: 1
     }),
@@ -243,7 +197,7 @@ return (_ctx, _cache) => {
         loading: saving.value,
         onClick: saveConfig
       }, {
-        default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
+        default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
           _createTextVNode("保存配置", -1)
         ]))]),
         _: 1

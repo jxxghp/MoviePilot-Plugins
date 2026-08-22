@@ -148,7 +148,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.3.3"
+    plugin_version = "0.3.4"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -396,7 +396,7 @@ class LunaTVSource(_PluginBase):
         ], {
             "enabled": False,
             "config_url": DEFAULT_CONFIG_URL,
-            "source_allowlist": DEFAULT_SOURCE_ALLOWLIST,
+            "source_allowlist": "",
             "mode": "download",
             "source_strategy": "first",
             "download_root": "",
@@ -471,7 +471,7 @@ class LunaTVSource(_PluginBase):
                         "props": {
                             "type": "info",
                             "variant": "tonal",
-                            "text": "无需重复配置 DeepSeek、TMDB、下载目录、整理规则或 Emby。任务串行执行，目录内没有正在下载的缓存文件后才显示完整文件夹。",
+                            "text": "无需重复配置 DeepSeek、TMDB、下载目录、整理规则、Emby 或链接权限；订阅地址内的资源站全部读取。任务串行执行，目录内没有正在下载的缓存文件后才显示完整文件夹。",
                         },
                     },
                 ],
@@ -479,7 +479,7 @@ class LunaTVSource(_PluginBase):
         ], {
             "enabled": False,
             "config_url": DEFAULT_CONFIG_URL,
-            "source_allowlist": DEFAULT_SOURCE_ALLOWLIST,
+            "source_allowlist": "",
             "source_strategy": "first",
             "download_root": "",
             "use_moviepilot_dirs": True,
@@ -530,7 +530,14 @@ class LunaTVSource(_PluginBase):
 
     def _client(self) -> AppleCmsClient:
         config_url = str(self._config.get("config_url") or DEFAULT_CONFIG_URL)
-        allowlist = _source_keys(self._config.get("source_allowlist") or DEFAULT_SOURCE_ALLOWLIST)
+        # 空白表示直接使用订阅地址内全部资源站；只有用户明确填写白名单时才过滤。
+        # 旧版默认白名单也视为未配置，避免升级后继续隐式过滤订阅内容。
+        configured_allowlist = str(self._config.get("source_allowlist") or "").strip()
+        allowlist = (
+            ()
+            if not configured_allowlist or configured_allowlist == DEFAULT_SOURCE_ALLOWLIST
+            else _source_keys(configured_allowlist)
+        )
         sources = load_sources_from_url(
             config_url,
             timeout=float(self._config.get("request_timeout") or 15),
