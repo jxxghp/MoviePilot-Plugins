@@ -1,6 +1,6 @@
-"""Optional MoviePilot system-assistant title normalization.
+"""MoviePilot system-assistant title normalization.
 
-The plugin never stores an API key.  When enabled, it reads the host's
+The plugin never stores an API key.  It reads the host's
 ``LLM_*`` settings (DeepSeek and other OpenAI-compatible providers are
 supported by MoviePilot) and asks for a short search title.  Any host or model
 failure falls back to the original title, so search/subscription refresh keeps
@@ -22,7 +22,7 @@ from .naming import normalize_search_title
 class AiTitleNormalizer:
     _fence = re.compile(r"^```(?:json)?\s*([\s\S]*?)\s*```$", re.IGNORECASE)
 
-    def __init__(self, enabled: bool = False, logger: Any = None) -> None:
+    def __init__(self, enabled: bool = True, logger: Any = None) -> None:
         self.enabled = bool(enabled)
         self.logger = logger
 

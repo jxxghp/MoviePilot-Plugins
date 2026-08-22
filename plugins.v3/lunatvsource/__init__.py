@@ -146,9 +146,9 @@ class LunaTVSource(_PluginBase):
     """第三方苹果 CMS/m3u8 订阅下载插件。"""
 
     plugin_name = "LunaTV 资源订阅"
-    plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，注册 V3 媒体源，串行下载到指定目录并可刷新 Emby/原生整理链。"
+    plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.3.1"
+    plugin_version = "0.3.2"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -173,7 +173,9 @@ class LunaTVSource(_PluginBase):
     def init_plugin(self, config: Optional[Dict[str, Any]] = None) -> None:
         self._config = dict(config or {})
         self._enabled = _bool(self._config.get("enabled"), False)
-        self._ai = AiTitleNormalizer(_bool(self._config.get("ai_enabled"), False), LOGGER)
+        # 智能助手始终读取 MoviePilot 全局配置；没有配置时由 AiTitleNormalizer 自动回退。
+        # 保留旧版 ai_enabled 仅为兼容历史配置，不再让插件设置覆盖宿主设置。
+        self._ai = AiTitleNormalizer(True, LOGGER)
         self._queue = DownloadQueue(
             load=lambda key, default=None: self.get_data(key, default),
             save=lambda key, value: self.save_data(key, value),
@@ -262,7 +264,7 @@ class LunaTVSource(_PluginBase):
             {"path": "/tasks/{task_id}/retry", "endpoint": self.api_retry, "methods": ["POST"], "auth": "bear"},
         ]
 
-    def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+    def get_form_legacy(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
             {
                 "component": "VForm",
@@ -396,7 +398,7 @@ class LunaTVSource(_PluginBase):
                         "props": {
                             "type": "info",
                             "variant": "tonal",
-                            "text": "订阅任务串行执行；完成下载后才进入整理。目录内没有正在下载的缓存文件时，媒体库才会显示完整文件夹。多季合集若无法确定季边界，会先提示人工确认，不会静默错放。",
+                        "text": "订阅任务串行执行；目录、智能助手、TMDB、整理链和媒体库均复用 MoviePilot 设置。目录内没有正在下载的缓存文件后，媒体库才会显示完整文件夹。",
                         },
                     },
                 ],
@@ -413,9 +415,92 @@ class LunaTVSource(_PluginBase):
             "request_timeout": 15,
             "poll_minutes": 30,
             "queue_minutes": 1,
-            "ai_enabled": False,
+            "ai_enabled": True,
             "tmdb_association": True,
-            "moviepilot_organize": False,
+            "moviepilot_organize": True,
+            "native_recognize": True,
+            "mediaserver_name": "",
+        }
+
+    def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        """Expose only source-specific options; host services stay authoritative."""
+        return [
+            {
+                "component": "VForm",
+                "content": [
+                    {
+                        "component": "VSwitch",
+                        "props": {
+                            "model": "enabled",
+                            "label": "启用原生桥接",
+                            "hint": "启用后，LunaTV 会出现在 MoviePilot 原生探索、搜索与订阅流程中。",
+                            "persistentHint": True,
+                        },
+                    },
+                    {
+                        "component": "VTextField",
+                        "props": {
+                            "model": "config_url",
+                            "label": "LunaTV 配置地址",
+                            "placeholder": DEFAULT_CONFIG_URL,
+                        },
+                    },
+                    {
+                        "component": "VTextField",
+                        "props": {
+                            "model": "source_allowlist",
+                            "label": "资源站白名单（可留空）",
+                            "placeholder": DEFAULT_SOURCE_ALLOWLIST,
+                            "hint": "留空使用 LunaTV-config 全部站点；只在需要限制来源时填写。",
+                            "persistentHint": True,
+                        },
+                    },
+                    {
+                        "component": "VSelect",
+                        "props": {
+                            "model": "source_strategy",
+                            "label": "资源站策略",
+                            "items": [
+                                {"title": "按配置顺序选一个（推荐）", "value": "first"},
+                                {"title": "所有匹配源都排队", "value": "all"},
+                            ],
+                        },
+                    },
+                    {
+                        "component": "VTextField",
+                        "props": {
+                            "model": "download_root",
+                            "label": "下载目录覆盖（可留空）",
+                            "placeholder": "留空，复用 MoviePilot 目录设置",
+                            "hint": "目录、智能助手、TMDB、整理链和媒体库均默认复用 MoviePilot；这里只提供可选覆盖。",
+                            "persistentHint": True,
+                        },
+                    },
+                    {
+                        "component": "VAlert",
+                        "props": {
+                            "type": "info",
+                            "variant": "tonal",
+                            "text": "无需重复配置 DeepSeek、TMDB、下载目录、整理规则或 Emby。任务串行执行，目录内没有正在下载的缓存文件后才显示完整文件夹。",
+                        },
+                    },
+                ],
+            }
+        ], {
+            "enabled": False,
+            "config_url": DEFAULT_CONFIG_URL,
+            "source_allowlist": DEFAULT_SOURCE_ALLOWLIST,
+            "source_strategy": "first",
+            "download_root": "",
+            "use_moviepilot_dirs": True,
+            "mode": "download",
+            "ffmpeg_path": "ffmpeg",
+            "request_timeout": 15,
+            "poll_minutes": 30,
+            "queue_minutes": 1,
+            "ai_enabled": True,
+            "tmdb_association": True,
+            "moviepilot_organize": True,
             "native_recognize": True,
             "mediaserver_name": "",
         }
@@ -564,7 +649,7 @@ class LunaTVSource(_PluginBase):
         with ffmpeg/``.strm`` directly inside the MoviePilot container.
         """
 
-        if not _bool(self._config.get("use_moviepilot_dirs"), True) or _HostDirectoryHelper is None:
+        if _HostDirectoryHelper is None:
             return []
         try:
             entries = _HostDirectoryHelper().get_download_dirs()
@@ -643,8 +728,6 @@ class LunaTVSource(_PluginBase):
     def _associate_tmdb(self, result: CmsResult) -> Dict[str, Any]:
         """Find the default TMDB identity through MoviePilot's native chain."""
 
-        if not _bool(self._config.get("tmdb_association"), True):
-            return {"status": "disabled", "query": normalize_search_title(result.title)}
         query = normalize_search_title(result.title)
         cache_key = f"{query}|{result.year}|{result.media_type}"
         with self._tmdb_cache_lock:
@@ -784,8 +867,6 @@ class LunaTVSource(_PluginBase):
 
     def _native_transfer(self, task: DownloadTask, output: str) -> str:
         """让 MoviePilot 原生整理链接管已下载文件；不可用时保留直写结果。"""
-        if not _bool(self._config.get("moviepilot_organize"), False):
-            return "direct"
         if _HostStorageChain is None or _HostTransferChain is None:
             return "fallback:host-chain-unavailable"
         if task.mode == "strm":
@@ -894,7 +975,7 @@ class LunaTVSource(_PluginBase):
                     "auto_roots": directories,
                     "source": "插件设置" if configured_root else ("MoviePilot 目录设置" if directories else "未配置"),
                 },
-                "tmdb_association": _bool(self._config.get("tmdb_association"), True),
+                "tmdb_association": True,
             },
         }
 
@@ -1198,7 +1279,7 @@ class LunaTVSource(_PluginBase):
 
     def get_module(self) -> Dict[str, Any]:
         """把已声明的媒体来源接到 V3 识别链；只认 lunatv 自身身份。"""
-        if not self._enabled or not _bool(self._config.get("native_recognize"), True):
+        if not self._enabled:
             return {}
         return {
             "recognize_media": self.recognize_media,
