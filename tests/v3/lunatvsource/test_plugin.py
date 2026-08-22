@@ -5,8 +5,18 @@ from pathlib import Path
 
 
 def _plugin(config):
+    class PluginData:
+        def __init__(self):
+            self.values = {}
+
+        def get_data(self, _plugin_id, key):
+            return self.values.get(key)
+
+        def save(self, _plugin_id, key, value):
+            self.values[key] = value
+
     plugin = object.__new__(LunaTVSource)
-    plugin.plugindata = {}
+    plugin.plugindata = PluginData()
     plugin._logger = plugin_module.LOGGER
     plugin.init_plugin(config)
     return plugin

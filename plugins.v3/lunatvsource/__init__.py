@@ -179,13 +179,13 @@ class LunaTVSource(_PluginBase):
         # 保留旧版 ai_enabled 仅为兼容历史配置，不再让插件设置覆盖宿主设置。
         self._ai = AiTitleNormalizer(True, LOGGER)
         self._queue = DownloadQueue(
-            load=lambda key, default=None: self.get_data(key, default),
+            load=lambda key, default=None: self.get_data(key) or default,
             save=lambda key, value: self.save_data(key, value),
             notify=self._notify,
             on_complete=self._record_completion,
         )
         with self._tmdb_cache_lock:
-            self._tmdb_cache = dict(self.get_data("tmdb_match_cache_v1", {}) or {})
+            self._tmdb_cache = dict(self.get_data("tmdb_match_cache_v1") or {})
         with self._resource_search_lock:
             self._resource_search_cache = {}
 
@@ -1044,7 +1044,7 @@ class LunaTVSource(_PluginBase):
         return {"success": True, "data": queue.list_tasks()}
 
     def api_history(self) -> Dict[str, Any]:
-        history = self.get_data("download_history_v1", []) or []
+        history = self.get_data("download_history_v1") or []
         return {"success": True, "data": list(reversed(history[-500:]))}
 
     def api_download(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -1092,7 +1092,7 @@ class LunaTVSource(_PluginBase):
     def _record_completion(self, task: DownloadTask, output: str) -> None:
         organize_state = self._native_transfer(task, output)
         self._record_native_history(task, output)
-        history = self.get_data("download_history_v1", []) or []
+        history = self.get_data("download_history_v1") or []
         history.append(
             {
                 "task_id": task.task_id,
