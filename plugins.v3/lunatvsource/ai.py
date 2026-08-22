@@ -16,6 +16,8 @@ import re
 import threading
 from typing import Any, Dict, Optional, Tuple
 
+from .naming import normalize_search_title
+
 
 class AiTitleNormalizer:
     _fence = re.compile(r"^```(?:json)?\s*([\s\S]*?)\s*```$", re.IGNORECASE)
@@ -115,10 +117,10 @@ class AiTitleNormalizer:
     def normalize(self, title: str, year: str = "", media_type: str = "") -> Tuple[str, str]:
         original = str(title or "").strip()
         if not self.enabled or not original:
-            return original, "disabled"
+            return normalize_search_title(original), "disabled"
         config, message = self._config()
         if not config:
-            return original, message
+            return normalize_search_title(original), message
         try:
             from app.agent.llm import LLMHelper
             from langchain_core.messages import HumanMessage, SystemMessage
@@ -152,5 +154,5 @@ class AiTitleNormalizer:
         except Exception as exc:  # AI is an enhancement, never a hard dependency.
             if self.logger:
                 self.logger.warning("LunaTV AI 标题识别失败：%s", exc)
-            return original, str(exc)
-        return original, "ai_empty"
+            return normalize_search_title(original), str(exc)
+        return normalize_search_title(original), "ai_empty"

@@ -9,11 +9,63 @@ from pathlib import PurePath
 INVALID = re.compile(r"[\\/:*?\"<>|]+")
 SPACE = re.compile(r"\s+")
 
+# Apple CMS names often carry publishing metadata in the title itself.  Keep
+# this deliberately conservative: remove only suffixes that cannot be part of
+# a real show title, while leaving ordinary punctuation and years untouched.
+_SEASON_RANGE_SUFFIX = re.compile(
+    r"(?:\s*[\(\[（【]?\s*)"
+    r"(?:第\s*)?\d{1,3}\s*[-~至到]\s*\d{1,3}\s*季"
+    r"(?:\s*[\)\]）】])?\s*$",
+    re.IGNORECASE,
+)
+_SEASON_SUFFIX = re.compile(
+    r"(?:\s*[\(\[（【]?\s*)(?:第\s*)?\d{1,3}\s*季(?:\s*[\)\]）】])?\s*$",
+    re.IGNORECASE,
+)
+_VIDEO_METADATA_SUFFIX = re.compile(
+    r"(?:\s*[\(\[（【]?\s*)"
+    r"(?:完结|全集|全季|高清|超清|蓝光|中字|双语|国语|粤语|1080p|2160p|4k|web[- ]?dl|hdtv)"
+    r"(?:\s*[\)\]）】])?\s*$",
+    re.IGNORECASE,
+)
+
 
 def safe_component(value: str, fallback: str = "未命名") -> str:
     value = INVALID.sub(" ", str(value or ""))
     value = SPACE.sub(" ", value).strip(" .")
     return value or fallback
+
+
+def normalize_media_title(value: str) -> str:
+    """Return a stable display/search title without CMS bundle suffixes.
+
+    The raw CMS title remains available in search results.  This helper is
+    used only for folder/file naming and search fallback so a title such as
+    ``海底小纵队中文版 (1-8季)`` does not become a misleading media folder.
+    """
+
+    result = SPACE.sub(" ", str(value or "")).strip()
+    previous = None
+    while result and result != previous:
+        previous = result
+        result = _SEASON_RANGE_SUFFIX.sub("", result).strip()
+        result = _SEASON_SUFFIX.sub("", result).strip()
+        result = _VIDEO_METADATA_SUFFIX.sub("", result).strip()
+    return result or "未命名"
+
+
+def normalize_search_title(value: str) -> str:
+    """Conservative title used for CMS/TMDB lookup when AI is unavailable."""
+
+    result = normalize_media_title(value)
+    # Strip common release-group brackets only when they are clearly metadata.
+    result = re.sub(
+        r"\s*[\[【(（][^\]】)）]*(?:中字|双语|国语|粤语|1080p|2160p|4k|web[- ]?dl|hdtv)[^\]】)）]*[\]】)）]",
+        " ",
+        result,
+        flags=re.IGNORECASE,
+    )
+    return SPACE.sub(" ", result).strip() or "未命名"
 
 
 def extension_for_url(url: str, default: str = ".mp4") -> str:
@@ -33,7 +85,7 @@ def media_path(
     url: str,
     mode: str = "download",
 ) -> tuple[str, str]:
-    title_component = safe_component(title)
+    title_component = safe_component(normalize_media_title(title))
     year_component = f" ({safe_component(year, '')})" if str(year or "").strip() else ""
     display_title = f"{title_component}{year_component}"
     ext = ".strm" if mode == "strm" else extension_for_url(url)

@@ -74,9 +74,25 @@ except Exception:  # pragma: no cover - standalone tests
     CronTrigger = None  # type: ignore[assignment,misc]
 
 from .ai import AiTitleNormalizer
-from .cms import AppleCmsClient, CmsEpisode, CmsResult, CmsSource, load_sources_from_url
+from .cms import (
+    AppleCmsClient,
+    CmsEpisode,
+    CmsResult,
+    CmsSource,
+    apply_season_counts,
+    load_sources_from_url,
+)
 from .downloader import DownloadQueue, DownloadTask
-from .naming import media_path
+from .naming import media_path, normalize_media_title, normalize_search_title
+
+try:  # Optional host services used for directory and TMDB association hints.
+    from app.application.directory import DirectoryHelper as _HostDirectoryHelper
+    from app.chain.media import MediaChain as _HostMediaChain
+    from app.sdk.media import MetaInfo as _HostMetaInfo
+except Exception:  # pragma: no cover - standalone tests
+    _HostDirectoryHelper = None
+    _HostMediaChain = None
+    _HostMetaInfo = None
 
 
 LOGGER = logging.getLogger("LunaTVSource")
@@ -115,13 +131,24 @@ def _source_keys(value: Any) -> Tuple[str, ...]:
     return tuple(dict.fromkeys(str(item).strip().lower() for item in values if str(item).strip()))
 
 
+def _enum_value(value: Any) -> str:
+    return str(getattr(value, "value", value) or "").strip().lower()
+
+
+def _media_type_value(value: Any) -> str:
+    text = _enum_value(value)
+    if text in {"电视剧", "tv", "series", "show", "tvshow"}:
+        return "tv"
+    return "movie"
+
+
 class LunaTVSource(_PluginBase):
     """第三方苹果 CMS/m3u8 订阅下载插件。"""
 
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，注册 V3 媒体源，串行下载到指定目录并可刷新 Emby/原生整理链。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.2.0"
+    plugin_version = "0.3.0"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -136,6 +163,8 @@ class LunaTVSource(_PluginBase):
     _refresh_running = False
     _media_sync_lock = threading.Lock()
     _media_sync_running = False
+    _tmdb_cache_lock = threading.RLock()
+    _tmdb_cache: Dict[str, Dict[str, Any]] = {}
 
     def __init__(self) -> None:
         super().__init__()
@@ -151,6 +180,8 @@ class LunaTVSource(_PluginBase):
             notify=self._notify,
             on_complete=self._record_completion,
         )
+        with self._tmdb_cache_lock:
+            self._tmdb_cache = dict(self.get_data("tmdb_match_cache_v1", {}) or {})
 
     def get_state(self) -> bool:
         return self._enabled
@@ -177,6 +208,8 @@ class LunaTVSource(_PluginBase):
         """Keep the standard plugin detail page useful when the Vue workbench is unavailable."""
 
         root = str(self._config.get("download_root") or "").strip()
+        if not root:
+            root = self._effective_root(media_type="tv")
         return [
             {
                 "component": "VAlert",
@@ -186,7 +219,7 @@ class LunaTVSource(_PluginBase):
                     "text": (
                         f"已启用，下载目录：{root}。任务按队列串行执行，完成后可刷新 Emby。"
                         if root
-                        else "请先在插件设置中填写容器内下载目录，再创建 MoviePilot 订阅；未填写时不会接管下载。"
+                        else "未找到下载目录。可在插件设置填写目录，或在 MoviePilot 目录设置中配置本地下载目录。"
                     ),
                 },
             }
@@ -279,8 +312,19 @@ class LunaTVSource(_PluginBase):
                         "component": "VTextField",
                         "props": {
                             "model": "download_root",
-                            "label": "下载目录（容器内路径）",
+                            "label": "下载目录（可留空，自动复用 MoviePilot）",
                             "placeholder": "/media/incoming/lunatv",
+                            "hint": "填写后优先使用此目录；留空则按媒体类型读取 MoviePilot 的本地下载目录。",
+                            "persistentHint": True,
+                        },
+                    },
+                    {
+                        "component": "VSwitch",
+                        "props": {
+                            "model": "use_moviepilot_dirs",
+                            "label": "自动读取 MoviePilot 目录设置",
+                            "hint": "按电影/电视剧匹配已配置的本地下载目录；远程存储不会直接写入。",
+                            "persistentHint": True,
                         },
                     },
                     {
@@ -306,6 +350,15 @@ class LunaTVSource(_PluginBase):
                             "model": "ai_enabled",
                             "label": "启用系统智能助手识别",
                             "hint": "复用 MoviePilot 智能助手配置（DeepSeek 等），自动清理片名后再查 TMDB/CMS；未配置时自动回退原名称。",
+                            "persistentHint": True,
+                        },
+                    },
+                    {
+                        "component": "VSwitch",
+                        "props": {
+                            "model": "tmdb_association",
+                            "label": "搜索后自动关联 TMDB",
+                            "hint": "使用 MoviePilot 原生识别链给资源预选作品和季数；未匹配时仍可手动处理。",
                             "persistentHint": True,
                         },
                     },
@@ -342,7 +395,7 @@ class LunaTVSource(_PluginBase):
                         "props": {
                             "type": "info",
                             "variant": "tonal",
-                            "text": "订阅任务串行执行；完成下载后才进入整理。目录内没有正在下载的缓存文件时，媒体库才会显示完整文件夹。",
+                            "text": "订阅任务串行执行；完成下载后才进入整理。目录内没有正在下载的缓存文件时，媒体库才会显示完整文件夹。多季合集若无法确定季边界，会先提示人工确认，不会静默错放。",
                         },
                     },
                 ],
@@ -354,11 +407,13 @@ class LunaTVSource(_PluginBase):
             "mode": "download",
             "source_strategy": "first",
             "download_root": "",
+            "use_moviepilot_dirs": True,
             "ffmpeg_path": "ffmpeg",
             "request_timeout": 15,
             "poll_minutes": 30,
             "queue_minutes": 1,
             "ai_enabled": False,
+            "tmdb_association": True,
             "moviepilot_organize": False,
             "native_recognize": True,
             "mediaserver_name": "",
@@ -425,24 +480,34 @@ class LunaTVSource(_PluginBase):
         except Exception:
             return media_type
 
-    def _media_info(self, result: CmsResult) -> Any:
+    def _media_info(self, result: CmsResult, association: Optional[Dict[str, Any]] = None) -> Any:
         """将 CMS 结果转换成 V3 原生 MediaInfo，供探索/订阅/整理链复用。"""
         if _schemas is None or not hasattr(_schemas, "MediaInfo"):
             return result.to_dict()
         seasons: Dict[int, List[int]] = {}
         for episode in result.episodes:
-            seasons.setdefault(episode.season, []).append(episode.episode)
-        title_year = f"{result.title} ({result.year})" if result.year else result.title
-        return _schemas.MediaInfo(
-            type="电视剧" if result.media_type == "tv" else "电影",
-            title=result.title,
-            year=result.year or None,
-            title_year=title_year,
-            media_source=self._host_media_source(),
-            media_id=f"{result.source_key}:{result.vod_id}",
-            seasons={key: sorted(set(value)) for key, value in seasons.items()},
-            detail_link=result.detail or None,
-        )
+            if episode.season_known:
+                seasons.setdefault(episode.season, []).append(episode.episode)
+        association = association or {}
+        title = normalize_media_title(result.title)
+        title_year = f"{title} ({result.year})" if result.year else title
+        fields: Dict[str, Any] = {
+            "type": "电视剧" if result.media_type == "tv" else "电影",
+            "title": title,
+            "year": result.year or None,
+            "title_year": title_year,
+            "media_source": self._host_media_source(),
+            "media_id": f"{result.source_key}:{result.vod_id}",
+            "seasons": {key: sorted(set(value)) for key, value in seasons.items()},
+            "detail_link": result.detail or None,
+        }
+        if association.get("status") == "matched" and association.get("tmdb_id"):
+            fields["tmdb_id"] = association["tmdb_id"]
+        try:
+            return _schemas.MediaInfo(**fields)
+        except TypeError:
+            fields.pop("tmdb_id", None)
+            return _schemas.MediaInfo(**fields)
 
     def _sdk_media_info(self, result: CmsResult) -> Any:
         """构造识别链使用的旧式 SDK MediaInfo（与探索 API 的 schema 分开）。"""
@@ -451,10 +516,11 @@ class LunaTVSource(_PluginBase):
 
             seasons: Dict[int, List[int]] = {}
             for episode in result.episodes:
-                seasons.setdefault(episode.season, []).append(episode.episode)
+                if episode.season_known:
+                    seasons.setdefault(episode.season, []).append(episode.episode)
             return SdkMediaInfo(
                 type=self._host_media_type(result.media_type),
-                title=result.title,
+                title=normalize_media_title(result.title),
                 year=result.year or None,
                 media_source=self._host_media_source(),
                 media_id=f"{result.source_key}:{result.vod_id}",
@@ -463,12 +529,157 @@ class LunaTVSource(_PluginBase):
         except Exception:
             return self._media_info(result)
 
-    def _effective_root(self, subscribe: Any = None) -> str:
-        return str(
-            self._config.get("download_root")
-            or getattr(subscribe, "save_path", "")
-            or ""
-        ).strip()
+    @staticmethod
+    def _media_type_matches(configured: Any, media_type: str) -> bool:
+        value = str(getattr(configured, "value", configured) or "").strip().lower()
+        if not value:
+            return True
+        if media_type == "tv":
+            return value in {"电视剧", "tv", "series", "tvshow"}
+        return value in {"电影", "movie", "film"}
+
+    def _system_directory_infos(self, media_type: str = "") -> List[Dict[str, Any]]:
+        """Read local MoviePilot directory settings without copying them.
+
+        The plugin only consumes configured local download roots.  Remote
+        storage entries are intentionally omitted because this adapter writes
+        with ffmpeg/``.strm`` directly inside the MoviePilot container.
+        """
+
+        if not _bool(self._config.get("use_moviepilot_dirs"), True) or _HostDirectoryHelper is None:
+            return []
+        try:
+            entries = _HostDirectoryHelper().get_download_dirs()
+        except Exception as exc:
+            self._logger.debug("读取 MoviePilot 目录设置失败：%s", exc)
+            return []
+        result: List[Dict[str, Any]] = []
+        for item in entries or []:
+            storage = str(getattr(item, "storage", "local") or "local").strip().lower()
+            path = str(getattr(item, "download_path", "") or "").strip()
+            if storage not in {"local", ""} or not path.startswith("/"):
+                continue
+            if media_type and not self._media_type_matches(getattr(item, "media_type", ""), media_type):
+                continue
+            result.append(
+                {
+                    "name": str(getattr(item, "name", "") or ""),
+                    "priority": int(getattr(item, "priority", 0) or 0),
+                    "download_path": path,
+                    "library_path": str(getattr(item, "library_path", "") or "").strip(),
+                    "media_type": str(getattr(getattr(item, "media_type", ""), "value", getattr(item, "media_type", "")) or ""),
+                }
+            )
+        return sorted(result, key=lambda item: (item["priority"], item["download_path"]))
+
+    def _system_directory_info(self, media_type: str, root: str = "") -> Optional[Dict[str, Any]]:
+        infos = self._system_directory_infos(media_type)
+        target = str(root or "").strip()
+        if target:
+            try:
+                target_path = Path(target).expanduser().resolve()
+                for item in infos:
+                    if Path(item["download_path"]).expanduser().resolve() == target_path:
+                        return item
+            except OSError:
+                pass
+        return infos[0] if infos else None
+
+    def _effective_root(self, subscribe: Any = None, media_type: str = "tv") -> str:
+        explicit = str(self._config.get("download_root") or "").strip()
+        if explicit:
+            return explicit
+        save_path = str(getattr(subscribe, "save_path", "") or "").strip()
+        if save_path:
+            return save_path
+        directory = self._system_directory_info(media_type)
+        return str(directory.get("download_path") if directory else "").strip()
+
+    @staticmethod
+    def _tmdb_source() -> Any:
+        if _HostMediaSource is None:
+            return None
+        return getattr(_HostMediaSource, "TMDB", None)
+
+    @staticmethod
+    def _season_counts(media: Any) -> Dict[int, int]:
+        raw = getattr(media, "seasons", None) or {}
+        counts: Dict[int, int] = {}
+        if isinstance(raw, dict):
+            for season, episodes in raw.items():
+                try:
+                    season_number = int(season)
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(episodes, (list, tuple, set)):
+                    count = len(episodes)
+                else:
+                    try:
+                        count = int(episodes)
+                    except (TypeError, ValueError):
+                        count = 0
+                if season_number > 0 and count > 0:
+                    counts[season_number] = count
+        return counts
+
+    def _associate_tmdb(self, result: CmsResult) -> Dict[str, Any]:
+        """Find the default TMDB identity through MoviePilot's native chain."""
+
+        if not _bool(self._config.get("tmdb_association"), True):
+            return {"status": "disabled", "query": normalize_search_title(result.title)}
+        query = normalize_search_title(result.title)
+        cache_key = f"{query}|{result.year}|{result.media_type}"
+        with self._tmdb_cache_lock:
+            cached = self._tmdb_cache.get(cache_key)
+        if cached is not None:
+            return dict(cached)
+        if _HostMediaChain is None or _HostMetaInfo is None or self._tmdb_source() is None:
+            return {"status": "unavailable", "query": query}
+        try:
+            media = _HostMediaChain().recognize_media(
+                meta=_HostMetaInfo(title=query, year=result.year or None),
+                mtype=self._host_media_type(result.media_type),
+                media_source=self._tmdb_source(),
+                cache=True,
+            )
+            if not media:
+                association = {"status": "unmatched", "query": query}
+            else:
+                media_id = str(getattr(media, "media_id", "") or "")
+                tmdb_id = getattr(media, "tmdb_id", None)
+                if not tmdb_id and media_id.isdigit():
+                    tmdb_id = int(media_id)
+                association = {
+                    "status": "matched",
+                    "query": query,
+                    "media_source": str(getattr(getattr(media, "media_source", None), "value", getattr(media, "media_source", "themoviedb")) or "themoviedb"),
+                    "media_id": media_id or (str(tmdb_id) if tmdb_id else ""),
+                    "tmdb_id": tmdb_id,
+                    "title": str(getattr(media, "title", "") or ""),
+                    "year": str(getattr(media, "year", "") or ""),
+                    "season_counts": self._season_counts(media),
+                }
+        except Exception as exc:
+            self._logger.debug("TMDB 默认关联失败 title=%s: %s", query, exc)
+            association = {"status": "error", "query": query, "message": str(exc)}
+        with self._tmdb_cache_lock:
+            self._tmdb_cache[cache_key] = dict(association)
+            self.save_data("tmdb_match_cache_v1", dict(self._tmdb_cache))
+        return association
+
+    def _prepare_result(self, result: CmsResult) -> Tuple[CmsResult, Dict[str, Any]]:
+        association = self._associate_tmdb(result)
+        if association.get("status") == "matched":
+            result = apply_season_counts(result, association.get("season_counts") or {})
+        return result, association
+
+    def _result_payload(self, result: CmsResult) -> Dict[str, Any]:
+        prepared, association = self._prepare_result(result)
+        payload = prepared.to_dict()
+        payload["normalized_title"] = normalize_media_title(prepared.title)
+        payload["search_title"] = normalize_search_title(prepared.title)
+        payload["association"] = association
+        return payload
 
     def _local_episode_exists(self, task: DownloadTask) -> bool:
         try:
@@ -499,10 +710,12 @@ class LunaTVSource(_PluginBase):
             fileitem = _HostStorageChain().get_file_item(storage="local", path=Path(output))
             if not fileitem:
                 return "fallback:file-not-found"
+            directory = self._system_directory_info(task.media_type, task.root)
+            target_path = str((directory or {}).get("library_path") or task.root).strip()
             state, message = _HostTransferChain().manual_transfer(
                 fileitem=fileitem,
                 target_storage="local",
-                target_path=Path(task.root),
+                target_path=Path(target_path),
                 media_source=self._host_media_source(),
                 media_id=task.media_id,
                 mtype=self._host_media_type(task.media_type),
@@ -582,6 +795,8 @@ class LunaTVSource(_PluginBase):
 
     def api_status(self) -> Dict[str, Any]:
         queue = self._queue or DownloadQueue(lambda *_: None, lambda *_: None, self._notify)
+        directories = self._system_directory_infos()
+        configured_root = str(self._config.get("download_root") or "").strip()
         return {
             "success": True,
             "data": {
@@ -590,6 +805,12 @@ class LunaTVSource(_PluginBase):
                 "ai": (self._ai or AiTitleNormalizer(False)).status(),
                 "media_source": PLUGIN_MEDIA_SOURCE,
                 "media_server_sync_running": self._media_sync_running,
+                "directories": {
+                    "configured_root": configured_root,
+                    "auto_roots": directories,
+                    "source": "插件设置" if configured_root else ("MoviePilot 目录设置" if directories else "未配置"),
+                },
+                "tmdb_association": _bool(self._config.get("tmdb_association"), True),
             },
         }
 
@@ -612,7 +833,7 @@ class LunaTVSource(_PluginBase):
                 str(payload.get("media_type") or ""),
             )
             results = self._client().search(search_query)
-            return {"success": True, "data": [item.to_dict() for item in results]}
+            return {"success": True, "data": [self._result_payload(item) for item in results]}
         except Exception as exc:
             self._logger.warning("LunaTV search failed: %s", exc)
             return {"success": False, "message": f"搜索失败：{exc}", "data": []}
@@ -626,7 +847,11 @@ class LunaTVSource(_PluginBase):
         try:
             search_query, _ = (self._ai or AiTitleNormalizer(False)).normalize(query)
             results = self._client().search(search_query, limit=max(1, min(int(count or 30), 50)))
-            return {"success": True, "data": [self._media_info(result) for result in results]}
+            data = []
+            for result in results:
+                prepared, association = self._prepare_result(result)
+                data.append(self._media_info(prepared, association))
+            return {"success": True, "data": data}
         except Exception as exc:
             self._logger.warning("LunaTV discover failed: %s", exc)
             return {"success": False, "message": f"探索失败：{exc}", "data": []}
@@ -645,6 +870,8 @@ class LunaTVSource(_PluginBase):
         if queue is None:
             return {"success": False, "message": "插件尚未初始化", "data": {}}
         episode_payload = payload.get("episode") or {}
+        if not isinstance(episode_payload, dict):
+            episode_payload = {}
         url = str(episode_payload.get("url") or payload.get("url") or "").strip()
         if not url:
             return {"success": False, "message": "缺少 m3u8 地址", "data": {}}
@@ -656,13 +883,20 @@ class LunaTVSource(_PluginBase):
             episode=int(episode_payload.get("episode") or payload.get("episode") or 1),
             label=str(episode_payload.get("label") or ""),
             url=url,
+            season_known=bool(episode_payload.get("season_known", True)),
         )
+        media_type = _media_type_value(payload.get("media_type") or "tv")
+        root = str(payload.get("root") or "").strip()
+        if not root:
+            root = self._effective_root(media_type=media_type)
+        if not root:
+            return {"success": False, "message": "未找到下载目录，请先配置插件目录或 MoviePilot 目录设置", "data": {}}
         task = DownloadTask.from_episode(
             episode,
-            title=str(payload.get("title") or "未命名"),
+            title=normalize_media_title(str(payload.get("title") or "未命名")),
             year=str(payload.get("year") or ""),
-            media_type=str(payload.get("media_type") or "tv"),
-            root=str(payload.get("root") or self._config.get("download_root") or ""),
+            media_type=media_type,
+            root=root,
             mode=str(payload.get("mode") or self._config.get("mode") or "download"),
             ffmpeg_path=str(payload.get("ffmpeg_path") or self._config.get("ffmpeg_path") or "ffmpeg"),
             media_source="lunatv",
@@ -748,6 +982,8 @@ class LunaTVSource(_PluginBase):
 
         client = self._client()
         queued = 0
+        skipped_ambiguous = 0
+        skipped_no_directory = 0
         active_subscribes = []
         for subscribe in subscribes or []:
             state = str(getattr(getattr(subscribe, "state", None), "value", getattr(subscribe, "state", "R")) or "R")
@@ -760,7 +996,7 @@ class LunaTVSource(_PluginBase):
                 continue
             normalized_title = title
             try:
-                identity_source = str(getattr(subscribe, "media_source", "") or "").strip().lower()
+                identity_source = _enum_value(getattr(subscribe, "media_source", ""))
                 identity_id = str(getattr(subscribe, "media_id", "") or "").strip()
                 identity_result: Optional[CmsResult] = None
                 if identity_source == PLUGIN_MEDIA_SOURCE and ":" in identity_id:
@@ -776,6 +1012,11 @@ class LunaTVSource(_PluginBase):
                     )
                     normalized_title = search_query or title
                     results = client.search(search_query)
+                prepared_results = []
+                for result in results:
+                    prepared, _ = self._prepare_result(result)
+                    prepared_results.append(prepared)
+                results = prepared_results
             except Exception as exc:
                 self._logger.warning("订阅搜索失败 title=%s error=%s", title, exc)
                 continue
@@ -792,20 +1033,33 @@ class LunaTVSource(_PluginBase):
             for result in results:
                 if target_type and result.media_type and target_type not in {result.media_type, "电视剧" if result.media_type == "tv" else "电影"}:
                     continue
-                if any(season <= 0 or episode.season == season for episode in result.episodes):
+                season_in_range = result.season_range[0] <= season <= result.season_range[1]
+                if any(season <= 0 or episode.season == season for episode in result.episodes) or (
+                    result.season_ambiguous and season > 0 and season_in_range
+                ):
                     matching_results.append(result)
             if str(self._config.get("source_strategy") or "first") != "all":
                 matching_results = matching_results[:1]
             for result in matching_results:
+                if result.season_ambiguous:
+                    # A flat 1-8 season bundle cannot be named safely without
+                    # exact season counts.  TMDB mapping above resolves the
+                    # common case; otherwise leave it for manual selection.
+                    skipped_ambiguous += 1
+                    continue
+                root = self._effective_root(subscribe, result.media_type)
+                if not root:
+                    skipped_no_directory += 1
+                    continue
                 for episode in result.episodes:
                     if season > 0 and episode.season != season:
                         continue
                     task = DownloadTask.from_episode(
                         episode,
-                        title=normalized_title if normalized_title != title else result.title,
+                        title=normalize_media_title(normalized_title if normalized_title != title else result.title),
                         year=result.year,
                         media_type=result.media_type,
-                        root=self._effective_root(subscribe),
+                        root=root,
                         mode=str(self._config.get("mode") or "download"),
                         ffmpeg_path=str(self._config.get("ffmpeg_path") or "ffmpeg"),
                         media_source="lunatv",
@@ -815,7 +1069,12 @@ class LunaTVSource(_PluginBase):
                         continue
                     if queue.enqueue(task):
                         queued += 1
-        return {"subscriptions": len(active_subscribes), "queued": queued}
+        return {
+            "subscriptions": len(active_subscribes),
+            "queued": queued,
+            "skipped_ambiguous": skipped_ambiguous,
+            "skipped_no_directory": skipped_no_directory,
+        }
 
     def run_queue(self) -> Dict[str, Any]:
         if not self._queue:
@@ -852,7 +1111,7 @@ class LunaTVSource(_PluginBase):
         media_id: Optional[str] = None,
         **_: Any,
     ) -> Any:
-        if not self._enabled or str(media_source or "") != PLUGIN_MEDIA_SOURCE:
+        if not self._enabled or _enum_value(media_source) != PLUGIN_MEDIA_SOURCE:
             return None
         try:
             client = self._client()
@@ -864,7 +1123,9 @@ class LunaTVSource(_PluginBase):
             if result is None and meta is not None:
                 title = str(getattr(meta, "title", "") or "").strip()
                 if title:
-                    result = (client.search(title, limit=1) or [None])[0]
+                    result = (client.search(normalize_search_title(title), limit=1) or [None])[0]
+            if result:
+                result, _ = self._prepare_result(result)
             return self._sdk_media_info(result) if result else None
         except Exception as exc:
             self._logger.debug("LunaTV 原生识别失败：%s", exc)

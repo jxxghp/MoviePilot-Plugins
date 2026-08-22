@@ -84,7 +84,7 @@ async function enqueue(result, episode) {
       source_key: result.source_key,
       vod_id: result.vod_id,
       media_id: `${result.source_key}:${result.vod_id}`,
-      title: result.title,
+      title: result.normalized_title || result.title,
       year: result.year,
       media_type: result.media_type,
       episode,
@@ -110,6 +110,7 @@ async function sync() {
 }
 
 const pendingTasks = computed(() => tasks.value.filter(task => task.state === 'pending').length)
+const directoryStatus = computed(() => status.value.directories || {})
 const stateLabel = (state) => ({ pending: '排队中', running: '下载中', completed: '已完成', failed: '失败' }[state] || state)
 
 onMounted(load)
@@ -121,7 +122,7 @@ onMounted(load)
       <div>
         <div class="lunatv-eyebrow">THIRD-PARTY CMS / M3U8</div>
         <h1>LunaTV 资源订阅</h1>
-        <p>订阅、搜索、排队下载；播放交给既有 Emby，插件只负责资源接入和整理。</p>
+        <p>搜索、订阅、串行下载；播放继续交给既有 Emby。</p>
       </div>
       <div class="header-status">
         <span class="chip">串行队列</span>
@@ -136,6 +137,13 @@ onMounted(load)
 
     <div v-if="error" class="alert error">{{ error }}</div>
     <div v-if="notice" class="alert success">{{ notice }}</div>
+
+    <section class="setup-strip">
+      <span>目录：{{ directoryStatus.configured_root || directoryStatus.auto_roots?.[0]?.download_path || '未配置' }}</span>
+      <span>来源：{{ directoryStatus.source || '未配置' }}</span>
+      <span>TMDB：{{ status.tmdb_association ? '自动关联' : '关闭' }}</span>
+      <span>缓存：完成后才整理</span>
+    </section>
 
     <section class="panel search-panel">
       <div class="section-title">资源搜索</div>
@@ -152,9 +160,12 @@ onMounted(load)
           <div class="result-main">
             <strong>{{ result.title }}<span v-if="result.year"> ({{ result.year }})</span></strong>
             <small>{{ result.source_name }} · {{ result.media_type === 'tv' ? '电视剧' : '电影' }}</small>
+            <small v-if="result.association?.status === 'matched'" class="matched">已关联 TMDB：{{ result.association.title || result.association.media_id }}</small>
+            <small v-else-if="result.association?.status === 'unmatched'" class="muted">未匹配 TMDB，将按原始名称处理</small>
+            <small v-if="result.season_ambiguous" class="warning-text">检测到 {{ result.season_range?.[0] }}-{{ result.season_range?.[1] }} 季，但源地址没有季边界，暂不自动下载</small>
           </div>
           <div v-if="result.episodes?.length" class="episode-list">
-            <button v-for="episode in result.episodes" :key="`${episode.season}-${episode.episode}-${episode.url}`" class="episode-button" @click="enqueue(result, episode)">
+            <button v-for="episode in result.episodes" :key="`${episode.season}-${episode.episode}-${episode.url}`" class="episode-button" :disabled="result.season_ambiguous" :title="result.season_ambiguous ? '请先确认季边界' : '加入串行队列'" @click="enqueue(result, episode)">
               {{ result.media_type === 'tv' ? `S${String(episode.season).padStart(2, '0')}E${String(episode.episode).padStart(2, '0')}` : '下载' }}
             </button>
           </div>
@@ -175,7 +186,7 @@ onMounted(load)
         <div class="section-title">下载队列 <span class="muted">待处理 {{ pendingTasks }}</span></div>
         <div v-if="!tasks.length" class="empty">暂无任务</div>
         <div v-for="task in tasks.slice(0, 12)" :key="task.task_id" class="task-row">
-          <div><strong>{{ task.title }}</strong><small>S{{ String(task.season).padStart(2, '0') }}E{{ String(task.episode).padStart(2, '0') }}</small></div>
+          <div><strong>{{ task.title }}</strong><small v-if="task.media_type === 'tv'">S{{ String(task.season).padStart(2, '0') }}E{{ String(task.episode).padStart(2, '0') }}</small><small v-else>电影</small></div>
           <div class="task-actions">
             <span :class="['status', task.state]">{{ stateLabel(task.state) }}</span>
             <button v-if="task.state === 'failed'" class="link-button" @click="retry(task)">重试</button>
@@ -188,8 +199,18 @@ onMounted(load)
       <div class="section-title">整理历史 <span class="muted">最近 {{ Math.min(history.length, 12) }} 条</span></div>
       <div v-if="!history.length" class="empty">暂无已完成记录</div>
       <div v-for="item in history.slice(0, 12)" :key="item.task_id" class="task-row">
-        <div><strong>{{ item.title }}</strong><small>{{ item.mode === 'strm' ? 'STRM' : '本地下载' }} · S{{ String(item.season).padStart(2, '0') }}E{{ String(item.episode).padStart(2, '0') }}</small></div>
+        <div><strong>{{ item.title }}</strong><small>{{ item.mode === 'strm' ? 'STRM' : '本地下载' }}<span v-if="item.media_type === 'tv'"> · S{{ String(item.season).padStart(2, '0') }}E{{ String(item.episode).padStart(2, '0') }}</span></small></div>
         <small class="history-output" :title="item.output">{{ item.output }}</small>
+      </div>
+    </section>
+
+    <section class="panel help-panel">
+      <div class="section-title">使用说明</div>
+      <div class="help-grid">
+        <p><strong>目录</strong>：目录留空时按媒体类型读取 MoviePilot 的本地目录；填写插件目录则优先使用插件目录。</p>
+        <p><strong>多季合集</strong>：有明确季号或 TMDB 季集数能完整对应时才会自动分季；无法确认时会暂停，避免错放。</p>
+        <p><strong>媒体库</strong>：目录内没有正在下载的缓存文件后才显示完整文件夹；完成后可请求 Emby/Jellyfin 刷新。</p>
+        <p><strong>播放</strong>：插件不内置 m3u8 播放器，播放仍由已有 Emby/Jellyfin 页面负责。</p>
       </div>
     </section>
   </div>
@@ -210,10 +231,16 @@ h1 { margin: 8px 0; font-size: 32px; } p { color: #a5a2b5; margin: 0; }
 .section-title { font-size: 17px; font-weight: 700; margin-bottom: 14px; } .muted, small { color: #9693a7; font-size: 12px; }
 input { flex: 1; border: 1px solid #3a384a; background: #101018; color: #eee; border-radius: 10px; padding: 12px 14px; min-width: 0; }
 .alert { border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; } .alert.error { color: #ffb4ab; background: #3a1e22; } .alert.success { color: #a7efbd; background: #183125; }
+.setup-strip { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; color: #b8b4c8; font-size: 12px; }
+.setup-strip span { border: 1px solid #292938; border-radius: 999px; padding: 6px 9px; background: #171722; }
 .result-card { display: flex; justify-content: space-between; gap: 18px; align-items: center; border-top: 1px solid #292938; padding: 14px 0; } .result-card:first-child { border-top: 0; padding-top: 0; }
-.result-main { display: grid; gap: 5px; } .episode-list { flex-wrap: wrap; justify-content: flex-end; } .episode-button { padding: 7px 10px; font-size: 12px; background: #2c2450; color: #d3c1ff; }
+.result-main { display: grid; gap: 5px; } .matched { color: #a7efbd; } .warning-text { color: #ffc66d; } .episode-list { flex-wrap: wrap; justify-content: flex-end; } .episode-button { padding: 7px 10px; font-size: 12px; background: #2c2450; color: #d3c1ff; }
+.episode-button:disabled { opacity: .45; cursor: not-allowed; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; } .source-row, .task-row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid #292938; } .source-row:first-of-type, .task-row:first-of-type { border-top: 0; }
 .task-row div { display: flex; gap: 8px; align-items: center; } .task-actions { display: flex; align-items: center; gap: 10px; } .link-button { background: transparent; color: #c4a8ff; border: 0; cursor: pointer; padding: 0; } .status { font-size: 12px; color: #a5a2b5; } .status.completed { color: #83e69c; } .status.failed { color: #ff9a92; } .status.running { color: #ffc66d; } .history-output { max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty { color: #9693a7; padding: 16px 0; }
+.help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; color: #a5a2b5; font-size: 13px; line-height: 1.6; }
+.help-grid p { margin: 0; }
 @media (max-width: 760px) { .lunatv-page { padding: 18px; } .lunatv-header, .result-card { flex-direction: column; align-items: stretch; } .lunatv-actions { justify-content: flex-start; } .grid { grid-template-columns: 1fr; } .episode-list { justify-content: flex-start; } }
+@media (max-width: 760px) { .help-grid { grid-template-columns: 1fr; } }
 </style>

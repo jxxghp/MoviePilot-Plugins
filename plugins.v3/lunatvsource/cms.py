@@ -6,7 +6,7 @@ import json
 import re
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 
@@ -22,6 +22,17 @@ _SEASON_RANGE_RE = re.compile(
     r"S(?P<sstart>\d{1,3})\s*[-~至]\s*S?(?P<send>\d{1,3})",
     re.IGNORECASE,
 )
+
+
+def _season_range(label: str) -> Tuple[int, int]:
+    """Return an explicit season range from a CMS title, if present."""
+
+    match = _SEASON_RANGE_RE.search(_text(label))
+    if not match:
+        return 1, 1
+    start = int(match.group("start") or match.group("sstart") or 1)
+    end = int(match.group("end") or match.group("send") or start)
+    return (start, end) if end >= start else (end, start)
 
 
 def _text(value: Any) -> str:
@@ -60,7 +71,21 @@ def _season_hint(label: str, default_season: int = 1) -> int:
     return _extract_season(label, default_season)
 
 
-def _parse_play_urls(play_from: Any, play_url: Any, default_season: int = 1) -> List["CmsEpisode"]:
+def _has_explicit_season(label: str) -> bool:
+    value = _text(label)
+    return bool(
+        re.search(r"S\s*\d{1,3}\s*E\s*\d{1,4}", value, re.IGNORECASE)
+        or re.search(r"(?:第\s*)?\d{1,3}\s*季", value, re.IGNORECASE)
+        or re.search(r"\bS\s*\d{1,3}\b", value, re.IGNORECASE)
+    )
+
+
+def _parse_play_urls(
+    play_from: Any,
+    play_url: Any,
+    default_season: int = 1,
+    default_season_known: bool = True,
+) -> List["CmsEpisode"]:
     from_values = _split_player_values(_text(play_from))
     url_values = _split_player_values(_text(play_url))
     if not url_values:
@@ -95,10 +120,20 @@ def _parse_play_urls(play_from: Any, play_url: Any, default_season: int = 1) -> 
             else:
                 label, url = "", raw
             url = url.strip()
-            if not urllib.parse.urlparse(url).scheme:
+            parsed_url = urllib.parse.urlparse(url)
+            if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
                 continue
             season, episode = _extract_season_episode(label, _season_hint(group_name, default_season))
-            episodes.append(CmsEpisode(season=season, episode=episode, label=label.strip(), url=url))
+            season_known = default_season_known or _has_explicit_season(group_name) or _has_explicit_season(label)
+            episodes.append(
+                CmsEpisode(
+                    season=season,
+                    episode=episode,
+                    label=label.strip(),
+                    url=url,
+                    season_known=season_known,
+                )
+            )
     deduped: Dict[Tuple[int, int, str], CmsEpisode] = {}
     for item in episodes:
         deduped[(item.season, item.episode, item.url)] = item
@@ -129,6 +164,7 @@ class CmsEpisode:
     episode: int
     label: str
     url: str
+    season_known: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -136,6 +172,7 @@ class CmsEpisode:
             "episode": self.episode,
             "label": self.label,
             "url": self.url,
+            "season_known": self.season_known,
         }
 
 
@@ -150,6 +187,8 @@ class CmsResult:
     remark: str
     episodes: Tuple[CmsEpisode, ...] = field(default_factory=tuple)
     detail: str = ""
+    season_range: Tuple[int, int] = (1, 1)
+    season_ambiguous: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -162,6 +201,8 @@ class CmsResult:
             "remark": self.remark,
             "episodes": [episode.to_dict() for episode in self.episodes],
             "detail": self.detail,
+            "season_range": list(self.season_range),
+            "season_ambiguous": self.season_ambiguous,
         }
 
 
@@ -169,10 +210,16 @@ def _media_type(item: Mapping[str, Any]) -> str:
     value = f"{item.get('type_name', '')} {item.get('vod_class', '')}".lower()
     if "电影" in value and "电视剧" not in value:
         return "movie"
-    return "tv" if any(
-        token in value
-        for token in ("电视剧", "连续剧", "tv", "剧集", "动漫", "动画", "综艺", "纪录", "儿童", "少儿")
-    ) else "movie"
+    if any(token in value for token in ("电视剧", "连续剧", "tv", "剧集", "综艺", "儿童", "少儿")):
+        return "tv"
+    # 动漫/动画/纪录片在 CMS 中同时承载电影和剧集。 只有出现季集
+    # 标记或明确的多集播放列表时才按电视剧处理，避免把动画电影误放到 TV 库。
+    if any(token in value for token in ("动漫", "动画", "纪录")):
+        title = _text(item.get("vod_name"))
+        play_url = _text(item.get("vod_play_url"))
+        if _SEASON_RE.search(title) or re.search(r"第\s*\d{1,4}\s*[集话]", title) or "#" in play_url:
+            return "tv"
+    return "movie"
 
 
 def _source_key(api_key: str, item: Mapping[str, Any]) -> str:
@@ -186,14 +233,22 @@ def _result_from_item(source: CmsSource, item: Mapping[str, Any]) -> CmsResult:
     # 有些 CMS 只把“1-8季”写在片名里，线路名和集名都没有季号。
     # 这时至少保留起始季，避免所有集被误标成 S01；真正分季的线路仍优先使用线路标题。
     title_season = _extract_season(title, 1)
-    range_match = _SEASON_RANGE_RE.search(title)
-    if range_match and range_match.group("start"):
-        title_season = int(range_match.group("start"))
-    episodes = tuple(_parse_play_urls(item.get("vod_play_from"), item.get("vod_play_url"), title_season))
+    season_range = _season_range(title)
+    episodes = tuple(
+        _parse_play_urls(
+            item.get("vod_play_from"),
+            item.get("vod_play_url"),
+            title_season,
+            default_season_known=season_range[0] == season_range[1],
+        )
+    )
     if media_type == "movie" and not episodes:
         direct_url = _text(item.get("vod_play_url"))
         if direct_url.startswith("http"):
             episodes = (CmsEpisode(season=1, episode=1, label="正片", url=direct_url),)
+    season_ambiguous = season_range[1] > season_range[0] and not all(
+        episode.season_known for episode in episodes
+    )
     return CmsResult(
         source_key=source.key,
         source_name=source.name,
@@ -204,7 +259,39 @@ def _result_from_item(source: CmsSource, item: Mapping[str, Any]) -> CmsResult:
         remark=_text(item.get("vod_remarks")),
         episodes=episodes,
         detail=source.detail,
+        season_range=season_range,
+        season_ambiguous=season_ambiguous,
     )
+
+
+def apply_season_counts(result: CmsResult, season_counts: Mapping[int, int]) -> CmsResult:
+    """Map a flat multi-season CMS list when TMDB supplies exact counts.
+
+    A title range alone is not enough to infer season boundaries.  We only
+    rewrite episodes when the CMS list length exactly equals the sum of the
+    known season counts, avoiding silently putting episodes in the wrong
+    season.
+    """
+
+    if not result.season_ambiguous or not season_counts:
+        return result
+    seasons = sorted(
+        (int(season), int(count))
+        for season, count in season_counts.items()
+        if int(season) >= result.season_range[0]
+        and int(season) <= result.season_range[1]
+        and int(count) > 0
+    )
+    if not seasons or sum(count for _, count in seasons) != len(result.episodes):
+        return result
+    mapped: List[CmsEpisode] = []
+    offset = 0
+    for season, count in seasons:
+        for episode_number in range(1, count + 1):
+            episode = result.episodes[offset]
+            mapped.append(replace(episode, season=season, episode=episode_number, season_known=True))
+            offset += 1
+    return replace(result, episodes=tuple(mapped), season_ambiguous=False)
 
 
 def _merge_detail_item(item: Mapping[str, Any], detail: Mapping[str, Any]) -> Dict[str, Any]:

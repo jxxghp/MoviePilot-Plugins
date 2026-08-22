@@ -92,6 +92,26 @@ class DownloadQueue:
         self._lock = threading.RLock()
         self._stop = False
         self._running = False
+        self._recover_interrupted_tasks()
+
+    def _recover_interrupted_tasks(self) -> None:
+        """Put tasks left in ``running`` back into the serial queue.
+
+        MoviePilot may restart while ffmpeg is running.  Persisting the
+        transient state is useful for UI feedback, but it must not strand a
+        task forever after the process comes back.
+        """
+
+        with self._lock:
+            tasks = self._read()
+            changed = False
+            for task in tasks:
+                if task.state == "running":
+                    task.state = "pending"
+                    task.error = "上次进程中断，已恢复排队"
+                    changed = True
+            if changed:
+                self._write(tasks)
 
     def _read(self) -> List[DownloadTask]:
         raw = self._load(self.DATA_KEY, []) or []
