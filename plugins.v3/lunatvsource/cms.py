@@ -398,6 +398,7 @@ class AppleCmsClient:
         limit: int = 20,
         stop_after_first_source: bool = False,
         enrich: bool = True,
+        require_playable: bool = False,
     ) -> List[CmsResult]:
         results: List[CmsResult] = []
         seen: set[Tuple[str, str]] = set()
@@ -414,6 +415,8 @@ class AppleCmsClient:
                         source,
                         self._enrich_item(source, item) if enrich else item,
                     )
+                    if require_playable and not result.episodes:
+                        continue
                     key = (result.source_key, result.vod_id)
                     if result.title and key not in seen:
                         seen.add(key)

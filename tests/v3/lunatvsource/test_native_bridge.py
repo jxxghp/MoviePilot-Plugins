@@ -61,7 +61,7 @@ def test_ffmpeg_explicitly_sets_mp4_muxer_for_part_file(monkeypatch, tmp_path: P
     monkeypatch.setattr(
         DownloadQueue,
         "_prepare_hls_input",
-        staticmethod(lambda url, _temp_dir: url),
+        staticmethod(lambda url, _temp_dir, *_args: url),
     )
     DownloadQueue._run_ffmpeg(
         "ffmpeg", "https://example.test/video.m3u8", tmp_path / "movie.mp4.part"
