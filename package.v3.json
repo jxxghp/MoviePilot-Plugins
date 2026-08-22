@@ -413,6 +413,21 @@
     },
     "system_version": ">=3.0.0"
   },
+  "LunaTVSource": {
+    "name": "LunaTV 资源订阅",
+    "description": "接入 LunaTV/MoonTV 苹果 CMS 资源，注册 V3 媒体源，串行下载到指定目录并可刷新 Emby/原生整理链。",
+    "labels": "订阅,苹果CMS,m3u8,下载,媒体库",
+    "version": "0.2.0",
+    "icon": "lunatvsource.svg",
+    "author": "OneBigMoon",
+    "project_url": "https://github.com/OneBigMoon/moviepilot-v3-lunatv-source",
+    "level": 1,
+    "release": false,
+    "history": {
+      "0.2.0": "接入 V3 原生探索媒体源、系统智能助手标题清理、可选原生整理链和完成后媒体库刷新；保留串行下载与 STRM。"
+    },
+    "system_version": ">=3.0.0"
+  },
   "AnimeUpscale": {
     "name": "动漫视频超分",
     "description": "在 MoviePilot 内直接使用 GPU 完成动漫视频 2 倍超分与 HEVC Main10 编码。",
