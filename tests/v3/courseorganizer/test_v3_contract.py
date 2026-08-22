@@ -37,8 +37,8 @@ def test_v3_package_and_plugin_versions_are_consistent():
     package_v2 = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
     package_v3 = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
 
-    assert module.CourseOrganizer.plugin_version == "2.0.1"
-    assert package_v3["CourseOrganizer"]["version"] == "2.0.1"
+    assert module.CourseOrganizer.plugin_version == "2.0.2"
+    assert package_v3["CourseOrganizer"]["version"] == "2.0.2"
     assert package_v3["CourseOrganizer"]["system_version"] == ">=3.0.0"
     assert package_v2["CourseOrganizer"]["v3"] is False
 

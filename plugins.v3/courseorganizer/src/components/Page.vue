@@ -1015,8 +1015,8 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
             <p>重新扫描不会移动文件。检查建议名称和目标媒体库后，「确认并整理」才会执行文件操作。</p>
           </div>
           <div>
-            <strong>4. AI 搜索与复核</strong>
-            <p>开启后，复杂目录名会先由 MoviePilot 智能助手提取 TMDB 搜索词，再复核候选；AI 不可用时自动使用本地规则。</p>
+            <strong>4. 智能助手（如 DeepSeek）</strong>
+            <p>先在 MoviePilot「设置 → 智能助手」配置模型，再到插件设置中开启。复杂目录名会先提取 TMDB 搜索词，再复核候选；不可用时自动使用本地规则。</p>
           </div>
           <div>
             <strong>5. 两种整理方式</strong>

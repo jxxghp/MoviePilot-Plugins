@@ -99,9 +99,9 @@ async function openMoviePilotSettings() {
           />
           <VSwitch
             v-model="localConfig.naming_ai_review"
-            label="启用 AI 搜索与复核"
-            aria-label="启用 AI 搜索与复核"
-            hint="复杂目录会先精简名称再搜索"
+            label="启用智能助手（如 DeepSeek）"
+            aria-label="启用智能助手（如 DeepSeek）"
+            hint="需先在 MoviePilot「设置 → 智能助手」中配置并启用模型；用于精简搜索词并复核候选"
             persistent-hint
             color="primary"
           />

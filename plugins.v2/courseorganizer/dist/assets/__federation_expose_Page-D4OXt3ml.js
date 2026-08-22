@@ -1404,8 +1404,8 @@ return (_ctx, _cache) => {
                   _createElementVNode("p", null, "重新扫描不会移动文件。检查建议名称和目标媒体库后，「确认并整理」才会执行文件操作。")
                 ], -1),
                 _createElementVNode("div", null, [
-                  _createElementVNode("strong", null, "4. AI 搜索与复核"),
-                  _createElementVNode("p", null, "开启后，复杂目录名会先由 MoviePilot 智能助手提取 TMDB 搜索词，再复核候选；AI 不可用时自动使用本地规则。")
+                  _createElementVNode("strong", null, "4. 智能助手（如 DeepSeek）"),
+                  _createElementVNode("p", null, "先在 MoviePilot「设置 → 智能助手」配置模型，再到插件设置中开启。复杂目录名会先提取 TMDB 搜索词，再复核候选；不可用时自动使用本地规则。")
                 ], -1),
                 _createElementVNode("div", null, [
                   _createElementVNode("strong", null, "5. 两种整理方式"),
@@ -1449,6 +1449,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-829499b8"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8bfe373c"]]);
 
 export { Page as default };
