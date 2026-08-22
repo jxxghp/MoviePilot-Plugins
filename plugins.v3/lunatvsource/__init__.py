@@ -53,20 +53,31 @@ except Exception:  # pragma: no cover - standalone tests
         SubscribeAdded = "subscribe.added"
         SubscribeModified = "subscribe.modified"
 
-try:  # Optional V3 native media-source/organize bridge.
+try:  # Optional V3 native schemas and media identity.
     from app import schemas as _schemas
-    from app.chain.mediaserver import MediaServerChain as _HostMediaServerChain
-    from app.chain.storage import StorageChain as _HostStorageChain
-    from app.chain.transfer import TransferChain as _HostTransferChain
     from app.schemas.types import MediaSource as _HostMediaSource
     from app.schemas.types import MediaType as _HostMediaType
 except Exception:  # pragma: no cover - standalone tests
     _schemas = None
-    _HostMediaServerChain = None
-    _HostStorageChain = None
-    _HostTransferChain = None
     _HostMediaSource = None
     _HostMediaType = None
+
+# Keep optional host chains isolated: one unavailable compatibility import must
+# not disable native search result schemas or the remaining host bridges.
+try:  # pragma: no cover - exercised in a MoviePilot runtime
+    from app.chain.mediaserver import MediaServerChain as _HostMediaServerChain
+except Exception:
+    _HostMediaServerChain = None
+
+try:  # pragma: no cover - exercised in a MoviePilot runtime
+    from app.chain.storage import StorageChain as _HostStorageChain
+except Exception:
+    _HostStorageChain = None
+
+try:  # pragma: no cover - exercised in a MoviePilot runtime
+    from app.chain.transfer import TransferChain as _HostTransferChain
+except Exception:
+    _HostTransferChain = None
 
 try:
     from apscheduler.triggers.cron import CronTrigger
@@ -148,7 +159,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.4"
+    plugin_version = "0.4.5"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
