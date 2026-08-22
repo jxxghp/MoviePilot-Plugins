@@ -111,6 +111,40 @@ def test_search_can_stop_after_first_source_with_results():
     assert set(called) == {"first"}
 
 
+def test_search_skips_non_playable_source_when_playable_result_is_required():
+    sources = [
+        CmsSource(key="empty", name="空播放源", api="https://empty.example/vod"),
+        CmsSource(key="playable", name="可播放源", api="https://playable.example/vod"),
+    ]
+    client = AppleCmsClient(sources)
+
+    def fake_request(source, **params):
+        if params.get("ac") == "detail" and source.key == "empty":
+            return {"list": [{"vod_id": "empty", "vod_name": "示例电影"}]}
+        return {
+            "list": [{
+                "vod_id": source.key,
+                "vod_name": "示例电影",
+                "type_name": "电影",
+                "vod_play_from": "在线播放" if source.key == "playable" else "",
+                "vod_play_url": (
+                    "正片$https://example.test/movie.m3u8"
+                    if source.key == "playable"
+                    else ""
+                ),
+            }]
+        }
+
+    client._request = fake_request
+    results = client.search(
+        "示例电影",
+        stop_after_first_source=True,
+        require_playable=True,
+    )
+    assert [item.source_key for item in results] == ["playable"]
+    assert results[0].episodes[0].url == "https://example.test/movie.m3u8"
+
+
 def test_result_uses_title_season_hint_for_multi_season_bundle():
     result = _result_from_item(
         CmsSource(key="demo", name="演示", api="https://cms.example/api.php/provide/vod"),

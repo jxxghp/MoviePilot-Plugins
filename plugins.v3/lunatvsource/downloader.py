@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import http.server
 import os
 import re
+import socketserver
 import subprocess
 import tempfile
 import threading
@@ -18,6 +20,110 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from .naming import media_path
+
+
+def _mpegts_payload_offset(data: bytes) -> int:
+    """Return the start of an MPEG-TS payload hidden behind a JPEG header."""
+
+    if not data.startswith(b"\xff\xd8\xff"):
+        return 0
+    limit = max(0, min(len(data) - 376, 4096))
+    for offset in range(limit + 1):
+        if data[offset] == 0x47 and data[offset + 188] == 0x47 and data[offset + 376] == 0x47:
+            return offset
+    return 0
+
+
+class _LoopbackHTTPServer(http.server.ThreadingHTTPServer):
+    """HTTP server without a reverse-DNS lookup during loopback binding."""
+
+    def server_bind(self) -> None:
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = str(host)
+        self.server_port = int(port)
+
+
+class _SegmentProxy:
+    """Loopback-only streaming proxy that removes fake JPEG segment headers."""
+
+    def __init__(self) -> None:
+        self._urls: Dict[str, str] = {}
+        self._reverse: Dict[str, str] = {}
+        self._server: Optional[http.server.ThreadingHTTPServer] = None
+        self._thread: Optional[threading.Thread] = None
+
+    def __enter__(self) -> "_SegmentProxy":
+        return self
+
+    def _start(self) -> None:
+        if self._server is not None:
+            return
+        proxy = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802 - stdlib handler contract
+                token = self.path.partition("?")[0].removeprefix("/segment/")
+                remote_url = proxy._urls.get(token)
+                if not remote_url:
+                    self.send_error(404)
+                    return
+                try:
+                    request = urllib.request.Request(
+                        remote_url,
+                        headers={"User-Agent": "MoviePilot-LunaTV/1.0", "Accept-Encoding": "identity"},
+                    )
+                    with urllib.request.urlopen(request, timeout=30) as response:
+                        prefix = response.read(4096)
+                        offset = _mpegts_payload_offset(prefix)
+                        length = response.headers.get("Content-Length")
+                        self.send_response(200)
+                        self.send_header("Content-Type", "video/mp2t" if offset else (
+                            response.headers.get("Content-Type") or "application/octet-stream"
+                        ))
+                        if length and str(length).isdigit():
+                            self.send_header("Content-Length", str(max(0, int(length) - offset)))
+                        self.send_header("Connection", "close")
+                        self.end_headers()
+                        self.wfile.write(prefix[offset:])
+                        while True:
+                            chunk = response.read(256 * 1024)
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                except Exception:
+                    try:
+                        self.send_error(502)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+
+            def log_message(self, _format: str, *_args: Any) -> None:
+                return
+
+        self._server = _LoopbackHTTPServer(("127.0.0.1", 0), Handler)
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+    def url_for(self, remote_url: str) -> str:
+        self._start()
+        token = self._reverse.get(remote_url)
+        if token is None:
+            token = uuid.uuid4().hex
+            self._reverse[remote_url] = token
+            self._urls[token] = remote_url
+        if self._server is None:
+            raise RuntimeError("分片代理尚未启动")
+        host, port = self._server.server_address[:2]
+        return f"http://{host}:{port}/segment/{token}"
+
+    def __exit__(self, *_args: Any) -> None:
+        if self._server is not None:
+            self._server.shutdown()
+            self._server.server_close()
+        if self._thread is not None:
+            self._thread.join(timeout=2)
 
 
 @dataclass
@@ -277,8 +383,8 @@ class DownloadQueue:
 
     @staticmethod
     def _run_ffmpeg(ffmpeg_path: str, url: str, output: Path) -> None:
-        with tempfile.TemporaryDirectory(prefix="lunatv-hls-") as temp_dir:
-            input_url = DownloadQueue._prepare_hls_input(url, Path(temp_dir))
+        with tempfile.TemporaryDirectory(prefix="lunatv-hls-") as temp_dir, _SegmentProxy() as proxy:
+            input_url = DownloadQueue._prepare_hls_input(url, Path(temp_dir), proxy.url_for)
             command = [
                 ffmpeg_path or "ffmpeg",
                 "-hide_banner",
@@ -293,6 +399,8 @@ class DownloadQueue:
                 "ALL",
                 "-extension_picky",
                 "0",
+                "-seg_max_retry",
+                "2",
                 "-i",
                 input_url,
                 "-c",
@@ -309,7 +417,11 @@ class DownloadQueue:
                 raise RuntimeError(detail[-1200:])
 
     @staticmethod
-    def _prepare_hls_input(url: str, temp_dir: Path) -> str:
+    def _prepare_hls_input(
+        url: str,
+        temp_dir: Path,
+        segment_url_mapper: Optional[Callable[[str], str]] = None,
+    ) -> str:
         """Materialize playlists locally so ffmpeg can read zstd HTTP responses.
 
         Some Apple CMS CDNs apply ``Content-Encoding: zstd`` even when the
@@ -355,7 +467,7 @@ class DownloadQueue:
                     if child_playlist or urllib.parse.urlparse(absolute).path.lower().endswith(".m3u8"):
                         rewritten.append(materialize(absolute))
                     else:
-                        rewritten.append(absolute)
+                        rewritten.append(segment_url_mapper(absolute) if segment_url_mapper else absolute)
                     child_playlist = False
                     continue
 
@@ -363,6 +475,8 @@ class DownloadQueue:
                     absolute = urllib.parse.urljoin(playlist_url, match.group(1))
                     if stripped.startswith("#EXT-X-MEDIA"):
                         absolute = materialize(absolute)
+                    elif stripped.startswith("#EXT-X-MAP") and segment_url_mapper:
+                        absolute = segment_url_mapper(absolute)
                     return f'URI="{absolute}"'
 
                 rewritten.append(re.sub(r'URI="([^"]+)"', replace_uri, line))
