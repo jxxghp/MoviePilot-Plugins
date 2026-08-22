@@ -148,7 +148,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，注册 V3 媒体源，串行下载到指定目录并可刷新 Emby/原生整理链。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.3.0"
+    plugin_version = "0.3.1"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -242,6 +242,7 @@ class LunaTVSource(_PluginBase):
             {"path": "/status", "endpoint": self.api_status, "methods": ["GET"], "auth": "bear"},
             {"path": "/sources", "endpoint": self.api_sources, "methods": ["GET"], "auth": "bear"},
             {"path": "/search", "endpoint": self.api_search, "methods": ["POST"], "auth": "bear"},
+            {"path": "/tmdb/search", "endpoint": self.api_tmdb_search, "methods": ["POST"], "auth": "bear"},
             {
                 "path": "/discover",
                 "endpoint": self.api_discover,
@@ -659,6 +660,9 @@ class LunaTVSource(_PluginBase):
                     "year": str(getattr(media, "year", "") or ""),
                     "season_counts": self._season_counts(media),
                 }
+                candidates = self._search_tmdb_candidates(query, result.year, result.media_type)
+                if candidates:
+                    association["candidates"] = candidates
         except Exception as exc:
             self._logger.debug("TMDB 默认关联失败 title=%s: %s", query, exc)
             association = {"status": "error", "query": query, "message": str(exc)}
@@ -666,6 +670,59 @@ class LunaTVSource(_PluginBase):
             self._tmdb_cache[cache_key] = dict(association)
             self.save_data("tmdb_match_cache_v1", dict(self._tmdb_cache))
         return association
+
+    @staticmethod
+    def _media_candidate(media: Any) -> Optional[Dict[str, Any]]:
+        """Convert a host MediaInfo candidate to a compact selectable payload."""
+
+        media_id = str(getattr(media, "media_id", "") or "").strip()
+        tmdb_id = getattr(media, "tmdb_id", None)
+        if not tmdb_id and media_id.isdigit():
+            tmdb_id = int(media_id)
+        if not media_id and not tmdb_id:
+            return None
+        source = str(
+            getattr(getattr(media, "media_source", None), "value", getattr(media, "media_source", "themoviedb"))
+            or "themoviedb"
+        )
+        return {
+            "media_source": source,
+            "media_id": media_id or str(tmdb_id),
+            "tmdb_id": tmdb_id,
+            "title": str(getattr(media, "title", "") or ""),
+            "year": str(getattr(media, "year", "") or ""),
+            "type": _enum_value(getattr(media, "type", "")),
+            "season": getattr(media, "season", None),
+            "season_counts": LunaTVSource._season_counts(media),
+        }
+
+    def _search_tmdb_candidates(self, query: str, year: str = "", media_type: str = "") -> List[Dict[str, Any]]:
+        """Search selectable TMDB candidates through MoviePilot's native chain."""
+
+        if _HostMediaChain is None or _HostMetaInfo is None or self._tmdb_source() is None:
+            return []
+        try:
+            meta = _HostMetaInfo(title=query, year=year or None)
+            if hasattr(meta, "type") and _HostMediaType is not None:
+                meta.type = self._host_media_type(media_type)
+            medias = _HostMediaChain().search_medias(meta=meta, media_source=self._tmdb_source()) or []
+            candidates: List[Dict[str, Any]] = []
+            seen = set()
+            for media in medias:
+                candidate = self._media_candidate(media)
+                if not candidate:
+                    continue
+                identity = (candidate["media_source"], candidate["media_id"])
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                candidates.append(candidate)
+                if len(candidates) >= 8:
+                    break
+            return candidates
+        except Exception as exc:
+            self._logger.debug("TMDB 候选搜索失败 title=%s: %s", query, exc)
+            return []
 
     def _prepare_result(self, result: CmsResult) -> Tuple[CmsResult, Dict[str, Any]]:
         association = self._associate_tmdb(result)
@@ -837,6 +894,24 @@ class LunaTVSource(_PluginBase):
         except Exception as exc:
             self._logger.warning("LunaTV search failed: %s", exc)
             return {"success": False, "message": f"搜索失败：{exc}", "data": []}
+
+    def api_tmdb_search(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Search selectable TMDB candidates for a normalized CMS title."""
+
+        payload = payload or {}
+        query = normalize_search_title(str(payload.get("query") or payload.get("title") or "").strip())
+        if not query:
+            return {"success": False, "message": "缺少搜索名称", "data": []}
+        try:
+            candidates = self._search_tmdb_candidates(
+                query,
+                str(payload.get("year") or ""),
+                str(payload.get("media_type") or ""),
+            )
+            return {"success": True, "data": candidates}
+        except Exception as exc:
+            self._logger.warning("LunaTV TMDB candidate search failed: %s", exc)
+            return {"success": False, "message": f"TMDB 搜索失败：{exc}", "data": []}
 
     def api_discover(self, query: str = "", title: str = "", page: int = 1, count: int = 30) -> Dict[str, Any]:
         """V3 探索数据源接口，返回宿主统一 MediaInfo，而非插件自定义播放器。"""

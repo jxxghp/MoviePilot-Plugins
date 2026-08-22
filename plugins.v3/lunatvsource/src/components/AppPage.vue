@@ -18,6 +18,8 @@ const sources = ref([])
 const tasks = ref([])
 const history = ref([])
 const status = ref({})
+const selectedCandidates = ref({})
+const tmdbSearching = ref({})
 
 const apiCall = (method, path, payload) => {
   if (typeof props.api?.[method] === 'function') return props.api[method](`plugin/${props.pluginId}${path}`, payload)
@@ -80,13 +82,16 @@ async function search() {
 async function enqueue(result, episode) {
   error.value = ''
   try {
+    const candidate = selectedCandidate(result)
     await apiCall('post', '/download', {
       source_key: result.source_key,
       vod_id: result.vod_id,
       media_id: `${result.source_key}:${result.vod_id}`,
-      title: result.normalized_title || result.title,
-      year: result.year,
+      title: candidate?.title || result.normalized_title || result.title,
+      year: candidate?.year || result.year,
       media_type: result.media_type,
+      tmdb_id: candidate?.tmdb_id,
+      tmdb_media_id: candidate?.media_id,
       episode,
     })
     notice.value = '已加入串行下载队列'
@@ -94,6 +99,70 @@ async function enqueue(result, episode) {
   } catch (enqueueError) {
     error.value = enqueueError?.message || '加入下载队列失败'
   }
+}
+
+function resultKey(result) {
+  return `${result.source_key}:${result.vod_id}`
+}
+
+function tmdbCandidates(result) {
+  return result.association?.candidates || []
+}
+
+function selectedCandidate(result) {
+  const candidates = tmdbCandidates(result)
+  const selectedId = selectedCandidates.value[resultKey(result)] || result.association?.media_id
+  return candidates.find(candidate => candidate.media_id === selectedId) || null
+}
+
+function selectCandidate(result, mediaId) {
+  selectedCandidates.value = { ...selectedCandidates.value, [resultKey(result)]: mediaId }
+}
+
+async function searchTmdb(result) {
+  const key = resultKey(result)
+  tmdbSearching.value = { ...tmdbSearching.value, [key]: true }
+  try {
+    const response = await apiCall('post', '/tmdb/search', {
+      title: result.search_title || result.title,
+      year: result.year,
+      media_type: result.media_type,
+    })
+    const candidates = unwrap(response) || []
+    result.association = { ...(result.association || {}), candidates }
+    const selected = result.association.media_id && candidates.some(item => item.media_id === result.association.media_id)
+      ? result.association.media_id
+      : candidates[0]?.media_id || ''
+    selectCandidate(result, selected)
+    notice.value = candidates.length ? `找到 ${candidates.length} 个 TMDB 候选` : '没有找到 TMDB 候选'
+  } catch (searchError) {
+    error.value = searchError?.message || 'TMDB 搜索失败'
+  } finally {
+    tmdbSearching.value = { ...tmdbSearching.value, [key]: false }
+  }
+}
+
+function episodesFor(result) {
+  if (!result.season_ambiguous) return result.episodes || []
+  const candidate = selectedCandidate(result)
+  const counts = candidate?.season_counts || {}
+  const seasons = Object.keys(counts).map(Number).filter(season => counts[season] > 0).sort((a, b) => a - b)
+  const total = seasons.reduce((sum, season) => sum + Number(counts[season] || 0), 0)
+  if (!seasons.length || total !== (result.episodes || []).length) return result.episodes || []
+  const mapped = []
+  let offset = 0
+  for (const season of seasons) {
+    const count = Number(counts[season])
+    for (let index = 0; index < count; index += 1) {
+      mapped.push({ ...(result.episodes[offset + index] || {}), season, episode: index + 1, season_known: true })
+    }
+    offset += count
+  }
+  return mapped
+}
+
+function canEnqueue(result) {
+  return !result.season_ambiguous || episodesFor(result).every(episode => episode.season_known !== false)
 }
 
 async function sync() {
@@ -162,10 +231,25 @@ onMounted(load)
             <small>{{ result.source_name }} · {{ result.media_type === 'tv' ? '电视剧' : '电影' }}</small>
             <small v-if="result.association?.status === 'matched'" class="matched">已关联 TMDB：{{ result.association.title || result.association.media_id }}</small>
             <small v-else-if="result.association?.status === 'unmatched'" class="muted">未匹配 TMDB，将按原始名称处理</small>
+            <div class="association-row">
+              <select
+                v-if="tmdbCandidates(result).length"
+                :value="selectedCandidates[resultKey(result)] || result.association?.media_id || tmdbCandidates(result)[0]?.media_id"
+                aria-label="选择匹配的 TMDB 作品"
+                @change="selectCandidate(result, $event.target.value)"
+              >
+                <option v-for="candidate in tmdbCandidates(result)" :key="candidate.media_id" :value="candidate.media_id">
+                  {{ candidate.title || candidate.media_id }}<span v-if="candidate.year"> ({{ candidate.year }})</span>
+                </option>
+              </select>
+              <button class="link-button" :disabled="tmdbSearching[resultKey(result)]" @click="searchTmdb(result)">
+                {{ tmdbSearching[resultKey(result)] ? '搜索中…' : '重新搜索 TMDB' }}
+              </button>
+            </div>
             <small v-if="result.season_ambiguous" class="warning-text">检测到 {{ result.season_range?.[0] }}-{{ result.season_range?.[1] }} 季，但源地址没有季边界，暂不自动下载</small>
           </div>
-          <div v-if="result.episodes?.length" class="episode-list">
-            <button v-for="episode in result.episodes" :key="`${episode.season}-${episode.episode}-${episode.url}`" class="episode-button" :disabled="result.season_ambiguous" :title="result.season_ambiguous ? '请先确认季边界' : '加入串行队列'" @click="enqueue(result, episode)">
+          <div v-if="episodesFor(result).length" class="episode-list">
+            <button v-for="episode in episodesFor(result)" :key="`${episode.season}-${episode.episode}-${episode.url}`" class="episode-button" :disabled="!canEnqueue(result)" :title="!canEnqueue(result) ? '请先选择能确定季边界的 TMDB 作品' : '加入串行队列'" @click="enqueue(result, episode)">
               {{ result.media_type === 'tv' ? `S${String(episode.season).padStart(2, '0')}E${String(episode.episode).padStart(2, '0')}` : '下载' }}
             </button>
           </div>
@@ -234,7 +318,7 @@ input { flex: 1; border: 1px solid #3a384a; background: #101018; color: #eee; bo
 .setup-strip { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; color: #b8b4c8; font-size: 12px; }
 .setup-strip span { border: 1px solid #292938; border-radius: 999px; padding: 6px 9px; background: #171722; }
 .result-card { display: flex; justify-content: space-between; gap: 18px; align-items: center; border-top: 1px solid #292938; padding: 14px 0; } .result-card:first-child { border-top: 0; padding-top: 0; }
-.result-main { display: grid; gap: 5px; } .matched { color: #a7efbd; } .warning-text { color: #ffc66d; } .episode-list { flex-wrap: wrap; justify-content: flex-end; } .episode-button { padding: 7px 10px; font-size: 12px; background: #2c2450; color: #d3c1ff; }
+.result-main { display: grid; gap: 5px; } .matched { color: #a7efbd; } .warning-text { color: #ffc66d; } .association-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } .association-row select { border: 1px solid #4b3b70; background: #101018; color: #d3c1ff; border-radius: 8px; padding: 6px 9px; max-width: 360px; } .episode-list { flex-wrap: wrap; justify-content: flex-end; } .episode-button { padding: 7px 10px; font-size: 12px; background: #2c2450; color: #d3c1ff; }
 .episode-button:disabled { opacity: .45; cursor: not-allowed; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; } .source-row, .task-row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid #292938; } .source-row:first-of-type, .task-row:first-of-type { border-top: 0; }
 .task-row div { display: flex; gap: 8px; align-items: center; } .task-actions { display: flex; align-items: center; gap: 10px; } .link-button { background: transparent; color: #c4a8ff; border: 0; cursor: pointer; padding: 0; } .status { font-size: 12px; color: #a5a2b5; } .status.completed { color: #83e69c; } .status.failed { color: #ff9a92; } .status.running { color: #ffc66d; } .history-output { max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
