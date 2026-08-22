@@ -650,7 +650,15 @@ class LunaTVSource(_PluginBase):
         with self._tmdb_cache_lock:
             cached = self._tmdb_cache.get(cache_key)
         if cached is not None:
-            return dict(cached)
+            association = dict(cached)
+            if association.get("status") == "matched" and not association.get("candidates"):
+                candidates = self._search_tmdb_candidates(query, result.year, result.media_type)
+                if candidates:
+                    association["candidates"] = candidates
+                    with self._tmdb_cache_lock:
+                        self._tmdb_cache[cache_key] = dict(association)
+                        self.save_data("tmdb_match_cache_v1", dict(self._tmdb_cache))
+            return association
         if _HostMediaChain is None or _HostMetaInfo is None or self._tmdb_source() is None:
             return {"status": "unavailable", "query": query}
         try:
