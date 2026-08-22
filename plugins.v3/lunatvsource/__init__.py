@@ -481,6 +481,23 @@ class LunaTVSource(_PluginBase):
         except Exception:
             return media_type
 
+    @staticmethod
+    def _host_meta_info(title: str, year: str = "") -> Any:
+        """Build MetaInfo across V3 runtimes (the SDK export is a function)."""
+
+        if _HostMetaInfo is None:
+            return None
+        query = str(title or "").strip()
+        year_text = str(year or "").strip()
+        if year_text and year_text not in query:
+            query = f"{query} ({year_text})"
+        try:
+            return _HostMetaInfo(title=query)
+        except TypeError:
+            # Standalone host stubs and older V3 snapshots may expose a
+            # constructor accepting year separately.
+            return _HostMetaInfo(title=query, year=year_text or None)
+
     def _media_info(self, result: CmsResult, association: Optional[Dict[str, Any]] = None) -> Any:
         """将 CMS 结果转换成 V3 原生 MediaInfo，供探索/订阅/整理链复用。"""
         if _schemas is None or not hasattr(_schemas, "MediaInfo"):
@@ -638,7 +655,7 @@ class LunaTVSource(_PluginBase):
             return {"status": "unavailable", "query": query}
         try:
             media = _HostMediaChain().recognize_media(
-                meta=_HostMetaInfo(title=query, year=result.year or None),
+                meta=self._host_meta_info(query, result.year),
                 mtype=self._host_media_type(result.media_type),
                 media_source=self._tmdb_source(),
                 cache=True,
@@ -702,7 +719,9 @@ class LunaTVSource(_PluginBase):
         if _HostMediaChain is None or _HostMetaInfo is None or self._tmdb_source() is None:
             return []
         try:
-            meta = _HostMetaInfo(title=query, year=year or None)
+            meta = self._host_meta_info(query, year)
+            if meta is None:
+                return []
             if hasattr(meta, "type") and _HostMediaType is not None:
                 meta.type = self._host_media_type(media_type)
             medias = _HostMediaChain().search_medias(meta=meta, media_source=self._tmdb_source()) or []
