@@ -1,7 +1,7 @@
 from typing import Any, AsyncGenerator, Dict, Generator, List, Optional, Final
 
 import requests
-import httpx
+import httpx2
 
 from app.sdk.cache import cached
 from app.sdk.config import settings
@@ -25,7 +25,7 @@ class ImdbApiClient:
     def __init__(
             self,
             session: requests.Session,
-            async_client: httpx.AsyncClient,
+            async_client: httpx2.AsyncClient,
             proxies: Optional[Dict[str, str]] = None,
             ua: Optional[str] = None
     ):

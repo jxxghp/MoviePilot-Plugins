@@ -3,7 +3,7 @@ import re
 from textwrap import dedent
 from typing import Any, Dict, List, Optional, Final, AsyncGenerator
 
-import httpx
+import httpx2
 import requests
 from pydantic import ValidationError
 
@@ -358,7 +358,7 @@ class OfficialApiClient:
     def __init__(
             self,
             session: requests.Session,
-            async_client: httpx.AsyncClient,
+            async_client: httpx2.AsyncClient,
             proxies: Dict[str, str] | None = None,
             ua: Optional[str] = None
     ):
