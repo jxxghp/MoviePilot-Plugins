@@ -300,8 +300,9 @@ def _save_config(self) -> bool:
     })
 ```
 
-不要直接修改宿主配置文件。插件分身会改变运行类名，因此需要定位自身插件 ID 时
-优先使用 `self.__class__.__name__`，不要在业务代码中到处硬编码原始类名。
+不要直接修改宿主配置文件。V3 新建分身是“同一份源码、多个运行实例”：宿主会在
+实例专属模块命名空间中重新执行源码，并把运行类名设置为实例 ID。需要定位自身插件
+ID 时优先使用 `self.__class__.__name__`，不要在业务代码中硬编码原始类名。
 
 ### 7.2 结构化数据与文件
 
@@ -329,7 +330,27 @@ def write_report(self, content: str) -> None:
 
 不要把运行数据写回插件源码目录；插件更新时源码目录可能被替换。
 
-### 7.3 第三方依赖
+### 7.3 虚拟分身兼容
+
+新分身不会复制插件目录，也不会改写 Python、JavaScript 或 CSS。配置、结构化数据、
+数据目录、事件绑定、动态 API 和定时服务均按运行实例 ID 隔离；源插件更新后，引用它
+的实例会一起重载。升级前已经生成的物理分身仍按旧目录继续加载，不要求迁移。
+
+为了让插件可以安全创建虚拟分身：
+
+- 配置和数据使用 `update_config()`、`get_config()`、`save_data()`、`get_data()`、
+  `del_data()` 与 `get_data_path()`，不要显式传入写死的源插件 ID。
+- 不要把可变状态放到进程级单例、宿主全局变量或源码目录；模块级状态虽然会按实例
+  重新执行，插件自行导入的第三方全局单例仍然是共享的。
+- 端口、外部账号、Webhook 名称、下载目录等排他资源需要由配置区分；宿主无法自动
+  隔离插件控制范围之外的外部资源。
+- 停止和重载必须释放线程、连接、文件句柄及监听端口，避免一个实例占用另一个实例
+  需要的资源。
+
+因此“共享源码”不等于“共享状态”。如果插件主动绕过基类存储，或依赖不可分配的
+进程级排他资源，应明确说明不适合创建多个实例。
+
+### 7.4 第三方依赖
 
 插件有额外 Python 依赖时，在插件目录增加 `pyproject.toml`：
 
@@ -355,6 +376,36 @@ dependencies = [
 - 可选能力尽量延迟导入，并在缺少依赖时给出明确错误。
 
 宿主会保护核心依赖图；存在降级或不兼容要求时，插件安装会被拒绝。
+
+### 7.4 异步 HTTP 客户端
+
+V3 的 `app.sdk.network.AsyncRequestUtils` 使用 HTTPX2。默认请求返回 `httpx2.Response`，传入
+自管客户端时只使用 `httpx2.AsyncClient`；直接依赖响应或异常类型的插件代码应导入 `httpx2`。
+
+网络、代理、TLS 或超时错误默认由 `AsyncRequestUtils` 拦截并返回 `None`。需要区分失败原因时传入
+`raise_exception=True`，并捕获 `httpx2.RequestError` 或其具体子类：
+
+```python
+import httpx2
+
+from app.sdk.logging import logger
+from app.sdk.network import AsyncRequestUtils
+
+
+try:
+    response = await AsyncRequestUtils().get_res(url, raise_exception=True)
+except httpx2.RequestError as error:
+    logger.warning(f"请求失败：{error}")
+    return None
+```
+
+HTTP 4xx/5xx 响应不会因为 `raise_exception=True` 自动抛出。插件应按业务检查 `status_code`，或调用
+`response.raise_for_status()` 并处理 `httpx2.HTTPStatusError`。`httpx.RequestError` 不能捕获
+HTTPX2 异常。
+
+插件直接调用的第三方 SDK 仍使用该 SDK 声明的 HTTP 客户端版本，不需要为此替换其内部依赖。
+不要调用 `httpx2.alias_httpx()` 全局改写 `httpx`，同一进程内的主程序、其它插件和第三方 SDK
+共享导入状态，全局替换会越过插件边界。
 
 ## 8. 页面和仪表板
 
@@ -388,6 +439,11 @@ Vue 模式下，前端构建产物放入插件目录，由后端暴露静态资�
 
 - [侧栏入口 FAQ](./faq/17-register-plugin-sidebar-nav.md)
 - [MoviePilot-Frontend V3 模块联邦指南](https://github.com/jxxghp/MoviePilot-Frontend/blob/v3/docs/module-federation-guide.md)
+
+虚拟分身复用源插件的同一份 `remoteEntry.js`。宿主会向配置页、数据页、仪表盘、
+侧栏全页和登录组件传入当前实例的 `pluginId`、源身份 `sourcePluginId`，以及实例作用域
+的 `api`。联邦组件应优先使用这些 props；不要只读取全局 `window.MoviePilotAPI`，也不要
+自行根据源插件 ID 创建另一套 HTTP 客户端，否则请求会绕过实例 API 命名空间。
 
 ## 9. 事件、API 和后台能力
 

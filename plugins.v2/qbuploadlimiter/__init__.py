@@ -18,6 +18,7 @@ import inspect
 import json
 import threading
 import time
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
@@ -39,13 +40,13 @@ class QbUploadLimiter(_PluginBase):
 
     当 qBittorrent / Transmission 下载器中已下载的种子分享率达到设定阈值时，
     自动将该种子的上传速度限制为指定值（KB/s）。
-    分享率 = 上传量 / 下载量，阈值为正整数，达到阈值后自动限速。
+    分享率 = 上传量 / 下载量，阈值为正数（最多 1 位小数），达到阈值后自动限速。
     """
 
     plugin_name = "QB上传限速"
     plugin_desc = "仅处理 MoviePilot 已整理入库成功的种子：分享率达到全局或站点单独阈值后自动限制上传速度（qBittorrent 与全局上传限速取较小值）；可选 AI 智能限速——调用系统设置的大模型按种子分享率、上传活跃度与站点账号分享率逐种子智能决策限速；支持多下载器、站点筛选、定时检测，停用/卸载自动恢复不限速。"
     plugin_icon = "Qbittorrent_A.png"
-    plugin_version = "1.3.11"
+    plugin_version = "1.3.18"
     plugin_author = "xlmc"
     author_url = "https://github.com/xlmc"
     plugin_config_prefix = "qbuploadlimiter_"
@@ -59,10 +60,10 @@ class QbUploadLimiter(_PluginBase):
     _onlyonce = False
     # 已选择的通知渠道类型（如 telegram / wechat），留空表示不发通知
     _notify_channel = []
-    # 全局分享率阈值（正整数）
-    _share_ratio = 1
+    # 全局分享率阈值（正数，最多 1 位小数，不能为 0 或负）
+    _share_ratio = 1.0
     # 站点名称（小写）-> 单独分享率阈值；未命中时使用全局阈值
-    _site_share_ratios: Dict[str, int] = {}
+    _site_share_ratios: Dict[str, float] = {}
     # 站点单独阈值表单的规范化文本（每行「站点=阈值」）
     _site_share_ratios_text = ""
     # 上传速度 KB/s，0 表示分享率达到阈值后不做限速处理
@@ -101,6 +102,8 @@ class QbUploadLimiter(_PluginBase):
     _ai_eval_interval = 3600
     # AI 限速上限（KB/s），0 表示使用配置的上传速度作为上限
     _ai_max_limit = 0
+    # AI 账号分享率门槛：站点账号分享率达到该值才对该站种子生效 AI 决策，0 表示不启用（正整数）
+    _ai_site_ratio_threshold = 0
     # 种子状态机：{下载器名称: {种子Hash: 状态}}
     # 状态：pending（待评估）/ limited（限速中）/ recovering（恢复中）/ idle（忽略）
     _seed_states: Dict[str, Dict[str, str]] = {}
@@ -110,8 +113,10 @@ class QbUploadLimiter(_PluginBase):
     _uploaded_snapshots: Dict[str, Dict[str, float]] = {}
     # 上次大模型调用时间戳（限频）
     _last_ai_eval_at = 0.0
-    # 系统设置未配置大模型标记：置位后本会话不再尝试调用大模型，避免每轮刷错误日志
+    # 系统设置未配置大模型标记：置位后降频重试探测（而非永久放弃），补配置后自动恢复
     _ai_config_missing = False
+    # 下次重试探测大模型配置的时间戳（配置缺失时降频重试，避免每轮刷错误日志）
+    _ai_config_retry_at = 0.0
     # AI 智能限速已成功生效标记：大模型自检通过或至少一次评估调用成功后置位，
     # 用于详情页（种子状态页）的显隐——未成功开启 AI 前保持点击卡片直接进设置
     _ai_active = False
@@ -122,9 +127,10 @@ class QbUploadLimiter(_PluginBase):
     # 每轮检测后更新，get_page 渲染时使用，避免页面请求时再访问下载器
     _seed_page_snapshot: Dict[str, Dict[str, dict]] = {}
     # 种子状态常量
-    _STATE_PENDING = "pending"      # 待评估：已入库+已完成+活跃，等待 AI/规则决策
+    _STATE_PENDING = "pending"      # 待评估：已入库+活跃，等待 AI/规则决策
     _STATE_LIMITED = "limited"      # 限速中：已被本插件限速且仍受监控
     _STATE_RECOVERING = "recovering"  # 恢复中：超时放掉正在恢复不限速（含待重试）
+    _STATE_NO_LIMIT = "no_limit"    # AI 不限速：AI 已评估且判定当前不限速
     _STATE_IDLE = "idle"            # 忽略：无上传流量或已放掉，插件零操作
 
     # 持久化数据键：跨会话保留待恢复限速种子 / 已取消监控种子
@@ -165,7 +171,7 @@ class QbUploadLimiter(_PluginBase):
             self._stop_restore_retry(wait=True)
         self._onlyonce = bool(config.get("onlyonce"))
         self._notify_channel = self._normalize_channels(config.get("notify_channel"))
-        self._share_ratio = max(self._to_int(config.get("share_ratio"), 1), 1)
+        self._share_ratio = self._to_ratio(config.get("share_ratio"), 1.0)
         self._site_share_ratios, self._site_share_ratios_text = self._normalize_site_share_ratios(
             config.get("site_share_ratios")
         )
@@ -178,6 +184,7 @@ class QbUploadLimiter(_PluginBase):
         self._ai_enabled = bool(config.get("ai_enabled"))
         self._ai_eval_interval = max(self._to_int(config.get("ai_eval_interval"), 3600), 60)
         self._ai_max_limit = max(self._to_int(config.get("ai_max_limit"), 0), 0)
+        self._ai_site_ratio_threshold = max(self._to_int(config.get("ai_site_ratio_threshold"), 0), 0)
         self._downloaders = self._normalize_config_list(config.get("downloaders"))
         self._sites = self._normalize_config_list(config.get("sites"))
         # 站点映射（域名 -> 名称、名称小写 -> 名称）只构建一次，供本轮所有种子复用
@@ -224,6 +231,7 @@ class QbUploadLimiter(_PluginBase):
         self._uploaded_snapshots = {}
         self._last_ai_eval_at = 0.0
         self._ai_config_missing = False
+        self._ai_config_retry_at = 0.0
         self._seed_page_snapshot = {}
         # 重新初始化后 AI 生效标记与决策缓存一并清零：详情页显隐跟随新一轮
         # 大模型调用结果重新判定，避免保存配置后出现「有页面无数据」或残留旧标记
@@ -303,6 +311,7 @@ class QbUploadLimiter(_PluginBase):
         "pending": "待评估",
         "limited": "限速中",
         "recovering": "恢复中",
+        "no_limit": "AI 不限速",
         "idle": "忽略",
     }
 
@@ -328,8 +337,8 @@ class QbUploadLimiter(_PluginBase):
                     "props": {"class": "text-center"},
                 }
             ]
-        # 状态排序：限速中 > 待评估 > 恢复中 > 忽略
-        order = {"limited": 0, "pending": 1, "recovering": 2, "idle": 3}
+        # 状态排序：限速中 > 待评估 > 恢复中 > AI 不限速 > 忽略
+        order = {"limited": 0, "pending": 1, "recovering": 2, "no_limit": 3, "idle": 4}
         rows.sort(key=lambda r: (order.get(r.get("state"), 9), r.get("service", "")))
         # 顶部状态统计卡片
         counts: Dict[str, int] = {}
@@ -337,7 +346,7 @@ class QbUploadLimiter(_PluginBase):
             label = self._STATE_LABELS.get(row.get("state"), row.get("state"))
             counts[label] = counts.get(label, 0) + 1
         header_cards = []
-        for label in ("待评估", "限速中", "恢复中", "忽略"):
+        for label in ("待评估", "限速中", "恢复中", "AI 不限速", "忽略"):
             header_cards.append(
                 {
                     "component": "VCol",
@@ -569,14 +578,13 @@ class QbUploadLimiter(_PluginBase):
                                         "props": {
                                             "model": "share_ratio",
                                             "label": "全局分享率阈值",
-                                            "placeholder": "正整数（≥1）；站点未配置单独阈值时使用该值",
+                                            "placeholder": "正数（>0），最多 1 位小数；站点未配置单独阈值时使用该值",
                                             "type": "number",
-                                            "min": 1,
-                                            "step": 1,
-                                            "hint": "不允许填 0，分享率阈值必须为正整数（≥1）",
+                                            "min": 0.1,
+                                            "step": 0.1,
+                                            "hint": "不能为 0 或负数，最多保留 1 位小数（如 1.5），多余位四舍五入",
                                             "persistent-hint": True,
-                                            "onKeydown": "function (e) { if (e.key === '0') { var v = e.target.value || ''; var s = e.target.selectionStart || 0; var en = e.target.selectionEnd || 0; var next = v.slice(0, s) + '0' + v.slice(en); if (/^0+$/.test(next)) { e.preventDefault(); } } }",
-                                            "onPaste": "function (e) { var t = (e.clipboardData || window.clipboardData).getData('text'); if (/^0+$/.test(t)) { var v = e.target.value || ''; var s = e.target.selectionStart || 0; var en = e.target.selectionEnd || 0; var next = v.slice(0, s) + t + v.slice(en); if (/^0+$/.test(next)) { e.preventDefault(); } } }",
+                                            "onKeydown": "function (e) { if (e.key === '-') { e.preventDefault(); } }",
                                         },
                                     }
                                 ],
@@ -673,6 +681,26 @@ class QbUploadLimiter(_PluginBase):
                             },
                             {
                                 "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "ai_site_ratio_threshold",
+                                            "label": "AI 账号分享率门槛",
+                                            "placeholder": "0 = 不启用",
+                                            "hint": "正整数，0=不启用；站点账号分享率达到该值才对该站种子生效 AI 决策，未达标（或查不到）回退常规阈值规则",
+                                            "persistent-hint": True,
+                                            "type": "number",
+                                            "min": 0,
+                                            "step": 1,
+                                            "hide-spin-buttons": True,
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
                                 "props": {"cols": 12},
                                 "content": [
                                     {
@@ -699,11 +727,11 @@ class QbUploadLimiter(_PluginBase):
                                         "props": {
                                             "model": "site_share_ratios",
                                             "label": "按站点单独分享率阈值",
-                                            "placeholder": "一行一个，例如：\n站点A=3\n站点B=5",
+                                            "placeholder": "一行一个，例如：\n站点A=3\n站点B=5.5",
                                             "rows": 3,
                                             "auto-grow": True,
                                             "clearable": True,
-                                            "hint": "格式：站点名称=正整数阈值（≥1）。对应站点使用单独阈值；未配置或无法识别站点时回退使用全局分享率阈值。",
+                                            "hint": "格式：站点名称=正数阈值（>0，最多 1 位小数）。对应站点使用单独阈值；未配置或无法识别站点时回退使用全局分享率阈值。",
                                             "persistent-hint": True,
                                         },
                                     }
@@ -768,7 +796,7 @@ class QbUploadLimiter(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "本插件仅处理 MoviePilot 已整理入库成功的种子：种子入库成功前不监控、不限速（等同于插件未开启），入库成功后按分享率逐种子限速——分享率（上传量/下载量）达到全局或站点单独设置的正整数阈值后，其上传速度将被限制为设定值（KB/s）。站点单独阈值使用「站点名称=阈值」格式，一行一个；未配置或无法识别站点时使用全局阈值。上传速度填 0 表示不做限速处理；两个监控超时填 0 表示不启用对应功能。支持 qBittorrent 和 Transmission。",
+                                            "text": "本插件仅处理 MoviePilot 已整理入库成功的种子：种子入库成功前不监控、不限速（等同于插件未开启），入库成功后按分享率逐种子限速——分享率（上传量/下载量）达到全局或站点单独设置的正数阈值（>0，最多 1 位小数）后，其上传速度将被限制为设定值（KB/s）。站点单独阈值使用「站点名称=阈值」格式，一行一个；未配置或无法识别站点时使用全局阈值。上传速度填 0 表示不做限速处理；两个监控超时填 0 表示不启用对应功能。支持 qBittorrent 和 Transmission。",
                                         },
                                     }
                                 ],
@@ -794,6 +822,7 @@ class QbUploadLimiter(_PluginBase):
             "ai_enabled": self._ai_enabled,
             "ai_eval_interval": self._ai_eval_interval,
             "ai_max_limit": self._ai_max_limit,
+            "ai_site_ratio_threshold": self._ai_site_ratio_threshold,
             "downloaders": self._downloaders,
             "sites": self._sites,
         }
@@ -862,7 +891,7 @@ class QbUploadLimiter(_PluginBase):
         sites = [str(site).strip() for site in (self._sites or []) if str(site).strip()]
         return {site.lower() for site in sites} if sites else None
 
-    def _threshold_for_site(self, site: str, fallback: int) -> int:
+    def _threshold_for_site(self, site: str, fallback: float) -> float:
         """返回种子所属站点的单独分享率阈值，未配置或站点未知时使用全局阈值。"""
         site_key = str(site or "").strip().lower()
         if not site_key:
@@ -902,7 +931,7 @@ class QbUploadLimiter(_PluginBase):
         # 常见的整数 KB/s 保持整数显示；非整 KB/s 则保留 qB 返回的精确值。
         return int(effective_limit) if effective_limit.is_integer() else effective_limit
 
-    def _set_torrent_limits(self, share_ratio: int, upload_limit: int, channel: Any = None) -> bool:
+    def _set_torrent_limits(self, share_ratio: float, upload_limit: int, channel: Any = None) -> bool:
         """
         检测所有选中下载器中的种子分享率，达到阈值的设置上传限速。
 
@@ -924,7 +953,7 @@ class QbUploadLimiter(_PluginBase):
             self._last_result = "没有可用的 qBittorrent/Transmission 下载器，未执行限速。"
             return False
 
-        threshold = max(self._to_int(share_ratio, 1), 1)
+        threshold = self._to_ratio(share_ratio, 1.0)
         limit = max(self._to_int(upload_limit, 0), 0)
         # 上传速度为 0：分享率达到阈值后不做限速处理
         if limit == 0:
@@ -942,7 +971,7 @@ class QbUploadLimiter(_PluginBase):
         if self._site_share_ratios_text:
             summary_lines.append(
                 f"站点单独阈值：{self._site_share_ratios_text.replace(chr(10), '、')}"
-                f"（其他站点使用全局阈值 {threshold}）"
+                f"（其他站点使用全局阈值 {threshold:g}）"
             )
         failed_names = []
 
@@ -1011,23 +1040,36 @@ class QbUploadLimiter(_PluginBase):
                             )
                             timeout_canceled += 1
                 # 筛选出已入库且达标且（可选）属于勾选站点的种子；记录每个达标种子实际使用的阈值
-                threshold_cache: Dict[str, int] = {}
+                threshold_cache: Dict[str, float] = {}
                 # AI 智能限速：对活跃种子批量评估决策；AI 生效时替换阈值规则，
                 # 未配置大模型/调用失败/输出解析失败时回退常规阈值规则
                 ai_mode = False
                 ai_limits: Dict[str, float] = {}
+                # 本轮 _ai_evaluate 返回且仍有效的 no_limit 决策（限频期内复用缓存时
+                # 已经过新鲜度与账号门槛过滤），只有本轮有效的决策才能让种子跳过限速，
+                # 避免读取 _ai_decisions 原始缓存中已不适用（如账号分享率降到门槛以下）
+                # 的陈旧 no_limit 结论、导致本应回退常规阈值规则的种子被永久跳过
+                ai_no_limit: Set[str] = set()
                 if self._ai_enabled:
                     decisions = self._ai_evaluate(
                         service_name, eligible_torrents, downloader_type, self._load_site_ratios(), now
                     )
                     if decisions:
                         ai_mode = True
-                        for torrent_hash, decision in decisions.items():
-                            if decision.get("action") == "limit" and decision.get("limit_kb", 0) > 0:
-                                ai_limits[torrent_hash] = float(decision["limit_kb"])
+                        ai_limits, ai_unlimit = self._build_ai_limits(
+                            service_name, downloader_type, eligible_torrents, decisions
+                        )
+                        ai_no_limit = {
+                            torrent_hash for torrent_hash, decision in decisions.items()
+                            if decision.get("action") == "no_limit"
+                        }
+                        if ai_unlimit:
+                            unlimit_count = self._apply_ai_unlimit(service_name, downloader, ai_unlimit)
+                            summary_lines.append(f"{service_name}：AI 复核解限 {unlimit_count} 个种子")
                         summary_lines.append(f"{service_name}：AI 智能限速生效（本轮决策 {len(decisions)} 个种子）")
                 matched = self._collect_matched_torrents(
                     torrents=eligible_torrents,
+                    service_name=service_name,
                     downloader_type=downloader_type,
                     threshold=threshold,
                     selected=selected,
@@ -1035,6 +1077,7 @@ class QbUploadLimiter(_PluginBase):
                     threshold_cache=threshold_cache,
                     ai_mode=ai_mode,
                     ai_limits=ai_limits,
+                    ai_no_limit=ai_no_limit,
                 )
                 # 对达标种子应用限速并统计结果
                 new_limited, already, failed, canceled = self._apply_limits(
@@ -1053,6 +1096,10 @@ class QbUploadLimiter(_PluginBase):
                 # 并在运行日志输出各状态数量；未启用 AI 时保持原有逻辑
                 if self._ai_enabled:
                     self._refresh_seed_states(service_name, eligible_torrents, downloader_type, site_cache=site_cache)
+                    # 活跃度快照在 AI 评估与状态计算之后更新，保存本轮累计上传量，
+                    # 供下一轮 _is_torrent_active 计算窗口增量（顺序不可颠倒，
+                    # 否则本轮活跃判断比较的是「刚刷新」的当前值、恒为不活跃）
+                    self._refresh_activity_snapshots(service_name, eligible_torrents, downloader_type)
                     if self._seed_states.get(service_name):
                         state_counts = {}
                         for state in self._seed_states.get(service_name, {}).values():
@@ -1060,7 +1107,7 @@ class QbUploadLimiter(_PluginBase):
                         summary_lines.append(
                             f"{service_name}：种子状态 待评估 {state_counts.get('pending', 0)} / "
                             f"限速中 {state_counts.get('limited', 0)} / 恢复中 {state_counts.get('recovering', 0)} / "
-                            f"忽略 {state_counts.get('idle', 0)}"
+                            f"AI 不限速 {state_counts.get('no_limit', 0)} / 忽略 {state_counts.get('idle', 0)}"
                         )
                 # 兜底重试「已取消监控但恢复失败」的种子：下载器短暂离线导致的
                 # 恢复失败，在下载器恢复后由每轮检测顺带重试，无需等待停用/卸载
@@ -1091,13 +1138,15 @@ class QbUploadLimiter(_PluginBase):
     def _collect_matched_torrents(
         self,
         torrents: List[Any],
+        service_name: str,
         downloader_type: str,
-        threshold: int,
+        threshold: float,
         selected: Optional[Set[str]],
         site_cache: Dict[str, str],
-        threshold_cache: Dict[str, int],
+        threshold_cache: Dict[str, float],
         ai_mode: bool = False,
         ai_limits: Optional[Dict[str, float]] = None,
+        ai_no_limit: Optional[Set[str]] = None,
     ) -> List[Any]:
         """
         从种子列表中筛选出达到分享率阈值且（可选）属于勾选站点的种子。
@@ -1106,8 +1155,9 @@ class QbUploadLimiter(_PluginBase):
         （hash -> 站点），优先使用 MoviePilot 记录的权威站点信息。
         每个达标种子实际使用的阈值写入 threshold_cache，供日志准确显示。
 
-        AI 智能限速模式（ai_mode=True）：是否限速与限速值完全由大模型决策，
-        无 AI 决策的种子（休眠/判定不限速/尚未评估）一律跳过，不再走阈值规则。
+        AI 智能限速模式（ai_mode=True）：limit 决策按 AI 限速值限速；
+        本轮有效的 no_limit 决策尊重不限速；无决策（限频期内新活跃、尚未评估、
+        账号分享率未达门槛等）回退阈值规则兜底。
         """
         # 站点筛选或站点单独阈值至少启用一项时，才需要识别种子所属站点
         need_site = bool(selected or self._site_share_ratios)
@@ -1121,9 +1171,6 @@ class QbUploadLimiter(_PluginBase):
             torrent_hash = self._torrent_hash(torrent, downloader_type)
             if not torrent_hash:
                 continue
-            # 只处理已下载完成的种子，下载中的种子即使分享率达标也不限速
-            if not self._torrent_completed(torrent, downloader_type):
-                continue
 
             site = ""
             if need_site:
@@ -1132,14 +1179,19 @@ class QbUploadLimiter(_PluginBase):
             if selected and (not site or site.lower() not in selected):
                 continue
 
-            # AI 智能限速模式：由大模型决策是否限速与限速值
+            # AI 智能限速模式：limit 决策限速、本轮有效的 no_limit 决策尊重不限速、
+            # 已限速种子未要求调整时维持现状、无决策回退阈值规则兜底，避免「漏管」
             if ai_mode:
                 ai_value = (ai_limits or {}).get(torrent_hash)
-                if ai_value is None:
+                if ai_value is not None:
+                    matched.append(torrent)
                     continue
-                threshold_cache[torrent_hash] = int(ai_value)
-                matched.append(torrent)
-                continue
+                if torrent_hash in (ai_no_limit or set()):
+                    continue
+                if torrent_hash in self._limited_hashes.get(service_name, set()):
+                    # 已限速种子：AI 未要求调整（防抖维持现状/本轮未评估），跳过不重新按阈值限速
+                    continue
+                # 无决策：继续走下方阈值规则
 
             # 已识别且配置了单独阈值的站点使用单独值，否则回退到全局阈值
             torrent_threshold = self._threshold_for_site(site, threshold)
@@ -1171,13 +1223,6 @@ class QbUploadLimiter(_PluginBase):
             if not torrent_hash:
                 continue
             current_hashes.add(torrent_hash)
-            # AI 智能限速启用时才维护已入库种子的活跃度快照（窗口增量判断的基础）；
-            # 未启用 AI 时保持原有逻辑，不维护任何 AI 相关状态
-            if (
-                self._ai_enabled
-                and (transferred_hashes is None or torrent_hash in transferred_hashes)
-            ):
-                self._refresh_activity_snapshot(service_name, torrent, downloader_type, torrent_hash)
             if (
                 self._complete_timeout > 0
                 and limit > 0
@@ -1220,10 +1265,10 @@ class QbUploadLimiter(_PluginBase):
         downloader_type: str,
         matched: List[Any],
         limit: float,
-        threshold: int,
+        threshold: float,
         channel: Any,
         site_cache: Dict[str, str],
-        threshold_cache: Dict[str, int],
+        threshold_cache: Dict[str, float],
         ai_limits: Optional[Dict[str, float]] = None,
     ) -> Tuple[int, int, int, int]:
         """
@@ -1295,10 +1340,15 @@ class QbUploadLimiter(_PluginBase):
                 # 记录本次限速时间，用于「限速后超时」计时
                 self._limited_times.setdefault(service_name, {})[torrent_hash] = now
                 new_limited += 1
-                logger.info(
-                    f"{self.LOG_TAG}[{service_name}] 种子 [{torrent_name}] 分享率达到 {torrent_threshold}，"
-                    f"已限速 {self._format_limit(torrent_limit)}"
-                )
+                if ai_limits and torrent_hash in ai_limits:
+                    logger.info(
+                        f"{self.LOG_TAG}[{service_name}] 种子 [{torrent_name}] AI 智能限速 {self._format_limit(torrent_limit)}"
+                    )
+                else:
+                    logger.info(
+                        f"{self.LOG_TAG}[{service_name}] 种子 [{torrent_name}] 分享率达到 {torrent_threshold:g}，"
+                        f"已限速 {self._format_limit(torrent_limit)}"
+                    )
                 # 仅首次新限速的种子逐条通知；已认领种子被外部改回后重新应用限速
                 # 不再重复发送通知，避免每轮检测重复推送
                 if channels and not owned:
@@ -1352,6 +1402,19 @@ class QbUploadLimiter(_PluginBase):
         uploaded = self._torrent_uploaded(torrent, downloader_type)
         self._uploaded_snapshots.setdefault(service_name, {})[torrent_hash] = uploaded
 
+    def _refresh_activity_snapshots(self, service_name: str, torrents: List[Any], downloader_type: str):
+        """
+        批量更新已入库种子的活跃度快照（在本轮 AI 评估与状态计算之后调用）。
+
+        快照保存的是「本轮」累计上传量，供下一轮 `_is_torrent_active` 与上一轮
+        比较计算窗口增量；必须在活跃判断完成之后调用，否则当前值与快照相等，
+        增量恒为 0、活跃判断失效。
+        """
+        for torrent in torrents:
+            torrent_hash = self._torrent_hash(torrent, downloader_type)
+            if torrent_hash:
+                self._refresh_activity_snapshot(service_name, torrent, downloader_type, torrent_hash)
+
     def _is_torrent_active(self, service_name: str, torrent: Any, downloader_type: str, torrent_hash: str) -> bool:
         """
         判断种子是否活跃：窗口内有实际上传增量；无快照（首轮）时以当前上传速度为准。
@@ -1374,12 +1437,13 @@ class QbUploadLimiter(_PluginBase):
     def _refresh_seed_states(self, service_name: str, eligible_torrents: List[Any], downloader_type: str,
                              site_cache: Optional[Dict[str, str]] = None):
         """
-        推导并登记种子状态机（pending / limited / recovering / idle），清理已移除种子。
+        推导并登记种子状态机（pending / limited / recovering / no_limit / idle），清理已移除种子。
 
         状态完全由现有机制推导：
         - 已取消监控 -> idle（忽略，插件不再干预）；
         - 已被本插件限速 -> limited（限速中）；
         - 有待恢复记录 -> recovering（恢复中，含恢复失败待重试）；
+        - AI 判定不限速 -> no_limit（AI 不限速）；
         - 活跃 -> pending（待评估）；休眠 -> idle。
 
         同时维护种子状态页快照（名称/站点/状态/限速值/AI 决策原因），供 get_page 渲染。
@@ -1399,17 +1463,27 @@ class QbUploadLimiter(_PluginBase):
                 states[torrent_hash] = self._STATE_LIMITED
             elif torrent_hash in self._restore_hashes.get(service_name, set()):
                 states[torrent_hash] = self._STATE_RECOVERING
+            elif self._ai_decisions.get(service_name, {}).get(torrent_hash, {}).get("action") == "no_limit":
+                states[torrent_hash] = self._STATE_NO_LIMIT
             elif self._is_torrent_active(service_name, torrent, downloader_type, torrent_hash):
                 states[torrent_hash] = self._STATE_PENDING
             else:
                 states[torrent_hash] = self._STATE_IDLE
-            # 页面快照：名称/站点/状态/AI 决策（限速值与原因）
+            # 页面快照：名称/站点/状态/AI 决策（限速值与原因）；
+            # 限速值取下载器中实际生效的值——防抖维持现状时实际值与 AI 原始建议不同，
+            # 常规规则回退产生的限速没有 AI 决策，取实际值才能如实展示种子限速状态
             decision = decisions.get(torrent_hash) or {}
+            actual_kb = 0.0
+            if states[torrent_hash] == self._STATE_LIMITED:
+                actual_kb = self._torrent_current_limit_kb(torrent, downloader_type)
+                if actual_kb <= 0:
+                    # 实际值暂时读取失败时回退 AI 原始建议，避免限速中种子显示无限速
+                    actual_kb = float(decision.get("limit_kb") or 0)
             snapshot[torrent_hash] = {
                 "name": self._torrent_name(torrent, downloader_type) or torrent_hash,
                 "site": (site_cache or {}).get(torrent_hash) or self._torrent_site(torrent, downloader_type),
                 "state": states[torrent_hash],
-                "limit_kb": int(decision.get("limit_kb") or 0),
+                "limit_kb": int(actual_kb),
                 "reason": str(decision.get("reason") or ""),
             }
         # 清理已不在下载器中的种子：以状态与快照的并集为基准，
@@ -1468,6 +1542,7 @@ class QbUploadLimiter(_PluginBase):
                 f"期间自动回退常规分享率阈值限速"
             )
             self._ai_config_missing = True
+            self._ai_active = False
             raise
         if llm is None:
             logger.warning(
@@ -1476,6 +1551,7 @@ class QbUploadLimiter(_PluginBase):
                 f"期间自动回退常规分享率阈值限速"
             )
             self._ai_config_missing = True
+            self._ai_active = False
             raise RuntimeError("系统设置未配置大模型")
         self._ai_config_missing = False
         response = llm.invoke(prompt, config={"configurable": {"timeout": timeout}})
@@ -1532,14 +1608,15 @@ class QbUploadLimiter(_PluginBase):
         """
         构造 AI 限速决策提示词。
 
-        :param items: 种子信息列表（index/hash/site/ratio/uploaded/downloaded/speed/window_upload）
+        :param items: 种子信息列表（index/hash/site/ratio/uploaded/downloaded/speed/window_upload/current_limit）
         :param site_lines: 站点账号分享率文本（站点名=分享率，每行一个）
         :param max_limit: 限速上限 KB/s
         """
         seed_lines = "\n".join(
             f"[{it['index']}] 站点={it['site'] or '未知'} | 种子分享率={it['ratio']:.2f} | "
             f"累计上传={it['uploaded']} | 累计下载={it['downloaded']} | "
-            f"当前上传速度={it['speed']} | 最近一轮上传增量={it['window_upload']}"
+            f"当前上传速度={it['speed']} | 最近一轮上传增量={it['window_upload']} | "
+            f"当前限速={it.get('current_limit', 0):g} KB/s（0=不限速）"
             for it in items
         )
         return (
@@ -1551,9 +1628,11 @@ class QbUploadLimiter(_PluginBase):
             "2. 站点账号分享率越高，说明该站上传指标越充足，该站种子可放心限速；"
             "站点分享率低（如低于 1.5）时该站种子应放宽，继续积攒上传量；\n"
             "3. 种子最近仍在上传（当前速度或窗口增量大于 0）才值得限速；\n"
-            f"4. 限速值单位为 KB/s，必须为正整数，且不超过上限 {max_limit}；"
+            "4. 对已限速的种子（当前限速>0），可据其最新分享率/活跃度调整限速值或改为 no_limit 解除限速；"
+            "仅当认为需要明显改变时才调整，避免无谓微调；\n"
+            f"5. 限速值单位为 KB/s，必须为正整数，且不超过上限 {max_limit}；"
             "action 为 no_limit 时表示不限速，limit_kb 填 0；\n"
-            "5. 严格只输出 JSON，不要输出任何其他文字，格式："
+            "6. 严格只输出 JSON，不要输出任何其他文字，格式："
             "{{\"results\": [{{\"index\": 序号, \"action\": \"limit\" 或 \"no_limit\", "
             "\"limit_kb\": 数值, \"reason\": \"一句话原因\"}}]}}，输入的每个种子都必须给出结果。\n"
             f"站点账号分享率：{site_lines}\n"
@@ -1563,7 +1642,8 @@ class QbUploadLimiter(_PluginBase):
     def _ai_evaluate(self, service_name: str, torrents: List[Any], downloader_type: str,
                      site_ratios: Dict[str, float], now: float) -> Dict[str, Dict[str, Any]]:
         """
-        对活跃且未限速的种子进行 AI 批量评估，返回本轮生效的决策 {种子Hash: 决策}。
+        对活跃的种子（含已限速种子，用于复核加限/减限/解限）进行 AI 批量评估，
+        返回本轮生效的决策 {种子Hash: 决策}。
 
         按 _ai_eval_interval 限频调用大模型：限频期内直接复用现有决策缓存；
         大模型调用失败/超时/输出解析失败时返回空字典（本轮回退常规阈值规则），
@@ -1571,17 +1651,20 @@ class QbUploadLimiter(_PluginBase):
         """
         decisions = self._ai_decisions.setdefault(service_name, {})
         canceled = self._canceled_hashes.get(service_name, set())
-        limited = self._limited_hashes.get(service_name, set())
         items: List[dict] = []
         index_map: Dict[int, str] = {}
         for torrent in torrents:
             torrent_hash = self._torrent_hash(torrent, downloader_type)
-            if not torrent_hash or torrent_hash in canceled or torrent_hash in limited:
-                continue
-            if not self._torrent_completed(torrent, downloader_type):
+            if not torrent_hash or torrent_hash in canceled:
                 continue
             if not self._is_torrent_active(service_name, torrent, downloader_type, torrent_hash):
                 continue
+            # 账号分享率门槛：门槛>0 时，站点账号分享率未达标（或查不到）的种子不参与 AI 决策，
+            # 回退常规阈值规则；高分享率账号（很安全）才交给 AI 限速减上行流量，规避家宽被运营商限速
+            if self._ai_site_ratio_threshold > 0:
+                site_ratio = self._torrent_site_ratio(torrent, downloader_type, site_ratios)
+                if site_ratio is None or site_ratio < self._ai_site_ratio_threshold:
+                    continue
             index = len(items)
             items.append({
                 "index": index,
@@ -1592,16 +1675,38 @@ class QbUploadLimiter(_PluginBase):
                 "downloaded": self._format_bytes(self._torrent_downloaded(torrent, downloader_type)),
                 "speed": f"{self._torrent_upload_speed(torrent, downloader_type) / 1024:.1f} KB/s",
                 "window_upload": self._format_bytes(self._window_upload_delta(service_name, torrent, downloader_type, torrent_hash)),
+                "current_limit": self._torrent_current_limit_kb(torrent, downloader_type),
             })
             index_map[index] = torrent_hash
         if not items:
             return {}
-        # 系统设置未配置大模型：不再尝试调用，直接回退常规阈值规则
+        # 系统设置未配置大模型：降频重试探测（补配置后无需重新保存插件即可自动恢复），
+        # 重试间隔内直接回退常规阈值规则，避免每轮刷错误日志
         if self._ai_config_missing:
-            return {}
-        # 限频：距上次大模型调用不足间隔时不调用，直接返回缓存中仍有效的决策
+            if now < self._ai_config_retry_at:
+                return {}
+            self._ai_config_retry_at = now + self._ai_eval_interval
+            try:
+                self._ai_invoke("请只回复两个字：正常", timeout=60)
+                # 探测成功：_ai_invoke 内部已置 _ai_config_missing=False，继续正常评估
+            except Exception:
+                return {}
+        # 限频：距上次大模型调用不足间隔时不调用，直接返回缓存中仍有效的决策；
+        # 丢弃已过期（超过一个评估间隔未刷新）的旧决策，避免种子长时间休眠后
+        # 重新活跃时命中陈旧结论（此类种子会回退阈值规则兜底，等下次评估刷新）
         if now - self._last_ai_eval_at < self._ai_eval_interval:
-            return {h: d for h, d in decisions.items() if h in index_map.values()}
+            fresh: Dict[str, dict] = {}
+            for torrent_hash, decision in decisions.items():
+                if torrent_hash not in index_map.values():
+                    continue
+                try:
+                    ts = float(decision.get("ts") or 0)
+                except (TypeError, ValueError):
+                    ts = 0.0
+                if now - ts >= self._ai_eval_interval:
+                    continue
+                fresh[torrent_hash] = decision
+            return fresh
         max_limit = self._ai_max_limit if self._ai_max_limit > 0 else self._upload_limit
         if max_limit <= 0:
             return {}
@@ -1621,6 +1726,75 @@ class QbUploadLimiter(_PluginBase):
             decision["ts"] = now
             decisions[torrent_hash] = decision
         return parsed
+
+    def _build_ai_limits(
+        self,
+        service_name: str,
+        downloader_type: str,
+        torrents: List[Any],
+        decisions: Dict[str, dict],
+    ) -> Tuple[Dict[str, float], Set[str]]:
+        """
+        根据 AI 决策构建「限速映射」与「解限集合」。
+
+        - limit 决策：写入限速映射（KB/s）；对已限速种子做防抖——新值与当前值
+          差异 < 20% 时维持现状，避免每轮无谓微调；
+        - no_limit 决策：若该种子当前已限速，加入解限集合（由 _apply_ai_unlimit 恢复不限速）。
+        """
+        torrent_map = {self._torrent_hash(t, downloader_type): t for t in torrents}
+        limited = self._limited_hashes.get(service_name, set())
+        ai_limits: Dict[str, float] = {}
+        unlimit_hashes: Set[str] = set()
+        for torrent_hash, decision in decisions.items():
+            action = decision.get("action")
+            if action == "limit":
+                try:
+                    new_kb = float(decision.get("limit_kb") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if new_kb <= 0:
+                    continue
+                if torrent_hash in limited:
+                    current_kb = self._torrent_current_limit_kb(torrent_map.get(torrent_hash), downloader_type)
+                    if current_kb > 0 and abs(new_kb - current_kb) <= current_kb * 0.2:
+                        continue  # 差异 < 20%，维持现状
+                ai_limits[torrent_hash] = new_kb
+            elif action == "no_limit" and torrent_hash in limited:
+                unlimit_hashes.add(torrent_hash)
+        return ai_limits, unlimit_hashes
+
+    def _apply_ai_unlimit(
+        self,
+        service_name: str,
+        downloader: Any,
+        unlimit_hashes: Set[str],
+    ) -> int:
+        """
+        执行 AI 解限：将已限速种子恢复为不限速，并移出限速/待恢复记录。
+
+        与「取消监控」不同：解限不移入 canceled_hashes，种子后续仍可被 AI 重新评估并限速。
+        返回实际解限数量。
+        """
+        limited = self._limited_hashes.get(service_name, set())
+        restore = self._restore_hashes.get(service_name, set())
+        count = 0
+        for torrent_hash in unlimit_hashes:
+            if torrent_hash not in limited:
+                continue
+            try:
+                if not downloader.change_torrent(hash_string=torrent_hash, upload_limit=0):
+                    logger.warning(f"{self.LOG_TAG}[{service_name}] 种子 [{torrent_hash}] AI 解限失败：下载器返回失败")
+                    continue
+            except Exception as err:
+                logger.error(f"{self.LOG_TAG}[{service_name}] 种子 [{torrent_hash}] AI 解限失败：{err}")
+                continue
+            limited.discard(torrent_hash)
+            restore.discard(torrent_hash)
+            self._limited_times.get(service_name, {}).pop(torrent_hash, None)
+            self._slow_since.get(service_name, {}).pop(torrent_hash, None)
+            count += 1
+            logger.info(f"{self.LOG_TAG}[{service_name}] 种子 [{torrent_hash}] AI 决策解限，已恢复不限速")
+        return count
 
     def _build_site_ratio_lines(self, site_ratios: Dict[str, float]) -> str:
         """将站点账号分享率（域名 -> 分享率）转换为站点名=分享率文本，供 AI 参考。"""
@@ -1843,6 +2017,26 @@ class QbUploadLimiter(_PluginBase):
                 return self._site_domains[candidate]
         return ""
 
+    def _torrent_site_ratio(self, torrent: Any, downloader_type: str, site_ratios: Dict[str, float]) -> Optional[float]:
+        """
+        返回种子所属站点的「账号分享率」（MoviePilot 站点用户数据）。
+
+        按 tracker 域名（含子域名逐级回退）匹配 site_ratios；无法识别站点或
+        未抓到该站账号分享率数据时返回 None。
+        """
+        for url in self._torrent_tracker_urls(torrent, downloader_type):
+            host = self._normalize_domain(url)
+            if not host:
+                continue
+            if host in site_ratios:
+                return site_ratios[host]
+            labels = host.split(".")
+            for i in range(1, len(labels)):
+                candidate = ".".join(labels[i:])
+                if candidate in site_ratios:
+                    return site_ratios[candidate]
+        return None
+
     @staticmethod
     def _normalize_domain(url: str) -> str:
         """提取 URL 的域名部分（去除协议、端口与路径），统一转为小写。"""
@@ -1973,6 +2167,31 @@ class QbUploadLimiter(_PluginBase):
                 return not upload_limited
             return upload_limited and upload_limit == int(float(limit_kb))
         return bool(self._limited_times.get(service_name, {}).get(torrent_hash))
+
+    @staticmethod
+    def _torrent_current_limit_kb(torrent: Any, downloader_type: str) -> float:
+        """
+        读取种子当前上传限速值（KB/s），0 表示不限速；读取失败返回 0。
+
+        qBittorrent 字段 up_limit 为字节/秒（除以 1024 得 KB/s）；
+        Transmission 字段 uploadLimit 为 KB/s（uploadLimited=False 表示不限速）。
+        """
+        if torrent is None:
+            return 0.0
+        if downloader_type == "qbittorrent":
+            if not isinstance(torrent, dict):
+                return 0.0
+            try:
+                return float(torrent.get("up_limit") or 0) / 1024
+            except (TypeError, ValueError):
+                return 0.0
+        # Transmission
+        try:
+            if not getattr(torrent, "uploadLimited", False):
+                return 0.0
+            return float(getattr(torrent, "uploadLimit", 0) or 0)
+        except (TypeError, ValueError):
+            return 0.0
 
     @staticmethod
     def _torrent_upload_speed(torrent: Any, downloader_type: str) -> float:
@@ -2475,23 +2694,23 @@ class QbUploadLimiter(_PluginBase):
 
     # ---------------------------------------------------------------- 工具方法
 
-    def _normalize_site_share_ratios(self, value: Any) -> Tuple[Dict[str, int], str]:
+    def _normalize_site_share_ratios(self, value: Any) -> Tuple[Dict[str, float], str]:
         """
         解析并规范化站点单独分享率阈值。
 
-        表单使用每行「站点名称=正整数阈值」格式；同时兼容字典、字符串列表和
+        表单使用每行「站点名称=正数阈值」格式；同时兼容字典、字符串列表和
         {site/name/sitename, ratio/share_ratio/threshold} 字典列表，便于兼容历史或 API 配置。
         站点名称按小写匹配，重复站点以最后一项为准，非法项会被忽略。
         """
-        ratios: Dict[str, int] = {}
+        ratios: Dict[str, float] = {}
         labels: Dict[str, str] = {}
         invalid_count = 0
 
         def add_entry(raw_name: Any, raw_ratio: Any):
             nonlocal invalid_count
             name = str(raw_name or "").strip()
-            ratio = self._to_int(raw_ratio, 0)
-            if not name or ratio < 1:
+            ratio = self._to_ratio(raw_ratio, 0.0)
+            if not name or ratio <= 0:
                 invalid_count += 1
                 return
             key = name.lower()
@@ -2580,6 +2799,30 @@ class QbUploadLimiter(_PluginBase):
             return int(text)
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def _to_ratio(value: Any, default: float = 1.0) -> float:
+        """
+        安全转换分享率阈值为正浮点数（最多 1 位小数）。
+
+        规则：不能为 0、不能为负；小数最多取 1 位（四舍五入）；NaN、非数字、
+        0、负数或四舍五入后仍为 0 的非法值一律回退默认值。
+        """
+        if value is None or isinstance(value, bool):
+            return default
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return default
+        if number != number:  # NaN
+            return default
+        # 用十进制 ROUND_HALF_UP 做「四舍五入」归一化到 1 位小数：
+        # Python 内置 round 是银行家舍入（半偶），1.25 会被归一化为 1.2，
+        # 与表单承诺的多余小数位四舍五入（1.25 -> 1.3）语义不符
+        number = float(Decimal(str(number)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
+        if number <= 0:
+            return default
+        return number
 
     @staticmethod
     def _format_limit(limit: float) -> str:
