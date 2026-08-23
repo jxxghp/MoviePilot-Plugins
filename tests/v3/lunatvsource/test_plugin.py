@@ -2,6 +2,8 @@ from app.plugins.lunatvsource import LunaTVSource
 import app.plugins.lunatvsource as plugin_module
 from app.plugins.lunatvsource.cms import CmsSource, _result_from_item
 from pathlib import Path
+import sys
+from types import ModuleType
 
 
 def _plugin(config):
@@ -230,6 +232,62 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
     assert items[0].site_name == "LunaTV"
     assert items[0].title.endswith("S01E01")
     assert plugin._decode_resource_token(items[0].enclosure)["url"].endswith("01.m3u8")
+
+
+def test_plugin_search_bridge_augments_native_search_and_restores(monkeypatch):
+    class SearchChain:
+        def __search_all_sites(self, **kwargs):
+            return ["native-sync"]
+
+        async def __async_search_all_sites(self, **kwargs):
+            return ["native-async"]
+
+        async def __async_search_all_sites_stream(self, **kwargs):
+            yield {"type": "done", "text": "native done", "items": []}
+
+    app_module = ModuleType("app")
+    chain_module = ModuleType("app.chain")
+    search_module = ModuleType("app.chain.search")
+    search_module.SearchChain = SearchChain
+    monkeypatch.setitem(sys.modules, "app", app_module)
+    monkeypatch.setitem(sys.modules, "app.chain", chain_module)
+    monkeypatch.setitem(sys.modules, "app.chain.search", search_module)
+    plugin_module._SEARCH_BRIDGE.update({"owner": None, "chain": None, "originals": {}})
+
+    sync_original = SearchChain._SearchChain__search_all_sites
+    plugin = LunaTVSource()
+    plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin, "search_torrents", lambda **kwargs: ["plugin-sync"])
+
+    async def async_plugin_search(**kwargs):
+        return ["plugin-async"]
+
+    monkeypatch.setattr(plugin, "async_search_torrents", async_plugin_search)
+    chain = SearchChain()
+    assert chain._SearchChain__search_all_sites(keyword="demo") == [
+        "native-sync", "plugin-sync"
+    ]
+
+    import asyncio
+
+    assert asyncio.run(chain._SearchChain__async_search_all_sites(keyword="demo")) == [
+        "native-async", "plugin-async"
+    ]
+
+    async def collect_stream():
+        return [
+            event async for event in chain._SearchChain__async_search_all_sites_stream(
+                keyword="demo"
+            )
+        ]
+
+    events = asyncio.run(collect_stream())
+    assert [event["type"] for event in events] == ["append", "done"]
+    assert events[0]["items"] == ["plugin-async"]
+
+    disabled = LunaTVSource()
+    disabled.init_plugin({"enabled": False})
+    assert SearchChain._SearchChain__search_all_sites is sync_original
 
 
 def test_native_download_is_enqueued_into_serial_queue(tmp_path: Path):

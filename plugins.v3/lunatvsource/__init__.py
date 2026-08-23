@@ -15,8 +15,9 @@ import asyncio
 import threading
 import time
 import urllib.parse
+from functools import wraps
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:  # MoviePilot V3 runtime imports
     from app.plugins import _PluginBase
@@ -121,6 +122,129 @@ DEFAULT_SOURCE_ALLOWLIST = (
 PLUGIN_MEDIA_SOURCE = "lunatv"
 
 
+# MoviePilot 3.0.0 returns before module resource providers are called when no
+# PT/indexer site is enabled. Keep this compatibility bridge inside the plugin.
+# Existing MoviePilot plugins use the same reversible runtime-wrapper pattern.
+_SEARCH_BRIDGE: Dict[str, Any] = {"owner": None, "chain": None, "originals": {}}
+
+
+def _bridge_owner() -> Optional["LunaTVSource"]:
+    owner = _SEARCH_BRIDGE.get("owner")
+    return owner if owner and getattr(owner, "_enabled", False) else None
+
+
+def _bridge_search_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    mediainfo = kwargs.get("mediainfo")
+    return {
+        "site": {},
+        "keyword": str(kwargs.get("keyword") or ""),
+        "mtype": getattr(mediainfo, "type", None) or kwargs.get("mtype"),
+        "page": kwargs.get("page") or 0,
+    }
+
+
+def _install_search_bridge(owner: "LunaTVSource") -> None:
+    _SEARCH_BRIDGE["owner"] = owner
+    try:
+        from app.chain.search import SearchChain
+    except Exception as exc:  # pragma: no cover - MoviePilot runtime only
+        owner._logger.warning("LunaTV 原生资源搜索桥接不可用：%s", exc)
+        return
+    if _SEARCH_BRIDGE.get("chain") is SearchChain and _SEARCH_BRIDGE.get("originals"):
+        return
+
+    originals: Dict[str, Callable[..., Any]] = {}
+    sync_name = "_SearchChain__search_all_sites"
+    async_name = "_SearchChain__async_search_all_sites"
+    stream_name = "_SearchChain__async_search_all_sites_stream"
+
+    sync_original = getattr(SearchChain, sync_name, None)
+    if callable(sync_original):
+        originals[sync_name] = sync_original
+
+        @wraps(sync_original)
+        def sync_wrapper(chain, *args, **kwargs):
+            native = list(sync_original(chain, *args, **kwargs) or [])
+            plugin = _bridge_owner()
+            if plugin:
+                try:
+                    native.extend(plugin.search_torrents(**_bridge_search_kwargs(kwargs)))
+                except Exception as exc:
+                    plugin._logger.warning("LunaTV 原生资源搜索追加失败：%s", exc)
+            return native
+
+        setattr(SearchChain, sync_name, sync_wrapper)
+
+    async_original = getattr(SearchChain, async_name, None)
+    if callable(async_original):
+        originals[async_name] = async_original
+
+        @wraps(async_original)
+        async def async_wrapper(chain, *args, **kwargs):
+            native = list(await async_original(chain, *args, **kwargs) or [])
+            plugin = _bridge_owner()
+            if plugin:
+                try:
+                    native.extend(await plugin.async_search_torrents(**_bridge_search_kwargs(kwargs)))
+                except Exception as exc:
+                    plugin._logger.warning("LunaTV 原生异步资源搜索追加失败：%s", exc)
+            return native
+
+        setattr(SearchChain, async_name, async_wrapper)
+
+    stream_original = getattr(SearchChain, stream_name, None)
+    if callable(stream_original):
+        originals[stream_name] = stream_original
+
+        @wraps(stream_original)
+        async def stream_wrapper(chain, *args, **kwargs):
+            done_event = None
+            async for event in stream_original(chain, *args, **kwargs):
+                if event.get("type") == "done":
+                    done_event = event
+                    continue
+                yield event
+            plugin = _bridge_owner()
+            plugin_items = []
+            if plugin:
+                try:
+                    plugin_items = await plugin.async_search_torrents(
+                        **_bridge_search_kwargs(kwargs)
+                    )
+                except Exception as exc:
+                    plugin._logger.warning("LunaTV 原生流式资源搜索追加失败：%s", exc)
+            if plugin_items:
+                yield {
+                    "type": "append", "stage": "searching", "value": 100,
+                    "text": f"LunaTV 返回 {len(plugin_items)} 条资源",
+                    "items": plugin_items, "site": "LunaTV", "site_id": None,
+                    "page": kwargs.get("page") or 0, "finished": 0, "total": 0,
+                    "total_items": len(plugin_items),
+                }
+            final = dict(done_event or {})
+            final.update({"type": "done", "stage": final.get("stage", "searching"),
+                          "value": 100, "items": []})
+            if plugin_items:
+                final["text"] = f"资源搜索完成，LunaTV 返回 {len(plugin_items)} 条资源"
+            yield final
+
+        setattr(SearchChain, stream_name, stream_wrapper)
+
+    _SEARCH_BRIDGE.update({"chain": SearchChain, "originals": originals})
+    if originals:
+        owner._logger.info("LunaTV 原生资源搜索桥接已启用（%s）", ", ".join(originals))
+
+
+def _restore_search_bridge(owner: "LunaTVSource", force: bool = False) -> None:
+    if not force and _SEARCH_BRIDGE.get("owner") is not owner:
+        return
+    chain = _SEARCH_BRIDGE.get("chain")
+    for name, original in dict(_SEARCH_BRIDGE.get("originals") or {}).items():
+        if chain is not None:
+            setattr(chain, name, original)
+    _SEARCH_BRIDGE.update({"owner": None, "chain": None, "originals": {}})
+
+
 def _bool(value: Any, default: bool = False) -> bool:
     if isinstance(value, str):
         lowered = value.strip().lower()
@@ -159,7 +283,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.6"
+    plugin_version = "0.4.7"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -199,6 +323,12 @@ class LunaTVSource(_PluginBase):
             self._tmdb_cache = dict(self.get_data("tmdb_match_cache_v1") or {})
         with self._resource_search_lock:
             self._resource_search_cache = {}
+        if self._enabled:
+            _install_search_bridge(self)
+        else:
+            # A disabled replacement instance must also remove a bridge owned
+            # by the previously loaded instance.
+            _restore_search_bridge(self, force=True)
 
     def get_state(self) -> bool:
         return self._enabled
@@ -509,6 +639,7 @@ class LunaTVSource(_PluginBase):
         ]
 
     def stop_service(self) -> None:
+        _restore_search_bridge(self)
         if self._queue:
             self._queue.stop()
 
