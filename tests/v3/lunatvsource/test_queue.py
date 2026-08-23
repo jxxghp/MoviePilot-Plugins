@@ -245,3 +245,269 @@ def test_failed_download_removes_only_new_empty_directories(tmp_path: Path, monk
 
     assert root.exists()
     assert list(root.iterdir()) == []
+
+
+def test_queue_remove_delete_file_flag_and_root_boundary(tmp_path: Path):
+    root = tmp_path / "downloads"
+    preserved = root / "Preserved 2026.mp4"
+    preserved.parent.mkdir(parents=True)
+    preserved.write_text("media", encoding="utf-8")
+    preserved_part = Path(f"{preserved}.part")
+    preserved_part.write_text("partial", encoding="utf-8")
+    output = root / "Movie" / "Season 01" / "Movie 2026.mp4"
+    output.parent.mkdir(parents=True)
+    output.write_text("media", encoding="utf-8")
+    part = Path(f"{output}.part")
+    part.write_text("partial", encoding="utf-8")
+    outside = tmp_path / "organized" / "Movie 2026.mp4"
+    outside.parent.mkdir()
+    outside.write_text("organized", encoding="utf-8")
+    preserved_task = DownloadTask(
+        task_id="preserve-file",
+        source_key="lunatv",
+        media_id="site:preserve-file",
+        title="Preserved",
+        year="2026",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/preserved.m3u8",
+        root=str(root),
+        state="completed",
+        output=str(preserved),
+    )
+    task = DownloadTask(
+        task_id="delete-file",
+        source_key="lunatv",
+        media_id="site:delete-file",
+        title="Movie",
+        year="2026",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/movie.m3u8",
+        root=str(root),
+        state="completed",
+        output=str(output),
+    )
+    outside_task = DownloadTask(
+        task_id="outside-file",
+        source_key="lunatv",
+        media_id="site:outside-file",
+        title="Movie",
+        year="2026",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/movie.m3u8",
+        root=str(root),
+        state="completed",
+        output=str(outside),
+    )
+    data = {
+        DownloadQueue.DATA_KEY: [
+            preserved_task.to_dict(),
+            task.to_dict(),
+            outside_task.to_dict(),
+        ]
+    }
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+
+    assert queue.remove(preserved_task.task_id, delete_file=False) is True
+    assert preserved.exists()
+    assert preserved_part.exists()
+
+    assert output.exists()
+    assert part.exists()
+    assert queue.remove(task.task_id, delete_file=True) is True
+    assert not output.exists()
+    assert not part.exists()
+    assert not output.parent.exists()
+    assert root.exists()
+
+    assert queue.remove(outside_task.task_id, delete_file=True) is True
+    assert outside.exists()
+
+
+def test_queue_remove_running_task_cleans_part_after_safe_stop(tmp_path: Path):
+    root = tmp_path / "downloads"
+    output = root / "Movie 2026.mp4"
+    part = Path(f"{output}.part")
+    started = threading.Event()
+
+    data = {}
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+    task = DownloadTask(
+        task_id="running-delete-file",
+        source_key="lunatv",
+        media_id="site:running-delete-file",
+        title="Movie",
+        year="2026",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/movie.m3u8",
+        root=str(root),
+    )
+    queue.enqueue(task)
+
+    def controlled_execute(current: DownloadTask) -> str:
+        current.output = str(output)
+        output.parent.mkdir(parents=True)
+        output.write_text("media", encoding="utf-8")
+        part.write_text("partial", encoding="utf-8")
+        started.set()
+        assert queue._control_event.wait(timeout=2)
+        raise downloader_module._QueueControl("remove")
+
+    queue._execute = controlled_execute
+    result = {}
+    worker = threading.Thread(target=lambda: result.update(queue.run_one()))
+    worker.start()
+    assert started.wait(timeout=2)
+    assert queue.remove(task.task_id, delete_file=True) is True
+    worker.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert result["state"] == "remove"
+    assert not output.exists()
+    assert not part.exists()
+    assert queue.list_tasks() == []
+
+
+def test_queue_remove_running_task_wins_over_immediate_pause(tmp_path: Path):
+    root = tmp_path / "downloads"
+    output = root / "Movie 2026.mp4"
+    part = Path(f"{output}.part")
+    started = threading.Event()
+    allow_control = threading.Event()
+
+    data = {}
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+    task = DownloadTask(
+        task_id="running-remove-pause-race",
+        source_key="lunatv",
+        media_id="site:running-remove-pause-race",
+        title="Movie",
+        year="2026",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/movie.m3u8",
+        root=str(root),
+    )
+    assert queue.enqueue(task)
+
+    def controlled_execute(current: DownloadTask) -> str:
+        current.output = str(output)
+        output.parent.mkdir(parents=True)
+        output.write_text("media", encoding="utf-8")
+        part.write_text("partial", encoding="utf-8")
+        started.set()
+        assert queue._control_event.wait(timeout=2)
+        assert allow_control.wait(timeout=2)
+        raise downloader_module._QueueControl("controlled")
+
+    queue._execute = controlled_execute
+    result = {}
+    worker = threading.Thread(target=lambda: result.update(queue.run_one()))
+    worker.start()
+    assert started.wait(timeout=2)
+    assert queue.remove(task.task_id, delete_file=True)
+    assert queue.pause(task.task_id)
+    allow_control.set()
+    worker.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert result["state"] == "remove"
+    assert not output.exists()
+    assert not part.exists()
+    assert queue.list_tasks() == []
+    assert task.task_id not in queue._delete_file_tasks
+
+
+def test_queue_remove_running_task_wins_success_race(tmp_path: Path):
+    root = tmp_path / "downloads"
+    output = root / "Movie 2026.mp4"
+    started = threading.Event()
+    data = {}
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+    task = DownloadTask(
+        task_id="running-success-race",
+        source_key="lunatv",
+        media_id="site:running-success-race",
+        title="Movie",
+        year="2026",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/movie.m3u8",
+        root=str(root),
+    )
+    queue.enqueue(task)
+
+    def completes_after_remove(current: DownloadTask) -> str:
+        output.parent.mkdir(parents=True)
+        output.write_text("media", encoding="utf-8")
+        current.output = str(output)
+        started.set()
+        assert queue._control_event.wait(timeout=2)
+        return str(output)
+
+    queue._execute = completes_after_remove
+    result = {}
+    worker = threading.Thread(target=lambda: result.update(queue.run_one()))
+    worker.start()
+    assert started.wait(timeout=2)
+    assert queue.remove(task.task_id, delete_file=True) is True
+    worker.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert result["state"] == "remove"
+    assert not output.exists()
+    assert queue.list_tasks() == []
+
+
+def test_queue_remove_running_task_wins_failure_race(tmp_path: Path):
+    root = tmp_path / "downloads"
+    output = root / "Movie 2026.mp4"
+    part = Path(f"{output}.part")
+    started = threading.Event()
+    data = {}
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+    task = DownloadTask(
+        task_id="running-failure-race",
+        source_key="lunatv",
+        media_id="site:running-failure-race",
+        title="Movie",
+        year="2026",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/movie.m3u8",
+        root=str(root),
+    )
+    queue.enqueue(task)
+
+    def fails_after_remove(current: DownloadTask) -> str:
+        output.parent.mkdir(parents=True)
+        output.write_text("media", encoding="utf-8")
+        part.write_text("partial", encoding="utf-8")
+        current.output = str(output)
+        started.set()
+        assert queue._control_event.wait(timeout=2)
+        raise RuntimeError("late ffmpeg failure")
+
+    queue._execute = fails_after_remove
+    result = {}
+    worker = threading.Thread(target=lambda: result.update(queue.run_one()))
+    worker.start()
+    assert started.wait(timeout=2)
+    assert queue.remove(task.task_id, delete_file=True) is True
+    worker.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert result["state"] == "remove"
+    assert not output.exists()
+    assert not part.exists()
+    assert queue.list_tasks() == []

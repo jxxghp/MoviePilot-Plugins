@@ -223,6 +223,7 @@ class DownloadQueue:
         self._current_task_id = ""
         self._control_action = ""
         self._control_event = threading.Event()
+        self._delete_file_tasks: set[str] = set()
         self._recover_interrupted_tasks()
 
     def _recover_interrupted_tasks(self) -> None:
@@ -296,6 +297,8 @@ class DownloadQueue:
                 self._write(tasks)
                 return True
             if task.state == "running" and self._current_task_id == task_id:
+                if self._control_action == "remove":
+                    return True
                 self._control_action = "pause"
                 self._control_event.set()
                 return True
@@ -317,17 +320,21 @@ class DownloadQueue:
                 return True
         return False
 
-    def remove(self, task_id: str) -> bool:
-        """Remove a non-completed task and stop ffmpeg first when necessary."""
+    def remove(self, task_id: str, delete_file: bool = False) -> bool:
+        """Remove a task, optionally deleting its safe local files."""
         with self._lock:
             tasks = self._read()
             task = next((item for item in tasks if item.task_id == task_id), None)
-            if task is None or task.state == "completed":
+            if task is None:
                 return False
             if task.state == "running" and self._current_task_id == task_id:
+                if delete_file:
+                    self._delete_file_tasks.add(task_id)
                 self._control_action = "remove"
                 self._control_event.set()
                 return True
+            if delete_file:
+                self._delete_task_files(task)
             self._write([item for item in tasks if item.task_id != task_id])
             return True
 
@@ -365,8 +372,13 @@ class DownloadQueue:
                 tasks = self._read()
                 current = next((item for item in tasks if item.task_id == task.task_id), None)
                 if action == "remove":
+                    delete_file = task.task_id in self._delete_file_tasks
+                    self._delete_file_tasks.discard(task.task_id)
+                    if delete_file:
+                        self._delete_task_files(task)
                     tasks = [item for item in tasks if item.task_id != task.task_id]
                 elif current is not None:
+                    self._delete_file_tasks.discard(task.task_id)
                     current.state = "paused"
                     current.error = ""
                 self._write(tasks)
@@ -378,6 +390,27 @@ class DownloadQueue:
         except Exception as exc:
             with self._lock:
                 tasks = self._read()
+                if (
+                    self._control_action == "remove"
+                    and self._current_task_id == task.task_id
+                ):
+                    delete_file = task.task_id in self._delete_file_tasks
+                    self._delete_file_tasks.discard(task.task_id)
+                    if delete_file:
+                        self._delete_task_files(task)
+                    self._write(
+                        [item for item in tasks if item.task_id != task.task_id]
+                    )
+                    self._running = False
+                    self._current_task_id = ""
+                    self._control_action = ""
+                    self._control_event.clear()
+                    return {
+                        "processed": 1,
+                        "task_id": task.task_id,
+                        "state": "remove",
+                    }
+                self._delete_file_tasks.discard(task.task_id)
                 current = next((item for item in tasks if item.task_id == task.task_id), task)
                 current.state = "failed"
                 current.error = str(exc)
@@ -391,6 +424,28 @@ class DownloadQueue:
 
         with self._lock:
             tasks = self._read()
+            if (
+                self._control_action == "remove"
+                and self._current_task_id == task.task_id
+            ):
+                task.output = output
+                delete_file = task.task_id in self._delete_file_tasks
+                self._delete_file_tasks.discard(task.task_id)
+                if delete_file:
+                    self._delete_task_files(task)
+                self._write(
+                    [item for item in tasks if item.task_id != task.task_id]
+                )
+                self._running = False
+                self._current_task_id = ""
+                self._control_action = ""
+                self._control_event.clear()
+                return {
+                    "processed": 1,
+                    "task_id": task.task_id,
+                    "state": "remove",
+                }
+            self._delete_file_tasks.discard(task.task_id)
             current = next((item for item in tasks if item.task_id == task.task_id), task)
             current.state = "completed"
             current.progress = 1.0
@@ -472,6 +527,49 @@ class DownloadQueue:
             raise IOError("ffmpeg 未生成有效文件")
         os.replace(temp_path, destination)
         return str(destination)
+
+    def _delete_task_files(self, task: DownloadTask) -> None:
+        """Delete only the task output and cache paths below its configured root."""
+        try:
+            root = Path(task.root).expanduser().resolve()
+        except (OSError, RuntimeError):
+            return
+        candidates: List[Path] = []
+        if task.output:
+            output = Path(task.output).expanduser()
+            candidates.append(output if output.is_absolute() else root / output)
+        try:
+            relative_dir, filename = media_path(
+                task.root,
+                task.title,
+                task.year,
+                task.media_type,
+                task.season,
+                task.episode,
+                task.url,
+                task.mode,
+            )
+        except (TypeError, ValueError, OSError):
+            relative_dir = ""
+            filename = ""
+        if filename and not task.output:
+            candidates.append(root / relative_dir / filename)
+
+        seen: set[Path] = set()
+        for candidate in candidates:
+            try:
+                output = candidate.resolve()
+            except (OSError, RuntimeError):
+                continue
+            if root not in output.parents or output in seen:
+                continue
+            seen.add(output)
+            for path in (output, Path(f"{output}.part")):
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    continue
+                self._remove_empty_parents(path.parent, root)
 
     @staticmethod
     def _remove_empty_parents(path: Path, root: Path) -> None:

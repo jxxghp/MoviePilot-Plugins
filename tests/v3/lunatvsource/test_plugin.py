@@ -616,7 +616,9 @@ def test_active_queue_tasks_project_to_native_download_list_and_filter():
     assert next(item for item in plugin._queue.list_tasks() if item["task_id"] == "pending-task")["state"] == "paused"
     assert module["start_torrents"](["pending-task"], downloader="下载器1") is True
     assert next(item for item in plugin._queue.list_tasks() if item["task_id"] == "pending-task")["state"] == "pending"
-    assert module["remove_torrents"](["pending-task"], downloader="下载器1") is True
+    assert module["remove_torrents"](
+        ["pending-task"], delete_file=True, downloader="下载器1"
+    ) is True
     assert all(item["task_id"] != "pending-task" for item in plugin._queue.list_tasks())
     assert module["stop_torrents"](["native-qbt-hash"], downloader="下载器1") is None
 

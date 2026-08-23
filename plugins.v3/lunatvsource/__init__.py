@@ -325,7 +325,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.png"
-    plugin_version = "0.4.27"
+    plugin_version = "0.4.30"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -1886,7 +1886,13 @@ class LunaTVSource(_PluginBase):
                 return [value] if value else []
         return []
 
-    def _control_queue_tasks(self, hashs: Any, operation: str) -> Optional[bool]:
+    def _control_queue_tasks(
+        self,
+        hashs: Any,
+        operation: str,
+        *,
+        delete_file: bool = False,
+    ) -> Optional[bool]:
         """Handle native controls only when every requested hash belongs to LunaTV."""
         queue = self._queue
         requested = self._torrent_hashes(hashs)
@@ -1905,6 +1911,11 @@ class LunaTVSource(_PluginBase):
         handler = getattr(queue, operation, None)
         if not callable(handler):
             return False
+        if operation == "remove":
+            return all(
+                bool(handler(task_id, delete_file=delete_file))
+                for task_id in requested
+            )
         return all(bool(handler(task_id)) for task_id in requested)
 
     def start_torrents(
@@ -1927,9 +1938,9 @@ class LunaTVSource(_PluginBase):
         delete_file: bool = True,
         downloader: Optional[str] = None,
     ) -> Optional[bool]:
-        """Remove LunaTV tasks without forwarding their synthetic hashes to qBittorrent."""
-        del delete_file, downloader
-        return self._control_queue_tasks(hashs, "remove")
+        """Remove LunaTV tasks locally and honor MoviePilot's delete-file choice."""
+        del downloader
+        return self._control_queue_tasks(hashs, "remove", delete_file=delete_file)
 
     def get_module(self) -> Dict[str, Any]:
         """接入 V3 媒体识别、资源搜索、下载和活跃任务查询入口。"""
