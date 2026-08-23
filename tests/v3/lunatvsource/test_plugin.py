@@ -230,12 +230,22 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
     monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
     plugin = _plugin({"enabled": True})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(
+        plugin,
+        "_prepare_result",
+        lambda result: (result, {"media_source": "themoviedb", "media_id": "123"}),
+    )
     items = plugin.search_torrents(site={"id": 1}, keyword="示例剧", page=0)
     assert len(items) == 1
     assert items[0].site_name == "LunaTV"
     assert items[0].to_dict()["site_name"] == "LunaTV"
+    assert items[0].media_source == "themoviedb"
+    assert items[0].media_id == "123"
     assert items[0].title.endswith("S01E01")
-    assert plugin._decode_resource_token(items[0].enclosure)["url"].endswith("01.m3u8")
+    payload = plugin._decode_resource_token(items[0].enclosure)
+    assert payload["url"].endswith("01.m3u8")
+    assert payload["host_media_source"] == "themoviedb"
+    assert payload["host_media_id"] == "123"
 
 
 def test_plugin_search_bridge_augments_native_search_and_restores(monkeypatch):
@@ -304,6 +314,8 @@ def test_native_download_is_enqueued_into_serial_queue(tmp_path: Path):
         "season": 1,
         "episode": 1,
         "media_id": "demo:42",
+        "host_media_source": "themoviedb",
+        "host_media_id": "123",
     })
     result = plugin.download(token, tmp_path)
     assert result[0] == "LunaTVSource"
@@ -312,6 +324,8 @@ def test_native_download_is_enqueued_into_serial_queue(tmp_path: Path):
     assert len(tasks) == 1
     assert tasks[0]["url"] == "https://example.test/movie.m3u8"
     assert tasks[0]["root"] == str(tmp_path)
+    assert tasks[0]["source_key"] == "themoviedb"
+    assert tasks[0]["media_id"] == "123"
 
 
 def test_native_download_reports_duplicate_instead_of_fake_success(tmp_path: Path):

@@ -285,7 +285,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.8"
+    plugin_version = "0.4.9"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -666,6 +666,15 @@ class LunaTVSource(_PluginBase):
     def _host_media_source() -> Any:
         if _HostMediaSource is None:
             return PLUGIN_MEDIA_SOURCE
+
+    @staticmethod
+    def _host_media_source_value(media_source: str) -> Any:
+        if _HostMediaSource is None:
+            return media_source
+        try:
+            return _HostMediaSource(media_source)
+        except Exception:
+            return media_source
         try:
             return _HostMediaSource(PLUGIN_MEDIA_SOURCE)
         except Exception:
@@ -748,7 +757,7 @@ class LunaTVSource(_PluginBase):
                 type=self._host_media_type(result.media_type),
                 title=normalize_media_title(result.title),
                 year=result.year or None,
-                media_source=self._host_media_source(),
+                media_source=self._host_media_source_value(task.media_source),
                 media_id=f"{result.source_key}:{result.vod_id}",
                 seasons={key: sorted(set(value)) for key, value in seasons.items()},
             )
@@ -1513,7 +1522,12 @@ class LunaTVSource(_PluginBase):
             )
             torrents: List[Any] = []
             for result in results:
+                result, association = self._prepare_result(result)
                 identity = f"{result.source_key}:{result.vod_id}"
+                host_media_source = str(
+                    association.get("media_source") or PLUGIN_MEDIA_SOURCE
+                )
+                host_media_id = str(association.get("media_id") or identity)
                 episodes = result.episodes or [CmsEpisode(1, 1, "正片", "")]
                 for episode in episodes:
                     if not episode.url:
@@ -1531,13 +1545,15 @@ class LunaTVSource(_PluginBase):
                         "season": episode.season,
                         "episode": episode.episode,
                         "media_id": identity,
+                        "host_media_source": host_media_source,
+                        "host_media_id": host_media_id,
                     }
                     torrents.append(torrent_info_type(
                         site_name="LunaTV",
                         title=title,
                         description=f"{result.source_name} · m3u8",
-                        media_source=self._host_media_source(),
-                        media_id=identity,
+                        media_source=host_media_source,
+                        media_id=host_media_id,
                         enclosure=self._resource_token(payload),
                         page_url=result.detail,
                         size=0,
@@ -1606,8 +1622,8 @@ class LunaTVSource(_PluginBase):
             root=root,
             mode=str(self._config.get("mode") or "download"),
             ffmpeg_path=str(self._config.get("ffmpeg_path") or "ffmpeg"),
-            media_source=PLUGIN_MEDIA_SOURCE,
-            media_id=str(payload.get("media_id") or "native"),
+            media_source=str(payload.get("host_media_source") or PLUGIN_MEDIA_SOURCE),
+            media_id=str(payload.get("host_media_id") or payload.get("media_id") or "native"),
         )
         task.task_id = hashlib.sha1(str(content).encode("utf-8")).hexdigest()
         if not queue.enqueue(task):
