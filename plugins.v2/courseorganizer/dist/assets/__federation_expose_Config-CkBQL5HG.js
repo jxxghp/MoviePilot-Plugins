@@ -25,11 +25,9 @@ const localConfig = ref({});
 const saving = ref(false);
 
 const recognitionDefaults = {
-  naming_sources: 'themoviedb,douban',
   naming_auto_threshold: 90,
   naming_min_margin: 12,
   naming_uncertain_policy: 'local',
-  naming_append_tmdb_id: false,
   naming_ai_review: false,
   naming_clear_cache_once: false,
 };
@@ -85,7 +83,7 @@ return (_ctx, _cache) => {
         class: "course-config__toolbar"
       }, {
         default: _withCtx(() => [
-          _cache[8] || (_cache[8] = _createElementVNode("div", { class: "text-h6" }, "整理识别设置", -1)),
+          _cache[6] || (_cache[6] = _createElementVNode("div", { class: "text-h6" }, "整理识别设置", -1)),
           _createVNode(_component_VSpacer),
           _createVNode(_component_VBtn, {
             icon: "mdi-close",
@@ -110,14 +108,14 @@ return (_ctx, _cache) => {
             "prepend-icon": "mdi-folder-cog",
             onClick: _withModifiers(openMoviePilotSettings, ["stop"])
           }, {
-            default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
+            default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
               _createTextVNode(" 打开目录设置 ", -1)
             ]))]),
             _: 1
           })
         ]),
         default: _withCtx(() => [
-          _cache[10] || (_cache[10] = _createTextVNode(" 目录和整理规则沿用 MoviePilot 系统设置，本插件只保留识别选项。 ", -1))
+          _cache[8] || (_cache[8] = _createTextVNode(" 识别来源、目录和命名规则均沿用 MoviePilot 系统设置，无需重复配置；以下仅控制自动识别结果的采用策略。 ", -1))
         ]),
         _: 1
       }),
@@ -134,15 +132,8 @@ return (_ctx, _cache) => {
               _createVNode(_component_VExpansionPanelText, null, {
                 default: _withCtx(() => [
                   _createVNode(_component_VTextField, {
-                    modelValue: localConfig.value.naming_sources,
-                    "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((localConfig.value.naming_sources) = $event)),
-                    label: "识别来源（逗号分隔）",
-                    "aria-label": "识别来源（逗号分隔）",
-                    variant: "outlined"
-                  }, null, 8, ["modelValue"]),
-                  _createVNode(_component_VTextField, {
                     modelValue: localConfig.value.naming_auto_threshold,
-                    "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((localConfig.value.naming_auto_threshold) = $event)),
+                    "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((localConfig.value.naming_auto_threshold) = $event)),
                     modelModifiers: { number: true },
                     label: "自动采用阈值（80~100）",
                     "aria-label": "自动采用阈值（80~100）",
@@ -153,7 +144,7 @@ return (_ctx, _cache) => {
                   }, null, 8, ["modelValue"]),
                   _createVNode(_component_VTextField, {
                     modelValue: localConfig.value.naming_min_margin,
-                    "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((localConfig.value.naming_min_margin) = $event)),
+                    "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((localConfig.value.naming_min_margin) = $event)),
                     modelModifiers: { number: true },
                     label: "领先幅度（5~30）",
                     "aria-label": "领先幅度（5~30）",
@@ -163,22 +154,15 @@ return (_ctx, _cache) => {
                     variant: "outlined"
                   }, null, 8, ["modelValue"]),
                   _createVNode(_component_VSwitch, {
-                    modelValue: localConfig.value.naming_append_tmdb_id,
-                    "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((localConfig.value.naming_append_tmdb_id) = $event)),
-                    label: "名称追加 TMDB ID",
-                    "aria-label": "名称追加 TMDB ID",
-                    color: "primary"
-                  }, null, 8, ["modelValue"]),
-                  _createVNode(_component_VSwitch, {
                     modelValue: localConfig.value.naming_ai_review,
-                    "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((localConfig.value.naming_ai_review) = $event)),
+                    "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((localConfig.value.naming_ai_review) = $event)),
                     label: "启用 AI 辅助复核",
                     "aria-label": "启用 AI 辅助复核",
                     color: "primary"
                   }, null, 8, ["modelValue"]),
                   _createVNode(_component_VSwitch, {
                     modelValue: localConfig.value.naming_clear_cache_once,
-                    "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((localConfig.value.naming_clear_cache_once) = $event)),
+                    "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((localConfig.value.naming_clear_cache_once) = $event)),
                     label: "一次性清空识别缓存",
                     "aria-label": "一次性清空识别缓存",
                     hint: "下次运行时清除旧识别结果；执行后自动复位",
@@ -198,9 +182,9 @@ return (_ctx, _cache) => {
         _createVNode(_component_VBtn, {
           variant: "text",
           "min-width": "88",
-          onClick: _cache[7] || (_cache[7] = $event => (emit('close')))
+          onClick: _cache[5] || (_cache[5] = $event => (emit('close')))
         }, {
-          default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
+          default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
             _createTextVNode("取消", -1)
           ]))]),
           _: 1
@@ -211,7 +195,7 @@ return (_ctx, _cache) => {
           loading: saving.value,
           onClick: saveConfig
         }, {
-          default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
+          default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
             _createTextVNode("保存", -1)
           ]))]),
           _: 1
@@ -224,6 +208,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-06e0c65f"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-407241f9"]]);
 
 export { Config as default };

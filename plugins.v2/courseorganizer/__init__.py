@@ -318,7 +318,7 @@ class CourseOrganizer(_PluginBase):
     plugin_config_prefix = "courseorganizer_"
     auth_level = 1
     plugin_order = 90
-    plugin_version = "1.7.10"
+    plugin_version = "1.7.11"
     plugin_desc = "稳定后识别、分类并整理到电视剧、电影或儿童媒体库"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
@@ -2825,7 +2825,7 @@ class CourseOrganizer(_PluginBase):
             target_library = ""
         final_title = naming.format_selected_candidate_name(
             candidate,
-            append_tmdb_id=bool(config.get("naming_append_tmdb_id", False)),
+            append_tmdb_id=False,
         )
         if not self._save_manual_decision(
             str(raw_title),
@@ -3057,16 +3057,6 @@ class CourseOrganizer(_PluginBase):
             {
                 "component": "VTextField",
                 "props": {
-                    "model": "naming_sources",
-                    "label": "识别来源（逗号分隔）",
-                    "aria-label": "识别来源（逗号分隔）",
-                    "density": "comfortable",
-                    "variant": "outlined",
-                },
-            },
-            {
-                "component": "VTextField",
-                "props": {
                     "model": "naming_auto_threshold",
                     "label": "自动采用阈值（80~100）",
                     "aria-label": "自动采用阈值（80~100）",
@@ -3088,15 +3078,6 @@ class CourseOrganizer(_PluginBase):
                     "max": 30,
                     "density": "comfortable",
                     "variant": "outlined",
-                },
-            },
-            {
-                "component": "VSwitch",
-                "props": {
-                    "model": "naming_append_tmdb_id",
-                    "label": "名称追加 TMDB ID",
-                    "aria-label": "名称追加 TMDB ID",
-                    "color": "primary",
                 },
             },
             {
@@ -3135,7 +3116,7 @@ class CourseOrganizer(_PluginBase):
                             "variant": "tonal",
                             "class": "mb-3",
                         },
-                        "text": "目录和整理规则沿用 MoviePilot 系统设置，本插件只保留识别选项。",
+                        "text": "识别来源、目录和命名规则均沿用 MoviePilot 系统设置，无需重复配置；以下仅控制自动识别结果的采用策略。",
                     },
                     {
                         "component": "VBtn",
@@ -3440,11 +3421,9 @@ class CourseOrganizer(_PluginBase):
         signature = (
             config.get("naming_mode"),
             config.get("naming_ai_review"),
-            config.get("naming_sources"),
             config.get("naming_auto_threshold"),
             config.get("naming_min_margin"),
             config.get("naming_uncertain_policy"),
-            config.get("naming_append_tmdb_id"),
             config.get("naming_manual_overrides"),
         )
         if self._resolver is None or self._resolver_signature != signature:
@@ -5855,14 +5834,9 @@ class CourseOrganizer(_PluginBase):
             ),
             "interval": self._normalize_interval(raw.get("interval", self.DEFAULT_INTERVAL)),
             "naming_mode": naming_mode,
-            "naming_sources": str(raw.get("naming_sources", "themoviedb,douban")),
             "naming_auto_threshold": _coerce_threshold(raw.get("naming_auto_threshold", 90), 90),
             "naming_min_margin": _coerce_margin(raw.get("naming_min_margin", 12), 12),
             "naming_uncertain_policy": naming_uncertain_policy,
-            "naming_append_tmdb_id": _coerce_bool(
-                raw.get("naming_append_tmdb_id", False),
-                False,
-            ),
             "naming_ai_review": _coerce_bool(
                 raw.get("naming_ai_review", False),
                 False,

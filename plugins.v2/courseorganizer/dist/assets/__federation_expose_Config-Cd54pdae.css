@@ -1,0 +1,33 @@
+
+.course-config[data-v-407241f9] {
+  min-width: 0;
+  padding-bottom: 12px;
+}
+.course-config__toolbar[data-v-407241f9] {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0 12px;
+}
+.course-config[data-v-407241f9] .v-text-field,
+.course-config[data-v-407241f9] .v-switch {
+  margin-bottom: 12px;
+}
+.course-config__actions[data-v-407241f9] {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 16px;
+}
+.course-config[data-v-407241f9] .v-btn {
+  min-height: 44px;
+}
+@media (max-width: 599px) {
+.course-config[data-v-407241f9] .v-alert__content {
+    min-width: 0;
+}
+.course-config[data-v-407241f9] .v-alert__append {
+    margin-inline-start: 0;
+    margin-top: 12px;
+}
+}

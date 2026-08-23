@@ -10,11 +10,9 @@ const localConfig = ref({})
 const saving = ref(false)
 
 const recognitionDefaults = {
-  naming_sources: 'themoviedb,douban',
   naming_auto_threshold: 90,
   naming_min_margin: 12,
   naming_uncertain_policy: 'local',
-  naming_append_tmdb_id: false,
   naming_ai_review: false,
   naming_clear_cache_once: false,
 }
@@ -56,7 +54,7 @@ async function openMoviePilotSettings() {
     <VDivider />
 
     <VAlert type="info" variant="tonal" class="ma-3" role="note">
-      目录和整理规则沿用 MoviePilot 系统设置，本插件只保留识别选项。
+      识别来源、目录和命名规则均沿用 MoviePilot 系统设置，无需重复配置；以下仅控制自动识别结果的采用策略。
       <template #append>
         <VBtn variant="tonal" color="primary" prepend-icon="mdi-folder-cog" @click.stop="openMoviePilotSettings">
           打开目录设置
@@ -67,12 +65,6 @@ async function openMoviePilotSettings() {
     <VExpansionPanels class="mx-3 mb-3" variant="accordion">
       <VExpansionPanel title="高级识别设置" value="recognition">
         <VExpansionPanelText>
-          <VTextField
-            v-model="localConfig.naming_sources"
-            label="识别来源（逗号分隔）"
-            aria-label="识别来源（逗号分隔）"
-            variant="outlined"
-          />
           <VTextField
             v-model.number="localConfig.naming_auto_threshold"
             label="自动采用阈值（80~100）"
@@ -90,12 +82,6 @@ async function openMoviePilotSettings() {
             min="5"
             max="30"
             variant="outlined"
-          />
-          <VSwitch
-            v-model="localConfig.naming_append_tmdb_id"
-            label="名称追加 TMDB ID"
-            aria-label="名称追加 TMDB ID"
-            color="primary"
           />
           <VSwitch
             v-model="localConfig.naming_ai_review"

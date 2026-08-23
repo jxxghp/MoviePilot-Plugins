@@ -78,7 +78,10 @@ class NamingConfig:
         raw_payload: Dict[str, Any]
         if isinstance(raw, dict):
             mode = str(raw.get("mode", raw.get("naming_mode", "off")) or "off")
-            sources_value = raw.get("sources", raw.get("naming_sources", ""))
+            sources_value = raw.get(
+                "sources",
+                raw.get("naming_sources", cls.__dataclass_fields__["sources"].default),
+            )
             auto_threshold_raw = raw.get(
                 "auto_threshold",
                 raw.get("naming_auto_threshold", cls.__dataclass_fields__["auto_threshold"].default),
@@ -110,7 +113,7 @@ class NamingConfig:
             sources_value = _read_field(
                 raw,
                 "sources",
-                _read_field(raw, "naming_sources", ("",)),
+                _read_field(raw, "naming_sources", cls.__dataclass_fields__["sources"].default),
             )
             auto_threshold_raw = _read_field(
                 raw,
