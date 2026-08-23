@@ -270,8 +270,7 @@ def test_plugin_search_bridge_augments_native_search_and_restores(monkeypatch):
     plugin_module._SEARCH_BRIDGE.update({"owner": None, "chain": None, "originals": {}})
 
     sync_original = SearchChain._SearchChain__search_all_sites
-    plugin = LunaTVSource()
-    plugin.init_plugin({"enabled": True})
+    plugin = _plugin({"enabled": True})
     monkeypatch.setattr(plugin, "search_torrents", lambda **kwargs: ["plugin-sync"])
 
     async def async_plugin_search(**kwargs):
@@ -300,8 +299,7 @@ def test_plugin_search_bridge_augments_native_search_and_restores(monkeypatch):
     assert [event["type"] for event in events] == ["append", "done"]
     assert events[0]["items"] == ["plugin-async"]
 
-    disabled = LunaTVSource()
-    disabled.init_plugin({"enabled": False})
+    disabled = _plugin({"enabled": False})
     assert SearchChain._SearchChain__search_all_sites is sync_original
 
 
@@ -351,8 +349,7 @@ def test_native_download_reports_duplicate_instead_of_fake_success(tmp_path: Pat
 
 
 def test_resource_download_event_routes_lunatv_token_to_serial_queue(tmp_path: Path):
-    plugin = LunaTVSource()
-    plugin.init_plugin({"enabled": True})
+    plugin = _plugin({"enabled": True})
     token = plugin._resource_token({
         "url": "https://example.test/event.m3u8",
         "title": "事件电影",
@@ -397,8 +394,7 @@ def test_native_transfer_uses_persisted_source_key(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(plugin_module, "_HostMediaSource", MediaSource)
     monkeypatch.setattr(plugin_module, "_HostStorageChain", StorageChain)
     monkeypatch.setattr(plugin_module, "_HostTransferChain", TransferChain)
-    plugin = LunaTVSource()
-    plugin.init_plugin({"enabled": True})
+    plugin = _plugin({"enabled": True})
     task = SimpleNamespace(
         mode="download",
         media_type="movie",
