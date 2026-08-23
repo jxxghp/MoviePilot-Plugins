@@ -303,6 +303,33 @@ def test_plugin_search_bridge_augments_native_search_and_restores(monkeypatch):
     assert SearchChain._SearchChain__search_all_sites is sync_original
 
 
+def test_plugin_search_bridge_defers_to_new_native_dispatch(monkeypatch):
+    class SearchChain:
+        def search_plugin_torrents(self, **kwargs):
+            return ["native-plugin-sync"]
+
+        async def async_search_plugin_torrents(self, **kwargs):
+            return ["native-plugin-async"]
+
+        def __search_all_sites(self, **kwargs):
+            return ["native-sync"]
+
+    app_module = ModuleType("app")
+    chain_module = ModuleType("app.chain")
+    search_module = ModuleType("app.chain.search")
+    search_module.SearchChain = SearchChain
+    monkeypatch.setitem(sys.modules, "app", app_module)
+    monkeypatch.setitem(sys.modules, "app.chain", chain_module)
+    monkeypatch.setitem(sys.modules, "app.chain.search", search_module)
+    plugin_module._SEARCH_BRIDGE.update({"owner": None, "chain": None, "originals": {}})
+
+    original = SearchChain._SearchChain__search_all_sites
+    plugin = _plugin({"enabled": True})
+
+    assert SearchChain._SearchChain__search_all_sites is original
+    assert plugin_module._SEARCH_BRIDGE == {"owner": None, "chain": None, "originals": {}}
+
+
 def test_native_download_is_enqueued_into_serial_queue(tmp_path: Path):
     plugin = _plugin({"enabled": True})
     token = plugin._resource_token({

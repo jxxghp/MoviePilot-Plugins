@@ -155,6 +155,18 @@ def _install_search_bridge(owner: "LunaTVSource") -> None:
     except Exception as exc:  # pragma: no cover - MoviePilot runtime only
         owner._logger.warning("LunaTV 原生资源搜索桥接不可用：%s", exc)
         return
+    # Newer MoviePilot V3 releases dispatch plugin resource providers once via
+    # SearchChain.search_plugin_torrents/async_search_plugin_torrents. Wrapping
+    # the private fan-out methods there would query this plugin twice. Keep the
+    # reversible wrapper only for early V3 releases that lacked that native
+    # dispatch path.
+    if (
+        callable(getattr(SearchChain, "search_plugin_torrents", None))
+        and callable(getattr(SearchChain, "async_search_plugin_torrents", None))
+    ):
+        _restore_search_bridge(owner, force=True)
+        owner._logger.info("MoviePilot 已原生支持插件资源搜索，无需启用兼容桥")
+        return
     if _SEARCH_BRIDGE.get("chain") is SearchChain and _SEARCH_BRIDGE.get("originals"):
         return
 
@@ -288,7 +300,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.12"
+    plugin_version = "0.4.13"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
