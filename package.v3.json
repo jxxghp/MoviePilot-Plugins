@@ -422,7 +422,7 @@
     "author": "OneBigMoon",
     "project_url": "https://github.com/OneBigMoon/moviepilot-v3-lunatv-source",
     "level": 1,
-    "release": false,
+    "release": true,
     "history": {
       "0.4.6": "原生资源搜索仅在找到可播放 m3u8 后停止；本机流式剥离伪装 JPEG 分片头，兼容 ffmpeg 实际下载。",
       "0.4.5": "隔离 V3 可选宿主链导入，避免单个整理链暂不可用时连带关闭原生搜索结果、媒体类型和媒体库桥接。",
