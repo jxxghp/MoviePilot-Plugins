@@ -1,9 +1,13 @@
 import importlib.util
 import json
+import os
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 ROOT = Path(__file__).parents[3]
@@ -38,9 +42,10 @@ def test_v3_package_and_plugin_versions_are_consistent():
     package_v2 = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
     package_v3 = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
 
-    assert module.CourseOrganizer.plugin_version == "2.0.5"
-    assert package_v3["CourseOrganizer"]["version"] == "2.0.5"
+    assert module.CourseOrganizer.plugin_version == "2.0.6"
+    assert package_v3["CourseOrganizer"]["version"] == "2.0.6"
     assert package_v3["CourseOrganizer"]["icon"] == "courseorganizer.png"
+    assert module.CourseOrganizer.plugin_icon == "icons/courseorganizer.png"
     assert (ROOT / "icons/courseorganizer.png").is_file()
     assert package_v3["CourseOrganizer"]["system_version"] == ">=3.0.0"
     assert package_v2["CourseOrganizer"]["v3"] is False
@@ -148,6 +153,112 @@ def test_v3_manual_transfer_converts_source_and_type_without_legacy_ids():
     ]
     assert "tmdbid" not in calls[0]
     assert "doubanid" not in calls[0]
+
+
+def test_v3_confirmed_movie_keeps_movie_type_when_targeting_children_library(tmp_path):
+    module = load_v3_courseorganizer()
+    plugin = module.CourseOrganizer.__new__(module.CourseOrganizer)
+    plugin._logger = MagicMock()
+    expected_binding = {"st_dev": 1, "st_ino": 2, "st_ctime_ns": 3}
+    decision = SimpleNamespace(action="confirm", target_library="children", value="示例电影")
+    calls = []
+
+    class FakeAdapter:
+        def get_file_item(self, *_args, **_kwargs):
+            return object()
+
+        def rename_context(self, *_args, **_kwargs):
+            return nullcontext()
+
+        def manual_transfer(self, **kwargs):
+            calls.append(kwargs)
+            raise RuntimeError("stop after capture")
+
+    plugin._current_source_binding = MagicMock(return_value=expected_binding)
+    plugin._source_bindings_equal = MagicMock(return_value=True)
+    plugin._manual_decision_for = MagicMock(return_value=decision)
+    plugin._manual_binding = MagicMock(return_value=expected_binding)
+    plugin._confirmed_media_identity = MagicMock(
+        return_value=("themoviedb", "123", "movie")
+    )
+    plugin._moviepilot_directory_context = MagicMock(
+        return_value={
+            "selected": {
+                "children": {
+                    "renaming": True,
+                    "path": str(tmp_path / "children"),
+                    "storage": "local",
+                    "library_storage": "local",
+                }
+            }
+        }
+    )
+    plugin._get_native_adapter = MagicMock(return_value=FakeAdapter())
+
+    result = plugin._apply_manual_decision_locked(
+        "示例电影", str(tmp_path / "source"), expected_binding
+    )
+
+    assert result == "failed"
+    assert calls[0]["mtype"] == "movie"
+
+
+@pytest.mark.parametrize("transfer_type", ["copy", "hardlink", "move"])
+def test_v3_direct_transfer_rejects_symlink_tree(tmp_path, transfer_type):
+    module = load_v3_courseorganizer()
+    incoming = tmp_path / "incoming"
+    source = incoming / "课程"
+    target = tmp_path / "target"
+    source.mkdir(parents=True)
+    target.mkdir()
+    outside = tmp_path / "outside.mkv"
+    outside.write_bytes(b"outside")
+    os.symlink(outside, source / "linked.mkv")
+
+    plugin = module.CourseOrganizer.__new__(module.CourseOrganizer)
+    plugin._logger = MagicMock()
+    decision = SimpleNamespace(value="安全课程", target_library="children")
+    rule = {
+        "download_path": str(incoming),
+        "path": str(target),
+        "transfer_type": transfer_type,
+    }
+
+    result = plugin._apply_direct_transfer("课程", str(source), {}, decision, rule)
+
+    assert result == "failed"
+    assert source.is_dir()
+    assert not (target / "安全课程").exists()
+
+
+def test_v3_nested_system_entries_are_excluded_from_scans(tmp_path):
+    module = load_v3_courseorganizer()
+    course = tmp_path / "课程"
+    recycle = course / "#recycle"
+    hidden = course / ".hidden"
+    recycle.mkdir(parents=True)
+    hidden.mkdir()
+    (course / "main.mkv").write_bytes(b"main")
+    (recycle / "old.mkv").write_bytes(b"old")
+    (hidden / "still.part").write_bytes(b"partial")
+    (course / "Thumbs.db").write_bytes(b"system")
+
+    fd = os.open(course, os.O_RDONLY)
+    try:
+        tree = module.CourseOrganizer._scan_manifest_dir(fd)
+    finally:
+        os.close(fd)
+    assert tree is not None
+    assert [item[0] for item in tree[0]] == ["main.mkv"]
+
+    plugin = module.CourseOrganizer.__new__(module.CourseOrganizer)
+    media_by_season, subtitle_map, _ = plugin._collect_course_files(str(course))
+    assert [Path(path).name for paths in media_by_season.values() for path in paths] == [
+        "main.mkv"
+    ]
+    assert subtitle_map == {}
+    assert [item[0] for item in plugin._snapshot_signature(str(course))] == ["main.mkv"]
+    assert plugin._has_incomplete_file(str(course)) is False
 
 
 def test_v3_metadata_provider_preserves_selected_source_and_media_id():

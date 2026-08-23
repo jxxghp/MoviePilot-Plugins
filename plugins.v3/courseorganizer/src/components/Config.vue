@@ -83,6 +83,18 @@ async function openMoviePilotSettings() {
             max="30"
             variant="outlined"
           />
+          <VSelect
+            v-model="localConfig.naming_uncertain_policy"
+            label="低置信度处理"
+            aria-label="低置信度处理"
+            :items="[
+              { title: '保留本地名称继续整理', value: 'local' },
+              { title: '暂停整理，等待人工确认', value: 'hold' },
+            ]"
+            hint="识别结果未达到阈值时，选择继续使用原目录名，或暂停并在插件详情页确认"
+            persistent-hint
+            variant="outlined"
+          />
           <VSwitch
             v-model="localConfig.naming_ai_review"
             label="启用智能助手（如 DeepSeek）"
@@ -124,6 +136,7 @@ async function openMoviePilotSettings() {
 }
 
 .course-config :deep(.v-text-field),
+.course-config :deep(.v-select),
 .course-config :deep(.v-switch) {
   margin-bottom: 12px;
 }

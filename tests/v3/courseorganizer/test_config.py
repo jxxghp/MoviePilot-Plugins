@@ -36,12 +36,23 @@ def test_form_hides_settings_owned_by_moviepilot():
         if isinstance(node.get("props"), dict)
     }
     texts = [str(node.get("text", "")) for node in _walk(form)]
+    policy = next(
+        node["props"]
+        for node in _walk(form)
+        if node.get("props", {}).get("model") == "naming_uncertain_policy"
+    )
 
     assert "naming_sources" not in models
     assert "naming_append_tmdb_id" not in models
     assert "naming_auto_threshold" in models
     assert "naming_min_margin" in models
+    assert "naming_uncertain_policy" in models
     assert "naming_ai_review" in models
     assert "naming_sources" not in defaults
     assert "naming_append_tmdb_id" not in defaults
+    assert defaults["naming_uncertain_policy"] == "local"
+    assert policy["items"] == [
+        {"title": "保留本地名称继续整理", "value": "local"},
+        {"title": "暂停整理，等待人工确认", "value": "hold"},
+    ]
     assert any("无需重复配置" in text for text in texts)

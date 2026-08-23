@@ -65,6 +65,7 @@ return (_ctx, _cache) => {
   const _component_VDivider = _resolveComponent("VDivider");
   const _component_VAlert = _resolveComponent("VAlert");
   const _component_VTextField = _resolveComponent("VTextField");
+  const _component_VSelect = _resolveComponent("VSelect");
   const _component_VSwitch = _resolveComponent("VSwitch");
   const _component_VExpansionPanelText = _resolveComponent("VExpansionPanelText");
   const _component_VExpansionPanel = _resolveComponent("VExpansionPanel");
@@ -83,7 +84,7 @@ return (_ctx, _cache) => {
         class: "course-config__toolbar"
       }, {
         default: _withCtx(() => [
-          _cache[6] || (_cache[6] = _createElementVNode("div", { class: "text-h6" }, "整理识别设置", -1)),
+          _cache[7] || (_cache[7] = _createElementVNode("div", { class: "text-h6" }, "整理识别设置", -1)),
           _createVNode(_component_VSpacer),
           _createVNode(_component_VBtn, {
             icon: "mdi-close",
@@ -108,14 +109,14 @@ return (_ctx, _cache) => {
             "prepend-icon": "mdi-folder-cog",
             onClick: _withModifiers(openMoviePilotSettings, ["stop"])
           }, {
-            default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
+            default: _withCtx(() => [...(_cache[8] || (_cache[8] = [
               _createTextVNode(" 打开目录设置 ", -1)
             ]))]),
             _: 1
           })
         ]),
         default: _withCtx(() => [
-          _cache[8] || (_cache[8] = _createTextVNode(" 识别来源、目录和命名规则均沿用 MoviePilot 系统设置，无需重复配置；以下仅控制自动识别结果的采用策略。 ", -1))
+          _cache[9] || (_cache[9] = _createTextVNode(" 识别来源、目录和命名规则均沿用 MoviePilot 系统设置，无需重复配置；以下仅控制自动识别结果的采用策略。 ", -1))
         ]),
         _: 1
       }),
@@ -153,9 +154,22 @@ return (_ctx, _cache) => {
                     max: "30",
                     variant: "outlined"
                   }, null, 8, ["modelValue"]),
+                  _createVNode(_component_VSelect, {
+                    modelValue: localConfig.value.naming_uncertain_policy,
+                    "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((localConfig.value.naming_uncertain_policy) = $event)),
+                    label: "低置信度处理",
+                    "aria-label": "低置信度处理",
+                    items: [
+              { title: '保留本地名称继续整理', value: 'local' },
+              { title: '暂停整理，等待人工确认', value: 'hold' },
+            ],
+                    hint: "识别结果未达到阈值时，选择继续使用原目录名，或暂停并在插件详情页确认",
+                    "persistent-hint": "",
+                    variant: "outlined"
+                  }, null, 8, ["modelValue"]),
                   _createVNode(_component_VSwitch, {
                     modelValue: localConfig.value.naming_ai_review,
-                    "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((localConfig.value.naming_ai_review) = $event)),
+                    "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((localConfig.value.naming_ai_review) = $event)),
                     label: "启用智能助手（如 DeepSeek）",
                     "aria-label": "启用智能助手（如 DeepSeek）",
                     hint: "需先在 MoviePilot「设置 → 智能助手」中配置并启用模型；用于精简搜索词并复核候选",
@@ -164,7 +178,7 @@ return (_ctx, _cache) => {
                   }, null, 8, ["modelValue"]),
                   _createVNode(_component_VSwitch, {
                     modelValue: localConfig.value.naming_clear_cache_once,
-                    "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((localConfig.value.naming_clear_cache_once) = $event)),
+                    "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((localConfig.value.naming_clear_cache_once) = $event)),
                     label: "一次性清空识别缓存",
                     "aria-label": "一次性清空识别缓存",
                     hint: "下次运行时清除旧识别结果；执行后自动复位",
@@ -184,9 +198,9 @@ return (_ctx, _cache) => {
         _createVNode(_component_VBtn, {
           variant: "text",
           "min-width": "88",
-          onClick: _cache[5] || (_cache[5] = $event => (emit('close')))
+          onClick: _cache[6] || (_cache[6] = $event => (emit('close')))
         }, {
-          default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
+          default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
             _createTextVNode("取消", -1)
           ]))]),
           _: 1
@@ -197,7 +211,7 @@ return (_ctx, _cache) => {
           loading: saving.value,
           onClick: saveConfig
         }, {
-          default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
+          default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
             _createTextVNode("保存", -1)
           ]))]),
           _: 1
@@ -210,6 +224,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-13c75912"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a523be8b"]]);
 
 export { Config as default };
