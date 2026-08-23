@@ -888,10 +888,14 @@ class CourseOrganizer(_PluginBase):
         return text if valid else ascii(text)
 
     @staticmethod
-    def _is_ignored_scan_entry(entry: str) -> bool:
+    def _is_system_scan_entry(entry: str) -> bool:
+        return str(entry).strip().casefold() in CourseOrganizer.SYSTEM_SCAN_ENTRY_NAMES
+
+    @classmethod
+    def _is_ignored_scan_entry(cls, entry: str) -> bool:
         """Return whether a top-level incoming entry is a system/hidden item."""
         name = str(entry).strip()
-        return name.startswith(".") or name.casefold() in CourseOrganizer.SYSTEM_SCAN_ENTRY_NAMES
+        return name.startswith(".") or cls._is_system_scan_entry(name)
 
     @staticmethod
     def _manifest_stat_tuple(
@@ -991,7 +995,7 @@ class CourseOrganizer(_PluginBase):
                 | getattr(os, "O_NONBLOCK", 0)
             )
             for entry in children:
-                if cls._is_ignored_scan_entry(entry.name):
+                if cls._is_system_scan_entry(entry.name):
                     continue
                 relative_path = (
                     f"{relative_prefix}/{entry.name}"
@@ -4156,10 +4160,10 @@ class CourseOrganizer(_PluginBase):
             dirnames[:] = [
                 name
                 for name in dirnames
-                if name.strip().casefold() not in self.SYSTEM_SCAN_ENTRY_NAMES
+                if not self._is_system_scan_entry(name)
             ]
             for filename in filenames:
-                if filename.strip().casefold() in self.SYSTEM_SCAN_ENTRY_NAMES:
+                if self._is_system_scan_entry(filename):
                     continue
                 file_path = os.path.join(root, filename)
                 try:
@@ -4208,7 +4212,7 @@ class CourseOrganizer(_PluginBase):
             dirnames[:] = [
                 name
                 for name in dirnames
-                if name.strip().casefold() not in cls.SYSTEM_SCAN_ENTRY_NAMES
+                if not cls._is_system_scan_entry(name)
             ]
             for filename in filenames:
                 if cls._is_incomplete(filename):

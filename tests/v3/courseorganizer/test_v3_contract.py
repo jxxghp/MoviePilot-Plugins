@@ -235,13 +235,17 @@ def test_v3_nested_system_entries_are_excluded_from_scans(tmp_path):
     module = load_v3_courseorganizer()
     course = tmp_path / "课程"
     recycle = course / "#recycle"
+    metadata = course / "@eaDir"
     hidden = course / ".hidden"
     recycle.mkdir(parents=True)
+    metadata.mkdir()
     hidden.mkdir()
     (course / "main.mkv").write_bytes(b"main")
     (recycle / "old.part").write_bytes(b"old")
+    (metadata / "preview.mkv").write_bytes(b"system")
     (hidden / "still.part").write_bytes(b"partial")
     (hidden / "episode.mkv").write_bytes(b"downloading")
+    (course / ".DS_Store").write_bytes(b"system")
     (course / "Thumbs.db").write_bytes(b"system")
 
     fd = os.open(course, os.O_RDONLY)
@@ -250,9 +254,32 @@ def test_v3_nested_system_entries_are_excluded_from_scans(tmp_path):
     finally:
         os.close(fd)
     assert tree is not None
-    assert [item[0] for item in tree[0]] == ["main.mkv"]
+    assert [item[0] for item in tree[0]] == [
+        ".hidden/episode.mkv",
+        ".hidden/still.part",
+        "main.mkv",
+    ]
+    assert [item[0] for item in tree[1]] == [".hidden"]
 
     plugin = module.CourseOrganizer.__new__(module.CourseOrganizer)
+    plugin._review_path_config = MagicMock(return_value={"incoming": str(tmp_path)})
+    expected_binding = plugin._current_source_binding("课程")
+    assert expected_binding is not None
+
+    (hidden / "late.mkv").write_bytes(b"downloading")
+    late_fd = os.open(course, os.O_RDONLY)
+    try:
+        late_tree = module.CourseOrganizer._scan_manifest_dir(late_fd)
+    finally:
+        os.close(late_fd)
+    assert late_tree is not None
+    assert late_tree != tree
+    assert ".hidden/late.mkv" in [item[0] for item in late_tree[0]]
+    current_binding = plugin._current_source_binding("课程")
+    assert current_binding is not None
+    assert not plugin._source_bindings_equal(current_binding, expected_binding)
+    (hidden / "late.mkv").unlink()
+
     media_by_season, subtitle_map, _ = plugin._collect_course_files(str(course))
     assert [Path(path).name for paths in media_by_season.values() for path in paths] == [
         "main.mkv"
@@ -416,6 +443,9 @@ def test_v3_system_scan_entry_helper_ignores_only_system_and_hidden_items():
 
     assert all(module.CourseOrganizer._is_ignored_scan_entry(name) for name in ignored)
     assert not any(module.CourseOrganizer._is_ignored_scan_entry(name) for name in retained)
+    assert module.CourseOrganizer._is_system_scan_entry(" #recycle ")
+    assert module.CourseOrganizer._is_system_scan_entry("@eaDir")
+    assert not module.CourseOrganizer._is_system_scan_entry(".temporary")
 
 
 def test_v3_scan_entrypoint_skips_system_entries_without_skipping_normal_hash_directory():
