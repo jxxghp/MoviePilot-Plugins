@@ -3,6 +3,7 @@ import app.plugins.lunatvsource as plugin_module
 from app.plugins.lunatvsource.cms import CmsSource, _result_from_item
 from pathlib import Path
 import sys
+from enum import Enum
 from types import ModuleType, SimpleNamespace
 
 
@@ -376,3 +377,37 @@ def test_resource_download_event_routes_lunatv_token_to_serial_queue(tmp_path: P
     assert event_data.cancel is True
     assert "串行下载队列" in event_data.reason
     assert plugin._queue.list_tasks()[0]["root"] == str(tmp_path)
+
+
+def test_native_transfer_uses_persisted_source_key(monkeypatch, tmp_path: Path):
+    captured = {}
+
+    class MediaSource(str, Enum):
+        TMDB = "themoviedb"
+
+    class StorageChain:
+        def get_file_item(self, **kwargs):
+            return object()
+
+    class TransferChain:
+        def manual_transfer(self, **kwargs):
+            captured.update(kwargs)
+            return True, ""
+
+    monkeypatch.setattr(plugin_module, "_HostMediaSource", MediaSource)
+    monkeypatch.setattr(plugin_module, "_HostStorageChain", StorageChain)
+    monkeypatch.setattr(plugin_module, "_HostTransferChain", TransferChain)
+    plugin = LunaTVSource()
+    plugin.init_plugin({"enabled": True})
+    task = SimpleNamespace(
+        mode="download",
+        media_type="movie",
+        root=str(tmp_path),
+        source_key="themoviedb",
+        media_id="1084242",
+        season=1,
+    )
+
+    assert plugin._native_transfer(task, str(tmp_path / "movie.mp4")) == "moviepilot"
+    assert captured["media_source"] is MediaSource.TMDB
+    assert captured["media_id"] == "1084242"
