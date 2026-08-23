@@ -115,8 +115,8 @@ def test_custom_page_filters_system_entries_from_stale_api_rows():
 def test_v2_market_manifest_uses_renderable_png_icon():
     package_v2 = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
 
-    assert CourseOrganizer.plugin_version == "1.7.16"
-    assert package_v2["CourseOrganizer"]["version"] == "1.7.16"
+    assert CourseOrganizer.plugin_version == "1.7.17"
+    assert package_v2["CourseOrganizer"]["version"] == "1.7.17"
     assert package_v2["CourseOrganizer"]["icon"] == "courseorganizer.png"
     assert CourseOrganizer.plugin_icon == "icons/courseorganizer.png"
     assert (ROOT / "icons/courseorganizer.png").is_file()

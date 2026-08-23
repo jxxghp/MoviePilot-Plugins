@@ -42,8 +42,8 @@ def test_v3_package_and_plugin_versions_are_consistent():
     package_v2 = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
     package_v3 = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
 
-    assert module.CourseOrganizer.plugin_version == "2.0.6"
-    assert package_v3["CourseOrganizer"]["version"] == "2.0.6"
+    assert module.CourseOrganizer.plugin_version == "2.0.7"
+    assert package_v3["CourseOrganizer"]["version"] == "2.0.7"
     assert package_v3["CourseOrganizer"]["icon"] == "courseorganizer.png"
     assert module.CourseOrganizer.plugin_icon == "icons/courseorganizer.png"
     assert (ROOT / "icons/courseorganizer.png").is_file()
