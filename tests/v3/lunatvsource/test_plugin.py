@@ -1,6 +1,7 @@
 from app.plugins.lunatvsource import LunaTVSource
 import app.plugins.lunatvsource as plugin_module
 from app.plugins.lunatvsource.cms import CmsSource, _result_from_item
+from app.plugins.lunatvsource.downloader import DownloadTask
 from app.plugins.lunatvsource.naming import media_path
 import hashlib
 from pathlib import Path
@@ -473,6 +474,105 @@ def test_native_download_reports_duplicate_instead_of_fake_success(tmp_path: Pat
     assert "已在" in duplicate[3]
     assert len(plugin._queue.list_tasks()) == 1
 
+
+def test_active_queue_tasks_project_to_native_download_list_and_filter():
+    plugin = _plugin({"enabled": True})
+    pending = DownloadTask(
+        task_id="pending-task",
+        source_key="cms-demo",
+        media_id="cms-demo:42",
+        title="排队电视剧",
+        year="2026",
+        media_type="tv",
+        season=2,
+        episode=3,
+        url="https://example.test/pending.m3u8",
+        root="/downloads/tv",
+        host_media_source="themoviedb",
+        host_media_id="123",
+        state="pending",
+    )
+    running = DownloadTask(
+        task_id="running-task",
+        source_key="cms-demo",
+        media_id="cms-demo:43",
+        title="下载中电影",
+        year="2025",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/running.m3u8",
+        root="/downloads/movie",
+        state="running",
+    )
+    completed = DownloadTask(
+        task_id="completed-task",
+        source_key="cms-demo",
+        media_id="cms-demo:44",
+        title="已完成电影",
+        year="2024",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/completed.m3u8",
+        root="/downloads/movie",
+        state="completed",
+    )
+    plugin.save_data(plugin._queue.DATA_KEY, [
+        pending.to_dict(),
+        running.to_dict(),
+        completed.to_dict(),
+    ])
+
+    module = plugin.get_module()
+    assert "list_torrents" in module
+    torrents = module["list_torrents"](status=SimpleNamespace(value="下载中"))
+    assert [torrent.hash for torrent in torrents] == ["running-task", "pending-task"]
+    assert all(torrent.downloader == "LunaTVSource" for torrent in torrents)
+    assert all(torrent.state == "downloading" for torrent in torrents)
+    assert all(torrent.progress == 0.0 for torrent in torrents)
+    assert torrents[1].title == "排队电视剧"
+    assert torrents[1].name == "排队电视剧"
+    assert torrents[1].save_path == "/downloads/tv"
+    assert torrents[1].season_episode == "S02E03"
+    assert str(torrents[1].media.media_source.value) == "themoviedb"
+    assert torrents[1].media.media_id == "123"
+
+    assert plugin.list_torrents(downloader="qBittorrent") is None
+    assert plugin.list_torrents(status="completed") == []
+    assert [torrent.hash for torrent in plugin.list_torrents(
+        downloader="LunaTVSource", hashs=["pending-task"]
+    )] == ["pending-task"]
+
+
+def test_active_queue_projection_uses_host_downloader_torrent_when_available(monkeypatch):
+    class HostDownloaderTorrent:
+        def __init__(self, **values):
+            self.__dict__.update(values)
+
+    monkeypatch.setattr(
+        plugin_module,
+        "_schemas",
+        SimpleNamespace(DownloaderTorrent=HostDownloaderTorrent),
+    )
+    plugin = _plugin({"enabled": True})
+    task = DownloadTask(
+        task_id="host-torrent-task",
+        source_key="cms-demo",
+        media_id="cms-demo:45",
+        title="宿主投影",
+        year="2026",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/host.m3u8",
+        root="/downloads/movie",
+    )
+    plugin.save_data(plugin._queue.DATA_KEY, [task.to_dict()])
+
+    torrents = plugin.list_torrents()
+    assert len(torrents) == 1
+    assert isinstance(torrents[0], HostDownloaderTorrent)
 
 def test_resource_download_event_routes_lunatv_token_to_serial_queue(tmp_path: Path):
     plugin = _plugin({"enabled": True})

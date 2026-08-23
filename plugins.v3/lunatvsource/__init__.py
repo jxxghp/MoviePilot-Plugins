@@ -127,6 +127,19 @@ DEFAULT_SOURCE_ALLOWLIST = (
 PLUGIN_MEDIA_SOURCE = "lunatv"
 
 
+class _CompatDownloaderTorrent:
+    """在独立测试环境中保持下载任务投影的最小对象接口。"""
+
+    def __init__(self, **values: Any) -> None:
+        self.__dict__.update(values)
+
+    def model_dump(self, **_: Any) -> Dict[str, Any]:
+        return dict(self.__dict__)
+
+    def dict(self, **_: Any) -> Dict[str, Any]:
+        return self.model_dump()
+
+
 # MoviePilot 3.0.0 returns before module resource providers are called when no
 # PT/indexer site is enabled. Keep this compatibility bridge inside the plugin.
 # Existing MoviePilot plugins use the same reversible runtime-wrapper pattern.
@@ -304,7 +317,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.18"
+    plugin_version = "0.4.19"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -1578,8 +1591,121 @@ class LunaTVSource(_PluginBase):
         """LunaTV participates in the global search instead of adding an empty Explore tab."""
         return []
 
+    def _active_download_torrent(self, task: DownloadTask) -> Any:
+        """将串行队列中的活跃任务归一为 MoviePilot 下载器任务。"""
+        media_source, media_id = self._task_media_identity(task)
+        season_episode = None
+        if task.media_type == "tv":
+            try:
+                season_episode = f"S{int(task.season):02d}E{int(task.episode):02d}"
+            except (TypeError, ValueError):
+                pass
+        values = {
+            "downloader": "LunaTVSource",
+            "hash": str(task.task_id),
+            "title": task.title,
+            "name": task.title,
+            "site_name": task.source_name or task.source_key or PLUGIN_MEDIA_SOURCE,
+            "year": task.year or None,
+            "season_episode": season_episode,
+            # MoviePilot only defines an active downloader state.  Both queued
+            # and currently running ffmpeg tasks belong in that native view.
+            "state": "downloading",
+            # The serial ffmpeg queue has no byte-level progress callback.
+            "progress": 0.0,
+            "save_path": task.root or None,
+            "media": {
+                "type": "电视剧" if task.media_type == "tv" else "电影",
+                "title": task.title,
+                "season": task.season if task.media_type == "tv" else None,
+                "episode": task.episode if task.media_type == "tv" else None,
+                "media_source": self._host_media_source_value(media_source),
+                "media_id": media_id or None,
+            },
+        }
+        torrent_type = (
+            getattr(_schemas, "DownloaderTorrent", None)
+            if _schemas is not None
+            else None
+        )
+        if callable(torrent_type):
+            try:
+                return torrent_type(**values)
+            except Exception as exc:
+                self._logger.debug("构造 MoviePilot 下载任务投影失败，使用兼容对象：%s", exc)
+        return _CompatDownloaderTorrent(**values)
+
+    def list_torrents(
+        self,
+        status: Any = None,
+        hashs: Any = None,
+        downloader: Optional[str] = None,
+        include_all_tags: bool = False,
+    ) -> Optional[List[Any]]:
+        """提供 LunaTV 队列中的活跃任务，不接管其他原生下载器查询。"""
+        del include_all_tags
+        if not self._enabled:
+            return None
+        if downloader and str(downloader).strip() != "LunaTVSource":
+            # ``None`` 让 ModuleDispatcher 继续交给 qBittorrent 等提供者。
+            return None
+
+        if isinstance(hashs, str):
+            requested_hashes = {hashs.strip()} if hashs.strip() else set()
+        elif hashs:
+            try:
+                requested_hashes = {
+                    str(value).strip() for value in hashs if str(value).strip()
+                }
+            except TypeError:
+                requested_hashes = {str(hashs).strip()} if str(hashs).strip() else set()
+        else:
+            requested_hashes = set()
+
+        status_value = _enum_value(status)
+        if not requested_hashes and status_value in {
+            "transfer",
+            "可转移",
+            "completed",
+            "complete",
+            "seeding",
+            "完成",
+            "已完成",
+            "paused",
+            "pause",
+            "暂停",
+            "已暂停",
+        }:
+            return []
+
+        queue = self._queue
+        if queue is None:
+            return []
+        try:
+            raw_tasks = queue.list_tasks()
+        except Exception as exc:
+            self._logger.debug("读取 LunaTV 活跃下载任务失败：%s", exc)
+            return []
+
+        torrents: List[Any] = []
+        for raw_task in raw_tasks:
+            if not isinstance(raw_task, dict):
+                continue
+            try:
+                task = DownloadTask(**raw_task)
+            except TypeError:
+                continue
+            task_hash = str(task.task_id or "").strip()
+            if not task_hash or str(task.state or "").lower() not in {"pending", "running"}:
+                continue
+            if requested_hashes and task_hash not in requested_hashes:
+                continue
+            torrents.append(self._active_download_torrent(task))
+        return torrents
+
+
     def get_module(self) -> Dict[str, Any]:
-        """接入 V3 媒体识别、原生资源搜索与原生下载入口。"""
+        """接入 V3 媒体识别、资源搜索、下载和活跃任务查询入口。"""
         if not self._enabled:
             return {}
         return {
@@ -1590,6 +1716,7 @@ class LunaTVSource(_PluginBase):
             "search_torrents": self.search_torrents,
             "async_search_torrents": self.async_search_torrents,
             "download": self.download,
+            "list_torrents": self.list_torrents,
         }
 
     @staticmethod
