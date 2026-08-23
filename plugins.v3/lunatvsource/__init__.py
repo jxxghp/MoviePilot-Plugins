@@ -56,10 +56,12 @@ except Exception:  # pragma: no cover - standalone tests
 
 try:  # Optional V3 native schemas and media identity.
     from app import schemas as _schemas
+    from app.domain.context import TorrentInfo as _HostTorrentInfo
     from app.schemas.types import MediaSource as _HostMediaSource
     from app.schemas.types import MediaType as _HostMediaType
 except Exception:  # pragma: no cover - standalone tests
     _schemas = None
+    _HostTorrentInfo = None
     _HostMediaSource = None
     _HostMediaType = None
 
@@ -283,7 +285,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.7"
+    plugin_version = "0.4.8"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -1491,7 +1493,10 @@ class LunaTVSource(_PluginBase):
 
     def _resource_torrents(self, keyword: str) -> List[Any]:
         """把 CMS m3u8 条目投影为 MoviePilot 原生 TorrentInfo。"""
-        if _schemas is None:
+        torrent_info_type = _HostTorrentInfo or (
+            getattr(_schemas, "TorrentInfo", None) if _schemas is not None else None
+        )
+        if torrent_info_type is None:
             return []
         cache_key = normalize_search_title(keyword).casefold()
         now = time.monotonic()
@@ -1527,7 +1532,7 @@ class LunaTVSource(_PluginBase):
                         "episode": episode.episode,
                         "media_id": identity,
                     }
-                    torrents.append(_schemas.TorrentInfo(
+                    torrents.append(torrent_info_type(
                         site_name="LunaTV",
                         title=title,
                         description=f"{result.source_name} · m3u8",

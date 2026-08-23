@@ -210,6 +210,9 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
         def __init__(self, **kwargs):
             self.__dict__.update(kwargs)
 
+        def to_dict(self):
+            return dict(self.__dict__)
+
     class Client:
         def search(self, query, **kwargs):
             return [_result_from_item(
@@ -224,12 +227,13 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
                 },
             )]
 
-    monkeypatch.setattr(plugin_module, "_schemas", type("Schemas", (), {"TorrentInfo": TorrentInfo}))
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
     plugin = _plugin({"enabled": True})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     items = plugin.search_torrents(site={"id": 1}, keyword="示例剧", page=0)
     assert len(items) == 1
     assert items[0].site_name == "LunaTV"
+    assert items[0].to_dict()["site_name"] == "LunaTV"
     assert items[0].title.endswith("S01E01")
     assert plugin._decode_resource_token(items[0].enclosure)["url"].endswith("01.m3u8")
 
