@@ -3,7 +3,7 @@ import threading
 import apprise
 
 from queue import Queue
-from time import time, sleep
+from time import monotonic, time
 from typing import Any, List, Dict, Tuple
 from urllib.parse import urlencode
 
@@ -15,6 +15,12 @@ from app.utils.http import RequestUtils
 
 
 class AppriseMsg(_PluginBase):
+    """通过单一后台队列向 Apprise 渠道发送 MoviePilot 通知。"""
+
+    # 后台发送结束的最长等待时间，超时后保留线程句柄供宿主重试收敛。
+    SHUTDOWN_TIMEOUT = 3.0
+    _STOP_SENTINEL = object()
+
     # 插件名称
     plugin_name = "Apprise 消息推送"
     # 插件描述
@@ -22,7 +28,7 @@ class AppriseMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Ntfy_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "lethargicScribe"
     # 作者主页
@@ -39,54 +45,72 @@ class AppriseMsg(_PluginBase):
     _url= None
     _msgtypes = []
 
-    # 消息处理线程
-    processing_thread = None
     # 上次发送时间
     last_send_time = 0
-    # 消息队列
-    message_queue = Queue()
     # 消息发送间隔（秒）
     send_interval = 5
-    # 退出事件
-    __event = threading.Event()
     # apprise实例
     apobj = None
 
-    def init_plugin(self, config: dict = None):
-        self.__event.clear()
-        if config:
-            self._enabled = config.get("enabled")
-            self._url = config.get("url")
-            self._msgtypes = config.get("msgtypes") or []
+    def __init__(self):
+        """初始化实例级队列及其生命周期所有权。"""
+        super().__init__()
+        self._lifecycle_lock = threading.RLock()
+        self._stop_event = threading.Event()
+        self._accepting_messages = False
+        self.message_queue = Queue()
+        self.processing_thread = None
 
-            if self._enabled and self._url:
-                # 初始化 apprise客户端实例
-                self.apobj = apprise.Apprise()
-                # 配置生效
-                server_urls = self._url.split("\n")
-                for server_url in server_urls:
-                    if not server_url:
-                        continue
-                    try:
-                        self.apobj.add(server_url)
-                    except Exception as err:
-                        logger.error(f"Apprise 通知渠道配置{err}")
-                        self.systemmessage.put(f"Apprise 通知渠道配置{err}", title="Apprise 通知")
-                        continue
-                                    
-                # 启动处理队列的后台线程
-                self.processing_thread = threading.Thread(target=self.process_queue)
-                self.processing_thread.daemon = True
-                self.processing_thread.start()
+    def init_plugin(self, config: dict = None):
+        """应用配置，并在旧队列线程完全退出后启动新线程。"""
+        if not self._quiesce():
+            logger.error("Apprise 消息发送线程尚未退出，跳过本次重新初始化")
+            return
+
+        with self._lifecycle_lock:
+            self._stop_event = threading.Event()
+            self.message_queue = Queue()
+            if config:
+                self._enabled = config.get("enabled")
+                self._url = config.get("url")
+                self._msgtypes = config.get("msgtypes") or []
+
+                if self._enabled and self._url:
+                    # 初始化 apprise客户端实例
+                    self.apobj = apprise.Apprise()
+                    # 配置生效
+                    server_urls = self._url.split("\n")
+                    for server_url in server_urls:
+                        if not server_url:
+                            continue
+                        try:
+                            self.apobj.add(server_url)
+                        except Exception as err:
+                            logger.error(f"Apprise 通知渠道配置{err}")
+                            self.systemmessage.put(f"Apprise 通知渠道配置{err}", title="Apprise 通知")
+                            continue
+
+                    # 启动处理队列的后台线程
+                    thread = threading.Thread(
+                        target=self.process_queue,
+                        name="apprisemsg-worker",
+                        daemon=True,
+                    )
+                    self.processing_thread = thread
+                    thread.start()
+                    self._accepting_messages = True
 
     def get_state(self) -> bool:
+        """返回插件配置是否满足发送条件。"""
         return self._enabled and (True if self._url else False)
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """该消息插件不注册远程命令。"""
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """该消息插件不注册动态 API。"""
         pass
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -223,6 +247,7 @@ class AppriseMsg(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
+        """该消息插件不提供详情页面。"""
         pass
 
     @eventmanager.register(EventType.NoticeMessage)
@@ -230,63 +255,83 @@ class AppriseMsg(_PluginBase):
         """
         消息发送事件，将消息加入队列
         """
-        if not self.get_state() or not event.event_data:
-            return
+        with self._lifecycle_lock:
+            if not self._accepting_messages or not self.get_state() or not event.event_data:
+                return
 
-        msg_body = event.event_data
-        # 验证消息的有效性
-        if not msg_body.get("title") and not msg_body.get("text"):
-            logger.warn("标题和内容不能同时为空")
-            return
+            msg_body = event.event_data
+            # 验证消息的有效性
+            if not msg_body.get("title") and not msg_body.get("text"):
+                logger.warn("标题和内容不能同时为空")
+                return
 
-        # 将消息加入队列
-        self.message_queue.put(msg_body)
-        logger.info("消息已加入队列等待发送")
+            # admission 与入队共用一把锁，确保停止封口后不会再产生尾任务。
+            self.message_queue.put(msg_body)
+            logger.info("消息已加入队列等待发送")
 
     def process_queue(self):
         """
         处理队列中的消息，按间隔时间发送
         """
+        message_queue = self.message_queue
+        stop_event = self._stop_event
         while True:
-            if self.__event.is_set():
-                logger.info("消息发送线程正在退出...")
-                break
-            # 获取队列中的下一条消息
-            msg_body = self.message_queue.get()
-
-            # 检查是否满足发送间隔时间
-            current_time = time()
-            time_since_last_send = current_time - self.last_send_time
-            if time_since_last_send < self.send_interval:
-                sleep(self.send_interval - time_since_last_send)
-
-            # 处理消息内容
-            channel = msg_body.get("channel")
-            if channel:
-                continue
-            msg_type: NotificationType = msg_body.get("type")
-            title = msg_body.get("title")
-            text = msg_body.get("text")
-
-            # 检查消息类型是否已启用
-            if msg_type and self._msgtypes and msg_type.name not in self._msgtypes:
-                logger.info(f"消息类型 {msg_type.value} 未开启消息发送")
-                continue
-
-            # 尝试发送消息
+            msg_body = message_queue.get()
             try:
-                self.apobj.notify(
-                    body=text,
-                    title=title,
-                )
-            except Exception as msg_e:
-                logger.error(f"apprise 消息发送失败，{str(msg_e)}")
+                if msg_body is self._STOP_SENTINEL or stop_event.is_set():
+                    logger.info("消息发送线程正在退出...")
+                    return
 
-            # 标记任务完成
-            self.message_queue.task_done()
+                # Event.wait 让限流等待也能被停止信号立即唤醒。
+                wait_time = self.send_interval - (time() - self.last_send_time)
+                if wait_time > 0 and stop_event.wait(wait_time):
+                    return
+                if stop_event.is_set():
+                    return
 
-    def stop_service(self):
-        """
-        退出插件
-        """
-        self.__event.set()
+                channel = msg_body.get("channel")
+                if channel:
+                    continue
+                msg_type: NotificationType = msg_body.get("type")
+                title = msg_body.get("title")
+                text = msg_body.get("text")
+                if msg_type and self._msgtypes and msg_type.name not in self._msgtypes:
+                    logger.info(f"消息类型 {msg_type.value} 未开启消息发送")
+                    continue
+
+                try:
+                    self.apobj.notify(body=text, title=title)
+                except Exception as msg_e:
+                    logger.error(f"apprise 消息发送失败，{str(msg_e)}")
+            finally:
+                message_queue.task_done()
+
+    def _quiesce(self, timeout: float = None) -> bool:
+        """封闭新消息并在共享预算内等待后台发送线程退出。"""
+        budget = self.SHUTDOWN_TIMEOUT if timeout is None else max(0.0, timeout)
+        deadline = monotonic() + budget
+        with self._lifecycle_lock:
+            self._accepting_messages = False
+            self._stop_event.set()
+            thread = self.processing_thread
+            if thread is None:
+                return True
+            if thread.is_alive():
+                self.message_queue.put(self._STOP_SENTINEL)
+                if thread is threading.current_thread():
+                    return False
+                thread.join(timeout=max(0.0, deadline - monotonic()))
+            if thread.is_alive():
+                logger.warning("Apprise 消息发送线程未在停止预算内退出")
+                return False
+            if self.processing_thread is thread:
+                self.processing_thread = None
+            return True
+
+    def close(self) -> bool:
+        """兼容新版宿主的第一阶段关闭钩子。"""
+        return self._quiesce()
+
+    def stop_service(self) -> bool:
+        """兼容旧版宿主的停止钩子，并复用幂等收敛逻辑。"""
+        return self._quiesce()

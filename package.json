@@ -849,21 +849,29 @@
     "name": "gotify消息推送",
     "description": "支持使用gotify发送消息通知。",
     "labels": "消息通知",
-    "version": "1.1",
+    "version": "1.2",
     "icon": "https://raw.githubusercontent.com/gotify/logo/refs/heads/master/gotify-logo.png",
     "author": "lethargicScribe",
     "level": 1,
-    "v2": true
+    "v2": true,
+    "release": true,
+    "history": {
+      "v1.2": "停止时封闭新消息并等待后台发送线程退出，超时保留线程以支持宿主重试"
+    }
   },
   "AppriseMsg": {
     "name": "Apprise 消息推送",
     "description": "Apprise - 适用于几乎所有平台的推送通知！",
     "labels": "消息通知",
-    "version": "1.0",
+    "version": "1.1",
     "icon": "Ntfy_A.png",
     "author": "lethargicScribe",
     "level": 1,
-    "v2": true
+    "v2": true,
+    "release": true,
+    "history": {
+      "v1.1": "停止时封闭新消息并等待后台发送线程退出，超时保留线程以支持宿主重试"
+    }
   },
   "TmdbWallpaper": {
     "name": "登录壁纸本地化",
@@ -1052,12 +1060,14 @@
     "name": "IYUU消息推送",
     "description": "支持使用IYUU发送消息通知。",
     "labels": "消息通知,IYUU",
-    "version": "1.3",
+    "version": "1.4",
     "icon": "Iyuu_A.png",
     "author": "jxxghp",
     "level": 1,
     "v2": true,
+    "release": true,
     "history": {
+      "v1.4": "停止时封闭新消息并等待后台发送线程退出，超时保留线程以支持宿主重试",
       "v1.3": "消息限流发送，以缓解IYUU服务器压力"
     }
   },
