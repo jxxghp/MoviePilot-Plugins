@@ -4154,10 +4154,12 @@ class CourseOrganizer(_PluginBase):
         snapshot: List[Tuple[str, int, int]] = []
         for root, dirnames, filenames in os.walk(course_path):
             dirnames[:] = [
-                name for name in dirnames if not self._is_ignored_scan_entry(name)
+                name
+                for name in dirnames
+                if name.strip().casefold() not in self.SYSTEM_SCAN_ENTRY_NAMES
             ]
             for filename in filenames:
-                if self._is_ignored_scan_entry(filename):
+                if filename.strip().casefold() in self.SYSTEM_SCAN_ENTRY_NAMES:
                     continue
                 file_path = os.path.join(root, filename)
                 try:

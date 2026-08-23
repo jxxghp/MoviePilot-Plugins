@@ -241,6 +241,7 @@ def test_v3_nested_system_entries_are_excluded_from_scans(tmp_path):
     (course / "main.mkv").write_bytes(b"main")
     (recycle / "old.part").write_bytes(b"old")
     (hidden / "still.part").write_bytes(b"partial")
+    (hidden / "episode.mkv").write_bytes(b"downloading")
     (course / "Thumbs.db").write_bytes(b"system")
 
     fd = os.open(course, os.O_RDONLY)
@@ -257,11 +258,19 @@ def test_v3_nested_system_entries_are_excluded_from_scans(tmp_path):
         "main.mkv"
     ]
     assert subtitle_map == {}
-    assert [item[0] for item in plugin._snapshot_signature(str(course))] == ["main.mkv"]
+    assert [item[0] for item in plugin._snapshot_signature(str(course))] == [
+        ".hidden/episode.mkv",
+        ".hidden/still.part",
+        "main.mkv",
+    ]
     assert plugin._has_incomplete_file(str(course)) is True
 
     (hidden / "still.part").unlink()
     assert plugin._has_incomplete_file(str(course)) is False
+    assert [item[0] for item in plugin._snapshot_signature(str(course))] == [
+        ".hidden/episode.mkv",
+        "main.mkv",
+    ]
 
     (course / ".episode.mkv.part").write_bytes(b"partial")
     assert plugin._has_incomplete_file(str(course)) is True
