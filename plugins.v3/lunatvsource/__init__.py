@@ -317,7 +317,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.19"
+    plugin_version = "0.4.20"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -901,7 +901,11 @@ class LunaTVSource(_PluginBase):
                     counts[season_number] = count
         return counts
 
-    def _associate_tmdb(self, result: CmsResult) -> Dict[str, Any]:
+    def _associate_tmdb(
+        self,
+        result: CmsResult,
+        include_candidates: bool = True,
+    ) -> Dict[str, Any]:
         """Find the default TMDB identity through MoviePilot's native chain."""
 
         query = normalize_search_title(result.title)
@@ -909,13 +913,22 @@ class LunaTVSource(_PluginBase):
         with self._tmdb_cache_lock:
             cached = self._tmdb_cache.get(cache_key)
         if cached is not None and (
-            cached.get("status") != "matched" or cached.get("poster_path")
+            cached.get("status") != "matched"
+            or cached.get("poster_path")
+            or not include_candidates
         ):
             association = dict(cached)
-            if association.get("status") == "matched" and not association.get("candidates"):
-                candidates = self._search_tmdb_candidates(query, result.year, result.media_type)
-                if candidates:
-                    association["candidates"] = candidates
+            if (
+                include_candidates
+                and association.get("status") == "matched"
+                and not association.get("candidates")
+            ):
+                if include_candidates:
+                    candidates = self._search_tmdb_candidates(
+                        query, result.year, result.media_type
+                    )
+                    if candidates:
+                        association["candidates"] = candidates
                     with self._tmdb_cache_lock:
                         self._tmdb_cache[cache_key] = dict(association)
                         self.save_data("tmdb_match_cache_v1", dict(self._tmdb_cache))
@@ -1784,14 +1797,51 @@ class LunaTVSource(_PluginBase):
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
             return None
 
-    def _resource_torrents(self, keyword: str) -> List[Any]:
+    @staticmethod
+    def _resource_search_context(
+        search_query: str,
+        results: List[CmsResult],
+        mtype: Any = None,
+    ) -> CmsResult:
+        """为一次多源原生搜索构造唯一的 TMDB 关联上下文。"""
+        first = results[0] if results else None
+        requested_type = _enum_value(mtype)
+        media_type = (
+            _media_type_value(mtype)
+            if requested_type
+            else (first.media_type if first else "movie")
+        )
+        return CmsResult(
+            source_key="",
+            source_name="",
+            vod_id="",
+            title=normalize_search_title(search_query),
+            year=first.year if first else "",
+            media_type=media_type,
+            remark="",
+        )
+
+    @staticmethod
+    def _apply_resource_association(
+        result: CmsResult,
+        association: Dict[str, Any],
+    ) -> CmsResult:
+        """复用搜索上下文关联，不再逐条查询 TMDB。"""
+        if association.get("status") == "matched":
+            return apply_season_counts(result, association.get("season_counts") or {})
+        return result
+
+    def _resource_torrents(self, keyword: str, mtype: Any = None) -> List[Any]:
         """把 CMS m3u8 条目投影为 MoviePilot 原生 TorrentInfo。"""
         torrent_info_type = _HostTorrentInfo or (
             getattr(_schemas, "TorrentInfo", None) if _schemas is not None else None
         )
         if torrent_info_type is None:
             return []
-        cache_key = normalize_search_title(keyword).casefold()
+        requested_type = _enum_value(mtype)
+        cache_key = "|".join(
+            (normalize_search_title(keyword).casefold(), requested_type)
+        )
         now = time.monotonic()
         with self._resource_search_lock:
             cached = self._resource_search_cache.get(cache_key)
@@ -1809,10 +1859,14 @@ class LunaTVSource(_PluginBase):
             require_playable=True,
             max_workers=8,
         )
+        association: Dict[str, Any] = {}
+        if results:
+            context = self._resource_search_context(search_query, results, mtype)
+            association = self._associate_tmdb(context, include_candidates=False)
         torrents: List[Any] = []
         seen_urls: set[str] = set()
         for result in results:
-            result, association = self._prepare_result(result)
+            result = self._apply_resource_association(result, association)
             identity = f"{result.source_key}:{result.vod_id}"
             host_media_source = str(
                 association.get("media_source") or PLUGIN_MEDIA_SOURCE
@@ -1869,11 +1923,11 @@ class LunaTVSource(_PluginBase):
         **_: Any,
     ) -> List[Any]:
         """参与每次原生站点搜索；固定站点名使多站点调用结果可由宿主去重。"""
-        del site, mtype
+        del site
         if not self._enabled or int(page or 0) > 0 or not str(keyword or "").strip():
             return []
         try:
-            return self._resource_torrents(str(keyword).strip())
+            return self._resource_torrents(str(keyword).strip(), mtype=mtype)
         except Exception as exc:
             self._logger.warning("LunaTV 原生资源搜索失败：%s", exc)
             return []
