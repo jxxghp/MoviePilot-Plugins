@@ -138,6 +138,9 @@ class DownloadTask:
     episode: int
     url: str
     root: str
+    host_media_source: Optional[str] = None
+    host_media_id: Optional[str] = None
+    source_name: Optional[str] = None
     mode: str = "download"
     ffmpeg_path: str = "ffmpeg"
     state: str = "pending"
@@ -158,6 +161,7 @@ class DownloadTask:
         root: str,
         mode: str,
         ffmpeg_path: str,
+        source_name: Optional[str] = None,
         media_source: str,
         media_id: str,
     ) -> "DownloadTask":
@@ -172,6 +176,7 @@ class DownloadTask:
             episode=int(getattr(episode, "episode", 1) or 1),
             url=str(getattr(episode, "url", "")),
             root=root,
+            source_name=source_name,
             mode=mode,
             ffmpeg_path=ffmpeg_path,
         )

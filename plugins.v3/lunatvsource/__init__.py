@@ -294,13 +294,17 @@ def _media_type_value(value: Any) -> str:
     return "movie"
 
 
+def _coerce_media_identity_source(media_source: Any) -> str:
+    return _enum_value(media_source) or PLUGIN_MEDIA_SOURCE
+
+
 class LunaTVSource(_PluginBase):
     """第三方苹果 CMS/m3u8 订阅下载插件。"""
 
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.15"
+    plugin_version = "0.4.16"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -704,6 +708,18 @@ class LunaTVSource(_PluginBase):
         except Exception:
             return media_type
 
+    @classmethod
+    def _task_media_identity(cls, task: DownloadTask) -> Tuple[str, str]:
+        source = _coerce_media_identity_source(
+            getattr(task, "host_media_source", None) if getattr(task, "host_media_source", None) else task.source_key
+        )
+        media_id = str(
+            getattr(task, "host_media_id", None)
+            or task.media_id
+            or ""
+        ).strip()
+        return source, media_id
+
     @staticmethod
     def _host_meta_info(title: str, year: str = "") -> Any:
         """Build MetaInfo across V3 runtimes (the SDK export is a function)."""
@@ -1002,7 +1018,14 @@ class LunaTVSource(_PluginBase):
         payload["association"] = association
         return payload
 
-    def _local_episode_exists(self, task: DownloadTask) -> bool:
+    def _local_episode_path(self, task: DownloadTask) -> Optional[Path]:
+        """Return the completed local artifact for an episode, if it exists.
+
+        ``media_path`` is also used by the downloader, so this returns the
+        actual MP4/STRM artifact rather than merely treating the media
+        directory as completed.  In particular, an empty directory or a
+        transient download cache must not suppress a real download.
+        """
         try:
             relative_dir, filename = media_path(
                 task.root,
@@ -1015,9 +1038,13 @@ class LunaTVSource(_PluginBase):
                 task.mode,
             )
             path = Path(task.root).expanduser() / relative_dir / filename
-            return path.exists() and path.stat().st_size > 0
+            return path if path.is_file() and path.stat().st_size > 0 else None
         except (OSError, ValueError):
-            return False
+            return None
+
+    def _local_episode_exists(self, task: DownloadTask) -> bool:
+        """Compatibility predicate for callers that only need completion state."""
+        return self._local_episode_path(task) is not None
 
     def _native_transfer(self, task: DownloadTask, output: str) -> str:
         """让 MoviePilot 原生整理链接管已下载文件；不可用时保留直写结果。"""
@@ -1029,14 +1056,15 @@ class LunaTVSource(_PluginBase):
             fileitem = _HostStorageChain().get_file_item(storage="local", path=Path(output))
             if not fileitem:
                 return "fallback:file-not-found"
+            media_source, media_id = self._task_media_identity(task)
             directory = self._system_directory_info(task.media_type, task.root)
             target_path = str((directory or {}).get("library_path") or task.root).strip()
             state, message = _HostTransferChain().manual_transfer(
                 fileitem=fileitem,
                 target_storage="local",
                 target_path=Path(target_path),
-                media_source=self._host_media_source_value(task.source_key),
-                media_id=task.media_id,
+                media_source=self._host_media_source_value(media_source),
+                media_id=media_id,
                 mtype=self._host_media_type(task.media_type),
                 season=task.season if task.media_type == "tv" else None,
                 force=False,
@@ -1050,28 +1078,127 @@ class LunaTVSource(_PluginBase):
             return f"fallback:{exc}"
 
     def _record_native_history(self, task: DownloadTask, output: str) -> None:
-        """把成功文件写入 MoviePilot 整理历史；数据库不可用时不影响下载。"""
+        """把成功文件写入 MoviePilot 下载历史，供订阅详情读取。数据库不可用时不影响下载。"""
+        media_source, media_id = self._task_media_identity(task)
+        if not media_id:
+            self._logger.debug("MoviePilot 下载历史缺少媒体身份，跳过下载历史写入")
+            return
+        output_path = str(Path(output)) if output else ""
+        if not output_path:
+            return
+        download_hash = hashlib.sha1(f"{task.task_id}|{output_path}".encode("utf-8")).hexdigest()
         try:
-            from app.db.oper.transferhistory import TransferHistoryOper
-
-            TransferHistoryOper().add(
-                src=output,
-                src_storage="local",
-                dest=output,
-                dest_storage="local",
-                mode="copy" if task.mode == "download" else "strm",
-                type="电视剧" if task.media_type == "tv" else "电影",
-                title=task.title,
-                year=task.year or None,
-                media_source=PLUGIN_MEDIA_SOURCE,
-                media_id=task.media_id,
-                seasons=str(task.season) if task.media_type == "tv" else None,
-                episodes=str(task.episode) if task.media_type == "tv" else None,
-                status=True,
-                files=[output],
-            )
+            from app.db.oper.downloadhistory import DownloadHistoryOper
         except Exception as exc:
-            self._logger.debug("写入 MoviePilot 整理历史失败：%s", exc)
+            self._logger.debug("MoviePilot 下载历史操作器不可用，跳过下载历史写入：%s", exc)
+            return
+
+        try:
+            downloadhis = DownloadHistoryOper()
+            get_by_hash = getattr(downloadhis, "get_by_hash", None)
+            get_files_by_hash = getattr(downloadhis, "get_files_by_hash", None)
+            get_file_by_fullpath = getattr(downloadhis, "get_file_by_fullpath", None)
+            add_history = getattr(downloadhis, "add", None)
+            add_files = getattr(downloadhis, "add_files", None)
+
+            # V3 的订阅详情依赖这两个表；先验证可查询，避免重试时在旧宿主
+            # 或异常数据库中重复写入。宿主缺少必要 ABI 时仅跳过历史，不影响文件。
+            if (
+                not callable(get_by_hash)
+                or not (callable(get_files_by_hash) or callable(get_file_by_fullpath))
+                or not callable(add_history)
+                or not callable(add_files)
+            ):
+                self._logger.debug("MoviePilot 下载历史操作器不支持幂等写入，跳过下载历史写入")
+                return
+
+            existing_history = get_by_hash(download_hash)
+            existing_files: List[Any] = []
+            if callable(get_files_by_hash):
+                try:
+                    existing_files = list(get_files_by_hash(download_hash, state=1) or [])
+                except TypeError:
+                    existing_files = list(get_files_by_hash(download_hash) or [])
+            existing_path_file = (
+                get_file_by_fullpath(output_path)
+                if callable(get_file_by_fullpath)
+                else None
+            )
+
+            def _field(item: Any, key: str, default: Any = None) -> Any:
+                if isinstance(item, dict):
+                    return item.get(key, default)
+                return getattr(item, key, default)
+
+            def _active(item: Any) -> bool:
+                state = _field(item, "state", 1)
+                return str(state).lower() not in {"0", "false", "none", ""}
+
+            has_same_hash_file = any(
+                _active(item) and str(_field(item, "fullpath", "")) == output_path
+                for item in existing_files
+            )
+            path_has_active_file = bool(existing_path_file and _active(existing_path_file))
+            path_hash = str(_field(existing_path_file, "download_hash", "") or "")
+            if path_has_active_file and path_hash != download_hash:
+                # A refresh creates a new in-memory task id.  If the existing
+                # path already belongs to this same native media identity, it
+                # is an idempotent backfill/retry rather than a collision.
+                existing_path_history = get_by_hash(path_hash) if path_hash else None
+                if existing_path_history:
+                    existing_source = _coerce_media_identity_source(
+                        _field(existing_path_history, "media_source", "")
+                    )
+                    existing_media_id = str(
+                        _field(existing_path_history, "media_id", "") or ""
+                    ).strip()
+                    if existing_source == media_source and existing_media_id == media_id:
+                        self._logger.debug(
+                            "MoviePilot 下载历史已记录本地文件，跳过重复写入：%s",
+                            output_path,
+                        )
+                        return
+                self._logger.warning(
+                    "MoviePilot 下载历史文件路径已被其他任务记录，跳过重复写入：%s",
+                    output_path,
+                )
+                return
+
+            if not existing_history:
+                add_history(
+                    path=output_path,
+                    type="电视剧" if task.media_type == "tv" else "电影",
+                    title=task.title,
+                    year=task.year or None,
+                    media_source=media_source,
+                    media_id=media_id,
+                    seasons=str(task.season) if task.media_type == "tv" else None,
+                    episodes=str(task.episode) if task.media_type == "tv" else None,
+                    downloader="LunaTVSource",
+                    download_hash=download_hash,
+                    torrent_name=task.title,
+                    torrent_description="LunaTV m3u8 下载",
+                    torrent_site=str(
+                        getattr(task, "source_name", "")
+                        or getattr(task, "source_key", "")
+                        or PLUGIN_MEDIA_SOURCE
+                    ),
+                    date=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+                )
+            if not has_same_hash_file and not path_has_active_file:
+                add_files([
+                    {
+                        "download_hash": download_hash,
+                        "downloader": "LunaTVSource",
+                        "fullpath": output_path,
+                        "savepath": str(Path(output_path).parent),
+                        "filepath": Path(output_path).name,
+                        "torrentname": task.title,
+                        "state": 1,
+                    }
+                ])
+        except Exception as exc:
+            self._logger.warning("写入 MoviePilot 下载历史失败，文件下载不受影响：%s", exc)
 
     def _sync_media_server(self) -> bool:
         """后台刷新 Emby/Jellyfin，使新文件出现在既有媒体库。"""
@@ -1259,6 +1386,8 @@ class LunaTVSource(_PluginBase):
 
     def _record_completion(self, task: DownloadTask, output: str) -> None:
         organize_state = self._native_transfer(task, output)
+        # 下载历史始终记录 ffmpeg 的原始产物。若原生整理成功，TransferChain
+        # 会自行记录 TransferHistory；这里不能把整理目标伪装成下载源文件。
         self._record_native_history(task, output)
         history = self.get_data("download_history_v1") or []
         history.append(
@@ -1317,11 +1446,11 @@ class LunaTVSource(_PluginBase):
                 from app.sdk._legacy.subscribe import SubscribeOper
         except Exception:
             self._logger.debug("SubscribeOper unavailable; refresh skipped")
-            return {"subscriptions": 0, "queued": 0}
+            return {"subscriptions": 0, "queued": 0, "reconciled": 0}
 
         queue = self._queue
         if queue is None:
-            return {"subscriptions": 0, "queued": 0}
+            return {"subscriptions": 0, "queued": 0, "reconciled": 0}
         try:
             try:
                 subscribes = SubscribeOper().list(state="R")
@@ -1329,10 +1458,11 @@ class LunaTVSource(_PluginBase):
                 subscribes = SubscribeOper().list()
         except Exception as exc:
             self._logger.warning("读取 MoviePilot 订阅失败：%s", exc)
-            return {"subscriptions": 0, "queued": 0, "error": str(exc)}
+            return {"subscriptions": 0, "queued": 0, "reconciled": 0, "error": str(exc)}
 
         client = self._client()
         queued = 0
+        reconciled = 0
         skipped_ambiguous = 0
         skipped_no_directory = 0
         active_subscribes = []
@@ -1347,7 +1477,7 @@ class LunaTVSource(_PluginBase):
                 continue
             normalized_title = title
             try:
-                identity_source = _enum_value(getattr(subscribe, "media_source", ""))
+                identity_source = _coerce_media_identity_source(getattr(subscribe, "media_source", ""))
                 identity_id = str(getattr(subscribe, "media_id", "") or "").strip()
                 identity_result: Optional[CmsResult] = None
                 if identity_source == PLUGIN_MEDIA_SOURCE and ":" in identity_id:
@@ -1413,16 +1543,28 @@ class LunaTVSource(_PluginBase):
                         root=root,
                         mode=str(self._config.get("mode") or "download"),
                         ffmpeg_path=str(self._config.get("ffmpeg_path") or "ffmpeg"),
-                        media_source="lunatv",
+                        source_name=result.source_name or None,
+                        media_source=result.source_key or PLUGIN_MEDIA_SOURCE,
                         media_id=f"{result.source_key}:{result.vod_id}",
                     )
-                    if self._local_episode_exists(task):
+                    if identity_source != PLUGIN_MEDIA_SOURCE and identity_id:
+                        task.host_media_source = identity_source
+                        task.host_media_id = identity_id
+                    existing_path = self._local_episode_path(task)
+                    if existing_path is not None:
+                        # Older plugin versions could leave a correctly
+                        # downloaded MP4/STRM without the V3 download-history
+                        # rows. Reconcile only that original artifact: do not
+                        # run transfer again or fabricate TransferHistory.
+                        self._record_native_history(task, str(existing_path))
+                        reconciled += 1
                         continue
                     if queue.enqueue(task):
                         queued += 1
         return {
             "subscriptions": len(active_subscribes),
             "queued": queued,
+            "reconciled": reconciled,
             "skipped_ambiguous": skipped_ambiguous,
             "skipped_no_directory": skipped_no_directory,
         }
@@ -1565,6 +1707,8 @@ class LunaTVSource(_PluginBase):
                         "media_type": result.media_type,
                         "season": episode.season,
                         "episode": episode.episode,
+                        "source_key": result.source_key,
+                        "source_name": result.source_name,
                         "media_id": identity,
                         "host_media_source": host_media_source,
                         "host_media_id": host_media_id,
@@ -1572,7 +1716,7 @@ class LunaTVSource(_PluginBase):
                     torrents.append(torrent_info_type(
                         site_name=result.source_name or "LunaTV",
                         title=title,
-                        description=f"{result.source_name} · m3u8",
+                        description="LunaTV · m3u8",
                         media_source=host_media_source,
                         media_id=host_media_id,
                         enclosure=self._resource_token(payload),
@@ -1635,6 +1779,11 @@ class LunaTVSource(_PluginBase):
             url=url,
             season_known=True,
         )
+        resource_identity = str(payload.get("media_id") or "").strip()
+        source_key = str(payload.get("source_key") or "").strip()
+        if not source_key and ":" in resource_identity:
+            source_key = resource_identity.split(":", 1)[0].strip()
+        source_key = source_key or PLUGIN_MEDIA_SOURCE
         task = DownloadTask.from_episode(
             episode,
             title=normalize_media_title(str(payload.get("title") or "未命名")),
@@ -1643,9 +1792,12 @@ class LunaTVSource(_PluginBase):
             root=root,
             mode=str(self._config.get("mode") or "download"),
             ffmpeg_path=str(self._config.get("ffmpeg_path") or "ffmpeg"),
-            media_source=str(payload.get("host_media_source") or PLUGIN_MEDIA_SOURCE),
-            media_id=str(payload.get("host_media_id") or payload.get("media_id") or "native"),
+            source_name=str(payload.get("source_name") or "") or None,
+            media_source=source_key,
+            media_id=resource_identity or "native",
         )
+        task.host_media_source = _coerce_media_identity_source(payload.get("host_media_source"))
+        task.host_media_id = str(payload.get("host_media_id") or resource_identity or "native").strip()
         task.task_id = hashlib.sha1(str(content).encode("utf-8")).hexdigest()
         if not queue.enqueue(task):
             return "LunaTVSource", None, None, "任务已在串行队列或历史记录中"

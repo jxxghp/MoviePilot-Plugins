@@ -1,6 +1,8 @@
 from app.plugins.lunatvsource import LunaTVSource
 import app.plugins.lunatvsource as plugin_module
 from app.plugins.lunatvsource.cms import CmsSource, _result_from_item
+from app.plugins.lunatvsource.naming import media_path
+import hashlib
 from pathlib import Path
 import sys
 from enum import Enum
@@ -245,6 +247,8 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
     assert items[0].title.endswith("S01E01")
     payload = plugin._decode_resource_token(items[0].enclosure)
     assert payload["url"].endswith("01.m3u8")
+    assert payload["source_key"] == "demo"
+    assert payload["source_name"] == "演示源"
     assert payload["host_media_source"] == "themoviedb"
     assert payload["host_media_id"] == "123"
 
@@ -407,6 +411,8 @@ def test_native_download_is_enqueued_into_serial_queue(tmp_path: Path):
         "media_type": "movie",
         "season": 1,
         "episode": 1,
+        "source_key": "demo",
+        "source_name": "演示源",
         "media_id": "demo:42",
         "host_media_source": "themoviedb",
         "host_media_id": "123",
@@ -418,8 +424,10 @@ def test_native_download_is_enqueued_into_serial_queue(tmp_path: Path):
     assert len(tasks) == 1
     assert tasks[0]["url"] == "https://example.test/movie.m3u8"
     assert tasks[0]["root"] == str(tmp_path)
-    assert tasks[0]["source_key"] == "themoviedb"
-    assert tasks[0]["media_id"] == "123"
+    assert tasks[0]["source_key"] == "demo"
+    assert tasks[0]["media_id"] == "demo:42"
+    assert tasks[0]["host_media_source"] == "themoviedb"
+    assert tasks[0]["host_media_id"] == "123"
 
 
 def test_native_download_reports_duplicate_instead_of_fake_success(tmp_path: Path):
@@ -471,7 +479,7 @@ def test_resource_download_event_routes_lunatv_token_to_serial_queue(tmp_path: P
     assert plugin._queue.list_tasks()[0]["root"] == str(tmp_path)
 
 
-def test_native_transfer_uses_persisted_source_key(monkeypatch, tmp_path: Path):
+def test_native_transfer_uses_host_media_identity(monkeypatch, tmp_path: Path):
     captured = {}
 
     class MediaSource(str, Enum):
@@ -494,11 +502,406 @@ def test_native_transfer_uses_persisted_source_key(monkeypatch, tmp_path: Path):
         mode="download",
         media_type="movie",
         root=str(tmp_path),
-        source_key="themoviedb",
-        media_id="1084242",
+        source_key="cms-demo",
+        media_id="cms-demo:42",
+        host_media_source="themoviedb",
+        host_media_id="1084242",
         season=1,
     )
 
     assert plugin._native_transfer(task, str(tmp_path / "movie.mp4")) == "moviepilot"
     assert captured["media_source"] is MediaSource.TMDB
     assert captured["media_id"] == "1084242"
+
+
+def test_task_media_identity_prefers_host_fields():
+    task = SimpleNamespace(
+        source_key="lunatv",
+        media_id="not-used",
+        host_media_source="themoviedb",
+        host_media_id="98765",
+    )
+    plugin = _plugin({"enabled": True})
+
+    source, media_id = plugin._task_media_identity(task)
+    assert source == "themoviedb"
+    assert media_id == "98765"
+
+
+def test_record_native_history_uses_source_output_and_is_idempotent(monkeypatch, tmp_path: Path):
+    histories: list[dict] = []
+    files: list[dict] = []
+    transfer_calls: list[dict] = []
+    download_module = ModuleType("app.db.oper.downloadhistory")
+
+    class FakeDownloadHistoryOper:
+        def get_by_hash(self, download_hash):
+            return next(
+                (item for item in histories if item["download_hash"] == download_hash),
+                None,
+            )
+
+        def get_files_by_hash(self, download_hash, state=None):
+            return [
+                item
+                for item in files
+                if item["download_hash"] == download_hash
+                and (state is None or item["state"] == state)
+            ]
+
+        def get_file_by_fullpath(self, fullpath):
+            return next(
+                (item for item in reversed(files) if item["fullpath"] == fullpath),
+                None,
+            )
+
+        def add(self, **kwargs):
+            histories.append(kwargs)
+
+        def add_files(self, items):
+            files.extend(items)
+
+    download_module.DownloadHistoryOper = FakeDownloadHistoryOper
+
+    transfer_module = ModuleType("app.db.oper.transferhistory")
+
+    class FakeTransferHistoryOper:
+        def add(self, **kwargs):
+            transfer_calls.append(kwargs)
+
+    transfer_module.TransferHistoryOper = FakeTransferHistoryOper
+
+    app_module = ModuleType("app")
+    app_module.__path__ = []
+    app_db_module = ModuleType("app.db")
+    app_db_oper_module = ModuleType("app.db.oper")
+    app_db_module.__path__ = []
+    app_db_oper_module.__path__ = []
+    app_module.db = app_db_module
+    app_db_module.oper = app_db_oper_module
+    app_db_oper_module.transferhistory = transfer_module
+    app_db_oper_module.downloadhistory = download_module
+
+    monkeypatch.setitem(sys.modules, "app", app_module)
+    monkeypatch.setitem(sys.modules, "app.db", app_db_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper", app_db_oper_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper.transferhistory", transfer_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper.downloadhistory", download_module)
+
+    plugin = _plugin({"enabled": True})
+
+    output = str(tmp_path / "movie.mp4")
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("x")
+
+    task = SimpleNamespace(
+        task_id="tid-01",
+        source_key="cms-demo",
+        source_name="演示源",
+        media_id="cms-demo:42",
+        host_media_source="themoviedb",
+        host_media_id="tt112233",
+        media_type="movie",
+        title="测试电影",
+        year="2026",
+        season=1,
+        episode=1,
+        mode="download",
+    )
+    plugin._record_native_history(task, output)
+    plugin._record_native_history(task, output)
+
+    expected_hash = hashlib.sha1(f"{task.task_id}|{output}".encode("utf-8")).hexdigest()
+    assert len(histories) == 1
+    assert histories[0]["media_source"] == "themoviedb"
+    assert histories[0]["media_id"] == "tt112233"
+    assert histories[0]["path"] == output
+    assert histories[0]["torrent_site"] == "演示源"
+    assert files == [{
+        "download_hash": expected_hash,
+        "downloader": "LunaTVSource",
+        "fullpath": output,
+        "savepath": str(tmp_path),
+        "filepath": "movie.mp4",
+        "torrentname": "测试电影",
+        "state": 1,
+    }]
+    assert transfer_calls == []
+
+
+def test_refresh_reconciles_existing_episode_without_enqueue_or_transfer(monkeypatch, tmp_path: Path):
+    """An older direct-write artifact must appear in native subscription history."""
+    histories: list[dict] = []
+    files: list[dict] = []
+    result = _result_from_item(
+        CmsSource("cms-demo", "演示源", "https://cms.example/vod"),
+        {
+            "vod_id": "42",
+            "vod_name": "疯狂动物城2",
+            "vod_year": "2025",
+            "type_name": "电影",
+            "vod_play_url": "正片$https://example.test/zootopia-2.m3u8",
+        },
+    )
+    episode = result.episodes[0]
+    relative_dir, filename = media_path(
+        str(tmp_path),
+        result.title,
+        result.year,
+        result.media_type,
+        episode.season,
+        episode.episode,
+        episode.url,
+        "download",
+    )
+    output = tmp_path / relative_dir / filename
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"completed movie")
+
+    download_module = ModuleType("app.db.oper.downloadhistory")
+
+    class FakeDownloadHistoryOper:
+        def get_by_hash(self, download_hash):
+            return next(
+                (item for item in histories if item["download_hash"] == download_hash),
+                None,
+            )
+
+        def get_files_by_hash(self, download_hash, state=None):
+            return [
+                item
+                for item in files
+                if item["download_hash"] == download_hash
+                and (state is None or item["state"] == state)
+            ]
+
+        def get_file_by_fullpath(self, fullpath):
+            return next(
+                (item for item in reversed(files) if item["fullpath"] == fullpath),
+                None,
+            )
+
+        def add(self, **kwargs):
+            histories.append(kwargs)
+
+        def add_files(self, items):
+            files.extend(items)
+
+    subscribe = SimpleNamespace(
+        state="R",
+        name="疯狂动物城2",
+        year="2025",
+        type="电影",
+        season=0,
+        media_source="themoviedb",
+        media_id="1084242",
+        save_path=str(tmp_path),
+    )
+    subscribe_module = ModuleType("app.db.oper.subscribe")
+
+    class FakeSubscribeOper:
+        def list(self, state=None):
+            assert state in {None, "R"}
+            return [subscribe]
+
+    subscribe_module.SubscribeOper = FakeSubscribeOper
+    download_module.DownloadHistoryOper = FakeDownloadHistoryOper
+    app_module = ModuleType("app")
+    app_module.__path__ = []
+    app_db_module = ModuleType("app.db")
+    app_db_module.__path__ = []
+    app_db_oper_module = ModuleType("app.db.oper")
+    app_db_oper_module.__path__ = []
+    app_module.db = app_db_module
+    app_db_module.oper = app_db_oper_module
+    app_db_oper_module.subscribe = subscribe_module
+    app_db_oper_module.downloadhistory = download_module
+    monkeypatch.setitem(sys.modules, "app", app_module)
+    monkeypatch.setitem(sys.modules, "app.db", app_db_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper", app_db_oper_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper.subscribe", subscribe_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper.downloadhistory", download_module)
+
+    class Client:
+        def search(self, query):
+            assert query == "疯狂动物城2"
+            return [result]
+
+    plugin = _plugin({"enabled": True, "download_root": str(tmp_path)})
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_prepare_result", lambda item: (item, {}))
+    monkeypatch.setattr(plugin._ai, "normalize", lambda *_args: ("疯狂动物城2", False))
+    monkeypatch.setattr(
+        plugin,
+        "_native_transfer",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("must not transfer existing file")),
+    )
+
+    first = plugin.refresh_subscriptions()
+    second = plugin.refresh_subscriptions()
+
+    assert first["queued"] == 0
+    assert first["reconciled"] == 1
+    assert second["queued"] == 0
+    assert second["reconciled"] == 1
+    assert plugin._queue is not None
+    assert plugin._queue.summary()["pending"] == 0
+    assert len(histories) == 1
+    assert histories[0]["media_source"] == "themoviedb"
+    assert histories[0]["media_id"] == "1084242"
+    assert histories[0]["path"] == str(output)
+    assert histories[0]["torrent_site"] == "演示源"
+    assert len(files) == 1
+    assert files[0]["fullpath"] == str(output)
+
+
+def test_local_episode_path_requires_completed_download_or_strm_artifact(tmp_path: Path):
+    plugin = _plugin({"enabled": True})
+
+    for mode in ("download", "strm"):
+        task = SimpleNamespace(
+            root=str(tmp_path),
+            title="示例作品",
+            year="2026",
+            media_type="movie",
+            season=1,
+            episode=1,
+            url="https://example.test/movie.m3u8",
+            mode=mode,
+        )
+        relative_dir, filename = media_path(
+            task.root,
+            task.title,
+            task.year,
+            task.media_type,
+            task.season,
+            task.episode,
+            task.url,
+            task.mode,
+        )
+        output = Path(task.root) / relative_dir / filename
+        output.parent.mkdir(parents=True, exist_ok=True)
+        assert plugin._local_episode_path(task) is None
+
+        output.write_text("#EXTM3U" if mode == "strm" else "completed", encoding="utf-8")
+        assert plugin._local_episode_path(task) == output
+
+
+def test_record_completion_writes_original_download_output(monkeypatch, tmp_path: Path):
+    plugin = _plugin({"enabled": True})
+    task = SimpleNamespace(
+        task_id="tid-02",
+        mode="download",
+        source_key="lunatv",
+        media_id="lunatv:1",
+        media_type="movie",
+        title="电影",
+        year="2026",
+        season=1,
+        episode=1,
+        root=str(tmp_path),
+        completed_at=0,
+    )
+    captured: list[str] = []
+    output = str(tmp_path / "source.mp4")
+
+    monkeypatch.setattr(plugin, "_native_transfer", lambda _task, _output: "moviepilot")
+    monkeypatch.setattr(plugin, "_record_native_history", lambda _task, path: captured.append(path))
+
+    plugin._record_completion(task, output)
+
+    assert captured == [output]
+
+
+def test_record_native_history_skips_missing_idempotency_abi(monkeypatch, tmp_path: Path):
+    writes: list[dict] = []
+    download_module = ModuleType("app.db.oper.downloadhistory")
+
+    class IncompleteDownloadHistoryOper:
+        def add(self, **kwargs):
+            writes.append(kwargs)
+
+        def add_files(self, items):
+            writes.extend(items)
+
+    download_module.DownloadHistoryOper = IncompleteDownloadHistoryOper
+    app_module = ModuleType("app")
+    app_module.__path__ = []
+    app_db_module = ModuleType("app.db")
+    app_db_oper_module = ModuleType("app.db.oper")
+    app_db_module.__path__ = []
+    app_db_oper_module.__path__ = []
+    app_module.db = app_db_module
+    app_db_module.oper = app_db_oper_module
+    app_db_oper_module.downloadhistory = download_module
+
+    monkeypatch.setitem(sys.modules, "app", app_module)
+    monkeypatch.setitem(sys.modules, "app.db", app_db_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper", app_db_oper_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper.downloadhistory", download_module)
+
+    plugin = _plugin({"enabled": True})
+    task = SimpleNamespace(
+        task_id="tid-missing-abi",
+        source_key="cms-demo",
+        media_id="cms-demo:42",
+        media_type="movie",
+        title="测试电影",
+        year="2026",
+        season=1,
+        episode=1,
+        mode="download",
+    )
+
+    plugin._record_native_history(task, str(tmp_path / "movie.mp4"))
+    assert writes == []
+
+
+def test_record_native_history_ignores_database_errors(monkeypatch, tmp_path: Path):
+    download_module = ModuleType("app.db.oper.downloadhistory")
+
+    class BrokenDownloadHistoryOper:
+        def get_by_hash(self, _download_hash):
+            raise RuntimeError("database unavailable")
+
+        def get_files_by_hash(self, _download_hash, state=None):
+            del state
+            raise AssertionError("query should stop at the first database failure")
+
+        def add(self, **_kwargs):
+            raise AssertionError("must not write after a database failure")
+
+        def add_files(self, _items):
+            raise AssertionError("must not write after a database failure")
+
+    download_module.DownloadHistoryOper = BrokenDownloadHistoryOper
+    app_module = ModuleType("app")
+    app_module.__path__ = []
+    app_db_module = ModuleType("app.db")
+    app_db_oper_module = ModuleType("app.db.oper")
+    app_db_module.__path__ = []
+    app_db_oper_module.__path__ = []
+    app_module.db = app_db_module
+    app_db_module.oper = app_db_oper_module
+    app_db_oper_module.downloadhistory = download_module
+
+    monkeypatch.setitem(sys.modules, "app", app_module)
+    monkeypatch.setitem(sys.modules, "app.db", app_db_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper", app_db_oper_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper.downloadhistory", download_module)
+
+    plugin = _plugin({"enabled": True})
+    task = SimpleNamespace(
+        task_id="tid-db-error",
+        source_key="cms-demo",
+        media_id="cms-demo:42",
+        media_type="movie",
+        title="测试电影",
+        year="2026",
+        season=1,
+        episode=1,
+        mode="download",
+    )
+
+    plugin._record_native_history(task, str(tmp_path / "movie.mp4"))
