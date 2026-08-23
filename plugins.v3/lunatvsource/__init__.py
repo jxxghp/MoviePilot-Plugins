@@ -317,7 +317,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.23"
+    plugin_version = "0.4.24"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -1621,9 +1621,7 @@ class LunaTVSource(_PluginBase):
             "site_name": task.source_name or task.source_key or PLUGIN_MEDIA_SOURCE,
             "year": task.year or None,
             "season_episode": season_episode,
-            # MoviePilot only defines an active downloader state.  Both queued
-            # and currently running ffmpeg tasks belong in that native view.
-            "state": "downloading",
+            "state": "paused" if task.state == "paused" else "downloading",
             # The serial ffmpeg queue has no byte-level progress callback.
             "progress": 0.0,
             "save_path": task.root or None,
@@ -1684,10 +1682,6 @@ class LunaTVSource(_PluginBase):
             "seeding",
             "完成",
             "已完成",
-            "paused",
-            "pause",
-            "暂停",
-            "已暂停",
         }:
             return []
 
@@ -1709,12 +1703,75 @@ class LunaTVSource(_PluginBase):
             except TypeError:
                 continue
             task_hash = str(task.task_id or "").strip()
-            if not task_hash or str(task.state or "").lower() not in {"pending", "running"}:
+            task_state = str(task.state or "").lower()
+            if not task_hash or task_state not in {"pending", "running", "paused"}:
                 continue
             if requested_hashes and task_hash not in requested_hashes:
                 continue
+            if not requested_hashes:
+                if status_value in {"paused", "pause", "暂停", "已暂停"} and task_state != "paused":
+                    continue
+                if status_value in {"downloading", "下载中"} and task_state == "paused":
+                    continue
             torrents.append(self._active_download_torrent(task))
         return torrents
+
+    @staticmethod
+    def _torrent_hashes(hashs: Any) -> List[str]:
+        if isinstance(hashs, str):
+            return [hashs.strip()] if hashs.strip() else []
+        if hashs:
+            try:
+                return [str(value).strip() for value in hashs if str(value).strip()]
+            except TypeError:
+                value = str(hashs).strip()
+                return [value] if value else []
+        return []
+
+    def _control_queue_tasks(self, hashs: Any, operation: str) -> Optional[bool]:
+        """Handle native controls only when every requested hash belongs to LunaTV."""
+        queue = self._queue
+        requested = self._torrent_hashes(hashs)
+        if queue is None or not requested:
+            return None
+        try:
+            known = {
+                str(item.get("task_id") or "")
+                for item in queue.list_tasks()
+                if isinstance(item, dict)
+            }
+        except Exception:
+            return None
+        if any(task_id not in known for task_id in requested):
+            return None
+        handler = getattr(queue, operation, None)
+        if not callable(handler):
+            return False
+        return all(bool(handler(task_id)) for task_id in requested)
+
+    def start_torrents(
+        self, hashs: Any, downloader: Optional[str] = None
+    ) -> Optional[bool]:
+        """Continue paused LunaTV tasks from MoviePilot's native download page."""
+        del downloader
+        return self._control_queue_tasks(hashs, "resume")
+
+    def stop_torrents(
+        self, hashs: Any, downloader: Optional[str] = None
+    ) -> Optional[bool]:
+        """Pause queued or running LunaTV tasks from the native download page."""
+        del downloader
+        return self._control_queue_tasks(hashs, "pause")
+
+    def remove_torrents(
+        self,
+        hashs: Any,
+        delete_file: bool = True,
+        downloader: Optional[str] = None,
+    ) -> Optional[bool]:
+        """Remove LunaTV tasks without forwarding their synthetic hashes to qBittorrent."""
+        del delete_file, downloader
+        return self._control_queue_tasks(hashs, "remove")
 
 
     def get_module(self) -> Dict[str, Any]:
@@ -1730,6 +1787,9 @@ class LunaTVSource(_PluginBase):
             "async_search_torrents": self.async_search_torrents,
             "download": self.download,
             "list_torrents": self.list_torrents,
+            "start_torrents": self.start_torrents,
+            "stop_torrents": self.stop_torrents,
+            "remove_torrents": self.remove_torrents,
         }
 
     @staticmethod

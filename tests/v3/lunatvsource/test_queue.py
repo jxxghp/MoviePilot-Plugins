@@ -70,6 +70,80 @@ def test_queue_recovers_interrupted_running_task(tmp_path: Path):
     assert "恢复" in tasks[0]["error"]
 
 
+def test_queue_pause_resume_and_remove_pending_task(tmp_path: Path):
+    data = {}
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+    task = DownloadTask(
+        task_id="pending-control", source_key="lunatv", media_id="site:pending",
+        title="示例", year="2026", media_type="movie", season=1, episode=1,
+        url="https://example.test/pending.m3u8", root=str(tmp_path),
+    )
+    assert queue.enqueue(task) is True
+    assert queue.pause(task.task_id) is True
+    assert queue.list_tasks()[0]["state"] == "paused"
+    assert queue.run_one() == {"processed": 0}
+    assert queue.resume(task.task_id) is True
+    assert queue.list_tasks()[0]["state"] == "pending"
+    assert queue.remove(task.task_id) is True
+    assert queue.list_tasks() == []
+
+
+def test_queue_safely_pauses_running_task(tmp_path: Path):
+    data = {}
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+    task = DownloadTask(
+        task_id="running-control", source_key="lunatv", media_id="site:running",
+        title="示例", year="2026", media_type="movie", season=1, episode=1,
+        url="https://example.test/running.m3u8", root=str(tmp_path),
+    )
+    assert queue.enqueue(task) is True
+    executing = threading.Event()
+
+    def controlled_execute(_task):
+        executing.set()
+        assert queue._control_event.wait(timeout=2)
+        raise downloader_module._QueueControl("controlled")
+
+    queue._execute = controlled_execute
+    result = {}
+    worker = threading.Thread(target=lambda: result.update(queue.run_one()))
+    worker.start()
+    assert executing.wait(timeout=2)
+    assert queue.pause(task.task_id) is True
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+    assert result["state"] == "pause"
+    assert queue.list_tasks()[0]["state"] == "paused"
+
+
+def test_queue_safely_removes_running_task(tmp_path: Path):
+    data = {}
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+    task = DownloadTask(
+        task_id="running-remove", source_key="lunatv", media_id="site:remove",
+        title="示例", year="2026", media_type="movie", season=1, episode=1,
+        url="https://example.test/running.m3u8", root=str(tmp_path),
+    )
+    assert queue.enqueue(task) is True
+    executing = threading.Event()
+
+    def controlled_execute(_task):
+        executing.set()
+        assert queue._control_event.wait(timeout=2)
+        raise downloader_module._QueueControl("controlled")
+
+    queue._execute = controlled_execute
+    result = {}
+    worker = threading.Thread(target=lambda: result.update(queue.run_one()))
+    worker.start()
+    assert executing.wait(timeout=2)
+    assert queue.remove(task.task_id) is True
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+    assert result["state"] == "remove"
+    assert queue.list_tasks() == []
+
+
 def test_ffmpeg_explicitly_sets_mp4_muxer_for_part_file(monkeypatch, tmp_path: Path):
     captured = {}
 

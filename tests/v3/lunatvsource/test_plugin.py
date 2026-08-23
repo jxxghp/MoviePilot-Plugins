@@ -541,10 +541,24 @@ def test_active_queue_tasks_project_to_native_download_list_and_filter():
         root="/downloads/movie",
         state="completed",
     )
+    paused = DownloadTask(
+        task_id="paused-task",
+        source_key="cms-demo",
+        media_id="cms-demo:45",
+        title="已暂停电影",
+        year="2024",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/paused.m3u8",
+        root="/downloads/movie",
+        state="paused",
+    )
     plugin.save_data(plugin._queue.DATA_KEY, [
         pending.to_dict(),
         running.to_dict(),
         completed.to_dict(),
+        paused.to_dict(),
     ])
 
     module = plugin.get_module()
@@ -562,14 +576,17 @@ def test_active_queue_tasks_project_to_native_download_list_and_filter():
     assert torrents[1].media.media_id == "123"
 
     assert sorted(torrent.hash for torrent in plugin.list_torrents(downloader="qBittorrent")) == [
+        "paused-task",
         "pending-task",
         "running-task",
     ]
     assert sorted(torrent.hash for torrent in plugin.list_torrents(downloader="下载器1")) == [
+        "paused-task",
         "pending-task",
         "running-task",
     ]
     assert sorted(torrent.hash for torrent in plugin.list_torrents(downloader="我的自定义客户端")) == [
+        "paused-task",
         "pending-task",
         "running-task",
     ]
@@ -577,6 +594,18 @@ def test_active_queue_tasks_project_to_native_download_list_and_filter():
     assert [torrent.hash for torrent in plugin.list_torrents(
         downloader="LunaTVSource", hashs=["pending-task"]
     )] == ["pending-task"]
+    paused_torrents = plugin.list_torrents(status="paused")
+    assert [torrent.hash for torrent in paused_torrents] == ["paused-task"]
+    assert paused_torrents[0].state == "paused"
+
+    assert {"start_torrents", "stop_torrents", "remove_torrents"} <= module.keys()
+    assert module["stop_torrents"](["pending-task"], downloader="下载器1") is True
+    assert next(item for item in plugin._queue.list_tasks() if item["task_id"] == "pending-task")["state"] == "paused"
+    assert module["start_torrents"](["pending-task"], downloader="下载器1") is True
+    assert next(item for item in plugin._queue.list_tasks() if item["task_id"] == "pending-task")["state"] == "pending"
+    assert module["remove_torrents"](["pending-task"], downloader="下载器1") is True
+    assert all(item["task_id"] != "pending-task" for item in plugin._queue.list_tasks())
+    assert module["stop_torrents"](["native-qbt-hash"], downloader="下载器1") is None
 
 
 def test_active_queue_projection_uses_host_downloader_torrent_when_available(monkeypatch):
