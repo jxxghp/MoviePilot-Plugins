@@ -15,13 +15,14 @@ import asyncio
 import threading
 import time
 import urllib.parse
+from functools import wraps
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:  # MoviePilot V3 runtime imports
     from app.plugins import _PluginBase
     from app.sdk.events import Event, eventmanager
-    from app.schemas.types import EventType
+    from app.schemas.types import ChainEventType, EventType
 except Exception:  # pragma: no cover - standalone tests
     Event = Any  # type: ignore[misc,assignment]
 
@@ -53,12 +54,17 @@ except Exception:  # pragma: no cover - standalone tests
         SubscribeAdded = "subscribe.added"
         SubscribeModified = "subscribe.modified"
 
+    class ChainEventType:  # type: ignore[no-redef]
+        ResourceDownload = "resource.download"
+
 try:  # Optional V3 native schemas and media identity.
     from app import schemas as _schemas
+    from app.domain.context import TorrentInfo as _HostTorrentInfo
     from app.schemas.types import MediaSource as _HostMediaSource
     from app.schemas.types import MediaType as _HostMediaType
 except Exception:  # pragma: no cover - standalone tests
     _schemas = None
+    _HostTorrentInfo = None
     _HostMediaSource = None
     _HostMediaType = None
 
@@ -121,6 +127,154 @@ DEFAULT_SOURCE_ALLOWLIST = (
 PLUGIN_MEDIA_SOURCE = "lunatv"
 
 
+class _CompatDownloaderTorrent:
+    """在独立测试环境中保持下载任务投影的最小对象接口。"""
+
+    def __init__(self, **values: Any) -> None:
+        self.__dict__.update(values)
+
+    def model_dump(self, **_: Any) -> Dict[str, Any]:
+        return dict(self.__dict__)
+
+    def dict(self, **_: Any) -> Dict[str, Any]:
+        return self.model_dump()
+
+
+# MoviePilot 3.0.0 returns before module resource providers are called when no
+# PT/indexer site is enabled. Keep this compatibility bridge inside the plugin.
+# Existing MoviePilot plugins use the same reversible runtime-wrapper pattern.
+_SEARCH_BRIDGE: Dict[str, Any] = {"owner": None, "chain": None, "originals": {}}
+
+
+def _bridge_owner() -> Optional["LunaTVSource"]:
+    owner = _SEARCH_BRIDGE.get("owner")
+    return owner if owner and getattr(owner, "_enabled", False) else None
+
+
+def _bridge_search_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    mediainfo = kwargs.get("mediainfo")
+    return {
+        "site": {},
+        "keyword": str(kwargs.get("keyword") or ""),
+        "mtype": getattr(mediainfo, "type", None) or kwargs.get("mtype"),
+        "page": kwargs.get("page") or 0,
+    }
+
+
+def _install_search_bridge(owner: "LunaTVSource") -> None:
+    _SEARCH_BRIDGE["owner"] = owner
+    try:
+        from app.chain.search import SearchChain
+    except Exception as exc:  # pragma: no cover - MoviePilot runtime only
+        owner._logger.warning("LunaTV 原生资源搜索桥接不可用：%s", exc)
+        return
+    # Newer MoviePilot V3 releases dispatch plugin resource providers once via
+    # SearchChain.search_plugin_torrents/async_search_plugin_torrents. Wrapping
+    # the private fan-out methods there would query this plugin twice. Keep the
+    # reversible wrapper only for early V3 releases that lacked that native
+    # dispatch path.
+    if (
+        callable(getattr(SearchChain, "search_plugin_torrents", None))
+        and callable(getattr(SearchChain, "async_search_plugin_torrents", None))
+    ):
+        _restore_search_bridge(owner, force=True)
+        owner._logger.info("MoviePilot 已原生支持插件资源搜索，无需启用兼容桥")
+        return
+    if _SEARCH_BRIDGE.get("chain") is SearchChain and _SEARCH_BRIDGE.get("originals"):
+        return
+
+    originals: Dict[str, Callable[..., Any]] = {}
+    sync_name = "_SearchChain__search_all_sites"
+    async_name = "_SearchChain__async_search_all_sites"
+    stream_name = "_SearchChain__async_search_all_sites_stream"
+
+    sync_original = getattr(SearchChain, sync_name, None)
+    if callable(sync_original):
+        originals[sync_name] = sync_original
+
+        @wraps(sync_original)
+        def sync_wrapper(chain, *args, **kwargs):
+            native = list(sync_original(chain, *args, **kwargs) or [])
+            plugin = _bridge_owner()
+            if plugin:
+                try:
+                    native.extend(plugin.search_torrents(**_bridge_search_kwargs(kwargs)))
+                except Exception as exc:
+                    plugin._logger.warning("LunaTV 原生资源搜索追加失败：%s", exc)
+            return native
+
+        setattr(SearchChain, sync_name, sync_wrapper)
+
+    async_original = getattr(SearchChain, async_name, None)
+    if callable(async_original):
+        originals[async_name] = async_original
+
+        @wraps(async_original)
+        async def async_wrapper(chain, *args, **kwargs):
+            native = list(await async_original(chain, *args, **kwargs) or [])
+            plugin = _bridge_owner()
+            if plugin:
+                try:
+                    native.extend(await plugin.async_search_torrents(**_bridge_search_kwargs(kwargs)))
+                except Exception as exc:
+                    plugin._logger.warning("LunaTV 原生异步资源搜索追加失败：%s", exc)
+            return native
+
+        setattr(SearchChain, async_name, async_wrapper)
+
+    stream_original = getattr(SearchChain, stream_name, None)
+    if callable(stream_original):
+        originals[stream_name] = stream_original
+
+        @wraps(stream_original)
+        async def stream_wrapper(chain, *args, **kwargs):
+            done_event = None
+            async for event in stream_original(chain, *args, **kwargs):
+                if event.get("type") == "done":
+                    done_event = event
+                    continue
+                yield event
+            plugin = _bridge_owner()
+            plugin_items = []
+            if plugin:
+                try:
+                    plugin_items = await plugin.async_search_torrents(
+                        **_bridge_search_kwargs(kwargs)
+                    )
+                except Exception as exc:
+                    plugin._logger.warning("LunaTV 原生流式资源搜索追加失败：%s", exc)
+            if plugin_items:
+                yield {
+                    "type": "append", "stage": "searching", "value": 100,
+                    "text": f"LunaTV 返回 {len(plugin_items)} 条资源",
+                    "items": plugin_items, "site": "LunaTV", "site_id": None,
+                    "page": kwargs.get("page") or 0, "finished": 0, "total": 0,
+                    "total_items": len(plugin_items),
+                }
+            final = dict(done_event or {})
+            final.update({"type": "done", "stage": final.get("stage", "searching"),
+                          "value": 100, "items": []})
+            if plugin_items:
+                final["text"] = f"资源搜索完成，LunaTV 返回 {len(plugin_items)} 条资源"
+            yield final
+
+        setattr(SearchChain, stream_name, stream_wrapper)
+
+    _SEARCH_BRIDGE.update({"chain": SearchChain, "originals": originals})
+    if originals:
+        owner._logger.info("LunaTV 原生资源搜索桥接已启用（%s）", ", ".join(originals))
+
+
+def _restore_search_bridge(owner: "LunaTVSource", force: bool = False) -> None:
+    if not force and _SEARCH_BRIDGE.get("owner") is not owner:
+        return
+    chain = _SEARCH_BRIDGE.get("chain")
+    for name, original in dict(_SEARCH_BRIDGE.get("originals") or {}).items():
+        if chain is not None:
+            setattr(chain, name, original)
+    _SEARCH_BRIDGE.update({"owner": None, "chain": None, "originals": {}})
+
+
 def _bool(value: Any, default: bool = False) -> bool:
     if isinstance(value, str):
         lowered = value.strip().lower()
@@ -153,13 +307,17 @@ def _media_type_value(value: Any) -> str:
     return "movie"
 
 
+def _coerce_media_identity_source(media_source: Any) -> str:
+    return _enum_value(media_source) or PLUGIN_MEDIA_SOURCE
+
+
 class LunaTVSource(_PluginBase):
     """第三方苹果 CMS/m3u8 订阅下载插件。"""
 
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.5"
+    plugin_version = "0.4.20"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -199,6 +357,12 @@ class LunaTVSource(_PluginBase):
             self._tmdb_cache = dict(self.get_data("tmdb_match_cache_v1") or {})
         with self._resource_search_lock:
             self._resource_search_cache = {}
+        if self._enabled:
+            _install_search_bridge(self)
+        else:
+            # A disabled replacement instance must also remove a bridge owned
+            # by the previously loaded instance.
+            _restore_search_bridge(self, force=True)
 
     def get_state(self) -> bool:
         return self._enabled
@@ -438,7 +602,7 @@ class LunaTVSource(_PluginBase):
                         "props": {
                             "model": "enabled",
                             "label": "启用原生桥接",
-                            "hint": "启用后，LunaTV 会出现在 MoviePilot 原生探索、搜索与订阅流程中。",
+                            "hint": "启用后，LunaTV 将以 MoviePilot 原生搜索、订阅与下载入口出现。",
                             "persistentHint": True,
                         },
                     },
@@ -509,6 +673,7 @@ class LunaTVSource(_PluginBase):
         ]
 
     def stop_service(self) -> None:
+        _restore_search_bridge(self)
         if self._queue:
             self._queue.stop()
 
@@ -539,6 +704,15 @@ class LunaTVSource(_PluginBase):
             return PLUGIN_MEDIA_SOURCE
 
     @staticmethod
+    def _host_media_source_value(media_source: str) -> Any:
+        if _HostMediaSource is None:
+            return media_source
+        try:
+            return _HostMediaSource(media_source)
+        except Exception:
+            return media_source
+
+    @staticmethod
     def _host_media_type(media_type: str) -> Any:
         if _HostMediaType is None:
             return media_type
@@ -546,6 +720,18 @@ class LunaTVSource(_PluginBase):
             return _HostMediaType.TV if media_type == "tv" else _HostMediaType.MOVIE
         except Exception:
             return media_type
+
+    @classmethod
+    def _task_media_identity(cls, task: DownloadTask) -> Tuple[str, str]:
+        source = _coerce_media_identity_source(
+            getattr(task, "host_media_source", None) if getattr(task, "host_media_source", None) else task.source_key
+        )
+        media_id = str(
+            getattr(task, "host_media_id", None)
+            or task.media_id
+            or ""
+        ).strip()
+        return source, media_id
 
     @staticmethod
     def _host_meta_info(title: str, year: str = "") -> Any:
@@ -715,7 +901,11 @@ class LunaTVSource(_PluginBase):
                     counts[season_number] = count
         return counts
 
-    def _associate_tmdb(self, result: CmsResult) -> Dict[str, Any]:
+    def _associate_tmdb(
+        self,
+        result: CmsResult,
+        include_candidates: bool = True,
+    ) -> Dict[str, Any]:
         """Find the default TMDB identity through MoviePilot's native chain."""
 
         query = normalize_search_title(result.title)
@@ -723,13 +913,22 @@ class LunaTVSource(_PluginBase):
         with self._tmdb_cache_lock:
             cached = self._tmdb_cache.get(cache_key)
         if cached is not None and (
-            cached.get("status") != "matched" or cached.get("poster_path")
+            cached.get("status") != "matched"
+            or cached.get("poster_path")
+            or not include_candidates
         ):
             association = dict(cached)
-            if association.get("status") == "matched" and not association.get("candidates"):
-                candidates = self._search_tmdb_candidates(query, result.year, result.media_type)
-                if candidates:
-                    association["candidates"] = candidates
+            if (
+                include_candidates
+                and association.get("status") == "matched"
+                and not association.get("candidates")
+            ):
+                if include_candidates:
+                    candidates = self._search_tmdb_candidates(
+                        query, result.year, result.media_type
+                    )
+                    if candidates:
+                        association["candidates"] = candidates
                     with self._tmdb_cache_lock:
                         self._tmdb_cache[cache_key] = dict(association)
                         self.save_data("tmdb_match_cache_v1", dict(self._tmdb_cache))
@@ -845,7 +1044,14 @@ class LunaTVSource(_PluginBase):
         payload["association"] = association
         return payload
 
-    def _local_episode_exists(self, task: DownloadTask) -> bool:
+    def _local_episode_path(self, task: DownloadTask) -> Optional[Path]:
+        """Return the completed local artifact for an episode, if it exists.
+
+        ``media_path`` is also used by the downloader, so this returns the
+        actual MP4/STRM artifact rather than merely treating the media
+        directory as completed.  In particular, an empty directory or a
+        transient download cache must not suppress a real download.
+        """
         try:
             relative_dir, filename = media_path(
                 task.root,
@@ -858,9 +1064,13 @@ class LunaTVSource(_PluginBase):
                 task.mode,
             )
             path = Path(task.root).expanduser() / relative_dir / filename
-            return path.exists() and path.stat().st_size > 0
+            return path if path.is_file() and path.stat().st_size > 0 else None
         except (OSError, ValueError):
-            return False
+            return None
+
+    def _local_episode_exists(self, task: DownloadTask) -> bool:
+        """Compatibility predicate for callers that only need completion state."""
+        return self._local_episode_path(task) is not None
 
     def _native_transfer(self, task: DownloadTask, output: str) -> str:
         """让 MoviePilot 原生整理链接管已下载文件；不可用时保留直写结果。"""
@@ -872,14 +1082,15 @@ class LunaTVSource(_PluginBase):
             fileitem = _HostStorageChain().get_file_item(storage="local", path=Path(output))
             if not fileitem:
                 return "fallback:file-not-found"
+            media_source, media_id = self._task_media_identity(task)
             directory = self._system_directory_info(task.media_type, task.root)
             target_path = str((directory or {}).get("library_path") or task.root).strip()
             state, message = _HostTransferChain().manual_transfer(
                 fileitem=fileitem,
                 target_storage="local",
                 target_path=Path(target_path),
-                media_source=self._host_media_source(),
-                media_id=task.media_id,
+                media_source=self._host_media_source_value(media_source),
+                media_id=media_id,
                 mtype=self._host_media_type(task.media_type),
                 season=task.season if task.media_type == "tv" else None,
                 force=False,
@@ -893,28 +1104,127 @@ class LunaTVSource(_PluginBase):
             return f"fallback:{exc}"
 
     def _record_native_history(self, task: DownloadTask, output: str) -> None:
-        """把成功文件写入 MoviePilot 整理历史；数据库不可用时不影响下载。"""
+        """把成功文件写入 MoviePilot 下载历史，供订阅详情读取。数据库不可用时不影响下载。"""
+        media_source, media_id = self._task_media_identity(task)
+        if not media_id:
+            self._logger.debug("MoviePilot 下载历史缺少媒体身份，跳过下载历史写入")
+            return
+        output_path = str(Path(output)) if output else ""
+        if not output_path:
+            return
+        download_hash = hashlib.sha1(f"{task.task_id}|{output_path}".encode("utf-8")).hexdigest()
         try:
-            from app.db.oper.transferhistory import TransferHistoryOper
-
-            TransferHistoryOper().add(
-                src=output,
-                src_storage="local",
-                dest=output,
-                dest_storage="local",
-                mode="copy" if task.mode == "download" else "strm",
-                type="电视剧" if task.media_type == "tv" else "电影",
-                title=task.title,
-                year=task.year or None,
-                media_source=PLUGIN_MEDIA_SOURCE,
-                media_id=task.media_id,
-                seasons=str(task.season) if task.media_type == "tv" else None,
-                episodes=str(task.episode) if task.media_type == "tv" else None,
-                status=True,
-                files=[output],
-            )
+            from app.db.oper.downloadhistory import DownloadHistoryOper
         except Exception as exc:
-            self._logger.debug("写入 MoviePilot 整理历史失败：%s", exc)
+            self._logger.debug("MoviePilot 下载历史操作器不可用，跳过下载历史写入：%s", exc)
+            return
+
+        try:
+            downloadhis = DownloadHistoryOper()
+            get_by_hash = getattr(downloadhis, "get_by_hash", None)
+            get_files_by_hash = getattr(downloadhis, "get_files_by_hash", None)
+            get_file_by_fullpath = getattr(downloadhis, "get_file_by_fullpath", None)
+            add_history = getattr(downloadhis, "add", None)
+            add_files = getattr(downloadhis, "add_files", None)
+
+            # V3 的订阅详情依赖这两个表；先验证可查询，避免重试时在旧宿主
+            # 或异常数据库中重复写入。宿主缺少必要 ABI 时仅跳过历史，不影响文件。
+            if (
+                not callable(get_by_hash)
+                or not (callable(get_files_by_hash) or callable(get_file_by_fullpath))
+                or not callable(add_history)
+                or not callable(add_files)
+            ):
+                self._logger.debug("MoviePilot 下载历史操作器不支持幂等写入，跳过下载历史写入")
+                return
+
+            existing_history = get_by_hash(download_hash)
+            existing_files: List[Any] = []
+            if callable(get_files_by_hash):
+                try:
+                    existing_files = list(get_files_by_hash(download_hash, state=1) or [])
+                except TypeError:
+                    existing_files = list(get_files_by_hash(download_hash) or [])
+            existing_path_file = (
+                get_file_by_fullpath(output_path)
+                if callable(get_file_by_fullpath)
+                else None
+            )
+
+            def _field(item: Any, key: str, default: Any = None) -> Any:
+                if isinstance(item, dict):
+                    return item.get(key, default)
+                return getattr(item, key, default)
+
+            def _active(item: Any) -> bool:
+                state = _field(item, "state", 1)
+                return str(state).lower() not in {"0", "false", "none", ""}
+
+            has_same_hash_file = any(
+                _active(item) and str(_field(item, "fullpath", "")) == output_path
+                for item in existing_files
+            )
+            path_has_active_file = bool(existing_path_file and _active(existing_path_file))
+            path_hash = str(_field(existing_path_file, "download_hash", "") or "")
+            if path_has_active_file and path_hash != download_hash:
+                # A refresh creates a new in-memory task id.  If the existing
+                # path already belongs to this same native media identity, it
+                # is an idempotent backfill/retry rather than a collision.
+                existing_path_history = get_by_hash(path_hash) if path_hash else None
+                if existing_path_history:
+                    existing_source = _coerce_media_identity_source(
+                        _field(existing_path_history, "media_source", "")
+                    )
+                    existing_media_id = str(
+                        _field(existing_path_history, "media_id", "") or ""
+                    ).strip()
+                    if existing_source == media_source and existing_media_id == media_id:
+                        self._logger.debug(
+                            "MoviePilot 下载历史已记录本地文件，跳过重复写入：%s",
+                            output_path,
+                        )
+                        return
+                self._logger.warning(
+                    "MoviePilot 下载历史文件路径已被其他任务记录，跳过重复写入：%s",
+                    output_path,
+                )
+                return
+
+            if not existing_history:
+                add_history(
+                    path=output_path,
+                    type="电视剧" if task.media_type == "tv" else "电影",
+                    title=task.title,
+                    year=task.year or None,
+                    media_source=media_source,
+                    media_id=media_id,
+                    seasons=str(task.season) if task.media_type == "tv" else None,
+                    episodes=str(task.episode) if task.media_type == "tv" else None,
+                    downloader="LunaTVSource",
+                    download_hash=download_hash,
+                    torrent_name=task.title,
+                    torrent_description="LunaTV m3u8 下载",
+                    torrent_site=str(
+                        getattr(task, "source_name", "")
+                        or getattr(task, "source_key", "")
+                        or PLUGIN_MEDIA_SOURCE
+                    ),
+                    date=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+                )
+            if not has_same_hash_file and not path_has_active_file:
+                add_files([
+                    {
+                        "download_hash": download_hash,
+                        "downloader": "LunaTVSource",
+                        "fullpath": output_path,
+                        "savepath": str(Path(output_path).parent),
+                        "filepath": Path(output_path).name,
+                        "torrentname": task.title,
+                        "state": 1,
+                    }
+                ])
+        except Exception as exc:
+            self._logger.warning("写入 MoviePilot 下载历史失败，文件下载不受影响：%s", exc)
 
     def _sync_media_server(self) -> bool:
         """后台刷新 Emby/Jellyfin，使新文件出现在既有媒体库。"""
@@ -1102,6 +1412,8 @@ class LunaTVSource(_PluginBase):
 
     def _record_completion(self, task: DownloadTask, output: str) -> None:
         organize_state = self._native_transfer(task, output)
+        # 下载历史始终记录 ffmpeg 的原始产物。若原生整理成功，TransferChain
+        # 会自行记录 TransferHistory；这里不能把整理目标伪装成下载源文件。
         self._record_native_history(task, output)
         history = self.get_data("download_history_v1") or []
         history.append(
@@ -1160,11 +1472,11 @@ class LunaTVSource(_PluginBase):
                 from app.sdk._legacy.subscribe import SubscribeOper
         except Exception:
             self._logger.debug("SubscribeOper unavailable; refresh skipped")
-            return {"subscriptions": 0, "queued": 0}
+            return {"subscriptions": 0, "queued": 0, "reconciled": 0}
 
         queue = self._queue
         if queue is None:
-            return {"subscriptions": 0, "queued": 0}
+            return {"subscriptions": 0, "queued": 0, "reconciled": 0}
         try:
             try:
                 subscribes = SubscribeOper().list(state="R")
@@ -1172,10 +1484,11 @@ class LunaTVSource(_PluginBase):
                 subscribes = SubscribeOper().list()
         except Exception as exc:
             self._logger.warning("读取 MoviePilot 订阅失败：%s", exc)
-            return {"subscriptions": 0, "queued": 0, "error": str(exc)}
+            return {"subscriptions": 0, "queued": 0, "reconciled": 0, "error": str(exc)}
 
         client = self._client()
         queued = 0
+        reconciled = 0
         skipped_ambiguous = 0
         skipped_no_directory = 0
         active_subscribes = []
@@ -1190,7 +1503,7 @@ class LunaTVSource(_PluginBase):
                 continue
             normalized_title = title
             try:
-                identity_source = _enum_value(getattr(subscribe, "media_source", ""))
+                identity_source = _coerce_media_identity_source(getattr(subscribe, "media_source", ""))
                 identity_id = str(getattr(subscribe, "media_id", "") or "").strip()
                 identity_result: Optional[CmsResult] = None
                 if identity_source == PLUGIN_MEDIA_SOURCE and ":" in identity_id:
@@ -1256,16 +1569,28 @@ class LunaTVSource(_PluginBase):
                         root=root,
                         mode=str(self._config.get("mode") or "download"),
                         ffmpeg_path=str(self._config.get("ffmpeg_path") or "ffmpeg"),
-                        media_source="lunatv",
+                        source_name=result.source_name or None,
+                        media_source=result.source_key or PLUGIN_MEDIA_SOURCE,
                         media_id=f"{result.source_key}:{result.vod_id}",
                     )
-                    if self._local_episode_exists(task):
+                    if identity_source != PLUGIN_MEDIA_SOURCE and identity_id:
+                        task.host_media_source = identity_source
+                        task.host_media_id = identity_id
+                    existing_path = self._local_episode_path(task)
+                    if existing_path is not None:
+                        # Older plugin versions could leave a correctly
+                        # downloaded MP4/STRM without the V3 download-history
+                        # rows. Reconcile only that original artifact: do not
+                        # run transfer again or fabricate TransferHistory.
+                        self._record_native_history(task, str(existing_path))
+                        reconciled += 1
                         continue
                     if queue.enqueue(task):
                         queued += 1
         return {
             "subscriptions": len(active_subscribes),
             "queued": queued,
+            "reconciled": reconciled,
             "skipped_ambiguous": skipped_ambiguous,
             "skipped_no_directory": skipped_no_directory,
         }
@@ -1279,8 +1604,121 @@ class LunaTVSource(_PluginBase):
         """LunaTV participates in the global search instead of adding an empty Explore tab."""
         return []
 
+    def _active_download_torrent(self, task: DownloadTask) -> Any:
+        """将串行队列中的活跃任务归一为 MoviePilot 下载器任务。"""
+        media_source, media_id = self._task_media_identity(task)
+        season_episode = None
+        if task.media_type == "tv":
+            try:
+                season_episode = f"S{int(task.season):02d}E{int(task.episode):02d}"
+            except (TypeError, ValueError):
+                pass
+        values = {
+            "downloader": "LunaTVSource",
+            "hash": str(task.task_id),
+            "title": task.title,
+            "name": task.title,
+            "site_name": task.source_name or task.source_key or PLUGIN_MEDIA_SOURCE,
+            "year": task.year or None,
+            "season_episode": season_episode,
+            # MoviePilot only defines an active downloader state.  Both queued
+            # and currently running ffmpeg tasks belong in that native view.
+            "state": "downloading",
+            # The serial ffmpeg queue has no byte-level progress callback.
+            "progress": 0.0,
+            "save_path": task.root or None,
+            "media": {
+                "type": "电视剧" if task.media_type == "tv" else "电影",
+                "title": task.title,
+                "season": task.season if task.media_type == "tv" else None,
+                "episode": task.episode if task.media_type == "tv" else None,
+                "media_source": self._host_media_source_value(media_source),
+                "media_id": media_id or None,
+            },
+        }
+        torrent_type = (
+            getattr(_schemas, "DownloaderTorrent", None)
+            if _schemas is not None
+            else None
+        )
+        if callable(torrent_type):
+            try:
+                return torrent_type(**values)
+            except Exception as exc:
+                self._logger.debug("构造 MoviePilot 下载任务投影失败，使用兼容对象：%s", exc)
+        return _CompatDownloaderTorrent(**values)
+
+    def list_torrents(
+        self,
+        status: Any = None,
+        hashs: Any = None,
+        downloader: Optional[str] = None,
+        include_all_tags: bool = False,
+    ) -> Optional[List[Any]]:
+        """提供 LunaTV 队列中的活跃任务，不接管其他原生下载器查询。"""
+        del include_all_tags
+        if not self._enabled:
+            return None
+        if downloader and str(downloader).strip() != "LunaTVSource":
+            # ``None`` 让 ModuleDispatcher 继续交给 qBittorrent 等提供者。
+            return None
+
+        if isinstance(hashs, str):
+            requested_hashes = {hashs.strip()} if hashs.strip() else set()
+        elif hashs:
+            try:
+                requested_hashes = {
+                    str(value).strip() for value in hashs if str(value).strip()
+                }
+            except TypeError:
+                requested_hashes = {str(hashs).strip()} if str(hashs).strip() else set()
+        else:
+            requested_hashes = set()
+
+        status_value = _enum_value(status)
+        if not requested_hashes and status_value in {
+            "transfer",
+            "可转移",
+            "completed",
+            "complete",
+            "seeding",
+            "完成",
+            "已完成",
+            "paused",
+            "pause",
+            "暂停",
+            "已暂停",
+        }:
+            return []
+
+        queue = self._queue
+        if queue is None:
+            return []
+        try:
+            raw_tasks = queue.list_tasks()
+        except Exception as exc:
+            self._logger.debug("读取 LunaTV 活跃下载任务失败：%s", exc)
+            return []
+
+        torrents: List[Any] = []
+        for raw_task in raw_tasks:
+            if not isinstance(raw_task, dict):
+                continue
+            try:
+                task = DownloadTask(**raw_task)
+            except TypeError:
+                continue
+            task_hash = str(task.task_id or "").strip()
+            if not task_hash or str(task.state or "").lower() not in {"pending", "running"}:
+                continue
+            if requested_hashes and task_hash not in requested_hashes:
+                continue
+            torrents.append(self._active_download_torrent(task))
+        return torrents
+
+
     def get_module(self) -> Dict[str, Any]:
-        """接入 V3 媒体识别、原生资源搜索与原生下载入口。"""
+        """接入 V3 媒体识别、资源搜索、下载和活跃任务查询入口。"""
         if not self._enabled:
             return {}
         return {
@@ -1291,6 +1729,7 @@ class LunaTVSource(_PluginBase):
             "search_torrents": self.search_torrents,
             "async_search_torrents": self.async_search_torrents,
             "download": self.download,
+            "list_torrents": self.list_torrents,
         }
 
     @staticmethod
@@ -1358,58 +1797,122 @@ class LunaTVSource(_PluginBase):
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
             return None
 
-    def _resource_torrents(self, keyword: str) -> List[Any]:
+    @staticmethod
+    def _resource_search_context(
+        search_query: str,
+        results: List[CmsResult],
+        mtype: Any = None,
+    ) -> CmsResult:
+        """为一次多源原生搜索构造唯一的 TMDB 关联上下文。"""
+        first = results[0] if results else None
+        requested_type = _enum_value(mtype)
+        media_type = (
+            _media_type_value(mtype)
+            if requested_type
+            else (first.media_type if first else "movie")
+        )
+        return CmsResult(
+            source_key="",
+            source_name="",
+            vod_id="",
+            title=normalize_search_title(search_query),
+            year=first.year if first else "",
+            media_type=media_type,
+            remark="",
+        )
+
+    @staticmethod
+    def _apply_resource_association(
+        result: CmsResult,
+        association: Dict[str, Any],
+    ) -> CmsResult:
+        """复用搜索上下文关联，不再逐条查询 TMDB。"""
+        if association.get("status") == "matched":
+            return apply_season_counts(result, association.get("season_counts") or {})
+        return result
+
+    def _resource_torrents(self, keyword: str, mtype: Any = None) -> List[Any]:
         """把 CMS m3u8 条目投影为 MoviePilot 原生 TorrentInfo。"""
-        if _schemas is None:
+        torrent_info_type = _HostTorrentInfo or (
+            getattr(_schemas, "TorrentInfo", None) if _schemas is not None else None
+        )
+        if torrent_info_type is None:
             return []
-        cache_key = normalize_search_title(keyword).casefold()
+        requested_type = _enum_value(mtype)
+        cache_key = "|".join(
+            (normalize_search_title(keyword).casefold(), requested_type)
+        )
         now = time.monotonic()
         with self._resource_search_lock:
             cached = self._resource_search_cache.get(cache_key)
             if cached and now - cached[0] < 30:
                 return list(cached[1])
-            search_query, _ = (self._ai or AiTitleNormalizer(False)).normalize(keyword)
-            results = self._client().search(
-                search_query,
-                limit=20,
-                stop_after_first_source=True,
+
+        # 第三方 CMS、AI 与 TMDB 请求可能较慢，不能在请求期间占用缓存锁；
+        # 否则插件更新/停用时会一直等待正在进行的原生资源搜索。
+        search_query, _ = (self._ai or AiTitleNormalizer(False)).normalize(keyword)
+        results = self._client().search(
+            search_query,
+            limit=50,
+            source_limit=3,
+            stop_after_first_source=False,
+            require_playable=True,
+            max_workers=8,
+        )
+        association: Dict[str, Any] = {}
+        if results:
+            context = self._resource_search_context(search_query, results, mtype)
+            association = self._associate_tmdb(context, include_candidates=False)
+        torrents: List[Any] = []
+        seen_urls: set[str] = set()
+        for result in results:
+            result = self._apply_resource_association(result, association)
+            identity = f"{result.source_key}:{result.vod_id}"
+            host_media_source = str(
+                association.get("media_source") or PLUGIN_MEDIA_SOURCE
             )
-            torrents: List[Any] = []
-            for result in results:
-                identity = f"{result.source_key}:{result.vod_id}"
-                episodes = result.episodes or [CmsEpisode(1, 1, "正片", "")]
-                for episode in episodes:
-                    if not episode.url:
-                        continue
-                    title = normalize_media_title(result.title)
-                    if result.year:
-                        title = f"{title} ({result.year})"
-                    if result.media_type == "tv":
-                        title = f"{title} S{episode.season:02d}E{episode.episode:02d}"
-                    payload = {
-                        "url": episode.url,
-                        "title": normalize_media_title(result.title),
-                        "year": result.year,
-                        "media_type": result.media_type,
-                        "season": episode.season,
-                        "episode": episode.episode,
-                        "media_id": identity,
-                    }
-                    torrents.append(_schemas.TorrentInfo(
-                        site_name="LunaTV",
-                        title=title,
-                        description=f"{result.source_name} · m3u8",
-                        media_source=self._host_media_source(),
-                        media_id=identity,
-                        enclosure=self._resource_token(payload),
-                        page_url=result.detail,
-                        size=0,
-                        seeders=1,
-                        category="电视剧" if result.media_type == "tv" else "电影",
-                        labels=["LunaTV", "m3u8"],
-                    ))
-            self._resource_search_cache[cache_key] = (now, torrents)
-            return list(torrents)
+            host_media_id = str(association.get("media_id") or identity)
+            episodes = result.episodes or [CmsEpisode(1, 1, "正片", "")]
+            for episode in episodes:
+                if not episode.url:
+                    continue
+                if episode.url in seen_urls:
+                    continue
+                seen_urls.add(episode.url)
+                title = normalize_media_title(result.title)
+                if result.year:
+                    title = f"{title} ({result.year})"
+                if result.media_type == "tv":
+                    title = f"{title} S{episode.season:02d}E{episode.episode:02d}"
+                payload = {
+                    "url": episode.url,
+                    "title": normalize_media_title(result.title),
+                    "year": result.year,
+                    "media_type": result.media_type,
+                    "season": episode.season,
+                    "episode": episode.episode,
+                    "source_key": result.source_key,
+                    "source_name": result.source_name,
+                    "media_id": identity,
+                    "host_media_source": host_media_source,
+                    "host_media_id": host_media_id,
+                }
+                torrents.append(torrent_info_type(
+                    site_name=result.source_name or "LunaTV",
+                    title=title,
+                    description="LunaTV · m3u8",
+                    media_source=host_media_source,
+                    media_id=host_media_id,
+                    enclosure=self._resource_token(payload),
+                    page_url=result.detail,
+                    size=0,
+                    seeders=1,
+                    category="电视剧" if result.media_type == "tv" else "电影",
+                    labels=["LunaTV", "m3u8"],
+                ))
+        with self._resource_search_lock:
+            self._resource_search_cache[cache_key] = (time.monotonic(), torrents)
+        return list(torrents)
 
     def search_torrents(
         self,
@@ -1420,11 +1923,11 @@ class LunaTVSource(_PluginBase):
         **_: Any,
     ) -> List[Any]:
         """参与每次原生站点搜索；固定站点名使多站点调用结果可由宿主去重。"""
-        del site, mtype
+        del site
         if not self._enabled or int(page or 0) > 0 or not str(keyword or "").strip():
             return []
         try:
-            return self._resource_torrents(str(keyword).strip())
+            return self._resource_torrents(str(keyword).strip(), mtype=mtype)
         except Exception as exc:
             self._logger.warning("LunaTV 原生资源搜索失败：%s", exc)
             return []
@@ -1461,6 +1964,11 @@ class LunaTVSource(_PluginBase):
             url=url,
             season_known=True,
         )
+        resource_identity = str(payload.get("media_id") or "").strip()
+        source_key = str(payload.get("source_key") or "").strip()
+        if not source_key and ":" in resource_identity:
+            source_key = resource_identity.split(":", 1)[0].strip()
+        source_key = source_key or PLUGIN_MEDIA_SOURCE
         task = DownloadTask.from_episode(
             episode,
             title=normalize_media_title(str(payload.get("title") or "未命名")),
@@ -1469,9 +1977,12 @@ class LunaTVSource(_PluginBase):
             root=root,
             mode=str(self._config.get("mode") or "download"),
             ffmpeg_path=str(self._config.get("ffmpeg_path") or "ffmpeg"),
-            media_source=PLUGIN_MEDIA_SOURCE,
-            media_id=str(payload.get("media_id") or "native"),
+            source_name=str(payload.get("source_name") or "") or None,
+            media_source=source_key,
+            media_id=resource_identity or "native",
         )
+        task.host_media_source = _coerce_media_identity_source(payload.get("host_media_source"))
+        task.host_media_id = str(payload.get("host_media_id") or resource_identity or "native").strip()
         task.task_id = hashlib.sha1(str(content).encode("utf-8")).hexdigest()
         if not queue.enqueue(task):
             return "LunaTVSource", None, None, "任务已在串行队列或历史记录中"
@@ -1510,6 +2021,38 @@ class LunaTVSource(_PluginBase):
 
     async def async_recognize_media(self, *args: Any, **kwargs: Any) -> Any:
         return self.recognize_media(*args, **kwargs)
+
+    @eventmanager.register(getattr(ChainEventType, "ResourceDownload", "resource.download"))
+    def _on_resource_download(self, event: Event) -> None:
+        """在原生下载器之前接管 LunaTV 伪磁力并送入插件串行队列。"""
+
+        if not self._enabled or not event:
+            return
+        event_data = getattr(event, "event_data", None)
+        context = getattr(event_data, "context", None)
+        torrent = getattr(context, "torrent_info", None)
+        content = getattr(torrent, "enclosure", None)
+        payload = self._decode_resource_token(content)
+        if payload is None:
+            return
+        options = getattr(event_data, "options", None) or {}
+        root = str(options.get("save_path") or "").strip()
+        if root.startswith("local:"):
+            root = root[6:]
+        if not root.startswith("/"):
+            root = self._effective_root(media_type=_media_type_value(payload.get("media_type")))
+        result = self.download(content=content, download_dir=Path(root)) if root else None
+        submitted = bool(result and result[1])
+        duplicate = bool(result and result[3] and "已在" in result[3])
+        event_data.cancel = True
+        event_data.source = "LunaTVSource-原生下载接管"
+        event_data.reason = (
+            "LunaTV 资源已提交串行下载队列"
+            if submitted else
+            "LunaTV 资源已在串行队列或历史记录中"
+            if duplicate else
+            f"LunaTV 下载接管失败：{result[3] if result else '未配置下载目录'}"
+        )
 
     @eventmanager.register(getattr(EventType, "SubscribeAdded", "subscribe.added"))
     def _on_subscribe_added(self, event: Event) -> None:

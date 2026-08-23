@@ -1,4 +1,5 @@
 import json
+import time
 
 from app.plugins.lunatvsource.cms import (
     AppleCmsClient,
@@ -109,6 +110,199 @@ def test_search_can_stop_after_first_source_with_results():
     results = client.search("示例电影", stop_after_first_source=True)
     assert [item.source_key for item in results] == ["first"]
     assert set(called) == {"first"}
+
+
+def test_search_aggregates_multiple_sources_with_stable_source_order():
+    sources = [
+        CmsSource(key="first", name="首选", api="https://first.example/vod"),
+        CmsSource(key="second", name="第二", api="https://second.example/vod"),
+    ]
+    client = AppleCmsClient(sources)
+
+    def fake_request(source, **params):
+        if source.key == "first":
+            return {
+                "list": [
+                    {
+                        "vod_id": "10",
+                        "vod_name": "示例电影",
+                        "type_name": "电影",
+                        "vod_play_from": "在线播放",
+                        "vod_play_url": "01$https://first.example/10.m3u8",
+                    },
+                    {
+                        "vod_id": "11",
+                        "vod_name": "示例电影",
+                        "type_name": "电影",
+                        "vod_play_from": "在线播放",
+                        "vod_play_url": "01$https://first.example/11.m3u8",
+                    },
+                ]
+            }
+        return {
+            "list": [
+                {
+                    "vod_id": "20",
+                    "vod_name": "示例电影",
+                    "type_name": "电影",
+                    "vod_play_from": "在线播放",
+                    "vod_play_url": "01$https://second.example/20.m3u8",
+                },
+                {
+                    "vod_id": "21",
+                    "vod_name": "示例电影",
+                    "type_name": "电影",
+                    "vod_play_from": "在线播放",
+                    "vod_play_url": "01$https://second.example/21.m3u8",
+                },
+            ]
+        }
+
+    client._request = fake_request
+    results = client.search(
+        "示例电影",
+        limit=3,
+        source_limit=2,
+        stop_after_first_source=False,
+        max_workers=2,
+    )
+    assert [(item.source_key, item.vod_id) for item in results] == [
+        ("first", "10"),
+        ("first", "11"),
+        ("second", "20"),
+    ]
+
+
+def test_search_multi_source_requests_run_concurrently():
+    from threading import Barrier
+
+    sources = [
+        CmsSource(key="first", name="首选", api="https://first.example/vod"),
+        CmsSource(key="second", name="第二", api="https://second.example/vod"),
+    ]
+    client = AppleCmsClient(sources)
+    rendezvous = Barrier(2, timeout=1)
+
+    def fake_request(source, **params):
+        rendezvous.wait()
+        return {"list": [{
+            "vod_id": source.key,
+            "vod_name": "示例电影",
+            "type_name": "电影",
+            "vod_play_from": "在线播放",
+            "vod_play_url": f"正片$https://{source.key}.example/movie.m3u8",
+        }]}
+
+    client._request = fake_request
+    results = client.search("示例电影", limit=10, max_workers=2)
+    assert [item.source_key for item in results] == ["first", "second"]
+
+
+def test_search_parallel_does_not_abandon_other_sources_on_error():
+    sources = [
+        CmsSource(key="bad", name="异常", api="https://bad.example/vod"),
+        CmsSource(key="good", name="可用", api="https://good.example/vod"),
+    ]
+    client = AppleCmsClient(sources)
+
+    def fake_request(source, **params):
+        if source.key == "bad":
+            raise RuntimeError("source bad")
+        return {
+            "list": [
+                {
+                    "vod_id": "20",
+                    "vod_name": "示例电影",
+                    "type_name": "电影",
+                    "vod_play_from": "在线播放",
+                    "vod_play_url": "正片$https://example.test/movie.m3u8",
+                },
+            ]
+        }
+
+    client._request = fake_request
+    results = client.search(
+        "示例电影",
+        limit=10,
+        stop_after_first_source=False,
+        require_playable=True,
+        max_workers=2,
+    )
+    assert len(results) == 1
+    assert results[0].source_key == "good"
+
+
+def test_search_parallel_returns_completed_sources_within_total_budget():
+    from threading import Event
+
+    sources = [
+        CmsSource(key="slow", name="慢源", api="https://slow.example/vod"),
+        CmsSource(key="second", name="第二", api="https://second.example/vod"),
+        CmsSource(key="third", name="第三", api="https://third.example/vod"),
+    ]
+    client = AppleCmsClient(sources, parallel_wait_timeout=0.05)
+    slow_started = Event()
+    release_slow = Event()
+
+    def fake_search_source(source, **params):
+        if source.key == "slow":
+            slow_started.set()
+            release_slow.wait(1)
+        elif source.key == "second":
+            time.sleep(0.02)
+        item = {
+            "vod_id": source.key,
+            "vod_name": "示例电影",
+            "type_name": "电影",
+            "vod_play_from": "在线播放",
+            "vod_play_url": f"正片$https://{source.key}.example/movie.m3u8",
+        }
+        return [_result_from_item(source, item)]
+
+    client._search_source = fake_search_source
+    started = time.monotonic()
+    results = client.search("示例电影", limit=10, max_workers=3)
+    elapsed = time.monotonic() - started
+    try:
+        assert slow_started.is_set()
+        assert elapsed < 0.3
+        assert [item.source_key for item in results] == ["second", "third"]
+    finally:
+        release_slow.set()
+
+
+def test_search_skips_non_playable_source_when_playable_result_is_required():
+    sources = [
+        CmsSource(key="empty", name="空播放源", api="https://empty.example/vod"),
+        CmsSource(key="playable", name="可播放源", api="https://playable.example/vod"),
+    ]
+    client = AppleCmsClient(sources)
+
+    def fake_request(source, **params):
+        if params.get("ac") == "detail" and source.key == "empty":
+            return {"list": [{"vod_id": "empty", "vod_name": "示例电影"}]}
+        return {
+            "list": [{
+                "vod_id": source.key,
+                "vod_name": "示例电影",
+                "type_name": "电影",
+                "vod_play_from": "在线播放" if source.key == "playable" else "",
+                "vod_play_url": (
+                    "正片$https://example.test/movie.m3u8"
+                    if source.key == "playable"
+                    else ""
+                ),
+            }]
+        }
+
+    client._request = fake_request
+    results = client.search(
+        "示例电影",
+        stop_after_first_source=True,
+        require_playable=True,
+    )
+    assert [item.source_key for item in results] == ["playable"]
+    assert results[0].episodes[0].url == "https://example.test/movie.m3u8"
 
 
 def test_result_uses_title_season_hint_for_multi_season_bundle():

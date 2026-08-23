@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, wait
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, replace
@@ -343,9 +344,21 @@ def load_sources_from_url(url: str, timeout: float = 15, allowlist: Sequence[str
 
 
 class AppleCmsClient:
-    def __init__(self, sources: Sequence[CmsSource], timeout: float = 15) -> None:
+    def __init__(
+        self,
+        sources: Sequence[CmsSource],
+        timeout: float = 15,
+        parallel_wait_timeout: Optional[float] = None,
+    ) -> None:
         self.sources = list(sources)
         self.timeout = timeout
+        self.parallel_wait_timeout = parallel_wait_timeout
+
+    def _parallel_wait_seconds(self) -> float:
+        """Return the total budget for a parallel source search."""
+        if self.parallel_wait_timeout is not None:
+            return max(0.0, float(self.parallel_wait_timeout))
+        return max(20.0, min(30.0, float(self.timeout) * 2))
 
     def _request(self, source: CmsSource, **params: Any) -> Mapping[str, Any]:
         query = urllib.parse.urlencode({key: value for key, value in params.items() if value not in (None, "")})
@@ -381,6 +394,34 @@ class AppleCmsClient:
             pass
         return item
 
+    def _search_source(
+        self,
+        source: CmsSource,
+        query: str,
+        limit: int,
+        enrich: bool = True,
+        require_playable: bool = False,
+    ) -> List[CmsResult]:
+        source_results: List[CmsResult] = []
+        try:
+            payload = self._request(source, ac="list", wd=query, pg=1)
+            items = self._items(payload)
+            if not items:
+                payload = self._request(source, ac="list", wd=query, pg=1, pages=1)
+                items = self._items(payload)
+            for item in items[:limit]:
+                result = _result_from_item(
+                    source,
+                    self._enrich_item(source, item) if enrich else item,
+                )
+                if require_playable and not result.episodes:
+                    continue
+                source_results.append(result)
+        except Exception:
+            # A single third-party source must not block the rest.
+            return []
+        return source_results
+
     def detail(self, source_key: str, vod_id: str) -> Optional[CmsResult]:
         """按插件媒体身份读取单条详情，供 MoviePilot 原生订阅复用。"""
         source = next((item for item in self.sources if item.key == str(source_key).lower()), None)
@@ -398,29 +439,74 @@ class AppleCmsClient:
         limit: int = 20,
         stop_after_first_source: bool = False,
         enrich: bool = True,
+        require_playable: bool = False,
+        source_limit: Optional[int] = None,
+        max_workers: int = 1,
     ) -> List[CmsResult]:
+        if limit <= 0:
+            return []
+        per_source_limit = max(1, min(int(source_limit or limit), int(limit)))
         results: List[CmsResult] = []
+        ordered_sources = list(self.sources)
         seen: set[Tuple[str, str]] = set()
-        for source in self.sources:
-            source_result_count = len(results)
-            try:
-                payload = self._request(source, ac="list", wd=query, pg=1)
-                items = self._items(payload)
-                if not items:
-                    payload = self._request(source, ac="list", wd=query, pg=1, pages=1)
-                    items = self._items(payload)
-                for item in items[:limit]:
-                    result = _result_from_item(
-                        source,
-                        self._enrich_item(source, item) if enrich else item,
-                    )
+        max_workers = max(1, int(max_workers))
+        if stop_after_first_source or max_workers == 1 or len(ordered_sources) <= 1:
+            for source in ordered_sources:
+                source_result_count = len(results)
+                for result in self._search_source(
+                    source,
+                    query=query,
+                    limit=per_source_limit,
+                    enrich=enrich,
+                    require_playable=require_playable,
+                ):
                     key = (result.source_key, result.vod_id)
                     if result.title and key not in seen:
                         seen.add(key)
                         results.append(result)
-            except Exception:
-                # A single third-party source must not block the rest.
-                continue
-            if stop_after_first_source and len(results) > source_result_count:
-                break
-        return results[:limit]
+                if stop_after_first_source and len(results) > source_result_count:
+                    break
+            return results[:limit]
+
+        futures = []
+        executor = ThreadPoolExecutor(max_workers=min(max_workers, len(ordered_sources)))
+        try:
+            for idx, source in enumerate(ordered_sources):
+                futures.append(
+                    (
+                        idx,
+                        executor.submit(
+                            self._search_source,
+                            source=source,
+                            query=query,
+                            limit=per_source_limit,
+                            enrich=enrich,
+                            require_playable=require_playable,
+                        ),
+                    )
+                )
+            done_futures, pending_futures = wait(
+                [future for _, future in futures],
+                timeout=self._parallel_wait_seconds(),
+            )
+            for future in pending_futures:
+                future.cancel()
+            source_results: Dict[int, List[CmsResult]] = {}
+            for idx, future in futures:
+                if future not in done_futures:
+                    continue
+                try:
+                    source_results[idx] = future.result()
+                except Exception:
+                    source_results[idx] = []
+            for idx in sorted(source_results):
+                for result in source_results[idx]:
+                    key = (result.source_key, result.vod_id)
+                    if result.title and key not in seen:
+                        seen.add(key)
+                        results.append(result)
+                        if len(results) >= limit:
+                            return results
+            return results[:limit]
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
