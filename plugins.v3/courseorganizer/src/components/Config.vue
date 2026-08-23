@@ -9,21 +9,29 @@ const emit = defineEmits(['save', 'close'])
 const localConfig = ref({})
 const saving = ref(false)
 
-const recognitionDefaults = {
-  naming_auto_threshold: 90,
-  naming_min_margin: 12,
-  naming_uncertain_policy: 'local',
-  naming_ai_review: false,
-  naming_clear_cache_once: false,
+const configDefaults = {
+  auto_organize: false,
 }
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value || {}))
 }
 
+function normalizeInitialConfig(value) {
+  const config = clone(value)
+  const rawAutoOrganize = Object.prototype.hasOwnProperty.call(config, 'auto_organize')
+    ? config.auto_organize
+    : String(config.naming_mode || '').trim().toLowerCase() === 'apply'
+  const autoOrganize = typeof rawAutoOrganize === 'string'
+    ? ['1', 'true', 'yes', 'on'].includes(rawAutoOrganize.trim().toLowerCase())
+    : Boolean(rawAutoOrganize)
+
+  return { ...configDefaults, ...config, auto_organize: autoOrganize }
+}
+
 watch(
   () => props.initialConfig,
-  value => { localConfig.value = { ...recognitionDefaults, ...clone(value) } },
+  value => { localConfig.value = normalizeInitialConfig(value) },
   { immediate: true, deep: true },
 )
 
@@ -54,7 +62,7 @@ async function openMoviePilotSettings() {
     <VDivider />
 
     <VAlert type="info" variant="tonal" class="ma-3" role="note">
-      识别来源、目录和命名规则均沿用 MoviePilot 系统设置，无需重复配置；以下仅控制自动识别结果的采用策略。
+      目录、媒体类型、分类规则、整理方式、重命名、刮削和智能助手均直接读取 MoviePilot 系统设置，不在插件内重复配置。
       <template #append>
         <VBtn variant="tonal" color="primary" prepend-icon="mdi-folder-cog" @click.stop="openMoviePilotSettings">
           打开目录设置
@@ -62,46 +70,19 @@ async function openMoviePilotSettings() {
       </template>
     </VAlert>
 
-    <VExpansionPanels class="mx-3 mb-3" variant="accordion">
-      <VExpansionPanel title="高级识别设置" value="recognition">
-        <VExpansionPanelText>
-          <VTextField
-            v-model.number="localConfig.naming_auto_threshold"
-            label="自动采用阈值（80~100）"
-            aria-label="自动采用阈值（80~100）"
-            type="number"
-            min="80"
-            max="100"
-            variant="outlined"
-          />
-          <VTextField
-            v-model.number="localConfig.naming_min_margin"
-            label="领先幅度（5~30）"
-            aria-label="领先幅度（5~30）"
-            type="number"
-            min="5"
-            max="30"
-            variant="outlined"
-          />
-          <VSwitch
-            v-model="localConfig.naming_ai_review"
-            label="启用智能助手（如 DeepSeek）"
-            aria-label="启用智能助手（如 DeepSeek）"
-            hint="需先在 MoviePilot「设置 → 智能助手」中配置并启用模型；用于精简搜索词并复核候选"
-            persistent-hint
-            color="primary"
-          />
-          <VSwitch
-            v-model="localConfig.naming_clear_cache_once"
-            label="一次性清空识别缓存"
-            aria-label="一次性清空识别缓存"
-            hint="下次运行时清除旧识别结果；执行后自动复位"
-            persistent-hint
-            color="error"
-          />
-        </VExpansionPanelText>
-      </VExpansionPanel>
-    </VExpansionPanels>
+    <VSwitch
+      v-model="localConfig.auto_organize"
+      class="mx-4 mb-2"
+      label="自动整理符合条件的项目"
+      aria-label="自动整理符合条件的项目"
+      hint="开启后，仅自动整理识别结果可靠且目标媒体库明确的项目；不确定项目继续保留在待确认列表"
+      persistent-hint
+      color="primary"
+    />
+
+    <VAlert v-if="localConfig.auto_organize" type="warning" variant="tonal" density="compact" class="mx-3 mb-3">
+      请确认同一来源目录未同时启用 MoviePilot 自动监控，避免两个整理任务竞争同一批文件。
+    </VAlert>
 
     <div class="course-config__actions">
       <VBtn variant="text" min-width="88" @click="emit('close')">取消</VBtn>
@@ -123,7 +104,6 @@ async function openMoviePilotSettings() {
   padding: 0 12px;
 }
 
-.course-config :deep(.v-text-field),
 .course-config :deep(.v-switch) {
   margin-bottom: 12px;
 }

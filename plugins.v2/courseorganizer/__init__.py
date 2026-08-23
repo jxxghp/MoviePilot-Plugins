@@ -277,8 +277,24 @@ def _cn_num(token: str) -> int:
         return 1
 
 
+def _assert_no_symlink_entries(source: str) -> None:
+    """Fail closed when a direct-transfer source tree contains a symlink."""
+    def _raise_walk_error(error: OSError) -> None:
+        raise error
+
+    if os.path.islink(source):
+        raise ValueError("source_symlink")
+    for root, dirs, files in os.walk(
+        source, followlinks=False, onerror=_raise_walk_error
+    ):
+        for name in (*dirs, *files):
+            if os.path.islink(os.path.join(root, name)):
+                raise ValueError("source_tree_symlink")
+
+
 def _link_files_recursive(source: str, dest: str) -> None:
     """递归地把源目录的内容硬链（优先）或复制到目标目录；用于 hardlink/softlink 搬运。"""
+    _assert_no_symlink_entries(source)
     dest = os.path.abspath(dest)
     os.makedirs(dest, exist_ok=True)
     for root, dirs, files in os.walk(source):
@@ -318,12 +334,12 @@ class CourseOrganizer(_PluginBase):
     plugin_config_prefix = "courseorganizer_"
     auth_level = 1
     plugin_order = 90
-    plugin_version = "1.7.15"
+    plugin_version = "1.7.17"
     plugin_desc = "稳定后识别、分类并整理到电视剧、电影或儿童媒体库"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
     project_url = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
-    plugin_icon = "icons/courseorganizer.svg"
+    plugin_icon = "icons/courseorganizer.png"
     plugin_repo = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
 
     MEDIA_EXTENSIONS = {".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".m4v", ".m4a"}
@@ -872,10 +888,14 @@ class CourseOrganizer(_PluginBase):
         return text if valid else ascii(text)
 
     @staticmethod
-    def _is_ignored_scan_entry(entry: str) -> bool:
+    def _is_system_scan_entry(entry: str) -> bool:
+        return str(entry).strip().casefold() in CourseOrganizer.SYSTEM_SCAN_ENTRY_NAMES
+
+    @classmethod
+    def _is_ignored_scan_entry(cls, entry: str) -> bool:
         """Return whether a top-level incoming entry is a system/hidden item."""
-        name = str(entry)
-        return name.startswith(".") or name.casefold() in CourseOrganizer.SYSTEM_SCAN_ENTRY_NAMES
+        name = str(entry).strip()
+        return name.startswith(".") or cls._is_system_scan_entry(name)
 
     @staticmethod
     def _manifest_stat_tuple(
@@ -975,6 +995,8 @@ class CourseOrganizer(_PluginBase):
                 | getattr(os, "O_NONBLOCK", 0)
             )
             for entry in children:
+                if cls._is_system_scan_entry(entry.name):
+                    continue
                 relative_path = (
                     f"{relative_prefix}/{entry.name}"
                     if relative_prefix
@@ -2268,9 +2290,9 @@ class CourseOrganizer(_PluginBase):
             return "failed"
         identity = self._confirmed_media_identity(course_name)
         if identity is not None:
-            media_source, media_id, _recognized_media_type = identity
+            media_source, media_id, recognized_media_type = identity
         else:
-            media_source, media_id = "", ""
+            media_source, media_id, recognized_media_type = "", "", "unknown"
         # 原生"识别+整理"只对可靠的 TMDB/豆瓣 身份有效；课程等本地/空身份走直接搬移。
         native_valid = media_source in {"themoviedb", "douban"} and bool(media_id)
 
@@ -2331,7 +2353,11 @@ class CourseOrganizer(_PluginBase):
             tmdbid = int(media_id)
         else:
             doubanid = media_id
-        media_type = "movie" if decision.target_library == "movie" else "tv"
+        media_type = (
+            recognized_media_type
+            if recognized_media_type in {"movie", "tv"}
+            else ("movie" if decision.target_library == "movie" else "tv")
+        )
         try:
             with adapter.rename_context(course_path, decision.value):
                 result = adapter.manual_transfer(
@@ -2426,13 +2452,28 @@ class CourseOrganizer(_PluginBase):
 
         配合目录规则的搬运方式（move/copy/hardlink 等）。失败时不消费决定，保留记录可重试。
         """
-        source = os.path.realpath(os.path.abspath(str(course_path if isinstance(course_path, str) else "")))
+        raw_source = os.path.abspath(str(course_path if isinstance(course_path, str) else ""))
+        if os.path.islink(raw_source):
+            self._logger.warning(
+                "CourseOrganizer[event=direct_transfer_failed] item_course_repr=%s reason=source_symlink",
+                ascii(course_name),
+            )
+            return "failed"
+        source = os.path.realpath(raw_source)
         if not source or not os.path.isdir(source):
             self._logger.warning(
                 "CourseOrganizer[event=direct_transfer_failed] item_course_repr=%s reason=source_missing",
                 ascii(course_name),
             )
             return "no_media"
+        try:
+            _assert_no_symlink_entries(source)
+        except (OSError, ValueError):
+            self._logger.warning(
+                "CourseOrganizer[event=direct_transfer_failed] item_course_repr=%s reason=source_tree_symlink",
+                ascii(course_name),
+            )
+            return "failed"
         incoming = str(rule.get("download_path") or "")
         if incoming and not self._is_within_realpath(incoming, source):
             self._logger.warning(
@@ -2863,7 +2904,7 @@ class CourseOrganizer(_PluginBase):
         return self._review_response(True, latest or {}, "已保存 TMDB 关联")
 
     def get_page(self) -> List[Dict[str, Any]]:
-        config = self._get_config()
+        config = self._review_path_config()
         naming_mode = str(config["naming_mode"])
         rows: List[Dict[str, Any]] = []
         if naming_mode != "off":
@@ -2913,7 +2954,11 @@ class CourseOrganizer(_PluginBase):
         preview_subtitle = (
             "命名已关闭，仍会整理；此页未读取预览记录"
             if naming_mode == "off"
-            else f"{len(display_rows)} 条记录 · 只记录建议，不移动文件"
+            else (
+                f"{len(display_rows)} 条记录 · 符合条件的项目将自动整理"
+                if naming_mode == "apply"
+                else f"{len(display_rows)} 条记录 · 只记录建议，不移动文件"
+            )
         )
         preview_table = {
             "component": "VDataTableVirtual",
@@ -3064,51 +3109,14 @@ class CourseOrganizer(_PluginBase):
         defaults = dict(config)
         advanced = [
             {
-                "component": "VTextField",
-                "props": {
-                    "model": "naming_auto_threshold",
-                    "label": "自动采用阈值（80~100）",
-                    "aria-label": "自动采用阈值（80~100）",
-                    "type": "number",
-                    "min": 80,
-                    "max": 100,
-                    "density": "comfortable",
-                    "variant": "outlined",
-                },
-            },
-            {
-                "component": "VTextField",
-                "props": {
-                    "model": "naming_min_margin",
-                    "label": "领先幅度（5~30）",
-                    "aria-label": "领先幅度（5~30）",
-                    "type": "number",
-                    "min": 5,
-                    "max": 30,
-                    "density": "comfortable",
-                    "variant": "outlined",
-                },
-            },
-            {
                 "component": "VSwitch",
                 "props": {
-                    "model": "naming_ai_review",
-                    "label": "启用智能助手（如 DeepSeek）",
-                    "aria-label": "启用智能助手（如 DeepSeek）",
-                    "hint": "需先在 MoviePilot「设置 → 智能助手」中配置并启用模型；用于精简搜索词并复核候选",
+                    "model": "auto_organize",
+                    "label": "自动整理符合条件的项目",
+                    "aria-label": "自动整理符合条件的项目",
+                    "hint": "开启后，仅自动整理识别结果可靠且目标媒体库明确的项目；不确定项目继续保留在待确认列表",
                     "persistent-hint": True,
                     "color": "primary",
-                },
-            },
-            {
-                "component": "VSwitch",
-                "props": {
-                    "model": "naming_clear_cache_once",
-                    "label": "一次性清空识别缓存",
-                    "aria-label": "一次性清空识别缓存",
-                    "hint": "下次运行时清除旧识别结果；执行后自动复位",
-                    "persistent-hint": True,
-                    "color": "error",
                 },
             },
         ]
@@ -3127,7 +3135,7 @@ class CourseOrganizer(_PluginBase):
                             "variant": "tonal",
                             "class": "mb-3",
                         },
-                        "text": "识别来源、目录和命名规则均沿用 MoviePilot 系统设置，无需重复配置；以下仅控制自动识别结果的采用策略。",
+                        "text": "目录、媒体类型、分类规则、整理方式、重命名、刮削和智能助手均直接读取 MoviePilot 系统设置，不在插件内重复配置。",
                     },
                     {
                         "component": "VBtn",
@@ -3141,21 +3149,16 @@ class CourseOrganizer(_PluginBase):
                         },
                         "text": "打开 MoviePilot 存储与目录设置",
                     },
+                    *advanced,
                     {
-                        "component": "VExpansionPanels",
-                        "props": {"variant": "accordion"},
-                        "content": [
-                            {
-                                "component": "VExpansionPanel",
-                                "props": {"title": "高级识别设置", "value": "recognition"},
-                                "content": [
-                                    {
-                                        "component": "VExpansionPanelText",
-                                        "content": advanced,
-                                    }
-                                ],
-                            }
-                        ],
+                        "component": "VAlert",
+                        "props": {
+                            "type": "warning",
+                            "variant": "tonal",
+                            "density": "compact",
+                            "class": "mt-2",
+                        },
+                        "text": "开启自动整理前，请确认同一来源目录未同时启用 MoviePilot 自动监控，避免两个任务竞争同一批文件。",
                     },
                 ],
             }
@@ -3205,6 +3208,25 @@ class CourseOrganizer(_PluginBase):
             self._run()
 
     def _run(self, force: bool = False) -> None:
+        run_config_local = getattr(self, "_run_config_local", None)
+        if run_config_local is None:
+            run_config_local = threading.local()
+            self._run_config_local = run_config_local
+        original_config = getattr(run_config_local, "config", _MANUAL_DATA_UNSET)
+        runtime_config = self._review_path_config()
+        run_config_local.config = dict(runtime_config)
+        try:
+            self._run_with_config(force)
+        finally:
+            if original_config is _MANUAL_DATA_UNSET:
+                try:
+                    del run_config_local.config
+                except AttributeError:
+                    pass
+            else:
+                run_config_local.config = original_config
+
+    def _run_with_config(self, force: bool = False) -> None:
         config = self._get_config()
         if not force and not config.get("enabled"):
             self._logger.debug("CourseOrganizer[event=wait] plugin disabled")
@@ -4032,8 +4054,13 @@ class CourseOrganizer(_PluginBase):
         subtitle_map: Dict[int, Dict[str, List[str]]] = {}
         has_explicit_season = False
 
-        for root, _, filenames in os.walk(course_path):
+        for root, dirnames, filenames in os.walk(course_path):
+            dirnames[:] = [
+                name for name in dirnames if not self._is_ignored_scan_entry(name)
+            ]
             for filename in filenames:
+                if self._is_ignored_scan_entry(filename):
+                    continue
                 if self._is_incomplete(filename):
                     continue
 
@@ -4129,8 +4156,15 @@ class CourseOrganizer(_PluginBase):
 
     def _snapshot_signature(self, course_path: str) -> List[Tuple[str, int, int]]:
         snapshot: List[Tuple[str, int, int]] = []
-        for root, _, filenames in os.walk(course_path):
+        for root, dirnames, filenames in os.walk(course_path):
+            dirnames[:] = [
+                name
+                for name in dirnames
+                if not self._is_system_scan_entry(name)
+            ]
             for filename in filenames:
+                if self._is_system_scan_entry(filename):
+                    continue
                 file_path = os.path.join(root, filename)
                 try:
                     stats = os.stat(file_path)
@@ -4174,7 +4208,12 @@ class CourseOrganizer(_PluginBase):
 
     @classmethod
     def _has_incomplete_file(cls, course_path: str) -> bool:
-        for root, _, filenames in os.walk(course_path):
+        for root, dirnames, filenames in os.walk(course_path):
+            dirnames[:] = [
+                name
+                for name in dirnames
+                if not cls._is_system_scan_entry(name)
+            ]
             for filename in filenames:
                 if cls._is_incomplete(filename):
                     return True
@@ -5828,13 +5867,15 @@ class CourseOrganizer(_PluginBase):
             return value if 5 <= value <= 30 else default
 
         raw = config if isinstance(config, dict) else {}
-        naming_mode = str(raw.get("naming_mode", "preview") or "preview").strip().lower()
-        if naming_mode not in {"off", "preview", "apply"}:
-            naming_mode = "preview"
-
-        naming_uncertain_policy = str(raw.get("naming_uncertain_policy", "local")).lower()
-        if naming_uncertain_policy not in {"local", "hold"}:
-            naming_uncertain_policy = "local"
+        legacy_naming_mode = str(
+            raw.get("naming_mode", "preview") or "preview"
+        ).strip().lower()
+        legacy_auto_organize = legacy_naming_mode == "apply"
+        auto_organize = _coerce_bool(
+            raw.get("auto_organize", legacy_auto_organize),
+            legacy_auto_organize,
+        )
+        naming_mode = "apply" if auto_organize else "preview"
 
         return {
             "enabled": _coerce_bool(raw.get("enabled", False), False),
@@ -5846,14 +5887,12 @@ class CourseOrganizer(_PluginBase):
                 raw.get("children_output", raw.get("output", self.DEFAULT_CHILDREN_OUTPUT))
             ),
             "interval": self._normalize_interval(raw.get("interval", self.DEFAULT_INTERVAL)),
+            "auto_organize": auto_organize,
             "naming_mode": naming_mode,
             "naming_auto_threshold": _coerce_threshold(raw.get("naming_auto_threshold", 90), 90),
             "naming_min_margin": _coerce_margin(raw.get("naming_min_margin", 12), 12),
-            "naming_uncertain_policy": naming_uncertain_policy,
-            "naming_ai_review": _coerce_bool(
-                raw.get("naming_ai_review", False),
-                False,
-            ),
+            "naming_uncertain_policy": "hold",
+            "naming_ai_review": True,
             "naming_manual_overrides": str(raw.get("naming_manual_overrides", "")),
             "naming_clear_cache_once": _coerce_bool(
                 raw.get("naming_clear_cache_once", False),

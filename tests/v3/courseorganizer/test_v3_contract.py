@@ -1,9 +1,13 @@
 import importlib.util
 import json
+import os
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 ROOT = Path(__file__).parents[3]
@@ -38,9 +42,10 @@ def test_v3_package_and_plugin_versions_are_consistent():
     package_v2 = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
     package_v3 = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
 
-    assert module.CourseOrganizer.plugin_version == "2.0.5"
-    assert package_v3["CourseOrganizer"]["version"] == "2.0.5"
+    assert module.CourseOrganizer.plugin_version == "2.0.7"
+    assert package_v3["CourseOrganizer"]["version"] == "2.0.7"
     assert package_v3["CourseOrganizer"]["icon"] == "courseorganizer.png"
+    assert module.CourseOrganizer.plugin_icon == "icons/courseorganizer.png"
     assert (ROOT / "icons/courseorganizer.png").is_file()
     assert package_v3["CourseOrganizer"]["system_version"] == ">=3.0.0"
     assert package_v2["CourseOrganizer"]["v3"] is False
@@ -148,6 +153,154 @@ def test_v3_manual_transfer_converts_source_and_type_without_legacy_ids():
     ]
     assert "tmdbid" not in calls[0]
     assert "doubanid" not in calls[0]
+
+
+def test_v3_confirmed_movie_keeps_movie_type_when_targeting_children_library(tmp_path):
+    module = load_v3_courseorganizer()
+    plugin = module.CourseOrganizer.__new__(module.CourseOrganizer)
+    plugin._logger = MagicMock()
+    expected_binding = {"st_dev": 1, "st_ino": 2, "st_ctime_ns": 3}
+    decision = SimpleNamespace(action="confirm", target_library="children", value="示例电影")
+    calls = []
+
+    class FakeAdapter:
+        def get_file_item(self, *_args, **_kwargs):
+            return object()
+
+        def rename_context(self, *_args, **_kwargs):
+            return nullcontext()
+
+        def manual_transfer(self, **kwargs):
+            calls.append(kwargs)
+            raise RuntimeError("stop after capture")
+
+    plugin._current_source_binding = MagicMock(return_value=expected_binding)
+    plugin._source_bindings_equal = MagicMock(return_value=True)
+    plugin._manual_decision_for = MagicMock(return_value=decision)
+    plugin._manual_binding = MagicMock(return_value=expected_binding)
+    plugin._confirmed_media_identity = MagicMock(
+        return_value=("themoviedb", "123", "movie")
+    )
+    plugin._moviepilot_directory_context = MagicMock(
+        return_value={
+            "selected": {
+                "children": {
+                    "renaming": True,
+                    "path": str(tmp_path / "children"),
+                    "storage": "local",
+                    "library_storage": "local",
+                }
+            }
+        }
+    )
+    plugin._get_native_adapter = MagicMock(return_value=FakeAdapter())
+
+    result = plugin._apply_manual_decision_locked(
+        "示例电影", str(tmp_path / "source"), expected_binding
+    )
+
+    assert result == "failed"
+    assert calls[0]["mtype"] == "movie"
+
+
+@pytest.mark.parametrize("transfer_type", ["copy", "hardlink", "move"])
+def test_v3_direct_transfer_rejects_symlink_tree(tmp_path, transfer_type):
+    module = load_v3_courseorganizer()
+    incoming = tmp_path / "incoming"
+    source = incoming / "课程"
+    target = tmp_path / "target"
+    source.mkdir(parents=True)
+    target.mkdir()
+    outside = tmp_path / "outside.mkv"
+    outside.write_bytes(b"outside")
+    os.symlink(outside, source / "linked.mkv")
+
+    plugin = module.CourseOrganizer.__new__(module.CourseOrganizer)
+    plugin._logger = MagicMock()
+    decision = SimpleNamespace(value="安全课程", target_library="children")
+    rule = {
+        "download_path": str(incoming),
+        "path": str(target),
+        "transfer_type": transfer_type,
+    }
+
+    result = plugin._apply_direct_transfer("课程", str(source), {}, decision, rule)
+
+    assert result == "failed"
+    assert source.is_dir()
+    assert not (target / "安全课程").exists()
+
+
+def test_v3_nested_system_entries_are_excluded_from_scans(tmp_path):
+    module = load_v3_courseorganizer()
+    course = tmp_path / "课程"
+    recycle = course / "#recycle"
+    metadata = course / "@eaDir"
+    hidden = course / ".hidden"
+    recycle.mkdir(parents=True)
+    metadata.mkdir()
+    hidden.mkdir()
+    (course / "main.mkv").write_bytes(b"main")
+    (recycle / "old.part").write_bytes(b"old")
+    (metadata / "preview.mkv").write_bytes(b"system")
+    (hidden / "still.part").write_bytes(b"partial")
+    (hidden / "episode.mkv").write_bytes(b"downloading")
+    (course / ".DS_Store").write_bytes(b"system")
+    (course / "Thumbs.db").write_bytes(b"system")
+
+    fd = os.open(course, os.O_RDONLY)
+    try:
+        tree = module.CourseOrganizer._scan_manifest_dir(fd)
+    finally:
+        os.close(fd)
+    assert tree is not None
+    assert [item[0] for item in tree[0]] == [
+        ".hidden/episode.mkv",
+        ".hidden/still.part",
+        "main.mkv",
+    ]
+    assert [item[0] for item in tree[1]] == [".hidden"]
+
+    plugin = module.CourseOrganizer.__new__(module.CourseOrganizer)
+    plugin._review_path_config = MagicMock(return_value={"incoming": str(tmp_path)})
+    expected_binding = plugin._current_source_binding("课程")
+    assert expected_binding is not None
+
+    (hidden / "late.mkv").write_bytes(b"downloading")
+    late_fd = os.open(course, os.O_RDONLY)
+    try:
+        late_tree = module.CourseOrganizer._scan_manifest_dir(late_fd)
+    finally:
+        os.close(late_fd)
+    assert late_tree is not None
+    assert late_tree != tree
+    assert ".hidden/late.mkv" in [item[0] for item in late_tree[0]]
+    current_binding = plugin._current_source_binding("课程")
+    assert current_binding is not None
+    assert not plugin._source_bindings_equal(current_binding, expected_binding)
+    (hidden / "late.mkv").unlink()
+
+    media_by_season, subtitle_map, _ = plugin._collect_course_files(str(course))
+    assert [Path(path).name for paths in media_by_season.values() for path in paths] == [
+        "main.mkv"
+    ]
+    assert subtitle_map == {}
+    assert [item[0] for item in plugin._snapshot_signature(str(course))] == [
+        ".hidden/episode.mkv",
+        ".hidden/still.part",
+        "main.mkv",
+    ]
+    assert plugin._has_incomplete_file(str(course)) is True
+
+    (hidden / "still.part").unlink()
+    assert plugin._has_incomplete_file(str(course)) is False
+    assert [item[0] for item in plugin._snapshot_signature(str(course))] == [
+        ".hidden/episode.mkv",
+        "main.mkv",
+    ]
+
+    (course / ".episode.mkv.part").write_bytes(b"partial")
+    assert plugin._has_incomplete_file(str(course)) is True
 
 
 def test_v3_metadata_provider_preserves_selected_source_and_media_id():
@@ -284,28 +437,42 @@ def test_v3_system_scan_entry_helper_ignores_only_system_and_hidden_items():
         "desktop.ini",
         "DESKTOP.INI",
         ".temporary",
+        " #recycle ",
     )
     retained = ("#课程资料", "@课程资料", "课程资料", "recycle")
 
     assert all(module.CourseOrganizer._is_ignored_scan_entry(name) for name in ignored)
     assert not any(module.CourseOrganizer._is_ignored_scan_entry(name) for name in retained)
+    assert module.CourseOrganizer._is_system_scan_entry(" #recycle ")
+    assert module.CourseOrganizer._is_system_scan_entry("@eaDir")
+    assert not module.CourseOrganizer._is_system_scan_entry(".temporary")
 
 
 def test_v3_scan_entrypoint_skips_system_entries_without_skipping_normal_hash_directory():
     module = load_v3_courseorganizer()
     plugin = module.CourseOrganizer.__new__(module.CourseOrganizer)
     plugin._logger = MagicMock()
-    plugin._get_config = MagicMock(
-        return_value={
-            "enabled": True,
-            "incoming": "/media/incoming",
-            "tv_output": "/media/tv",
-            "movie_output": "/media/movie",
-            "children_output": "/media/children",
-            "naming_mode": "off",
-        }
+    stored_config = {
+        "enabled": True,
+        "incoming": "/legacy/incoming",
+        "tv_output": "/legacy/tv",
+        "movie_output": "/legacy/movie",
+        "children_output": "/legacy/children",
+        "naming_mode": "preview",
+    }
+    runtime_config = {
+        **stored_config,
+        "incoming": "/moviepilot/incoming",
+        "tv_output": "/moviepilot/tv",
+        "movie_output": "/moviepilot/movie",
+        "children_output": "/moviepilot/children",
+    }
+    observed_configs = []
+    plugin.get_config = MagicMock(return_value=stored_config)
+    plugin._review_path_config = MagicMock(return_value=runtime_config)
+    plugin._process_course = MagicMock(
+        side_effect=lambda *_args, **_kwargs: observed_configs.append(plugin._get_config())
     )
-    plugin._process_course = MagicMock()
     entries = [
         "#recycle",
         "@eaDir",
@@ -325,6 +492,12 @@ def test_v3_scan_entrypoint_skips_system_entries_without_skipping_normal_hash_di
         plugin._run(force=True)
 
     assert {call.args[0] for call in plugin._process_course.call_args_list} == {"#课程资料", "普通课程"}
+    assert all(item["incoming"] == "/moviepilot/incoming" for item in observed_configs)
+    assert all(
+        call.kwargs["source_root"] == "/moviepilot/incoming"
+        for call in plugin._process_course.call_args_list
+    )
+    assert plugin._get_config()["incoming"] == "/legacy/incoming"
 
 
 def test_v3_review_rows_hide_persisted_system_entries():
