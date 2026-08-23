@@ -326,8 +326,7 @@ def test_resource_search_does_not_hold_cache_lock_during_network_request(monkeyp
         def __init__(self, **kwargs):
             self.__dict__.update(kwargs)
 
-    plugin = LunaTVSource()
-    plugin.init_plugin({"enabled": True})
+    plugin = _plugin({"enabled": True})
     lock_available = []
 
     class Client:
