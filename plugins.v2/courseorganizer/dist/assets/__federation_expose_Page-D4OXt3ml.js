@@ -243,7 +243,6 @@ async function loadReview() {
   loading.value = true;
   error.value = '';
   rowErrors.value = {};
-  selectedCandidates.value = {};   
   try {
     const response = await props.api.get('plugin/CourseOrganizer/review');
     const data = unwrap(response);
@@ -260,7 +259,18 @@ async function loadReview() {
     monitoringRules.value = Array.isArray(data?.monitoring_rules) ? data.monitoring_rules : [];
     incomingPath.value = data?.incoming_path || '';
     settingsUrl.value = data?.settings_url || '#/setting';
-    tmdbCandidates.value = {};
+    const restoredCandidates = {};
+    const restoredSelections = {};
+    for (const row of items.value) {
+      const candidate = row?.selected_candidate;
+      const candidateKey = row?.selected_candidate_key || candidate?.candidate_key || '';
+      if (candidate?.candidate_key && candidate.candidate_key === candidateKey) {
+        restoredCandidates[row.raw_title] = [candidate];
+        restoredSelections[row.raw_title] = candidateKey;
+      }
+    }
+    tmdbCandidates.value = restoredCandidates;
+    selectedCandidates.value = restoredSelections;
     selectedKeys.value = [];
   } catch (loadError) {
     error.value = errorMessage(loadError, '加载人工复核列表失败');
@@ -291,10 +301,8 @@ async function searchTmdb(row, silent = false) {
   if (!silent) notice.value = '';
   clearRowError(row);
   removeKey(tmdbSearchFailedKeys, row.raw_title);
-  tmdbCandidates.value = { ...tmdbCandidates.value, [row.raw_title]: [] };
-  const sel = { ...selectedCandidates.value };
-  delete sel[row.raw_title];
-  selectedCandidates.value = sel;
+  const selectedKey = selectedCandidateFor(row) || row.selected_candidate_key || '';
+  const selectedCandidate = row.selected_candidate;
   try {
     const response = await props.api.post('plugin/CourseOrganizer/review/tmdb/search', {
       raw_title: row.raw_title,
@@ -302,7 +310,14 @@ async function searchTmdb(row, silent = false) {
       search_name: (row.final_title && row.final_title.trim()) || row.raw_title,
     });
     const data = unwrap(response);
-    const candidates = Array.isArray(data?.items) ? data.items : [];
+    let candidates = Array.isArray(data?.items) ? data.items : [];
+    if (
+      selectedKey
+      && selectedCandidate?.candidate_key === selectedKey
+      && !candidates.some(candidate => candidate.candidate_key === selectedKey)
+    ) {
+      candidates = [selectedCandidate, ...candidates];
+    }
     tmdbCandidates.value = { ...tmdbCandidates.value, [row.raw_title]: candidates };
     if (!silent) notice.value = data?.message || '已找到 TMDB 候选';
   } catch (searchError) {
@@ -315,7 +330,7 @@ async function searchTmdb(row, silent = false) {
 }
 
 async function autoSearchAll() {
-  const todo = items.value.filter(item => !item.source_pending);
+  const todo = items.value.filter(item => !item.source_pending && !item.selected_candidate_key);
   for (const item of todo) {
     await searchTmdb(item, true);
   }
@@ -780,7 +795,7 @@ return (_ctx, _cache) => {
           _: 1
         }))
       : _createCommentVNode("", true),
-    (monitoringEnabled.value)
+    (monitoringEnabled.value && items.value.length > 0)
       ? (_openBlock(), _createBlock(_component_VAlert, {
           key: 2,
           type: "warning",
@@ -1015,11 +1030,11 @@ return (_ctx, _cache) => {
                                 "hide-details": "",
                                 density: "compact",
                                 variant: "outlined",
-                                label: "选择匹配的 TMDB 作品",
+                                label: selectedCandidateFor(row) ? '已关联的 TMDB 作品' : '选择匹配的 TMDB 作品',
                                 class: "mt-1",
                                 disabled: batchRunning.value || isSaving(row) || isTmdbLoading(row) || isOrganizing(row),
                                 "aria-label": `选择 TMDB 候选：${row.raw_title}`
-                              }, null, 8, ["model-value", "onUpdate:modelValue", "items", "disabled", "aria-label"]))
+                              }, null, 8, ["model-value", "onUpdate:modelValue", "items", "label", "disabled", "aria-label"]))
                             : _createCommentVNode("", true)
                         ]),
                         _createElementVNode("td", _hoisted_19, [
@@ -1236,11 +1251,11 @@ return (_ctx, _cache) => {
                           "hide-details": "",
                           density: "compact",
                           variant: "outlined",
-                          label: "选择匹配的 TMDB 作品",
+                          label: selectedCandidateFor(row) ? '已关联的 TMDB 作品' : '选择匹配的 TMDB 作品',
                           class: "mb-3",
                           disabled: batchRunning.value || isSaving(row) || isTmdbLoading(row) || isOrganizing(row),
                           "aria-label": `选择 TMDB 候选：${row.raw_title}`
-                        }, null, 8, ["model-value", "onUpdate:modelValue", "items", "disabled", "aria-label"]))
+                        }, null, 8, ["model-value", "onUpdate:modelValue", "items", "label", "disabled", "aria-label"]))
                       : _createCommentVNode("", true),
                     _createVNode(_component_VSelect, {
                       modelValue: row.target_library,
@@ -1381,19 +1396,27 @@ return (_ctx, _cache) => {
                   _createElementVNode("p", null, "插件直接读取「设置 → 存储 & 目录」，沿用媒体类型、媒体类别、存储、整理方式、智能重命名、影视刮削和自动监控。")
                 ], -1),
                 _createElementVNode("div", null, [
-                  _createElementVNode("strong", null, "2. 先扫描，再确认"),
+                  _createElementVNode("strong", null, "2. 文件夹何时显示"),
+                  _createElementVNode("p", null, "插件会递归检查整个文件夹。目录内没有正在下载的临时或缓存文件，并且内容保持稳定后，才会显示在待整理列表。")
+                ], -1),
+                _createElementVNode("div", null, [
+                  _createElementVNode("strong", null, "3. 先扫描，再确认"),
                   _createElementVNode("p", null, "重新扫描不会移动文件。检查建议名称和目标媒体库后，「确认并整理」才会执行文件操作。")
                 ], -1),
                 _createElementVNode("div", null, [
-                  _createElementVNode("strong", null, "3. 两种整理方式"),
+                  _createElementVNode("strong", null, "4. 智能助手（如 DeepSeek）"),
+                  _createElementVNode("p", null, "先在 MoviePilot「设置 → 智能助手」配置模型，再到插件设置中开启。复杂目录名会先提取 TMDB 搜索词，再复核候选；不可用时自动使用本地规则。")
+                ], -1),
+                _createElementVNode("div", null, [
+                  _createElementVNode("strong", null, "5. 两种整理方式"),
                   _createElementVNode("p", null, "已关联媒体信息的项目使用 MoviePilot 的 TMDB 整理；课程等无媒体 ID 的项目按确认后的标题整理。")
                 ], -1),
                 _createElementVNode("div", null, [
-                  _createElementVNode("strong", null, "4. 人工确认期间"),
+                  _createElementVNode("strong", null, "6. 人工确认期间"),
                   _createElementVNode("p", null, "请关闭相同来源目录的自动监控，避免文件在确认前被系统提前整理。")
                 ], -1),
                 _createElementVNode("div", null, [
-                  _createElementVNode("strong", null, "5. 批量任务自动排队"),
+                  _createElementVNode("strong", null, "7. 批量任务自动排队"),
                   _createElementVNode("p", null, "可勾选多个项目后批量整理。任务会按顺序逐项执行，失败项目保留并继续下一项。")
                 ], -1)
               ]))]),
@@ -1426,6 +1449,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2f918eac"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8bfe373c"]]);
 
 export { Page as default };

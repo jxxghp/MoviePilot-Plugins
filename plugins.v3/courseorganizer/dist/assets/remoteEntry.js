@@ -45,7 +45,7 @@ const currentImports = {};
          } else {
            href = cssPath;
          }
-         
+
           if (dontAppendStylesToHead) {
             const key = 'css__CourseOrganizer__' + exposeItemName;
             window[key] = window[key] || [];

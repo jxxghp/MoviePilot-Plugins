@@ -18,9 +18,14 @@ except Exception:  # pragma: no cover - host-only path
     MediaChain = None
 
 try:
-    from app.core.config import settings
+    from app.sdk.config import settings
 except Exception:  # pragma: no cover - host-only path
     settings = None
+
+try:
+    from app.schemas.types import MediaSource
+except Exception:  # pragma: no cover - host-only path
+    MediaSource = None
 
 try:
     from pydantic import BaseModel, Field, StrictFloat, StrictInt
@@ -270,7 +275,11 @@ class MoviePilotMetadataProvider:
             for query in queries[:3]:
                 attempted_sources.append(source)
                 try:
-                    _, items = self._chain.search(query.text, source=source)
+                    media_source = MediaSource(source) if MediaSource is not None else source
+                    _, items = self._chain.search(
+                        query.text,
+                        media_source=media_source,
+                    )
                 except Exception as exc:
                     errors.append(f"{source}:{query.text}:{exc}")
                     break
@@ -324,11 +333,6 @@ class MoviePilotMetadataProvider:
 
         media_type = _normalize_media_type(getattr(media_info, "type", "unknown"))
         media_id = str(getattr(media_info, "media_id", "") or "")
-        if not media_id:
-            if source == "themoviedb":
-                media_id = str(getattr(media_info, "tmdb_id", "") or "")
-            elif source == "douban":
-                media_id = str(getattr(media_info, "douban_id", "") or "")
         if not media_id:
             return None
 
