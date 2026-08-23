@@ -3,7 +3,7 @@ import app.plugins.lunatvsource as plugin_module
 from app.plugins.lunatvsource.cms import CmsSource, _result_from_item
 from pathlib import Path
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 
 def _plugin(config):
@@ -347,3 +347,32 @@ def test_native_download_reports_duplicate_instead_of_fake_success(tmp_path: Pat
     assert duplicate[:3] == ("LunaTVSource", None, None)
     assert "已在" in duplicate[3]
     assert len(plugin._queue.list_tasks()) == 1
+
+
+def test_resource_download_event_routes_lunatv_token_to_serial_queue(tmp_path: Path):
+    plugin = LunaTVSource()
+    plugin.init_plugin({"enabled": True})
+    token = plugin._resource_token({
+        "url": "https://example.test/event.m3u8",
+        "title": "事件电影",
+        "year": "2024",
+        "media_type": "movie",
+        "season": 1,
+        "episode": 1,
+        "media_id": "demo:99",
+        "host_media_source": "themoviedb",
+        "host_media_id": "999",
+    })
+    event_data = SimpleNamespace(
+        context=SimpleNamespace(torrent_info=SimpleNamespace(enclosure=token)),
+        options={"save_path": f"local:{tmp_path}"},
+        cancel=False,
+        source="",
+        reason="",
+    )
+
+    plugin._on_resource_download(SimpleNamespace(event_data=event_data))
+
+    assert event_data.cancel is True
+    assert "串行下载队列" in event_data.reason
+    assert plugin._queue.list_tasks()[0]["root"] == str(tmp_path)

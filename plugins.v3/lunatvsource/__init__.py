@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 try:  # MoviePilot V3 runtime imports
     from app.plugins import _PluginBase
     from app.sdk.events import Event, eventmanager
-    from app.schemas.types import EventType
+    from app.schemas.types import ChainEventType, EventType
 except Exception:  # pragma: no cover - standalone tests
     Event = Any  # type: ignore[misc,assignment]
 
@@ -53,6 +53,9 @@ except Exception:  # pragma: no cover - standalone tests
     class EventType:  # type: ignore[no-redef]
         SubscribeAdded = "subscribe.added"
         SubscribeModified = "subscribe.modified"
+
+    class ChainEventType:  # type: ignore[no-redef]
+        ResourceDownload = "resource.download"
 
 try:  # Optional V3 native schemas and media identity.
     from app import schemas as _schemas
@@ -285,7 +288,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.10"
+    plugin_version = "0.4.11"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -1663,6 +1666,38 @@ class LunaTVSource(_PluginBase):
 
     async def async_recognize_media(self, *args: Any, **kwargs: Any) -> Any:
         return self.recognize_media(*args, **kwargs)
+
+    @eventmanager.register(getattr(ChainEventType, "ResourceDownload", "resource.download"))
+    def _on_resource_download(self, event: Event) -> None:
+        """在原生下载器之前接管 LunaTV 伪磁力并送入插件串行队列。"""
+
+        if not self._enabled or not event:
+            return
+        event_data = getattr(event, "event_data", None)
+        context = getattr(event_data, "context", None)
+        torrent = getattr(context, "torrent_info", None)
+        content = getattr(torrent, "enclosure", None)
+        payload = self._decode_resource_token(content)
+        if payload is None:
+            return
+        options = getattr(event_data, "options", None) or {}
+        root = str(options.get("save_path") or "").strip()
+        if root.startswith("local:"):
+            root = root[6:]
+        if not root.startswith("/"):
+            root = self._effective_root(media_type=_media_type_value(payload.get("media_type")))
+        result = self.download(content=content, download_dir=Path(root)) if root else None
+        submitted = bool(result and result[1])
+        duplicate = bool(result and result[3] and "已在" in result[3])
+        event_data.cancel = True
+        event_data.source = "LunaTVSource-原生下载接管"
+        event_data.reason = (
+            "LunaTV 资源已提交串行下载队列"
+            if submitted else
+            "LunaTV 资源已在串行队列或历史记录中"
+            if duplicate else
+            f"LunaTV 下载接管失败：{result[3] if result else '未配置下载目录'}"
+        )
 
     @eventmanager.register(getattr(EventType, "SubscribeAdded", "subscribe.added"))
     def _on_subscribe_added(self, event: Event) -> None:
