@@ -5,8 +5,8 @@
 
 其它文档只负责专题内容：
 
-- [V2 插件迁移到 V3](./V3_Plugin_Adaptation.md)：旧导入兼容、媒体身份、音乐链和
-  存量数据迁移。
+- [V2 插件迁移到 V3](./V3_Plugin_Adaptation.md)：旧导入兼容、数据库事务、媒体身份、
+  音乐链和存量数据迁移。
 - [插件 API 专题](./V3_API_Response_Adaptation.md)：后端 API、Python 调用、Vue
   远程组件和原生响应。
 - [仓库与发布指南](./Repository_Guide.md)：索引文件、版本选择、CI 和 Release。
@@ -245,6 +245,7 @@ V3 已为插件整理稳定 SDK。新插件应优先从 `app.sdk` 导入，不�
 | 媒体上下文、名称解析和媒体身份 | `app.sdk.media` |
 | HTTP、URL、站点和安全网络工具 | `app.sdk.network` |
 | 浏览器自动化（Playwright 上下文管理与页面操作） | `app.sdk.browser` |
+| 数据库备份、备份列表与校验 | `app.sdk.database` |
 | 插件和模块管理 | `app.sdk.plugins` |
 | 下载器、媒体服务器、通知、规则和存储服务 | `app.sdk.services` |
 | 文本门面（`StringUtils` 文本与格式化能力） | `app.sdk.string` |
@@ -271,9 +272,13 @@ with launch_browser_context(cookies=..., browser_type="chromium") as ctx:
 
 以下既有公开入口仍可稳定使用：`app.schemas`、`app.schemas.types`、
 `app.chain.*`、`app.plugins.*`、`app.modules.*`、`app.agent.*`、
-`app.api.endpoints.plugin`、`app.scheduler`、`app.db.models`、
-`app.db.oper.*`。使用具体能力前，应查看当前 V3 方法签名和对应专题文档，
-不要从目录名字推断合同。
+`app.api.endpoints.plugin`、`app.scheduler`、`app.db.oper.*`。插件确需建立自有表时，
+还可使用 `app.db` 公开的 `Base`、`DbOper`、四个事务装饰器以及建表所需的引擎对象。
+使用具体能力前，应查看当前 V3 方法签名和对应专题文档，不要从目录名字推断合同。
+
+`app.db.models.*` 是宿主 ORM 的内部表结构，不是插件数据访问合同。旧插件的导入目前
+可能仍能解析，但新代码不得直接查询或修改这些 Model，也不得根据其字段布局实现业务
+逻辑。数据库的具体边界见[数据库访问与 V3 事务规则](#73-数据库访问与-v3-事务规则)。
 
 以下入口属于兼容桥接，新插件代码禁止使用：
 
@@ -330,7 +335,120 @@ def write_report(self, content: str) -> None:
 
 不要把运行数据写回插件源码目录；插件更新时源码目录可能被替换。
 
-### 7.3 虚拟分身兼容
+### 7.3 数据库访问与 V3 事务规则
+
+先按数据责任选择入口，不要因为所有数据最终都落在同一个数据库里就直接操作宿主
+ORM：
+
+| 数据类型 | 应使用的入口 |
+| --- | --- |
+| 用户可编辑的插件设置 | `get_config()` / `update_config()` |
+| 小型、可序列化的插件状态 | `save_data()` / `get_data()` / `del_data()` 及异步变体 |
+| 报告、缓存文件、大对象 | `get_data_path()` |
+| 宿主已有业务数据 | 对应的 `app.db.oper.<entity>`，或宿主已提供的 Chain / SDK |
+| 需要索引、筛选或大量记录的插件自有数据 | 插件自有表 + `app.db` 公共事务装饰器 |
+
+V3 已把宿主数据库事务收口到显式 Session、Unit of Work 和组合根。插件必须遵守以下
+边界：
+
+- 不导入或操作 `app.db.models.*` 宿主 Model；访问宿主数据使用对应 Oper 或更高层的
+  Chain / SDK。
+- 不导入 `SessionFactory`、`AsyncSessionFactory`、`ScopedSession` 或宿主内部会话
+  模块。它们即使因兼容原因仍可导入，也不属于插件公开合同。
+- 无显式 Session 的宿主 Oper 调用是保留给插件的兼容入口。一次调用拥有一次独立事务；
+  不要假设连续多个 Oper 调用天然原子，也不要把一个 Oper 或 Session 保存在插件单例、
+  后台线程或异步任务之间复用。
+- 需要跨多个宿主写操作的原子业务流程时，优先调用宿主已有 Chain / SDK；缺少对应能力
+  时应先在主仓提供明确的应用服务，不要由插件自行拼接宿主事务。
+- `SystemConfig` 的宿主键必须使用 `SystemConfigKey`，插件自身配置则统一走基类方法；
+  不要用原始字符串在宿主配置表中创建自定义键。
+- `app.sdk.database` 只提供宿主管理的数据库备份、列表和校验能力，不是通用 SQL 或 ORM
+  入口。
+
+例如，只读宿主订阅数据时使用 Oper，不直接导入 `Subscribe` Model：
+
+```python
+from app.db.oper.subscribe import SubscribeOper
+
+
+def get_subscribe(self, subscribe_id: int):
+    """按订阅 ID 读取宿主订阅。"""
+    return SubscribeOper().get(sid=subscribe_id)
+```
+
+只有 `save_data()` 无法满足索引、筛选或数据量要求时，才建立插件自有表。V3 自有表
+使用 SQLAlchemy 2.0 的 `Mapped` / `mapped_column()` 声明；同步方法分别使用
+`db_query` 和 `db_update` 管理查询会话与提交、回滚、释放：
+
+```python
+from typing import Optional
+
+from sqlalchemy import String, select
+from sqlalchemy.orm import Mapped, Session, mapped_column
+
+from app.db import Base, db_query, db_update
+
+
+class MyPluginRecord(Base):
+    """我的插件拥有的示例记录。"""
+
+    __tablename__ = "plugin_myplugin_record"
+    # V3 热重载和虚拟分身会重复执行模型声明，必须复用同一份表元数据。
+    __table_args__ = {"extend_existing": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    plugin_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+
+
+class MyPluginDatabaseMixin:
+    """供插件主类复用的自有表建表与数据访问方法。"""
+
+    @staticmethod
+    def ensure_table() -> None:
+        """仅创建本插件的数据表，不触发宿主全部元数据建表。"""
+        from app.db import Engine
+
+        MyPluginRecord.__table__.create(bind=Engine, checkfirst=True)
+
+    @db_update
+    def add_record(
+        self,
+        db: Optional[Session] = None,
+        *,
+        name: str,
+    ) -> int:
+        """新增记录，并由更新装饰器提交或回滚事务。"""
+        assert db is not None
+        record = MyPluginRecord(plugin_id=self.__class__.__name__, name=name)
+        db.add(record)
+        db.flush()
+        return record.id
+
+    @db_query
+    def list_records(self, db: Optional[Session] = None) -> list[dict]:
+        """在会话关闭前把记录转换为普通字典。"""
+        assert db is not None
+        records = db.execute(
+            select(MyPluginRecord).where(
+                MyPluginRecord.plugin_id == self.__class__.__name__
+            )
+        ).scalars().all()
+        return [{"id": record.id, "name": record.name} for record in records]
+```
+
+`ensure_table()` 应在 `init_plugin()` 中按需调用，不能在模块导入期或类定义期连接数据库。
+表名必须使用稳定且不会与宿主或其他插件冲突的插件前缀。`checkfirst=True` 只能创建缺失
+表，不能升级已有列；自有表结构变化时，插件必须提供按版本执行、可重复运行的迁移，先
+备份并验证数据，再更新插件记录的 schema 版本。不要把插件表迁移写入主仓 Alembic。
+自有表不会自动获得基类存储的分身隔离能力；支持虚拟分身时，必须像示例一样保存并过滤
+运行实例 ID。
+
+异步数据库方法使用 `async_db_query` / `async_db_update` 和 `AsyncSession`，不得在事件
+循环里调用同步数据库方法。查询返回前应完成 `list()`、标量提取或 DTO/字典转换，避免
+会话释放后再触发 ORM 懒加载。
+
+### 7.4 虚拟分身兼容
 
 新分身不会复制插件目录，也不会改写 Python、JavaScript 或 CSS。配置、结构化数据、
 数据目录、事件绑定、动态 API 和定时服务均按运行实例 ID 隔离；源插件更新后，引用它
@@ -350,7 +468,7 @@ def write_report(self, content: str) -> None:
 因此“共享源码”不等于“共享状态”。如果插件主动绕过基类存储，或依赖不可分配的
 进程级排他资源，应明确说明不适合创建多个实例。
 
-### 7.4 第三方依赖
+### 7.5 第三方依赖
 
 插件有额外 Python 依赖时，在插件目录增加 `pyproject.toml`：
 
@@ -377,7 +495,7 @@ dependencies = [
 
 宿主会保护核心依赖图；存在降级或不兼容要求时，插件安装会被拒绝。
 
-### 7.4 异步 HTTP 客户端
+### 7.6 异步 HTTP 客户端
 
 V3 的 `app.sdk.network.AsyncRequestUtils` 使用 HTTPX2。默认请求返回 `httpx2.Response`，传入
 自管客户端时只使用 `httpx2.AsyncClient`；直接依赖响应或异常类型的插件代码应导入 `httpx2`。
@@ -620,6 +738,9 @@ V2 实现会在独立进程中运行，避免同名模块互相污染：
 4. API、服务、命令和页面只注册一次。
 5. Vue 插件执行过 `yarn typecheck` 和 `yarn build`，并更新构建产物。
 
+插件访问数据库时还要覆盖成功提交、异常回滚、同步或异步会话释放，以及重复初始化时
+的自有表迁移；普通测试不得连接用户的真实数据库。
+
 ## 12. 发布插件
 
 发布前同步三处信息：
@@ -646,6 +767,7 @@ V2 实现会在独立进程中运行，避免同名模块互相污染：
 - [ ] `plugin_version`、索引 `version` 和最新 `history` 一致。
 - [ ] 新增类和方法具有说明职责的注释。
 - [ ] 使用稳定 SDK，没有新增不必要的宿主内部路径依赖。
+- [ ] 宿主数据只经 Oper、Chain 或稳定 SDK 访问；事务装饰器只用于插件自有表。
 - [ ] 配置初始化可重复执行，停用和重载会释放后台资源。
 - [ ] 插件运行数据不写入源码目录。
 - [ ] 普通 JSON 与原生响应遵守 API 专题说明。
@@ -658,7 +780,7 @@ V2 实现会在独立进程中运行，避免同名模块互相污染：
 | 问题 | 文档 |
 | --- | --- |
 | 插件目录、索引、版本和 Release | [仓库与发布指南](./Repository_Guide.md) |
-| V2 插件迁移、旧导入和媒体身份 | [V2 插件迁移到 V3](./V3_Plugin_Adaptation.md) |
+| V2 插件迁移、旧导入、数据库事务和媒体身份 | [V2 插件迁移到 V3](./V3_Plugin_Adaptation.md) |
 | API 返回、调用和 Vue 客户端 | [插件 API 专题](./V3_API_Response_Adaptation.md) |
 | 消息、服务、缓存、存储、Agent 等功能 | [常见问题](./FAQ.md) |
 | Vue 联邦组件 | [前端 V3 模块联邦指南](https://github.com/jxxghp/MoviePilot-Frontend/blob/v3/docs/module-federation-guide.md) |
