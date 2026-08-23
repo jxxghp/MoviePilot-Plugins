@@ -321,6 +321,30 @@ def test_resource_torrents_dedupes_play_urls_from_multiple_sources(monkeypatch):
     }]
 
 
+def test_resource_search_does_not_hold_cache_lock_during_network_request(monkeypatch):
+    class TorrentInfo:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    plugin = LunaTVSource()
+    plugin.init_plugin({"enabled": True})
+    lock_available = []
+
+    class Client:
+        def search(self, query, **kwargs):
+            acquired = plugin._resource_search_lock.acquire(blocking=False)
+            lock_available.append(acquired)
+            if acquired:
+                plugin._resource_search_lock.release()
+            return []
+
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+
+    assert plugin.search_torrents(site={"id": 1}, keyword="示例剧", page=0) == []
+    assert lock_available == [True]
+
+
 def test_plugin_search_bridge_augments_native_search_and_restores(monkeypatch):
     class SearchChain:
         def __search_all_sites(self, **kwargs):

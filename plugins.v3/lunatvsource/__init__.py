@@ -304,7 +304,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.17"
+    plugin_version = "0.4.18"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -1670,64 +1670,68 @@ class LunaTVSource(_PluginBase):
             cached = self._resource_search_cache.get(cache_key)
             if cached and now - cached[0] < 30:
                 return list(cached[1])
-            search_query, _ = (self._ai or AiTitleNormalizer(False)).normalize(keyword)
-            results = self._client().search(
-                search_query,
-                limit=50,
-                source_limit=3,
-                stop_after_first_source=False,
-                require_playable=True,
-                max_workers=8,
+
+        # 第三方 CMS、AI 与 TMDB 请求可能较慢，不能在请求期间占用缓存锁；
+        # 否则插件更新/停用时会一直等待正在进行的原生资源搜索。
+        search_query, _ = (self._ai or AiTitleNormalizer(False)).normalize(keyword)
+        results = self._client().search(
+            search_query,
+            limit=50,
+            source_limit=3,
+            stop_after_first_source=False,
+            require_playable=True,
+            max_workers=8,
+        )
+        torrents: List[Any] = []
+        seen_urls: set[str] = set()
+        for result in results:
+            result, association = self._prepare_result(result)
+            identity = f"{result.source_key}:{result.vod_id}"
+            host_media_source = str(
+                association.get("media_source") or PLUGIN_MEDIA_SOURCE
             )
-            torrents: List[Any] = []
-            seen_urls: set[str] = set()
-            for result in results:
-                result, association = self._prepare_result(result)
-                identity = f"{result.source_key}:{result.vod_id}"
-                host_media_source = str(
-                    association.get("media_source") or PLUGIN_MEDIA_SOURCE
-                )
-                host_media_id = str(association.get("media_id") or identity)
-                episodes = result.episodes or [CmsEpisode(1, 1, "正片", "")]
-                for episode in episodes:
-                    if not episode.url:
-                        continue
-                    if episode.url in seen_urls:
-                        continue
-                    seen_urls.add(episode.url)
-                    title = normalize_media_title(result.title)
-                    if result.year:
-                        title = f"{title} ({result.year})"
-                    if result.media_type == "tv":
-                        title = f"{title} S{episode.season:02d}E{episode.episode:02d}"
-                    payload = {
-                        "url": episode.url,
-                        "title": normalize_media_title(result.title),
-                        "year": result.year,
-                        "media_type": result.media_type,
-                        "season": episode.season,
-                        "episode": episode.episode,
-                        "source_key": result.source_key,
-                        "source_name": result.source_name,
-                        "media_id": identity,
-                        "host_media_source": host_media_source,
-                        "host_media_id": host_media_id,
-                    }
-                    torrents.append(torrent_info_type(
-                        site_name=result.source_name or "LunaTV",
-                        title=title,
-                        description="LunaTV · m3u8",
-                        media_source=host_media_source,
-                        media_id=host_media_id,
-                        enclosure=self._resource_token(payload),
-                        page_url=result.detail,
-                        size=0,
-                        seeders=1,
-                        category="电视剧" if result.media_type == "tv" else "电影",
-                        labels=["LunaTV", "m3u8"],
-                    ))
-            self._resource_search_cache[cache_key] = (now, torrents)
-            return list(torrents)
+            host_media_id = str(association.get("media_id") or identity)
+            episodes = result.episodes or [CmsEpisode(1, 1, "正片", "")]
+            for episode in episodes:
+                if not episode.url:
+                    continue
+                if episode.url in seen_urls:
+                    continue
+                seen_urls.add(episode.url)
+                title = normalize_media_title(result.title)
+                if result.year:
+                    title = f"{title} ({result.year})"
+                if result.media_type == "tv":
+                    title = f"{title} S{episode.season:02d}E{episode.episode:02d}"
+                payload = {
+                    "url": episode.url,
+                    "title": normalize_media_title(result.title),
+                    "year": result.year,
+                    "media_type": result.media_type,
+                    "season": episode.season,
+                    "episode": episode.episode,
+                    "source_key": result.source_key,
+                    "source_name": result.source_name,
+                    "media_id": identity,
+                    "host_media_source": host_media_source,
+                    "host_media_id": host_media_id,
+                }
+                torrents.append(torrent_info_type(
+                    site_name=result.source_name or "LunaTV",
+                    title=title,
+                    description="LunaTV · m3u8",
+                    media_source=host_media_source,
+                    media_id=host_media_id,
+                    enclosure=self._resource_token(payload),
+                    page_url=result.detail,
+                    size=0,
+                    seeders=1,
+                    category="电视剧" if result.media_type == "tv" else "电影",
+                    labels=["LunaTV", "m3u8"],
+                ))
+        with self._resource_search_lock:
+            self._resource_search_cache[cache_key] = (time.monotonic(), torrents)
+        return list(torrents)
 
     def search_torrents(
         self,
