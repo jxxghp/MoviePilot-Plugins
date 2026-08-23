@@ -1004,27 +1004,27 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
         <VCardText class="course-help-content">
           <div>
             <strong>1. 目录来自 MoviePilot</strong>
-            <p>插件直接读取「设置 → 存储 &amp; 目录」，沿用媒体类型、媒体类别、存储、整理方式、智能重命名、影视刮削和自动监控。</p>
+            <p>插件直接读取「设置 → 存储 &amp; 目录」，沿用媒体类型、媒体类别、存储、整理方式、智能重命名和影视刮削。</p>
           </div>
           <div>
             <strong>2. 文件夹何时显示</strong>
             <p>插件会递归检查整个文件夹。目录内没有正在下载的临时或缓存文件，并且内容保持稳定后，才会显示在待整理列表。</p>
           </div>
           <div>
-            <strong>3. 先扫描，再确认</strong>
-            <p>重新扫描不会移动文件。检查建议名称和目标媒体库后，「确认并整理」才会执行文件操作。</p>
+            <strong>3. 自动整理符合条件的项目</strong>
+            <p>默认只扫描并生成建议，不会移动文件。开启自动整理后，仅识别可靠且目标媒体库明确的项目会自动执行；不确定项目仍等待人工确认。</p>
           </div>
           <div>
             <strong>4. 智能助手（如 DeepSeek）</strong>
-            <p>先在 MoviePilot「设置 → 智能助手」配置模型，再到插件设置中开启。复杂目录名会先提取 TMDB 搜索词，再复核候选；不可用时自动使用本地规则。</p>
+            <p>插件直接使用 MoviePilot「设置 → 智能助手」中的模型，无需在插件内重复配置。复杂目录名会先提取 TMDB 搜索词再复核候选；不可用或判断不明确时不会自动整理。</p>
           </div>
           <div>
             <strong>5. 两种整理方式</strong>
             <p>已关联媒体信息的项目使用 MoviePilot 的 TMDB 整理；课程等无媒体 ID 的项目按确认后的标题整理。</p>
           </div>
           <div>
-            <strong>6. 人工确认期间</strong>
-            <p>请关闭相同来源目录的自动监控，避免文件在确认前被系统提前整理。</p>
+            <strong>6. 避免重复监控</strong>
+            <p>同一来源目录不要同时启用 MoviePilot 自动监控和插件自动整理，避免两个任务竞争同一批文件。</p>
           </div>
           <div>
             <strong>7. 批量任务自动排队</strong>

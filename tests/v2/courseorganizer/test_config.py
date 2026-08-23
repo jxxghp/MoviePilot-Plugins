@@ -47,26 +47,59 @@ def test_form_hides_settings_owned_by_moviepilot():
         if isinstance(node.get("props"), dict)
     }
     texts = [str(node.get("text", "")) for node in _walk(form)]
-    policy = next(
-        node["props"]
-        for node in _walk(form)
-        if node.get("props", {}).get("model") == "naming_uncertain_policy"
-    )
-
+    assert "auto_organize" in models
     assert "naming_sources" not in models
     assert "naming_append_tmdb_id" not in models
-    assert "naming_auto_threshold" in models
-    assert "naming_min_margin" in models
-    assert "naming_uncertain_policy" in models
-    assert "naming_ai_review" in models
+    assert "naming_auto_threshold" not in models
+    assert "naming_min_margin" not in models
+    assert "naming_uncertain_policy" not in models
+    assert "naming_ai_review" not in models
+    assert "naming_clear_cache_once" not in models
     assert "naming_sources" not in defaults
     assert "naming_append_tmdb_id" not in defaults
-    assert defaults["naming_uncertain_policy"] == "local"
-    assert policy["items"] == [
-        {"title": "保留本地名称继续整理", "value": "local"},
-        {"title": "暂停整理，等待人工确认", "value": "hold"},
-    ]
-    assert any("无需重复配置" in text for text in texts)
+    assert defaults["auto_organize"] is False
+    assert defaults["naming_mode"] == "preview"
+    assert defaults["naming_uncertain_policy"] == "hold"
+    assert defaults["naming_ai_review"] is True
+    assert any("不在插件内重复配置" in text for text in texts)
+    assert any("自动监控" in text for text in texts)
+
+
+def test_auto_organize_controls_apply_mode_and_migrates_legacy_apply():
+    plugin = CourseOrganizer.__new__(CourseOrganizer)
+
+    disabled = plugin._normalize_config({})
+    enabled = plugin._normalize_config({"auto_organize": True})
+    migrated = plugin._normalize_config({"naming_mode": "apply"})
+    resolver_config = NamingConfig.sanitize(enabled)
+
+    assert disabled["auto_organize"] is False
+    assert disabled["naming_mode"] == "preview"
+    assert enabled["auto_organize"] is True
+    assert enabled["naming_mode"] == "apply"
+    assert migrated["auto_organize"] is True
+    assert migrated["naming_mode"] == "apply"
+    assert resolver_config.mode == "apply"
+    assert resolver_config.uncertain_policy == "hold"
+    assert resolver_config.ai_review is True
+
+
+def test_custom_config_exposes_only_auto_organize_control():
+    source = (
+        ROOT / "plugins.v2" / "courseorganizer" / "src" / "components" / "Config.vue"
+    ).read_text(encoding="utf-8")
+
+    assert "localConfig.auto_organize" in source
+    assert "config.naming_mode" in source
+    assert "=== 'apply'" in source
+    for model in (
+        "naming_auto_threshold",
+        "naming_min_margin",
+        "naming_uncertain_policy",
+        "naming_ai_review",
+        "naming_clear_cache_once",
+    ):
+        assert model not in source
 
 
 def test_v2_market_manifest_uses_renderable_png_icon():
@@ -202,17 +235,27 @@ def test_system_scan_entry_helper_ignores_only_system_and_hidden_items():
 def test_scan_entrypoint_skips_system_entries_without_skipping_normal_hash_directory():
     plugin = CourseOrganizer.__new__(CourseOrganizer)
     plugin._logger = MagicMock()
-    plugin._get_config = MagicMock(
-        return_value={
-            "enabled": True,
-            "incoming": "/media/incoming",
-            "tv_output": "/media/tv",
-            "movie_output": "/media/movie",
-            "children_output": "/media/children",
-            "naming_mode": "off",
-        }
+    stored_config = {
+        "enabled": True,
+        "incoming": "/legacy/incoming",
+        "tv_output": "/legacy/tv",
+        "movie_output": "/legacy/movie",
+        "children_output": "/legacy/children",
+        "naming_mode": "preview",
+    }
+    runtime_config = {
+        **stored_config,
+        "incoming": "/moviepilot/incoming",
+        "tv_output": "/moviepilot/tv",
+        "movie_output": "/moviepilot/movie",
+        "children_output": "/moviepilot/children",
+    }
+    observed_configs = []
+    plugin.get_config = MagicMock(return_value=stored_config)
+    plugin._review_path_config = MagicMock(return_value=runtime_config)
+    plugin._process_course = MagicMock(
+        side_effect=lambda *_args, **_kwargs: observed_configs.append(plugin._get_config())
     )
-    plugin._process_course = MagicMock()
     entries = [
         "#recycle",
         "@eaDir",
@@ -232,6 +275,12 @@ def test_scan_entrypoint_skips_system_entries_without_skipping_normal_hash_direc
         plugin._run(force=True)
 
     assert {call.args[0] for call in plugin._process_course.call_args_list} == {"#课程资料", "普通课程"}
+    assert all(item["incoming"] == "/moviepilot/incoming" for item in observed_configs)
+    assert all(
+        call.kwargs["source_root"] == "/moviepilot/incoming"
+        for call in plugin._process_course.call_args_list
+    )
+    assert plugin._get_config()["incoming"] == "/legacy/incoming"
 
 
 def test_review_rows_hide_persisted_system_entries():

@@ -406,17 +406,27 @@ def test_v3_scan_entrypoint_skips_system_entries_without_skipping_normal_hash_di
     module = load_v3_courseorganizer()
     plugin = module.CourseOrganizer.__new__(module.CourseOrganizer)
     plugin._logger = MagicMock()
-    plugin._get_config = MagicMock(
-        return_value={
-            "enabled": True,
-            "incoming": "/media/incoming",
-            "tv_output": "/media/tv",
-            "movie_output": "/media/movie",
-            "children_output": "/media/children",
-            "naming_mode": "off",
-        }
+    stored_config = {
+        "enabled": True,
+        "incoming": "/legacy/incoming",
+        "tv_output": "/legacy/tv",
+        "movie_output": "/legacy/movie",
+        "children_output": "/legacy/children",
+        "naming_mode": "preview",
+    }
+    runtime_config = {
+        **stored_config,
+        "incoming": "/moviepilot/incoming",
+        "tv_output": "/moviepilot/tv",
+        "movie_output": "/moviepilot/movie",
+        "children_output": "/moviepilot/children",
+    }
+    observed_configs = []
+    plugin.get_config = MagicMock(return_value=stored_config)
+    plugin._review_path_config = MagicMock(return_value=runtime_config)
+    plugin._process_course = MagicMock(
+        side_effect=lambda *_args, **_kwargs: observed_configs.append(plugin._get_config())
     )
-    plugin._process_course = MagicMock()
     entries = [
         "#recycle",
         "@eaDir",
@@ -436,6 +446,12 @@ def test_v3_scan_entrypoint_skips_system_entries_without_skipping_normal_hash_di
         plugin._run(force=True)
 
     assert {call.args[0] for call in plugin._process_course.call_args_list} == {"#课程资料", "普通课程"}
+    assert all(item["incoming"] == "/moviepilot/incoming" for item in observed_configs)
+    assert all(
+        call.kwargs["source_root"] == "/moviepilot/incoming"
+        for call in plugin._process_course.call_args_list
+    )
+    assert plugin._get_config()["incoming"] == "/legacy/incoming"
 
 
 def test_v3_review_rows_hide_persisted_system_entries():

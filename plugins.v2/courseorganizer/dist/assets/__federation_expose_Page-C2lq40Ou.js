@@ -1393,27 +1393,27 @@ return (_ctx, _cache) => {
               default: _withCtx(() => [...(_cache[28] || (_cache[28] = [
                 _createElementVNode("div", null, [
                   _createElementVNode("strong", null, "1. 目录来自 MoviePilot"),
-                  _createElementVNode("p", null, "插件直接读取「设置 → 存储 & 目录」，沿用媒体类型、媒体类别、存储、整理方式、智能重命名、影视刮削和自动监控。")
+                  _createElementVNode("p", null, "插件直接读取「设置 → 存储 & 目录」，沿用媒体类型、媒体类别、存储、整理方式、智能重命名和影视刮削。")
                 ], -1),
                 _createElementVNode("div", null, [
                   _createElementVNode("strong", null, "2. 文件夹何时显示"),
                   _createElementVNode("p", null, "插件会递归检查整个文件夹。目录内没有正在下载的临时或缓存文件，并且内容保持稳定后，才会显示在待整理列表。")
                 ], -1),
                 _createElementVNode("div", null, [
-                  _createElementVNode("strong", null, "3. 先扫描，再确认"),
-                  _createElementVNode("p", null, "重新扫描不会移动文件。检查建议名称和目标媒体库后，「确认并整理」才会执行文件操作。")
+                  _createElementVNode("strong", null, "3. 自动整理符合条件的项目"),
+                  _createElementVNode("p", null, "默认只扫描并生成建议，不会移动文件。开启自动整理后，仅识别可靠且目标媒体库明确的项目会自动执行；不确定项目仍等待人工确认。")
                 ], -1),
                 _createElementVNode("div", null, [
                   _createElementVNode("strong", null, "4. 智能助手（如 DeepSeek）"),
-                  _createElementVNode("p", null, "先在 MoviePilot「设置 → 智能助手」配置模型，再到插件设置中开启。复杂目录名会先提取 TMDB 搜索词，再复核候选；不可用时自动使用本地规则。")
+                  _createElementVNode("p", null, "插件直接使用 MoviePilot「设置 → 智能助手」中的模型，无需在插件内重复配置。复杂目录名会先提取 TMDB 搜索词再复核候选；不可用或判断不明确时不会自动整理。")
                 ], -1),
                 _createElementVNode("div", null, [
                   _createElementVNode("strong", null, "5. 两种整理方式"),
                   _createElementVNode("p", null, "已关联媒体信息的项目使用 MoviePilot 的 TMDB 整理；课程等无媒体 ID 的项目按确认后的标题整理。")
                 ], -1),
                 _createElementVNode("div", null, [
-                  _createElementVNode("strong", null, "6. 人工确认期间"),
-                  _createElementVNode("p", null, "请关闭相同来源目录的自动监控，避免文件在确认前被系统提前整理。")
+                  _createElementVNode("strong", null, "6. 避免重复监控"),
+                  _createElementVNode("p", null, "同一来源目录不要同时启用 MoviePilot 自动监控和插件自动整理，避免两个任务竞争同一批文件。")
                 ], -1),
                 _createElementVNode("div", null, [
                   _createElementVNode("strong", null, "7. 批量任务自动排队"),
@@ -1449,6 +1449,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8bfe373c"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6d15f4aa"]]);
 
 export { Page as default };

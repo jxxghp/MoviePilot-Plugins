@@ -2900,7 +2900,7 @@ class CourseOrganizer(_PluginBase):
         return self._review_response(True, latest or {}, "已保存 TMDB 关联")
 
     def get_page(self) -> List[Dict[str, Any]]:
-        config = self._get_config()
+        config = self._review_path_config()
         naming_mode = str(config["naming_mode"])
         rows: List[Dict[str, Any]] = []
         if naming_mode != "off":
@@ -2950,7 +2950,11 @@ class CourseOrganizer(_PluginBase):
         preview_subtitle = (
             "命名已关闭，仍会整理；此页未读取预览记录"
             if naming_mode == "off"
-            else f"{len(display_rows)} 条记录 · 只记录建议，不移动文件"
+            else (
+                f"{len(display_rows)} 条记录 · 符合条件的项目将自动整理"
+                if naming_mode == "apply"
+                else f"{len(display_rows)} 条记录 · 只记录建议，不移动文件"
+            )
         )
         preview_table = {
             "component": "VDataTableVirtual",
@@ -3101,67 +3105,14 @@ class CourseOrganizer(_PluginBase):
         defaults = dict(config)
         advanced = [
             {
-                "component": "VTextField",
-                "props": {
-                    "model": "naming_auto_threshold",
-                    "label": "自动采用阈值（80~100）",
-                    "aria-label": "自动采用阈值（80~100）",
-                    "type": "number",
-                    "min": 80,
-                    "max": 100,
-                    "density": "comfortable",
-                    "variant": "outlined",
-                },
-            },
-            {
-                "component": "VTextField",
-                "props": {
-                    "model": "naming_min_margin",
-                    "label": "领先幅度（5~30）",
-                    "aria-label": "领先幅度（5~30）",
-                    "type": "number",
-                    "min": 5,
-                    "max": 30,
-                    "density": "comfortable",
-                    "variant": "outlined",
-                },
-            },
-            {
-                "component": "VSelect",
-                "props": {
-                    "model": "naming_uncertain_policy",
-                    "label": "低置信度处理",
-                    "aria-label": "低置信度处理",
-                    "items": [
-                        {"title": "保留本地名称继续整理", "value": "local"},
-                        {"title": "暂停整理，等待人工确认", "value": "hold"},
-                    ],
-                    "hint": "识别结果未达到阈值时，选择继续使用原目录名，或暂停并在插件详情页确认",
-                    "persistent-hint": True,
-                    "density": "comfortable",
-                    "variant": "outlined",
-                },
-            },
-            {
                 "component": "VSwitch",
                 "props": {
-                    "model": "naming_ai_review",
-                    "label": "启用智能助手（如 DeepSeek）",
-                    "aria-label": "启用智能助手（如 DeepSeek）",
-                    "hint": "需先在 MoviePilot「设置 → 智能助手」中配置并启用模型；用于精简搜索词并复核候选",
+                    "model": "auto_organize",
+                    "label": "自动整理符合条件的项目",
+                    "aria-label": "自动整理符合条件的项目",
+                    "hint": "开启后，仅自动整理识别结果可靠且目标媒体库明确的项目；不确定项目继续保留在待确认列表",
                     "persistent-hint": True,
                     "color": "primary",
-                },
-            },
-            {
-                "component": "VSwitch",
-                "props": {
-                    "model": "naming_clear_cache_once",
-                    "label": "一次性清空识别缓存",
-                    "aria-label": "一次性清空识别缓存",
-                    "hint": "下次运行时清除旧识别结果；执行后自动复位",
-                    "persistent-hint": True,
-                    "color": "error",
                 },
             },
         ]
@@ -3180,7 +3131,7 @@ class CourseOrganizer(_PluginBase):
                             "variant": "tonal",
                             "class": "mb-3",
                         },
-                        "text": "识别来源、目录和命名规则均沿用 MoviePilot 系统设置，无需重复配置；以下仅控制自动识别结果的采用策略。",
+                        "text": "目录、媒体类型、分类规则、整理方式、重命名、刮削和智能助手均直接读取 MoviePilot 系统设置，不在插件内重复配置。",
                     },
                     {
                         "component": "VBtn",
@@ -3194,21 +3145,16 @@ class CourseOrganizer(_PluginBase):
                         },
                         "text": "打开 MoviePilot 存储与目录设置",
                     },
+                    *advanced,
                     {
-                        "component": "VExpansionPanels",
-                        "props": {"variant": "accordion"},
-                        "content": [
-                            {
-                                "component": "VExpansionPanel",
-                                "props": {"title": "高级识别设置", "value": "recognition"},
-                                "content": [
-                                    {
-                                        "component": "VExpansionPanelText",
-                                        "content": advanced,
-                                    }
-                                ],
-                            }
-                        ],
+                        "component": "VAlert",
+                        "props": {
+                            "type": "warning",
+                            "variant": "tonal",
+                            "density": "compact",
+                            "class": "mt-2",
+                        },
+                        "text": "开启自动整理前，请确认同一来源目录未同时启用 MoviePilot 自动监控，避免两个任务竞争同一批文件。",
                     },
                 ],
             }
@@ -3258,6 +3204,25 @@ class CourseOrganizer(_PluginBase):
             self._run()
 
     def _run(self, force: bool = False) -> None:
+        run_config_local = getattr(self, "_run_config_local", None)
+        if run_config_local is None:
+            run_config_local = threading.local()
+            self._run_config_local = run_config_local
+        original_config = getattr(run_config_local, "config", _MANUAL_DATA_UNSET)
+        runtime_config = self._review_path_config()
+        run_config_local.config = dict(runtime_config)
+        try:
+            self._run_with_config(force)
+        finally:
+            if original_config is _MANUAL_DATA_UNSET:
+                try:
+                    del run_config_local.config
+                except AttributeError:
+                    pass
+            else:
+                run_config_local.config = original_config
+
+    def _run_with_config(self, force: bool = False) -> None:
         config = self._get_config()
         if not force and not config.get("enabled"):
             self._logger.debug("CourseOrganizer[event=wait] plugin disabled")
@@ -5896,13 +5861,15 @@ class CourseOrganizer(_PluginBase):
             return value if 5 <= value <= 30 else default
 
         raw = config if isinstance(config, dict) else {}
-        naming_mode = str(raw.get("naming_mode", "preview") or "preview").strip().lower()
-        if naming_mode not in {"off", "preview", "apply"}:
-            naming_mode = "preview"
-
-        naming_uncertain_policy = str(raw.get("naming_uncertain_policy", "local")).lower()
-        if naming_uncertain_policy not in {"local", "hold"}:
-            naming_uncertain_policy = "local"
+        legacy_naming_mode = str(
+            raw.get("naming_mode", "preview") or "preview"
+        ).strip().lower()
+        legacy_auto_organize = legacy_naming_mode == "apply"
+        auto_organize = _coerce_bool(
+            raw.get("auto_organize", legacy_auto_organize),
+            legacy_auto_organize,
+        )
+        naming_mode = "apply" if auto_organize else "preview"
 
         return {
             "enabled": _coerce_bool(raw.get("enabled", False), False),
@@ -5914,14 +5881,12 @@ class CourseOrganizer(_PluginBase):
                 raw.get("children_output", raw.get("output", self.DEFAULT_CHILDREN_OUTPUT))
             ),
             "interval": self._normalize_interval(raw.get("interval", self.DEFAULT_INTERVAL)),
+            "auto_organize": auto_organize,
             "naming_mode": naming_mode,
             "naming_auto_threshold": _coerce_threshold(raw.get("naming_auto_threshold", 90), 90),
             "naming_min_margin": _coerce_margin(raw.get("naming_min_margin", 12), 12),
-            "naming_uncertain_policy": naming_uncertain_policy,
-            "naming_ai_review": _coerce_bool(
-                raw.get("naming_ai_review", False),
-                False,
-            ),
+            "naming_uncertain_policy": "hold",
+            "naming_ai_review": True,
             "naming_manual_overrides": str(raw.get("naming_manual_overrides", "")),
             "naming_clear_cache_once": _coerce_bool(
                 raw.get("naming_clear_cache_once", False),
