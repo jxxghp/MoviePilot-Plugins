@@ -118,6 +118,8 @@ LOGGER = logging.getLogger("LunaTVSource")
 DEFAULT_CONFIG_URL = (
     "https://raw.githubusercontent.com/hafrey1/LunaTV-config/main/LunaTV-config.json"
 )
+FALLBACK_CONFIG_PATH = Path(__file__).with_name("fallback_sources.json")
+SOURCE_CACHE_KEY = "luna_source_config_v1"
 DEFAULT_SOURCE_ALLOWLIST = (
     "suonizy.net,suoniapi.com,kuaichezy.com,caiji.kuaichezy.org,"
     "www.hongniuzy.com,www.hongniuzy2.com,wujinzy.net,wujinzy.me,"
@@ -125,6 +127,12 @@ DEFAULT_SOURCE_ALLOWLIST = (
     "ukuzy0.com,api.ukuapi88.com,www.xinlangzy.com,xinlangapi.com,okzyw.cc"
 )
 PLUGIN_MEDIA_SOURCE = "lunatv"
+
+
+# MoviePilot 3.0.0 returns before module resource providers are called when no
+# PT/indexer site is enabled. Keep this compatibility bridge inside the plugin.
+# Existing MoviePilot plugins use the same reversible runtime-wrapper pattern.
+_SEARCH_BRIDGE: Dict[str, Any] = {"owner": None, "chain": None, "originals": {}}
 
 
 class _CompatDownloaderTorrent:
@@ -138,12 +146,6 @@ class _CompatDownloaderTorrent:
 
     def dict(self, **_: Any) -> Dict[str, Any]:
         return self.model_dump()
-
-
-# MoviePilot 3.0.0 returns before module resource providers are called when no
-# PT/indexer site is enabled. Keep this compatibility bridge inside the plugin.
-# Existing MoviePilot plugins use the same reversible runtime-wrapper pattern.
-_SEARCH_BRIDGE: Dict[str, Any] = {"owner": None, "chain": None, "originals": {}}
 
 
 def _bridge_owner() -> Optional["LunaTVSource"]:
@@ -317,7 +319,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.24"
+    plugin_version = "0.4.25"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -336,6 +338,8 @@ class LunaTVSource(_PluginBase):
     _tmdb_cache: Dict[str, Dict[str, Any]] = {}
     _resource_search_lock = threading.RLock()
     _resource_search_cache: Dict[str, Tuple[float, List[Any]]] = {}
+    _source_config_origin = "未加载"
+    _source_config_error = ""
 
     def __init__(self) -> None:
         super().__init__()
@@ -344,6 +348,8 @@ class LunaTVSource(_PluginBase):
     def init_plugin(self, config: Optional[Dict[str, Any]] = None) -> None:
         self._config = dict(config or {})
         self._enabled = _bool(self._config.get("enabled"), False)
+        self._source_config_origin = "未加载"
+        self._source_config_error = ""
         # 智能助手始终读取 MoviePilot 全局配置；没有配置时由 AiTitleNormalizer 自动回退。
         # 保留旧版 ai_enabled 仅为兼容历史配置，不再让插件设置覆盖宿主设置。
         self._ai = AiTitleNormalizer(True, LOGGER)
@@ -687,12 +693,86 @@ class LunaTVSource(_PluginBase):
             if not configured_allowlist or configured_allowlist == DEFAULT_SOURCE_ALLOWLIST
             else _source_keys(configured_allowlist)
         )
-        sources = load_sources_from_url(
+        sources = self._load_sources(
             config_url,
             timeout=float(self._config.get("request_timeout") or 15),
             allowlist=allowlist,
         )
         return AppleCmsClient(sources=sources, timeout=float(self._config.get("request_timeout") or 15))
+
+    @staticmethod
+    def _sources_from_cache(value: Any, allowlist: Tuple[str, ...]) -> List[CmsSource]:
+        if not isinstance(value, list):
+            return []
+        allowed = {item.strip().lower() for item in allowlist if item.strip()}
+        sources: List[CmsSource] = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key") or "").strip().lower()
+            api = str(item.get("api") or "").strip()
+            if not key or not api:
+                continue
+            host = urllib.parse.urlparse(api).hostname or key
+            if allowed and not ({key, host.lower()} & allowed):
+                continue
+            sources.append(
+                CmsSource(
+                    key=key,
+                    name=str(item.get("name") or key),
+                    api=api,
+                    detail=str(item.get("detail") or ""),
+                    comment=str(item.get("comment") or ""),
+                )
+            )
+        return sources
+
+    @staticmethod
+    def _bundled_sources(allowlist: Tuple[str, ...]) -> List[CmsSource]:
+        try:
+            payload = json.loads(FALLBACK_CONFIG_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+        from .cms import parse_config
+
+        return parse_config(payload, allowlist=allowlist)
+
+    def _load_sources(
+        self,
+        config_url: str,
+        *,
+        timeout: float,
+        allowlist: Tuple[str, ...],
+    ) -> List[CmsSource]:
+        """Load sources with a persistent cache and bundled offline fallback.
+
+        UGREEN deployments can run without outbound access to GitHub. A failed
+        refresh must not make the plugin appear to have zero sources when a
+        previous or bundled configuration is available.
+        """
+
+        try:
+            sources = load_sources_from_url(config_url, timeout=timeout, allowlist=allowlist)
+            if not sources:
+                raise ValueError("远程配置未包含有效资源站")
+            self.save_data(SOURCE_CACHE_KEY, [source.to_dict() for source in sources])
+            self._source_config_origin = "远程配置"
+            self._source_config_error = ""
+            return sources
+        except Exception as exc:
+            self._source_config_error = str(exc)
+            cached = self._sources_from_cache(self.get_data(SOURCE_CACHE_KEY), allowlist)
+            if cached:
+                self._source_config_origin = "本地缓存"
+                self._logger.warning("LunaTV config unavailable; using %s cached sources", len(cached))
+                return cached
+            bundled = self._bundled_sources(allowlist)
+            if bundled:
+                self._source_config_origin = "内置快照"
+                self._logger.warning("LunaTV config unavailable; using %s bundled sources", len(bundled))
+                return bundled
+            self._source_config_origin = "加载失败"
+            raise
 
     @staticmethod
     def _host_media_source() -> Any:
@@ -915,6 +995,9 @@ class LunaTVSource(_PluginBase):
         if cached is not None and (
             cached.get("status") != "matched"
             or cached.get("poster_path")
+            # 原生资源搜索只需要默认关联，不需要给插件详情页准备候选
+            # 下拉项。即使宿主没有返回海报，也直接复用该关联，避免
+            # 每个 CMS 条目都再次触发 MoviePilot 的 TMDB 链。
             or not include_candidates
         ):
             association = dict(cached)
@@ -923,12 +1006,9 @@ class LunaTVSource(_PluginBase):
                 and association.get("status") == "matched"
                 and not association.get("candidates")
             ):
-                if include_candidates:
-                    candidates = self._search_tmdb_candidates(
-                        query, result.year, result.media_type
-                    )
-                    if candidates:
-                        association["candidates"] = candidates
+                candidates = self._search_tmdb_candidates(query, result.year, result.media_type)
+                if candidates:
+                    association["candidates"] = candidates
                     with self._tmdb_cache_lock:
                         self._tmdb_cache[cache_key] = dict(association)
                         self.save_data("tmdb_match_cache_v1", dict(self._tmdb_cache))
@@ -964,9 +1044,12 @@ class LunaTVSource(_PluginBase):
                     "vote_average": getattr(media, "vote_average", None),
                     "release_date": getattr(media, "release_date", None),
                 }
-                candidates = self._search_tmdb_candidates(query, result.year, result.media_type)
-                if candidates:
-                    association["candidates"] = candidates
+                if include_candidates:
+                    candidates = self._search_tmdb_candidates(
+                        query, result.year, result.media_type
+                    )
+                    if candidates:
+                        association["candidates"] = candidates
         except Exception as exc:
             self._logger.debug("TMDB 默认关联失败 title=%s: %s", query, exc)
             association = {"status": "error", "query": query, "message": str(exc)}
@@ -1283,6 +1366,10 @@ class LunaTVSource(_PluginBase):
                     "source": "插件设置" if configured_root else ("MoviePilot 目录设置" if directories else "未配置"),
                 },
                 "tmdb_association": True,
+                "source_config": {
+                    "origin": self._source_config_origin,
+                    "error": self._source_config_error,
+                },
             },
         }
 
@@ -1580,7 +1667,7 @@ class LunaTVSource(_PluginBase):
                     if existing_path is not None:
                         # Older plugin versions could leave a correctly
                         # downloaded MP4/STRM without the V3 download-history
-                        # rows. Reconcile only that original artifact: do not
+                        # rows.  Reconcile only that original artifact: do not
                         # run transfer again or fabricate TransferHistory.
                         self._record_native_history(task, str(existing_path))
                         reconciled += 1
@@ -1773,7 +1860,6 @@ class LunaTVSource(_PluginBase):
         del delete_file, downloader
         return self._control_queue_tasks(hashs, "remove")
 
-
     def get_module(self) -> Dict[str, Any]:
         """接入 V3 媒体识别、资源搜索、下载和活跃任务查询入口。"""
         if not self._enabled:
@@ -1863,7 +1949,16 @@ class LunaTVSource(_PluginBase):
         results: List[CmsResult],
         mtype: Any = None,
     ) -> CmsResult:
-        """为一次多源原生搜索构造唯一的 TMDB 关联上下文。"""
+        """Build one TMDB lookup context for an entire CMS resource search.
+
+        A native resource search fans out to several CMS sources.  Those
+        sources often return the same title with different IDs, so associating
+        every row separately serializes the MoviePilot TMDB chain after the
+        parallel CMS work has already completed.  The native keyword is the
+        user-selected media context; use it once and reuse that identity for
+        every returned playable resource.
+        """
+
         first = results[0] if results else None
         requested_type = _enum_value(mtype)
         media_type = (
@@ -1886,7 +1981,8 @@ class LunaTVSource(_PluginBase):
         result: CmsResult,
         association: Dict[str, Any],
     ) -> CmsResult:
-        """复用搜索上下文关联，不再逐条查询 TMDB。"""
+        """Apply the one search-context association without re-querying TMDB."""
+
         if association.get("status") == "matched":
             return apply_season_counts(result, association.get("season_counts") or {})
         return result
@@ -1900,7 +1996,10 @@ class LunaTVSource(_PluginBase):
             return []
         requested_type = _enum_value(mtype)
         cache_key = "|".join(
-            (normalize_search_title(keyword).casefold(), requested_type)
+            (
+                normalize_search_title(keyword).casefold(),
+                requested_type,
+            )
         )
         now = time.monotonic()
         with self._resource_search_lock:
@@ -1919,6 +2018,10 @@ class LunaTVSource(_PluginBase):
             require_playable=True,
             max_workers=8,
         )
+        # The resource search is one user-selected native media context, not
+        # one TMDB lookup per CMS source/result.  AI normalization and the
+        # default TMDB association therefore run exactly once here; the same
+        # host media identity is embedded in every returned download token.
         association: Dict[str, Any] = {}
         if results:
             context = self._resource_search_context(search_query, results, mtype)
