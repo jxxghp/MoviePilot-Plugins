@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, wait
 import json
 import re
-from concurrent.futures import ThreadPoolExecutor, wait
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, replace
@@ -17,7 +17,15 @@ _EPISODE_RE = re.compile(
     r"(?:^|[\s._\-])(?P<bare_episode>\d{1,4})(?:$|[\s._\-])",
     re.IGNORECASE,
 )
-_SEASON_RE = re.compile(r"(?:S|第\s*)(?P<season>\d{1,3})\s*(?:季|SEASON)?", re.IGNORECASE)
+_SEASON_RE = re.compile(
+    r"(?:S\s*(?P<s_season>\d{1,3})\s*(?:季|SEASON)?|"
+    r"第\s*(?P<season>\d{1,3})\s*季)",
+    re.IGNORECASE,
+)
+_CN_SEASON_RE = re.compile(
+    r"(?:第\s*)(?P<season>[一二两三四五六七八九十百千万]+)\s*季",
+    re.IGNORECASE,
+)
 _SEASON_RANGE_RE = re.compile(
     r"(?:第\s*)?(?P<start>\d{1,3})\s*[-~至]\s*(?P<end>\d{1,3})\s*季|"
     r"S(?P<sstart>\d{1,3})\s*[-~至]\s*S?(?P<send>\d{1,3})",
@@ -38,6 +46,29 @@ def _season_range(label: str) -> Tuple[int, int]:
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _chinese_number(value: str) -> int:
+    """Convert the small Chinese numerals commonly used in CMS season names."""
+
+    text = _text(value).replace("两", "二")
+    if not text:
+        return 0
+    if text.isdigit():
+        return int(text)
+    digits = {"零": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+              "六": 6, "七": 7, "八": 8, "九": 9}
+    if all(char in digits for char in text):
+        result = 0
+        for char in text:
+            result = result * 10 + digits[char]
+        return result
+    if "十" in text:
+        left, _, right = text.partition("十")
+        tens = digits.get(left, 1) if left else 1
+        ones = digits.get(right, 0) if right else 0
+        return tens * 10 + ones
+    return 0
 
 
 def _json_get(url: str, timeout: float) -> Any:
@@ -64,7 +95,10 @@ def _extract_season_episode(label: str, default_season: int = 1) -> Tuple[int, i
 
 def _extract_season(label: str, default_season: int = 1) -> int:
     match = _SEASON_RE.search(_text(label))
-    return int(match.group("season")) if match else default_season
+    if match:
+        return int(match.group("season") or match.group("s_season"))
+    match = _CN_SEASON_RE.search(_text(label))
+    return _chinese_number(match.group("season")) if match else default_season
 
 
 def _season_hint(label: str, default_season: int = 1) -> int:
@@ -77,6 +111,7 @@ def _has_explicit_season(label: str) -> bool:
     return bool(
         re.search(r"S\s*\d{1,3}\s*E\s*\d{1,4}", value, re.IGNORECASE)
         or re.search(r"(?:第\s*)?\d{1,3}\s*季", value, re.IGNORECASE)
+        or _CN_SEASON_RE.search(value)
         or re.search(r"\bS\s*\d{1,3}\b", value, re.IGNORECASE)
     )
 
@@ -141,6 +176,38 @@ def _parse_play_urls(
     return sorted(deduped.values(), key=lambda item: (item.season, item.episode, item.url))
 
 
+def _source_status(comment: str) -> Tuple[str, str]:
+    """Map a LunaTV source remark to a non-live display state."""
+
+    remark = _text(comment).casefold()
+    if any(token in remark for token in ("403", "失效", "不可用")):
+        return "error", "异常"
+    if "不稳定" in remark:
+        return "warning", "不稳定"
+    if "备用" in remark:
+        return "warning", "备用"
+    return "ready", "已加载"
+
+
+def _source_search_status(comment: str, status: str) -> Tuple[str, str]:
+    """Map a LunaTV source remark to its documented search capability."""
+
+    if status == "error":
+        return "unavailable", "不可用"
+
+    remark = _text(comment).casefold()
+    # ``无搜索结果`` is a distinct configured capability note.  Check it
+    # before the unsupported wording so it is never presented as a disabled
+    # search source by a future broader matching rule.
+    if "无搜索结果" in remark:
+        return "empty", "无结果"
+    if any(token in remark for token in ("暂不支持搜索", "无法搜索", "禁止搜索")):
+        return "unsupported", "不支持"
+    if "污染搜索结果" in remark:
+        return "degraded", "结果异常"
+    return "supported", "支持"
+
+
 @dataclass(frozen=True)
 class CmsSource:
     key: str
@@ -150,12 +217,26 @@ class CmsSource:
     comment: str = ""
 
     def to_dict(self) -> Dict[str, str]:
+        """Return stable source metadata for the plugin workbench.
+
+        The upstream LunaTV configuration carries human-maintained remarks, not
+        health-check telemetry.  Keep the presentation state derived solely
+        from that remark so the UI cannot imply a live availability probe.
+        """
+
+        status, status_label = _source_status(self.comment)
+        search_status, search_label = _source_search_status(self.comment, status)
         return {
             "key": self.key,
             "name": self.name,
             "api": self.api,
             "detail": self.detail,
             "comment": self.comment,
+            "url": self.detail or self.api,
+            "status": status,
+            "status_label": status_label,
+            "search_status": search_status,
+            "search_label": search_label,
         }
 
 
@@ -218,7 +299,12 @@ def _media_type(item: Mapping[str, Any]) -> str:
     if any(token in value for token in ("动漫", "动画", "纪录")):
         title = _text(item.get("vod_name"))
         play_url = _text(item.get("vod_play_url"))
-        if _SEASON_RE.search(title) or re.search(r"第\s*\d{1,4}\s*[集话]", title) or "#" in play_url:
+        if (
+            _SEASON_RE.search(title)
+            or _CN_SEASON_RE.search(title)
+            or re.search(r"第\s*\d{1,4}\s*[集话]", title)
+            or "#" in play_url
+        ):
             return "tv"
     return "movie"
 
@@ -355,7 +441,13 @@ class AppleCmsClient:
         self.parallel_wait_timeout = parallel_wait_timeout
 
     def _parallel_wait_seconds(self) -> float:
-        """Return the total budget for a parallel source search."""
+        """Return the total budget for a parallel source search.
+
+        The optional override keeps the timeout behavior deterministic in
+        tests; production callers use a bounded budget derived from the
+        per-source request timeout.
+        """
+
         if self.parallel_wait_timeout is not None:
             return max(0.0, float(self.parallel_wait_timeout))
         return max(20.0, min(30.0, float(self.timeout) * 2))
@@ -475,6 +567,7 @@ class AppleCmsClient:
                 futures.append(
                     (
                         idx,
+                        source,
                         executor.submit(
                             self._search_source,
                             source=source,
@@ -486,13 +579,16 @@ class AppleCmsClient:
                     )
                 )
             done_futures, pending_futures = wait(
-                [future for _, future in futures],
+                [future for _, _, future in futures],
                 timeout=self._parallel_wait_seconds(),
             )
+            # Do not leave queued sources running after the total search
+            # budget expires. Running requests cannot be forcefully stopped,
+            # but queued futures can be cancelled before executor shutdown.
             for future in pending_futures:
                 future.cancel()
             source_results: Dict[int, List[CmsResult]] = {}
-            for idx, future in futures:
+            for idx, source, future in futures:
                 if future not in done_futures:
                     continue
                 try:
@@ -509,4 +605,6 @@ class AppleCmsClient:
                             return results
             return results[:limit]
         finally:
+            # ``wait=False`` is intentional: a slow third-party source must
+            # not hold up the native search response after the budget.
             executor.shutdown(wait=False, cancel_futures=True)

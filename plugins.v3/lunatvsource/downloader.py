@@ -7,6 +7,7 @@ import ctypes.util
 import http.server
 import os
 import re
+import selectors
 import socketserver
 import subprocess
 import tempfile
@@ -157,6 +158,9 @@ class DownloadTask:
     created_at: float = field(default_factory=time.time)
     completed_at: float = 0.0
     attempts: int = 0
+    # MoviePilot's native download projection uses a 0..1 value.  Older
+    # persisted tasks do not have this field and are restored with 0.0.
+    progress: float = 0.0
 
     @classmethod
     def from_episode(
@@ -346,6 +350,7 @@ class DownloadQueue:
             if task is None:
                 return {"processed": 0}
             task.state = "running"
+            task.progress = max(0.0, min(1.0, float(task.progress or 0.0)))
             task.attempts += 1
             self._running = True
             self._current_task_id = task.task_id
@@ -388,6 +393,7 @@ class DownloadQueue:
             tasks = self._read()
             current = next((item for item in tasks if item.task_id == task.task_id), task)
             current.state = "completed"
+            current.progress = 1.0
             current.output = output
             current.completed_at = time.time()
             task.state = current.state
@@ -442,7 +448,13 @@ class DownloadQueue:
 
         temp_path = destination.with_suffix(destination.suffix + ".part")
         try:
-            self._run_ffmpeg(task.ffmpeg_path, task.url, temp_path, self._control_event)
+            self._run_ffmpeg(
+                task.ffmpeg_path,
+                task.url,
+                temp_path,
+                self._control_event,
+                lambda progress: self._update_progress(task.task_id, progress),
+            )
         except Exception:
             # 失败任务不把残留缓存留在媒体库目录，避免 Emby/监控把半成品当成文件夹内容。
             try:
@@ -472,20 +484,74 @@ class DownloadQueue:
                 break
             current = current.parent
 
+    def _update_progress(self, task_id: str, progress: float) -> None:
+        """Persist ffmpeg's current VOD progress for the native download page."""
+
+        value = max(0.0, min(0.99, float(progress or 0.0)))
+        with self._lock:
+            tasks = self._read()
+            task = next((item for item in tasks if item.task_id == task_id), None)
+            if task is None or task.state != "running":
+                return
+            task.progress = value
+            self._write(tasks)
+
+    @staticmethod
+    def _playlist_duration(path: Path, visited: Optional[set[str]] = None) -> float:
+        """Estimate VOD duration from a materialized HLS playlist.
+
+        A master playlist generally contains local child playlist paths after
+        ``_prepare_hls_input``.  Use the longest child duration so adaptive
+        variants do not make progress jump past 100%; for a media playlist the
+        sum of ``#EXTINF`` values is the exact VOD duration.
+        """
+
+        visited = visited or set()
+        try:
+            resolved = str(path.resolve())
+            if resolved in visited:
+                return 0.0
+            visited.add(resolved)
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return 0.0
+
+        durations = []
+        child_durations = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#EXTINF:"):
+                value = stripped.partition(":")[2].partition(",")[0]
+                try:
+                    durations.append(float(value))
+                except ValueError:
+                    continue
+            elif stripped and not stripped.startswith("#"):
+                child = Path(stripped)
+                if child.is_file() and child.suffix.lower() in {".m3u8", ".m3u"}:
+                    child_durations.append(DownloadQueue._playlist_duration(child, visited))
+        if durations:
+            return max(0.0, sum(durations))
+        return max(child_durations, default=0.0)
+
     @staticmethod
     def _run_ffmpeg(
         ffmpeg_path: str,
         url: str,
         output: Path,
         control_event: Optional[threading.Event] = None,
+        progress_callback: Optional[Callable[[float], None]] = None,
     ) -> None:
         with tempfile.TemporaryDirectory(prefix="lunatv-hls-") as temp_dir, _SegmentProxy() as proxy:
             input_url = DownloadQueue._prepare_hls_input(url, Path(temp_dir), proxy.url_for)
+            duration = DownloadQueue._playlist_duration(Path(input_url))
+            progress_args = ["-nostats", "-progress", "pipe:1"] if progress_callback is not None else []
             command = [
                 ffmpeg_path or "ffmpeg",
                 "-hide_banner",
                 "-loglevel",
                 "error",
+                *progress_args,
                 "-y",
                 "-protocol_whitelist",
                 "file,http,https,tcp,tls,crypto",
@@ -519,35 +585,54 @@ class DownloadQueue:
                     raise RuntimeError(detail[-1200:])
                 return
 
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             started_at = time.monotonic()
-            stdout = ""
-            stderr = ""
+            stdout_lines: List[str] = []
+            stderr_lines: List[str] = []
+            selector = selectors.DefaultSelector()
+            if process.stdout is not None:
+                selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+            if process.stderr is not None:
+                selector.register(process.stderr, selectors.EVENT_READ, "stderr")
             while True:
                 if control_event is not None and control_event.is_set():
                     process.terminate()
                     try:
-                        stdout, stderr = process.communicate(timeout=5)
+                        process.communicate(timeout=5)
                     except subprocess.TimeoutExpired:
                         process.kill()
-                        stdout, stderr = process.communicate()
+                        process.communicate()
                     raise _QueueControl("controlled")
                 if time.monotonic() - started_at > 6 * 60 * 60:
                     process.kill()
                     process.communicate()
                     raise TimeoutError("ffmpeg 下载超时")
-                try:
-                    stdout, stderr = process.communicate(timeout=1)
+                events = selector.select(timeout=0.5)
+                for key, _ in events:
+                    line = key.fileobj.readline()
+                    if not line:
+                        try:
+                            selector.unregister(key.fileobj)
+                        except Exception:
+                            pass
+                        continue
+                    if key.data == "stderr":
+                        stderr_lines.append(line)
+                        continue
+                    stdout_lines.append(line)
+                    if progress_callback is not None and duration > 0:
+                        name, _, raw_value = line.strip().partition("=")
+                        if name == "out_time_ms":
+                            try:
+                                progress_callback(float(raw_value) / 1_000_000 / duration)
+                            except (TypeError, ValueError):
+                                pass
+                if process.poll() is not None and not selector.get_map():
                     break
-                except subprocess.TimeoutExpired:
-                    continue
+            selector.close()
+            process.wait(timeout=5)
             if process.returncode != 0:
-                detail = (stderr or stdout or "ffmpeg 执行失败").strip()
+                detail = ("".join(stderr_lines) or "".join(stdout_lines) or "ffmpeg 执行失败").strip()
                 raise RuntimeError(detail[-1200:])
 
     @staticmethod
