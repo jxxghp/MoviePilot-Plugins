@@ -317,7 +317,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.21"
+    plugin_version = "0.4.22"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -1655,13 +1655,13 @@ class LunaTVSource(_PluginBase):
         downloader: Optional[str] = None,
         include_all_tags: bool = False,
     ) -> Optional[List[Any]]:
-        """提供 LunaTV 队列中的活跃任务，不接管其他原生下载器查询。"""
+        """提供 LunaTV 队列中的活跃任务，由宿主继续合并系统下载器结果。"""
         del include_all_tags
         if not self._enabled:
             return None
-        if downloader and str(downloader).strip() != "LunaTVSource":
-            # ``None`` 让 ModuleDispatcher 继续交给 qBittorrent 等提供者。
-            return None
+        # MoviePilot 的原生下载页始终携带当前系统下载器名称；模块调度器会把
+        # 本列表与该系统下载器的结果继续合并，因此这里不能按名称排除插件任务。
+        del downloader
 
         if isinstance(hashs, str):
             requested_hashes = {hashs.strip()} if hashs.strip() else set()

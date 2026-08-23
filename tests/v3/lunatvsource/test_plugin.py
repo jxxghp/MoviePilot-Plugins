@@ -561,7 +561,18 @@ def test_active_queue_tasks_project_to_native_download_list_and_filter():
     assert str(torrents[1].media.media_source.value) == "themoviedb"
     assert torrents[1].media.media_id == "123"
 
-    assert plugin.list_torrents(downloader="qBittorrent") is None
+    assert sorted(torrent.hash for torrent in plugin.list_torrents(downloader="qBittorrent")) == [
+        "pending-task",
+        "running-task",
+    ]
+    assert sorted(torrent.hash for torrent in plugin.list_torrents(downloader="下载器1")) == [
+        "pending-task",
+        "running-task",
+    ]
+    assert sorted(torrent.hash for torrent in plugin.list_torrents(downloader="我的自定义客户端")) == [
+        "pending-task",
+        "running-task",
+    ]
     assert plugin.list_torrents(status="completed") == []
     assert [torrent.hash for torrent in plugin.list_torrents(
         downloader="LunaTVSource", hashs=["pending-task"]
