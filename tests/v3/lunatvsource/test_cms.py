@@ -1,4 +1,5 @@
 import json
+import time
 
 from app.plugins.lunatvsource.cms import (
     AppleCmsClient,
@@ -229,6 +230,45 @@ def test_search_parallel_does_not_abandon_other_sources_on_error():
     )
     assert len(results) == 1
     assert results[0].source_key == "good"
+
+
+def test_search_parallel_returns_completed_sources_within_total_budget():
+    from threading import Event
+
+    sources = [
+        CmsSource(key="slow", name="慢源", api="https://slow.example/vod"),
+        CmsSource(key="second", name="第二", api="https://second.example/vod"),
+        CmsSource(key="third", name="第三", api="https://third.example/vod"),
+    ]
+    client = AppleCmsClient(sources, parallel_wait_timeout=0.05)
+    slow_started = Event()
+    release_slow = Event()
+
+    def fake_search_source(source, **params):
+        if source.key == "slow":
+            slow_started.set()
+            release_slow.wait(1)
+        elif source.key == "second":
+            time.sleep(0.02)
+        item = {
+            "vod_id": source.key,
+            "vod_name": "示例电影",
+            "type_name": "电影",
+            "vod_play_from": "在线播放",
+            "vod_play_url": f"正片$https://{source.key}.example/movie.m3u8",
+        }
+        return [_result_from_item(source, item)]
+
+    client._search_source = fake_search_source
+    started = time.monotonic()
+    results = client.search("示例电影", limit=10, max_workers=3)
+    elapsed = time.monotonic() - started
+    try:
+        assert slow_started.is_set()
+        assert elapsed < 0.3
+        assert [item.source_key for item in results] == ["second", "third"]
+    finally:
+        release_slow.set()
 
 
 def test_search_skips_non_playable_source_when_playable_result_is_required():
