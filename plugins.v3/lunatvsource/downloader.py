@@ -22,6 +22,14 @@ from typing import Any, Callable, Dict, List, Optional
 from .naming import media_path
 
 
+class _QueueControl(RuntimeError):
+    """Internal signal used to stop the active ffmpeg process safely."""
+
+    def __init__(self, action: str) -> None:
+        super().__init__(action)
+        self.action = action
+
+
 def _mpegts_payload_offset(data: bytes) -> int:
     """Return the start of an MPEG-TS payload hidden behind a JPEG header."""
 
@@ -208,6 +216,9 @@ class DownloadQueue:
         self._lock = threading.RLock()
         self._stop = False
         self._running = False
+        self._current_task_id = ""
+        self._control_action = ""
+        self._control_event = threading.Event()
         self._recover_interrupted_tasks()
 
     def _recover_interrupted_tasks(self) -> None:
@@ -266,6 +277,56 @@ class DownloadQueue:
                     return True
         return False
 
+    def pause(self, task_id: str) -> bool:
+        """Pause a queued task, or request safe termination of active ffmpeg."""
+        with self._lock:
+            tasks = self._read()
+            task = next((item for item in tasks if item.task_id == task_id), None)
+            if task is None:
+                return False
+            if task.state == "paused":
+                return True
+            if task.state == "pending":
+                task.state = "paused"
+                task.error = ""
+                self._write(tasks)
+                return True
+            if task.state == "running" and self._current_task_id == task_id:
+                self._control_action = "pause"
+                self._control_event.set()
+                return True
+        return False
+
+    def resume(self, task_id: str) -> bool:
+        """Return a paused task to the serial queue."""
+        with self._lock:
+            tasks = self._read()
+            task = next((item for item in tasks if item.task_id == task_id), None)
+            if task is None:
+                return False
+            if task.state in {"pending", "running"}:
+                return True
+            if task.state == "paused":
+                task.state = "pending"
+                task.error = ""
+                self._write(tasks)
+                return True
+        return False
+
+    def remove(self, task_id: str) -> bool:
+        """Remove a non-completed task and stop ffmpeg first when necessary."""
+        with self._lock:
+            tasks = self._read()
+            task = next((item for item in tasks if item.task_id == task_id), None)
+            if task is None or task.state == "completed":
+                return False
+            if task.state == "running" and self._current_task_id == task_id:
+                self._control_action = "remove"
+                self._control_event.set()
+                return True
+            self._write([item for item in tasks if item.task_id != task_id])
+            return True
+
     def list_tasks(self) -> List[Dict[str, Any]]:
         with self._lock:
             return [task.to_dict() for task in reversed(self._read())]
@@ -287,9 +348,28 @@ class DownloadQueue:
             task.state = "running"
             task.attempts += 1
             self._running = True
+            self._current_task_id = task.task_id
+            self._control_action = ""
+            self._control_event.clear()
             self._write(tasks)
         try:
             output = self._execute(task)
+        except _QueueControl as exc:
+            with self._lock:
+                action = self._control_action or exc.action
+                tasks = self._read()
+                current = next((item for item in tasks if item.task_id == task.task_id), None)
+                if action == "remove":
+                    tasks = [item for item in tasks if item.task_id != task.task_id]
+                elif current is not None:
+                    current.state = "paused"
+                    current.error = ""
+                self._write(tasks)
+                self._running = False
+                self._current_task_id = ""
+                self._control_action = ""
+                self._control_event.clear()
+            return {"processed": 1, "task_id": task.task_id, "state": action}
         except Exception as exc:
             with self._lock:
                 tasks = self._read()
@@ -298,6 +378,9 @@ class DownloadQueue:
                 current.error = str(exc)
                 self._write(tasks)
                 self._running = False
+                self._current_task_id = ""
+                self._control_action = ""
+                self._control_event.clear()
             self._notify("LunaTV 下载失败", f"{task.title} S{task.season:02d}E{task.episode:02d}：{exc}")
             return {"processed": 1, "task_id": task.task_id, "state": "failed", "error": str(exc)}
 
@@ -312,6 +395,9 @@ class DownloadQueue:
             task.completed_at = current.completed_at
             self._write(tasks)
             self._running = False
+            self._current_task_id = ""
+            self._control_action = ""
+            self._control_event.clear()
         if self._on_complete is not None:
             try:
                 self._on_complete(task, output)
@@ -356,7 +442,7 @@ class DownloadQueue:
 
         temp_path = destination.with_suffix(destination.suffix + ".part")
         try:
-            self._run_ffmpeg(task.ffmpeg_path, task.url, temp_path)
+            self._run_ffmpeg(task.ffmpeg_path, task.url, temp_path, self._control_event)
         except Exception:
             # 失败任务不把残留缓存留在媒体库目录，避免 Emby/监控把半成品当成文件夹内容。
             try:
@@ -387,7 +473,12 @@ class DownloadQueue:
             current = current.parent
 
     @staticmethod
-    def _run_ffmpeg(ffmpeg_path: str, url: str, output: Path) -> None:
+    def _run_ffmpeg(
+        ffmpeg_path: str,
+        url: str,
+        output: Path,
+        control_event: Optional[threading.Event] = None,
+    ) -> None:
         with tempfile.TemporaryDirectory(prefix="lunatv-hls-") as temp_dir, _SegmentProxy() as proxy:
             input_url = DownloadQueue._prepare_hls_input(url, Path(temp_dir), proxy.url_for)
             command = [
@@ -416,9 +507,47 @@ class DownloadQueue:
                 "mp4",
                 str(output),
             ]
-            completed = subprocess.run(command, capture_output=True, text=True, timeout=6 * 60 * 60)
-            if completed.returncode != 0:
-                detail = (completed.stderr or completed.stdout or "ffmpeg 执行失败").strip()
+            if control_event is None:
+                completed = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=6 * 60 * 60,
+                )
+                if completed.returncode != 0:
+                    detail = (completed.stderr or completed.stdout or "ffmpeg 执行失败").strip()
+                    raise RuntimeError(detail[-1200:])
+                return
+
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            started_at = time.monotonic()
+            stdout = ""
+            stderr = ""
+            while True:
+                if control_event is not None and control_event.is_set():
+                    process.terminate()
+                    try:
+                        stdout, stderr = process.communicate(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        stdout, stderr = process.communicate()
+                    raise _QueueControl("controlled")
+                if time.monotonic() - started_at > 6 * 60 * 60:
+                    process.kill()
+                    process.communicate()
+                    raise TimeoutError("ffmpeg 下载超时")
+                try:
+                    stdout, stderr = process.communicate(timeout=1)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+            if process.returncode != 0:
+                detail = (stderr or stdout or "ffmpeg 执行失败").strip()
                 raise RuntimeError(detail[-1200:])
 
     @staticmethod
@@ -537,3 +666,6 @@ class DownloadQueue:
     def stop(self) -> None:
         with self._lock:
             self._stop = True
+            if self._running:
+                self._control_action = "pause"
+                self._control_event.set()
