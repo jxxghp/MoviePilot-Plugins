@@ -2,7 +2,6 @@ import logging
 import ctypes
 import errno
 import hashlib
-import importlib
 import json
 import os
 import stat
@@ -36,7 +35,7 @@ except Exception:
         return default
 
 try:
-    from app.db.user_oper import get_current_active_superuser
+    from app.api.deps import get_current_active_superuser
 except Exception:
     get_current_active_superuser = None
 
@@ -54,7 +53,7 @@ REVIEW_AUTH_DEPENDENCY = (
 )
 
 try:
-    from app.log import logger as _logger
+    from app.sdk.logging import logger as _logger
 except Exception:
     _logger = logging.getLogger("CourseOrganizer")
 
@@ -86,6 +85,27 @@ try:
     from app import schemas as _schemas
 except Exception:
     _schemas = None
+
+try:
+    from app.chain.storage import StorageChain as _HostStorageChain
+    from app.chain.transfer import TransferChain as _HostTransferChain
+    from app.db.oper.systemconfig import SystemConfigOper as _HostSystemConfigOper
+    from app.schemas.types import (
+        ChainEventType as _HostChainEventType,
+        MediaSource as _HostMediaSource,
+        MediaType as _HostMediaType,
+        SystemConfigKey as _HostSystemConfigKey,
+    )
+    from app.sdk.events import eventmanager as _host_eventmanager
+except Exception:
+    _HostStorageChain = None
+    _HostTransferChain = None
+    _HostSystemConfigOper = None
+    _HostChainEventType = None
+    _HostMediaSource = None
+    _HostMediaType = None
+    _HostSystemConfigKey = None
+    _host_eventmanager = None
 
 from . import naming
 from .providers import (
@@ -134,52 +154,71 @@ _NATIVE_ADAPTER_UNSET = object()
 
 
 class _MoviePilotNativeAdapter:
-    """Lazy MoviePilot v2 bridge; importing host-only modules is deferred."""
+    """MoviePilot V3 bridge using public chains, SDK events and config storage."""
 
     def __init__(
         self,
-        directory_helper: Any,
+        system_config_oper: Any,
         storage_chain: Any,
         transfer_chain: Any,
         chain_event_type: Any,
         event_manager: Any,
+        media_source: Any,
         media_type: Any,
+        system_config_key: Any,
+        directory_model: Any,
     ) -> None:
-        self.directory_helper = directory_helper
+        self.system_config_oper = system_config_oper
         self.storage_chain = storage_chain
         self.transfer_chain = transfer_chain
         self.chain_event_type = chain_event_type
         self.event_manager = event_manager
+        self.media_source = media_source
         self.media_type = media_type
+        self.system_config_key = system_config_key
+        self.directory_model = directory_model
         self._rename_local = threading.local()
 
     @classmethod
     def load(cls) -> Optional["_MoviePilotNativeAdapter"]:
-        try:
-            directory_module = importlib.import_module("app.application.directory")
-        except Exception:
-            try:
-                directory_module = importlib.import_module("app.helper.directory")
-            except Exception:
-                return None
-        try:
-            storage_module = importlib.import_module("app.chain.storage")
-            transfer_module = importlib.import_module("app.chain.transfer")
-            types_module = importlib.import_module("app.schemas.types")
-            events_module = importlib.import_module("app.core.event")
-            return cls(
-                directory_helper=getattr(directory_module, "DirectoryHelper"),
-                storage_chain=getattr(storage_module, "StorageChain"),
-                transfer_chain=getattr(transfer_module, "TransferChain"),
-                chain_event_type=getattr(types_module, "ChainEventType"),
-                event_manager=getattr(events_module, "EventManager")(),
-                media_type=getattr(types_module, "MediaType", None),
+        directory_model = (
+            getattr(_schemas, "TransferDirectoryConf", None)
+            if _schemas is not None
+            else None
+        )
+        if any(
+            item is None
+            for item in (
+                _HostStorageChain,
+                _HostTransferChain,
+                _HostSystemConfigOper,
+                _HostChainEventType,
+                _HostMediaSource,
+                _HostMediaType,
+                _HostSystemConfigKey,
+                _host_eventmanager,
+                directory_model,
             )
-        except Exception:
+        ):
             return None
+        return cls(
+            system_config_oper=_HostSystemConfigOper,
+            storage_chain=_HostStorageChain,
+            transfer_chain=_HostTransferChain,
+            chain_event_type=_HostChainEventType,
+            event_manager=_host_eventmanager,
+            media_source=_HostMediaSource,
+            media_type=_HostMediaType,
+            system_config_key=_HostSystemConfigKey,
+            directory_model=directory_model,
+        )
 
     def get_directory_rules(self) -> List[Any]:
-        return list(self.directory_helper.get_dirs() or [])
+        raw_rules = self.system_config_oper().get(self.system_config_key.Directories) or []
+        return [
+            self.directory_model(**rule) if isinstance(rule, dict) else rule
+            for rule in raw_rules
+        ]
 
     def get_file_item(self, source_path: str, source_storage: str = "local") -> Any:
         chain = self.storage_chain()
@@ -187,10 +226,14 @@ class _MoviePilotNativeAdapter:
 
     def manual_transfer(self, **kwargs: Any) -> Any:
         chain = self.transfer_chain()
+        if isinstance(kwargs.get("media_source"), str):
+            kwargs["media_source"] = self.media_source(kwargs["media_source"])
         if self.media_type is not None and isinstance(kwargs.get("mtype"), str):
             try:
-                kwargs["mtype"] = self.media_type(
-                    "电影" if kwargs["mtype"] == "movie" else "电视剧"
+                kwargs["mtype"] = (
+                    self.media_type.MOVIE
+                    if kwargs["mtype"] == "movie"
+                    else self.media_type.TV
                 )
             except Exception:
                 pass
@@ -318,7 +361,7 @@ class CourseOrganizer(_PluginBase):
     plugin_config_prefix = "courseorganizer_"
     auth_level = 1
     plugin_order = 90
-    plugin_version = "1.7.14"
+    plugin_version = "2.0.4"
     plugin_desc = "稳定后识别、分类并整理到电视剧、电影或儿童媒体库"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
@@ -384,13 +427,14 @@ class CourseOrganizer(_PluginBase):
     def _moviepilot_host_present(self) -> bool:
         if self._native_adapter_override is not _NATIVE_ADAPTER_UNSET:
             return True
-        for module_name in ("app.application.directory", "app.helper.directory"):
-            try:
-                importlib.import_module(module_name)
-                return True
-            except Exception:
-                continue
-        return False
+        return all(
+            item is not None
+            for item in (
+                _HostStorageChain,
+                _HostTransferChain,
+                _HostSystemConfigOper,
+            )
+        )
 
     def _load_plugin_data(self, key: str, default: Any) -> Any:
         try:
@@ -506,7 +550,7 @@ class CourseOrganizer(_PluginBase):
         return "vue", "dist/assets"
 
     def get_api(self) -> List[Dict[str, Any]]:
-        return [
+        routes = [
             {
                 "path": "/review",
                 "endpoint": self.get_review_route,
@@ -543,6 +587,11 @@ class CourseOrganizer(_PluginBase):
                 "summary": "保存人工 TMDB 关联",
             },
         ]
+        if _schemas is not None and hasattr(_schemas, "Response"):
+            response_model = _schemas.Response[Dict[str, Any]]
+            for route in routes:
+                route["response_model"] = response_model
+        return routes
 
     @staticmethod
     def _review_response(success: bool, data: Any = None, message: str = "") -> Any:
@@ -2314,14 +2363,9 @@ class CourseOrganizer(_PluginBase):
         if fileitem is None:
             return "failed"
 
-        tmdbid: Optional[int] = None
-        doubanid: Optional[str] = None
         if media_source == "themoviedb":
             if not media_id.isdigit() or int(media_id) <= 0:
                 return "failed"
-            tmdbid = int(media_id)
-        else:
-            doubanid = media_id
         media_type = "movie" if decision.target_library == "movie" else "tv"
         try:
             with adapter.rename_context(course_path, decision.value):
@@ -2329,8 +2373,6 @@ class CourseOrganizer(_PluginBase):
                     fileitem=fileitem,
                     target_storage=str(rule.get("library_storage") or "local"),
                     target_path=Path(str(rule["path"])),
-                    tmdbid=tmdbid,
-                    doubanid=doubanid,
                     media_source=media_source,
                     media_id=media_id,
                     mtype=media_type,

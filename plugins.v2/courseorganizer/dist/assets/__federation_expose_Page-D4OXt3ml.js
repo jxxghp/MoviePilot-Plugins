@@ -1404,15 +1404,19 @@ return (_ctx, _cache) => {
                   _createElementVNode("p", null, "重新扫描不会移动文件。检查建议名称和目标媒体库后，「确认并整理」才会执行文件操作。")
                 ], -1),
                 _createElementVNode("div", null, [
-                  _createElementVNode("strong", null, "4. 两种整理方式"),
+                  _createElementVNode("strong", null, "4. 智能助手（如 DeepSeek）"),
+                  _createElementVNode("p", null, "先在 MoviePilot「设置 → 智能助手」配置模型，再到插件设置中开启。复杂目录名会先提取 TMDB 搜索词，再复核候选；不可用时自动使用本地规则。")
+                ], -1),
+                _createElementVNode("div", null, [
+                  _createElementVNode("strong", null, "5. 两种整理方式"),
                   _createElementVNode("p", null, "已关联媒体信息的项目使用 MoviePilot 的 TMDB 整理；课程等无媒体 ID 的项目按确认后的标题整理。")
                 ], -1),
                 _createElementVNode("div", null, [
-                  _createElementVNode("strong", null, "5. 人工确认期间"),
+                  _createElementVNode("strong", null, "6. 人工确认期间"),
                   _createElementVNode("p", null, "请关闭相同来源目录的自动监控，避免文件在确认前被系统提前整理。")
                 ], -1),
                 _createElementVNode("div", null, [
-                  _createElementVNode("strong", null, "6. 批量任务自动排队"),
+                  _createElementVNode("strong", null, "7. 批量任务自动排队"),
                   _createElementVNode("p", null, "可勾选多个项目后批量整理。任务会按顺序逐项执行，失败项目保留并继续下一项。")
                 ], -1)
               ]))]),
@@ -1445,6 +1449,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-34a29f02"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8bfe373c"]]);
 
 export { Page as default };

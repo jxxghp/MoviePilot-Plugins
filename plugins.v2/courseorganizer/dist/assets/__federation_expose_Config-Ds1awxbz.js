@@ -156,8 +156,10 @@ return (_ctx, _cache) => {
                   _createVNode(_component_VSwitch, {
                     modelValue: localConfig.value.naming_ai_review,
                     "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((localConfig.value.naming_ai_review) = $event)),
-                    label: "启用 AI 辅助复核",
-                    "aria-label": "启用 AI 辅助复核",
+                    label: "启用智能助手（如 DeepSeek）",
+                    "aria-label": "启用智能助手（如 DeepSeek）",
+                    hint: "需先在 MoviePilot「设置 → 智能助手」中配置并启用模型；用于精简搜索词并复核候选",
+                    "persistent-hint": "",
                     color: "primary"
                   }, null, 8, ["modelValue"]),
                   _createVNode(_component_VSwitch, {
@@ -208,6 +210,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-407241f9"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-13c75912"]]);
 
 export { Config as default };
