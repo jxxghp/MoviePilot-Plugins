@@ -239,7 +239,7 @@ def test_v3_nested_system_entries_are_excluded_from_scans(tmp_path):
     recycle.mkdir(parents=True)
     hidden.mkdir()
     (course / "main.mkv").write_bytes(b"main")
-    (recycle / "old.mkv").write_bytes(b"old")
+    (recycle / "old.part").write_bytes(b"old")
     (hidden / "still.part").write_bytes(b"partial")
     (course / "Thumbs.db").write_bytes(b"system")
 
@@ -258,7 +258,13 @@ def test_v3_nested_system_entries_are_excluded_from_scans(tmp_path):
     ]
     assert subtitle_map == {}
     assert [item[0] for item in plugin._snapshot_signature(str(course))] == ["main.mkv"]
+    assert plugin._has_incomplete_file(str(course)) is True
+
+    (hidden / "still.part").unlink()
     assert plugin._has_incomplete_file(str(course)) is False
+
+    (course / ".episode.mkv.part").write_bytes(b"partial")
+    assert plugin._has_incomplete_file(str(course)) is True
 
 
 def test_v3_metadata_provider_preserves_selected_source_and_media_id():

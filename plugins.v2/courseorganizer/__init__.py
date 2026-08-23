@@ -4204,11 +4204,11 @@ class CourseOrganizer(_PluginBase):
     def _has_incomplete_file(cls, course_path: str) -> bool:
         for root, dirnames, filenames in os.walk(course_path):
             dirnames[:] = [
-                name for name in dirnames if not cls._is_ignored_scan_entry(name)
+                name
+                for name in dirnames
+                if name.strip().casefold() not in cls.SYSTEM_SCAN_ENTRY_NAMES
             ]
             for filename in filenames:
-                if cls._is_ignored_scan_entry(filename):
-                    continue
                 if cls._is_incomplete(filename):
                     return True
         return False
