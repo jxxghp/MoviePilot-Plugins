@@ -361,7 +361,7 @@ class CourseOrganizer(_PluginBase):
     plugin_config_prefix = "courseorganizer_"
     auth_level = 1
     plugin_order = 90
-    plugin_version = "2.0.4"
+    plugin_version = "2.0.5"
     plugin_desc = "稳定后识别、分类并整理到电视剧、电影或儿童媒体库"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
@@ -372,6 +372,7 @@ class CourseOrganizer(_PluginBase):
     MEDIA_EXTENSIONS = {".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".m4v", ".m4a"}
     SUBTITLE_EXTENSIONS = {".srt", ".ass", ".ssa", ".sub", ".vtt"}
     INCOMPLETE_SUFFIXES = (".partial", ".part", ".tmp", ".crdownload", ".incomplete", ".!qb")
+    SYSTEM_SCAN_ENTRY_NAMES = frozenset({"#recycle", "@eadir", ".ds_store", "thumbs.db", "desktop.ini"})
     DEFAULT_INTERVAL = 300
     DEFAULT_INCOMING = "/volume1/未整理"
     DEFAULT_TV_OUTPUT = "/volume1/TV"
@@ -918,6 +919,12 @@ class CourseOrganizer(_PluginBase):
         text = str(value)
         valid, _ = naming.validate_manual_raw_title(text)
         return text if valid else ascii(text)
+
+    @staticmethod
+    def _is_ignored_scan_entry(entry: str) -> bool:
+        """Return whether a top-level incoming entry is a system/hidden item."""
+        name = str(entry)
+        return name.startswith(".") or name.casefold() in CourseOrganizer.SYSTEM_SCAN_ENTRY_NAMES
 
     @staticmethod
     def _manifest_stat_tuple(
@@ -1631,6 +1638,8 @@ class CourseOrganizer(_PluginBase):
             if not isinstance(source, dict):
                 continue
             raw_value = source.get("raw_title", "")
+            if self._is_ignored_scan_entry(raw_value):
+                continue
             if requested_raw_title is not None and raw_value != requested_raw_title:
                 continue
             if source.get("completed_at") is not None:
@@ -3313,6 +3322,8 @@ class CourseOrganizer(_PluginBase):
         processed = 0
         moved = 0
         for entry in sorted(os.listdir(incoming), key=self._natural_key):
+            if self._is_ignored_scan_entry(entry):
+                continue
             course_dir = os.path.join(incoming, entry)
             if not os.path.isdir(course_dir):
                 continue

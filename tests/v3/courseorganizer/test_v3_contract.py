@@ -3,6 +3,7 @@ import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 
 ROOT = Path(__file__).parents[3]
@@ -37,8 +38,10 @@ def test_v3_package_and_plugin_versions_are_consistent():
     package_v2 = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
     package_v3 = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
 
-    assert module.CourseOrganizer.plugin_version == "2.0.4"
-    assert package_v3["CourseOrganizer"]["version"] == "2.0.4"
+    assert module.CourseOrganizer.plugin_version == "2.0.5"
+    assert package_v3["CourseOrganizer"]["version"] == "2.0.5"
+    assert package_v3["CourseOrganizer"]["icon"] == "courseorganizer.png"
+    assert (ROOT / "icons/courseorganizer.png").is_file()
     assert package_v3["CourseOrganizer"]["system_version"] == ">=3.0.0"
     assert package_v2["CourseOrganizer"]["v3"] is False
 
@@ -268,3 +271,71 @@ def test_v3_manual_candidate_history_respects_current_source_allowlist():
         assert decision.status == "invalid_override"
         assert decision.blocked_reason == "candidate_not_found"
         assert decision.source == ""
+
+
+def test_v3_system_scan_entry_helper_ignores_only_system_and_hidden_items():
+    module = load_v3_courseorganizer()
+    ignored = (
+        "#recycle",
+        "@eaDir",
+        ".DS_Store",
+        "Thumbs.db",
+        "THUMBS.DB",
+        "desktop.ini",
+        "DESKTOP.INI",
+        ".temporary",
+    )
+    retained = ("#课程资料", "@课程资料", "课程资料", "recycle")
+
+    assert all(module.CourseOrganizer._is_ignored_scan_entry(name) for name in ignored)
+    assert not any(module.CourseOrganizer._is_ignored_scan_entry(name) for name in retained)
+
+
+def test_v3_scan_entrypoint_skips_system_entries_without_skipping_normal_hash_directory():
+    module = load_v3_courseorganizer()
+    plugin = module.CourseOrganizer.__new__(module.CourseOrganizer)
+    plugin._logger = MagicMock()
+    plugin._get_config = MagicMock(
+        return_value={
+            "enabled": True,
+            "incoming": "/media/incoming",
+            "tv_output": "/media/tv",
+            "movie_output": "/media/movie",
+            "children_output": "/media/children",
+            "naming_mode": "off",
+        }
+    )
+    plugin._process_course = MagicMock()
+    entries = [
+        "#recycle",
+        "@eaDir",
+        ".DS_Store",
+        "Thumbs.db",
+        "desktop.ini",
+        ".hidden",
+        "#课程资料",
+        "普通课程",
+    ]
+
+    with (
+        patch.object(module.os, "listdir", return_value=entries),
+        patch.object(module.os.path, "isdir", return_value=True),
+        patch.object(module.naming, "validate_manual_raw_title", return_value=(True, "")),
+    ):
+        plugin._run(force=True)
+
+    assert {call.args[0] for call in plugin._process_course.call_args_list} == {"#课程资料", "普通课程"}
+
+
+def test_v3_review_rows_hide_persisted_system_entries():
+    module = load_v3_courseorganizer()
+    plugin = module.CourseOrganizer.__new__(module.CourseOrganizer)
+    resolver = MagicMock()
+    resolver.preview_rows.return_value = [{"raw_title": "#recycle"}]
+    plugin._review_path_config = MagicMock(return_value={})
+    plugin._get_resolver = MagicMock(return_value=resolver)
+    plugin.get_data = MagicMock(return_value={})
+    plugin._current_source_binding = MagicMock()
+
+    assert plugin._review_rows() == []
+    plugin._current_source_binding.assert_not_called()
