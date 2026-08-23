@@ -238,8 +238,8 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
     )
     items = plugin.search_torrents(site={"id": 1}, keyword="示例剧", page=0)
     assert len(items) == 1
-    assert items[0].site_name == "LunaTV"
-    assert items[0].to_dict()["site_name"] == "LunaTV"
+    assert items[0].site_name == "演示源"
+    assert items[0].to_dict()["site_name"] == "演示源"
     assert items[0].media_source == "themoviedb"
     assert items[0].media_id == "123"
     assert items[0].title.endswith("S01E01")
@@ -247,6 +247,74 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
     assert payload["url"].endswith("01.m3u8")
     assert payload["host_media_source"] == "themoviedb"
     assert payload["host_media_id"] == "123"
+
+
+def test_resource_torrents_dedupes_play_urls_from_multiple_sources(monkeypatch):
+    calls = []
+
+    class TorrentInfo:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+        def to_dict(self):
+            return dict(self.__dict__)
+
+    class Client:
+        def search(self, query, **kwargs):
+            calls.append(kwargs)
+            return [
+                _result_from_item(
+                    CmsSource("first", "源A", "https://cms.example/vod", "https://cms.example"),
+                    {
+                        "vod_id": "1",
+                        "vod_name": "示例剧",
+                        "type_name": "电视剧",
+                        "vod_play_from": "在线播放",
+                        "vod_play_url": "01$https://example.test/01.m3u8",
+                    },
+                ),
+                _result_from_item(
+                    CmsSource("second", "源B", "https://cms2.example/vod", "https://cms2.example"),
+                    {
+                        "vod_id": "2",
+                        "vod_name": "示例剧",
+                        "type_name": "电视剧",
+                        "vod_play_from": "在线播放",
+                        "vod_play_url": "01$https://example.test/01.m3u8",
+                    },
+                ),
+                _result_from_item(
+                    CmsSource("first", "源A", "https://cms.example/vod", "https://cms.example"),
+                    {
+                        "vod_id": "3",
+                        "vod_name": "示例剧",
+                        "type_name": "电视剧",
+                        "vod_play_from": "在线播放",
+                        "vod_play_url": "02$https://example.test/02.m3u8",
+                    },
+                ),
+            ]
+
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
+    plugin = _plugin({"enabled": True})
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(
+        plugin,
+        "_prepare_result",
+        lambda result: (result, {"media_source": "themoviedb", "media_id": "123"}),
+    )
+    items = plugin.search_torrents(site={"id": 1}, keyword="示例剧", page=0, mtype="tv")
+    assert len(items) == 2
+    urls = sorted([plugin._decode_resource_token(item.enclosure)["url"] for item in items])
+    assert urls == ["https://example.test/01.m3u8", "https://example.test/02.m3u8"]
+    assert [item.site_name for item in items] == ["源A", "源A"]
+    assert calls == [{
+        "limit": 50,
+        "source_limit": 3,
+        "stop_after_first_source": False,
+        "require_playable": True,
+        "max_workers": 8,
+    }]
 
 
 def test_plugin_search_bridge_augments_native_search_and_restores(monkeypatch):

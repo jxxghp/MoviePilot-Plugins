@@ -300,7 +300,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.14"
+    plugin_version = "0.4.15"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -1531,11 +1531,14 @@ class LunaTVSource(_PluginBase):
             search_query, _ = (self._ai or AiTitleNormalizer(False)).normalize(keyword)
             results = self._client().search(
                 search_query,
-                limit=20,
-                stop_after_first_source=True,
+                limit=50,
+                source_limit=3,
+                stop_after_first_source=False,
                 require_playable=True,
+                max_workers=8,
             )
             torrents: List[Any] = []
+            seen_urls: set[str] = set()
             for result in results:
                 result, association = self._prepare_result(result)
                 identity = f"{result.source_key}:{result.vod_id}"
@@ -1547,6 +1550,9 @@ class LunaTVSource(_PluginBase):
                 for episode in episodes:
                     if not episode.url:
                         continue
+                    if episode.url in seen_urls:
+                        continue
+                    seen_urls.add(episode.url)
                     title = normalize_media_title(result.title)
                     if result.year:
                         title = f"{title} ({result.year})"
@@ -1564,7 +1570,7 @@ class LunaTVSource(_PluginBase):
                         "host_media_id": host_media_id,
                     }
                     torrents.append(torrent_info_type(
-                        site_name="LunaTV",
+                        site_name=result.source_name or "LunaTV",
                         title=title,
                         description=f"{result.source_name} · m3u8",
                         media_source=host_media_source,
