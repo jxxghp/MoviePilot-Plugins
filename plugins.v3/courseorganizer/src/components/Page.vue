@@ -36,6 +36,13 @@ let fileTransferSource = null
 const fileTransferText = ref('')
 const fileTransferValue = ref(null)
 const fileTransferSeenActive = ref(false)
+const ignoredSystemEntries = new Set([
+  '#recycle',
+  '@eadir',
+  '.ds_store',
+  'thumbs.db',
+  'desktop.ini',
+])
 
 const hasItems = computed(() => items.value.length > 0)
 const reviewSummary = computed(() => (
@@ -70,6 +77,16 @@ function unwrap(response) {
     throw new Error(body.message || '请求失败')
   }
   return body?.data ?? body ?? {}
+}
+
+function isIgnoredSystemItem(item) {
+  const rawTitle = String(item?.raw_title || '').trim().toLowerCase()
+  return rawTitle.startsWith('.') || ignoredSystemEntries.has(rawTitle)
+}
+
+function visibleReviewItems(data) {
+  const rows = Array.isArray(data) ? data : (data?.items || [])
+  return Array.isArray(rows) ? rows.filter(item => !isIgnoredSystemItem(item)) : []
 }
 
 function errorMessage(errorValue, fallback) {
@@ -180,7 +197,7 @@ async function loadReview() {
   try {
     const response = await props.api.get('plugin/CourseOrganizer/review')
     const data = unwrap(response)
-    items.value = Array.isArray(data) ? data : (data.items || [])
+    items.value = visibleReviewItems(data)
     if (Array.isArray(data?.libraries) && data.libraries.length) {
       libraries.value = data.libraries
     } else {

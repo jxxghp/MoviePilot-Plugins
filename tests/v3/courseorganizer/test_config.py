@@ -93,3 +93,13 @@ def test_custom_config_exposes_only_auto_organize_control():
         "naming_clear_cache_once",
     ):
         assert model not in source
+
+
+def test_custom_page_filters_system_entries_from_stale_api_rows():
+    source = (
+        ROOT / "plugins.v3" / "courseorganizer" / "src" / "components" / "Page.vue"
+    ).read_text(encoding="utf-8")
+
+    assert "visibleReviewItems(data)" in source
+    assert "rows.filter(item => !isIgnoredSystemItem(item))" in source
+    assert "'#recycle'" in source

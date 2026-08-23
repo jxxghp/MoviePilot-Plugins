@@ -939,7 +939,7 @@ class CourseOrganizer(_PluginBase):
     @staticmethod
     def _is_ignored_scan_entry(entry: str) -> bool:
         """Return whether a top-level incoming entry is a system/hidden item."""
-        name = str(entry)
+        name = str(entry).strip()
         return name.startswith(".") or name.casefold() in CourseOrganizer.SYSTEM_SCAN_ENTRY_NAMES
 
     @staticmethod

@@ -102,6 +102,16 @@ def test_custom_config_exposes_only_auto_organize_control():
         assert model not in source
 
 
+def test_custom_page_filters_system_entries_from_stale_api_rows():
+    source = (
+        ROOT / "plugins.v2" / "courseorganizer" / "src" / "components" / "Page.vue"
+    ).read_text(encoding="utf-8")
+
+    assert "visibleReviewItems(data)" in source
+    assert "rows.filter(item => !isIgnoredSystemItem(item))" in source
+    assert "'#recycle'" in source
+
+
 def test_v2_market_manifest_uses_renderable_png_icon():
     package_v2 = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
 
@@ -225,6 +235,7 @@ def test_system_scan_entry_helper_ignores_only_system_and_hidden_items():
         "desktop.ini",
         "DESKTOP.INI",
         ".temporary",
+        " #recycle ",
     )
     retained = ("#课程资料", "@课程资料", "课程资料", "recycle")
 

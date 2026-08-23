@@ -395,6 +395,7 @@ def test_v3_system_scan_entry_helper_ignores_only_system_and_hidden_items():
         "desktop.ini",
         "DESKTOP.INI",
         ".temporary",
+        " #recycle ",
     )
     retained = ("#课程资料", "@课程资料", "课程资料", "recycle")
 
