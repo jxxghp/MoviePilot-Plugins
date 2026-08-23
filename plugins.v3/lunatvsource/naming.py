@@ -14,12 +14,17 @@ SPACE = re.compile(r"\s+")
 # a real show title, while leaving ordinary punctuation and years untouched.
 _SEASON_RANGE_SUFFIX = re.compile(
     r"(?:\s*[\(\[（【]?\s*)"
-    r"(?:第\s*)?\d{1,3}\s*[-~至到]\s*\d{1,3}\s*季"
+    r"(?:第\s*)?(?:\d{1,3}|[一二两三四五六七八九十百千万]+)\s*[-~至到]\s*"
+    r"(?:第\s*)?(?:\d{1,3}|[一二两三四五六七八九十百千万]+)\s*季"
     r"(?:\s*[\)\]）】])?\s*$",
     re.IGNORECASE,
 )
 _SEASON_SUFFIX = re.compile(
-    r"(?:\s*[\(\[（【]?\s*)(?:第\s*)?\d{1,3}\s*季(?:\s*[\)\]）】])?\s*$",
+    r"(?:\s*[\(\[（【]?\s*)(?:第\s*)?(?:\d{1,3}|[一二两三四五六七八九十百千万]+)\s*季(?:\s*[\)\]）】])?\s*$",
+    re.IGNORECASE,
+)
+_EPISODE_SUFFIX = re.compile(
+    r"\s*(?:S\s*\d{1,3}\s*E\s*\d{1,4}|第\s*\d{1,4}\s*[集话])\s*$",
     re.IGNORECASE,
 )
 _VIDEO_METADATA_SUFFIX = re.compile(
@@ -49,6 +54,11 @@ def normalize_media_title(value: str) -> str:
     while result and result != previous:
         previous = result
         result = _SEASON_RANGE_SUFFIX.sub("", result).strip()
+        # Search endpoints often publish one CMS row per episode, e.g.
+        # ``小猪佩奇 第一季 第52集``.  Strip the trailing episode marker first
+        # so the following season pass can collapse all rows into one season
+        # resource card and one stable media folder.
+        result = _EPISODE_SUFFIX.sub("", result).strip()
         result = _SEASON_SUFFIX.sub("", result).strip()
         result = _VIDEO_METADATA_SUFFIX.sub("", result).strip()
     return result or "未命名"

@@ -10,7 +10,6 @@ const props = defineProps({
 const loading = ref(false)
 const error = ref('')
 const sources = ref([])
-const history = ref([])
 const status = ref({})
 
 const apiCall = (method, path, payload) => {
@@ -28,14 +27,12 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [statusResponse, sourceResponse, historyResponse] = await Promise.all([
+    const [statusResponse, sourceResponse] = await Promise.all([
       apiCall('get', '/status'),
       apiCall('get', '/sources'),
-      apiCall('get', '/history'),
     ])
     status.value = unwrap(statusResponse)
     sources.value = unwrap(sourceResponse) || []
-    history.value = unwrap(historyResponse) || []
   } catch (loadError) {
     error.value = loadError?.message || '加载 LunaTV 状态失败'
   } finally {
@@ -44,6 +41,22 @@ async function load() {
 }
 
 const directoryStatus = computed(() => status.value.directories || {})
+
+function sourceUrl(source) {
+  const candidate = String(source?.url || source?.detail || source?.api || '').trim()
+  if (!candidate) return ''
+  try {
+    const parsed = new URL(candidate)
+    return ['http:', 'https:'].includes(parsed.protocol) ? parsed.href : ''
+  } catch {
+    return ''
+  }
+}
+
+function sourceHost(source) {
+  const url = sourceUrl(source)
+  return url ? new URL(url).hostname : '—'
+}
 
 onMounted(load)
 </script>
@@ -76,19 +89,48 @@ onMounted(load)
     </section>
 
     <section class="panel">
+      <div class="section-heading">
         <div class="section-title">资源站 <span class="muted">{{ sources.length }}</span></div>
-        <div v-if="!sources.length" class="empty">暂未读取到资源站配置</div>
-        <div v-for="source in sources" :key="source.key" class="source-row">
-          <span>{{ source.name }}</span><small>{{ source.key }}</small>
-        </div>
-    </section>
-
-    <section class="panel">
-      <div class="section-title">整理历史 <span class="muted">最近 {{ Math.min(history.length, 12) }} 条</span></div>
-      <div v-if="!history.length" class="empty">暂无已完成记录</div>
-      <div v-for="item in history.slice(0, 12)" :key="item.task_id" class="task-row">
-        <div><strong>{{ item.title }}</strong><small>{{ item.mode === 'strm' ? 'STRM' : '本地下载' }}<span v-if="item.media_type === 'tv'"> · S{{ String(item.season).padStart(2, '0') }}E{{ String(item.episode).padStart(2, '0') }}</span></small></div>
-        <small class="history-output" :title="item.output">{{ item.output }}</small>
+        <span class="source-caption">依据源配置备注，非实时测速</span>
+      </div>
+      <div v-if="!sources.length" class="empty">暂未读取到资源站配置</div>
+      <div v-else class="source-table-wrap">
+        <table class="source-table">
+          <thead>
+            <tr>
+              <th scope="col">状态</th>
+              <th scope="col">资源名称</th>
+              <th scope="col">网址</th>
+              <th scope="col">搜索功能</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="source in sources" :key="source.key">
+              <td>
+                <span :class="['source-state', `is-${source.status || 'ready'}`]">
+                  <i class="state-dot" aria-hidden="true"></i>
+                  {{ source.status_label || '已加载' }}
+                </span>
+              </td>
+              <td><span class="source-name">{{ source.name }}</span></td>
+              <td>
+                <a
+                  v-if="sourceUrl(source)"
+                  class="source-link"
+                  :href="sourceUrl(source)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >{{ sourceHost(source) }}</a>
+                <span v-else class="muted">—</span>
+              </td>
+              <td>
+                <span :class="['search-state', `is-${source.search_status || 'supported'}`]">
+                  {{ source.search_label || '支持' }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -120,11 +162,29 @@ h1 { margin: 8px 0; font-size: 32px; } p { color: #a5a2b5; margin: 0; }
 .alert { border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; } .alert.error { color: #ffb4ab; background: #3a1e22; } .alert.success { color: #a7efbd; background: #183125; }
 .setup-strip { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; color: #b8b4c8; font-size: 12px; }
 .setup-strip span { border: 1px solid #292938; border-radius: 999px; padding: 6px 9px; background: #171722; }
-.source-row, .task-row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid #292938; } .source-row:first-of-type, .task-row:first-of-type { border-top: 0; }
-.task-row div { display: flex; gap: 8px; align-items: center; } .task-actions { display: flex; align-items: center; gap: 10px; } .link-button { background: transparent; color: #c4a8ff; border: 0; cursor: pointer; padding: 0; } .status { font-size: 12px; color: #a5a2b5; } .status.completed { color: #83e69c; } .status.failed { color: #ff9a92; } .status.running { color: #ffc66d; } .history-output { max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.section-heading { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 14px; }
+.section-heading .section-title { margin-bottom: 0; }
+.source-caption { color: #9693a7; font-size: 12px; white-space: nowrap; }
+.source-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.source-table { width: 100%; min-width: 590px; border-collapse: collapse; font-size: 13px; }
+.source-table th, .source-table td { padding: 11px 12px; border-bottom: 1px solid #292938; text-align: left; white-space: nowrap; }
+.source-table th { color: #b8b4c8; font-size: 12px; font-weight: 650; }
+.source-table tbody tr:last-child td { border-bottom: 0; }
+.source-name { color: #f1eff8; font-weight: 600; }
+.source-link { color: #c4a8ff; text-decoration: none; }
+.source-link:hover { color: #dccbff; text-decoration: underline; }
+.source-state, .search-state { display: inline-flex; align-items: center; gap: 6px; min-height: 22px; border-radius: 999px; font-size: 12px; font-weight: 650; }
+.source-state { padding: 3px 8px; background: #20202b; color: #b8b4c8; }
+.state-dot { width: 6px; height: 6px; border-radius: 50%; background: #9693a7; }
+.source-state.is-ready { color: #a7efbd; background: #183125; }.source-state.is-ready .state-dot { background: #83e69c; }
+.source-state.is-warning { color: #ffc66d; background: #3a2c1e; }.source-state.is-warning .state-dot { background: #ffc66d; }
+.source-state.is-error { color: #ffb4ab; background: #3a1e22; }.source-state.is-error .state-dot { background: #ff9a92; }
+.search-state { padding: 3px 8px; color: #c4a8ff; background: #28203e; }
+.search-state.is-unavailable { color: #ffb4ab; background: #3a1e22; }.search-state.is-unsupported { color: #9693a7; background: #20202b; }
+.search-state.is-empty, .search-state.is-degraded { color: #ffc66d; background: #3a2c1e; }
 .empty { color: #9693a7; padding: 16px 0; }
 .help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; color: #a5a2b5; font-size: 13px; line-height: 1.6; }
 .help-grid p { margin: 0; }
-@media (max-width: 760px) { .lunatv-page { padding: 18px; } .lunatv-header { flex-direction: column; align-items: stretch; } .lunatv-actions { justify-content: flex-start; } }
+@media (max-width: 760px) { .lunatv-page { padding: 18px; } .lunatv-header { flex-direction: column; align-items: stretch; } .lunatv-actions { justify-content: flex-start; } .section-heading { align-items: flex-start; flex-direction: column; gap: 4px; } }
 @media (max-width: 760px) { .help-grid { grid-template-columns: 1fr; } }
 </style>
