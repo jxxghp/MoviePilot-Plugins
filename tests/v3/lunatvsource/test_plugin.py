@@ -247,9 +247,11 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
     assert items[0].to_dict()["site_name"] == "演示源"
     assert items[0].media_source == "themoviedb"
     assert items[0].media_id == "123"
-    assert items[0].title.endswith("S01E01")
+    assert items[0].title.endswith("S01 · 1集")
     payload = plugin._decode_resource_token(items[0].enclosure)
-    assert payload["url"].endswith("01.m3u8")
+    assert len(payload["episodes"]) == 1
+    assert payload["episodes"][0]["episode"] == 1
+    assert payload["episodes"][0]["url"].endswith("01.m3u8")
     assert payload["source_key"] == "demo"
     assert payload["source_name"] == "演示源"
     assert payload["host_media_source"] == "themoviedb"
@@ -260,7 +262,7 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
     ]
 
 
-def test_resource_torrents_dedupes_play_urls_from_multiple_sources(monkeypatch):
+def test_resource_torrents_groups_by_source_and_season(monkeypatch):
     calls = []
     ai_calls = []
     association_calls = []
@@ -329,13 +331,17 @@ def test_resource_torrents_dedupes_play_urls_from_multiple_sources(monkeypatch):
     monkeypatch.setattr(plugin, "_associate_tmdb", associate)
     items = plugin.search_torrents(site={"id": 1}, keyword="示例剧", page=0, mtype="tv")
     assert len(items) == 2
-    urls = sorted([plugin._decode_resource_token(item.enclosure)["url"] for item in items])
-    assert urls == ["https://example.test/01.m3u8", "https://example.test/02.m3u8"]
-    assert [item.site_name for item in items] == ["源A", "源A"]
-    assert ai_calls == [("示例剧", "", "")]
-    assert len(association_calls) == 1
-    assert association_calls[0][0].title == "标准示例剧"
-    assert association_calls[0][1] is False
+    payloads = [plugin._decode_resource_token(item.enclosure) for item in items]
+    assert [item.site_name for item in items] == ["源A", "源B"]
+    assert [len(payload["episodes"]) for payload in payloads] == [2, 1]
+    assert [
+        [episode["url"] for episode in payload["episodes"]]
+        for payload in payloads
+    ] == [
+        ["https://example.test/01.m3u8", "https://example.test/02.m3u8"],
+        ["https://example.test/01.m3u8"],
+    ]
+    assert all("· S01 · " in item.title for item in items)
     assert calls == [{
         "limit": 50,
         "source_limit": 3,
@@ -343,6 +349,13 @@ def test_resource_torrents_dedupes_play_urls_from_multiple_sources(monkeypatch):
         "require_playable": True,
         "max_workers": 8,
     }]
+    assert ai_calls == [("示例剧", "", "")]
+    assert [(item.title, item.year, item.media_type, include_candidates)
+            for item, include_candidates in association_calls] == [
+        ("标准示例剧", "", "tv", False),
+    ]
+    assert {(payload["host_media_source"], payload["host_media_id"])
+            for payload in payloads} == {("themoviedb", "123")}
 
 
 def test_resource_search_does_not_hold_cache_lock_during_network_request(monkeypatch):
