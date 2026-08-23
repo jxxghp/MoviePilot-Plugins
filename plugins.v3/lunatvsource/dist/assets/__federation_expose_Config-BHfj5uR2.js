@@ -56,7 +56,6 @@ async function saveConfig() {
   }
   saving.value = true;
   try {
-    // 这些能力由 MoviePilot 原生设置统一管理；旧版保存过的 false 值也不能关闭宿主桥接。
     const payload = {
       ...config,
       source_allowlist: '',
@@ -148,7 +147,7 @@ return (_ctx, _cache) => {
       class: "mb-4"
     }, {
       default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
-        _createTextVNode(" 保存后，LunaTV/苹果 CMS 会作为 MoviePilot 的原生探索与媒体源出现；请直接使用 MoviePilot 的搜索、订阅和下载流程。 ", -1)
+        _createTextVNode(" 保存后，LunaTV/苹果 CMS 将接入 MoviePilot 的原生搜索、订阅与下载入口。请直接使用 MoviePilot 的原生搜索、订阅和下载流程。 ", -1)
       ]))]),
       _: 1
     }),

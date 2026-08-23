@@ -16,32 +16,27 @@ const _hoisted_2 = { class: "lunatv-header" };
 const _hoisted_3 = { class: "header-status" };
 const _hoisted_4 = { class: "lunatv-actions" };
 const _hoisted_5 = ["disabled"];
-const _hoisted_6 = ["disabled"];
-const _hoisted_7 = {
+const _hoisted_6 = {
   key: 0,
   class: "alert error"
 };
-const _hoisted_8 = {
-  key: 1,
-  class: "alert success"
-};
-const _hoisted_9 = { class: "setup-strip" };
-const _hoisted_10 = { class: "panel" };
-const _hoisted_11 = { class: "section-title" };
-const _hoisted_12 = { class: "muted" };
-const _hoisted_13 = {
+const _hoisted_7 = { class: "setup-strip" };
+const _hoisted_8 = { class: "panel" };
+const _hoisted_9 = { class: "section-title" };
+const _hoisted_10 = { class: "muted" };
+const _hoisted_11 = {
   key: 0,
   class: "empty"
 };
-const _hoisted_14 = { class: "panel" };
-const _hoisted_15 = { class: "section-title" };
-const _hoisted_16 = { class: "muted" };
-const _hoisted_17 = {
+const _hoisted_12 = { class: "panel" };
+const _hoisted_13 = { class: "section-title" };
+const _hoisted_14 = { class: "muted" };
+const _hoisted_15 = {
   key: 0,
   class: "empty"
 };
-const _hoisted_18 = { key: 0 };
-const _hoisted_19 = ["title"];
+const _hoisted_16 = { key: 0 };
+const _hoisted_17 = ["title"];
 
 const {computed,onMounted,ref} = await importShared('vue');
 
@@ -58,10 +53,8 @@ const _sfc_main = {
 
 const props = __props;
 
-const syncing = ref(false);
 const loading = ref(false);
 const error = ref('');
-const notice = ref('');
 const sources = ref([]);
 const history = ref([]);
 const status = ref({});
@@ -96,19 +89,6 @@ async function load() {
   }
 }
 
-async function sync() {
-  if (syncing.value) return
-  syncing.value = true;
-  try {
-    const response = await apiCall('post', '/sync');
-    notice.value = unwrap(response)?.started === false ? '刷新正在执行' : '已开始刷新订阅';
-  } catch (syncError) {
-    error.value = syncError?.message || '刷新订阅失败';
-  } finally {
-    syncing.value = false;
-  }
-}
-
 const directoryStatus = computed(() => status.value.directories || {});
 
 onMounted(load);
@@ -119,7 +99,7 @@ return (_ctx, _cache) => {
       _cache[1] || (_cache[1] = _createElementVNode("div", null, [
         _createElementVNode("div", { class: "lunatv-eyebrow" }, "THIRD-PARTY CMS / M3U8"),
         _createElementVNode("h1", null, "LunaTV 资源订阅"),
-        _createElementVNode("p", null, "接入 MoviePilot 原生搜索与订阅；播放继续交给既有 Emby。")
+        _createElementVNode("p", null, "接入 MoviePilot 原生搜索、订阅与下载；播放继续交给既有 Emby。")
       ], -1)),
       _createElementVNode("div", _hoisted_3, [
         _cache[0] || (_cache[0] = _createElementVNode("span", { class: "chip" }, "串行队列", -1)),
@@ -132,36 +112,28 @@ return (_ctx, _cache) => {
       ]),
       _createElementVNode("div", _hoisted_4, [
         _createElementVNode("button", {
-          class: "button secondary",
-          disabled: syncing.value,
-          onClick: sync
-        }, _toDisplayString(syncing.value ? '刷新中…' : '刷新订阅'), 9, _hoisted_5),
-        _createElementVNode("button", {
           class: "button",
           disabled: loading.value,
           onClick: load
-        }, "重新加载", 8, _hoisted_6)
+        }, "重新加载", 8, _hoisted_5)
       ])
     ]),
     (error.value)
-      ? (_openBlock(), _createElementBlock("div", _hoisted_7, _toDisplayString(error.value), 1))
+      ? (_openBlock(), _createElementBlock("div", _hoisted_6, _toDisplayString(error.value), 1))
       : _createCommentVNode("", true),
-    (notice.value)
-      ? (_openBlock(), _createElementBlock("div", _hoisted_8, _toDisplayString(notice.value), 1))
-      : _createCommentVNode("", true),
-    _createElementVNode("section", _hoisted_9, [
+    _createElementVNode("section", _hoisted_7, [
       _createElementVNode("span", null, "目录：" + _toDisplayString(directoryStatus.value.configured_root || directoryStatus.value.auto_roots?.[0]?.download_path || '未配置'), 1),
       _createElementVNode("span", null, "来源：" + _toDisplayString(directoryStatus.value.source || '未配置'), 1),
       _createElementVNode("span", null, "TMDB：" + _toDisplayString(status.value.tmdb_association ? '自动关联' : '关闭'), 1),
       _cache[2] || (_cache[2] = _createElementVNode("span", null, "缓存：完成后才整理", -1))
     ]),
-    _createElementVNode("section", _hoisted_10, [
-      _createElementVNode("div", _hoisted_11, [
+    _createElementVNode("section", _hoisted_8, [
+      _createElementVNode("div", _hoisted_9, [
         _cache[3] || (_cache[3] = _createTextVNode("资源站 ", -1)),
-        _createElementVNode("span", _hoisted_12, _toDisplayString(sources.value.length), 1)
+        _createElementVNode("span", _hoisted_10, _toDisplayString(sources.value.length), 1)
       ]),
       (!sources.value.length)
-        ? (_openBlock(), _createElementBlock("div", _hoisted_13, "暂未读取到资源站配置"))
+        ? (_openBlock(), _createElementBlock("div", _hoisted_11, "暂未读取到资源站配置"))
         : _createCommentVNode("", true),
       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(sources.value, (source) => {
         return (_openBlock(), _createElementBlock("div", {
@@ -173,13 +145,13 @@ return (_ctx, _cache) => {
         ]))
       }), 128))
     ]),
-    _createElementVNode("section", _hoisted_14, [
-      _createElementVNode("div", _hoisted_15, [
+    _createElementVNode("section", _hoisted_12, [
+      _createElementVNode("div", _hoisted_13, [
         _cache[4] || (_cache[4] = _createTextVNode("整理历史 ", -1)),
-        _createElementVNode("span", _hoisted_16, "最近 " + _toDisplayString(Math.min(history.value.length, 12)) + " 条", 1)
+        _createElementVNode("span", _hoisted_14, "最近 " + _toDisplayString(Math.min(history.value.length, 12)) + " 条", 1)
       ]),
       (!history.value.length)
-        ? (_openBlock(), _createElementBlock("div", _hoisted_17, "暂无已完成记录"))
+        ? (_openBlock(), _createElementBlock("div", _hoisted_15, "暂无已完成记录"))
         : _createCommentVNode("", true),
       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(history.value.slice(0, 12), (item) => {
         return (_openBlock(), _createElementBlock("div", {
@@ -191,23 +163,23 @@ return (_ctx, _cache) => {
             _createElementVNode("small", null, [
               _createTextVNode(_toDisplayString(item.mode === 'strm' ? 'STRM' : '本地下载'), 1),
               (item.media_type === 'tv')
-                ? (_openBlock(), _createElementBlock("span", _hoisted_18, " · S" + _toDisplayString(String(item.season).padStart(2, '0')) + "E" + _toDisplayString(String(item.episode).padStart(2, '0')), 1))
+                ? (_openBlock(), _createElementBlock("span", _hoisted_16, " · S" + _toDisplayString(String(item.season).padStart(2, '0')) + "E" + _toDisplayString(String(item.episode).padStart(2, '0')), 1))
                 : _createCommentVNode("", true)
             ])
           ]),
           _createElementVNode("small", {
             class: "history-output",
             title: item.output
-          }, _toDisplayString(item.output), 9, _hoisted_19)
+          }, _toDisplayString(item.output), 9, _hoisted_17)
         ]))
       }), 128))
     ]),
-    _cache[5] || (_cache[5] = _createStaticVNode("<section class=\"panel help-panel\" data-v-d736065c><div class=\"section-title\" data-v-d736065c>使用说明</div><div class=\"help-grid\" data-v-d736065c><p data-v-d736065c><strong data-v-d736065c>目录</strong>：目录留空时按媒体类型读取 MoviePilot 的本地目录；填写插件目录则优先使用插件目录。</p><p data-v-d736065c><strong data-v-d736065c>多季合集</strong>：有明确季号或 TMDB 季集数能完整对应时才会自动分季；无法确认时会暂停，避免错放。</p><p data-v-d736065c><strong data-v-d736065c>媒体库</strong>：目录内没有正在下载的缓存文件后才显示完整文件夹；完成后可请求 Emby/Jellyfin 刷新。</p><p data-v-d736065c><strong data-v-d736065c>播放</strong>：插件不内置 m3u8 播放器，播放仍由已有 Emby/Jellyfin 页面负责。</p></div></section>", 1))
+    _cache[5] || (_cache[5] = _createStaticVNode("<section class=\"panel help-panel\" data-v-9314c6e8><div class=\"section-title\" data-v-9314c6e8>使用说明</div><div class=\"help-grid\" data-v-9314c6e8><p data-v-9314c6e8><strong data-v-9314c6e8>目录</strong>：目录留空时按媒体类型读取 MoviePilot 的本地目录；填写插件目录则优先使用插件目录。</p><p data-v-9314c6e8><strong data-v-9314c6e8>多季合集</strong>：有明确季号或 TMDB 季集数能完整对应时才会自动分季；无法确认时会暂停，避免错放。</p><p data-v-9314c6e8><strong data-v-9314c6e8>媒体库</strong>：目录内没有正在下载的缓存文件后才显示完整文件夹；完成后可请求 Emby/Jellyfin 刷新。</p><p data-v-9314c6e8><strong data-v-9314c6e8>播放</strong>：插件不内置 m3u8 播放器，播放仍由已有 Emby/Jellyfin 页面负责。</p></div></section>", 1))
   ]))
 }
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d736065c"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9314c6e8"]]);
 
 export { AppPage as default };

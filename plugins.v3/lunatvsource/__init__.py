@@ -300,7 +300,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.svg"
-    plugin_version = "0.4.13"
+    plugin_version = "0.4.14"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -585,7 +585,7 @@ class LunaTVSource(_PluginBase):
                         "props": {
                             "model": "enabled",
                             "label": "启用原生桥接",
-                            "hint": "启用后，LunaTV 会出现在 MoviePilot 原生探索、搜索与订阅流程中。",
+                            "hint": "启用后，LunaTV 将以 MoviePilot 原生搜索、订阅与下载入口出现。",
                             "persistentHint": True,
                         },
                     },

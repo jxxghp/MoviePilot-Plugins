@@ -7,10 +7,8 @@ const props = defineProps({
   navKey: { type: String, default: 'main' },
 })
 
-const syncing = ref(false)
 const loading = ref(false)
 const error = ref('')
-const notice = ref('')
 const sources = ref([])
 const history = ref([])
 const status = ref({})
@@ -45,19 +43,6 @@ async function load() {
   }
 }
 
-async function sync() {
-  if (syncing.value) return
-  syncing.value = true
-  try {
-    const response = await apiCall('post', '/sync')
-    notice.value = unwrap(response)?.started === false ? '刷新正在执行' : '已开始刷新订阅'
-  } catch (syncError) {
-    error.value = syncError?.message || '刷新订阅失败'
-  } finally {
-    syncing.value = false
-  }
-}
-
 const directoryStatus = computed(() => status.value.directories || {})
 
 onMounted(load)
@@ -69,7 +54,7 @@ onMounted(load)
       <div>
         <div class="lunatv-eyebrow">THIRD-PARTY CMS / M3U8</div>
         <h1>LunaTV 资源订阅</h1>
-        <p>接入 MoviePilot 原生搜索与订阅；播放继续交给既有 Emby。</p>
+        <p>接入 MoviePilot 原生搜索、订阅与下载；播放继续交给既有 Emby。</p>
       </div>
       <div class="header-status">
         <span class="chip">串行队列</span>
@@ -77,13 +62,11 @@ onMounted(load)
         <span :class="['chip', status.media_server_sync_running ? 'busy' : 'muted-chip']">媒体库 {{ status.media_server_sync_running ? '同步中' : '自动刷新' }}</span>
       </div>
       <div class="lunatv-actions">
-        <button class="button secondary" :disabled="syncing" @click="sync">{{ syncing ? '刷新中…' : '刷新订阅' }}</button>
         <button class="button" :disabled="loading" @click="load">重新加载</button>
       </div>
     </div>
 
     <div v-if="error" class="alert error">{{ error }}</div>
-    <div v-if="notice" class="alert success">{{ notice }}</div>
 
     <section class="setup-strip">
       <span>目录：{{ directoryStatus.configured_root || directoryStatus.auto_roots?.[0]?.download_path || '未配置' }}</span>
