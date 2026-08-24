@@ -5,6 +5,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, wait
 import json
 import re
+import subprocess
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, replace
@@ -31,6 +32,7 @@ _SEASON_RANGE_RE = re.compile(
     r"S(?P<sstart>\d{1,3})\s*[-~至]\s*S?(?P<send>\d{1,3})",
     re.IGNORECASE,
 )
+_STREAM_RESOLUTION_RE = re.compile(r"(?P<width>\d{2,5})x(?P<height>\d{2,5})", re.IGNORECASE)
 
 
 def _season_range(label: str) -> Tuple[int, int]:
@@ -78,6 +80,143 @@ def _json_get(url: str, timeout: float) -> Any:
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8", errors="replace"))
+
+
+def stream_quality_label(height: int) -> str:
+    """Return a compact quality label from the actual video height."""
+
+    value = max(0, int(height or 0))
+    if value >= 2160:
+        return "4K"
+    if value >= 1440:
+        return "1440P"
+    if value >= 1080:
+        return "1080P"
+    if value >= 720:
+        return "720P"
+    if value >= 480:
+        return "480P"
+    if value > 0:
+        return f"{value}P"
+    return "未知"
+
+
+def _resolution_height(value: str) -> int:
+    heights = [
+        int(match.group("height"))
+        for match in _STREAM_RESOLUTION_RE.finditer(value or "")
+        if 100 <= int(match.group("height")) <= 10000
+    ]
+    return max(heights, default=0)
+
+
+def _playlist_resolution_height(url: str, timeout: float) -> int:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "LunaTVSource/0.1 MoviePilot",
+            "Accept": "application/vnd.apple.mpegurl, application/x-mpegURL, */*",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=min(max(timeout, 1.0), 3.0)) as response:
+        playlist = response.read(256 * 1024).decode("utf-8", errors="replace")
+    if "#EXTM3U" not in playlist:
+        return 0
+    return _resolution_height(playlist)
+
+
+def _ffprobe_path(ffmpeg_path: str) -> str:
+    value = str(ffmpeg_path or "ffmpeg").strip() or "ffmpeg"
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme or "/" not in value:
+        return "ffprobe"
+    directory, _, name = value.rpartition("/")
+    if name.startswith("ffmpeg"):
+        return f"{directory}/ffprobe"
+    return "ffprobe"
+
+
+def probe_stream_height(url: str, ffmpeg_path: str = "ffmpeg", timeout: float = 8.0) -> int:
+    """Read an HLS master playlist or the first video stream to get its height.
+
+    Apple CMS metadata rarely carries a trustworthy quality field.  Reading the
+    playlist first is cheap; for a media playlist, ffprobe reads just enough of
+    the first segment to expose the video dimensions without saving a frame.
+    """
+
+    parsed = urllib.parse.urlparse(str(url or "").strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return 0
+    try:
+        height = _playlist_resolution_height(parsed.geturl(), timeout)
+        if height:
+            return height
+    except Exception:
+        pass
+
+    probe_timeout = min(max(float(timeout or 8.0), 3.0), 15.0)
+    try:
+        result = subprocess.run(
+            [
+                _ffprobe_path(ffmpeg_path),
+                "-v",
+                "error",
+                "-rw_timeout",
+                str(int(probe_timeout * 1_000_000)),
+                "-analyzeduration",
+                "1000000",
+                "-probesize",
+                "1000000",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "csv=s=x:p=0",
+                parsed.geturl(),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=probe_timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return 0
+    except (OSError, subprocess.SubprocessError, ValueError):
+        result = None
+    height = _resolution_height(result.stdout if result else "")
+    if height:
+        return height
+
+    # Some HLS servers expose dimensions only after the first frame is
+    # decoded.  Decode one frame to the null muxer; no image is persisted.
+    try:
+        frame = subprocess.run(
+            [
+                str(ffmpeg_path or "ffmpeg"),
+                "-hide_banner",
+                "-loglevel",
+                "info",
+                "-rw_timeout",
+                str(int(probe_timeout * 1_000_000)),
+                "-i",
+                parsed.geturl(),
+                "-map",
+                "0:v:0",
+                "-frames:v",
+                "1",
+                "-f",
+                "null",
+                "-",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=probe_timeout,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return 0
+    return _resolution_height(frame.stderr)
 
 
 def _split_player_values(value: str) -> List[str]:

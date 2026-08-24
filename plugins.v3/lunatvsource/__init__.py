@@ -15,6 +15,7 @@ import asyncio
 import threading
 import time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -104,6 +105,8 @@ from .cms import (
     CmsSource,
     apply_season_counts,
     load_sources_from_url,
+    probe_stream_height,
+    stream_quality_label,
 )
 from .downloader import DownloadQueue, DownloadTask
 from .naming import media_path, normalize_media_title, normalize_search_title
@@ -325,7 +328,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.png"
-    plugin_version = "0.4.35"
+    plugin_version = "0.4.36"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -352,6 +355,8 @@ class LunaTVSource(_PluginBase):
         self._logger = LOGGER
         self._download_metrics_lock = threading.Lock()
         self._download_metrics: Dict[str, Tuple[float, int]] = {}
+        self._quality_cache_lock = threading.Lock()
+        self._quality_cache: Dict[str, Tuple[float, int]] = {}
 
     def init_plugin(self, config: Optional[Dict[str, Any]] = None) -> None:
         self._config = dict(config or {})
@@ -1688,6 +1693,10 @@ class LunaTVSource(_PluginBase):
                 ):
                     matching_results.append((result, association))
             if str(self._config.get("source_strategy") or "first") != "all":
+                matching_results = self._rank_subscription_results(
+                    matching_results,
+                    season=season,
+                )
                 matching_results = matching_results[:1]
             for result, association in matching_results:
                 if result.season_ambiguous:
@@ -2140,6 +2149,74 @@ class LunaTVSource(_PluginBase):
             return apply_season_counts(result, association.get("season_counts") or {})
         return result
 
+    def _probe_quality(self, url: str) -> int:
+        """Return cached HLS video height, probing the first stream when needed."""
+
+        now = time.monotonic()
+        with self._quality_cache_lock:
+            cached = self._quality_cache.get(url)
+            if cached and now - cached[0] < (3600 if cached[1] else 300):
+                return cached[1]
+        try:
+            timeout = min(max(float(self._config.get("request_timeout") or 6), 3.0), 6.0)
+        except (TypeError, ValueError):
+            timeout = 8.0
+        height = probe_stream_height(
+            url,
+            ffmpeg_path=str(self._config.get("ffmpeg_path") or "ffmpeg"),
+            timeout=timeout,
+        )
+        with self._quality_cache_lock:
+            self._quality_cache[url] = (time.monotonic(), height)
+        return height
+
+    def _probe_resource_urls(self, urls: List[str]) -> Dict[str, int]:
+        unique_urls = list(dict.fromkeys(url for url in urls if url))
+        if not unique_urls:
+            return {}
+        heights: Dict[str, int] = {}
+        with ThreadPoolExecutor(max_workers=min(8, len(unique_urls))) as executor:
+            futures = {executor.submit(self._probe_quality, url): url for url in unique_urls}
+            for future in as_completed(futures):
+                url = futures[future]
+                try:
+                    heights[url] = max(0, int(future.result() or 0))
+                except Exception as exc:
+                    self._logger.debug("清晰度探测失败 url=%s: %s", url, exc)
+                    heights[url] = 0
+        return heights
+
+    @staticmethod
+    def _result_probe_url(result: CmsResult, season: int = 0) -> str:
+        return next(
+            (
+                episode.url
+                for episode in result.episodes
+                if episode.url and (season <= 0 or episode.season == season)
+            ),
+            "",
+        )
+
+    def _rank_subscription_results(
+        self,
+        results: List[Tuple[CmsResult, Dict[str, Any]]],
+        season: int = 0,
+    ) -> List[Tuple[CmsResult, Dict[str, Any]]]:
+        """Prefer a verified higher-resolution source while keeping ties stable."""
+
+        if len(results) < 2:
+            return results
+        urls = [self._result_probe_url(result, season) for result, _ in results]
+        heights = self._probe_resource_urls(urls)
+        ranked = sorted(
+            enumerate(results),
+            key=lambda item: (
+                -heights.get(self._result_probe_url(item[1][0], season), 0),
+                item[0],
+            ),
+        )
+        return [item for _, item in ranked]
+
     def _resource_torrents(self, keyword: str, mtype: Any = None) -> List[Any]:
         """把 CMS m3u8 条目投影为 MoviePilot 原生 TorrentInfo。"""
         torrent_info_type = _HostTorrentInfo or (
@@ -2270,55 +2347,78 @@ class LunaTVSource(_PluginBase):
                     "page_url": result.detail,
                 })
 
-        torrents: List[Any] = []
-        for group in season_groups.values():
-            group_episodes = sorted(
+        group_rows = list(season_groups.values())
+        for group in group_rows:
+            group["sorted_episodes"] = sorted(
                 group["episodes"],
                 key=lambda item: (int(item["season"]), int(item["episode"]), item["url"]),
             )
+            group["probe_url"] = group["sorted_episodes"][0]["url"]
+        for row in single_rows:
+            row["probe_url"] = row["payload"]["url"]
+        quality_heights = self._probe_resource_urls(
+            [row["probe_url"] for row in group_rows]
+            + [row["probe_url"] for row in single_rows]
+        )
+
+        torrents: List[Any] = []
+        for group in group_rows:
+            group_episodes = group["sorted_episodes"]
             season = int(group["season"])
             count = len(group_episodes)
             first = group_episodes[0]
             payload = dict(first)
             payload["episodes"] = group_episodes
+            height = quality_heights.get(group["probe_url"], 0)
+            quality = stream_quality_label(height)
+            payload["resolution"] = quality
+            payload["resolution_height"] = height
             title = group["title"]
             if group["year"]:
                 title = f"{title} ({group['year']})"
-            title = f"{title} · S{season:02d} · {count}集"
+            title = f"{title} · S{season:02d} · {count}集 · {quality}"
             torrents.append(torrent_info_type(
                 site_name=group["site_name"],
                 title=title,
-                description=f"LunaTV · m3u8 · {count}集",
+                description=f"LunaTV · {quality} · m3u8 · {count}集",
                 media_source=group["host_media_source"],
                 media_id=group["host_media_id"],
                 enclosure=self._resource_token(payload),
                 page_url=group["page_url"],
                 size=0,
                 seeders=1,
+                pri_order=height,
                 category="电视剧",
-                labels=["LunaTV", "m3u8", f"S{season:02d}", f"{count}集"],
+                labels=["LunaTV", quality, "m3u8", f"S{season:02d}", f"{count}集"],
             ))
 
         for row in single_rows:
             payload = row["payload"]
+            height = quality_heights.get(row["probe_url"], 0)
+            quality = stream_quality_label(height)
+            payload["resolution"] = quality
+            payload["resolution_height"] = height
             title = row["title"]
             if row["year"]:
                 title = f"{title} ({row['year']})"
             if payload["media_type"] == "tv":
                 title = f"{title} S{int(payload['season']):02d}E{int(payload['episode']):02d}"
+            title = f"{title} · {quality}"
             torrents.append(torrent_info_type(
                 site_name=row["site_name"],
                 title=title,
-                description="LunaTV · m3u8",
+                description=f"LunaTV · {quality} · m3u8",
                 media_source=payload["host_media_source"],
                 media_id=payload["host_media_id"],
                 enclosure=self._resource_token(payload),
                 page_url=row["page_url"],
                 size=0,
                 seeders=1,
+                pri_order=height,
                 category="电视剧" if payload["media_type"] == "tv" else "电影",
-                labels=["LunaTV", "m3u8"],
+                labels=["LunaTV", quality, "m3u8"],
             ))
+        torrents.sort(key=lambda item: int(getattr(item, "pri_order", 0) or 0), reverse=True)
         with self._resource_search_lock:
             self._resource_search_cache[cache_key] = (time.monotonic(), torrents)
         return list(torrents)

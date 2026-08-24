@@ -8,7 +8,77 @@ from app.plugins.lunatvsource.cms import (
     _result_from_item,
     apply_season_counts,
     parse_config,
+    probe_stream_height,
+    stream_quality_label,
 )
+
+
+def test_stream_quality_label_uses_actual_video_height():
+    assert stream_quality_label(2160) == "4K"
+    assert stream_quality_label(1080) == "1080P"
+    assert stream_quality_label(720) == "720P"
+    assert stream_quality_label(480) == "480P"
+    assert stream_quality_label(360) == "360P"
+    assert stream_quality_label(0) == "未知"
+
+
+def test_probe_stream_height_reads_master_playlist_resolution(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self, _limit):
+            return (
+                b"#EXTM3U\n"
+                b"#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=1280x720\n720.m3u8\n"
+                b"#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=1920x1080\n1080.m3u8\n"
+            )
+
+    monkeypatch.setattr("app.plugins.lunatvsource.cms.urllib.request.urlopen", lambda *_args, **_kwargs: Response())
+    assert probe_stream_height("https://example.test/master.m3u8") == 1080
+
+
+def test_probe_stream_height_falls_back_to_first_video_stream(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self, _limit):
+            return b"#EXTM3U\n#EXTINF:6,\nsegment-001.ts\n"
+
+    class ProcessResult:
+        stdout = "854x480\n"
+
+    monkeypatch.setattr("app.plugins.lunatvsource.cms.urllib.request.urlopen", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr("app.plugins.lunatvsource.cms.subprocess.run", lambda *_args, **_kwargs: ProcessResult())
+    assert probe_stream_height("https://example.test/media.m3u8") == 480
+
+
+def test_probe_stream_height_decodes_one_frame_when_ffprobe_has_no_dimensions(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self, _limit):
+            return b"#EXTM3U\n#EXTINF:6,\nsegment-001.ts\n"
+
+    results = iter([
+        type("ProbeResult", (), {"stdout": "", "stderr": ""})(),
+        type("FrameResult", (), {"stdout": "", "stderr": "Video: h264, 1280x720"})(),
+    ])
+    monkeypatch.setattr("app.plugins.lunatvsource.cms.urllib.request.urlopen", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr("app.plugins.lunatvsource.cms.subprocess.run", lambda *_args, **_kwargs: next(results))
+
+    assert probe_stream_height("https://example.test/media.m3u8") == 720
 
 
 def test_parse_config_filters_by_api_host():
