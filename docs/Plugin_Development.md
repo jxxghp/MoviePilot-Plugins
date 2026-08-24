@@ -563,6 +563,68 @@ Vue 模式下，前端构建产物放入插件目录，由后端暴露静态资�
 的 `api`。联邦组件应优先使用这些 props；不要只读取全局 `window.MoviePilotAPI`，也不要
 自行根据源插件 ID 创建另一套 HTTP 客户端，否则请求会绕过实例 API 命名空间。
 
+### 8.3 联邦组件 CSS 不得污染主程序
+
+> **强制要求：联邦插件不得打包或发布 Vuetify、MDI 的全局基础样式。**
+
+联邦组件与主程序运行在同一个 `document`。远程 CSS 会由联邦运行时追加到主页面
+`<head>`，因此 `.v-card`、`.rounded-*`、`.elevation-*`、`html`、`body`、`:root` 等
+全局规则会同时修改主程序界面，而且离开插件页面后仍可能继续生效。Vue 的
+`<style scoped>` 只能约束插件自己编写的组件样式，不能修复被依赖包打入产物的全局 CSS。
+
+插件前端构建必须满足以下约束：
+
+1. 不要在远程组件依赖图中导入 `vuetify/styles` 或 MDI 全量样式。
+2. 共享 `vuetify/styles` 时必须设置 `generate: false`，复用主程序已有样式。
+3. PostCSS 必须移除来自 `node_modules/vuetify` 和 `node_modules/@mdi` 的 CSS。
+4. 不得提交或发布 `__federation_shared_vuetify/styles-*.css`。
+5. 可以保留 `.plugin-root .v-btn` 或 Vue `scoped`/`:deep()` 生成的插件内局部覆盖；不得直接编写 `.v-btn { ... }`。
+6. 构建后必须执行 `python .github/scripts/check_federation_css.py`。PR、pre-push 和 Release 都会执行同一门禁。
+7. 联邦插件在对应的 `package*.json` 中必须设置 `release: true`，确保正式发布工作流会打包其前端产物。
+
+推荐配置：
+
+```javascript
+federation({
+  name: 'MyPlugin',
+  filename: 'remoteEntry.js',
+  exposes: {
+    './Page': './src/components/Page.vue',
+    './Config': './src/components/Config.vue',
+  },
+  shared: {
+    vue: { requiredVersion: false, generate: false, singleton: true },
+    vuetify: { requiredVersion: false, generate: false, singleton: true },
+    'vuetify/styles': { requiredVersion: false, generate: false, singleton: true },
+  },
+})
+
+// vite.config.js
+css: {
+  postcss: {
+    plugins: [{
+      postcssPlugin: 'vuetify-filter',
+      Root(root) {
+        const sourcePath = root.source?.input?.file?.replaceAll('\\', '/') || ''
+        if (sourcePath.includes('/node_modules/vuetify/') ||
+            sourcePath.includes('/node_modules/@mdi/')) {
+          root.nodes = []
+          return
+        }
+        root.walkRules(rule => {
+          if (rule.selector &&
+              (rule.selector.includes('.v-') || rule.selector.includes('.mdi-'))) {
+            rule.remove()
+          }
+        })
+      },
+    }],
+  },
+}
+```
+
+不要仅以“`remoteEntry.js` 当前没有引用”为理由保留整包 Vuetify CSS。发布流程会打包插件目录，后续构建图变化也可能使这类文件重新进入加载链路；门禁会直接拒绝该产物。
+
 ## 9. 事件、API 和后台能力
 
 ### 9.1 远程命令与事件

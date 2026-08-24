@@ -49,6 +49,11 @@ export default defineConfig({
         {
           postcssPlugin: 'vuetify-filter',
           Root(root) {
+            const sourcePath = root.source?.input?.file?.replaceAll('\\', '/') || ''
+            if (sourcePath.includes('/node_modules/vuetify/') || sourcePath.includes('/node_modules/@mdi/')) {
+              root.nodes = []
+              return
+            }
             root.walkRules(rule => {
               if (rule.selector && !rule.selector.includes('.course-') && (rule.selector.includes('.v-') || rule.selector.includes('.mdi-'))) {
                 rule.remove()

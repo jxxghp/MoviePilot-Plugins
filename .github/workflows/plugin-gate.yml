@@ -21,6 +21,9 @@ jobs:
       - name: Check plugin versions
         run: python .github/scripts/check_plugin_versions.py package.json package.v2.json package.v3.json
 
+      - name: Check federation plugin CSS
+        run: python .github/scripts/check_federation_css.py
+
       - name: Check new plugin tests
         run: |
           git fetch origin main:refs/remotes/origin/main --depth=1

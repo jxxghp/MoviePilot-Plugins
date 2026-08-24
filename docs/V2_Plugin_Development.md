@@ -590,6 +590,16 @@ def get_sidebar_nav(self) -> List[Dict[str, Any]]:
 
 多入口全页插件的联邦暴露名规则，详见前端仓库的模块联邦开发指南。
 
+### 7.5 联邦组件 CSS 约束
+
+Vue 联邦组件和主程序共享同一个页面文档。插件不得打包或发布 Vuetify/MDI 全局基础样式，
+也不得直接声明未限定插件根节点的 `.v-*`、`.rounded-*`、`.elevation-*`、`html`、`body`
+或 `:root` 规则。共享 `vuetify/styles` 时必须使用 `generate: false`，并在 PostCSS 中移除
+来自 `node_modules/vuetify`、`node_modules/@mdi` 的 CSS。
+
+允许使用 Vue `<style scoped>`、`:deep()`，或 `.plugin-root .v-btn` 这类明确限定在插件内的
+局部覆盖。完整配置、错误示例和构建门禁见 [V3 插件开发文档的联邦 CSS 章节](./Plugin_Development.md#83-联邦组件-css-不得污染主程序)。
+
 ## 8. 公共服务封装建议
 
 V2 下很多插件都依赖下载器、媒体服务器、通知渠道等宿主服务。不要自行重复读取系统配置，优先使用宿主帮助类。

@@ -10,6 +10,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKER = REPO_ROOT / ".github/scripts/check_plugin_versions.py"
+CSS_CHECKER = REPO_ROOT / ".github/scripts/check_federation_css.py"
 PRE_PUSH = REPO_ROOT / ".githooks/pre-push"
 PR_WORKFLOW = REPO_ROOT / ".github/workflows/plugin-gate.yml"
 TEST_RUNNER = REPO_ROOT / "tests/run.py"
@@ -39,6 +40,7 @@ def _write_fixture(repo: Path, package_version: str, source_version: str) -> Non
     checker_target = repo / ".github/scripts/check_plugin_versions.py"
     checker_target.parent.mkdir(parents=True)
     shutil.copy2(CHECKER, checker_target)
+    shutil.copy2(CSS_CHECKER, repo / ".github/scripts/check_federation_css.py")
 
 
 def _run_checker(repo: Path, *package_files: Path | str) -> subprocess.CompletedProcess[str]:

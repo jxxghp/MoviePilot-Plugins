@@ -22,5 +22,31 @@ export default defineConfig({
     }),
   ],
   build: { target: 'esnext', minify: false, cssCodeSplit: true },
-  css: { postcss: { plugins: [] } },
+  css: {
+    postcss: {
+      plugins: [
+        {
+          postcssPlugin: 'internal:charset-removal',
+          AtRule: {
+            charset: atRule => atRule.remove(),
+          },
+        },
+        {
+          postcssPlugin: 'vuetify-filter',
+          Root(root) {
+            const sourcePath = root.source?.input?.file?.replaceAll('\\', '/') || ''
+            if (sourcePath.includes('/node_modules/vuetify/') || sourcePath.includes('/node_modules/@mdi/')) {
+              root.nodes = []
+              return
+            }
+            root.walkRules(rule => {
+              if (rule.selector && (rule.selector.includes('.v-') || rule.selector.includes('.mdi-'))) {
+                rule.remove()
+              }
+            })
+          },
+        },
+      ],
+    },
+  },
 })
