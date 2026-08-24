@@ -31,6 +31,11 @@ def test_queue_is_serial_and_deduplicates(tmp_path: Path):
     assert queue.enqueue(second) is False
     assert queue.summary()["pending"] == 1
 
+    assert queue.pause(first.task_id) is True
+    paused_duplicate = DownloadTask(**{**second.to_dict(), "task_id": "3"})
+    assert queue.enqueue(paused_duplicate) is False
+    assert queue.summary()["paused"] == 1
+
 
 def test_queue_runs_one_task_and_records_completion(tmp_path: Path):
     data = {}
