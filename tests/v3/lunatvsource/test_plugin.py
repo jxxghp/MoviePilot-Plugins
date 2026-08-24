@@ -6,6 +6,7 @@ from app.plugins.lunatvsource.naming import media_path
 import hashlib
 from pathlib import Path
 import sys
+import threading
 from enum import Enum
 from types import ModuleType, SimpleNamespace
 
@@ -511,8 +512,9 @@ def test_native_download_reports_duplicate_instead_of_fake_success(tmp_path: Pat
     assert len(plugin._queue.list_tasks()) == 1
 
 
-def test_active_queue_tasks_project_to_native_download_list_and_filter():
+def test_active_queue_tasks_project_to_native_download_list_and_filter(monkeypatch):
     plugin = _plugin({"enabled": True})
+    monkeypatch.setattr(plugin, "_start_queue", lambda: True)
     pending = DownloadTask(
         task_id="pending-task",
         source_key="cms-demo",
@@ -635,6 +637,35 @@ def test_active_queue_tasks_project_to_native_download_list_and_filter():
     assert module["stop_torrents"](["native-qbt-hash"], downloader="下载器1") is None
 
 
+def test_native_resume_wakes_serial_queue(monkeypatch, tmp_path: Path):
+    plugin = _plugin({"enabled": True})
+    task = DownloadTask(
+        task_id="paused-native-task",
+        source_key="cms-demo",
+        media_id="cms-demo:46",
+        title="继续下载电影",
+        year="2026",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/resume.m3u8",
+        root=str(tmp_path),
+        state="paused",
+    )
+    plugin.save_data(plugin._queue.DATA_KEY, [task.to_dict()])
+    started = threading.Event()
+
+    def run_one():
+        started.set()
+        return {"processed": 1}
+
+    monkeypatch.setattr(plugin._queue, "run_one", run_one)
+
+    assert plugin.start_torrents([task.task_id], downloader="下载器1") is True
+    assert started.wait(timeout=1)
+    assert plugin._queue.list_tasks()[0]["state"] == "pending"
+
+
 def test_active_queue_projection_uses_host_downloader_torrent_when_available(monkeypatch):
     class HostDownloaderTorrent:
         def __init__(self, **values):
@@ -663,6 +694,49 @@ def test_active_queue_projection_uses_host_downloader_torrent_when_available(mon
     torrents = plugin.list_torrents()
     assert len(torrents) == 1
     assert isinstance(torrents[0], HostDownloaderTorrent)
+
+
+def test_active_queue_projection_reports_partial_size_and_speed(monkeypatch, tmp_path: Path):
+    plugin = _plugin({"enabled": True})
+    task = DownloadTask(
+        task_id="metrics-task",
+        source_key="cms-demo",
+        media_id="cms-demo:47",
+        title="进度电影",
+        year="2026",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/metrics.m3u8",
+        root=str(tmp_path),
+        state="running",
+        progress=0.5,
+    )
+    relative_dir, filename = media_path(
+        task.root,
+        task.title,
+        task.year,
+        task.media_type,
+        task.season,
+        task.episode,
+        task.url,
+        task.mode,
+    )
+    partial = tmp_path / relative_dir / f"{filename}.part"
+    partial.parent.mkdir(parents=True)
+    partial.write_bytes(b"x" * 1024)
+    timestamps = iter([100.0, 102.0])
+    monkeypatch.setattr(plugin_module.time, "monotonic", lambda: next(timestamps))
+
+    first = plugin._active_download_torrent(task)
+    partial.write_bytes(b"x" * 3072)
+    second = plugin._active_download_torrent(task)
+
+    assert first.size == 2048.0
+    assert first.dlspeed == "0.0B"
+    assert second.size == 6144.0
+    assert second.dlspeed == "1.0K"
+
 
 def test_resource_download_event_allows_native_chain_to_call_plugin_download(tmp_path: Path):
     plugin = _plugin({"enabled": True})

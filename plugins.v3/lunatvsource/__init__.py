@@ -325,7 +325,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.png"
-    plugin_version = "0.4.34"
+    plugin_version = "0.4.35"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -350,6 +350,8 @@ class LunaTVSource(_PluginBase):
     def __init__(self) -> None:
         super().__init__()
         self._logger = LOGGER
+        self._download_metrics_lock = threading.Lock()
+        self._download_metrics: Dict[str, Tuple[float, int]] = {}
 
     def init_plugin(self, config: Optional[Dict[str, Any]] = None) -> None:
         self._config = dict(config or {})
@@ -1757,6 +1759,18 @@ class LunaTVSource(_PluginBase):
             return {"processed": 0}
         return self._queue.run_one()
 
+    def _start_queue(self) -> bool:
+        """立即唤醒一次串行队列，避免原生继续操作等待下个定时周期。"""
+        queue = self._queue
+        if queue is None:
+            return False
+        threading.Thread(
+            target=queue.run_one,
+            name="lunatvsource-download",
+            daemon=True,
+        ).start()
+        return True
+
     def get_media_source(self) -> List[Dict[str, Any]]:
         """LunaTV participates in the global search instead of adding an empty Explore tab."""
         return []
@@ -1764,6 +1778,7 @@ class LunaTVSource(_PluginBase):
     def _active_download_torrent(self, task: DownloadTask) -> Any:
         """将串行队列中的活跃任务归一为 MoviePilot 下载器任务。"""
         media_source, media_id = self._task_media_identity(task)
+        size, dlspeed = self._active_download_metrics(task)
         season_episode = None
         if task.media_type == "tv":
             try:
@@ -1782,6 +1797,9 @@ class LunaTVSource(_PluginBase):
             # Queue persistence uses a 0..1 fraction; MoviePilot's
             # DownloaderTorrent contract expects a 0..100 percentage.
             "progress": max(0.0, min(100.0, float(getattr(task, "progress", 0.0) or 0.0) * 100.0)),
+            "size": size,
+            "dlspeed": dlspeed,
+            "upspeed": "0.0B",
             "save_path": task.root or None,
             "media": {
                 "type": "电视剧" if task.media_type == "tv" else "电影",
@@ -1803,6 +1821,58 @@ class LunaTVSource(_PluginBase):
             except Exception as exc:
                 self._logger.debug("构造 MoviePilot 下载任务投影失败，使用兼容对象：%s", exc)
         return _CompatDownloaderTorrent(**values)
+
+    @staticmethod
+    def _format_download_speed(value: float) -> str:
+        units = ("B", "K", "M", "G")
+        amount = max(0.0, float(value or 0.0))
+        unit = units[0]
+        for candidate in units:
+            unit = candidate
+            if amount < 1024 or candidate == units[-1]:
+                break
+            amount /= 1024
+        return f"{amount:.1f}{unit}"
+
+    def _active_download_metrics(self, task: DownloadTask) -> Tuple[float, Optional[str]]:
+        """根据 ffmpeg 临时文件为原生下载页补充大小和实时速度。"""
+        try:
+            relative_dir, filename = media_path(
+                task.root,
+                task.title,
+                task.year,
+                task.media_type,
+                task.season,
+                task.episode,
+                task.url,
+                task.mode,
+            )
+            root = Path(task.root).expanduser().resolve()
+            output = (root / relative_dir / filename).resolve()
+            if root not in output.parents:
+                raise ValueError("目标路径越界")
+            partial = Path(f"{output}.part")
+            current_size = partial.stat().st_size if partial.is_file() else 0
+        except (OSError, RuntimeError, TypeError, ValueError):
+            current_size = 0
+
+        now = time.monotonic()
+        speed = 0.0
+        task_id = str(task.task_id or "")
+        with self._download_metrics_lock:
+            previous = self._download_metrics.get(task_id)
+            if current_size > 0:
+                self._download_metrics[task_id] = (now, current_size)
+                if previous and current_size >= previous[1] and now > previous[0]:
+                    speed = (current_size - previous[1]) / (now - previous[0])
+            else:
+                self._download_metrics.pop(task_id, None)
+
+        progress = max(0.0, min(0.99, float(getattr(task, "progress", 0.0) or 0.0)))
+        estimated_size = float(current_size)
+        if current_size > 0 and progress > 0:
+            estimated_size = max(estimated_size, current_size / progress)
+        return estimated_size, self._format_download_speed(speed) if current_size > 0 else None
 
     def list_torrents(
         self,
@@ -1921,7 +1991,10 @@ class LunaTVSource(_PluginBase):
     ) -> Optional[bool]:
         """Continue paused LunaTV tasks from MoviePilot's native download page."""
         del downloader
-        return self._control_queue_tasks(hashs, "resume")
+        resumed = self._control_queue_tasks(hashs, "resume")
+        if resumed:
+            self._start_queue()
+        return resumed
 
     def stop_torrents(
         self, hashs: Any, downloader: Optional[str] = None
