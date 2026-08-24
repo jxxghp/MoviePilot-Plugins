@@ -54,19 +54,75 @@ def test_queue_runs_one_task_and_records_completion(tmp_path: Path):
     assert queue.summary()["completed"] == 1
 
 
+@pytest.mark.parametrize(
+    ("media_type", "season", "episode", "expected_text"),
+    [
+        ("movie", 1, 1, "电影标题"),
+        ("tv", 2, 3, "电视剧标题 S02E03"),
+    ],
+)
+def test_queue_notifications_distinguish_movies_and_tv(
+    tmp_path: Path,
+    media_type: str,
+    season: int,
+    episode: int,
+    expected_text: str,
+):
+    data = {}
+    notifications = []
+    queue = DownloadQueue(
+        data.get,
+        data.__setitem__,
+        lambda title, text: notifications.append((title, text)),
+    )
+
+    def make_task(task_id: str) -> DownloadTask:
+        return DownloadTask(
+            task_id=task_id,
+            source_key="lunatv",
+            media_id=f"site:{task_id}",
+            title="电视剧标题" if media_type == "tv" else "电影标题",
+            year="2026",
+            media_type=media_type,
+            season=season,
+            episode=episode,
+            url=f"https://example.test/{task_id}.m3u8",
+            root=str(tmp_path),
+        )
+
+    completed_task = make_task("completed-notification")
+    assert queue.enqueue(completed_task) is True
+    queue._execute = lambda _task: str(tmp_path / "completed.mp4")
+    assert queue.run_one()["state"] == "completed"
+
+    failed_task = make_task("failed-notification")
+    assert queue.enqueue(failed_task) is True
+
+    def fail_download(_task):
+        raise RuntimeError("source unavailable")
+
+    queue._execute = fail_download
+    assert queue.run_one()["state"] == "failed"
+    assert notifications == [
+        ("LunaTV 已完成", expected_text),
+        ("LunaTV 下载失败", f"{expected_text}：source unavailable"),
+    ]
+
+
 def test_queue_recovers_interrupted_running_task(tmp_path: Path):
     data = {
         "download_tasks_v1": [
             DownloadTask(
                 task_id="stale", source_key="lunatv", media_id="site:3", title="示例", year="2024",
                 media_type="movie", season=1, episode=1, url="https://example.test/a.m3u8",
-                root=str(tmp_path), state="running",
+                root=str(tmp_path), state="running", progress=0.3846,
             ).to_dict()
         ]
     }
     queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
     tasks = queue.list_tasks()
     assert tasks[0]["state"] == "pending"
+    assert tasks[0]["progress"] == 0.0
     assert "恢复" in tasks[0]["error"]
 
 
@@ -81,6 +137,7 @@ def test_queue_pause_resume_and_remove_pending_task(tmp_path: Path):
     assert queue.enqueue(task) is True
     assert queue.pause(task.task_id) is True
     assert queue.list_tasks()[0]["state"] == "paused"
+    assert queue.list_tasks()[0]["progress"] == 0.0
     assert queue.run_one() == {"processed": 0}
     assert queue.resume(task.task_id) is True
     assert queue.list_tasks()[0]["state"] == "pending"
@@ -88,7 +145,7 @@ def test_queue_pause_resume_and_remove_pending_task(tmp_path: Path):
     assert queue.list_tasks() == []
 
 
-def test_queue_safely_pauses_running_task(tmp_path: Path):
+def test_queue_safely_pauses_running_task(tmp_path: Path, monkeypatch):
     data = {}
     queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
     task = DownloadTask(
@@ -99,12 +156,17 @@ def test_queue_safely_pauses_running_task(tmp_path: Path):
     assert queue.enqueue(task) is True
     executing = threading.Event()
 
-    def controlled_execute(_task):
+    def controlled_ffmpeg(_ffmpeg_path, _url, output, control_event, progress_callback):
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text("partial", encoding="utf-8")
+        assert progress_callback is not None
+        progress_callback(0.3846)
         executing.set()
-        assert queue._control_event.wait(timeout=2)
+        assert control_event is not None
+        assert control_event.wait(timeout=2)
         raise downloader_module._QueueControl("controlled")
 
-    queue._execute = controlled_execute
+    monkeypatch.setattr(DownloadQueue, "_run_ffmpeg", staticmethod(controlled_ffmpeg))
     result = {}
     worker = threading.Thread(target=lambda: result.update(queue.run_one()))
     worker.start()
@@ -113,7 +175,10 @@ def test_queue_safely_pauses_running_task(tmp_path: Path):
     worker.join(timeout=2)
     assert not worker.is_alive()
     assert result["state"] == "pause"
-    assert queue.list_tasks()[0]["state"] == "paused"
+    paused_task = queue.list_tasks()[0]
+    assert paused_task["state"] == "paused"
+    assert paused_task["progress"] == 0.0
+    assert list(tmp_path.rglob("*.part")) == []
 
 
 def test_queue_safely_removes_running_task(tmp_path: Path):
