@@ -377,12 +377,12 @@ class CourseOrganizer(_PluginBase):
     plugin_config_prefix = "courseorganizer_"
     auth_level = 1
     plugin_order = 90
-    plugin_version = "2.0.8"
+    plugin_version = "2.0.9"
     plugin_desc = "稳定后识别、分类并整理到电视剧、电影或儿童媒体库"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     project_url = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
-    plugin_icon = "courseorganizer.png"
+    plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/courseorganizer.png"
     plugin_repo = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
 
     MEDIA_EXTENSIONS = {".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".m4v", ".m4a"}

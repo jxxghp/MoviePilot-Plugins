@@ -42,10 +42,11 @@ def test_v3_package_and_plugin_versions_are_consistent():
     package_v2 = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
     package_v3 = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
 
-    assert module.CourseOrganizer.plugin_version == "2.0.8"
-    assert package_v3["CourseOrganizer"]["version"] == "2.0.8"
-    assert package_v3["CourseOrganizer"]["icon"] == "courseorganizer.png"
-    assert module.CourseOrganizer.plugin_icon == "courseorganizer.png"
+    assert module.CourseOrganizer.plugin_version == "2.0.9"
+    assert package_v3["CourseOrganizer"]["version"] == "2.0.9"
+    expected_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/courseorganizer.png"
+    assert package_v3["CourseOrganizer"]["icon"] == expected_icon
+    assert module.CourseOrganizer.plugin_icon == expected_icon
     assert module.CourseOrganizer.author_url == "https://github.com/OneBigMoon"
     assert (ROOT / "icons/courseorganizer.png").is_file()
     assert package_v3["CourseOrganizer"]["system_version"] == ">=3.0.0"
