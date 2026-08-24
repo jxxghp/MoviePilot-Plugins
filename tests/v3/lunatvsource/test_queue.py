@@ -172,6 +172,34 @@ def test_queue_pause_resume_and_remove_pending_task(tmp_path: Path):
     assert queue.list_tasks() == []
 
 
+def test_queue_clears_stale_progress_during_pending_pause_and_resume(tmp_path: Path):
+    data = {}
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+    task = DownloadTask(
+        task_id="pending-stale",
+        source_key="lunatv",
+        media_id="site:pending-stale",
+        title="排队示例",
+        year="2024",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/pending-stale.m3u8",
+        root=str(tmp_path),
+        progress=0.3846,
+    )
+
+    assert queue.enqueue(task) is True
+    assert queue.pause(task.task_id) is True
+    assert queue.list_tasks()[0]["state"] == "paused"
+    assert queue.list_tasks()[0]["progress"] == 0.0
+
+    data["download_tasks_v1"][0]["progress"] = 0.3846
+    assert queue.resume(task.task_id) is True
+    assert queue.list_tasks()[0]["state"] == "pending"
+    assert queue.list_tasks()[0]["progress"] == 0.0
+
+
 def test_queue_safely_pauses_running_task(tmp_path: Path, monkeypatch):
     data = {}
     queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)

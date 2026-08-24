@@ -297,6 +297,7 @@ class DownloadQueue:
                 return True
             if task.state == "pending":
                 task.state = "paused"
+                task.progress = 0.0
                 task.error = ""
                 self._write(tasks)
                 return True
@@ -319,6 +320,7 @@ class DownloadQueue:
                 return True
             if task.state == "paused":
                 task.state = "pending"
+                task.progress = 0.0
                 task.error = ""
                 self._write(tasks)
                 return True
