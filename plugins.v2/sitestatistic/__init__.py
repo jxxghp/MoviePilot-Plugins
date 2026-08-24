@@ -32,7 +32,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.9.1"
+    plugin_version = "1.9.2"
     # 插件作者
     plugin_author = "lightolly,jxxghp"
     # 作者主页
@@ -211,6 +211,7 @@ class SiteStatistic(_PluginBase):
             return
         if event.event_data.get('site_id') != "*":
             return
+        logger.debug(f"收到站点数据刷新事件，开始计算{self._notify_type}数据通知 ...")
         # 获取站点数据
         today, today_data, yesterday_data = self.__get_data()
         # 转换为字典
@@ -271,8 +272,27 @@ class SiteStatistic(_PluginBase):
                                       f"总上传：{StringUtils.str_filesize(incUploads)}\n"
                                       f"总下载：{StringUtils.str_filesize(incDownloads)}\n"
                                       f"————————————")
-            self.post_message(mtype=NotificationType.SiteMessage,
-                              title="站点数据统计", text="\n".join(sorted_messages))
+            # 同一天内只推送一次通知：
+            # 定时刷新服务、自动签到、手动刷新等都会触发全量刷新事件，
+            # 而增量基准是昨天数据，同一天内多次刷新会重复推送几乎相同的内容
+            with lock:
+                last_notify = self.get_data("last_notify") or {}
+                if last_notify.get("date") == today_date and last_notify.get("type") == self._notify_type:
+                    logger.info(f"站点数据统计今日（{today_date}）通知已发送过，跳过本次重复通知，"
+                                f"本次增量：上传 {StringUtils.str_filesize(incUploads)}，"
+                                f"下载 {StringUtils.str_filesize(incDownloads)}")
+                    return
+                self.post_message(mtype=NotificationType.SiteMessage,
+                                  title="站点数据统计", text="\n".join(sorted_messages))
+                # 持久化记录当日已发送状态，避免插件重载或重启后再次重复推送
+                self.save_data("last_notify", {
+                    "date": today_date,
+                    "type": self._notify_type,
+                    "time": datetime.now().strftime("%H:%M:%S")
+                })
+                logger.info(f"站点数据统计通知发送完成（{today_date}），"
+                            f"总上传 {StringUtils.str_filesize(incUploads)}，"
+                            f"总下载 {StringUtils.str_filesize(incDownloads)}")
 
     @staticmethod
     def __get_data() -> Tuple[str, List[SiteUserData], List[SiteUserData]]:
