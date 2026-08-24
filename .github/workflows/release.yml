@@ -77,21 +77,15 @@ jobs:
                 continue
               fi
 
-              if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-                prev_tag="$tag"
-              else
-                prev_tag="$(git tag --list "${plugin_id}_v*" --sort=-version:refname | head -n 1 || true)"
-              fi
-
               changed=1
-              if [ -n "$prev_tag" ]; then
-                if git diff --quiet "$prev_tag" -- "$plugin_dir"; then
+              if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+                if git diff --quiet "$tag" -- "$plugin_dir"; then
                   changed=0
                 fi
               fi
 
               if [ "$changed" -eq 0 ]; then
-                echo "No changes in $plugin_dir since $prev_tag, skip packaging $plugin_id."
+                echo "No changes in $plugin_dir since $tag, skip packaging $plugin_id."
                 if gh release view "$tag" >/dev/null 2>&1; then
                   gh release edit "$tag" --notes "$release_notes"
                 fi
@@ -119,6 +113,6 @@ jobs:
             done
           }
 
-          process_package "package.json"
           process_package "package.v2.json"
+          process_package "package.json"
           process_package "package.v3.json"

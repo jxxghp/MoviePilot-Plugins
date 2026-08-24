@@ -13,6 +13,7 @@ CHECKER = REPO_ROOT / ".github/scripts/check_plugin_versions.py"
 CSS_CHECKER = REPO_ROOT / ".github/scripts/check_federation_css.py"
 PRE_PUSH = REPO_ROOT / ".githooks/pre-push"
 PR_WORKFLOW = REPO_ROOT / ".github/workflows/plugin-gate.yml"
+RELEASE_WORKFLOW = REPO_ROOT / ".github/workflows/release.yml"
 TEST_RUNNER = REPO_ROOT / "tests/run.py"
 
 
@@ -265,3 +266,17 @@ def test_pr_workflow_uses_uv_backend_environment() -> None:
 
     assert "uv sync --locked" in workflow
     assert "../MoviePilot/.venv/bin/python tests/run.py" in workflow
+
+
+def test_release_workflow_packages_missing_target_tag_from_v2_first() -> None:
+    """缺少目标版本时必须打包，且同版本重复条目优先采用 V2 目录。"""
+    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+    assert 'git diff --quiet "$tag" -- "$plugin_dir"' in workflow
+    assert 'git tag --list "${plugin_id}_v*"' not in workflow
+    assert workflow.index('process_package "package.v2.json"') < workflow.index(
+        'process_package "package.json"'
+    )
+    assert workflow.index('process_package "package.json"') < workflow.index(
+        'process_package "package.v3.json"'
+    )
