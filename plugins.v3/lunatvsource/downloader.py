@@ -240,7 +240,11 @@ class DownloadQueue:
             for task in tasks:
                 if task.state == "running":
                     task.state = "pending"
+                    task.progress = 0.0
                     task.error = "上次进程中断，已恢复排队"
+                    changed = True
+                elif task.state == "paused" and task.progress:
+                    task.progress = 0.0
                     changed = True
             if changed:
                 self._write(tasks)
@@ -293,6 +297,7 @@ class DownloadQueue:
                 return True
             if task.state == "pending":
                 task.state = "paused"
+                task.progress = 0.0
                 task.error = ""
                 self._write(tasks)
                 return True
@@ -315,6 +320,7 @@ class DownloadQueue:
                 return True
             if task.state == "paused":
                 task.state = "pending"
+                task.progress = 0.0
                 task.error = ""
                 self._write(tasks)
                 return True
@@ -348,6 +354,12 @@ class DownloadQueue:
             counts[task.state] = counts.get(task.state, 0) + 1
         return counts
 
+    @staticmethod
+    def _notification_text(task: DownloadTask) -> str:
+        if str(task.media_type or "").lower() == "tv":
+            return f"{task.title} S{int(task.season):02d}E{int(task.episode):02d}"
+        return task.title
+
     def run_one(self) -> Dict[str, Any]:
         with self._lock:
             tasks = self._read()
@@ -380,6 +392,7 @@ class DownloadQueue:
                 elif current is not None:
                     self._delete_file_tasks.discard(task.task_id)
                     current.state = "paused"
+                    current.progress = 0.0
                     current.error = ""
                 self._write(tasks)
                 self._running = False
@@ -419,7 +432,7 @@ class DownloadQueue:
                 self._current_task_id = ""
                 self._control_action = ""
                 self._control_event.clear()
-            self._notify("LunaTV 下载失败", f"{task.title} S{task.season:02d}E{task.episode:02d}：{exc}")
+            self._notify("LunaTV 下载失败", f"{self._notification_text(task)}：{exc}")
             return {"processed": 1, "task_id": task.task_id, "state": "failed", "error": str(exc)}
 
         with self._lock:
@@ -466,7 +479,7 @@ class DownloadQueue:
                 # History/host integration must never turn a completed file
                 # into a failed download.
                 pass
-        self._notify("LunaTV 已完成", f"{task.title} S{task.season:02d}E{task.episode:02d}")
+        self._notify("LunaTV 已完成", self._notification_text(task))
         return {"processed": 1, "task_id": task.task_id, "state": "completed", "output": output}
 
     def _execute(self, task: DownloadTask) -> str:
