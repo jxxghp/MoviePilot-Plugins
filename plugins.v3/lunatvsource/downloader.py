@@ -281,6 +281,7 @@ class DownloadQueue:
             for task in tasks:
                 if task.task_id == task_id and task.state == "failed":
                     task.state = "pending"
+                    task.progress = 0.0
                     task.error = ""
                     self._write(tasks)
                     return True
