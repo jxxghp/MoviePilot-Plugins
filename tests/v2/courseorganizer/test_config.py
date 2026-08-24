@@ -146,10 +146,11 @@ def test_custom_page_filters_system_entries_from_stale_api_rows():
 def test_v2_market_manifest_uses_renderable_png_icon():
     package_v2 = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
 
-    assert CourseOrganizer.plugin_version == "1.7.18"
-    assert package_v2["CourseOrganizer"]["version"] == "1.7.18"
-    assert package_v2["CourseOrganizer"]["icon"] == "courseorganizer.png"
-    assert CourseOrganizer.plugin_icon == "courseorganizer.png"
+    assert CourseOrganizer.plugin_version == "1.7.19"
+    assert package_v2["CourseOrganizer"]["version"] == "1.7.19"
+    expected_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/courseorganizer.png"
+    assert package_v2["CourseOrganizer"]["icon"] == expected_icon
+    assert CourseOrganizer.plugin_icon == expected_icon
     assert CourseOrganizer.author_url == "https://github.com/OneBigMoon"
     assert (ROOT / "icons/courseorganizer.png").is_file()
 

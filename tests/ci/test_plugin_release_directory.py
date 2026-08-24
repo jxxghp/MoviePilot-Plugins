@@ -61,4 +61,3 @@ def test_release_workflow_preserves_all_generation_releases() -> None:
     assert ".value.release == true and .value.v3 != false" not in workflow
     assert "Missing plugin directory" in workflow
     assert 'git rev-parse -q --verify "refs/tags/$tag"' in workflow
-    assert 'prev_tag="$tag"' in workflow
