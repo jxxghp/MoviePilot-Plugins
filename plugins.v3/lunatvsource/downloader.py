@@ -71,6 +71,8 @@ class _SegmentProxy:
         proxy = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
             def do_GET(self) -> None:  # noqa: N802 - stdlib handler contract
                 token = self.path.partition("?")[0].removeprefix("/segment/")
                 remote_url = proxy._urls.get(token)
@@ -86,13 +88,22 @@ class _SegmentProxy:
                         prefix = response.read(4096)
                         offset = _mpegts_payload_offset(prefix)
                         length = response.headers.get("Content-Length")
+                        content_length = (
+                            int(length)
+                            if length is not None and str(length).isdigit()
+                            else None
+                        )
                         self.send_response(200)
                         self.send_header("Content-Type", "video/mp2t" if offset else (
                             response.headers.get("Content-Type") or "application/octet-stream"
                         ))
-                        if length and str(length).isdigit():
-                            self.send_header("Content-Length", str(max(0, int(length) - offset)))
-                        self.send_header("Connection", "close")
+                        if content_length is not None and content_length >= offset:
+                            self.send_header("Content-Length", str(content_length - offset))
+                        else:
+                            # HTTP/1.1 responses without a length must close so
+                            # ffmpeg can delimit the segment body.
+                            self.send_header("Connection", "close")
+                            self.close_connection = True
                         self.end_headers()
                         self.wfile.write(prefix[offset:])
                         while True:
@@ -220,9 +231,14 @@ class DownloadQueue:
         self._lock = threading.RLock()
         self._stop = False
         self._running = False
+        self._drain_running = False
+        self._drain_wakeup = threading.Event()
         self._current_task_id = ""
+        self._active_owner_id: Optional[int] = None
         self._control_action = ""
         self._control_event = threading.Event()
+        self._idle_event = threading.Event()
+        self._idle_event.set()
         self._delete_file_tasks: set[str] = set()
         self._recover_interrupted_tasks()
 
@@ -361,12 +377,159 @@ class DownloadQueue:
             return f"{task.title} S{int(task.season):02d}E{int(task.episode):02d}"
         return task.title
 
-    def run_one(self) -> Dict[str, Any]:
+    def _clear_active_state(self, *, keep_control: bool = False) -> None:
+        """Clear transient active-task state while ``_lock`` is held."""
+        self._running = False
+        self._active_owner_id = None
+        if not keep_control:
+            self._current_task_id = ""
+            self._control_action = ""
+        self._control_event.clear()
+        self._idle_event.set()
+
+    def wake(self) -> bool:
+        """Run pending tasks in one background worker without fan-out."""
         with self._lock:
+            if self._stop:
+                return False
+            self._drain_wakeup.set()
+            if self._drain_running:
+                return True
+            self._drain_running = True
+        try:
+            threading.Thread(
+                target=self._drain,
+                name="lunatvsource-download",
+                daemon=True,
+            ).start()
+        except RuntimeError:
+            with self._lock:
+                self._drain_running = False
+                self._drain_wakeup.clear()
+            return False
+        return True
+
+    def _drain(self) -> None:
+        control_retry_used = False
+        while True:
+            self._drain_wakeup.clear()
+            failed = False
+            try:
+                self._drain_until_idle()
+            except Exception:
+                # A wake arriving during a transient persistence failure must
+                # get one retry instead of being lost behind the live worker.
+                failed = True
+
+            with self._lock:
+                if self._drain_wakeup.is_set():
+                    continue
+                pending_control = (
+                    self._control_action in {"pause", "remove"}
+                    and bool(self._current_task_id)
+                )
+                if failed and pending_control and not control_retry_used:
+                    control_retry_used = True
+                    continue
+                self._drain_running = False
+                if self._stop:
+                    self._drain_wakeup.clear()
+                return
+
+    def _drain_until_idle(self) -> None:
+        """Continue serial work until no pending task remains.
+
+        The idle check and worker hand-off share ``_lock`` with enqueue(), so
+        a task added as another task finishes cannot lose its wake-up.
+        """
+        while True:
+            result = self.run_one()
+            if result.get("processed"):
+                continue
+
+            with self._lock:
+                stopped = self._stop
+                active_elsewhere = self._running
+            if stopped:
+                return
+            if active_elsewhere:
+                # A legacy/direct run_one() call owns the active task. Keep
+                # this worker alive until it finishes, then drain its wake-up.
+                self._idle_event.wait()
+                continue
+
+            with self._lock:
+                if any(task.state == "pending" for task in self._read()):
+                    continue
+                return
+
+    def _replay_control_intent(
+        self,
+        tasks: List[DownloadTask],
+    ) -> Optional[Dict[str, Any]]:
+        """Persist an interrupted pause/remove before any task can restart.
+
+        Must be called with ``_lock`` held. The intent is cleared only after
+        its durable state transition succeeds, so a transient save failure
+        cannot resurrect a paused or removed download.
+        """
+        action = self._control_action
+        task_id = self._current_task_id
+        if action not in {"pause", "remove"} or not task_id:
+            return None
+
+        task = next((item for item in tasks if item.task_id == task_id), None)
+        if action == "remove":
+            delete_file = task_id in self._delete_file_tasks
+            if task is not None and delete_file:
+                self._delete_task_files(task)
+            if task is not None:
+                self._write([item for item in tasks if item.task_id != task_id])
+            self._delete_file_tasks.discard(task_id)
+        else:
+            if task is not None:
+                task.state = "paused"
+                task.progress = 0.0
+                task.error = ""
+                self._write(tasks)
+
+        self._clear_active_state()
+        return {
+            "processed": 1 if task is not None else 0,
+            "task_id": task_id,
+            "state": action,
+        }
+
+    def run_one(self) -> Dict[str, Any]:
+        owner_id = threading.get_ident()
+        try:
+            return self._run_one(owner_id)
+        except Exception:
+            with self._lock:
+                if self._active_owner_id == owner_id:
+                    keep_control = (
+                        self._control_action in {"pause", "remove"}
+                        and bool(self._current_task_id)
+                    )
+                    self._clear_active_state(keep_control=keep_control)
+            raise
+
+    def _run_one(self, owner_id: int) -> Dict[str, Any]:
+        with self._lock:
+            if self._running:
+                return {"processed": 0, "stopped": True}
             tasks = self._read()
-            if self._stop or self._running:
+            replayed = self._replay_control_intent(tasks)
+            if replayed is not None:
+                return replayed
+            if self._stop:
                 return {"processed": 0, "stopped": True}
             task = next((item for item in tasks if item.state == "pending"), None)
+            if task is None:
+                task = next((item for item in tasks if item.state == "running"), None)
+                if task is not None:
+                    task.progress = 0.0
+                    task.error = "上次队列执行异常，已恢复排队"
             if task is None:
                 return {"processed": 0}
             task.state = "running"
@@ -374,8 +537,10 @@ class DownloadQueue:
             task.attempts += 1
             self._running = True
             self._current_task_id = task.task_id
+            self._active_owner_id = owner_id
             self._control_action = ""
             self._control_event.clear()
+            self._idle_event.clear()
             self._write(tasks)
         try:
             output = self._execute(task)
@@ -386,20 +551,16 @@ class DownloadQueue:
                 current = next((item for item in tasks if item.task_id == task.task_id), None)
                 if action == "remove":
                     delete_file = task.task_id in self._delete_file_tasks
-                    self._delete_file_tasks.discard(task.task_id)
                     if delete_file:
                         self._delete_task_files(task)
                     tasks = [item for item in tasks if item.task_id != task.task_id]
                 elif current is not None:
-                    self._delete_file_tasks.discard(task.task_id)
                     current.state = "paused"
                     current.progress = 0.0
                     current.error = ""
                 self._write(tasks)
-                self._running = False
-                self._current_task_id = ""
-                self._control_action = ""
-                self._control_event.clear()
+                self._delete_file_tasks.discard(task.task_id)
+                self._clear_active_state()
             return {"processed": 1, "task_id": task.task_id, "state": action}
         except Exception as exc:
             with self._lock:
@@ -409,30 +570,44 @@ class DownloadQueue:
                     and self._current_task_id == task.task_id
                 ):
                     delete_file = task.task_id in self._delete_file_tasks
-                    self._delete_file_tasks.discard(task.task_id)
                     if delete_file:
                         self._delete_task_files(task)
                     self._write(
                         [item for item in tasks if item.task_id != task.task_id]
                     )
-                    self._running = False
-                    self._current_task_id = ""
-                    self._control_action = ""
-                    self._control_event.clear()
+                    self._delete_file_tasks.discard(task.task_id)
+                    self._clear_active_state()
                     return {
                         "processed": 1,
                         "task_id": task.task_id,
                         "state": "remove",
+                    }
+                if (
+                    self._control_action == "pause"
+                    and self._current_task_id == task.task_id
+                ):
+                    current = next(
+                        (item for item in tasks if item.task_id == task.task_id),
+                        None,
+                    )
+                    if current is not None:
+                        current.state = "paused"
+                        current.progress = 0.0
+                        current.error = ""
+                        self._write(tasks)
+                    self._delete_file_tasks.discard(task.task_id)
+                    self._clear_active_state()
+                    return {
+                        "processed": 1,
+                        "task_id": task.task_id,
+                        "state": "pause",
                     }
                 self._delete_file_tasks.discard(task.task_id)
                 current = next((item for item in tasks if item.task_id == task.task_id), task)
                 current.state = "failed"
                 current.error = str(exc)
                 self._write(tasks)
-                self._running = False
-                self._current_task_id = ""
-                self._control_action = ""
-                self._control_event.clear()
+                self._clear_active_state()
             self._notify("LunaTV 下载失败", f"{self._notification_text(task)}：{exc}")
             return {"processed": 1, "task_id": task.task_id, "state": "failed", "error": str(exc)}
 
@@ -444,16 +619,13 @@ class DownloadQueue:
             ):
                 task.output = output
                 delete_file = task.task_id in self._delete_file_tasks
-                self._delete_file_tasks.discard(task.task_id)
                 if delete_file:
                     self._delete_task_files(task)
                 self._write(
                     [item for item in tasks if item.task_id != task.task_id]
                 )
-                self._running = False
-                self._current_task_id = ""
-                self._control_action = ""
-                self._control_event.clear()
+                self._delete_file_tasks.discard(task.task_id)
+                self._clear_active_state()
                 return {
                     "processed": 1,
                     "task_id": task.task_id,
@@ -469,10 +641,6 @@ class DownloadQueue:
             task.output = output
             task.completed_at = current.completed_at
             self._write(tasks)
-            self._running = False
-            self._current_task_id = ""
-            self._control_action = ""
-            self._control_event.clear()
         if self._on_complete is not None:
             try:
                 self._on_complete(task, output)
@@ -480,6 +648,8 @@ class DownloadQueue:
                 # History/host integration must never turn a completed file
                 # into a failed download.
                 pass
+        with self._lock:
+            self._clear_active_state()
         self._notify("LunaTV 已完成", self._notification_text(task))
         return {"processed": 1, "task_id": task.task_id, "state": "completed", "output": output}
 
@@ -675,6 +845,12 @@ class DownloadQueue:
                 "0",
                 "-seg_max_retry",
                 "2",
+                "-http_persistent",
+                "1",
+                "-http_multiple",
+                "1",
+                "-http_seekable",
+                "0",
                 "-i",
                 input_url,
                 "-c",
