@@ -112,8 +112,8 @@ class Tjupt(_ISiteSigninHandler):
         logger.debug(f"签到图片hash {captcha_img_hash}")
 
         # 签到答案选项
-        values = html.xpath("//input[@name='answer']/@value")
-        options = html.xpath("//input[@name='answer']/following-sibling::text()")
+        values = html.xpath("//input[@name='ban_robot']/@value")
+        options = html.xpath("//input[@name='ban_robot']/following-sibling::text()")
 
         if not values or not options:
             logger.error(f"{site} 签到失败，未获取到答案选项")
@@ -142,7 +142,7 @@ class Tjupt(_ISiteSigninHandler):
                                              ua=ua,
                                              proxy=proxy,
                                              site=site)
-        except (FileNotFoundError, IOError, OSError) as e:
+        except (KeyError, FileNotFoundError, IOError, OSError) as e:
             logger.debug(f"查询本地已知答案失败：{str(e)}，继续请求豆瓣查询")
 
         # 本地不存在正确答案则请求豆瓣查询匹配
@@ -200,7 +200,7 @@ class Tjupt(_ISiteSigninHandler):
         签到请求
         """
         data = {
-            'answer': answer,
+            'ban_robot': answer,
             'submit': '提交'
         }
         logger.debug(f"提交data {data}")
