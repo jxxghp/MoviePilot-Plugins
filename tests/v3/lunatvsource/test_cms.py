@@ -8,7 +8,78 @@ from app.plugins.lunatvsource.cms import (
     _result_from_item,
     apply_season_counts,
     parse_config,
+    probe_stream_height,
+    stream_quality_label,
 )
+
+
+def test_stream_quality_label_uses_actual_video_height():
+    assert stream_quality_label(2160) == "4K"
+    assert stream_quality_label(1080) == "1080P"
+    assert stream_quality_label(720) == "720P"
+    assert stream_quality_label(480) == "480P"
+    assert stream_quality_label(608) == "608P"
+    assert stream_quality_label(360) == "360P"
+    assert stream_quality_label(0) == "未知"
+
+
+def test_probe_stream_height_reads_master_playlist_resolution(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self, _limit):
+            return (
+                b"#EXTM3U\n"
+                b"#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=1280x720\n720.m3u8\n"
+                b"#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=1920x1080\n1080.m3u8\n"
+            )
+
+    monkeypatch.setattr("app.plugins.lunatvsource.cms.urllib.request.urlopen", lambda *_args, **_kwargs: Response())
+    assert probe_stream_height("https://example.test/master.m3u8") == 1080
+
+
+def test_probe_stream_height_falls_back_to_first_video_stream(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self, _limit):
+            return b"#EXTM3U\n#EXTINF:6,\nsegment-001.ts\n"
+
+    class ProcessResult:
+        stdout = "854x480\n"
+
+    monkeypatch.setattr("app.plugins.lunatvsource.cms.urllib.request.urlopen", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr("app.plugins.lunatvsource.cms.subprocess.run", lambda *_args, **_kwargs: ProcessResult())
+    assert probe_stream_height("https://example.test/media.m3u8") == 480
+
+
+def test_probe_stream_height_decodes_one_frame_when_ffprobe_has_no_dimensions(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self, _limit):
+            return b"#EXTM3U\n#EXTINF:6,\nsegment-001.ts\n"
+
+    results = iter([
+        type("ProbeResult", (), {"stdout": "", "stderr": ""})(),
+        type("FrameResult", (), {"stdout": "", "stderr": "Video: h264, 1280x720"})(),
+    ])
+    monkeypatch.setattr("app.plugins.lunatvsource.cms.urllib.request.urlopen", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr("app.plugins.lunatvsource.cms.subprocess.run", lambda *_args, **_kwargs: next(results))
+
+    assert probe_stream_height("https://example.test/media.m3u8") == 720
 
 
 def test_parse_config_filters_by_api_host():
@@ -27,6 +98,37 @@ def test_parse_config_filters_by_api_host():
     )
     assert len(sources) == 1
     assert sources[0].api.endswith("/api.php/provide/vod")
+
+
+def test_source_to_dict_derives_non_live_configuration_states():
+    cases = [
+        ("", "ready", "已加载", "supported", "支持"),
+        ("备用源", "warning", "备用", "supported", "支持"),
+        ("线路不稳定", "warning", "不稳定", "supported", "支持"),
+        ("HTTP 403", "error", "异常", "unavailable", "不可用"),
+        ("暂不支持搜索", "ready", "已加载", "unsupported", "不支持"),
+        ("无法搜索", "ready", "已加载", "unsupported", "不支持"),
+        ("禁止搜索", "ready", "已加载", "unsupported", "不支持"),
+        ("无搜索结果", "ready", "已加载", "empty", "无结果"),
+        ("污染搜索结果", "ready", "已加载", "degraded", "结果异常"),
+    ]
+
+    for comment, status, status_label, search_status, search_label in cases:
+        data = CmsSource(
+            key="demo",
+            name="演示源",
+            api="https://api.example/vod",
+            detail="https://detail.example",
+            comment=comment,
+        ).to_dict()
+        assert data["url"] == "https://detail.example"
+        assert data["status"] == status
+        assert data["status_label"] == status_label
+        assert data["search_status"] == search_status
+        assert data["search_label"] == search_label
+
+    fallback = CmsSource("fallback", "回退源", "https://api.example/vod").to_dict()
+    assert fallback["url"] == "https://api.example/vod"
 
 
 def test_parse_play_urls_reads_multiple_episodes_and_seasons():
@@ -54,6 +156,20 @@ def test_parse_play_urls_preserves_season_groups():
         "01$https://example.test/s1e01.m3u8$$$01$https://example.test/s2e01.m3u8",
     )
     assert [(item.season, item.episode) for item in episodes] == [(1, 1), (2, 1)]
+
+
+def test_result_from_item_recognizes_chinese_season_title():
+    result = _result_from_item(
+        CmsSource("demo", "演示", "https://cms.example/vod"),
+        {
+            "vod_id": "42",
+            "vod_name": "小猪佩奇 第八季",
+            "type_name": "欧美动漫",
+            "vod_play_url": "第45集$https://example.test/s08e45.m3u8",
+        },
+    )
+    assert result.media_type == "tv"
+    assert [(episode.season, episode.episode, episode.season_known) for episode in result.episodes] == [(8, 45, True)]
 
 
 def test_search_enriches_sparse_list_item_with_detail_play_urls():
@@ -244,20 +360,24 @@ def test_search_parallel_returns_completed_sources_within_total_budget():
     slow_started = Event()
     release_slow = Event()
 
-    def fake_search_source(source, **params):
-        if source.key == "slow":
-            slow_started.set()
-            release_slow.wait(1)
-        elif source.key == "second":
-            time.sleep(0.02)
-        item = {
+    def result_for(source):
+        return [{
             "vod_id": source.key,
             "vod_name": "示例电影",
             "type_name": "电影",
             "vod_play_from": "在线播放",
             "vod_play_url": f"正片$https://{source.key}.example/movie.m3u8",
-        }
-        return [_result_from_item(source, item)]
+        }]
+
+    def fake_search_source(source, **params):
+        if source.key == "slow":
+            slow_started.set()
+            release_slow.wait(1)
+        elif source.key == "second":
+            # Complete after the third source to prove completed results are
+            # merged in source order, not completion order.
+            time.sleep(0.02)
+        return [_result_from_item(source, item) for item in result_for(source)]
 
     client._search_source = fake_search_source
     started = time.monotonic()
@@ -268,6 +388,8 @@ def test_search_parallel_returns_completed_sources_within_total_budget():
         assert elapsed < 0.3
         assert [item.source_key for item in results] == ["second", "third"]
     finally:
+        # Let the still-running worker finish so the test process does not
+        # retain a deliberately slow task.
         release_slow.set()
 
 

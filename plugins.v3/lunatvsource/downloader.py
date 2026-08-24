@@ -269,7 +269,7 @@ class DownloadQueue:
         with self._lock:
             tasks = self._read()
             for existing in tasks:
-                if existing.identity_key == task.identity_key and existing.state in {"pending", "running", "completed"}:
+                if existing.identity_key == task.identity_key and existing.state in {"pending", "running", "paused", "completed"}:
                     return False
             tasks.append(task)
             self._write(tasks)
@@ -281,6 +281,7 @@ class DownloadQueue:
             for task in tasks:
                 if task.task_id == task_id and task.state == "failed":
                     task.state = "pending"
+                    task.progress = 0.0
                     task.error = ""
                     self._write(tasks)
                     return True

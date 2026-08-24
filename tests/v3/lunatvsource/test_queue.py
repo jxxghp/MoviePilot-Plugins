@@ -31,6 +31,11 @@ def test_queue_is_serial_and_deduplicates(tmp_path: Path):
     assert queue.enqueue(second) is False
     assert queue.summary()["pending"] == 1
 
+    assert queue.pause(first.task_id) is True
+    paused_duplicate = DownloadTask(**{**second.to_dict(), "task_id": "3"})
+    assert queue.enqueue(paused_duplicate) is False
+    assert queue.summary()["paused"] == 1
+
 
 def test_queue_runs_one_task_and_records_completion(tmp_path: Path):
     data = {}
@@ -153,13 +158,46 @@ def test_queue_clears_stale_progress_from_paused_task(tmp_path: Path):
     assert tasks[0]["progress"] == 0.0
 
 
+def test_queue_retry_clears_stale_failed_progress(tmp_path: Path):
+    data = {}
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+    task = DownloadTask(
+        task_id="failed-stale",
+        source_key="lunatv",
+        media_id="site:failed-stale",
+        title="失败示例",
+        year="2024",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/failed-stale.m3u8",
+        root=str(tmp_path),
+    )
+
+    assert queue.enqueue(task) is True
+
+    def fail_download(current_task):
+        queue._update_progress(current_task.task_id, 0.3846)
+        raise RuntimeError("source unavailable")
+
+    queue._execute = fail_download
+    assert queue.run_one()["state"] == "failed"
+    assert queue.list_tasks()[0]["progress"] == pytest.approx(0.3846)
+
+    assert queue.retry(task.task_id) is True
+    retried = queue.list_tasks()[0]
+    assert retried["state"] == "pending"
+    assert retried["progress"] == 0.0
+    assert retried["error"] == ""
+
+
 def test_queue_pause_resume_and_remove_pending_task(tmp_path: Path):
     data = {}
     queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
     task = DownloadTask(
-        task_id="pending-control", source_key="lunatv", media_id="site:pending",
+        task_id="controlled", source_key="lunatv", media_id="site:control",
         title="示例", year="2026", media_type="movie", season=1, episode=1,
-        url="https://example.test/pending.m3u8", root=str(tmp_path),
+        url="https://example.test/control.m3u8", root=str(tmp_path),
     )
     assert queue.enqueue(task) is True
     assert queue.pause(task.task_id) is True
@@ -264,6 +302,25 @@ def test_queue_safely_removes_running_task(tmp_path: Path):
     assert queue.list_tasks() == []
 
 
+def test_queue_persists_active_ffmpeg_progress(tmp_path: Path):
+    data = {}
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+    task = DownloadTask(
+        task_id="progress-task", source_key="lunatv", media_id="site:progress",
+        title="进度电影", year="2026", media_type="movie", season=1, episode=1,
+        url="https://example.test/progress.m3u8", root=str(tmp_path), state="running",
+    )
+    queue.enqueue(task)
+    # enqueue() normally stores pending; emulate the active worker state.
+    raw = data[queue.DATA_KEY]
+    raw[0]["state"] = "running"
+    data[queue.DATA_KEY] = raw
+    queue._update_progress(task.task_id, 0.42)
+    assert queue.list_tasks()[0]["progress"] == 0.42
+    queue._update_progress(task.task_id, 1.5)
+    assert queue.list_tasks()[0]["progress"] == 0.99
+
+
 def test_ffmpeg_explicitly_sets_mp4_muxer_for_part_file(monkeypatch, tmp_path: Path):
     captured = {}
 
@@ -279,6 +336,15 @@ def test_ffmpeg_explicitly_sets_mp4_muxer_for_part_file(monkeypatch, tmp_path: P
     assert command[command.index("-allowed_segment_extensions") + 1] == "ALL"
     assert command[command.index("-extension_picky") + 1] == "0"
     assert command[command.index("-seg_max_retry") + 1] == "2"
+
+
+def test_playlist_duration_estimates_media_playlist_for_progress(tmp_path: Path):
+    playlist = tmp_path / "index.m3u8"
+    playlist.write_text(
+        "#EXTM3U\n#EXTINF:10.5,\nsegment-1.ts\n#EXTINF:12,\nsegment-2.ts\n",
+        encoding="utf-8",
+    )
+    assert DownloadQueue._playlist_duration(playlist) == 22.5
 
 
 def test_mpegts_payload_offset_removes_fake_jpeg_header():
