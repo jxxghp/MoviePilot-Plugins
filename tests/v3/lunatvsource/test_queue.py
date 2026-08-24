@@ -126,6 +126,33 @@ def test_queue_recovers_interrupted_running_task(tmp_path: Path):
     assert "恢复" in tasks[0]["error"]
 
 
+def test_queue_clears_stale_progress_from_paused_task(tmp_path: Path):
+    data = {
+        "download_tasks_v1": [
+            DownloadTask(
+                task_id="paused-stale",
+                source_key="lunatv",
+                media_id="site:paused",
+                title="暂停示例",
+                year="2024",
+                media_type="movie",
+                season=1,
+                episode=1,
+                url="https://example.test/paused.m3u8",
+                root=str(tmp_path),
+                state="paused",
+                progress=0.3846,
+            ).to_dict()
+        ]
+    }
+
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+    tasks = queue.list_tasks()
+
+    assert tasks[0]["state"] == "paused"
+    assert tasks[0]["progress"] == 0.0
+
+
 def test_queue_pause_resume_and_remove_pending_task(tmp_path: Path):
     data = {}
     queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)

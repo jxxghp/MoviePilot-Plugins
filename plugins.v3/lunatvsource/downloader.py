@@ -243,6 +243,9 @@ class DownloadQueue:
                     task.progress = 0.0
                     task.error = "上次进程中断，已恢复排队"
                     changed = True
+                elif task.state == "paused" and task.progress:
+                    task.progress = 0.0
+                    changed = True
             if changed:
                 self._write(tasks)
 
