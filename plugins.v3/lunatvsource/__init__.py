@@ -12,6 +12,7 @@ import base64
 import hashlib
 import logging
 import asyncio
+import re
 import threading
 import time
 import urllib.parse
@@ -328,7 +329,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.png"
-    plugin_version = "0.4.37"
+    plugin_version = "0.4.38"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -842,14 +843,27 @@ class LunaTVSource(_PluginBase):
             # constructor accepting year separately.
             return _HostMetaInfo(title=query, year=year_text or None)
 
-    def _media_info(self, result: CmsResult, association: Optional[Dict[str, Any]] = None) -> Any:
+    def _media_info(
+        self,
+        result: CmsResult,
+        association: Optional[Dict[str, Any]] = None,
+        season_only: bool = False,
+    ) -> Any:
         """将 CMS 结果转换成 V3 原生 MediaInfo，供探索/订阅/整理链复用。"""
-        if _schemas is None or not hasattr(_schemas, "MediaInfo"):
-            return result.to_dict()
         seasons: Dict[int, List[int]] = {}
         for episode in result.episodes:
             if episode.season_known:
                 seasons.setdefault(episode.season, []).append(episode.episode)
+        if season_only and not seasons:
+            season_start, season_end = result.season_range
+            if season_start > 0 and season_start == season_end:
+                seasons[season_start] = []
+        if _schemas is None or not hasattr(_schemas, "MediaInfo"):
+            payload = result.to_dict()
+            if season_only:
+                payload["episodes"] = []
+                payload["seasons"] = {season: [] for season in sorted(seasons)}
+            return payload
         association = association or {}
         title = normalize_media_title(result.title)
         title_year = f"{title} ({result.year})" if result.year else title
@@ -860,7 +874,10 @@ class LunaTVSource(_PluginBase):
             "title_year": title_year,
             "media_source": self._host_media_source(),
             "media_id": f"{result.source_key}:{result.vod_id}",
-            "seasons": {key: sorted(set(value)) for key, value in seasons.items()},
+            "seasons": {
+                key: [] if season_only else sorted(set(value))
+                for key, value in seasons.items()
+            },
             "detail_link": result.detail or None,
         }
         if association.get("status") == "matched" and association.get("tmdb_id"):
@@ -879,6 +896,104 @@ class LunaTVSource(_PluginBase):
         except TypeError:
             fields.pop("tmdb_id", None)
             return _schemas.MediaInfo(**fields)
+
+    @staticmethod
+    def _search_result_seasons(result: CmsResult) -> List[int]:
+        """Return only season numbers that are safe to project onto search cards."""
+        if result.media_type == "tv" and result.season_ambiguous:
+            season_start, season_end = result.season_range
+            if season_start > 0 and season_end >= season_start:
+                return list(range(season_start, season_end + 1))
+        seasons = sorted(
+            {
+                max(1, int(episode.season or 1))
+                for episode in result.episodes
+                if episode.season_known
+            }
+        )
+        if seasons or result.media_type != "tv":
+            return seasons
+
+        title = str(result.title or "")
+        match = re.search(
+            r"(?:第\s*(?P<season>\d{1,3})\s*季|\bS\s*(?P<s_season>\d{1,3})(?:\s*E\s*\d{1,4})?\b)",
+            title,
+            re.IGNORECASE,
+        )
+        if match:
+            return [int(match.group("season") or match.group("s_season"))]
+
+        chinese = re.search(r"第\s*(?P<season>[一二两三四五六七八九十]+)\s*季", title)
+        if not chinese:
+            return []
+        value = chinese.group("season").replace("两", "二")
+        digits = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+        if value == "十":
+            return [10]
+        if "十" in value:
+            tens, ones = value.split("十", 1)
+            return [(digits.get(tens, 1) if tens else 1) * 10 + digits.get(ones, 0)]
+        return [digits[value]] if value in digits else []
+
+    @classmethod
+    def _season_media_cards(cls, results: List[CmsResult]) -> List[CmsResult]:
+        """Collapse episode-indexed CMS rows into one non-episode card per season."""
+        groups: Dict[Tuple[str, str, str, str, int], Dict[str, Any]] = {}
+        order: List[Tuple[str, Any]] = []
+
+        for result in results:
+            if result.media_type != "tv":
+                order.append(("result", result))
+                continue
+
+            title = normalize_media_title(result.title)
+            seasons = cls._search_result_seasons(result) or [0]
+            for season in seasons:
+                key = (result.source_key, result.source_name, title, result.year, season)
+                group = groups.get(key)
+                if group is None:
+                    group = {"result": result, "episodes": {}}
+                    groups[key] = group
+                    order.append(("group", key))
+                for episode in result.episodes:
+                    if season and (not episode.season_known or episode.season != season):
+                        continue
+                    if not season and episode.season_known:
+                        continue
+                    group["episodes"].setdefault(
+                        (episode.season, episode.episode, episode.url), episode
+                    )
+
+        cards: List[CmsResult] = []
+        for kind, value in order:
+            if kind == "result":
+                cards.append(value)
+                continue
+            source_key, source_name, title, year, season = value
+            group = groups[value]
+            base = group["result"]
+            episodes = tuple(
+                sorted(
+                    group["episodes"].values(),
+                    key=lambda episode: (episode.season, episode.episode, episode.url),
+                )
+            )
+            cards.append(
+                CmsResult(
+                    source_key=source_key,
+                    source_name=source_name,
+                    vod_id=base.vod_id,
+                    title=title,
+                    year=year,
+                    media_type="tv",
+                    remark=base.remark,
+                    episodes=episodes,
+                    detail=base.detail,
+                    season_range=(season, season) if season else (0, 0),
+                    season_ambiguous=base.season_ambiguous,
+                )
+            )
+        return cards
 
     def _sdk_media_info(self, result: CmsResult) -> Any:
         """构造识别链使用的旧式 SDK MediaInfo（与探索 API 的 schema 分开）。"""
@@ -1524,9 +1639,12 @@ class LunaTVSource(_PluginBase):
                 enrich=False,
             )
             data = []
-            for result in results:
+            for result in self._season_media_cards(results):
                 prepared, association = self._prepare_result(result)
-                data.append(self._media_info(prepared, association))
+                if prepared.media_type == "tv":
+                    data.append(self._media_info(prepared, association, season_only=True))
+                else:
+                    data.append(self._media_info(prepared, association))
             return {"success": True, "data": data}
         except Exception as exc:
             self._logger.warning("LunaTV discover failed: %s", exc)
@@ -1654,8 +1772,16 @@ class LunaTVSource(_PluginBase):
             try:
                 identity_source = _coerce_media_identity_source(getattr(subscribe, "media_source", ""))
                 identity_id = str(getattr(subscribe, "media_id", "") or "").strip()
+                is_plugin_season = (
+                    identity_source == PLUGIN_MEDIA_SOURCE
+                    and int(getattr(subscribe, "season", 0) or 0) > 0
+                )
                 identity_result: Optional[CmsResult] = None
-                if identity_source == PLUGIN_MEDIA_SOURCE and ":" in identity_id:
+                if (
+                    identity_source == PLUGIN_MEDIA_SOURCE
+                    and not is_plugin_season
+                    and ":" in identity_id
+                ):
                     source_key, vod_id = identity_id.split(":", 1)
                     identity_result = client.detail(source_key, vod_id)
                 if identity_result:
@@ -1672,6 +1798,20 @@ class LunaTVSource(_PluginBase):
                 for result in results:
                     prepared, association = self._prepare_result(result)
                     prepared_results.append((prepared, association))
+                if is_plugin_season:
+                    associations = {
+                        (result.source_key, result.vod_id): association
+                        for result, association in prepared_results
+                    }
+                    prepared_results = [
+                        (
+                            result,
+                            associations.get((result.source_key, result.vod_id), {}),
+                        )
+                        for result in self._season_media_cards(
+                            [result for result, _ in prepared_results]
+                        )
+                    ]
                 results = prepared_results
             except Exception as exc:
                 self._logger.warning("订阅搜索失败 title=%s error=%s", title, exc)
@@ -1700,6 +1840,73 @@ class LunaTVSource(_PluginBase):
                     season=season,
                 )
                 matching_results = matching_results[:1]
+            if is_plugin_season:
+                selected_results: List[Tuple[CmsResult, Dict[str, Any]]] = []
+                ambiguous_results: List[Tuple[CmsResult, Dict[str, Any]]] = []
+                for result, association in matching_results:
+                    if result.season_ambiguous:
+                        ambiguous_results.append((result, association))
+                        continue
+
+                    episode_candidates: Dict[Tuple[int, int], List[CmsEpisode]] = {}
+                    for episode in result.episodes:
+                        if season > 0 and episode.season != season:
+                            continue
+                        episode_candidates.setdefault(
+                            (int(episode.season), int(episode.episode)), []
+                        ).append(episode)
+
+                    conflict_urls: List[str] = []
+                    unique_candidates: Dict[Tuple[int, int], List[CmsEpisode]] = {}
+                    for key, candidates in episode_candidates.items():
+                        seen_urls: set[str] = set()
+                        unique_candidates[key] = []
+                        for candidate in candidates:
+                            url = candidate.url
+                            if not url or url in seen_urls:
+                                continue
+                            seen_urls.add(url)
+                            unique_candidates[key].append(candidate)
+                        if len(unique_candidates[key]) > 1:
+                            conflict_urls.extend(
+                                candidate.url for candidate in unique_candidates[key]
+                            )
+
+                    conflict_heights = self._probe_resource_urls(conflict_urls)
+                    selected_episodes: List[CmsEpisode] = []
+                    for candidates in unique_candidates.values():
+                        if not candidates:
+                            continue
+                        _, episode = max(
+                            enumerate(candidates),
+                            key=lambda item: (
+                                conflict_heights.get(item[1].url, 0),
+                                -item[0],
+                            ),
+                        )
+                        selected_episodes.append(episode)
+
+                    if not selected_episodes:
+                        continue
+                    selected_results.append(
+                        (
+                            CmsResult(
+                                source_key=result.source_key,
+                                source_name=result.source_name,
+                                vod_id=result.vod_id,
+                                title=result.title,
+                                year=result.year,
+                                media_type=result.media_type,
+                                remark=result.remark,
+                                episodes=tuple(selected_episodes),
+                                detail=result.detail,
+                                season_range=result.season_range,
+                                season_ambiguous=False,
+                            ),
+                            association,
+                        )
+                    )
+                matching_results = ambiguous_results + selected_results
             for result, association in matching_results:
                 if result.season_ambiguous:
                     # A flat 1-8 season bundle cannot be named safely without
@@ -2075,9 +2282,12 @@ class LunaTVSource(_PluginBase):
                 enrich=False,
             )
             medias = []
-            for result in results:
+            for result in self._season_media_cards(results):
                 prepared, association = self._prepare_result(result)
-                medias.append(self._media_info(prepared, association))
+                if prepared.media_type == "tv":
+                    medias.append(self._media_info(prepared, association, season_only=True))
+                else:
+                    medias.append(self._media_info(prepared, association))
             return medias
         except Exception as exc:
             self._logger.warning("LunaTV 全局媒体搜索失败：%s", exc)
@@ -2250,6 +2460,17 @@ class LunaTVSource(_PluginBase):
             require_playable=True,
             max_workers=8,
         )
+        requested_media_type = (
+            "tv"
+            if requested_type in {"电视剧", "tv", "series", "show", "tvshow"}
+            else "movie"
+            if requested_type in {"电影", "movie", "film", "movies"}
+            else ""
+        )
+        if requested_media_type:
+            results = [
+                result for result in results if result.media_type == requested_media_type
+            ]
         # The resource search is one user-selected native media context, not
         # one TMDB lookup per CMS source/result.  AI normalization and the
         # default TMDB association therefore run exactly once here; the same
@@ -2263,7 +2484,7 @@ class LunaTVSource(_PluginBase):
         # ``download`` expands it back into the plugin's serial queue.  This
         # matches how an Apple CMS result is published (for example,
         # “小猪佩奇 第一季 第52集”), while still keeping every source selectable.
-        season_groups: Dict[Tuple[str, str, str, str, int], Dict[str, Any]] = {}
+        season_groups: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
         single_rows: List[Dict[str, Any]] = []
         seen_single_urls: set[Tuple[str, str]] = set()
 
@@ -2298,19 +2519,39 @@ class LunaTVSource(_PluginBase):
             )
             host_media_id = str(association.get("media_id") or identity)
             episodes = result.episodes or [CmsEpisode(1, 1, "正片", "")]
+            season_episode_numbers: Dict[int, set[int]] = {}
+            season_urls: Dict[int, set[str]] = {}
+            for candidate in episodes:
+                if not candidate.url or not candidate.season_known:
+                    continue
+                candidate_season = int(candidate.season or 1)
+                season_episode_numbers.setdefault(candidate_season, set()).add(
+                    int(candidate.episode or 1)
+                )
+                season_urls.setdefault(candidate_season, set()).add(candidate.url)
             for episode in episodes:
                 if not episode.url:
                     continue
                 payload = episode_payload(
                     result, episode, identity, host_media_source, host_media_id
                 )
+                if result.media_type == "tv" and not episode.season_known:
+                    continue
                 if result.media_type == "tv" and episode.season_known:
+                    season = int(episode.season or 1)
+                    season_variant: Tuple[Any, ...] = ()
+                    if len(season_episode_numbers.get(season, set())) > 1:
+                        season_variant = (
+                            result.vod_id,
+                            *tuple(sorted(season_urls.get(season, set()))),
+                        )
                     group_key = (
                         result.source_key,
                         result.source_name,
                         normalize_media_title(result.title),
                         result.year,
-                        int(episode.season or 1),
+                        season,
+                        season_variant,
                     )
                     group = season_groups.setdefault(
                         group_key,
@@ -2318,7 +2559,7 @@ class LunaTVSource(_PluginBase):
                             "site_name": result.source_name or "LunaTV",
                             "title": normalize_media_title(result.title),
                             "year": result.year,
-                            "season": int(episode.season or 1),
+                            "season": season,
                             "source_key": result.source_key,
                             "source_name": result.source_name,
                             "media_id": identity,
@@ -2350,18 +2591,85 @@ class LunaTVSource(_PluginBase):
                 })
 
         group_rows = list(season_groups.values())
+        conflict_probe_urls: List[str] = []
         for group in group_rows:
-            group["sorted_episodes"] = sorted(
-                group["episodes"],
-                key=lambda item: (int(item["season"]), int(item["episode"]), item["url"]),
-            )
-            group["probe_url"] = group["sorted_episodes"][0]["url"]
+            episode_candidates: Dict[int, List[Dict[str, Any]]] = {}
+            for episode in group["episodes"]:
+                episode_candidates.setdefault(int(episode["episode"]), []).append(episode)
+            group["episode_candidates"] = episode_candidates
+            for candidates in episode_candidates.values():
+                if len(candidates) > 1:
+                    conflict_probe_urls.extend(candidate["url"] for candidate in candidates)
+        conflict_heights = self._probe_resource_urls(conflict_probe_urls)
+        for group in group_rows:
+            group["sorted_episodes"] = []
+            for episode_number in sorted(group["episode_candidates"]):
+                candidates = group["episode_candidates"][episode_number]
+                _, selected = max(
+                    enumerate(candidates),
+                    key=lambda item: (
+                        conflict_heights.get(item[1]["url"], 0),
+                        -item[0],
+                    ),
+                )
+                group["sorted_episodes"].append(selected)
         for row in single_rows:
             row["probe_url"] = row["payload"]["url"]
-        quality_heights = self._probe_resource_urls(
-            [row["probe_url"] for row in group_rows]
-            + [row["probe_url"] for row in single_rows]
+
+        sampled_urls: List[str] = []
+        for group in group_rows:
+            group_episodes = group["sorted_episodes"]
+            sample_indexes = (
+                range(len(group_episodes))
+                if len(group_episodes) <= 5
+                else (0, len(group_episodes) // 2, len(group_episodes) - 1)
+            )
+            seen_sample_urls: set[str] = set()
+            for index in sample_indexes:
+                episode = group_episodes[index]
+                url = episode["url"]
+                if not url or url in seen_sample_urls:
+                    continue
+                seen_sample_urls.add(url)
+                sampled_urls.append(url)
+
+        quality_heights = dict(conflict_heights)
+        quality_heights.update(
+            self._probe_resource_urls(
+                [url for url in dict.fromkeys(sampled_urls) if url not in quality_heights]
+            )
         )
+        quality_heights.update(
+            self._probe_resource_urls(
+                [
+                    row["probe_url"]
+                    for row in single_rows
+                    if row["probe_url"] not in quality_heights
+                ]
+            )
+        )
+
+        season_probed_urls = set(conflict_probe_urls)
+        season_probed_urls.update(sampled_urls)
+        for group in group_rows:
+            episode_heights: List[int] = []
+            sampled_episodes: List[int] = []
+            for episode in group["sorted_episodes"]:
+                if episode["url"] in season_probed_urls:
+                    episode_height = quality_heights.get(episode["url"], 0)
+                    episode["resolution"] = stream_quality_label(episode_height)
+                    episode["resolution_height"] = episode_height
+                    episode_heights.append(episode_height)
+                    sampled_episodes.append(int(episode["episode"]))
+                else:
+                    episode["resolution"] = "未探测"
+                    episode["resolution_height"] = 0
+            group["resolution_height"] = min(episode_heights, default=0)
+            group["resolution_scope"] = (
+                "full" if len(group["sorted_episodes"]) <= 5 else "sampled"
+            )
+            group["resolution_sample_count"] = len(sampled_episodes)
+            group["resolution_sampled_episodes"] = sampled_episodes
 
         torrents: List[Any] = []
         for group in group_rows:
@@ -2371,18 +2679,30 @@ class LunaTVSource(_PluginBase):
             first = group_episodes[0]
             payload = dict(first)
             payload["episodes"] = group_episodes
-            height = quality_heights.get(group["probe_url"], 0)
+            height = int(group["resolution_height"])
             quality = stream_quality_label(height)
             payload["resolution"] = quality
             payload["resolution_height"] = height
+            payload["resolution_scope"] = group["resolution_scope"]
+            payload["resolution_sample_count"] = group["resolution_sample_count"]
+            payload["resolution_sampled_episodes"] = group[
+                "resolution_sampled_episodes"
+            ]
             title = group["title"]
             if group["year"]:
                 title = f"{title} ({group['year']})"
-            title = f"{title} · S{season:02d} · {count}集 · {quality}"
+            title = f"{title} · 第{season}季 · {quality}"
+            measurement = (
+                f"全{count}集实测"
+                if group["resolution_sample_count"] == count
+                else f"抽样{group['resolution_sample_count']}集实测"
+            )
             torrents.append(torrent_info_type(
                 site_name=group["site_name"],
                 title=title,
-                description=f"LunaTV · {quality} · m3u8 · {count}集",
+                description=(
+                    f"LunaTV · 第{season}季 · {quality} · m3u8 · 共{count}集 · {measurement}"
+                ),
                 media_source=group["host_media_source"],
                 media_id=group["host_media_id"],
                 enclosure=self._resource_token(payload),
@@ -2391,11 +2711,13 @@ class LunaTVSource(_PluginBase):
                 seeders=1,
                 pri_order=height,
                 category="电视剧",
-                labels=["LunaTV", quality, "m3u8", f"S{season:02d}", f"{count}集"],
+                labels=["LunaTV", quality, "m3u8", f"第{season}季"],
             ))
 
         for row in single_rows:
             payload = row["payload"]
+            if payload["media_type"] == "tv":
+                continue
             height = quality_heights.get(row["probe_url"], 0)
             quality = stream_quality_label(height)
             payload["resolution"] = quality
@@ -2420,6 +2742,7 @@ class LunaTVSource(_PluginBase):
                 category="电视剧" if payload["media_type"] == "tv" else "电影",
                 labels=["LunaTV", quality, "m3u8"],
             ))
+        # Python's reverse numeric sort is stable for resources at the same height.
         torrents.sort(key=lambda item: int(getattr(item, "pri_order", 0) or 0), reverse=True)
         with self._resource_search_lock:
             self._resource_search_cache[cache_key] = (time.monotonic(), torrents)

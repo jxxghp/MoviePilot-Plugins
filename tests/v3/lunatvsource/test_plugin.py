@@ -1,10 +1,10 @@
 from app.plugins.lunatvsource import LunaTVSource
 import app.plugins.lunatvsource as plugin_module
-from app.plugins.lunatvsource.cms import CmsResult, CmsSource, _result_from_item
+from app.plugins.lunatvsource.cms import CmsEpisode, CmsResult, CmsSource, _result_from_item
 from app.plugins.lunatvsource.downloader import DownloadTask
 from app.plugins.lunatvsource.naming import media_path
-import hashlib
 from pathlib import Path
+import hashlib
 import pytest
 import sys
 import threading
@@ -12,23 +12,19 @@ from enum import Enum
 from types import ModuleType, SimpleNamespace
 
 
-@pytest.fixture(autouse=True)
-def disable_live_stream_probe(monkeypatch):
-    """Unit tests must never contact public CMS video endpoints."""
+class PluginData:
+    def __init__(self):
+        self.values = {}
 
-    monkeypatch.setattr(plugin_module, "probe_stream_height", lambda *_args, **_kwargs: 0)
+    def get_data(self, _plugin_id, key):
+        return self.values.get(key)
+
+    def save(self, _plugin_id, key, value):
+        self.values[key] = value
 
 
-def _plugin(config):
-    class PluginData:
-        def __init__(self):
-            self.values = {}
-
-        def get_data(self, _plugin_id, key):
-            return self.values.get(key)
-
-        def save(self, _plugin_id, key, value):
-            self.values[key] = value
+def _plugin(config=None):
+    """Build the plugin without requiring a fully composed MoviePilot chain."""
 
     plugin = object.__new__(LunaTVSource)
     plugin.plugindata = PluginData()
@@ -41,8 +37,24 @@ def _plugin(config):
     return plugin
 
 
+def _field(item, name, default=None):
+    if isinstance(item, dict):
+        return item.get(name, default)
+    return getattr(item, name, default)
+
+
+@pytest.fixture(autouse=True)
+def _disable_external_quality_probe(monkeypatch):
+    monkeypatch.setattr(
+        plugin_module,
+        "probe_stream_height",
+        lambda *_args, **_kwargs: 0,
+    )
+
+
 def test_status_exposes_serial_queue_and_ai_fallback():
-    plugin = _plugin({"enabled": True, "ai_enabled": False})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "ai_enabled": False})
     status = plugin.api_status()["data"]
     assert status["enabled"] is True
     assert status["queue"]["pending"] == 0
@@ -52,8 +64,118 @@ def test_status_exposes_serial_queue_and_ai_fallback():
     assert plugin.get_sidebar_nav() == []
 
 
+def test_service_registers_subscription_refresh_and_serial_queue():
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "poll_minutes": 15, "queue_minutes": 2})
+    services = plugin.get_service()
+    assert {item["id"] for item in services} == {
+        "LunaTVSource.Refresh",
+        "LunaTVSource.DownloadQueue",
+    }
+    assert {item["func"] for item in services} == {
+        plugin.refresh_subscriptions,
+        plugin.run_queue,
+    }
+
+
+def test_refresh_subscriptions_does_not_use_legacy_operator_when_v3_operator_is_missing(monkeypatch):
+    legacy_calls = []
+
+    class LegacySubscribeOper:
+        def list(self, state=None):
+            legacy_calls.append(state)
+            return []
+
+    app_module = ModuleType("app")
+    app_module.__path__ = []
+    sdk_module = ModuleType("app.sdk")
+    sdk_module.__path__ = []
+    legacy_package = ModuleType("app.sdk._legacy")
+    legacy_package.__path__ = []
+    legacy_subscribe_module = ModuleType("app.sdk._legacy.subscribe")
+    legacy_subscribe_module.SubscribeOper = LegacySubscribeOper
+    app_module.sdk = sdk_module
+    sdk_module._legacy = legacy_package
+    legacy_package.subscribe = legacy_subscribe_module
+
+    for module_name in (
+        "app.db.oper.subscribe",
+        "app.db.oper",
+        "app.db",
+    ):
+        monkeypatch.delitem(sys.modules, module_name, raising=False)
+    monkeypatch.setitem(sys.modules, "app", app_module)
+    monkeypatch.setitem(sys.modules, "app.sdk", sdk_module)
+    monkeypatch.setitem(sys.modules, "app.sdk._legacy", legacy_package)
+    monkeypatch.setitem(sys.modules, "app.sdk._legacy.subscribe", legacy_subscribe_module)
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+
+    assert plugin.refresh_subscriptions() == {
+        "subscriptions": 0,
+        "queued": 0,
+        "reconciled": 0,
+    }
+    assert legacy_calls == []
+
+
+def test_sources_fall_back_to_bundled_snapshot_when_remote_config_is_unreachable(monkeypatch):
+    def unavailable(*_args, **_kwargs):
+        raise OSError("network unreachable")
+
+    monkeypatch.setattr(plugin_module, "load_sources_from_url", unavailable)
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+
+    response = plugin.api_sources()
+
+    assert response["success"] is True
+    assert len(response["data"]) == 72
+    assert {
+        "url",
+        "status",
+        "status_label",
+        "search_status",
+        "search_label",
+    }.issubset(response["data"][0])
+    assert plugin._source_config_origin == "内置快照"
+    assert plugin.api_status()["data"]["source_config"]["error"] == "network unreachable"
+
+
+def test_sources_use_cached_snapshot_before_bundled_fallback(monkeypatch):
+    def unavailable(*_args, **_kwargs):
+        raise OSError("network unreachable")
+
+    monkeypatch.setattr(plugin_module, "load_sources_from_url", unavailable)
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    plugin.save_data(
+        plugin_module.SOURCE_CACHE_KEY,
+        [{"key": "cached", "name": "缓存源", "api": "https://cached.example/vod"}],
+    )
+
+    response = plugin.api_sources()
+
+    assert response["success"] is True
+    assert response["data"] == [{
+        "key": "cached",
+        "name": "缓存源",
+        "api": "https://cached.example/vod",
+        "detail": "",
+        "comment": "",
+        "url": "https://cached.example/vod",
+        "status": "ready",
+        "status_label": "已加载",
+        "search_status": "supported",
+        "search_label": "支持",
+    }]
+    assert plugin._source_config_origin == "本地缓存"
+
+
 def test_manual_download_rejects_non_http_url():
-    plugin = _plugin({"enabled": True, "download_root": "/tmp/lunatv-test"})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "download_root": "/tmp/lunatv-test"})
     result = plugin.api_download({"url": "file:///tmp/movie.m3u8"})
     assert result["success"] is False
     assert "http/https" in result["message"]
@@ -73,7 +195,8 @@ def test_directory_settings_are_used_when_plugin_root_is_empty(monkeypatch):
             return [Directory()]
 
     monkeypatch.setattr(plugin_module, "_HostDirectoryHelper", DirectoryHelper)
-    plugin = _plugin({"enabled": True, "use_moviepilot_dirs": False})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "use_moviepilot_dirs": False})
     assert plugin._effective_root(media_type="tv") == "/media/courses"
     assert plugin.api_status()["data"]["directories"]["source"] == "MoviePilot 目录设置"
 
@@ -104,7 +227,8 @@ def test_tmdb_association_can_map_flat_seasons(monkeypatch):
     monkeypatch.setattr(plugin_module, "_HostMediaSource", Source)
     monkeypatch.setattr(plugin_module, "_HostMetaInfo", Meta)
     monkeypatch.setattr(plugin_module, "_HostMediaChain", MediaChain)
-    plugin = _plugin({"enabled": True, "tmdb_association": False})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "tmdb_association": False})
     result = _result_from_item(
         CmsSource("demo", "演示", "https://cms.example/vod"),
         {
@@ -146,7 +270,8 @@ def test_tmdb_candidate_search_returns_compact_choices(monkeypatch):
     monkeypatch.setattr(plugin_module, "_HostMediaSource", Source)
     monkeypatch.setattr(plugin_module, "_HostMetaInfo", Meta)
     monkeypatch.setattr(plugin_module, "_HostMediaChain", MediaChain)
-    plugin = _plugin({"enabled": True, "tmdb_association": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "tmdb_association": True})
     response = plugin.api_tmdb_search({"title": "候选作品", "media_type": "movie"})
     assert response["success"] is True
     assert response["data"] == [{
@@ -161,6 +286,58 @@ def test_tmdb_candidate_search_returns_compact_choices(monkeypatch):
     }]
 
 
+def test_resource_tmdb_association_skips_candidate_lookup_and_reuses_cache(monkeypatch):
+    class Source:
+        TMDB = "themoviedb"
+
+    class Meta:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class Media:
+        media_id = "456"
+        tmdb_id = 456
+        media_source = "themoviedb"
+        title = "示例电影"
+        year = "2024"
+        seasons = {}
+
+    recognize_calls = []
+    candidate_calls = []
+
+    class MediaChain:
+        def recognize_media(self, **kwargs):
+            recognize_calls.append(kwargs)
+            return Media()
+
+        def search_medias(self, **kwargs):
+            candidate_calls.append(kwargs)
+            return [Media()]
+
+    monkeypatch.setattr(plugin_module, "_HostMediaSource", Source)
+    monkeypatch.setattr(plugin_module, "_HostMetaInfo", Meta)
+    monkeypatch.setattr(plugin_module, "_HostMediaChain", MediaChain)
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    result = CmsResult(
+        source_key="demo",
+        source_name="演示",
+        vod_id="42",
+        title="示例电影",
+        year="2024",
+        media_type="movie",
+        remark="",
+    )
+
+    first = plugin._associate_tmdb(result, include_candidates=False)
+    second = plugin._associate_tmdb(result, include_candidates=False)
+
+    assert first["media_id"] == "456"
+    assert second["media_id"] == "456"
+    assert len(recognize_calls) == 1
+    assert candidate_calls == []
+
+
 def test_host_meta_info_uses_v3_function_signature(monkeypatch):
     calls = []
 
@@ -169,7 +346,8 @@ def test_host_meta_info_uses_v3_function_signature(monkeypatch):
         return type("Meta", (), {"type": "电影"})()
 
     monkeypatch.setattr(plugin_module, "_HostMetaInfo", meta_info)
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     meta = plugin._host_meta_info("示例作品", "2024")
     assert calls == ["示例作品 (2024)"]
     assert meta.type == "电影"
@@ -183,7 +361,8 @@ def test_discover_accepts_native_keyword_and_stops_after_first_source(monkeypatc
             calls.append((query, kwargs))
             return []
 
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     response = plugin.api_discover(keyword="示例电影")
     assert response == {"success": True, "data": []}
@@ -205,7 +384,8 @@ def test_global_media_search_returns_lunatv_cards_without_explore_tab(monkeypatc
                 {"vod_id": "42", "vod_name": "示例电影", "type_name": "电影"},
             )]
 
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     monkeypatch.setattr(plugin, "_prepare_result", lambda result: (result, {}))
     monkeypatch.setattr(plugin, "_media_info", lambda result, association: result)
@@ -217,7 +397,8 @@ def test_global_media_search_returns_lunatv_cards_without_explore_tab(monkeypatc
 
 
 def test_global_media_search_respects_explicit_other_source():
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     meta = type("Meta", (), {"name": "示例电影"})()
     assert plugin.search_medias(meta=meta, media_source=("themoviedb",)) == []
 
@@ -245,7 +426,8 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
             )]
 
     monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     association_calls = []
 
@@ -260,13 +442,14 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
     assert items[0].to_dict()["site_name"] == "演示源"
     assert items[0].media_source == "themoviedb"
     assert items[0].media_id == "123"
-    assert items[0].title.endswith("S01 · 1集 · 未知")
-    assert items[0].description == "LunaTV · 未知 · m3u8 · 1集"
+    assert items[0].title.endswith("第1季 · 未知")
+    assert "集" not in items[0].title
+    assert items[0].description == "LunaTV · 第1季 · 未知 · m3u8 · 共1集 · 全1集实测"
     assert "未知" in items[0].labels
     payload = plugin._decode_resource_token(items[0].enclosure)
+    assert payload["url"].endswith("01.m3u8")
     assert len(payload["episodes"]) == 1
     assert payload["episodes"][0]["episode"] == 1
-    assert payload["episodes"][0]["url"].endswith("01.m3u8")
     assert payload["source_key"] == "demo"
     assert payload["source_name"] == "演示源"
     assert payload["host_media_source"] == "themoviedb"
@@ -326,8 +509,10 @@ def test_resource_torrents_groups_by_source_and_season(monkeypatch):
             ]
 
     monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
+
     class Ai:
         def normalize(self, title, year="", media_type=""):
             ai_calls.append((title, year, media_type))
@@ -352,11 +537,9 @@ def test_resource_torrents_groups_by_source_and_season(monkeypatch):
     assert [
         [episode["url"] for episode in payload["episodes"]]
         for payload in payloads
-    ] == [
-        ["https://example.test/01.m3u8", "https://example.test/02.m3u8"],
-        ["https://example.test/01.m3u8"],
-    ]
-    assert all("· S01 · " in item.title for item in items)
+    ] == [["https://example.test/01.m3u8", "https://example.test/02.m3u8"],
+          ["https://example.test/01.m3u8"]]
+    assert all("· 第1季 · " in item.title and "集" not in item.title for item in items)
     assert calls == [{
         "limit": 50,
         "source_limit": 3,
@@ -395,7 +578,8 @@ def test_resource_torrents_collapses_episode_named_cms_rows_into_one_season(monk
     ]
 
     monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin, "_client", lambda: type("Client", (), {
         "search": lambda self, *_args, **_kwargs: rows,
     })())
@@ -403,7 +587,7 @@ def test_resource_torrents_collapses_episode_named_cms_rows_into_one_season(monk
 
     items = plugin.search_torrents(site={"id": 1}, keyword="小猪佩奇", page=0, mtype="tv")
     assert len(items) == 1
-    assert items[0].title == "小猪佩奇 · S01 · 2集 · 未知"
+    assert items[0].title == "小猪佩奇 · 第1季 · 未知"
     payload = plugin._decode_resource_token(items[0].enclosure)
     assert [episode["episode"] for episode in payload["episodes"]] == [1, 2]
 
@@ -438,7 +622,8 @@ def test_resource_torrents_label_and_prefer_verified_resolution(monkeypatch):
         "probe_stream_height",
         lambda url, **_kwargs: 1080 if "1080" in url else 480,
     )
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin, "_client", lambda: type("Client", (), {
         "search": lambda self, *_args, **_kwargs: [low, high],
     })())
@@ -452,6 +637,664 @@ def test_resource_torrents_label_and_prefer_verified_resolution(monkeypatch):
     assert items[0].description == "LunaTV · 1080P · m3u8"
     assert "1080P" in items[0].labels
     assert plugin._decode_resource_token(items[0].enclosure)["resolution"] == "1080P"
+
+
+def test_global_media_search_collapses_episode_rows_into_season_cards(monkeypatch):
+    source = CmsSource("demo", "演示源", "https://cms.example/vod")
+    rows = [
+        _result_from_item(
+            source,
+            {
+                "vod_id": "s1e1",
+                "vod_name": "小猪佩奇 第一季 第1集",
+                "vod_year": "2004",
+                "type_name": "电视剧",
+                "vod_play_url": "第1集$https://video.example/s1e1.m3u8",
+            },
+        ),
+        _result_from_item(
+            source,
+            {
+                "vod_id": "s1e2",
+                "vod_name": "小猪佩奇 第一季 第2集",
+                "vod_year": "2004",
+                "type_name": "电视剧",
+                "vod_play_url": "第2集$https://video.example/s1e2.m3u8",
+            },
+        ),
+        _result_from_item(
+            source,
+            {
+                "vod_id": "s2e1",
+                "vod_name": "小猪佩奇 第二季 第1集",
+                "vod_year": "2004",
+                "type_name": "电视剧",
+                "vod_play_url": "第1集$https://video.example/s2e1.m3u8",
+            },
+        ),
+    ]
+
+    class Client:
+        def search(self, *_args, **_kwargs):
+            return rows
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_prepare_result", lambda result: (result, {}))
+
+    meta = type("Meta", (), {"name": "小猪佩奇", "year": "", "type": "电视剧"})()
+    cards = plugin.search_medias(meta=meta)
+    discovered = plugin.api_discover(keyword="小猪佩奇")["data"]
+
+    for projected in (cards, discovered):
+        assert len(projected) == 2
+    assert [_field(item, "title") for item in projected] == ["小猪佩奇", "小猪佩奇"]
+    assert [_field(item, "seasons") for item in projected] == [{1: []}, {2: []}]
+    assert all(_field(item, "episodes", []) == [] for item in projected)
+
+
+def test_global_media_search_keeps_each_ambiguous_range_season(monkeypatch):
+    source = CmsSource("demo", "演示源", "https://cms.example/vod")
+    flat = _result_from_item(
+        source,
+        {
+            "vod_id": "bundle",
+            "vod_name": "示例剧 1-3季",
+            "vod_year": "2024",
+            "type_name": "电视剧",
+            "vod_play_url": (
+                "01$https://video.example/01.m3u8#"
+                "02$https://video.example/02.m3u8#"
+                "03$https://video.example/03.m3u8"
+            ),
+        },
+    )
+    assert flat.season_ambiguous is True
+
+    class Client:
+        def search(self, *_args, **_kwargs):
+            return [flat]
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_prepare_result", lambda result: (result, {}))
+
+    meta = type("Meta", (), {"name": "示例剧", "year": "", "type": "电视剧"})()
+    cards = plugin.search_medias(meta=meta)
+
+    assert [_field(item, "seasons") for item in cards] == [{1: []}, {2: []}, {3: []}]
+    assert all(_field(item, "episodes", []) == [] for item in cards)
+
+
+def test_media_info_keeps_precise_episode_details_outside_search_projection(monkeypatch):
+    monkeypatch.setattr(plugin_module, "_schemas", None)
+    result = CmsResult(
+        source_key="demo",
+        source_name="演示源",
+        vod_id="42",
+        title="示例剧",
+        year="2024",
+        media_type="tv",
+        remark="",
+        episodes=(
+            CmsEpisode(1, 1, "第1集", "https://video.example/s1e1.m3u8"),
+            CmsEpisode(2, 3, "第3集", "https://video.example/s2e3.m3u8"),
+        ),
+    )
+
+    projected = _plugin()._media_info(result)
+
+    assert [(item["season"], item["episode"]) for item in projected["episodes"]] == [
+        (1, 1),
+        (2, 3),
+    ]
+
+
+def test_resource_torrents_skip_unknown_tv_season_instead_of_episode_fallback(monkeypatch):
+    class TorrentInfo:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    unknown = CmsResult(
+        source_key="demo",
+        source_name="演示源",
+        vod_id="unknown",
+        title="未知季剧集",
+        year="2024",
+        media_type="tv",
+        remark="",
+        episodes=(
+            CmsEpisode(
+                season=1,
+                episode=1,
+                label="第1集",
+                url="https://video.example/unknown-s01e01.m3u8",
+                season_known=False,
+            ),
+        ),
+        season_range=(0, 0),
+    )
+
+    class Client:
+        def search(self, *_args, **_kwargs):
+            return [unknown]
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_associate_tmdb", lambda *_args, **_kwargs: {})
+
+    assert plugin._resource_torrents("未知季剧集") == []
+
+
+def test_resource_torrents_keep_movie_single_and_season_free(monkeypatch):
+    class TorrentInfo:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    movie = _result_from_item(
+        CmsSource("demo", "演示源", "https://cms.example/vod"),
+        {
+            "vod_id": "movie",
+            "vod_name": "示例电影",
+            "vod_year": "2024",
+            "type_name": "电影",
+            "vod_play_url": "正片$https://video.example/movie.m3u8",
+        },
+    )
+
+    class Client:
+        def search(self, *_args, **_kwargs):
+            return [movie]
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_associate_tmdb", lambda *_args, **_kwargs: {})
+
+    items = plugin._resource_torrents("示例电影")
+
+    assert len(items) == 1
+    assert items[0].category == "电影"
+    assert "季" not in items[0].title
+    assert all("季" not in label for label in items[0].labels)
+    assert plugin._decode_resource_token(items[0].enclosure)["url"].endswith("movie.m3u8")
+
+
+def test_resource_torrents_filters_by_requested_media_type(monkeypatch):
+    class TorrentInfo:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    tv = CmsResult(
+        source_key="demo",
+        source_name="演示源",
+        vod_id="tv",
+        title="示例剧",
+        year="2024",
+        media_type="tv",
+        remark="",
+        episodes=(CmsEpisode(1, 1, "第1集", "https://video.example/tv.m3u8"),),
+    )
+    movie = CmsResult(
+        source_key="demo",
+        source_name="演示源",
+        vod_id="movie",
+        title="示例电影",
+        year="2024",
+        media_type="movie",
+        remark="",
+        episodes=(CmsEpisode(1, 1, "正片", "https://video.example/movie.m3u8"),),
+    )
+
+    class Client:
+        def search(self, *_args, **_kwargs):
+            return [tv, movie]
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_associate_tmdb", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        plugin, "_probe_resource_urls", lambda urls: {url: 720 for url in urls}
+    )
+
+    tv_items = plugin._resource_torrents("类型过滤", mtype="tv")
+    movie_items = plugin._resource_torrents("类型过滤", mtype="movie")
+    unknown_items = plugin._resource_torrents("类型过滤", mtype="unknown")
+
+    assert [
+        plugin._decode_resource_token(item.enclosure)["media_type"] for item in tv_items
+    ] == ["tv"]
+    assert [
+        plugin._decode_resource_token(item.enclosure)["media_type"] for item in movie_items
+    ] == ["movie"]
+    assert sorted(
+        plugin._decode_resource_token(item.enclosure)["media_type"]
+        for item in unknown_items
+    ) == ["movie", "tv"]
+
+
+def test_resource_torrents_keep_complete_season_quality_variants_separate(monkeypatch):
+    class TorrentInfo:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    source = CmsSource("demo", "演示源", "https://cms.example/vod")
+    low = _result_from_item(
+        source,
+        {
+            "vod_id": "low",
+            "vod_name": "示例剧 第一季",
+            "type_name": "电视剧",
+            "vod_play_url": (
+                "第1集$https://video.example/480-e1.m3u8#"
+                "第2集$https://video.example/480-e2.m3u8"
+            ),
+        },
+    )
+    high = _result_from_item(
+        source,
+        {
+            "vod_id": "high",
+            "vod_name": "示例剧 第一季",
+            "type_name": "电视剧",
+            "vod_play_url": (
+                "第1集$https://video.example/1080-e1.m3u8#"
+                "第2集$https://video.example/1080-e2.m3u8"
+            ),
+        },
+    )
+
+    class Client:
+        def search(self, *_args, **_kwargs):
+            return [low, high]
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_associate_tmdb", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        plugin,
+        "_probe_resource_urls",
+        lambda urls: {url: 1080 if "/1080-" in url else 480 for url in urls},
+    )
+
+    items = plugin._resource_torrents("示例剧")
+    payloads = [plugin._decode_resource_token(item.enclosure) for item in items]
+
+    assert [item.pri_order for item in items] == [1080, 480]
+    assert [payload["resolution"] for payload in payloads] == ["1080P", "480P"]
+    assert [len(payload["episodes"]) for payload in payloads] == [2, 2]
+    assert all("1080-" in item["url"] for item in payloads[0]["episodes"])
+    assert all("480-" in item["url"] for item in payloads[1]["episodes"])
+    assert all(
+        len({episode["url"] for episode in payload["episodes"]}) == 2
+        for payload in payloads
+    )
+
+
+def test_resource_torrents_choose_highest_url_for_conflicting_episode(monkeypatch):
+    class TorrentInfo:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    source = CmsSource("demo", "演示源", "https://cms.example/vod")
+    rows = [
+        _result_from_item(
+            source,
+            {
+                "vod_id": "e1-low",
+                "vod_name": "示例剧 第一季 第1集",
+                "type_name": "电视剧",
+                "vod_play_url": "第1集$https://video.example/480-e1.m3u8",
+            },
+        ),
+        _result_from_item(
+            source,
+            {
+                "vod_id": "e1-high",
+                "vod_name": "示例剧 第一季 第1集",
+                "type_name": "电视剧",
+                "vod_play_url": "第1集$https://video.example/1080-e1.m3u8",
+            },
+        ),
+        _result_from_item(
+            source,
+            {
+                "vod_id": "e2",
+                "vod_name": "示例剧 第一季 第2集",
+                "type_name": "电视剧",
+                "vod_play_url": "第2集$https://video.example/480-e2.m3u8",
+            },
+        ),
+    ]
+
+    class Client:
+        def search(self, *_args, **_kwargs):
+            return rows
+
+    probed = []
+
+    def probe(urls):
+        probed.extend(urls)
+        return {url: 1080 if "/1080-" in url else 480 for url in urls}
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_associate_tmdb", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(plugin, "_probe_resource_urls", probe)
+
+    item = plugin._resource_torrents("示例剧")[0]
+    payload = plugin._decode_resource_token(item.enclosure)
+
+    assert item.title == "示例剧 · 第1季 · 480P"
+    assert item.pri_order == payload["resolution_height"] == 480
+    assert payload["resolution"] in item.description and payload["resolution"] in item.labels
+    assert [episode["url"] for episode in payload["episodes"]] == [
+        "https://video.example/1080-e1.m3u8",
+        "https://video.example/480-e2.m3u8",
+    ]
+    assert "https://video.example/480-e1.m3u8" not in [
+        episode["url"] for episode in payload["episodes"]
+    ]
+    assert [
+        (episode["resolution"], episode["resolution_height"])
+        for episode in payload["episodes"]
+    ] == [("1080P", 1080), ("480P", 480)]
+    assert payload["resolution_scope"] == "full"
+    assert payload["resolution_sample_count"] == 2
+    assert payload["resolution_sampled_episodes"] == [1, 2]
+    assert "https://video.example/480-e2.m3u8" in probed
+
+
+def test_resource_torrents_marks_season_unknown_when_any_episode_probe_fails(monkeypatch):
+    class TorrentInfo:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    result = CmsResult(
+        source_key="demo",
+        source_name="演示源",
+        vod_id="s1",
+        title="示例剧",
+        year="2024",
+        media_type="tv",
+        remark="",
+        episodes=(
+            CmsEpisode(1, 1, "第1集", "https://video.example/1080-e1.m3u8"),
+            CmsEpisode(1, 2, "第2集", "https://video.example/unprobed-e2.m3u8"),
+        ),
+    )
+
+    class Client:
+        def search(self, *_args, **_kwargs):
+            return [result]
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_associate_tmdb", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        plugin,
+        "_probe_resource_urls",
+        lambda urls: {url: 1080 for url in urls if "1080" in url},
+    )
+
+    item = plugin._resource_torrents("示例剧")[0]
+    payload = plugin._decode_resource_token(item.enclosure)
+
+    assert payload["resolution"] == "未知"
+    assert payload["resolution_height"] == 0
+    assert item.pri_order == 0
+    assert "未知" in item.title
+    assert [
+        (episode["resolution"], episode["resolution_height"])
+        for episode in payload["episodes"]
+    ] == [("1080P", 1080), ("未知", 0)]
+
+
+def test_resource_torrents_samples_large_seasons_at_first_middle_and_last(monkeypatch):
+    class TorrentInfo:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class Client:
+        def __init__(self, result):
+            self._result = result
+
+        def search(self, *_args, **_kwargs):
+            return [self._result]
+
+    for count, expected_episodes in ((52, [1, 27, 52]), (208, [1, 105, 208])):
+        result = CmsResult(
+            source_key=f"sample-{count}",
+            source_name="抽样源",
+            vod_id=f"sample-{count}",
+            title=f"抽样剧{count}",
+            year="2024",
+            media_type="tv",
+            remark="",
+            episodes=tuple(
+                CmsEpisode(
+                    1,
+                    episode,
+                    f"第{episode}集",
+                    f"https://video.example/sample-{count}-e{episode}.m3u8",
+                )
+                for episode in range(1, count + 1)
+            ),
+        )
+        probe_calls = []
+
+        def probe(urls):
+            probe_calls.append(list(urls))
+            return {url: 1080 for url in urls}
+
+        plugin = _plugin()
+        plugin.init_plugin({"enabled": True})
+        monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
+        monkeypatch.setattr(plugin, "_client", lambda: Client(result))
+        monkeypatch.setattr(plugin, "_associate_tmdb", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr(plugin, "_probe_resource_urls", probe)
+
+        item = plugin._resource_torrents(f"抽样剧{count}")[0]
+        payload = plugin._decode_resource_token(item.enclosure)
+        expected_urls = [
+            f"https://video.example/sample-{count}-e{episode}.m3u8"
+            for episode in expected_episodes
+        ]
+
+        assert [urls for urls in probe_calls if urls] == [expected_urls]
+        assert len(expected_urls) <= 3
+        assert item.pri_order == 1080
+        assert "抽样3集实测" in item.description
+        assert payload["resolution_scope"] == "sampled"
+        assert payload["resolution_sample_count"] == 3
+        assert payload["resolution_sampled_episodes"] == expected_episodes
+        assert [
+            (payload["episodes"][episode - 1]["resolution"],
+             payload["episodes"][episode - 1]["resolution_height"])
+            for episode in expected_episodes
+        ] == [("1080P", 1080)] * 3
+        assert (
+            payload["episodes"][1]["resolution"],
+            payload["episodes"][1]["resolution_height"],
+        ) == ("未探测", 0)
+
+
+def test_resource_torrents_probes_all_conflicts_and_marks_large_samples(monkeypatch):
+    class TorrentInfo:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    low_url = "https://video.example/conflict-low-e1.m3u8"
+    high_url = "https://video.example/conflict-high-e1.m3u8"
+    rows = [
+        CmsResult(
+            source_key="demo",
+            source_name="演示源",
+            vod_id="e1-low",
+            title="冲突剧",
+            year="2024",
+            media_type="tv",
+            remark="",
+            episodes=(CmsEpisode(1, 1, "第1集", low_url),),
+        ),
+        CmsResult(
+            source_key="demo",
+            source_name="演示源",
+            vod_id="e1-high",
+            title="冲突剧",
+            year="2024",
+            media_type="tv",
+            remark="",
+            episodes=(CmsEpisode(1, 1, "第1集", high_url),),
+        ),
+    ] + [
+        CmsResult(
+            source_key="demo",
+            source_name="演示源",
+            vod_id=f"e{episode}",
+            title="冲突剧",
+            year="2024",
+            media_type="tv",
+            remark="",
+            episodes=(
+                CmsEpisode(
+                    1,
+                    episode,
+                    f"第{episode}集",
+                    f"https://video.example/conflict-e{episode}.m3u8",
+                ),
+            ),
+        )
+        for episode in range(2, 53)
+    ]
+
+    class Client:
+        def search(self, *_args, **_kwargs):
+            return rows
+
+    probe_calls = []
+
+    def probe(urls):
+        probe_calls.append(list(urls))
+        return {
+            url: (
+                1080
+                if url == high_url
+                else 480
+                if url == low_url
+                else 0
+                if url.endswith("conflict-e27.m3u8")
+                else 720
+            )
+            for url in urls
+        }
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_associate_tmdb", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(plugin, "_probe_resource_urls", probe)
+
+    item = plugin._resource_torrents("冲突剧")[0]
+    payload = plugin._decode_resource_token(item.enclosure)
+    probed_urls = [url for urls in probe_calls for url in urls]
+
+    assert probed_urls.count(low_url) == 1
+    assert probed_urls.count(high_url) == 1
+    assert payload["episodes"][0]["url"] == high_url
+    assert payload["resolution"] == "未知"
+    assert payload["resolution_height"] == item.pri_order == 0
+    assert "未知" in item.title
+    assert "抽样3集实测" in item.description
+    assert payload["resolution_scope"] == "sampled"
+    assert payload["resolution_sample_count"] == 3
+    assert payload["resolution_sampled_episodes"] == [1, 27, 52]
+    assert (
+        payload["episodes"][1]["resolution"],
+        payload["episodes"][1]["resolution_height"],
+    ) == ("未探测", 0)
+    assert (
+        payload["episodes"][26]["resolution"],
+        payload["episodes"][26]["resolution_height"],
+    ) == ("未知", 0)
+
+
+def test_resource_torrents_sort_actual_heights_and_keep_ties_stable(monkeypatch):
+    class TorrentInfo:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    source = CmsSource("demo", "演示源", "https://cms.example/vod")
+    qualities = [
+        ("1080-first", 1080),
+        ("2160", 2160),
+        ("1440", 1440),
+        ("1200", 1200),
+        ("1080-second", 1080),
+        ("720", 720),
+        ("480", 480),
+        ("unknown", 0),
+    ]
+    results = [
+        _result_from_item(
+            source,
+            {
+                "vod_id": name,
+                "vod_name": f"质量 {name}",
+                "type_name": "电影",
+                "vod_play_url": f"正片$https://video.example/{name}.m3u8",
+            },
+        )
+        for name, _ in qualities
+    ]
+    heights = {
+        f"https://video.example/{name}.m3u8": height for name, height in qualities
+    }
+
+    class Client:
+        def search(self, *_args, **_kwargs):
+            return results
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_associate_tmdb", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(plugin, "_probe_resource_urls", lambda urls: {url: heights[url] for url in urls})
+
+    items = plugin._resource_torrents("质量")
+
+    assert [item.pri_order for item in items] == [2160, 1440, 1200, 1080, 1080, 720, 480, 0]
+    assert [plugin._decode_resource_token(item.enclosure)["url"] for item in items] == [
+        "https://video.example/2160.m3u8",
+        "https://video.example/1440.m3u8",
+        "https://video.example/1200.m3u8",
+        "https://video.example/1080-first.m3u8",
+        "https://video.example/1080-second.m3u8",
+        "https://video.example/720.m3u8",
+        "https://video.example/480.m3u8",
+        "https://video.example/unknown.m3u8",
+    ]
+    for item in items:
+        payload = plugin._decode_resource_token(item.enclosure)
+        quality = payload["resolution"]
+        assert item.title.endswith(f"· {quality}")
+        assert quality in item.description and quality in item.labels
+        assert item.pri_order == payload["resolution_height"]
 
 
 def test_subscription_candidates_prefer_verified_resolution(monkeypatch):
@@ -478,7 +1321,8 @@ def test_subscription_candidates_prefer_verified_resolution(monkeypatch):
         "probe_stream_height",
         lambda url, **_kwargs: 1080 if "1080" in url else 480,
     )
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
 
     ranked = plugin._rank_subscription_results([(low, {}), (high, {})], season=1)
 
@@ -490,7 +1334,8 @@ def test_resource_search_does_not_hold_cache_lock_during_network_request(monkeyp
         def __init__(self, **kwargs):
             self.__dict__.update(kwargs)
 
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     lock_available = []
 
     class Client:
@@ -529,7 +1374,8 @@ def test_plugin_search_bridge_augments_native_search_and_restores(monkeypatch):
     plugin_module._SEARCH_BRIDGE.update({"owner": None, "chain": None, "originals": {}})
 
     sync_original = SearchChain._SearchChain__search_all_sites
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin, "search_torrents", lambda **kwargs: ["plugin-sync"])
 
     async def async_plugin_search(**kwargs):
@@ -558,7 +1404,8 @@ def test_plugin_search_bridge_augments_native_search_and_restores(monkeypatch):
     assert [event["type"] for event in events] == ["append", "done"]
     assert events[0]["items"] == ["plugin-async"]
 
-    disabled = _plugin({"enabled": False})
+    disabled = _plugin()
+    disabled.init_plugin({"enabled": False})
     assert SearchChain._SearchChain__search_all_sites is sync_original
 
 
@@ -583,14 +1430,16 @@ def test_plugin_search_bridge_defers_to_new_native_dispatch(monkeypatch):
     plugin_module._SEARCH_BRIDGE.update({"owner": None, "chain": None, "originals": {}})
 
     original = SearchChain._SearchChain__search_all_sites
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
 
     assert SearchChain._SearchChain__search_all_sites is original
     assert plugin_module._SEARCH_BRIDGE == {"owner": None, "chain": None, "originals": {}}
 
 
 def test_native_download_is_enqueued_into_serial_queue(tmp_path: Path):
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     token = plugin._resource_token({
         "url": "https://example.test/movie.m3u8",
         "title": "示例电影",
@@ -598,8 +1447,6 @@ def test_native_download_is_enqueued_into_serial_queue(tmp_path: Path):
         "media_type": "movie",
         "season": 1,
         "episode": 1,
-        "source_key": "demo",
-        "source_name": "演示源",
         "media_id": "demo:42",
         "host_media_source": "themoviedb",
         "host_media_id": "123",
@@ -617,8 +1464,65 @@ def test_native_download_is_enqueued_into_serial_queue(tmp_path: Path):
     assert tasks[0]["host_media_id"] == "123"
 
 
+def test_native_season_download_expands_to_serial_episode_tasks(tmp_path: Path):
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    token = plugin._resource_token({
+        "url": "https://example.test/s01e01.m3u8",
+        "title": "小猪佩奇",
+        "year": "2004",
+        "media_type": "tv",
+        "season": 1,
+        "episode": 1,
+        "media_id": "demo:42",
+        "source_key": "demo",
+        "source_name": "演示源",
+        "host_media_source": "themoviedb",
+        "host_media_id": "123",
+        "episodes": [
+            {
+                "url": "https://example.test/s01e01.m3u8",
+                "title": "小猪佩奇",
+                "year": "2004",
+                "media_type": "tv",
+                "season": 1,
+                "episode": 1,
+                "source_key": "demo",
+                "source_name": "演示源",
+                "media_id": "demo:42",
+                "host_media_source": "themoviedb",
+                "host_media_id": "123",
+            },
+            {
+                "url": "https://example.test/s01e02.m3u8",
+                "title": "小猪佩奇",
+                "year": "2004",
+                "media_type": "tv",
+                "season": 1,
+                "episode": 2,
+                "source_key": "demo",
+                "source_name": "演示源",
+                "media_id": "demo:42",
+                "host_media_source": "themoviedb",
+                "host_media_id": "123",
+            },
+        ],
+    })
+
+    result = plugin.download(token, tmp_path)
+    assert result[0] == "LunaTVSource"
+    assert result[1]
+    assert "已排队 2 集" in result[3]
+    tasks = sorted(plugin._queue.list_tasks(), key=lambda task: (task["season"], task["episode"]))
+    assert [(task["season"], task["episode"], task["url"]) for task in tasks] == [
+        (1, 1, "https://example.test/s01e01.m3u8"),
+        (1, 2, "https://example.test/s01e02.m3u8"),
+    ]
+
+
 def test_native_download_reports_duplicate_instead_of_fake_success(tmp_path: Path):
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     token = plugin._resource_token({
         "url": "https://example.test/movie.m3u8",
         "title": "示例电影",
@@ -639,7 +1543,8 @@ def test_native_download_reports_duplicate_instead_of_fake_success(tmp_path: Pat
 
 
 def test_active_queue_tasks_project_to_native_download_list_and_filter(monkeypatch):
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin, "_start_queue", lambda: True)
     pending = DownloadTask(
         task_id="pending-task",
@@ -717,8 +1622,8 @@ def test_active_queue_tasks_project_to_native_download_list_and_filter(monkeypat
     assert pending_torrent.name == "排队电视剧"
     assert pending_torrent.save_path == "/downloads/tv"
     assert pending_torrent.season_episode == "S02E03"
-    assert str(pending_torrent.media.media_source.value) == "themoviedb"
-    assert pending_torrent.media.media_id == "123"
+    assert _field(pending_torrent.media, "media_source") == "themoviedb"
+    assert _field(pending_torrent.media, "media_id") == "123"
 
     assert sorted(torrent.hash for torrent in plugin.list_torrents(downloader="qBittorrent")) == [
         "paused-task",
@@ -764,7 +1669,8 @@ def test_active_queue_tasks_project_to_native_download_list_and_filter(monkeypat
 
 
 def test_native_resume_wakes_serial_queue(monkeypatch, tmp_path: Path):
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     task = DownloadTask(
         task_id="paused-native-task",
         source_key="cms-demo",
@@ -802,7 +1708,8 @@ def test_active_queue_projection_uses_host_downloader_torrent_when_available(mon
         "_schemas",
         SimpleNamespace(DownloaderTorrent=HostDownloaderTorrent),
     )
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     task = DownloadTask(
         task_id="host-torrent-task",
         source_key="cms-demo",
@@ -823,7 +1730,8 @@ def test_active_queue_projection_uses_host_downloader_torrent_when_available(mon
 
 
 def test_active_queue_projection_reports_partial_size_and_speed(monkeypatch, tmp_path: Path):
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     task = DownloadTask(
         task_id="metrics-task",
         source_key="cms-demo",
@@ -864,8 +1772,32 @@ def test_active_queue_projection_reports_partial_size_and_speed(monkeypatch, tmp
     assert second.dlspeed == "1.0K"
 
 
+def test_active_queue_projection_clamps_fractional_progress_to_percent():
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    task = DownloadTask(
+        task_id="overreported-progress",
+        source_key="cms-demo",
+        media_id="cms-demo:46",
+        title="进度边界",
+        year="2026",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/progress.m3u8",
+        root="/downloads/movie",
+        state="running",
+        progress=1.2,
+    )
+
+    assert plugin._active_download_torrent(task).progress == 100.0
+    task.progress = -0.1
+    assert plugin._active_download_torrent(task).progress == 0.0
+
+
 def test_resource_download_event_allows_native_chain_to_call_plugin_download(tmp_path: Path):
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     token = plugin._resource_token({
         "url": "https://example.test/event.m3u8",
         "title": "事件电影",
@@ -892,7 +1824,7 @@ def test_resource_download_event_allows_native_chain_to_call_plugin_download(tmp
     assert plugin._queue.list_tasks() == []
 
 
-def test_native_transfer_uses_host_media_identity(monkeypatch, tmp_path: Path):
+def test_native_transfer_uses_host_identity(monkeypatch, tmp_path: Path):
     captured = {}
 
     class MediaSource(str, Enum):
@@ -910,7 +1842,8 @@ def test_native_transfer_uses_host_media_identity(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(plugin_module, "_HostMediaSource", MediaSource)
     monkeypatch.setattr(plugin_module, "_HostStorageChain", StorageChain)
     monkeypatch.setattr(plugin_module, "_HostTransferChain", TransferChain)
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     task = SimpleNamespace(
         mode="download",
         media_type="movie",
@@ -934,7 +1867,8 @@ def test_task_media_identity_prefers_host_fields():
         host_media_source="themoviedb",
         host_media_id="98765",
     )
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
 
     source, media_id = plugin._task_media_identity(task)
     assert source == "themoviedb"
@@ -1001,7 +1935,8 @@ def test_record_native_history_uses_source_output_and_is_idempotent(monkeypatch,
     monkeypatch.setitem(sys.modules, "app.db.oper.transferhistory", transfer_module)
     monkeypatch.setitem(sys.modules, "app.db.oper.downloadhistory", download_module)
 
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
 
     output = str(tmp_path / "movie.mp4")
     output_path = Path(output)
@@ -1141,7 +2076,8 @@ def test_refresh_reconciles_existing_episode_without_enqueue_or_transfer(monkeyp
             assert query == "疯狂动物城2"
             return [result]
 
-    plugin = _plugin({"enabled": True, "download_root": str(tmp_path)})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     monkeypatch.setattr(plugin, "_prepare_result", lambda item: (item, {}))
     monkeypatch.setattr(plugin._ai, "normalize", lambda *_args: ("疯狂动物城2", False))
@@ -1212,11 +2148,11 @@ def test_refresh_plugin_subscription_reuses_tmdb_identity_for_organize(monkeypat
     monkeypatch.setitem(sys.modules, "app.db.oper.subscribe", subscribe_module)
 
     class Client:
-        def detail(self, source_key, vod_id):
-            assert (source_key, vod_id) == ("cms-demo", "42")
-            return result
+        def search(self, _query):
+            return [result]
 
-    plugin = _plugin({"enabled": True, "download_root": str(tmp_path)})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     monkeypatch.setattr(
         plugin,
@@ -1236,6 +2172,272 @@ def test_refresh_plugin_subscription_reuses_tmdb_identity_for_organize(monkeypat
     assert task["host_media_source"] == "themoviedb"
     assert task["host_media_id"] == "999"
     assert task["root"] == str(tmp_path)
+
+
+def test_refresh_plugin_season_subscription_researches_and_queues_whole_season(
+    monkeypatch, tmp_path: Path
+):
+    source = CmsSource("cms-demo", "演示源", "https://cms.example/vod")
+    rows = [
+        _result_from_item(
+            source,
+            {
+                "vod_id": "episode-1",
+                "vod_name": "示例剧 第一季 第1集",
+                "vod_year": "2026",
+                "type_name": "电视剧",
+                "vod_play_url": "第1集$https://example.test/s01e01.m3u8",
+            },
+        ),
+        _result_from_item(
+            source,
+            {
+                "vod_id": "episode-2",
+                "vod_name": "示例剧 第一季 第2集",
+                "vod_year": "2026",
+                "type_name": "电视剧",
+                "vod_play_url": "第2集$https://example.test/s01e02.m3u8",
+            },
+        ),
+    ]
+    subscribe = SimpleNamespace(
+        state="R",
+        name="示例剧",
+        year="2026",
+        type="电视剧",
+        season=1,
+        media_source="lunatv",
+        media_id="cms-demo:episode-1",
+        save_path=str(tmp_path),
+    )
+    subscribe_module = ModuleType("app.db.oper.subscribe")
+
+    class FakeSubscribeOper:
+        def list(self, state=None):
+            assert state == "R,P"
+            return [subscribe]
+
+    subscribe_module.SubscribeOper = FakeSubscribeOper
+    app_module = ModuleType("app")
+    app_module.__path__ = []
+    app_db_module = ModuleType("app.db")
+    app_db_module.__path__ = []
+    app_db_oper_module = ModuleType("app.db.oper")
+    app_db_oper_module.__path__ = []
+    app_module.db = app_db_module
+    app_db_module.oper = app_db_oper_module
+    app_db_oper_module.subscribe = subscribe_module
+    monkeypatch.setitem(sys.modules, "app", app_module)
+    monkeypatch.setitem(sys.modules, "app.db", app_db_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper", app_db_oper_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper.subscribe", subscribe_module)
+
+    searches = []
+
+    class Client:
+        def detail(self, *_args):
+            raise AssertionError("season subscription must re-search, not detail one episode")
+
+        def search(self, query):
+            searches.append(query)
+            return rows
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_prepare_result", lambda result: (result, {}))
+
+    response = plugin.refresh_subscriptions()
+    tasks = sorted(plugin._queue.list_tasks(), key=lambda task: task["episode"])
+
+    assert searches
+    assert response["queued"] == 2
+    assert [(task["season"], task["episode"]) for task in tasks] == [(1, 1), (1, 2)]
+
+
+def test_refresh_plugin_season_subscription_queues_highest_resolution_for_same_episode(
+    monkeypatch, tmp_path: Path
+):
+    source = CmsSource("cms-demo", "演示源", "https://cms.example/vod")
+    rows = [
+        _result_from_item(
+            source,
+            {
+                "vod_id": "episode-1-low",
+                "vod_name": "示例剧 第一季 第1集",
+                "vod_year": "2026",
+                "type_name": "电视剧",
+                "vod_play_url": "第1集$https://example.test/480-s01e01.m3u8",
+            },
+        ),
+        _result_from_item(
+            source,
+            {
+                "vod_id": "episode-1-high",
+                "vod_name": "示例剧 第一季 第1集",
+                "vod_year": "2026",
+                "type_name": "电视剧",
+                "vod_play_url": "第1集$https://example.test/1080-s01e01.m3u8",
+            },
+        ),
+    ]
+    subscribe = SimpleNamespace(
+        state="R",
+        name="示例剧",
+        year="2026",
+        type="电视剧",
+        season=1,
+        media_source="lunatv",
+        media_id="cms-demo:episode-1-low",
+        save_path=str(tmp_path),
+    )
+    subscribe_module = ModuleType("app.db.oper.subscribe")
+
+    class FakeSubscribeOper:
+        def list(self, state=None):
+            assert state == "R,P"
+            return [subscribe]
+
+    subscribe_module.SubscribeOper = FakeSubscribeOper
+    app_module = ModuleType("app")
+    app_module.__path__ = []
+    app_db_module = ModuleType("app.db")
+    app_db_module.__path__ = []
+    app_db_oper_module = ModuleType("app.db.oper")
+    app_db_oper_module.__path__ = []
+    app_module.db = app_db_module
+    app_db_module.oper = app_db_oper_module
+    app_db_oper_module.subscribe = subscribe_module
+    monkeypatch.setitem(sys.modules, "app", app_module)
+    monkeypatch.setitem(sys.modules, "app.db", app_db_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper", app_db_oper_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper.subscribe", subscribe_module)
+
+    class Client:
+        def search(self, _query):
+            return rows
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_prepare_result", lambda result: (result, {}))
+    monkeypatch.setattr(
+        plugin,
+        "_probe_resource_urls",
+        lambda urls: {url: 1080 if "1080" in url else 480 for url in urls},
+    )
+
+    response = plugin.refresh_subscriptions()
+    tasks = plugin._queue.list_tasks()
+
+    assert response["queued"] == 1
+    assert len(tasks) == 1
+    assert tasks[0]["url"] == "https://example.test/1080-s01e01.m3u8"
+
+
+def test_refresh_plugin_season_subscription_keeps_all_sources_seasons_separate(
+    monkeypatch, tmp_path: Path
+):
+    source_a = CmsSource("cms-a", "源A", "https://a.example/vod")
+    source_b = CmsSource("cms-b", "源B", "https://b.example/vod")
+    rows = [
+        _result_from_item(
+            source_a,
+            {
+                "vod_id": "a-e1",
+                "vod_name": "示例剧 第一季 第1集",
+                "vod_year": "2026",
+                "type_name": "电视剧",
+                "vod_play_url": "第1集$https://a.example/480-s01e01.m3u8",
+            },
+        ),
+        _result_from_item(
+            source_a,
+            {
+                "vod_id": "a-e2",
+                "vod_name": "示例剧 第一季 第2集",
+                "vod_year": "2026",
+                "type_name": "电视剧",
+                "vod_play_url": "第2集$https://a.example/480-s01e02.m3u8",
+            },
+        ),
+        _result_from_item(
+            source_b,
+            {
+                "vod_id": "b-e1",
+                "vod_name": "示例剧 第一季 第1集",
+                "vod_year": "2026",
+                "type_name": "电视剧",
+                "vod_play_url": "第1集$https://b.example/1080-s01e01.m3u8",
+            },
+        ),
+    ]
+    subscribe = SimpleNamespace(
+        state="R",
+        name="示例剧",
+        year="2026",
+        type="电视剧",
+        season=1,
+        media_source="lunatv",
+        media_id="cms-a:a-e1",
+        save_path=str(tmp_path),
+    )
+    subscribe_module = ModuleType("app.db.oper.subscribe")
+
+    class FakeSubscribeOper:
+        def list(self, state=None):
+            assert state == "R,P"
+            return [subscribe]
+
+    subscribe_module.SubscribeOper = FakeSubscribeOper
+    app_module = ModuleType("app")
+    app_module.__path__ = []
+    app_db_module = ModuleType("app.db")
+    app_db_module.__path__ = []
+    app_db_oper_module = ModuleType("app.db.oper")
+    app_db_oper_module.__path__ = []
+    app_module.db = app_db_module
+    app_db_module.oper = app_db_oper_module
+    app_db_oper_module.subscribe = subscribe_module
+    monkeypatch.setitem(sys.modules, "app", app_module)
+    monkeypatch.setitem(sys.modules, "app.db", app_db_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper", app_db_oper_module)
+    monkeypatch.setitem(sys.modules, "app.db.oper.subscribe", subscribe_module)
+
+    class Client:
+        def search(self, _query):
+            return rows
+
+    probe_calls = []
+
+    def probe(urls):
+        probe_calls.append(list(urls))
+        return {url: 1080 if "1080" in url else 480 for url in urls}
+
+    plugin = _plugin()
+    plugin.init_plugin(
+        {
+            "enabled": True,
+            "download_root": str(tmp_path),
+            "source_strategy": "all",
+        }
+    )
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_prepare_result", lambda result: (result, {}))
+    monkeypatch.setattr(plugin, "_probe_resource_urls", probe)
+
+    response = plugin.refresh_subscriptions()
+    tasks = plugin._queue.list_tasks()
+
+    assert response["queued"] == 3
+    assert all(not urls for urls in probe_calls)
+    assert sorted(
+        (task["media_id"], task["episode"], task["url"]) for task in tasks
+    ) == [
+        ("cms-a:a-e1", 1, "https://a.example/480-s01e01.m3u8"),
+        ("cms-a:a-e1", 2, "https://a.example/480-s01e02.m3u8"),
+        ("cms-b:b-e1", 1, "https://b.example/1080-s01e01.m3u8"),
+    ]
 
 
 def test_native_history_number_parser_supports_ranges_and_native_markers():
@@ -1314,11 +2516,11 @@ def test_refresh_does_not_requeue_episode_kept_in_native_tmdb_history(monkeypatc
     monkeypatch.setitem(sys.modules, "app.db.oper.downloadhistory", download_module)
 
     class Client:
-        def detail(self, source_key, vod_id):
-            assert (source_key, vod_id) == ("cms-demo", "42")
-            return result
+        def search(self, _query):
+            return [result]
 
-    plugin = _plugin({"enabled": True, "download_root": str(tmp_path)})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     monkeypatch.setattr(
         plugin,
@@ -1405,7 +2607,8 @@ def test_refresh_routes_movie_and_tv_subscriptions_to_native_media_directories(m
         def search(self, query):
             return [movie if query == "示例电影" else show]
 
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin_module, "_HostDirectoryHelper", DirectoryHelper)
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     monkeypatch.setattr(plugin, "_prepare_result", lambda item: (item, {}))
@@ -1423,7 +2626,8 @@ def test_refresh_routes_movie_and_tv_subscriptions_to_native_media_directories(m
 
 
 def test_local_episode_path_requires_completed_download_or_strm_artifact(tmp_path: Path):
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
 
     for mode in ("download", "strm"):
         task = SimpleNamespace(
@@ -1455,7 +2659,8 @@ def test_local_episode_path_requires_completed_download_or_strm_artifact(tmp_pat
 
 
 def test_record_completion_writes_original_download_output(monkeypatch, tmp_path: Path):
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     task = SimpleNamespace(
         task_id="tid-02",
         mode="download",
@@ -1507,7 +2712,8 @@ def test_record_native_history_skips_missing_idempotency_abi(monkeypatch, tmp_pa
     monkeypatch.setitem(sys.modules, "app.db.oper", app_db_oper_module)
     monkeypatch.setitem(sys.modules, "app.db.oper.downloadhistory", download_module)
 
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     task = SimpleNamespace(
         task_id="tid-missing-abi",
         source_key="cms-demo",
@@ -1522,6 +2728,41 @@ def test_record_native_history_skips_missing_idempotency_abi(monkeypatch, tmp_pa
 
     plugin._record_native_history(task, str(tmp_path / "movie.mp4"))
     assert writes == []
+
+
+def test_sync_media_server_runs_async_and_deduplicates_active_sync(monkeypatch):
+    sync_calls = []
+    started_threads = []
+
+    class MediaServerChain:
+        def sync(self, *, server=None):
+            sync_calls.append(server)
+
+    class DeferredThread:
+        def __init__(self, target, **_kwargs):
+            self.target = target
+            started_threads.append(self)
+
+        def start(self):
+            return None
+
+    monkeypatch.setattr(plugin_module, "_HostMediaServerChain", MediaServerChain)
+    monkeypatch.setattr(plugin_module.threading, "Thread", DeferredThread)
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "mediaserver_name": "Emby"})
+
+    assert plugin._sync_media_server() is True
+    assert sync_calls == []
+    assert len(started_threads) == 1
+    assert plugin._media_sync_running is True
+
+    assert plugin._sync_media_server() is False
+    assert len(started_threads) == 1
+
+    started_threads[0].target()
+    assert sync_calls == ["Emby"]
+    assert plugin._media_sync_running is False
 
 
 def test_record_native_history_ignores_database_errors(monkeypatch, tmp_path: Path):
@@ -1557,7 +2798,8 @@ def test_record_native_history_ignores_database_errors(monkeypatch, tmp_path: Pa
     monkeypatch.setitem(sys.modules, "app.db.oper", app_db_oper_module)
     monkeypatch.setitem(sys.modules, "app.db.oper.downloadhistory", download_module)
 
-    plugin = _plugin({"enabled": True})
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
     task = SimpleNamespace(
         task_id="tid-db-error",
         source_key="cms-demo",

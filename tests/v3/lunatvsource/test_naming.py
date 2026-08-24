@@ -6,7 +6,15 @@ def test_safe_component_removes_path_separators():
 
 
 def test_normalize_titles_removes_bundle_metadata_but_keeps_year():
-    assert normalize_media_title("海底小纵队中文版 (1-8季)") == "海底小纵队中文版"
+    assert normalize_media_title("海底小纵队中文版 (1-8季)") == "海底小纵队"
+    assert normalize_media_title("小猪佩奇 第一季 第52集") == "小猪佩奇"
+    assert normalize_media_title("小猪佩奇 第八季 第45集") == "小猪佩奇"
+    assert normalize_media_title("小猪佩奇 第十季 中文版") == "小猪佩奇"
+    assert normalize_media_title("小猪佩奇 第12季 国语版") == "小猪佩奇"
+    assert normalize_media_title("小猪佩奇过大年(粤语版)") == "小猪佩奇过大年"
+    assert normalize_media_title("英语老师 第一季") == "英语老师"
+    assert normalize_media_title("粤语版的故事") == "粤语版的故事"
+    assert normalize_media_title("示例剧 S02E03") == "示例剧"
     assert normalize_search_title("示例剧 [1080P 中文字幕]") == "示例剧"
 
 

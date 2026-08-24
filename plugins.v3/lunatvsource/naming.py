@@ -29,7 +29,8 @@ _EPISODE_SUFFIX = re.compile(
 )
 _VIDEO_METADATA_SUFFIX = re.compile(
     r"(?:\s*[\(\[（【]?\s*)"
-    r"(?:完结|全集|全季|高清|超清|蓝光|中字|双语|国语|粤语|1080p|2160p|4k|web[- ]?dl|hdtv)"
+    r"(?:完结|全集|全季|高清|超清|蓝光|中字|双语|国语(?:版)?|粤语(?:版)?|"
+    r"(?:中文|英语|日语|韩语|法语|德语|西班牙语)版|1080p|2160p|4k|web[- ]?dl|hdtv)"
     r"(?:\s*[\)\]）】])?\s*$",
     re.IGNORECASE,
 )
