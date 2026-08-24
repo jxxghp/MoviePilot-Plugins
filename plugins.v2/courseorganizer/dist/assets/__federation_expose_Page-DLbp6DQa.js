@@ -812,17 +812,17 @@ return (_ctx, _cache) => {
           _: 1
         }))
       : _createCommentVNode("", true),
-    (monitoringEnabled.value && items.value.length > 0)
+    (monitoringEnabled.value)
       ? (_openBlock(), _createBlock(_component_VAlert, {
           key: 2,
-          type: "warning",
+          type: "error",
           variant: "tonal",
           density: "compact",
           class: "mb-2",
           role: "alert"
         }, {
           default: _withCtx(() => [
-            _createTextVNode(_toDisplayString(monitoringRuleText.value) + "已开启自动监控，确认前请先关闭，避免文件被提前整理。 ", 1)
+            _createTextVNode(_toDisplayString(monitoringRuleText.value) + "与当前来源目录重叠；插件已自动禁止自动整理，仅保留安全预览。 ", 1)
           ]),
           _: 1
         }))
@@ -1466,6 +1466,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7972409f"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-35781e2e"]]);
 
 export { Page as default };

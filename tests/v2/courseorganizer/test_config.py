@@ -37,8 +37,14 @@ def test_missing_plugin_source_override_uses_supported_system_sources():
 def test_form_hides_settings_owned_by_moviepilot():
     plugin = CourseOrganizer.__new__(CourseOrganizer)
     config = plugin._normalize_config({})
+    directory_context = {"available": True, "monitoring_enabled": False}
 
-    with patch.object(plugin, "_get_config", return_value=config):
+    with (
+        patch.object(plugin, "_get_config", return_value=config),
+        patch.object(
+            plugin, "_moviepilot_directory_context", return_value=directory_context
+        ),
+    ):
         form, defaults = plugin.get_form()
 
     models = {
@@ -84,6 +90,29 @@ def test_auto_organize_controls_apply_mode_and_migrates_legacy_apply():
     assert resolver_config.ai_review is True
 
 
+def test_monitor_conflict_forces_preview_mode():
+    plugin = CourseOrganizer.__new__(CourseOrganizer)
+    config = plugin._normalize_config({"auto_organize": True})
+    context = {
+        "available": True,
+        "incoming": "/media/incoming",
+        "selected": {
+            "tv": {"path": "/media/tv"},
+            "movie": {"path": "/media/movies"},
+            "children": {"path": "/media/children"},
+        },
+        "monitoring_enabled": True,
+        "monitoring_rules": ["MoviePilot 总监控"],
+    }
+
+    with patch.object(plugin, "_get_config", return_value=config):
+        runtime = plugin._review_path_config(context)
+
+    assert runtime["auto_organize"] is False
+    assert runtime["naming_mode"] == "preview"
+    assert "已自动检测" in runtime["monitoring_conflict"]
+
+
 def test_custom_config_exposes_only_auto_organize_control():
     source = (
         ROOT / "plugins.v2" / "courseorganizer" / "src" / "components" / "Config.vue"
@@ -92,6 +121,8 @@ def test_custom_config_exposes_only_auto_organize_control():
     assert "localConfig.auto_organize" in source
     assert "config.naming_mode" in source
     assert "=== 'apply'" in source
+    assert "loadMonitoringStatus" in source
+    assert "monitoringBlocked" in source
     for model in (
         "naming_auto_threshold",
         "naming_min_margin",
@@ -115,10 +146,11 @@ def test_custom_page_filters_system_entries_from_stale_api_rows():
 def test_v2_market_manifest_uses_renderable_png_icon():
     package_v2 = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
 
-    assert CourseOrganizer.plugin_version == "1.7.17"
-    assert package_v2["CourseOrganizer"]["version"] == "1.7.17"
+    assert CourseOrganizer.plugin_version == "1.7.18"
+    assert package_v2["CourseOrganizer"]["version"] == "1.7.18"
     assert package_v2["CourseOrganizer"]["icon"] == "courseorganizer.png"
-    assert CourseOrganizer.plugin_icon == "icons/courseorganizer.png"
+    assert CourseOrganizer.plugin_icon == "courseorganizer.png"
+    assert CourseOrganizer.author_url == "https://github.com/OneBigMoon"
     assert (ROOT / "icons/courseorganizer.png").is_file()
 
 

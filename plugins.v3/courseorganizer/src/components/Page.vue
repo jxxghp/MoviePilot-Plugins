@@ -645,8 +645,8 @@ defineExpose({ loadReview, items, loading, savingKeys, tmdbCandidates })
     <VAlert v-if="rulesMessage" type="warning" variant="tonal" density="compact" class="mb-2" role="alert">
       {{ rulesMessage }}
     </VAlert>
-    <VAlert v-if="monitoringEnabled && items.length > 0" type="warning" variant="tonal" density="compact" class="mb-2" role="alert">
-      {{ monitoringRuleText }}已开启自动监控，确认前请先关闭，避免文件被提前整理。
+    <VAlert v-if="monitoringEnabled" type="error" variant="tonal" density="compact" class="mb-2" role="alert">
+      {{ monitoringRuleText }}与当前来源目录重叠；插件已自动禁止自动整理，仅保留安全预览。
     </VAlert>
     <VAlert v-if="batchRunning || organizingKey" type="info" variant="tonal" density="compact" class="mb-2" role="status">
       <template v-if="batchRunning">
