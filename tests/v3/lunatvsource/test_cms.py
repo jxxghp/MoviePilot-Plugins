@@ -18,6 +18,7 @@ def test_stream_quality_label_uses_actual_video_height():
     assert stream_quality_label(1080) == "1080P"
     assert stream_quality_label(720) == "720P"
     assert stream_quality_label(480) == "480P"
+    assert stream_quality_label(608) == "608P"
     assert stream_quality_label(360) == "360P"
     assert stream_quality_label(0) == "未知"
 

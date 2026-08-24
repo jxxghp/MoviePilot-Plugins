@@ -88,14 +88,6 @@ def stream_quality_label(height: int) -> str:
     value = max(0, int(height or 0))
     if value >= 2160:
         return "4K"
-    if value >= 1440:
-        return "1440P"
-    if value >= 1080:
-        return "1080P"
-    if value >= 720:
-        return "720P"
-    if value >= 480:
-        return "480P"
     if value > 0:
         return f"{value}P"
     return "未知"

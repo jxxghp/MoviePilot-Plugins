@@ -328,7 +328,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "lunatvsource.png"
-    plugin_version = "0.4.36"
+    plugin_version = "0.4.37"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -1626,7 +1626,9 @@ class LunaTVSource(_PluginBase):
             return {"subscriptions": 0, "queued": 0, "reconciled": 0}
         try:
             try:
-                subscribes = SubscribeOper().list(state="R")
+                # Match MoviePilot's native subscription search semantics:
+                # both resolved (R) and pending (P) subscriptions remain searchable.
+                subscribes = SubscribeOper().list(state="R,P")
             except TypeError:
                 subscribes = SubscribeOper().list()
         except Exception as exc:
@@ -1641,7 +1643,7 @@ class LunaTVSource(_PluginBase):
         active_subscribes = []
         for subscribe in subscribes or []:
             state = str(getattr(getattr(subscribe, "state", None), "value", getattr(subscribe, "state", "R")) or "R")
-            if state not in {"R", "1", "active", "enabled"}:
+            if state not in {"R", "P", "1", "active", "enabled"}:
                 continue
             active_subscribes.append(subscribe)
         for subscribe in active_subscribes:
