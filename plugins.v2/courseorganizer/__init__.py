@@ -334,12 +334,12 @@ class CourseOrganizer(_PluginBase):
     plugin_config_prefix = "courseorganizer_"
     auth_level = 1
     plugin_order = 90
-    plugin_version = "1.7.17"
+    plugin_version = "1.7.18"
     plugin_desc = "稳定后识别、分类并整理到电视剧、电影或儿童媒体库"
     plugin_author = "OneBigMoon"
-    author_url = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
+    author_url = "https://github.com/OneBigMoon"
     project_url = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
-    plugin_icon = "icons/courseorganizer.png"
+    plugin_icon = "courseorganizer.png"
     plugin_repo = "https://github.com/OneBigMoon/moviepilot-v2-course-organizer"
 
     MEDIA_EXTENSIONS = {".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".m4v", ".m4a"}
@@ -679,6 +679,38 @@ class CourseOrganizer(_PluginBase):
             return rule.get(key, default)
         return getattr(rule, key, default)
 
+    @staticmethod
+    def _paths_overlap(first: Any, second: Any) -> bool:
+        """Return whether two local paths are equal or one contains the other."""
+        if not first or not second:
+            return False
+        try:
+            first_path = os.path.normcase(
+                os.path.realpath(os.path.abspath(os.path.expanduser(str(first))))
+            )
+            second_path = os.path.normcase(
+                os.path.realpath(os.path.abspath(os.path.expanduser(str(second))))
+            )
+            return os.path.commonpath((first_path, second_path)) in {
+                first_path,
+                second_path,
+            }
+        except (OSError, TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _monitoring_conflict_message(context: Dict[str, Any]) -> str:
+        if not context.get("monitoring_enabled"):
+            return ""
+        incoming = str(context.get("incoming", "") or "").strip()
+        rules = [str(item) for item in context.get("monitoring_rules", []) if item]
+        rule_text = "、".join(rules) or "相关目录规则"
+        source_text = f"来源目录 {incoming}" if incoming else "当前来源目录"
+        return (
+            f"已自动检测到 {source_text} 与 MoviePilot 自动监控规则（{rule_text}）重叠；"
+            "为避免两个任务竞争文件，本插件已强制保持安全预览并禁止自动整理。"
+        )
+
     def _load_moviepilot_directory_rules(self) -> Tuple[List[Any], str]:
         """Read MoviePilot's directory rules without making them a plugin setting."""
         try:
@@ -814,6 +846,35 @@ class CourseOrganizer(_PluginBase):
         if len(source_paths) > 1:
             issues.append("三类规则的来源目录不一致，无法确定唯一待处理目录")
 
+        monitoring_conflicts: List[Dict[str, str]] = []
+        if incoming:
+            for rule in rules:
+                monitor_type = str(
+                    self._directory_rule_value(rule, "monitor_type", "") or ""
+                ).strip()
+                monitor_path = str(
+                    self._directory_rule_value(rule, "download_path", "") or ""
+                ).strip()
+                storage = str(
+                    self._directory_rule_value(rule, "storage", "local") or "local"
+                ).strip()
+                if (
+                    monitor_type
+                    and storage == "local"
+                    and self._paths_overlap(incoming, monitor_path)
+                ):
+                    monitoring_conflicts.append(
+                        {
+                            "title": str(
+                                self._directory_rule_value(rule, "name", "")
+                                or monitor_path
+                                or "未命名规则"
+                            ),
+                            "path": monitor_path,
+                            "monitor_type": monitor_type,
+                        }
+                    )
+
         if load_error:
             issues.insert(0, load_error)
         libraries = [selected[key] for key in ("tv", "movie", "children") if key in selected]
@@ -827,10 +888,11 @@ class CourseOrganizer(_PluginBase):
             "issues": list(dict.fromkeys(issues)),
             "message": "；".join(dict.fromkeys(issues)),
             "settings_url": "#/setting",
-            "monitoring_enabled": any(bool(item["monitor_type"]) for item in summaries),
-            "monitoring_rules": [
-                item["title"] for item in summaries if item["monitor_type"]
-            ],
+            "monitoring_enabled": bool(monitoring_conflicts),
+            "monitoring_rules": list(
+                dict.fromkeys(item["title"] for item in monitoring_conflicts)
+            ),
+            "monitoring_conflicts": monitoring_conflicts,
         }
 
     def _review_path_config(
@@ -839,6 +901,13 @@ class CourseOrganizer(_PluginBase):
         config = self._get_config()
         directory_context = context or self._moviepilot_directory_context()
         if not directory_context.get("available"):
+            if config.get("auto_organize"):
+                config["auto_organize"] = False
+                config["naming_mode"] = "preview"
+                config["monitoring_conflict"] = (
+                    "无法读取 MoviePilot 目录监控配置；为避免重复整理，"
+                    "本插件已强制保持安全预览并禁止自动整理。"
+                )
             return config
         selected = directory_context.get("selected", {})
         config["incoming"] = str(directory_context.get("incoming", ""))
@@ -848,6 +917,11 @@ class CourseOrganizer(_PluginBase):
             ("children", "children_output"),
         ):
             config[key] = str(selected.get(library, {}).get("path", ""))
+        conflict_message = self._monitoring_conflict_message(directory_context)
+        if conflict_message and config.get("auto_organize"):
+            config["auto_organize"] = False
+            config["naming_mode"] = "preview"
+            config["monitoring_conflict"] = conflict_message
         return config
 
     def _review_source_directory_ok(self, raw_title: str) -> bool:
@@ -3107,6 +3181,9 @@ class CourseOrganizer(_PluginBase):
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         config = self._get_config()
         defaults = dict(config)
+        monitoring_conflict = self._monitoring_conflict_message(
+            self._moviepilot_directory_context()
+        )
         advanced = [
             {
                 "component": "VSwitch",
@@ -3153,12 +3230,13 @@ class CourseOrganizer(_PluginBase):
                     {
                         "component": "VAlert",
                         "props": {
-                            "type": "warning",
+                            "type": "error" if monitoring_conflict else "success",
                             "variant": "tonal",
                             "density": "compact",
                             "class": "mt-2",
                         },
-                        "text": "开启自动整理前，请确认同一来源目录未同时启用 MoviePilot 自动监控，避免两个任务竞争同一批文件。",
+                        "text": monitoring_conflict
+                        or "已自动检测 MoviePilot 自动监控配置，当前来源目录未发现监控冲突。",
                     },
                 ],
             }
@@ -3231,6 +3309,12 @@ class CourseOrganizer(_PluginBase):
         if not force and not config.get("enabled"):
             self._logger.debug("CourseOrganizer[event=wait] plugin disabled")
             return
+
+        if config.get("monitoring_conflict"):
+            self._logger.warning(
+                "CourseOrganizer[event=monitoring_conflict] action=preview_only message=%s",
+                config["monitoring_conflict"],
+            )
 
         incoming = config.get("incoming")
         output_roots = {

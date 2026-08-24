@@ -1,18 +1,20 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
-const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,withModifiers:_withModifiers,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode} = await importShared('vue');
+const {createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,withModifiers:_withModifiers,toDisplayString:_toDisplayString,openBlock:_openBlock,createBlock:_createBlock} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "course-config__actions" };
 
-const {nextTick,ref,watch} = await importShared('vue');
+const {nextTick,onMounted,ref,watch} = await importShared('vue');
 
 
 
 const _sfc_main = {
   __name: 'Config',
   props: {
+  api: { type: Object, default: () => ({}) },
+  pluginId: { type: String, default: 'CourseOrganizer' },
   initialConfig: { type: Object, default: () => ({}) },
 },
   emits: ['save', 'close'],
@@ -23,6 +25,9 @@ const emit = __emit;
 
 const localConfig = ref({});
 const saving = ref(false);
+const monitoringBlocked = ref(true);
+const monitoringMessage = ref('正在自动检测 MoviePilot 自动监控配置…');
+const monitoringMessageType = ref('info');
 
 const configDefaults = {
   auto_organize: false,
@@ -52,6 +57,7 @@ watch(
 
 function saveConfig() {
   if (saving.value) return
+  if (localConfig.value.auto_organize && monitoringBlocked.value) return
   saving.value = true;
   try {
     emit('save', clone(localConfig.value));
@@ -60,11 +66,46 @@ function saveConfig() {
   }
 }
 
+async function loadMonitoringStatus() {
+  if (typeof props.api?.get !== 'function') {
+    monitoringMessage.value = '无法读取 MoviePilot 自动监控配置，自动整理暂不可开启。';
+    monitoringMessageType.value = 'error';
+    return
+  }
+  try {
+    const response = await props.api.get(`plugin/${props.pluginId || 'CourseOrganizer'}/review`);
+    const body = response?.data ?? response;
+    const data = body?.data ?? body ?? {};
+    if (data.monitoring_enabled) {
+      const rules = Array.isArray(data.monitoring_rules) ? data.monitoring_rules.filter(Boolean) : [];
+      const ruleText = rules.length ? `（${rules.join('、')}）` : '';
+      const sourceText = data.incoming_path ? `来源目录 ${data.incoming_path}` : '当前来源目录';
+      monitoringBlocked.value = true;
+      monitoringMessageType.value = 'error';
+      monitoringMessage.value = `已自动检测到 ${sourceText} 与 MoviePilot 自动监控规则${ruleText}重叠；自动整理已禁止，仅保留安全预览。`;
+      localConfig.value = { ...localConfig.value, auto_organize: false };
+      return
+    }
+    monitoringBlocked.value = false;
+    monitoringMessageType.value = 'success';
+    monitoringMessage.value = '已自动检测 MoviePilot 自动监控配置，当前来源目录未发现监控冲突。';
+  } catch (error) {
+    monitoringBlocked.value = true;
+    monitoringMessageType.value = 'error';
+    monitoringMessage.value = error?.message
+      ? `无法读取 MoviePilot 自动监控配置：${error.message}`
+      : '无法读取 MoviePilot 自动监控配置，自动整理暂不可开启。';
+    localConfig.value = { ...localConfig.value, auto_organize: false };
+  }
+}
+
 async function openMoviePilotSettings() {
   emit('close');
   await nextTick();
   window.location.assign('#/setting');
 }
+
+onMounted(loadMonitoringStatus);
 
 return (_ctx, _cache) => {
   const _component_VSpacer = _resolveComponent("VSpacer");
@@ -131,29 +172,27 @@ return (_ctx, _cache) => {
         "aria-label": "自动整理符合条件的项目",
         hint: "开启后，仅自动整理识别结果可靠且目标媒体库明确的项目；不确定项目继续保留在待确认列表",
         "persistent-hint": "",
-        color: "primary"
-      }, null, 8, ["modelValue"]),
-      (localConfig.value.auto_organize)
-        ? (_openBlock(), _createBlock(_component_VAlert, {
-            key: 0,
-            type: "warning",
-            variant: "tonal",
-            density: "compact",
-            class: "mx-3 mb-3"
-          }, {
-            default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
-              _createTextVNode(" 请确认同一来源目录未同时启用 MoviePilot 自动监控，避免两个整理任务竞争同一批文件。 ", -1)
-            ]))]),
-            _: 1
-          }))
-        : _createCommentVNode("", true),
+        color: "primary",
+        disabled: monitoringBlocked.value
+      }, null, 8, ["modelValue", "disabled"]),
+      _createVNode(_component_VAlert, {
+        type: monitoringMessageType.value,
+        variant: "tonal",
+        density: "compact",
+        class: "mx-3 mb-3"
+      }, {
+        default: _withCtx(() => [
+          _createTextVNode(_toDisplayString(monitoringMessage.value), 1)
+        ]),
+        _: 1
+      }, 8, ["type"]),
       _createElementVNode("div", _hoisted_1, [
         _createVNode(_component_VBtn, {
           variant: "text",
           "min-width": "88",
           onClick: _cache[2] || (_cache[2] = $event => (emit('close')))
         }, {
-          default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
+          default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
             _createTextVNode("取消", -1)
           ]))]),
           _: 1
@@ -164,7 +203,7 @@ return (_ctx, _cache) => {
           loading: saving.value,
           onClick: saveConfig
         }, {
-          default: _withCtx(() => [...(_cache[8] || (_cache[8] = [
+          default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
             _createTextVNode("保存", -1)
           ]))]),
           _: 1
@@ -177,6 +216,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c002aa5f"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3d84b7a8"]]);
 
 export { Config as default };
