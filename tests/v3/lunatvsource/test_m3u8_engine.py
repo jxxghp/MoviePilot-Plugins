@@ -269,6 +269,106 @@ def test_engine_reads_carriage_return_progress_and_enforces_watchdog(
 
 
 
+def test_engine_no_progress_watchdog_ignores_logs_and_repeated_progress(
+    monkeypatch, tmp_path: Path
+):
+    engine = VSDEngine(tmp_path)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    monkeypatch.setattr(engine, "PROCESS_TOTAL_TIMEOUT_SECONDS", 1.0)
+    monkeypatch.setattr(engine, "PROCESS_NO_PROGRESS_TIMEOUT_SECONDS", 0.15)
+    monkeypatch.setattr(engine, "PROCESS_POLL_INTERVAL_SECONDS", 0.02)
+
+    started_at = time.monotonic()
+    with pytest.raises(M3U8EngineError, match="made no progress"):
+        engine._run_command(
+            [
+                sys.executable,
+                "-c",
+                "import time; exec(\"while True:\\n    print('still working', flush=True)\\n    print('PT: 1/2', flush=True)\\n    time.sleep(0.01)\")",
+            ],
+            cache_dir=cache_dir,
+            control_event=None,
+            progress_callback=None,
+        )
+    assert time.monotonic() - started_at < 0.8
+
+
+def test_engine_progress_growth_resets_stall_watchdog(monkeypatch, tmp_path: Path):
+    engine = VSDEngine(tmp_path)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    monkeypatch.setattr(engine, "PROCESS_TOTAL_TIMEOUT_SECONDS", 2.0)
+    monkeypatch.setattr(engine, "PROCESS_NO_PROGRESS_TIMEOUT_SECONDS", 0.3)
+    monkeypatch.setattr(engine, "PROCESS_POLL_INTERVAL_SECONDS", 0.02)
+
+    started_at = time.monotonic()
+    engine._run_command(
+        [
+            sys.executable,
+            "-c",
+            "import time; exec(\"for current in range(1, 5):\\n    print(f'PT: {current}/4', flush=True)\\n    time.sleep(0.12)\")",
+        ],
+        cache_dir=cache_dir,
+        control_event=None,
+        progress_callback=None,
+    )
+
+    assert time.monotonic() - started_at > 0.3
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX process groups")
+@pytest.mark.parametrize(
+    ("cancel_after", "error_type", "message"),
+    [
+        (0.15, M3U8EngineCancelled, "download cancelled"),
+        (None, M3U8EngineError, "process timed out"),
+    ],
+)
+def test_engine_watchdogs_exited_leader_with_child_holding_pipes(
+    monkeypatch,
+    tmp_path: Path,
+    cancel_after: float | None,
+    error_type: type[Exception],
+    message: str,
+):
+    engine = VSDEngine(tmp_path)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    monkeypatch.setattr(
+        engine,
+        "PROCESS_TOTAL_TIMEOUT_SECONDS",
+        2.0 if cancel_after is not None else 0.2,
+    )
+    monkeypatch.setattr(engine, "PROCESS_NO_PROGRESS_TIMEOUT_SECONDS", 2.0)
+    monkeypatch.setattr(engine, "PROCESS_POLL_INTERVAL_SECONDS", 0.02)
+
+    control_event = threading.Event()
+    timer = None
+    if cancel_after is not None:
+        timer = threading.Timer(cancel_after, control_event.set)
+        timer.start()
+
+    started_at = time.monotonic()
+    try:
+        with pytest.raises(error_type, match=message):
+            engine._run_command(
+                [
+                    sys.executable,
+                    "-c",
+                    "import subprocess, sys; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); sys.exit(0)",
+                ],
+                cache_dir=cache_dir,
+                control_event=control_event,
+                progress_callback=None,
+            )
+    finally:
+        if timer is not None:
+            timer.cancel()
+
+    assert time.monotonic() - started_at < 1.0
+
+
 def test_terminate_uses_process_group_even_if_leader_exited(monkeypatch) -> None:
     class FakeProcess:
         def __init__(self) -> None:

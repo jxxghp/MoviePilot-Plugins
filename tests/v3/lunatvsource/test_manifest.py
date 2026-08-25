@@ -54,7 +54,8 @@ def test_version_consistency_across_manifest_backend_and_frontend():
     assert next(iter(history)) == "0.4.46"
     assert history["0.4.46"] == (
         "将受管二进制真实性校验改为代码内固定可执行摘要，阻断程序与可写清单同时篡改；"
-        "完善 POSIX 进程组有界终止，确保 leader 退出后仍清理残留子进程。"
+        "完善 POSIX 进程组有界终止，并修复 leader 退出后残留管道绕过取消/超时、"
+        "普通日志绕过停滞超时的问题。"
     )
     assert history["0.4.45"] == (
         "修复双引擎发布阶段的容器、缓存和权限边界：N_m3u8DL-RE 固定混流 MP4，"

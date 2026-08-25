@@ -645,7 +645,9 @@ class _BaseM3U8Engine:
         return None
 
     @staticmethod
-    def _cache_progress(cache_dir: Path, expected_segments: int) -> Optional[float]:
+    def _cache_activity(
+        cache_dir: Path, expected_segments: int
+    ) -> Optional[tuple[int, float]]:
         if (
             expected_segments <= 0
             or cache_dir.is_symlink()
@@ -672,7 +674,14 @@ class _BaseM3U8Engine:
             return None
         if count <= 0:
             return None
-        return min(0.95, count / max(expected_segments, 1))
+        return count, min(0.95, count / max(expected_segments, 1))
+
+    @staticmethod
+    def _cache_progress(cache_dir: Path, expected_segments: int) -> Optional[float]:
+        activity = _BaseM3U8Engine._cache_activity(cache_dir, expected_segments)
+        if activity is None:
+            return None
+        return activity[1]
 
     @staticmethod
     def _terminate(process: subprocess.Popen[str]) -> None:
@@ -716,10 +725,10 @@ class _BaseM3U8Engine:
             while True:
                 # Reap the session leader when it exits; otherwise a zombie
                 # can keep killpg(..., 0) reporting the group as alive.
-                process.poll()
+                leader_exited = process.poll() is not None
                 if not _group_exists(process.pid):
                     return True
-                if time.monotonic() >= deadline:
+                if leader_exited or time.monotonic() >= deadline:
                     return False
                 time.sleep(min(_TERMINATE_POLL_SECONDS, max(0.0, deadline - time.monotonic())))
 
@@ -739,7 +748,8 @@ class _BaseM3U8Engine:
                 return
         if not _signal_group(signal.SIGKILL):
             return
-        _wait_group(time.monotonic() + _TERMINATE_WINDOW_SECONDS)
+        if process.poll() is None:
+            _wait_group(time.monotonic() + _TERMINATE_WINDOW_SECONDS)
 
 
     @staticmethod
@@ -767,29 +777,47 @@ class _BaseM3U8Engine:
             "stderr": codecs.getincrementaldecoder("utf-8")("replace"),
         }
         started_at = time.monotonic()
-        last_activity = started_at
+        last_progress_at = started_at
         last_cache_check = started_at
+        last_cache_count = 0
         last_cache_progress = 0.0
+        last_parsed_progress = 0.0
         last_progress = 0.0
+
+        def process_group_alive() -> bool:
+            if process is None:
+                return False
+            if os.name != "posix":
+                return process.poll() is None
+            try:
+                os.killpg(process.pid, 0)
+                return True
+            except ProcessLookupError:
+                return False
+            except OSError as error:
+                return error.errno != errno.ESRCH
 
         def record_line(stream_name: str, line: str) -> None:
             del stream_name
-            nonlocal last_activity, last_progress, output_tail
+            nonlocal last_parsed_progress, last_progress_at, last_progress, output_tail
             if not line:
                 return
-            last_activity = time.monotonic()
             output_tail = (output_tail + line + "\n")[-12000:]
             parsed = self.parse_progress(line)
-            if progress_callback is not None and parsed is not None:
-                value = max(last_progress, parsed)
-                if value > last_progress:
-                    last_progress = value
-                    progress_callback(value)
+            if parsed is None:
+                return
+            if parsed <= last_parsed_progress:
+                return
+            last_parsed_progress = parsed
+            last_progress_at = time.monotonic()
+            value = max(last_progress, parsed)
+            if value <= last_progress:
+                return
+            last_progress = value
+            if progress_callback is not None:
+                progress_callback(value)
 
         def consume(stream_name: str, data: bytes, *, final: bool = False) -> None:
-            nonlocal last_activity
-            if data:
-                last_activity = time.monotonic()
             decoded = decoders[stream_name].decode(data, final=final)
             text = buffers[stream_name] + decoded
             if not text:
@@ -835,13 +863,17 @@ class _BaseM3U8Engine:
 
             while True:
                 now = time.monotonic()
-                returncode = process.poll()
-                if returncode is None:
+                command_finished = (
+                    process.poll() is not None
+                    and not process_group_alive()
+                    and not selector.get_map()
+                )
+                if not command_finished:
                     self._raise_if_cancelled(control_event)
                     if now - started_at > self.PROCESS_TOTAL_TIMEOUT_SECONDS:
                         self._terminate(process)
                         raise M3U8EngineError(f"{self.name} process timed out")
-                    if now - last_activity > self.PROCESS_NO_PROGRESS_TIMEOUT_SECONDS:
+                    if now - last_progress_at > self.PROCESS_NO_PROGRESS_TIMEOUT_SECONDS:
                         self._terminate(process)
                         raise M3U8EngineError(
                             f"{self.name} process made no progress"
@@ -867,16 +899,26 @@ class _BaseM3U8Engine:
                 now = time.monotonic()
                 if now - last_cache_check >= 1.0:
                     last_cache_check = now
-                    cache_progress = self._cache_progress(cache_dir, expected_segments)
-                    if cache_progress is not None:
+                    cache_activity = self._cache_activity(
+                        cache_dir, expected_segments
+                    )
+                    if cache_activity is not None:
+                        cache_count, cache_progress = cache_activity
+                        if cache_count > last_cache_count:
+                            last_progress_at = now
+                        last_cache_count = cache_count
                         if cache_progress > last_cache_progress:
-                            last_activity = now
-                            last_cache_progress = cache_progress
+                            last_progress_at = now
+                        last_cache_progress = cache_progress
                         if progress_callback is not None and cache_progress > last_progress:
                             last_progress = cache_progress
                             progress_callback(cache_progress)
 
-                if process.poll() is not None and not selector.get_map():
+                if (
+                    process.poll() is not None
+                    and not process_group_alive()
+                    and not selector.get_map()
+                ):
                     break
 
             try:
@@ -893,7 +935,7 @@ class _BaseM3U8Engine:
             detail = _safe_error_text(output_tail)
             raise M3U8EngineError(detail or f"{self.name} exited {process.returncode}")
         except M3U8EngineCancelled:
-            if process is not None:
+            if process_group_alive():
                 self._terminate(process)
             raise
         except M3U8EngineError:
@@ -901,7 +943,7 @@ class _BaseM3U8Engine:
         except OSError as exc:
             raise M3U8EngineUnavailable(f"{self.name} could not start") from exc
         finally:
-            if process is not None and process.poll() is None:
+            if process_group_alive():
                 self._terminate(process)
             selector.close()
 
