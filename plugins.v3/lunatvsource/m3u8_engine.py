@@ -175,8 +175,11 @@ _INSTALL_LOCKS: Dict[str, threading.Lock] = {}
 _INSTALL_LOCKS_GUARD = threading.Lock()
 _PERCENT_RE = re.compile(r"(?<!\d)(\d{1,3}(?:\.\d+)?)\s*%")
 _FRACTION_RE = re.compile(r"(?<!\d)(\d+)\s*/\s*(\d+)(?!\d)")
-_SECRET_RE = re.compile(
-    r"(?i)(cookie|authorization|token|access[_-]?key|signature)\s*([=:])\s*([^\s&;,]+)"
+_CREDENTIAL_LINE_RE = re.compile(
+    r"(?im)((?:\b(?:proxy-)?authorization|set-cookie|cookie)\b[\"']?\s*[=:]\s*[\"']?)[^\r\n]*"
+)
+_INLINE_SECRET_RE = re.compile(
+    r"(?im)((?:\b(?:token|access[_-]?key|signature)\b[\"']?\s*[=:]\s*[\"']?))[^\r\n]*"
 )
 
 
@@ -202,14 +205,25 @@ def asset_for_spec(
 def _safe_error_text(value: object) -> str:
     """Do not surface credentials that an external program might echo."""
 
-    text = _SECRET_RE.sub(r"\1\2<redacted>", str(value or ""))
+    text = str(value or "")
+    text = _CREDENTIAL_LINE_RE.sub(r"\1<redacted>", text)
+    text = _INLINE_SECRET_RE.sub(r"\1<redacted>", text)
     return text[-1200:]
+
+
+def _raise_if_cancelled(control_event: Optional[threading.Event]) -> None:
+    if control_event is not None and control_event.is_set():
+        raise M3U8EngineCancelled("download cancelled")
 
 
 class ManagedBinaryInstaller:
     """Install one pinned archive into a plugin-owned ``bin`` directory."""
 
     _MAX_MEMBER_BYTES = 1024 * 1024 * 1024
+    DOWNLOAD_TOTAL_TIMEOUT_SECONDS = 15 * 60
+    DOWNLOAD_IO_TIMEOUT_SECONDS = 10.0
+    DOWNLOAD_CHUNK_BYTES = 64 * 1024
+    INSTALL_LOCK_POLL_SECONDS = 0.1
 
     def __init__(self, data_path: Path, spec: EngineSpec) -> None:
         self.data_path = Path(data_path)
@@ -302,16 +316,30 @@ class ManagedBinaryInstaller:
 
 
     @contextmanager
-    def _installation_lock(self) -> Iterator[None]:
-        """Serialize installers in-process and, where available, cross-process."""
+    def _installation_lock(
+        self, control_event: Optional[threading.Event] = None
+    ) -> Iterator[None]:
+        """Serialize installers while allowing cancelled waiters to leave."""
 
         directory = self._require_safe_bin_dir()
         key = str(directory.absolute())
-        with _INSTALL_LOCKS_GUARD:
-            lock = _INSTALL_LOCKS.setdefault(key, threading.Lock())
-        lock.acquire()
+        while True:
+            _raise_if_cancelled(control_event)
+            if _INSTALL_LOCKS_GUARD.acquire(timeout=self.INSTALL_LOCK_POLL_SECONDS):
+                try:
+                    lock = _INSTALL_LOCKS.setdefault(key, threading.Lock())
+                finally:
+                    _INSTALL_LOCKS_GUARD.release()
+                break
+
+        lock_acquired = False
         lock_file = None
+        flock_acquired = False
         try:
+            while not lock_acquired:
+                _raise_if_cancelled(control_event)
+                lock_acquired = lock.acquire(timeout=self.INSTALL_LOCK_POLL_SECONDS)
+
             lock_path = directory / f".{self.spec.executable}.install.lock"
             if lock_path.is_symlink():
                 raise M3U8EngineInstallError("managed install lock is unsafe")
@@ -327,28 +355,54 @@ class ManagedBinaryInstaller:
             lock_file = os.fdopen(descriptor, "a+b")
             try:
                 import fcntl
-
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            except (ImportError, OSError):
-                pass
+            except ImportError:
+                fcntl = None
+            if fcntl is not None:
+                while True:
+                    _raise_if_cancelled(control_event)
+                    try:
+                        fcntl.flock(
+                            lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB
+                        )
+                        flock_acquired = True
+                        break
+                    except OSError as exc:
+                        if exc.errno not in (errno.EACCES, errno.EAGAIN):
+                            break
+                        time.sleep(self.INSTALL_LOCK_POLL_SECONDS)
+            _raise_if_cancelled(control_event)
             yield
         finally:
             if lock_file is not None:
                 try:
-                    try:
-                        import fcntl
+                    if flock_acquired:
+                        try:
+                            import fcntl
 
-                        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-                    except (ImportError, OSError):
-                        pass
+                            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                        except (ImportError, OSError):
+                            pass
                     lock_file.close()
                 except OSError:
                     pass
-            lock.release()
+            if lock_acquired:
+                lock.release()
 
-    def _download_archive(self, asset: ReleaseAsset) -> Path:
+    def _download_io_timeout(self, deadline: float) -> float:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise M3U8EngineInstallError("release download timed out")
+        return min(self.DOWNLOAD_IO_TIMEOUT_SECONDS, remaining)
+
+    def _download_archive(
+        self,
+        asset: ReleaseAsset,
+        control_event: Optional[threading.Event] = None,
+    ) -> Path:
         """Stream an archive to a private temp file while checking its digest."""
 
+        _raise_if_cancelled(control_event)
+        deadline = time.monotonic() + self.DOWNLOAD_TOTAL_TIMEOUT_SECONDS
         directory = self._require_safe_bin_dir()
         descriptor, raw_path = tempfile.mkstemp(
             prefix=f".{self.spec.executable}-", suffix=".download", dir=directory
@@ -365,11 +419,20 @@ class ManagedBinaryInstaller:
                     "User-Agent": "MoviePilot-LunaTV/1.0",
                 },
             )
-            response = urllib.request.urlopen(request, timeout=60)
+            response = urllib.request.urlopen(
+                request, timeout=self._download_io_timeout(deadline)
+            )
+            read_chunk = getattr(response, "read1", None)
+            if not callable(read_chunk):
+                read_chunk = response.read
             with os.fdopen(descriptor, "wb") as stream:
                 descriptor = -1
                 while True:
-                    chunk = response.read(256 * 1024)
+                    _raise_if_cancelled(control_event)
+                    self._download_io_timeout(deadline)
+                    chunk = read_chunk(self.DOWNLOAD_CHUNK_BYTES)
+                    _raise_if_cancelled(control_event)
+                    self._download_io_timeout(deadline)
                     if not chunk:
                         break
                     digest.update(chunk)
@@ -378,7 +441,7 @@ class ManagedBinaryInstaller:
                 raise M3U8EngineInstallError("release checksum mismatch")
             complete = True
             return archive_path
-        except M3U8EngineInstallError:
+        except (M3U8EngineCancelled, M3U8EngineInstallError):
             raise
         except Exception as exc:
             raise M3U8EngineInstallError("release download failed") from exc
@@ -502,26 +565,32 @@ class ManagedBinaryInstaller:
                 except OSError:
                     pass
 
-    def ensure_binary(self) -> Path:
+    def ensure_binary(
+        self, control_event: Optional[threading.Event] = None
+    ) -> Path:
         """Return only a verified, fixed-version managed executable."""
 
+        _raise_if_cancelled(control_event)
         asset = self.asset()
         if asset is None:
             raise M3U8EngineUnavailable("unsupported platform")
         self._require_safe_bin_dir()
         if self._managed_binary_is_verified():
             return self.managed_path
-        with self._installation_lock():
+        with self._installation_lock(control_event):
+            _raise_if_cancelled(control_event)
             if self._managed_binary_is_verified():
                 return self.managed_path
             archive_path: Optional[Path] = None
             try:
-                archive_path = self._download_archive(asset)
+                archive_path = self._download_archive(asset, control_event)
+                _raise_if_cancelled(control_event)
                 self._extract_executable(archive_path)
                 if not self._managed_binary_is_verified():
                     raise M3U8EngineInstallError(
                         "installed executable checksum verification failed"
                     )
+                _raise_if_cancelled(control_event)
                 return self.managed_path
             finally:
                 if archive_path is not None:
@@ -759,8 +828,7 @@ class _BaseM3U8Engine:
 
     @staticmethod
     def _raise_if_cancelled(control_event: Optional[threading.Event]) -> None:
-        if control_event is not None and control_event.is_set():
-            raise M3U8EngineCancelled("download cancelled")
+        _raise_if_cancelled(control_event)
 
     def _run_command(
         self,
@@ -981,10 +1049,92 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
 
     def _prepare_stage_dir(self, task_id: str) -> Path:
         self._prepare_task_cache(task_id)
-        return self._ensure_real_directory(
+        stage_dir = self._ensure_real_directory(
             self.stage_dir(task_id),
             "N_m3u8DL-RE stage directory",
         )
+        self._clear_stale_stage_outputs(stage_dir)
+        return stage_dir
+
+    @staticmethod
+    def _open_stage_directory_fd(stage_dir: Path) -> Optional[int]:
+        """Open a real stage directory without following its final path component."""
+
+        supports_dir_fd = getattr(os, "supports_dir_fd", ())
+        supports_follow_symlinks = getattr(os, "supports_follow_symlinks", ())
+        if (
+            os.name != "posix"
+            or not hasattr(os, "O_DIRECTORY")
+            or not hasattr(os, "O_NOFOLLOW")
+            or os.stat not in supports_dir_fd
+            or os.stat not in supports_follow_symlinks
+            or os.unlink not in supports_dir_fd
+        ):
+            return None
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        try:
+            return os.open(stage_dir, flags)
+        except OSError as exc:
+            raise M3U8EngineError("N_m3u8DL-RE stage directory is unsafe") from exc
+
+    def _clear_stale_stage_outputs(self, stage_dir: Path) -> None:
+        """Remove only fixed-name final mux outputs from this controlled stage."""
+
+        stage_fd = self._open_stage_directory_fd(stage_dir)
+        if stage_fd is None:
+            self._clear_stale_stage_outputs_fallback(stage_dir)
+            return
+        try:
+            for suffix in sorted(self._MEDIA_SUFFIXES):
+                filename = f"media{suffix}"
+                try:
+                    file_stat = os.stat(
+                        filename, dir_fd=stage_fd, follow_symlinks=False
+                    )
+                except FileNotFoundError:
+                    continue
+                except OSError as exc:
+                    raise M3U8EngineError(
+                        "N_m3u8DL-RE stage output is unavailable"
+                    ) from exc
+                if (
+                    not stat.S_ISREG(file_stat.st_mode)
+                    or file_stat.st_nlink != 1
+                ):
+                    raise M3U8EngineError("N_m3u8DL-RE stage output is unsafe")
+                try:
+                    os.unlink(filename, dir_fd=stage_fd)
+                except OSError as exc:
+                    raise M3U8EngineError(
+                        "N_m3u8DL-RE stage output is unavailable"
+                    ) from exc
+        finally:
+            try:
+                os.close(stage_fd)
+            except OSError:
+                pass
+
+    def _clear_stale_stage_outputs_fallback(self, stage_dir: Path) -> None:
+        """Use the existing path-based safe cleanup on unsupported platforms."""
+
+        for suffix in sorted(self._MEDIA_SUFFIXES):
+            candidate = stage_dir / f"media{suffix}"
+            try:
+                file_stat = candidate.lstat()
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise M3U8EngineError(
+                    "N_m3u8DL-RE stage output is unavailable"
+                ) from exc
+            if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_nlink != 1:
+                raise M3U8EngineError("N_m3u8DL-RE stage output is unsafe")
+            try:
+                candidate.unlink()
+            except OSError as exc:
+                raise M3U8EngineError(
+                    "N_m3u8DL-RE stage output is unavailable"
+                ) from exc
 
     def cleanup_task(self, task_id: str, output_parent: Optional[Path] = None) -> None:
         del output_parent
@@ -1097,7 +1247,7 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
         expected_segments: int = 0,
     ) -> Path:
         self._raise_if_cancelled(control_event)
-        binary = self._installer.ensure_binary()
+        binary = self._installer.ensure_binary(control_event=control_event)
         self._raise_if_cancelled(control_event)
         cache_dir = self._prepare_task_cache(task_id)
         stage_dir = self._prepare_stage_dir(task_id)
@@ -1190,7 +1340,7 @@ class VSDEngine(_BaseM3U8Engine):
     ) -> Path:
         del ffmpeg_path
         self._raise_if_cancelled(control_event)
-        binary = self._installer.ensure_binary()
+        binary = self._installer.ensure_binary(control_event=control_event)
         self._raise_if_cancelled(control_event)
         cache_dir = self._prepare_task_cache(task_id)
         stage_output = self._prepare_stage_output(task_id)

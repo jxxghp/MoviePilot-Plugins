@@ -22,6 +22,7 @@ from app.plugins.lunatvsource.m3u8_engine import (
     N_m3u8DLEngine,
     ReleaseAsset,
     VSDEngine,
+    _safe_error_text,
     normalized_platform,
 )
 
@@ -107,7 +108,9 @@ def test_installer_atomically_replaces_expected_executable(monkeypatch, tmp_path
     installer.bin_dir.mkdir(parents=True)
     installer.managed_path.write_bytes(b"old-tool")
     os.chmod(installer.managed_path, 0o644)
-    monkeypatch.setattr(installer, "_download_archive", lambda _asset: archive)
+    monkeypatch.setattr(
+        installer, "_download_archive", lambda _asset, _control_event=None: archive
+    )
 
     binary = installer.ensure_binary()
 
@@ -123,7 +126,7 @@ def test_installer_serializes_concurrent_install(monkeypatch, tmp_path: Path):
     calls = 0
     calls_lock = threading.Lock()
 
-    def download(_asset):
+    def download(_asset, _control_event=None):
         nonlocal calls
         with calls_lock:
             calls += 1
@@ -158,7 +161,7 @@ def test_installer_rehashes_managed_binary_even_if_manifest_is_forged(monkeypatc
 
     downloaded = {"count": 0}
 
-    def download(_asset):
+    def download(_asset, _control_event=None):
         downloaded["count"] += 1
         return _archive(tmp_path / "tool.tar.gz", "tool", downloaded_payload)
 
@@ -186,7 +189,9 @@ def test_installer_skips_download_when_managed_binary_digest_matches(monkeypatch
     monkeypatch.setattr(
         installer,
         "_download_archive",
-        lambda _asset: (_ for _ in ()).throw(AssertionError("must not download")),
+        lambda _asset, _control_event=None: (_ for _ in ()).throw(
+            AssertionError("must not download")
+        ),
     )
 
     assert installer.ensure_binary() == installer.managed_path
@@ -195,7 +200,9 @@ def test_installer_never_falls_back_to_a_path_binary(monkeypatch, tmp_path: Path
     monkeypatch.setattr(
         installer,
         "_download_archive",
-        lambda _asset: (_ for _ in ()).throw(M3U8EngineInstallError("offline")),
+        lambda _asset, _control_event=None: (_ for _ in ()).throw(
+            M3U8EngineInstallError("offline")
+        ),
     )
     monkeypatch.setattr(
         "app.plugins.lunatvsource.m3u8_engine.shutil.which",
@@ -790,7 +797,9 @@ def test_vsd_download_uses_mp4_stage_before_part_output(monkeypatch, tmp_path: P
     requested_output = tmp_path / "movie.mp4.part"
     captured = {}
 
-    monkeypatch.setattr(engine._installer, "ensure_binary", lambda: Path("/bin/vsd"))
+    monkeypatch.setattr(
+        engine._installer, "ensure_binary", lambda control_event=None: Path("/bin/vsd")
+    )
 
     def run_command(command, **_kwargs):
         stage_output = Path(command[command.index("--output") + 1])
@@ -888,3 +897,464 @@ def test_cross_filesystem_move_keeps_committed_output_when_cleanup_fails(
     assert output.read_bytes() == b"media"
     assert stat.S_IMODE(output.stat().st_mode) == 0o640
     assert "stage output cleanup failed after committing" in caplog.text
+
+
+def test_error_tail_redacts_complete_http_credential_values():
+    detail = _safe_error_text(
+        "engine request failed\n"
+        "Authorization: Bearer bearer-secret-token\n"
+        "Proxy-Authorization: Basic cHJveHktc2VjcmV0\n"
+        "Cookie: session=cookie-secret; preference=private\n"
+        "Set-Cookie: auth=set-cookie-secret; Path=/; HttpOnly\n"
+        "authorization=Bearer inline-secret\n"
+        'headers={"Authorization": "Basic json-secret"}\n'
+        "metadata={'token': 'json-token-secret; trailing-secret'}\n"
+        "HTTP status=403"
+    )
+
+    for secret in (
+        "bearer-secret-token",
+        "cHJveHktc2VjcmV0",
+        "cookie-secret",
+        "private",
+        "set-cookie-secret",
+        "inline-secret",
+        "json-secret",
+        "json-token-secret",
+        "trailing-secret",
+    ):
+        assert secret not in detail
+    assert "engine request failed" in detail
+    assert "HTTP status=403" in detail
+    assert "Authorization: <redacted>" in detail
+    assert "Cookie: <redacted>" in detail
+    assert "Set-Cookie: <redacted>" in detail
+
+
+def test_installer_download_cancels_and_removes_partial_archive(
+    monkeypatch, tmp_path: Path
+):
+    installer = ManagedBinaryInstaller(tmp_path, _spec())
+    asset = installer.asset()
+    assert asset is not None
+    control_event = threading.Event()
+
+    class Response:
+        def __init__(self) -> None:
+            self.read_calls = 0
+            self.closed = False
+
+        def read(self, _size: int) -> bytes:
+            self.read_calls += 1
+            control_event.set()
+            return b"partial"
+
+        def close(self) -> None:
+            self.closed = True
+
+    response = Response()
+    monkeypatch.setattr(
+        "app.plugins.lunatvsource.m3u8_engine.urllib.request.urlopen",
+        lambda *_args, **_kwargs: response,
+    )
+
+    with pytest.raises(M3U8EngineCancelled):
+        installer._download_archive(asset, control_event)
+
+    assert response.read_calls == 1
+    assert response.closed
+    assert not list(installer.bin_dir.glob("*.download"))
+
+
+def test_installer_download_total_deadline_removes_partial_archive(
+    monkeypatch, tmp_path: Path
+):
+    installer = ManagedBinaryInstaller(tmp_path, _spec())
+    asset = installer.asset()
+    assert asset is not None
+
+    class Response:
+        def __init__(self) -> None:
+            self.read_calls = 0
+            self.closed = False
+
+        def read(self, _size: int) -> bytes:
+            self.read_calls += 1
+            return b"slow"
+
+        def close(self) -> None:
+            self.closed = True
+
+    response = Response()
+    clock_values = iter((0.0, 0.0, 0.0, 2.0))
+
+    def monotonic() -> float:
+        return next(clock_values, 2.0)
+
+    monkeypatch.setattr(
+        "app.plugins.lunatvsource.m3u8_engine.urllib.request.urlopen",
+        lambda *_args, **_kwargs: response,
+    )
+    monkeypatch.setattr(
+        "app.plugins.lunatvsource.m3u8_engine.time.monotonic", monotonic
+    )
+    monkeypatch.setattr(installer, "DOWNLOAD_TOTAL_TIMEOUT_SECONDS", 1.0)
+
+    with pytest.raises(M3U8EngineInstallError, match="timed out"):
+        installer._download_archive(asset)
+
+    assert response.read_calls == 1
+    assert response.closed
+    assert not list(installer.bin_dir.glob("*.download"))
+
+
+def test_installer_passes_control_event_to_archive_download(monkeypatch, tmp_path: Path):
+    installer = ManagedBinaryInstaller(tmp_path, _spec())
+    control_event = threading.Event()
+    archive = _archive(tmp_path / "tool.tar.gz", "tool")
+    seen = []
+
+    def download(_asset, event=None):
+        seen.append(event)
+        return archive
+
+    monkeypatch.setattr(installer, "_download_archive", download)
+
+    assert installer.ensure_binary(control_event) == installer.managed_path
+    assert seen == [control_event]
+
+
+def test_n_download_clears_stale_mux_outputs_but_preserves_segment_cache(
+    monkeypatch, tmp_path: Path
+):
+    engine = N_m3u8DLEngine(tmp_path / "plugin-data")
+    task_id = "stale-stage"
+    cache_dir = engine.task_cache_dir(task_id)
+    stage_dir = engine.stage_dir(task_id)
+    cache_dir.mkdir(parents=True)
+    stage_dir.mkdir(parents=True)
+    (cache_dir / "segment.ts").write_bytes(b"segment")
+    (stage_dir / "media.mp4").write_bytes(b"old mp4")
+    (stage_dir / "media.mkv").write_bytes(b"old mkv")
+    (stage_dir / "unrelated.mp4").write_bytes(b"keep")
+
+    monkeypatch.setattr(
+        engine._installer, "ensure_binary", lambda control_event=None: Path("/bin/n_m3u8dl")
+    )
+    monkeypatch.setattr(engine, "_run_command", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(M3U8EngineError, match="did not produce"):
+        engine.download(
+            "https://example.test/index.m3u8",
+            tmp_path / "movie.mp4.part",
+            task_id=task_id,
+            ffmpeg_path="ffmpeg",
+            control_event=None,
+            progress_callback=None,
+        )
+
+    assert not (stage_dir / "media.mp4").exists()
+    assert not (stage_dir / "media.mkv").exists()
+    assert (stage_dir / "unrelated.mp4").read_bytes() == b"keep"
+    assert (cache_dir / "segment.ts").read_bytes() == b"segment"
+
+
+def test_n_stage_cleanup_rejects_symlinked_output_without_following_it(
+    tmp_path: Path,
+):
+    engine = N_m3u8DLEngine(tmp_path / "plugin-data")
+    task_id = "unsafe-stage"
+    stage_dir = engine.stage_dir(task_id)
+    stage_dir.mkdir(parents=True)
+    outside = tmp_path / "outside.mp4"
+    outside.write_bytes(b"outside")
+    (stage_dir / "media.mp4").symlink_to(outside)
+
+    with pytest.raises(M3U8EngineError, match="unsafe"):
+        engine._prepare_stage_dir(task_id)
+
+    assert (stage_dir / "media.mp4").is_symlink()
+    assert outside.read_bytes() == b"outside"
+
+
+def test_error_tail_redacts_whole_inline_secret_lines():
+    detail = _safe_error_text(
+        "request failed\n"
+        "token: token-secret trailing words; semicolon-secret\n"
+        "access_key = access-secret after-space; after-semicolon\n"
+        "signature=sig-secret trailing signature data; still-secret\n"
+        "HTTP status=401"
+    )
+
+    for secret in (
+        "token-secret",
+        "trailing words",
+        "semicolon-secret",
+        "access-secret",
+        "after-space",
+        "after-semicolon",
+        "sig-secret",
+        "trailing signature data",
+        "still-secret",
+    ):
+        assert secret not in detail
+    assert "request failed" in detail
+    assert "HTTP status=401" in detail
+    assert "token: <redacted>" in detail
+    assert "access_key = <redacted>" in detail
+    assert "signature=<redacted>" in detail
+
+
+def test_installer_cancellation_after_download_skips_extraction(
+    monkeypatch, tmp_path: Path
+):
+    installer = ManagedBinaryInstaller(tmp_path, _spec())
+    control_event = threading.Event()
+    archive = tmp_path / "downloaded.tar.gz"
+    archive.write_bytes(b"archive")
+    extracted = []
+
+    def download(_asset, _event=None):
+        control_event.set()
+        return archive
+
+    monkeypatch.setattr(installer, "_download_archive", download)
+    monkeypatch.setattr(
+        installer, "_extract_executable", lambda _archive: extracted.append(_archive)
+    )
+
+    with pytest.raises(M3U8EngineCancelled):
+        installer.ensure_binary(control_event)
+
+    assert extracted == []
+    assert not archive.exists()
+
+
+def test_installer_cancellation_after_validation_prevents_return(
+    monkeypatch, tmp_path: Path
+):
+    installer = ManagedBinaryInstaller(tmp_path, _spec())
+    control_event = threading.Event()
+    archive = tmp_path / "downloaded.tar.gz"
+    archive.write_bytes(b"archive")
+    verified_calls = 0
+
+    def verified() -> bool:
+        nonlocal verified_calls
+        verified_calls += 1
+        if verified_calls == 3:
+            control_event.set()
+            return True
+        return False
+
+    monkeypatch.setattr(
+        installer, "_download_archive", lambda _asset, _event=None: archive
+    )
+    monkeypatch.setattr(installer, "_extract_executable", lambda _archive: None)
+    monkeypatch.setattr(installer, "_managed_binary_is_verified", verified)
+
+    with pytest.raises(M3U8EngineCancelled):
+        installer.ensure_binary(control_event)
+
+    assert verified_calls == 3
+    assert not archive.exists()
+
+
+def test_installer_limits_io_timeout_and_prefers_read1(monkeypatch, tmp_path: Path):
+    installer = ManagedBinaryInstaller(tmp_path, _spec())
+    asset = installer.asset()
+    assert asset is not None
+    installer.DOWNLOAD_TOTAL_TIMEOUT_SECONDS = 5.0
+
+    class Response:
+        def __init__(self) -> None:
+            self.read1_sizes = []
+            self.read_calls = 0
+
+        def read1(self, size: int) -> bytes:
+            self.read1_sizes.append(size)
+            return b"tool" if len(self.read1_sizes) == 1 else b""
+
+        def read(self, _size: int) -> bytes:
+            self.read_calls += 1
+            raise AssertionError("read1 should be preferred")
+
+        def close(self) -> None:
+            pass
+
+    response = Response()
+    timeouts = []
+    clock_values = iter((0.0, 1.0))
+
+    def monotonic() -> float:
+        return next(clock_values, 1.0)
+
+    def urlopen(_request, *, timeout):
+        timeouts.append(timeout)
+        return response
+
+    monkeypatch.setattr(
+        "app.plugins.lunatvsource.m3u8_engine.time.monotonic", monotonic
+    )
+    monkeypatch.setattr(
+        "app.plugins.lunatvsource.m3u8_engine.urllib.request.urlopen", urlopen
+    )
+
+    archive = installer._download_archive(asset)
+
+    assert timeouts == [pytest.approx(4.0)]
+    assert response.read1_sizes == [installer.DOWNLOAD_CHUNK_BYTES] * 2
+    assert response.read_calls == 0
+    assert 0 < timeouts[0] <= installer.DOWNLOAD_IO_TIMEOUT_SECONDS <= 10
+    archive.unlink()
+
+
+def test_installer_in_process_lock_wait_is_cancellable(tmp_path: Path):
+    installer = ManagedBinaryInstaller(tmp_path, _spec())
+    holder_ready = threading.Event()
+    holder_release = threading.Event()
+    control_event = threading.Event()
+
+    def hold_lock() -> None:
+        with installer._installation_lock():
+            holder_ready.set()
+            holder_release.wait(2)
+
+    holder = threading.Thread(target=hold_lock)
+    holder.start()
+    assert holder_ready.wait(1)
+    cancel_timer = threading.Timer(0.05, control_event.set)
+    release_timer = threading.Timer(0.5, holder_release.set)
+    cancel_timer.start()
+    release_timer.start()
+    started_at = time.monotonic()
+    try:
+        with pytest.raises(M3U8EngineCancelled):
+            with installer._installation_lock(control_event):
+                pass
+        assert time.monotonic() - started_at < 0.4
+    finally:
+        cancel_timer.cancel()
+        release_timer.cancel()
+        holder_release.set()
+        holder.join(timeout=2)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX flock")
+def test_installer_flock_wait_is_cancellable(tmp_path: Path):
+    installer = ManagedBinaryInstaller(tmp_path, _spec())
+    installer.bin_dir.mkdir(parents=True)
+    lock_path = installer.bin_dir / ".tool.install.lock"
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import fcntl, os, sys, time; "
+            "fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600); "
+            "fcntl.flock(fd, fcntl.LOCK_EX); "
+            "print('locked', flush=True); time.sleep(5)",
+            str(lock_path),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert holder.stdout is not None
+    assert holder.stdout.readline().strip() == "locked"
+    control_event = threading.Event()
+    cancel_timer = threading.Timer(0.05, control_event.set)
+    stop_timer = threading.Timer(0.5, holder.terminate)
+    cancel_timer.start()
+    stop_timer.start()
+    started_at = time.monotonic()
+    try:
+        with pytest.raises(M3U8EngineCancelled):
+            with installer._installation_lock(control_event):
+                pass
+        assert time.monotonic() - started_at < 0.4
+    finally:
+        cancel_timer.cancel()
+        stop_timer.cancel()
+        if holder.poll() is None:
+            holder.terminate()
+        holder.wait(timeout=2)
+        holder.stdout.close()
+
+
+def test_n_stage_cleanup_rejects_hardlinked_output_without_touching_target(
+    tmp_path: Path,
+):
+    engine = N_m3u8DLEngine(tmp_path / "plugin-data")
+    stage_dir = engine.stage_dir("hardlink-stage")
+    stage_dir.mkdir(parents=True)
+    outside = tmp_path / "outside.mp4"
+    outside.write_bytes(b"outside")
+    os.link(outside, stage_dir / "media.mp4")
+
+    with pytest.raises(M3U8EngineError, match="unsafe"):
+        engine._prepare_stage_dir("hardlink-stage")
+
+    assert outside.read_bytes() == b"outside"
+    assert (stage_dir / "media.mp4").exists()
+
+
+def test_n_stage_cleanup_rejects_directory_output(tmp_path: Path):
+    engine = N_m3u8DLEngine(tmp_path / "plugin-data")
+    stage_dir = engine.stage_dir("directory-stage")
+    stage_dir.mkdir(parents=True)
+    (stage_dir / "media.mp4").mkdir()
+
+    with pytest.raises(M3U8EngineError, match="unsafe"):
+        engine._prepare_stage_dir("directory-stage")
+
+    assert (stage_dir / "media.mp4").is_dir()
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not hasattr(os, "O_DIRECTORY")
+    or not hasattr(os, "O_NOFOLLOW")
+    or os.stat not in os.supports_dir_fd
+    or os.stat not in os.supports_follow_symlinks
+    or os.unlink not in os.supports_dir_fd,
+    reason="requires POSIX dir_fd cleanup support",
+)
+def test_n_stage_cleanup_fd_resists_parent_symlink_replacement(
+    monkeypatch, tmp_path: Path
+):
+    engine = N_m3u8DLEngine(tmp_path / "plugin-data")
+    stage_dir = engine.stage_dir("parent-swap")
+    stage_dir.mkdir(parents=True)
+    (stage_dir / "media.mp4").write_bytes(b"stale")
+    stage_parent = stage_dir.parent
+    moved_parent = tmp_path / "moved-parent"
+    outside_parent = tmp_path / "outside-parent"
+    outside_stage = outside_parent / stage_dir.name
+    outside_stage.mkdir(parents=True)
+    outside_output = outside_stage / "media.mp4"
+    outside_output.write_bytes(b"outside")
+    original_stat = os.stat
+    swapped = False
+
+    def stat_with_parent_swap(path, *args, **kwargs):
+        nonlocal swapped
+        if not swapped and path == "media.mp4" and kwargs.get("dir_fd") is not None:
+            stage_parent.rename(moved_parent)
+            stage_parent.symlink_to(outside_parent, target_is_directory=True)
+            swapped = True
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(
+        os, "supports_dir_fd", os.supports_dir_fd | {stat_with_parent_swap}
+    )
+    monkeypatch.setattr(
+        os,
+        "supports_follow_symlinks",
+        os.supports_follow_symlinks | {stat_with_parent_swap},
+    )
+    monkeypatch.setattr("app.plugins.lunatvsource.m3u8_engine.os.stat", stat_with_parent_swap)
+
+    engine._clear_stale_stage_outputs(stage_dir)
+
+    assert swapped
+    assert outside_output.read_bytes() == b"outside"
+    assert not (moved_parent / stage_dir.name / "media.mp4").exists()
