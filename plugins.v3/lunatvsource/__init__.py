@@ -556,7 +556,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "https://raw.githubusercontent.com/OneBigMoon/moviepilot-v3-lunatv-source/master/icons/lunatvsource.png"
-    plugin_version = "0.4.43"
+    plugin_version = "0.4.44"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -587,6 +587,17 @@ class LunaTVSource(_PluginBase):
         self._quality_cache: Dict[str, Tuple[float, int]] = {}
         self._quality_probe_ms: Dict[str, int] = {}
 
+    def _queue_data_path(self) -> Optional[Path]:
+        """Use MoviePilot's plugin-owned data directory for managed binaries/cache."""
+        getter = getattr(self, "get_data_path", None)
+        if not callable(getter):
+            return None
+        try:
+            value = getter()
+            return Path(value).expanduser() if value else None
+        except (OSError, TypeError, ValueError):
+            return None
+
     def init_plugin(self, config: Optional[Dict[str, Any]] = None) -> None:
         self._config = dict(config or {})
         self._enabled = _bool(self._config.get("enabled"), False)
@@ -600,6 +611,7 @@ class LunaTVSource(_PluginBase):
             save=lambda key, value: self.save_data(key, value),
             notify=self._notify,
             on_complete=self._record_completion,
+            data_path=self._queue_data_path(),
         )
         with self._tmdb_cache_lock:
             loaded_tmdb_cache = dict(self.get_data("tmdb_match_cache_v1") or {})
@@ -2851,6 +2863,19 @@ class LunaTVSource(_PluginBase):
         )
         if torrent_info_type is None:
             return []
+        configured_root = str(self._config.get("download_root") or "").strip()
+
+        def build_torrent(**kwargs: Any) -> Any:
+            item = torrent_info_type(**kwargs)
+            item.site_downloader = "LunaTVSource"
+            if configured_root:
+                try:
+                    item.download_path = configured_root
+                except (AttributeError, ValueError):
+                    # 旧版宿主未声明展示字段时，仍可使用 LunaTV 下载器。
+                    pass
+            return item
+
         requested_type = _enum_value(mtype)
         requested_media_type = (
             "tv"
@@ -3087,9 +3112,16 @@ class LunaTVSource(_PluginBase):
             for episode in group["episodes"]:
                 episode_candidates.setdefault(int(episode["episode"]), []).append(episode)
             group["episode_candidates"] = episode_candidates
-            for candidates in episode_candidates.values():
-                if len(candidates) > 1:
-                    conflict_probe_urls.extend(candidate["url"] for candidate in candidates)
+            sample_episode = min(episode_candidates, default=None)
+            sample_candidates = (
+                episode_candidates.get(sample_episode, [])
+                if sample_episode is not None
+                else []
+            )
+            if len(sample_candidates) > 1:
+                conflict_probe_urls.extend(
+                    candidate["url"] for candidate in sample_candidates
+                )
         conflict_heights = self._probe_resource_urls(conflict_probe_urls)
         for group in group_rows:
             group["sorted_episodes"] = []
@@ -3108,11 +3140,11 @@ class LunaTVSource(_PluginBase):
 
         season_probe_urls: List[str] = []
         for group in group_rows:
-            season_probe_urls.extend(
-                episode["url"]
-                for episode in group["sorted_episodes"]
-                if episode["url"]
-            )
+            # A season resource is ranked from one representative episode.
+            # Probing every episode makes large seasons unnecessarily slow.
+            first_episode = group["sorted_episodes"][0] if group["sorted_episodes"] else None
+            if first_episode and first_episode["url"]:
+                season_probe_urls.append(first_episode["url"])
 
         quality_heights = dict(conflict_heights)
         quality_heights.update(
@@ -3135,19 +3167,19 @@ class LunaTVSource(_PluginBase):
         )
 
         for group in group_rows:
-            episode_heights: List[int] = []
+            sampled_episode = group["sorted_episodes"][0] if group["sorted_episodes"] else None
+            sampled_url = sampled_episode["url"] if sampled_episode else ""
+            sampled_height = quality_heights.get(sampled_url, 0) if sampled_url else 0
             probed_episodes: List[int] = []
             for episode in group["sorted_episodes"]:
-                episode_height = quality_heights.get(episode["url"], 0)
+                is_sampled_episode = episode is sampled_episode
+                episode_height = sampled_height if is_sampled_episode else 0
                 episode["resolution"] = stream_quality_label(episode_height)
                 episode["resolution_height"] = episode_height
-                episode_heights.append(episode_height)
-                if episode_height > 0:
+                if is_sampled_episode and episode_height > 0:
                     probed_episodes.append(int(episode["episode"]))
-            group["resolution_height"] = min(episode_heights, default=0)
-            group["resolution_scope"] = (
-                "full" if len(probed_episodes) == len(episode_heights) else "partial"
-            )
+            group["resolution_height"] = sampled_height
+            group["resolution_scope"] = "sample"
             group["resolution_probed_episode_count"] = len(probed_episodes)
             group["resolution_probed_episodes"] = probed_episodes
 
@@ -3183,11 +3215,6 @@ class LunaTVSource(_PluginBase):
             elif group["year"]:
                 title = f"{title} ({group['year']})"
             title = f"{title} · 第{season}季 · {quality}"
-            measurement = (
-                f"全{count}集实测"
-                if group["resolution_scope"] == "full"
-                else f"已测{group['resolution_probed_episode_count']}/{count}集"
-            )
             first_height = int(first.get("resolution_height") or 0)
             latency_ms = self._probe_latency_ms(first["url"]) if first_height > 0 else 0
             site_name = group["site_name"]
@@ -3200,11 +3227,11 @@ class LunaTVSource(_PluginBase):
             if payload["media_type"] == "tv" and use_target_tv_identity:
                 info_media_source = target_media_source_value
                 info_media_id = target_media_id_value
-            item = torrent_info_type(
+            item = build_torrent(
                 site_name=site_name,
                 title=title,
                 description=(
-                    f"LunaTV · 第{season}季 · {quality} · m3u8 · 共{count}集 · {measurement}"
+                    f"LunaTV · 第{season}季 · {quality} · m3u8 · 共{count}集"
                 ),
                 media_source=info_media_source,
                 media_id=info_media_id,
@@ -3241,7 +3268,7 @@ class LunaTVSource(_PluginBase):
             if latency_ms:
                 site_name = f"{site_name} · {latency_ms}ms"
                 labels.append(f"{latency_ms}ms")
-            torrents.append(torrent_info_type(
+            torrents.append(build_torrent(
                 site_name=site_name,
                 title=title,
                 description=f"LunaTV · {quality} · m3u8",

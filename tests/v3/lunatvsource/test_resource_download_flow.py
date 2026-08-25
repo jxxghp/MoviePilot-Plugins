@@ -166,7 +166,7 @@ def test_search_tv_resources_are_season_cards_and_download_runs_episodes_seriall
     ]
 
 
-def test_long_season_cards_probe_every_episode_and_keep_full_hd_download(
+def test_long_season_cards_probe_one_episode_and_keep_full_hd_download(
     monkeypatch, tmp_path: Path
 ):
     source = CmsSource("demo", "演示源", "https://cms.example/vod")
@@ -214,32 +214,39 @@ def test_long_season_cards_probe_every_episode_and_keep_full_hd_download(
         {"id": "demo"}, "长季剧", mtype="电视剧"
     )
 
-    assert [item.pri_order for item in resources] == [108, 48]
+    assert [item.pri_order for item in resources] == [108, 108]
     assert [item.title for item in resources] == [
         "长季剧 · 第1季 · 1080P",
-        "长季剧 · 第1季 · 480P",
+        "长季剧 · 第1季 · 1080P",
     ]
     assert all("抽样" not in item.description for item in resources)
-    assert all("全6集实测" in item.description for item in resources)
-    assert sorted(probed_urls) == sorted(mixed_urls + full_hd_urls)
+    assert all("全6集实测" not in item.description for item in resources)
+    assert all("已测" not in item.description for item in resources)
+    assert sorted(probed_urls) == sorted([mixed_urls[0], full_hd_urls[0]])
 
-    full_hd_payload = plugin._decode_resource_token(resources[0].enclosure)
-    mixed_payload = plugin._decode_resource_token(resources[1].enclosure)
-    assert full_hd_payload["resolution_scope"] == "full"
-    assert full_hd_payload["resolution_probed_episode_count"] == 6
-    assert mixed_payload["resolution_height"] == 480
-    assert [episode["resolution_height"] for episode in mixed_payload["episodes"]] == [
-        1080,
-        480,
-        1080,
-        1080,
-        1080,
-        1080,
-    ]
+    payloads = [plugin._decode_resource_token(item.enclosure) for item in resources]
+    assert all(payload["resolution_scope"] == "sample" for payload in payloads)
+    assert all(payload["resolution_probed_episode_count"] == 1 for payload in payloads)
+    assert all(payload["resolution_probed_episodes"] == [1] for payload in payloads)
+    assert all(
+        [episode["resolution_height"] for episode in payload["episodes"]]
+        == [1080, 0, 0, 0, 0, 0]
+        for payload in payloads
+    )
+    full_hd_payload = next(
+        payload
+        for payload in payloads
+        if any("full-1080" in episode["url"] for episode in payload["episodes"])
+    )
+    full_hd_resource = next(
+        item
+        for item, payload in zip(resources, payloads)
+        if payload is full_hd_payload
+    )
     assert all("480" not in episode["url"] for episode in full_hd_payload["episodes"])
 
     monkeypatch.setattr(plugin, "_start_queue", lambda: None)
-    result = plugin.download(resources[0].enclosure, tmp_path)
+    result = plugin.download(full_hd_resource.enclosure, tmp_path)
 
     assert result[0] == "LunaTVSource"
     assert all("480" not in task.url for task in plugin._queue._read())

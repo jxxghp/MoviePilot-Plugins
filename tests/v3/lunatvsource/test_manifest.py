@@ -41,17 +41,22 @@ def test_version_consistency_across_manifest_backend_and_frontend():
         ).read_text(encoding="utf-8")
     )
 
-    assert manifest["version"] == "0.4.43"
+    assert manifest["version"] == "0.4.44"
     assert {
         manifest["version"],
         LunaTVSource.plugin_version,
         package["version"],
         lockfile["version"],
         lockfile["packages"][""]["version"],
-    } == {"0.4.43"}
+    } == {"0.4.44"}
 
     history = manifest["history"]
-    assert next(iter(history)) == "0.4.43"
+    assert next(iter(history)) == "0.4.44"
+    assert history["0.4.44"] == (
+        "电视剧整季资源改为每个来源只抽测一个代表集，并移除全季实测提示；"
+        "接入受管 N_m3u8DL-RE 与 VSD 双引擎，失败时回退 ffmpeg，支持缓存续传、进度、暂停与安全清理；"
+        "固定 LunaTV 下载器及插件下载目录展示元数据。"
+    )
     assert history["0.4.43"] == (
         "修复电视剧资源因简繁标题及媒体身份不一致在 MoviePilot 匹配阶段被清空；"
         "桥接本次搜索目标的规范标题、年份与媒体身份，外层资源用于宿主匹配，下载载荷继续保留"
