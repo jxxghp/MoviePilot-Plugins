@@ -4,7 +4,9 @@ import httpx2
 import pytest
 from app.schemas.types import MediaSource
 from app.plugins.imdbsource import ImdbSource
+from app.plugins.imdbsource import imdbhelper
 from app.plugins.imdbsource.imdbhelper import ImdbHelper
+from app.sdk.utilities import convert
 
 
 def _build_plugin() -> ImdbSource:
@@ -23,6 +25,11 @@ def _build_helper() -> ImdbHelper:
     helper.get_info_by_imdbid = Mock(return_value=None)
     helper.async_get_info_by_imdbid = AsyncMock(return_value=None)
     return helper
+
+
+def test_text_conversion_uses_host_sdk() -> None:
+    """IMDb 中文转换应由宿主 SDK 选择兼容当前解释器的实现。"""
+    assert imdbhelper.convert is convert
 
 
 @pytest.mark.asyncio

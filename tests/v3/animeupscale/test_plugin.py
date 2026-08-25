@@ -1,3 +1,4 @@
+import tomllib
 from pathlib import Path
 
 from app.plugins.animeupscale import AnimeUpscale
@@ -24,10 +25,18 @@ def test_v3_plugin_uses_next_major_and_response_envelope(tmp_path):
 
     response = plugin.api_status()
 
-    assert plugin.plugin_version == "2.1.1"
+    assert plugin.plugin_version == "2.1.2"
     assert response.success is True
     assert "ready" in response.data
     plugin.stop_service()
+
+
+def test_v3_dependency_manifest_targets_python314_pytorch():
+    manifest = Path(__file__).parents[3] / "plugins.v3" / "animeupscale" / "pyproject.toml"
+    metadata = tomllib.loads(manifest.read_text(encoding="utf-8"))
+
+    assert "torch==2.13.0+cu126" in metadata["project"]["dependencies"]
+    assert metadata["tool"]["uv"]["sources"]["torch"]["index"] == "pytorch-cu126"
 
 
 def test_v3_create_jobs_returns_failure_envelope_when_disabled(tmp_path):
