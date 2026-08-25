@@ -34,10 +34,10 @@ def test_missing_plugin_source_override_uses_supported_system_sources():
     assert config.append_tmdb_id is False
 
 
-def test_form_hides_settings_owned_by_moviepilot():
+def test_form_uses_plugin_owned_directory_configuration():
     plugin = CourseOrganizer.__new__(CourseOrganizer)
     config = plugin._normalize_config({})
-    directory_context = {"available": True, "monitoring_enabled": False}
+    directory_context = {"ready": False, "message": "请至少添加一个下载目录"}
 
     with (
         patch.object(plugin, "_get_config", return_value=config),
@@ -54,21 +54,9 @@ def test_form_hides_settings_owned_by_moviepilot():
     }
     texts = [str(node.get("text", "")) for node in _walk(form)]
     assert "auto_organize" in models
-    assert "naming_sources" not in models
-    assert "naming_append_tmdb_id" not in models
-    assert "naming_auto_threshold" not in models
-    assert "naming_min_margin" not in models
-    assert "naming_uncertain_policy" not in models
-    assert "naming_ai_review" not in models
-    assert "naming_clear_cache_once" not in models
-    assert "naming_sources" not in defaults
-    assert "naming_append_tmdb_id" not in defaults
-    assert defaults["auto_organize"] is False
-    assert defaults["naming_mode"] == "preview"
-    assert defaults["naming_uncertain_policy"] == "hold"
-    assert defaults["naming_ai_review"] is True
-    assert any("不在插件内重复配置" in text for text in texts)
-    assert any("自动监控" in text for text in texts)
+    assert defaults["download_directories"] == []
+    assert defaults["archive_directories"] == []
+    assert any("插件独立维护" in text for text in texts)
 
 
 def test_auto_organize_controls_apply_mode_and_migrates_legacy_apply():
@@ -90,47 +78,29 @@ def test_auto_organize_controls_apply_mode_and_migrates_legacy_apply():
     assert resolver_config.ai_review is True
 
 
-def test_monitor_conflict_forces_preview_mode():
+def test_incomplete_directories_force_preview_mode():
     plugin = CourseOrganizer.__new__(CourseOrganizer)
     config = plugin._normalize_config({"auto_organize": True})
-    context = {
-        "available": True,
-        "incoming": "/media/incoming",
-        "selected": {
-            "tv": {"path": "/media/tv"},
-            "movie": {"path": "/media/movies"},
-            "children": {"path": "/media/children"},
-        },
-        "monitoring_enabled": True,
-        "monitoring_rules": ["MoviePilot 总监控"],
-    }
+    plugin._get_config = MagicMock(return_value=config)
 
-    with patch.object(plugin, "_get_config", return_value=config):
-        runtime = plugin._review_path_config(context)
+    runtime = plugin._review_path_config()
 
     assert runtime["auto_organize"] is False
     assert runtime["naming_mode"] == "preview"
-    assert "已自动检测" in runtime["monitoring_conflict"]
+    assert "目录" in runtime["monitoring_conflict"]
 
 
-def test_custom_config_exposes_only_auto_organize_control():
+def test_custom_config_exposes_dynamic_plugin_directories():
     source = (
         ROOT / "plugins.v2" / "courseorganizer" / "src" / "components" / "Config.vue"
     ).read_text(encoding="utf-8")
 
-    assert "localConfig.auto_organize" in source
-    assert "config.naming_mode" in source
-    assert "=== 'apply'" in source
-    assert "loadMonitoringStatus" in source
-    assert "monitoringBlocked" in source
-    for model in (
-        "naming_auto_threshold",
-        "naming_min_margin",
-        "naming_uncertain_policy",
-        "naming_ai_review",
-        "naming_clear_cache_once",
-    ):
-        assert model not in source
+    assert "download_directories" in source
+    assert "archive_directories" in source
+    assert "addDownloadDirectory" in source
+    assert "addArchiveDirectory" in source
+    assert "从 MoviePilot 导入" not in source
+    assert "directory_source_mode" not in source
 
 
 def test_custom_page_filters_system_entries_from_stale_api_rows():
@@ -146,8 +116,8 @@ def test_custom_page_filters_system_entries_from_stale_api_rows():
 def test_v2_market_manifest_uses_renderable_png_icon():
     package_v2 = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
 
-    assert CourseOrganizer.plugin_version == "1.7.19"
-    assert package_v2["CourseOrganizer"]["version"] == "1.7.19"
+    assert CourseOrganizer.plugin_version == "1.7.20"
+    assert package_v2["CourseOrganizer"]["version"] == "1.7.20"
     expected_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/courseorganizer.png"
     assert package_v2["CourseOrganizer"]["icon"] == expected_icon
     assert CourseOrganizer.plugin_icon == expected_icon
@@ -158,6 +128,7 @@ def test_v2_market_manifest_uses_renderable_png_icon():
 def test_confirmed_movie_keeps_movie_type_when_targeting_children_library(tmp_path):
     plugin = CourseOrganizer.__new__(CourseOrganizer)
     plugin._logger = MagicMock()
+    plugin._download_root_for_path = MagicMock(return_value=str(tmp_path / "incoming"))
     expected_binding = {"st_dev": 1, "st_ino": 2, "st_ctime_ns": 3}
     decision = SimpleNamespace(action="confirm", target_library="children", value="示例电影")
     calls = []
@@ -192,6 +163,7 @@ def test_confirmed_movie_keeps_movie_type_when_targeting_children_library(tmp_pa
             }
         }
     )
+    plugin._download_root_for_path = MagicMock(return_value=str(tmp_path / "source-root"))
     plugin._get_native_adapter = MagicMock(return_value=FakeAdapter())
 
     result = plugin._apply_manual_decision_locked(
@@ -377,9 +349,149 @@ def test_review_rows_hide_persisted_system_entries():
     resolver = MagicMock()
     resolver.preview_rows.return_value = [{"raw_title": "#recycle"}]
     plugin._review_path_config = MagicMock(return_value={})
+    plugin._moviepilot_directory_context = MagicMock(return_value={"selected": {}})
     plugin._get_resolver = MagicMock(return_value=resolver)
     plugin.get_data = MagicMock(return_value={})
     plugin._current_source_binding = MagicMock()
 
     assert plugin._review_rows() == []
     plugin._current_source_binding.assert_not_called()
+
+def _directory_list_config(tmp_path):
+    first_download = tmp_path / "download-a"
+    second_download = tmp_path / "download-b"
+    tv = tmp_path / "tv"
+    custom = tmp_path / "custom"
+    for path in (first_download, second_download, tv, custom):
+        path.mkdir()
+    return {
+        "download_directories": [
+            {"name": "下载 A", "path": str(first_download)},
+            {"name": "下载 B", "path": str(second_download)},
+        ],
+        "archive_directories": [
+            {"key": "tv", "name": "电视剧", "path": str(tv), "media_type": "tv"},
+            {"key": "course", "name": "课程归档", "path": str(custom)},
+        ],
+    }, first_download, second_download, tv, custom
+
+
+def test_directory_lists_migrate_legacy_config():
+    plugin = CourseOrganizer.__new__(CourseOrganizer)
+
+    config = plugin._normalize_config(
+        {
+            "incoming": "/legacy/download",
+            "tv_output": "/legacy/tv",
+            "movie_output": "/legacy/movie",
+            "children_output": "/legacy/children",
+        }
+    )
+
+    assert config["download_directories"] == [
+        {"name": "下载目录", "path": "/legacy/download"}
+    ]
+    assert [item["key"] for item in config["archive_directories"]] == [
+        "tv",
+        "movie",
+        "children",
+    ]
+    assert config["incoming"] == "/legacy/download"
+    assert config["tv_output"] == "/legacy/tv"
+
+
+def test_plugin_directory_context_uses_lists_without_system_directory_reads(tmp_path):
+    plugin = CourseOrganizer.__new__(CourseOrganizer)
+    plugin._logger = MagicMock()
+    raw_config, first_download, second_download, tv, custom = _directory_list_config(tmp_path)
+    config = plugin._normalize_config(raw_config)
+    plugin._get_config = MagicMock(return_value=config)
+    plugin._load_moviepilot_directory_rules = MagicMock(
+        side_effect=AssertionError("system directory rules must not be read")
+    )
+
+    context = plugin._moviepilot_directory_context()
+
+    assert [item["path"] for item in context["download_directories"]] == [
+        str(first_download),
+        str(second_download),
+    ]
+    assert [item["value"] for item in context["libraries"]] == ["tv", "course"]
+    assert context["selected"]["course"]["path"] == str(custom)
+    plugin._load_moviepilot_directory_rules.assert_not_called()
+
+
+def test_run_scans_each_configured_download_directory(tmp_path):
+    plugin = CourseOrganizer.__new__(CourseOrganizer)
+    plugin._logger = MagicMock()
+    raw_config, first_download, second_download, tv, custom = _directory_list_config(tmp_path)
+    config = plugin._normalize_config({**raw_config, "enabled": True})
+    (first_download / "课程 A").mkdir()
+    (second_download / "课程 B").mkdir()
+    calls = []
+    plugin._get_config = MagicMock(return_value=config)
+    def process_course(course_name, _course_path, output_root=None, source_root=None):
+        assert output_root is None
+        calls.append((course_name, source_root))
+
+    plugin._process_course = process_course
+
+    plugin._run_with_config(force=True)
+
+    assert {call[0] for call in calls} == {"课程 A", "课程 B"}
+    assert {call[1] for call in calls} == {
+        str(first_download),
+        str(second_download),
+    }
+
+
+def test_dynamic_archive_keys_are_available_for_manual_targets(tmp_path):
+    plugin = CourseOrganizer.__new__(CourseOrganizer)
+    raw_config, _first, _second, _tv, _custom = _directory_list_config(tmp_path)
+    config = plugin._normalize_config(raw_config)
+    plugin._get_config = MagicMock(return_value=config)
+
+    assert plugin._manual_target_libraries() == {"tv", "course"}
+    assert plugin._archive_directory_by_key("course")["name"] == "课程归档"
+
+
+def test_custom_archive_key_is_valid_for_legacy_manual_override(tmp_path):
+    plugin = CourseOrganizer.__new__(CourseOrganizer)
+    raw_config, _first, _second, _tv, _custom = _directory_list_config(tmp_path)
+    config = plugin._normalize_config(
+        {**raw_config, "naming_manual_overrides": "示例课程 => confirm:course:示例课程"}
+    )
+    plugin._get_config = MagicMock(return_value=config)
+
+    decision = plugin._legacy_review_override("示例课程")
+
+    assert decision is not None
+    assert decision.target_library == "course"
+
+
+def test_incomplete_directory_lists_force_preview_mode():
+    plugin = CourseOrganizer.__new__(CourseOrganizer)
+    config = plugin._normalize_config({"auto_organize": True})
+    plugin._get_config = MagicMock(return_value=config)
+
+    runtime = plugin._review_path_config()
+
+    assert runtime["auto_organize"] is False
+    assert runtime["naming_mode"] == "preview"
+    assert "目录" in runtime["monitoring_conflict"]
+
+
+def test_directory_config_ui_supports_dynamic_download_and_archive_lists():
+    source = (
+        ROOT / "plugins.v2" / "courseorganizer" / "src" / "components" / "Config.vue"
+    ).read_text(encoding="utf-8")
+
+    assert "download_directories" in source
+    assert "archive_directories" in source
+    assert "addDownloadDirectory" in source
+    assert "addArchiveDirectory" in source
+    assert "removeDownloadDirectory" in source
+    assert "removeArchiveDirectory" in source
+    assert "下载目录" in source
+    assert "归档目录" in source
+    assert "MoviePilot" in source

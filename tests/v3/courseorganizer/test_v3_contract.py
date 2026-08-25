@@ -42,8 +42,7 @@ def test_v3_package_and_plugin_versions_are_consistent():
     package_v2 = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))
     package_v3 = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
 
-    assert module.CourseOrganizer.plugin_version == "2.0.9"
-    assert package_v3["CourseOrganizer"]["version"] == "2.0.9"
+    assert module.CourseOrganizer.plugin_version == package_v3["CourseOrganizer"]["version"]
     expected_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/courseorganizer.png"
     assert package_v3["CourseOrganizer"]["icon"] == expected_icon
     assert module.CourseOrganizer.plugin_icon == expected_icon
@@ -161,6 +160,7 @@ def test_v3_confirmed_movie_keeps_movie_type_when_targeting_children_library(tmp
     module = load_v3_courseorganizer()
     plugin = module.CourseOrganizer.__new__(module.CourseOrganizer)
     plugin._logger = MagicMock()
+    plugin._download_root_for_path = MagicMock(return_value=str(tmp_path / "incoming"))
     expected_binding = {"st_dev": 1, "st_ino": 2, "st_ctime_ns": 3}
     decision = SimpleNamespace(action="confirm", target_library="children", value="示例电影")
     calls = []

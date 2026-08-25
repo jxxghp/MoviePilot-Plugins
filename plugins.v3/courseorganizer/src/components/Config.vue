@@ -1,25 +1,76 @@
 <script setup>
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 
 const props = defineProps({
-  api: { type: Object, default: () => ({}) },
-  pluginId: { type: String, default: 'CourseOrganizer' },
   initialConfig: { type: Object, default: () => ({}) },
 })
+
 const emit = defineEmits(['save', 'close'])
 
 const localConfig = ref({})
 const saving = ref(false)
-const monitoringBlocked = ref(true)
-const monitoringMessage = ref('正在自动检测 MoviePilot 自动监控配置…')
-const monitoringMessageType = ref('info')
-
-const configDefaults = {
-  auto_organize: false,
-}
+const validationMessage = ref('')
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value || {}))
+}
+
+function textValue(value) {
+  return String(value ?? '').trim()
+}
+
+function nextArchiveKey(index) {
+  return 'archive_' + Date.now() + '_' + (index + 1)
+}
+
+function normalizeDownloads(config) {
+  const values = Array.isArray(config.download_directories)
+    ? config.download_directories
+    : (textValue(config.incoming) ? [{ name: '下载目录', path: config.incoming }] : [])
+  return values
+    .filter(item => typeof item === 'string' || (item && typeof item === 'object'))
+    .map((item, index) => {
+      const value = typeof item === 'string' ? { path: item } : item
+      return {
+        name: textValue(value.name || value.label) || '下载目录 ' + (index + 1),
+        path: textValue(value.path),
+      }
+    })
+}
+
+function normalizeArchives(config) {
+  let values = config.archive_directories
+  if (!Array.isArray(values)) {
+    const hasLegacy = ['tv_output', 'movie_output', 'children_output', 'output']
+      .some(key => Object.prototype.hasOwnProperty.call(config, key))
+    values = hasLegacy
+      ? [
+          { key: 'tv', name: '电视剧', path: config.tv_output, media_type: 'tv' },
+          { key: 'movie', name: '电影', path: config.movie_output, media_type: 'movie' },
+          {
+            key: 'children',
+            name: '儿童课程',
+            path: config.children_output ?? config.output,
+            media_type: 'tv',
+            category: '儿童',
+          },
+        ]
+      : []
+  }
+  return values
+    .filter(item => typeof item === 'string' || (item && typeof item === 'object'))
+    .map((item, index) => {
+      const value = typeof item === 'string' ? { path: item } : item
+      const key = textValue(value.key || value.id) || nextArchiveKey(index)
+      return {
+        id: textValue(value.id) || key,
+        key,
+        name: textValue(value.name || value.label) || '归档目录 ' + (index + 1),
+        path: textValue(value.path),
+        media_type: textValue(value.media_type),
+        category: textValue(value.category || value.media_category),
+      }
+    })
 }
 
 function normalizeInitialConfig(value) {
@@ -30,19 +81,66 @@ function normalizeInitialConfig(value) {
   const autoOrganize = typeof rawAutoOrganize === 'string'
     ? ['1', 'true', 'yes', 'on'].includes(rawAutoOrganize.trim().toLowerCase())
     : Boolean(rawAutoOrganize)
-
-  return { ...configDefaults, ...config, auto_organize: autoOrganize }
+  return {
+    ...config,
+    download_directories: normalizeDownloads(config),
+    archive_directories: normalizeArchives(config),
+    auto_organize: autoOrganize,
+  }
 }
 
-watch(
-  () => props.initialConfig,
-  value => { localConfig.value = normalizeInitialConfig(value) },
-  { immediate: true, deep: true },
-)
+function addDownloadDirectory() {
+  const items = localConfig.value.download_directories
+  items.push({ name: '下载目录 ' + (items.length + 1), path: '' })
+}
+
+function removeDownloadDirectory(index) {
+  localConfig.value.download_directories.splice(index, 1)
+}
+
+function addArchiveDirectory() {
+  const items = localConfig.value.archive_directories
+  const index = items.length
+  const key = nextArchiveKey(index)
+  items.push({
+    id: key,
+    key,
+    name: '归档目录 ' + (index + 1),
+    path: '',
+    media_type: '',
+    category: '',
+  })
+}
+
+function removeArchiveDirectory(index) {
+  localConfig.value.archive_directories.splice(index, 1)
+}
+
+function validateDirectories() {
+  const downloads = localConfig.value.download_directories
+  const archives = localConfig.value.archive_directories
+  if (!downloads.length || !archives.length) {
+    return '请至少添加一个下载目录和一个归档目录。'
+  }
+  if (downloads.some(item => !textValue(item.name) || !textValue(item.path))) {
+    return '请完整填写每个下载目录的名称和路径。'
+  }
+  const keys = new Set()
+  for (const item of archives) {
+    const key = textValue(item.key || item.id).toLowerCase()
+    if (!key || !textValue(item.name) || !textValue(item.path)) {
+      return '请完整填写每个归档目录的标识、名称和路径。'
+    }
+    if (keys.has(key)) return '归档目录标识不能重复。'
+    keys.add(key)
+  }
+  return ''
+}
 
 function saveConfig() {
   if (saving.value) return
-  if (localConfig.value.auto_organize && monitoringBlocked.value) return
+  validationMessage.value = validateDirectories()
+  if (validationMessage.value) return
   saving.value = true
   try {
     emit('save', clone(localConfig.value))
@@ -51,79 +149,89 @@ function saveConfig() {
   }
 }
 
-async function loadMonitoringStatus() {
-  if (typeof props.api?.get !== 'function') {
-    monitoringMessage.value = '无法读取 MoviePilot 自动监控配置，自动整理暂不可开启。'
-    monitoringMessageType.value = 'error'
-    return
-  }
-  try {
-    const response = await props.api.get(`plugin/${props.pluginId || 'CourseOrganizer'}/review`)
-    const body = response?.data ?? response
-    const data = body?.data ?? body ?? {}
-    if (data.monitoring_enabled) {
-      const rules = Array.isArray(data.monitoring_rules) ? data.monitoring_rules.filter(Boolean) : []
-      const ruleText = rules.length ? `（${rules.join('、')}）` : ''
-      const sourceText = data.incoming_path ? `来源目录 ${data.incoming_path}` : '当前来源目录'
-      monitoringBlocked.value = true
-      monitoringMessageType.value = 'error'
-      monitoringMessage.value = `已自动检测到 ${sourceText} 与 MoviePilot 自动监控规则${ruleText}重叠；自动整理已禁止，仅保留安全预览。`
-      localConfig.value = { ...localConfig.value, auto_organize: false }
-      return
-    }
-    monitoringBlocked.value = false
-    monitoringMessageType.value = 'success'
-    monitoringMessage.value = '已自动检测 MoviePilot 自动监控配置，当前来源目录未发现监控冲突。'
-  } catch (error) {
-    monitoringBlocked.value = true
-    monitoringMessageType.value = 'error'
-    monitoringMessage.value = error?.message
-      ? `无法读取 MoviePilot 自动监控配置：${error.message}`
-      : '无法读取 MoviePilot 自动监控配置，自动整理暂不可开启。'
-    localConfig.value = { ...localConfig.value, auto_organize: false }
-  }
-}
-
-async function openMoviePilotSettings() {
-  emit('close')
-  await nextTick()
-  window.location.assign('#/setting')
-}
-
-onMounted(loadMonitoringStatus)
+watch(
+  () => props.initialConfig,
+  value => {
+    localConfig.value = normalizeInitialConfig(value)
+  },
+  { immediate: true, deep: true },
+)
 </script>
 
 <template>
-  <VForm class="course-config" aria-label="整理识别设置" @submit.prevent="saveConfig">
+  <VForm class="course-config" aria-label="课程整理目录设置" @submit.prevent="saveConfig">
     <VToolbar density="comfortable" color="transparent" class="course-config__toolbar">
-      <div class="text-h6">整理识别设置</div>
+      <div class="text-h6">课程整理目录</div>
       <VSpacer />
       <VBtn icon="mdi-close" variant="text" aria-label="关闭设置" @click="emit('close')" />
     </VToolbar>
     <VDivider />
 
     <VAlert type="info" variant="tonal" class="ma-3" role="note">
-      目录、媒体类型、分类规则、整理方式、重命名、刮削和智能助手均直接读取 MoviePilot 系统设置，不在插件内重复配置。
-      <template #append>
-        <VBtn variant="tonal" color="primary" prepend-icon="mdi-folder-cog" @click.stop="openMoviePilotSettings">
-          打开目录设置
-        </VBtn>
-      </template>
+      插件独立维护下载目录和归档目录，不读取 MoviePilot 的目录设置。可配置多个下载目录和多个归档目录；共享配置时，请由接收者填写自己设备上的绝对路径。
     </VAlert>
+
+    <section class="course-config__section">
+      <div class="d-flex align-center mb-2">
+        <div class="text-subtitle-1">下载目录</div>
+        <VSpacer />
+        <VBtn size="small" variant="tonal" prepend-icon="mdi-plus" @click="addDownloadDirectory">
+          添加下载目录
+        </VBtn>
+      </div>
+      <VAlert v-if="!localConfig.download_directories.length" type="warning" variant="tonal" density="compact" class="mb-3">
+        至少需要一个下载目录。
+      </VAlert>
+      <div
+        v-for="(directory, index) in localConfig.download_directories"
+        :key="directory.name + '-' + index"
+        class="course-config__directory-row"
+      >
+        <VTextField v-model="directory.name" label="名称" density="comfortable" />
+        <VTextField v-model="directory.path" label="路径" density="comfortable" />
+        <VBtn icon="mdi-delete-outline" variant="text" color="error" :aria-label="'删除下载目录 ' + (index + 1)" @click="removeDownloadDirectory(index)" />
+      </div>
+    </section>
+
+    <section class="course-config__section">
+      <div class="d-flex align-center mb-2">
+        <div class="text-subtitle-1">归档目录</div>
+        <VSpacer />
+        <VBtn size="small" variant="tonal" prepend-icon="mdi-plus" @click="addArchiveDirectory">
+          添加归档目录
+        </VBtn>
+      </div>
+      <VAlert v-if="!localConfig.archive_directories.length" type="warning" variant="tonal" density="compact" class="mb-3">
+        至少需要一个归档目录。
+      </VAlert>
+      <div
+        v-for="(directory, index) in localConfig.archive_directories"
+        :key="directory.id || directory.key || index"
+        class="course-config__archive-row"
+      >
+        <VTextField v-model="directory.key" label="标识" hint="供人工确认选择，不能重复。" persistent-hint density="comfortable" />
+        <VTextField v-model="directory.name" label="名称" density="comfortable" />
+        <VTextField v-model="directory.path" label="路径" density="comfortable" />
+        <VTextField v-model="directory.media_type" label="媒体类型（可选）" density="comfortable" />
+        <VTextField v-model="directory.category" label="分类（可选）" density="comfortable" />
+        <VBtn icon="mdi-delete-outline" variant="text" color="error" :aria-label="'删除归档目录 ' + (index + 1)" @click="removeArchiveDirectory(index)" />
+      </div>
+      <VAlert type="info" variant="tonal" density="compact">
+        自动识别仍使用现有 tv、movie、children 内置类型映射；其他归档目录可在人工确认时选择。
+      </VAlert>
+    </section>
 
     <VSwitch
       v-model="localConfig.auto_organize"
       class="mx-4 mb-2"
       label="自动整理符合条件的项目"
-      aria-label="自动整理符合条件的项目"
-      hint="开启后，仅自动整理识别结果可靠且目标媒体库明确的项目；不确定项目继续保留在待确认列表"
+      hint="未完整配置目录或下载目录不可读取时，插件只保留安全预览。"
       persistent-hint
       color="primary"
-      :disabled="monitoringBlocked"
     />
 
-    <VAlert :type="monitoringMessageType" variant="tonal" density="compact" class="mx-3 mb-3">
-      {{ monitoringMessage }}
+    <VAlert v-if="validationMessage" type="error" variant="tonal" density="compact" class="mx-3 mb-3">
+      {{ validationMessage }}
     </VAlert>
 
     <div class="course-config__actions">
@@ -146,8 +254,20 @@ onMounted(loadMonitoringStatus)
   padding: 0 12px;
 }
 
-.course-config :deep(.v-switch) {
-  margin-bottom: 12px;
+.course-config__section {
+  padding: 0 16px 12px;
+}
+
+.course-config__directory-row,
+.course-config__archive-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.4fr) minmax(180px, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.course-config__archive-row {
+  grid-template-columns: minmax(110px, 0.35fr) minmax(110px, 0.35fr) minmax(180px, 1fr) minmax(120px, 0.35fr) minmax(120px, 0.35fr) auto;
 }
 
 .course-config__actions {
@@ -161,14 +281,10 @@ onMounted(loadMonitoringStatus)
   min-height: 44px;
 }
 
-@media (max-width: 599px) {
-  .course-config :deep(.v-alert__content) {
-    min-width: 0;
-  }
-
-  .course-config :deep(.v-alert__append) {
-    margin-inline-start: 0;
-    margin-top: 12px;
+@media (max-width: 959px) {
+  .course-config__directory-row,
+  .course-config__archive-row {
+    grid-template-columns: 1fr;
   }
 }
 </style>
