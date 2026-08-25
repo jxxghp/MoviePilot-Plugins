@@ -895,10 +895,8 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
         if stage_dir.is_symlink() or not stage_dir.is_dir():
             raise M3U8EngineError("N_m3u8DL-RE stage directory is unsafe")
         candidates = []
-        for suffix in (".mp4", ".mkv", ".ts", ".m4a", ".mov", ".webm", ""):
-            candidate = stage_dir / f"media{suffix}"
-            if not (candidate.exists() or candidate.is_symlink()):
-                continue
+        candidate = stage_dir / "media.mp4"
+        if candidate.exists() or candidate.is_symlink():
             if (
                 not self._is_safe_regular_file(candidate)
                 or candidate.stat().st_size <= 0
@@ -927,9 +925,11 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
         )
         temporary_path = Path(raw_path)
         try:
+            source_mode = stat.S_IMODE(candidate.stat().st_mode)
             with candidate.open("rb") as source, os.fdopen(descriptor, "wb") as target:
                 descriptor = -1
                 shutil.copyfileobj(source, target, length=1024 * 1024)
+                os.fchmod(target.fileno(), source_mode)
                 target.flush()
                 os.fsync(target.fileno())
             os.replace(temporary_path, output)
@@ -969,6 +969,8 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
             str(stage_dir),
             "--save-name",
             "media",
+            "--mux-after-done",
+            "format=mp4",
             "--ffmpeg-binary-path",
             ffmpeg_path or "ffmpeg",
             "--no-ansi-color",
@@ -1054,6 +1056,12 @@ class VSDEngine(_BaseM3U8Engine):
             except OSError as exc:
                 raise M3U8EngineError("vsd stage output is unavailable") from exc
         return output
+
+    def cleanup_task(self, task_id: str, output_parent: Optional[Path] = None) -> None:
+        del output_parent
+        cache_root = self._cache_root(task_id)
+        self._remove_controlled_tree(cache_root / "vsd-stage", cache_root)
+        super().cleanup_task(task_id)
 
     def download(
         self,

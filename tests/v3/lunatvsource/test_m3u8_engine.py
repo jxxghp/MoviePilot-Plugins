@@ -1,6 +1,8 @@
 import hashlib
 import io
 import os
+import errno
+import stat
 import sys
 import tarfile
 import threading
@@ -184,6 +186,7 @@ def test_engine_commands_and_progress_parsing(tmp_path: Path):
     assert n_command[n_command.index("--tmp-dir") + 1] == str(tmp_path / "cache")
     assert n_command[n_command.index("--save-dir") + 1] == str(tmp_path / "stage")
     assert n_command[n_command.index("--ffmpeg-binary-path") + 1] == "/bin/ffmpeg"
+    assert n_command[n_command.index("--mux-after-done") + 1] == "format=mp4"
     assert "--auto-select" in n_command
     assert "--no-ansi-color" in n_command
 
@@ -260,6 +263,11 @@ def test_n_stage_is_plugin_cache_and_accepts_only_fixed_output(tmp_path: Path):
     with pytest.raises(M3U8EngineError, match="expected output"):
         engine._output_from_stage(stage_dir)
 
+    (stage_dir / "media.mkv").write_bytes(b"wrong container")
+    with pytest.raises(M3U8EngineError, match="expected output"):
+        engine._output_from_stage(stage_dir)
+    (stage_dir / "media.mkv").unlink()
+
     (stage_dir / "media.mp4").write_bytes(b"output")
     assert engine._output_from_stage(stage_dir) == stage_dir / "media.mp4"
 
@@ -292,3 +300,41 @@ def test_vsd_download_uses_mp4_stage_before_part_output(monkeypatch, tmp_path: P
     assert result == requested_output
     assert requested_output.read_bytes() == b"muxed"
     assert not captured["stage_output"].exists()
+
+
+def test_vsd_cleanup_removes_stage_and_download_cache(tmp_path: Path):
+    engine = VSDEngine(tmp_path / "plugin-data")
+    stage = engine._cache_root("task") / "vsd-stage"
+    cache = engine.task_cache_dir("task")
+    stage.mkdir(parents=True)
+    cache.mkdir(parents=True)
+    (stage / "media.mp4").write_bytes(b"stage")
+    (cache / "segment.ts").write_bytes(b"cache")
+
+    engine.cleanup_task("task")
+
+    assert not engine._cache_root("task").exists()
+
+
+def test_cross_filesystem_move_preserves_source_permissions(monkeypatch, tmp_path: Path):
+    candidate = tmp_path / "stage" / "media.mp4"
+    output = tmp_path / "media" / "movie.mp4.part"
+    candidate.parent.mkdir()
+    output.parent.mkdir()
+    candidate.write_bytes(b"media")
+    candidate.chmod(0o640)
+    real_replace = os.replace
+    calls = 0
+
+    def replace(source, destination):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError(errno.EXDEV, "cross-device link")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", replace)
+
+    N_m3u8DLEngine._move_stage_output(candidate, output)
+
+    assert stat.S_IMODE(output.stat().st_mode) == 0o640
