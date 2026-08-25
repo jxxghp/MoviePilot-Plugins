@@ -1,9 +1,16 @@
 from app.plugins.lunatvsource import LunaTVSource
 import app.plugins.lunatvsource as plugin_module
-from app.plugins.lunatvsource.cms import CmsEpisode, CmsResult, CmsSource, _result_from_item
+from app.plugins.lunatvsource.cms import (
+    AppleCmsClient,
+    CmsEpisode,
+    CmsResult,
+    CmsSource,
+    _result_from_item,
+)
 from app.plugins.lunatvsource.downloader import DownloadTask
 from app.plugins.lunatvsource.naming import media_path
 from pathlib import Path
+from collections.abc import Mapping
 import hashlib
 import pytest
 import sys
@@ -38,7 +45,7 @@ def _plugin(config=None):
 
 
 def _field(item, name, default=None):
-    if isinstance(item, dict):
+    if isinstance(item, Mapping):
         return item.get(name, default)
     return getattr(item, name, default)
 
@@ -456,7 +463,7 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
     assert items[0].media_id == "123"
     assert items[0].title.endswith("第1季 · 未知")
     assert "集" not in items[0].title
-    assert items[0].description == "LunaTV · 第1季 · 未知 · m3u8 · 共1集 · 全1集实测"
+    assert items[0].description == "LunaTV · 第1季 · 未知 · m3u8 · 共1集 · 已测0/1集"
     assert "未知" in items[0].labels
     payload = plugin._decode_resource_token(items[0].enclosure)
     assert payload["url"].endswith("01.m3u8")
@@ -557,7 +564,9 @@ def test_resource_torrents_groups_by_source_and_season(monkeypatch):
         "source_limit": 3,
         "stop_after_first_source": False,
         "require_playable": True,
+        "expand_tv_episode_rows": True,
         "max_workers": 8,
+        "media_type_filter": "tv",
     }]
     assert ai_calls == [("示例剧", "", "")]
     assert [(item.title, item.year, item.media_type, include_candidates)
@@ -1227,10 +1236,12 @@ def test_resource_torrents_probes_all_conflicts_and_large_seasons(monkeypatch):
     assert payload["resolution"] == "未知"
     assert payload["resolution_height"] == item.pri_order == 0
     assert "未知" in item.title
-    assert "全52集实测" in item.description
-    assert payload["resolution_scope"] == "full"
-    assert payload["resolution_probed_episode_count"] == 52
-    assert payload["resolution_probed_episodes"] == list(range(1, 53))
+    assert "已测51/52集" in item.description
+    assert payload["resolution_scope"] == "partial"
+    assert payload["resolution_probed_episode_count"] == 51
+    assert payload["resolution_probed_episodes"] == [
+        episode for episode in range(1, 53) if episode != 27
+    ]
     assert (
         payload["episodes"][1]["resolution"],
         payload["episodes"][1]["resolution_height"],
@@ -2084,7 +2095,7 @@ def test_refresh_reconciles_existing_episode_without_enqueue_or_transfer(monkeyp
     monkeypatch.setitem(sys.modules, "app.db.oper.downloadhistory", download_module)
 
     class Client:
-        def search(self, query):
+        def search(self, query, **_kwargs):
             assert query == "疯狂动物城2"
             return [result]
 
@@ -2160,7 +2171,7 @@ def test_refresh_plugin_subscription_reuses_tmdb_identity_for_organize(monkeypat
     monkeypatch.setitem(sys.modules, "app.db.oper.subscribe", subscribe_module)
 
     class Client:
-        def search(self, _query):
+        def search(self, _query, **_kwargs):
             return [result]
 
     plugin = _plugin()
@@ -2250,7 +2261,7 @@ def test_refresh_plugin_season_subscription_researches_and_queues_whole_season(
         def detail(self, *_args):
             raise AssertionError("season subscription must re-search, not detail one episode")
 
-        def search(self, query):
+        def search(self, query, **_kwargs):
             searches.append(query)
             return rows
 
@@ -2327,7 +2338,7 @@ def test_refresh_plugin_season_subscription_queues_highest_resolution_for_same_e
     monkeypatch.setitem(sys.modules, "app.db.oper.subscribe", subscribe_module)
 
     class Client:
-        def search(self, _query):
+        def search(self, _query, **_kwargs):
             return rows
 
     plugin = _plugin()
@@ -2419,7 +2430,7 @@ def test_refresh_plugin_season_subscription_keeps_all_sources_seasons_separate(
     monkeypatch.setitem(sys.modules, "app.db.oper.subscribe", subscribe_module)
 
     class Client:
-        def search(self, _query):
+        def search(self, _query, **_kwargs):
             return rows
 
     probe_calls = []
@@ -2531,7 +2542,7 @@ def test_refresh_does_not_requeue_episode_kept_in_native_tmdb_history(monkeypatc
     monkeypatch.setitem(sys.modules, "app.db.oper.downloadhistory", download_module)
 
     class Client:
-        def search(self, _query):
+        def search(self, _query, **_kwargs):
             return [result]
 
     plugin = _plugin()
@@ -2620,7 +2631,7 @@ def test_refresh_routes_movie_and_tv_subscriptions_to_native_media_directories(m
             return [Directory("电影", "/media/incoming/movies"), Directory("电视剧", "/media/incoming/tv")]
 
     class Client:
-        def search(self, query):
+        def search(self, query, **_kwargs):
             return [movie if query == "示例电影" else show]
 
     plugin = _plugin()
@@ -2997,6 +3008,7 @@ def test_resource_torrents_forwards_lunatv_progress_callback(monkeypatch):
         "source_limit",
         "stop_after_first_source",
         "require_playable",
+        "expand_tv_episode_rows",
         "max_workers",
         "progress_callback",
     }

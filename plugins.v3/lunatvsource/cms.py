@@ -6,6 +6,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import http.client
 import ipaddress
 import json
+import logging
 import re
 import socket
 import ssl
@@ -16,6 +17,9 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 _EPISODE_RE = re.compile(
@@ -82,6 +86,16 @@ _PROBE_REDIRECT_CODES = {301, 302, 303, 307, 308}
 _PROBE_MAX_REDIRECTS = 5
 _PROBE_PLAYLIST_BYTES = 256 * 1024
 _PROBE_MEDIA_BYTES = 4 * 1024 * 1024
+_TV_EPISODE_ROW_TITLE_RE = re.compile(
+    r"^(?P<title>.+?)(?:\s*[-_.·:：]*\s*)"
+    r"(?:S\s*(?P<season>\d{1,3})\s*E\s*(?P<episode>\d{1,4})|"
+    r"第\s*(?P<cn_episode>\d{1,4})\s*[集话])\s*$",
+    re.IGNORECASE,
+)
+# Apple CMS pages normally contain 10 or 20 rows. Keep a finite bound even for
+# broken payloads while still covering a 208-episode season at those sizes.
+_TV_EPISODE_ROW_MAX_PAGES = 32
+_DETAIL_IDS_BATCH_SIZE = 50
 
 
 def _season_range(label: str) -> Tuple[int, int]:
@@ -537,6 +551,7 @@ def _parse_play_urls(
     play_url: Any,
     default_season: int = 1,
     default_season_known: bool = True,
+    number_unlabelled_multi_episode: bool = False,
 ) -> List["CmsEpisode"]:
     from_values = _split_player_values(_text(play_from))
     url_values = _split_player_values(_text(play_url))
@@ -546,6 +561,22 @@ def _parse_play_urls(
     # A CMS response may list one player name and one URL group, or several
     # groups in matching order.  The first group is the stable fallback.
     selected_groups: List[Tuple[str, str]] = []
+
+    def playable_entry_count(group: str) -> int:
+        """Count entries this parser can expose as playable episodes."""
+
+        count = 0
+        for raw in group.split("#"):
+            raw = raw.strip()
+            if not raw:
+                continue
+            _, separator, url = raw.partition("$")
+            url = (url if separator else raw).strip()
+            parsed_url = urllib.parse.urlparse(url)
+            if parsed_url.scheme in {"http", "https"} and parsed_url.netloc:
+                count += 1
+        return count
+
     if from_values:
         pairs = list(zip(from_values, url_values))
         has_season_groups = any(_extract_season(name, 0) > 0 for name, _ in pairs)
@@ -558,11 +589,17 @@ def _parse_play_urls(
         # playable group to avoid downloading the same episode repeatedly from
         # backup players.
         selected_groups = pairs if has_season_groups else (preferred[:1] or pairs[:1])
+    elif number_unlabelled_multi_episode:
+        # Some TV CMS payloads omit player names entirely. Prefer the group
+        # with the most parseable episode URLs; ``max`` keeps the first group
+        # when counts tie, preserving the historical stable preference.
+        selected_groups = [("", max(url_values, key=playable_entry_count))]
     else:
         selected_groups = [("", url_values[0])]
 
     episodes: List[CmsEpisode] = []
     for group_name, group in selected_groups:
+        parsed_entries: List[Tuple[str, str]] = []
         for raw in group.split("#"):
             raw = raw.strip()
             if not raw:
@@ -575,7 +612,26 @@ def _parse_play_urls(
             parsed_url = urllib.parse.urlparse(url)
             if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
                 continue
-            season, episode = _extract_season_episode(label, _season_hint(group_name, default_season))
+            parsed_entries.append((label.strip(), url))
+
+        # A TV detail row occasionally carries a whole season as plain
+        # ``url#url`` entries despite a title such as “第52集”. Number the
+        # unlabelled entries only when all entries on that one player line are
+        # unlabelled; movie parsing retains its historical E01 treatment.
+        number_unlabelled = (
+            number_unlabelled_multi_episode
+            and len(parsed_entries) > 1
+            and all(not label for label, _ in parsed_entries)
+        )
+        for ordinal, (label, url) in enumerate(parsed_entries, start=1):
+            if number_unlabelled:
+                season = _season_hint(group_name, default_season)
+                episode = ordinal
+            else:
+                season, episode = _extract_season_episode(
+                    label,
+                    _season_hint(group_name, default_season),
+                )
             season_known = default_season_known or _has_explicit_season(group_name) or _has_explicit_season(label)
             episodes.append(
                 CmsEpisode(
@@ -704,7 +760,9 @@ class CmsResult:
         }
 
 
-def _media_type(item: Mapping[str, Any]) -> str:
+def _media_type_hint(item: Mapping[str, Any]) -> Optional[str]:
+    """Return only an explicit, reliable type signal from a CMS list row."""
+
     type_name = _text(item.get("type_name")).strip().lower()
     value = f"{type_name} {_text(item.get('vod_class'))}".lower()
     if "电影" in value and "电视剧" not in value:
@@ -716,6 +774,16 @@ def _media_type(item: Mapping[str, Any]) -> str:
         return "tv"
     if any(token in value for token in ("电视剧", "连续剧", "tv", "剧集", "综艺", "儿童", "少儿")):
         return "tv"
+    return None
+
+
+def _media_type(item: Mapping[str, Any]) -> str:
+    media_type_hint = _media_type_hint(item)
+    if media_type_hint is not None:
+        return media_type_hint
+
+    type_name = _text(item.get("type_name")).strip().lower()
+    value = f"{type_name} {_text(item.get('vod_class'))}".lower()
     # 动漫/动画/纪录片在 CMS 中同时承载电影和剧集。 只有出现季集
     # 标记或明确的多集播放列表时才按电视剧处理，避免把动画电影误放到 TV 库。
     if any(token in value for token in ("动漫", "动画", "纪录")):
@@ -729,6 +797,13 @@ def _media_type(item: Mapping[str, Any]) -> str:
         ):
             return "tv"
     return "movie"
+
+
+def _canonical_media_type_filter(value: str) -> str:
+    """Return a supported result-type filter, or no filter for unknown input."""
+
+    normalized = _text(value).strip().lower()
+    return normalized if normalized in {"movie", "tv"} else ""
 
 
 def _source_key(api_key: str, item: Mapping[str, Any]) -> str:
@@ -749,6 +824,7 @@ def _result_from_item(source: CmsSource, item: Mapping[str, Any]) -> CmsResult:
             item.get("vod_play_url"),
             title_season,
             default_season_known=season_range[0] == season_range[1],
+            number_unlabelled_multi_episode=media_type == "tv",
         )
     )
     if media_type == "movie" and not episodes:
@@ -770,6 +846,114 @@ def _result_from_item(source: CmsSource, item: Mapping[str, Any]) -> CmsResult:
         detail=source.detail,
         season_range=season_range,
         season_ambiguous=season_ambiguous,
+    )
+
+
+def _episode_row_title_identity(
+    result: CmsResult,
+) -> Optional[Tuple[str, str, int, int, str]]:
+    """Return a title-only candidate identity for an episode-indexed CMS row.
+
+    Apple CMS instances sometimes expose a long season as individual search
+    rows (``剧名 S01E001`` or ``剧名 第1集``).  Treat only explicit trailing
+    episode markers as rows: a broad title search must never start paging just
+    because a result happens to contain an episode-like word elsewhere.
+    """
+
+    if result.media_type != "tv":
+        return None
+    match = _TV_EPISODE_ROW_TITLE_RE.match(_text(result.title))
+    if not match:
+        return None
+    title = _text(match.group("title")).strip(" -_.·:：")
+    if not title:
+        return None
+    episode = int(match.group("episode") or match.group("cn_episode") or 0)
+    season = int(match.group("season") or _extract_season(title, 1) or 1)
+    if season <= 0 or episode <= 0:
+        return None
+    normalized_title = re.sub(r"[\s._\-·:：]+", "", title).casefold()
+    if not normalized_title:
+        return None
+    return normalized_title, _text(result.year), season, episode, title
+
+
+def _episode_row_identity(result: CmsResult) -> Optional[Tuple[str, str, int, int, str]]:
+    """Return a row identity only when detail parsing confirms one episode.
+
+    A CMS can label a complete series item as a latest episode while its detail
+    payload holds the entire season.  Such an item is a normal result, not a
+    single-row episode record, and must retain all of its parsed episodes.
+    """
+
+    identity = _episode_row_title_identity(result)
+    if not identity:
+        return None
+    episode_keys = {(episode.season, episode.episode) for episode in result.episodes}
+    return identity if len(episode_keys) == 1 else None
+
+
+def _merge_episode_row_results(rows: Iterable[CmsResult]) -> Optional[CmsResult]:
+    """Collapse the rows of one explicit TV season without discarding mirrors."""
+
+    materialized = list(rows)
+    if not materialized:
+        return None
+    identity = _episode_row_identity(materialized[0])
+    if not identity:
+        return materialized[0]
+    _, _, season, _, title = identity
+    episodes: Dict[Tuple[int, int, str], CmsEpisode] = {}
+    for row in materialized:
+        row_identity = _episode_row_identity(row)
+        if not row_identity:
+            continue
+        _, _, row_season, row_episode, _ = row_identity
+        if row_season != season:
+            continue
+        for episode in row.episodes:
+            normalized = replace(
+                episode,
+                season=season,
+                episode=row_episode,
+                season_known=True,
+            )
+            episodes[(normalized.season, normalized.episode, normalized.url)] = normalized
+    return replace(
+        materialized[0],
+        title=title,
+        episodes=tuple(
+            sorted(
+                episodes.values(),
+                key=lambda episode: (episode.season, episode.episode, episode.url),
+            )
+        ),
+        season_range=(season, season),
+        season_ambiguous=False,
+    )
+
+
+def _merge_episode_row_bundles(result: CmsResult, bundles: Iterable[CmsResult]) -> CmsResult:
+    """Add later full-detail rows to one selected season without a second card."""
+
+    season = result.season_range[0]
+    episodes: Dict[Tuple[int, int, str], CmsEpisode] = {
+        (episode.season, episode.episode, episode.url): episode
+        for episode in result.episodes
+    }
+    for bundle in bundles:
+        for episode in bundle.episodes:
+            if episode.season != season:
+                continue
+            episodes[(episode.season, episode.episode, episode.url)] = episode
+    return replace(
+        result,
+        episodes=tuple(
+            sorted(
+                episodes.values(),
+                key=lambda episode: (episode.season, episode.episode, episode.url),
+            )
+        ),
     )
 
 
@@ -874,6 +1058,10 @@ class AppleCmsClient:
             return max(0.0, float(self.parallel_wait_timeout))
         return max(20.0, min(30.0, float(self.timeout) * 2))
 
+    @staticmethod
+    def _deadline_expired(deadline: Optional[float]) -> bool:
+        return deadline is not None and time.monotonic() >= deadline
+
     def _request(self, source: CmsSource, **params: Any) -> Mapping[str, Any]:
         query = urllib.parse.urlencode({key: value for key, value in params.items() if value not in (None, "")})
         separator = "&" if "?" in source.api else "?"
@@ -908,6 +1096,101 @@ class AppleCmsClient:
             pass
         return item
 
+    def _enrich_items(
+        self,
+        source: CmsSource,
+        items: Iterable[Mapping[str, Any]],
+        enrich: bool,
+        deadline: Optional[float] = None,
+    ) -> List[Mapping[str, Any]]:
+        """Fill sparse Apple CMS rows with a bulk detail request when possible.
+
+        A few CMS deployments do not implement comma-separated ``ids``
+        correctly. Missing rows and failed bulk requests deliberately fall back
+        to the established one-id request, so sparse search results remain
+        compatible with those deployments.
+        """
+
+        materialized = list(items)
+        if not enrich:
+            return materialized
+        sparse_ids = list(
+            dict.fromkeys(
+                _text(item.get("vod_id"))
+                for item in materialized
+                if not _text(item.get("vod_play_url")) and _text(item.get("vod_id"))
+            )
+        )
+        details: Dict[str, Mapping[str, Any]] = {}
+        if sparse_ids:
+            sparse_id_set = set(sparse_ids)
+            for start in range(0, len(sparse_ids), _DETAIL_IDS_BATCH_SIZE):
+                if self._deadline_expired(deadline):
+                    break
+                batch = sparse_ids[start : start + _DETAIL_IDS_BATCH_SIZE]
+                try:
+                    payload = self._request(source, ac="detail", ids=",".join(batch))
+                    for detail_item in self._items(payload):
+                        vod_id = _text(detail_item.get("vod_id"))
+                        if vod_id in sparse_id_set:
+                            details[vod_id] = detail_item
+                except Exception:
+                    # Individual detail fallback below is intentionally retained.
+                    pass
+
+        enriched: List[Mapping[str, Any]] = []
+        individual_fallbacks: Dict[str, Mapping[str, Any]] = {}
+        for item in materialized:
+            vod_id = _text(item.get("vod_id"))
+            if _text(item.get("vod_play_url")):
+                enriched.append(item)
+            elif vod_id in details:
+                merged = _merge_detail_item(item, details[vod_id])
+                if _text(merged.get("vod_play_url")):
+                    enriched.append(merged)
+                    continue
+                if self._deadline_expired(deadline):
+                    enriched.append(merged)
+                    continue
+                if vod_id not in individual_fallbacks:
+                    individual_fallbacks[vod_id] = self._enrich_item(source, merged)
+                enriched.append(individual_fallbacks[vod_id])
+            elif not vod_id:
+                enriched.append(item)
+            else:
+                if self._deadline_expired(deadline):
+                    enriched.append(item)
+                    continue
+                if vod_id not in individual_fallbacks:
+                    individual_fallbacks[vod_id] = self._enrich_item(source, item)
+                enriched.append(individual_fallbacks[vod_id])
+        return enriched
+
+    @staticmethod
+    def _page_count(payload: Mapping[str, Any]) -> Optional[int]:
+        """Read an Apple CMS page count, including its common numeric string."""
+
+        raw = payload.get("pagecount")
+        if raw in (None, ""):
+            raw = payload.get("page_count")
+        try:
+            page_count = int(str(raw).strip())
+        except (TypeError, ValueError):
+            return None
+        return page_count if page_count > 0 else None
+
+    def _results_from_items(
+        self,
+        source: CmsSource,
+        items: Iterable[Mapping[str, Any]],
+        enrich: bool,
+        deadline: Optional[float] = None,
+    ) -> List[CmsResult]:
+        return [
+            _result_from_item(source, item)
+            for item in self._enrich_items(source, items, enrich, deadline=deadline)
+        ]
+
     def _search_source(
         self,
         source: CmsSource,
@@ -915,25 +1198,208 @@ class AppleCmsClient:
         limit: int,
         enrich: bool = True,
         require_playable: bool = False,
+        expand_tv_episode_rows: bool = False,
+        media_type_filter: str = "",
     ) -> List[CmsResult]:
-        source_results: List[CmsResult] = []
+        media_type_filter = _canonical_media_type_filter(media_type_filter)
+        list_params: Dict[str, Any] = {"ac": "list", "wd": query, "pg": 1}
+        deadline = (
+            time.monotonic() + self._parallel_wait_seconds()
+            if expand_tv_episode_rows
+            else None
+        )
         try:
-            payload = self._request(source, ac="list", wd=query, pg=1)
+            if self._deadline_expired(deadline):
+                return []
+            payload = self._request(source, **list_params)
             items = self._items(payload)
             if not items:
-                payload = self._request(source, ac="list", wd=query, pg=1, pages=1)
+                if self._deadline_expired(deadline):
+                    return []
+                list_params["pages"] = 1
+                payload = self._request(source, **list_params)
                 items = self._items(payload)
-            for item in items[:limit]:
-                result = _result_from_item(
-                    source,
-                    self._enrich_item(source, item) if enrich else item,
-                )
-                if require_playable and not result.episodes:
-                    continue
-                source_results.append(result)
         except Exception:
             # A single third-party source must not block the rest.
             return []
+
+        raw_items = items
+        if media_type_filter:
+            items = [
+                item
+                for item in items
+                if _media_type_hint(item) in (None, media_type_filter)
+            ]
+
+        if not expand_tv_episode_rows:
+            candidate_items = items if media_type_filter else items[:limit]
+            return [
+                result
+                for result in self._results_from_items(source, candidate_items, enrich)
+                if (not media_type_filter or result.media_type == media_type_filter)
+                and (not require_playable or result.episodes)
+            ][:limit]
+
+        # Select up to ``limit`` cards rather than raw rows. A selected
+        # long-season group can therefore grow past the source result cap,
+        # while unrelated results retain the existing cap.
+        selected_entries: List[Tuple[str, Any]] = []
+        selected_groups: Dict[Tuple[str, str, int], List[CmsResult]] = {}
+        selected_bundles: Dict[Tuple[str, str, int], List[CmsResult]] = {}
+        selected_count = 0
+
+        def collect_results(page_results: Iterable[CmsResult]) -> None:
+            """Select cards and attach same-season bundles independently of row order."""
+
+            nonlocal selected_count
+            playable_results = [
+                result
+                for result in page_results
+                if (not media_type_filter or result.media_type == media_type_filter)
+                and (not require_playable or result.episodes)
+            ]
+            row_group_keys = set()
+            for result in playable_results:
+                identity = _episode_row_identity(result)
+                if identity:
+                    row_group_keys.add(identity[:3])
+
+            for result in playable_results:
+                identity = _episode_row_identity(result)
+                title_identity = _episode_row_title_identity(result)
+                group_key = identity[:3] if identity else None
+                if (
+                    group_key is None
+                    and title_identity
+                    and (
+                        title_identity[:3] in selected_groups
+                        or title_identity[:3] in row_group_keys
+                    )
+                ):
+                    group_key = title_identity[:3]
+                if group_key is None:
+                    if selected_count < limit:
+                        selected_entries.append(("result", result))
+                        selected_count += 1
+                    continue
+                if group_key not in selected_groups:
+                    if selected_count >= limit:
+                        continue
+                    selected_groups[group_key] = []
+                    selected_entries.append(("group", group_key))
+                    selected_count += 1
+                if identity:
+                    selected_groups[group_key].append(result)
+                else:
+                    selected_bundles.setdefault(group_key, []).append(result)
+
+        collect_results(self._results_from_items(source, items, enrich, deadline=deadline))
+
+        if not selected_groups and not (require_playable and not selected_entries):
+            return [entry for kind, entry in selected_entries if kind == "result"]
+
+        def page_vod_ids(page_items: Iterable[Mapping[str, Any]]) -> Tuple[str, ...]:
+            return tuple(_text(item.get("vod_id")) for item in page_items)
+
+        seen_vod_ids = {vod_id for vod_id in page_vod_ids(raw_items) if vod_id}
+        seen_page_signatures = {page_vod_ids(raw_items)}
+        page_count = self._page_count(payload)
+        if page_count and page_count > _TV_EPISODE_ROW_MAX_PAGES:
+            LOGGER.warning(
+                "CMS episode-row pagination capped source=%s query=%s pagecount=%s cap=%s",
+                source.key or source.name,
+                query,
+                page_count,
+                _TV_EPISODE_ROW_MAX_PAGES,
+            )
+        last_page = min(page_count or _TV_EPISODE_ROW_MAX_PAGES, _TV_EPISODE_ROW_MAX_PAGES)
+        for page in range(2, last_page + 1):
+            if self._deadline_expired(deadline):
+                break
+            try:
+                page_params = dict(list_params)
+                page_params["pg"] = page
+                page_payload = self._request(source, **page_params)
+            except Exception:
+                break
+            raw_page_items = self._items(page_payload)
+            if not raw_page_items:
+                break
+            page_ids = page_vod_ids(raw_page_items)
+            if page_ids in seen_page_signatures:
+                break
+            seen_page_signatures.add(page_ids)
+            new_vod_ids = {vod_id for vod_id in page_ids if vod_id} - seen_vod_ids
+            if not new_vod_ids:
+                break
+            seen_vod_ids.update(new_vod_ids)
+
+            page_items = raw_page_items
+            if media_type_filter:
+                page_items = [
+                    item
+                    for item in raw_page_items
+                    if _media_type_hint(item) in (None, media_type_filter)
+                ]
+            if not page_items:
+                if selected_groups or not require_playable:
+                    break
+                continue
+
+            if selected_groups:
+                # Once an episode-row season has been selected, retain only
+                # matching rows on broad-search pages. A gap ends expansion
+                # rather than walking an arbitrary result set.
+                matched_items: List[Mapping[str, Any]] = []
+                for item in page_items:
+                    result = _result_from_item(source, item)
+                    identity = _episode_row_title_identity(result)
+                    if (
+                        identity is None
+                        and _media_type_hint(item) is None
+                    ):
+                        identity = _episode_row_title_identity(
+                            replace(result, media_type="tv")
+                        )
+                    if identity and identity[:3] in selected_groups:
+                        matched_items.append(item)
+                if not matched_items:
+                    break
+                collect_results(
+                    self._results_from_items(
+                        source,
+                        matched_items,
+                        enrich,
+                        deadline=deadline,
+                    )
+                )
+                continue
+
+            # With require_playable enabled, an all-unplayable first page must
+            # not hide later results. Keep the same bounded page safeguards
+            # while discovering the first playable card.
+            collect_results(
+                self._results_from_items(
+                    source,
+                    page_items,
+                    enrich,
+                    deadline=deadline,
+                )
+            )
+            if selected_entries and not selected_groups:
+                # A regular card has no episode row to expand further.
+                break
+
+        source_results: List[CmsResult] = []
+        for kind, entry in selected_entries:
+            if kind == "result":
+                source_results.append(entry)
+                continue
+            merged = _merge_episode_row_results(selected_groups[entry])
+            if merged and (not require_playable or merged.episodes):
+                source_results.append(
+                    _merge_episode_row_bundles(merged, selected_bundles.get(entry, ()))
+                )
         return source_results
 
     def detail(self, source_key: str, vod_id: str) -> Optional[CmsResult]:
@@ -957,7 +1423,10 @@ class AppleCmsClient:
         source_limit: Optional[int] = None,
         max_workers: int = 1,
         progress_callback: Optional[Callable[..., None]] = None,
+        expand_tv_episode_rows: bool = False,
+        media_type_filter: str = "",
     ) -> List[CmsResult]:
+        media_type_filter = _canonical_media_type_filter(media_type_filter)
         ordered_sources = list(self.sources)
         total_sources = len(ordered_sources)
         results: List[CmsResult] = []
@@ -1014,6 +1483,8 @@ class AppleCmsClient:
                         limit=per_source_limit,
                         enrich=enrich,
                         require_playable=require_playable,
+                        expand_tv_episode_rows=expand_tv_episode_rows,
+                        media_type_filter=media_type_filter,
                     )
                 except Exception:
                     source_results = []
@@ -1041,6 +1512,8 @@ class AppleCmsClient:
                     limit=per_source_limit,
                     enrich=enrich,
                     require_playable=require_playable,
+                    expand_tv_episode_rows=expand_tv_episode_rows,
+                    media_type_filter=media_type_filter,
                 )
                 futures[future] = idx
                 pending_futures.add(future)

@@ -38,6 +38,73 @@ def test_queue_is_serial_and_deduplicates(tmp_path: Path):
     assert queue.summary()["paused"] == 1
 
 
+def test_queue_persistence_keeps_non_terminal_tasks_and_caps_terminal_history(
+    tmp_path: Path, monkeypatch
+):
+    data = {}
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+
+    def make_task(task_id: str, state: str) -> DownloadTask:
+        return DownloadTask(
+            task_id=task_id,
+            source_key="lunatv",
+            media_id=f"site:{task_id}",
+            title=task_id,
+            year="2026",
+            media_type="movie",
+            season=1,
+            episode=1,
+            url=f"https://example.test/{task_id}.m3u8",
+            root=str(tmp_path),
+            state=state,
+        )
+
+    terminal_tasks = [
+        make_task(
+            f"terminal-{index}", "completed" if index % 2 else "failed"
+        )
+        for index in range(501)
+    ]
+    pending_ids = [f"pending-{index}" for index in range(501)]
+    pending_tasks = [make_task(task_id, "pending") for task_id in pending_ids]
+    preserved_non_terminal_ids = ["paused", "future-state"]
+
+    queue._write(
+        terminal_tasks
+        + pending_tasks
+        + [
+            make_task("paused", "paused"),
+            make_task("future-state", "waiting_for_network"),
+        ]
+    )
+
+    persisted = data[queue.DATA_KEY]
+    assert [item["task_id"] for item in persisted] == (
+        [f"terminal-{index}" for index in range(1, 501)]
+        + pending_ids
+        + preserved_non_terminal_ids
+    )
+    assert sum(
+        item["state"] in {"completed", "failed"} for item in persisted
+    ) == 500
+
+    executed = []
+
+    def execute(task: DownloadTask) -> str:
+        executed.append(task.task_id)
+        return str(tmp_path / f"{task.task_id}.mp4")
+
+    monkeypatch.setattr(queue, "_execute", execute)
+    for task_id in pending_ids:
+        assert queue.run_one()["task_id"] == task_id
+
+    assert executed == pending_ids
+    assert sum(
+        item["state"] in {"completed", "failed"}
+        for item in data[queue.DATA_KEY]
+    ) == 500
+
+
 def test_queue_runs_one_task_and_records_completion(tmp_path: Path):
     data = {}
     completed = []
@@ -514,6 +581,52 @@ def test_queue_remove_delete_file_flag_and_root_boundary(tmp_path: Path):
 
     assert queue.remove(outside_task.task_id, delete_file=True) is True
     assert outside.exists()
+
+
+@pytest.mark.parametrize("persist_before_error", [False, True])
+def test_queue_remove_deletes_only_after_durable_state_removal(
+    tmp_path: Path,
+    persist_before_error: bool,
+):
+    data = {}
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+    output = tmp_path / "Movie (2026)" / "Movie (2026).mp4"
+    output.parent.mkdir(parents=True)
+    output.write_text("media", encoding="utf-8")
+    task = DownloadTask(
+        task_id=f"durable-remove-{int(persist_before_error)}",
+        source_key="lunatv",
+        media_id=f"site:durable-remove-{int(persist_before_error)}",
+        title="Movie",
+        year="2026",
+        media_type="movie",
+        season=1,
+        episode=1,
+        url="https://example.test/movie.m3u8",
+        root=str(tmp_path),
+        output=str(output),
+    )
+    assert queue.enqueue(task) is True
+
+    def fail_removal_write(key, value):
+        if not any(item["task_id"] == task.task_id for item in value):
+            if persist_before_error:
+                data[key] = value
+            raise RuntimeError("simulated removal persistence failure")
+        data[key] = value
+
+    queue._save = fail_removal_write
+
+    with pytest.raises(RuntimeError, match="removal persistence failure"):
+        queue.remove(task.task_id, delete_file=True)
+
+    restarted = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+    if persist_before_error:
+        assert restarted.list_tasks() == []
+        assert not output.exists()
+    else:
+        assert [item["task_id"] for item in restarted.list_tasks()] == [task.task_id]
+        assert output.exists()
 
 
 def test_queue_remove_running_task_cleans_part_after_safe_stop(tmp_path: Path):
