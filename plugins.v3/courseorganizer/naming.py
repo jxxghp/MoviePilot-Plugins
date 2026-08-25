@@ -6,7 +6,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 _REASON_ORDER = {
     "exact_title": 0,
@@ -603,7 +603,9 @@ def parse_title(raw_title: str, manual_query: Optional[str] = None) -> TitleHint
     )
 
 
-def parse_manual_overrides(raw_text: str) -> ManualOverrideResult:
+def parse_manual_overrides(
+    raw_text: str, target_libraries: Optional[Iterable[str]] = None
+) -> ManualOverrideResult:
     if not isinstance(raw_text, str):
         return ManualOverrideResult(
             (),
@@ -615,6 +617,15 @@ def parse_manual_overrides(raw_text: str) -> ManualOverrideResult:
     seen: Dict[str, ManualOverride] = {}
     errors: List[str] = []
     line_errors: List[Tuple[str, str]] = []
+    allowed_targets = (
+        {
+            str(target).strip().lower()
+            for target in target_libraries
+            if str(target).strip()
+        }
+        if target_libraries is not None
+        else set(MANUAL_TARGET_LIBRARIES)
+    )
 
     for line in raw_text.splitlines():
         text = line.strip()
@@ -667,7 +678,7 @@ def parse_manual_overrides(raw_text: str) -> ManualOverrideResult:
                 line_errors.append((left, error))
                 continue
             valid_name, name_error = validate_manual_name(final_name)
-            if target_clean not in MANUAL_TARGET_LIBRARIES or not valid_name:
+            if target_clean not in allowed_targets or not valid_name:
                 error = f"invalid_confirm:{text}"
                 errors.append(error)
                 line_errors.append((left, error if valid_name else name_error))

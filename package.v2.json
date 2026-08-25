@@ -3,7 +3,7 @@
     "name": "按文件夹分类整理",
     "description": "待整理目录稳定后，结合 TMDB/豆瓣与 DeepSeek 安全分类并整理到电视剧、电影或儿童媒体库。",
     "labels": "文件整理",
-    "version": "1.7.19",
+    "version": "1.7.20",
     "v3": false,
     "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/courseorganizer.png",
     "author": "OneBigMoon",
@@ -11,6 +11,7 @@
     "level": 1,
     "release": true,
     "history": {
+      "v1.7.20": "目录改为插件独立维护的可增删下载目录和归档目录列表，支持多下载目录、多归档目录并兼容旧配置。",
       "v1.7.19": "修复插件主图使用相对路径时显示为默认拼图的问题。",
       "v1.7.18": "修复插件图标和作者头像地址；自动检测来源目录的 MoviePilot 监控冲突，冲突时强制保持安全预览并禁止自动整理。",
       "v1.7.17": "强制刷新插件前端缓存，设置页仅保留自动整理开关，并在前后端过滤回收站、隐藏目录和系统索引项",
