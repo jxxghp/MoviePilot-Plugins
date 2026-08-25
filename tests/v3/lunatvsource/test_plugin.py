@@ -653,7 +653,7 @@ def test_resource_torrents_label_and_prefer_verified_resolution(monkeypatch):
     items = plugin.search_torrents(site={"id": 1}, keyword="示例电影", page=0, mtype="movie")
 
     assert [item.site_name for item in items] == ["高清源", "标清源"]
-    assert [item.pri_order for item in items] == [1080, 480]
+    assert [item.pri_order for item in items] == [108, 48]
     assert items[0].title.endswith("· 1080P")
     assert items[0].description == "LunaTV · 1080P · m3u8"
     assert "1080P" in items[0].labels
@@ -950,7 +950,7 @@ def test_resource_torrents_keep_complete_season_quality_variants_separate(monkey
     items = plugin._resource_torrents("示例剧")
     payloads = [plugin._decode_resource_token(item.enclosure) for item in items]
 
-    assert [item.pri_order for item in items] == [1080, 480]
+    assert [item.pri_order for item in items] == [108, 48]
     assert [payload["resolution"] for payload in payloads] == ["1080P", "480P"]
     assert [len(payload["episodes"]) for payload in payloads] == [2, 2]
     assert all("1080-" in item["url"] for item in payloads[0]["episodes"])
@@ -1018,7 +1018,8 @@ def test_resource_torrents_choose_highest_url_for_conflicting_episode(monkeypatc
     payload = plugin._decode_resource_token(item.enclosure)
 
     assert item.title == "示例剧 · 第1季 · 480P"
-    assert item.pri_order == payload["resolution_height"] == 480
+    assert payload["resolution_height"] == 480
+    assert item.pri_order == 48
     assert payload["resolution"] in item.description and payload["resolution"] in item.labels
     assert [episode["url"] for episode in payload["episodes"]] == [
         "https://video.example/1080-e1.m3u8",
@@ -1138,7 +1139,7 @@ def test_resource_torrents_probes_all_episodes_in_large_seasons(monkeypatch):
 
         assert [urls for urls in probe_calls if urls] == [expected_urls]
         assert len(expected_urls) == count
-        assert item.pri_order == 1080
+        assert item.pri_order == 108
         assert f"全{count}集实测" in item.description
         assert payload["resolution_scope"] == "full"
         assert payload["resolution_probed_episode_count"] == count
@@ -1297,7 +1298,17 @@ def test_resource_torrents_sort_actual_heights_and_keep_ties_stable(monkeypatch)
 
     items = plugin._resource_torrents("质量")
 
-    assert [item.pri_order for item in items] == [2160, 1440, 1200, 1080, 1080, 720, 480, 0]
+    assert [item.pri_order for item in items] == [216, 144, 120, 108, 108, 72, 48, 0]
+    host_sorted = sorted(
+        items,
+        key=lambda item: str(item.pri_order or 0).rjust(3, "0"),
+        reverse=True,
+    )
+    assert [
+        plugin._decode_resource_token(item.enclosure)["url"] for item in host_sorted
+    ] == [
+        plugin._decode_resource_token(item.enclosure)["url"] for item in items
+    ]
     assert [plugin._decode_resource_token(item.enclosure)["url"] for item in items] == [
         "https://video.example/2160.m3u8",
         "https://video.example/1440.m3u8",
@@ -1313,7 +1324,9 @@ def test_resource_torrents_sort_actual_heights_and_keep_ties_stable(monkeypatch)
         quality = payload["resolution"]
         assert item.title.endswith(f"· {quality}")
         assert quality in item.description and quality in item.labels
-        assert item.pri_order == payload["resolution_height"]
+        assert item.pri_order == plugin_module._resource_sort_priority(
+            payload["resolution_height"]
+        )
 
 
 def test_subscription_candidates_prefer_verified_resolution(monkeypatch):
@@ -3015,6 +3028,8 @@ def test_resource_torrents_forwards_lunatv_progress_callback(monkeypatch):
     assert [(event["finished"], event["total"], event["text"]) for event in progress] == [
         (1, 2, "LunaTV 正在搜索源 1/2"),
         (2, 2, "LunaTV 正在搜索源 2/2"),
+        (2, 2, "LunaTV 正在汇总资源并检测清晰度"),
+        (2, 2, "LunaTV 正在按清晰度排序"),
     ]
 
 def test_search_torrent_entrypoints_forward_progress_callback(monkeypatch):

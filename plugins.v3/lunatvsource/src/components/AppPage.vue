@@ -7,7 +7,7 @@ const props = defineProps({
   navKey: { type: String, default: 'main' },
 })
 
-const loading = ref(false)
+const loading = ref(true)
 const error = ref('')
 const sources = ref([])
 const status = ref({})
@@ -90,10 +90,11 @@ onMounted(load)
 
     <section class="panel">
       <div class="section-heading">
-        <div class="section-title">资源站 <span class="muted">{{ sources.length }}</span></div>
+        <div class="section-title">资源站 <span class="muted">{{ loading ? '…' : sources.length }}</span></div>
         <span class="source-caption">依据源配置备注，非实时测速</span>
       </div>
-      <div v-if="!sources.length" class="empty">暂未读取到资源站配置</div>
+      <div v-if="loading" class="empty">正在读取资源站配置…</div>
+      <div v-else-if="!sources.length" class="empty">暂未读取到资源站配置</div>
       <div v-else class="source-table-wrap">
         <table class="source-table">
           <thead>

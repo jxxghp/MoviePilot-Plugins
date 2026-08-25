@@ -82,7 +82,7 @@ def test_search_movie_resources_are_sorted_and_download_queues_highest_resolutio
         "示例电影 · 1080P",
         "示例电影 · 480P",
     ]
-    assert [item.pri_order for item in resources] == [1080, 480]
+    assert [item.pri_order for item in resources] == [108, 48]
     assert [
         plugin._decode_resource_token(item.enclosure)["resolution"]
         for item in resources
@@ -137,7 +137,7 @@ def test_search_tv_resources_are_season_cards_and_download_runs_episodes_seriall
         "示例剧 · 第1季 · 480P",
     ]
     assert all("集" not in item.title for item in resources)
-    assert [item.pri_order for item in resources] == [1080, 480]
+    assert [item.pri_order for item in resources] == [108, 48]
     high_payload = plugin._decode_resource_token(resources[0].enclosure)
     assert [episode["episode"] for episode in high_payload["episodes"]] == [1, 2]
 
@@ -213,7 +213,7 @@ def test_long_season_cards_probe_every_episode_and_keep_full_hd_download(
         {"id": "demo"}, "长季剧", mtype="电视剧"
     )
 
-    assert [item.pri_order for item in resources] == [1080, 480]
+    assert [item.pri_order for item in resources] == [108, 48]
     assert [item.title for item in resources] == [
         "长季剧 · 第1季 · 1080P",
         "长季剧 · 第1季 · 480P",

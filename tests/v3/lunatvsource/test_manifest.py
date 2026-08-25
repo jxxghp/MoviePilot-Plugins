@@ -41,17 +41,22 @@ def test_version_consistency_across_manifest_backend_and_frontend():
         ).read_text(encoding="utf-8")
     )
 
-    assert manifest["version"] == "0.4.40"
+    assert manifest["version"] == "0.4.41"
     assert {
         manifest["version"],
         LunaTVSource.plugin_version,
         package["version"],
         lockfile["version"],
         lockfile["packages"][""]["version"],
-    } == {"0.4.40"}
+    } == {"0.4.41"}
 
     history = manifest["history"]
-    assert next(iter(history)) == "0.4.40"
+    assert next(iter(history)) == "0.4.41"
+    assert history["0.4.41"] == (
+        "修复电视剧分集分页在无年份、年份冲突、无 ID 与无效地址场景下的误聚合或提前停止；"
+        "资源站配置加载增加过渡提示；搜索完成后提示资源汇总、清晰度检测与排序，并兼容 "
+        "MoviePilot 三位优先级，确保高分辨率资源置顶。"
+    )
     assert history["0.4.40"] == (
         "电视剧分集行完整聚合为季卡，补齐长季分页、稀疏详情和多组播放地址；"
         "电影/电视剧在每源限额前过滤；整季下载跳过坏地址并保留有效剧集；"
@@ -61,3 +66,19 @@ def test_version_consistency_across_manifest_backend_and_frontend():
         "电视剧资源按季聚合，冲突同集自动选择最高画质；大季按首、中、末代表集实测并按该结果排序，"
         "未抽样集明确标记，资源搜索按媒体类型过滤，季订阅不再只刷新首集。"
     )
+
+
+def test_app_page_shows_loading_state_before_empty_sources():
+    project_root = Path(__file__).resolve().parents[3]
+    app_page = (
+        project_root / "plugins.v3" / "lunatvsource" / "src" / "components" / "AppPage.vue"
+    ).read_text(encoding="utf-8")
+
+    loading_state = '<div v-if="loading" class="empty">正在读取资源站配置…</div>'
+    empty_state = '<div v-else-if="!sources.length" class="empty">暂未读取到资源站配置</div>'
+
+    assert "const loading = ref(true)" in app_page
+    assert "{{ loading ? '…' : sources.length }}" in app_page
+    assert loading_state in app_page
+    assert empty_state in app_page
+    assert app_page.index(loading_state) < app_page.index(empty_state)

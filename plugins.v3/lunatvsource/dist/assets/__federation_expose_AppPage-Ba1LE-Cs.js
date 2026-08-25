@@ -31,12 +31,16 @@ const _hoisted_12 = {
 };
 const _hoisted_13 = {
   key: 1,
+  class: "empty"
+};
+const _hoisted_14 = {
+  key: 2,
   class: "source-table-wrap"
 };
-const _hoisted_14 = { class: "source-table" };
-const _hoisted_15 = { class: "source-name" };
-const _hoisted_16 = ["href"];
-const _hoisted_17 = {
+const _hoisted_15 = { class: "source-table" };
+const _hoisted_16 = { class: "source-name" };
+const _hoisted_17 = ["href"];
+const _hoisted_18 = {
   key: 1,
   class: "muted"
 };
@@ -56,7 +60,7 @@ const _sfc_main = {
 
 const props = __props;
 
-const loading = ref(false);
+const loading = ref(true);
 const error = ref('');
 const sources = ref([]);
 const status = ref({});
@@ -147,69 +151,71 @@ return (_ctx, _cache) => {
       _createElementVNode("div", _hoisted_9, [
         _createElementVNode("div", _hoisted_10, [
           _cache[3] || (_cache[3] = _createTextVNode("资源站 ", -1)),
-          _createElementVNode("span", _hoisted_11, _toDisplayString(sources.value.length), 1)
+          _createElementVNode("span", _hoisted_11, _toDisplayString(loading.value ? '…' : sources.value.length), 1)
         ]),
         _cache[4] || (_cache[4] = _createElementVNode("span", { class: "source-caption" }, "依据源配置备注，非实时测速", -1))
       ]),
-      (!sources.value.length)
-        ? (_openBlock(), _createElementBlock("div", _hoisted_12, "暂未读取到资源站配置"))
-        : (_openBlock(), _createElementBlock("div", _hoisted_13, [
-            _createElementVNode("table", _hoisted_14, [
-              _cache[6] || (_cache[6] = _createElementVNode("thead", null, [
-                _createElementVNode("tr", null, [
-                  _createElementVNode("th", { scope: "col" }, "状态"),
-                  _createElementVNode("th", { scope: "col" }, "资源名称"),
-                  _createElementVNode("th", { scope: "col" }, "网址"),
-                  _createElementVNode("th", { scope: "col" }, "搜索功能")
+      (loading.value)
+        ? (_openBlock(), _createElementBlock("div", _hoisted_12, "正在读取资源站配置…"))
+        : (!sources.value.length)
+          ? (_openBlock(), _createElementBlock("div", _hoisted_13, "暂未读取到资源站配置"))
+          : (_openBlock(), _createElementBlock("div", _hoisted_14, [
+              _createElementVNode("table", _hoisted_15, [
+                _cache[6] || (_cache[6] = _createElementVNode("thead", null, [
+                  _createElementVNode("tr", null, [
+                    _createElementVNode("th", { scope: "col" }, "状态"),
+                    _createElementVNode("th", { scope: "col" }, "资源名称"),
+                    _createElementVNode("th", { scope: "col" }, "网址"),
+                    _createElementVNode("th", { scope: "col" }, "搜索功能")
+                  ])
+                ], -1)),
+                _createElementVNode("tbody", null, [
+                  (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(sources.value, (source) => {
+                    return (_openBlock(), _createElementBlock("tr", {
+                      key: source.key
+                    }, [
+                      _createElementVNode("td", null, [
+                        _createElementVNode("span", {
+                          class: _normalizeClass(['source-state', `is-${source.status || 'ready'}`])
+                        }, [
+                          _cache[5] || (_cache[5] = _createElementVNode("i", {
+                            class: "state-dot",
+                            "aria-hidden": "true"
+                          }, null, -1)),
+                          _createTextVNode(" " + _toDisplayString(source.status_label || '已加载'), 1)
+                        ], 2)
+                      ]),
+                      _createElementVNode("td", null, [
+                        _createElementVNode("span", _hoisted_16, _toDisplayString(source.name), 1)
+                      ]),
+                      _createElementVNode("td", null, [
+                        (sourceUrl(source))
+                          ? (_openBlock(), _createElementBlock("a", {
+                              key: 0,
+                              class: "source-link",
+                              href: sourceUrl(source),
+                              target: "_blank",
+                              rel: "noopener noreferrer"
+                            }, _toDisplayString(sourceHost(source)), 9, _hoisted_17))
+                          : (_openBlock(), _createElementBlock("span", _hoisted_18, "—"))
+                      ]),
+                      _createElementVNode("td", null, [
+                        _createElementVNode("span", {
+                          class: _normalizeClass(['search-state', `is-${source.search_status || 'supported'}`])
+                        }, _toDisplayString(source.search_label || '支持'), 3)
+                      ])
+                    ]))
+                  }), 128))
                 ])
-              ], -1)),
-              _createElementVNode("tbody", null, [
-                (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(sources.value, (source) => {
-                  return (_openBlock(), _createElementBlock("tr", {
-                    key: source.key
-                  }, [
-                    _createElementVNode("td", null, [
-                      _createElementVNode("span", {
-                        class: _normalizeClass(['source-state', `is-${source.status || 'ready'}`])
-                      }, [
-                        _cache[5] || (_cache[5] = _createElementVNode("i", {
-                          class: "state-dot",
-                          "aria-hidden": "true"
-                        }, null, -1)),
-                        _createTextVNode(" " + _toDisplayString(source.status_label || '已加载'), 1)
-                      ], 2)
-                    ]),
-                    _createElementVNode("td", null, [
-                      _createElementVNode("span", _hoisted_15, _toDisplayString(source.name), 1)
-                    ]),
-                    _createElementVNode("td", null, [
-                      (sourceUrl(source))
-                        ? (_openBlock(), _createElementBlock("a", {
-                            key: 0,
-                            class: "source-link",
-                            href: sourceUrl(source),
-                            target: "_blank",
-                            rel: "noopener noreferrer"
-                          }, _toDisplayString(sourceHost(source)), 9, _hoisted_16))
-                        : (_openBlock(), _createElementBlock("span", _hoisted_17, "—"))
-                    ]),
-                    _createElementVNode("td", null, [
-                      _createElementVNode("span", {
-                        class: _normalizeClass(['search-state', `is-${source.search_status || 'supported'}`])
-                      }, _toDisplayString(source.search_label || '支持'), 3)
-                    ])
-                  ]))
-                }), 128))
               ])
-            ])
-          ]))
+            ]))
     ]),
-    _cache[7] || (_cache[7] = _createStaticVNode("<section class=\"panel help-panel\" data-v-ca98abe2><div class=\"section-title\" data-v-ca98abe2>使用说明</div><div class=\"help-grid\" data-v-ca98abe2><p data-v-ca98abe2><strong data-v-ca98abe2>目录</strong>：目录留空时按媒体类型读取 MoviePilot 的本地目录；填写插件目录则优先使用插件目录。</p><p data-v-ca98abe2><strong data-v-ca98abe2>多季合集</strong>：有明确季号或 TMDB 季集数能完整对应时才会自动分季；无法确认时会暂停，避免错放。</p><p data-v-ca98abe2><strong data-v-ca98abe2>媒体库</strong>：目录内没有正在下载的缓存文件后才显示完整文件夹；完成后可请求 Emby/Jellyfin 刷新。</p><p data-v-ca98abe2><strong data-v-ca98abe2>播放</strong>：插件不内置 m3u8 播放器，播放仍由已有 Emby/Jellyfin 页面负责。</p></div></section>", 1))
+    _cache[7] || (_cache[7] = _createStaticVNode("<section class=\"panel help-panel\" data-v-2fd7c932><div class=\"section-title\" data-v-2fd7c932>使用说明</div><div class=\"help-grid\" data-v-2fd7c932><p data-v-2fd7c932><strong data-v-2fd7c932>目录</strong>：目录留空时按媒体类型读取 MoviePilot 的本地目录；填写插件目录则优先使用插件目录。</p><p data-v-2fd7c932><strong data-v-2fd7c932>多季合集</strong>：有明确季号或 TMDB 季集数能完整对应时才会自动分季；无法确认时会暂停，避免错放。</p><p data-v-2fd7c932><strong data-v-2fd7c932>媒体库</strong>：目录内没有正在下载的缓存文件后才显示完整文件夹；完成后可请求 Emby/Jellyfin 刷新。</p><p data-v-2fd7c932><strong data-v-2fd7c932>播放</strong>：插件不内置 m3u8 播放器，播放仍由已有 Emby/Jellyfin 页面负责。</p></div></section>", 1))
   ]))
 }
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ca98abe2"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2fd7c932"]]);
 
 export { AppPage as default };

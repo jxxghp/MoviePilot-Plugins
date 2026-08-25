@@ -144,6 +144,11 @@ _RESOURCE_SEARCH_CACHE_MAX_ENTRIES = 128
 _RESOURCE_SEARCH_CACHE_TTL = 30.0
 
 
+def _resource_sort_priority(height: int) -> int:
+    """Keep resolution order inside MoviePilot's three-digit sort slot."""
+    return min(999, max(0, int(height or 0) // 10))
+
+
 # MoviePilot 3.0.0 returns before module resource providers are called when no
 # PT/indexer site is enabled. Keep this compatibility bridge inside the plugin.
 # Existing MoviePilot plugins use the same reversible runtime-wrapper pattern.
@@ -541,7 +546,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "https://raw.githubusercontent.com/OneBigMoon/moviepilot-v3-lunatv-source/master/icons/lunatvsource.png"
-    plugin_version = "0.4.40"
+    plugin_version = "0.4.41"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -2842,14 +2847,22 @@ class LunaTVSource(_PluginBase):
         # 第三方 CMS、AI 与 TMDB 请求可能较慢，不能在请求期间占用缓存锁；
         # 否则插件更新/停用时会一直等待正在进行的原生资源搜索。
         search_query, _ = (self._ai or AiTitleNormalizer(False)).normalize(keyword)
+        progress_state = {"finished": 0, "total": 0}
+
         def on_progress(*, finished: int, total: int, text: str) -> None:
+            progress_state["finished"] = int(finished)
+            progress_state["total"] = int(total)
             if progress_callback is None:
                 return
             try:
                 progress_callback(
                     finished=int(finished),
                     total=int(total),
-                    text=f"LunaTV 正在搜索源 {int(finished)}/{int(total)}",
+                    text=(
+                        text
+                        if text.startswith("LunaTV ")
+                        else f"LunaTV 正在搜索源 {int(finished)}/{int(total)}"
+                    ),
                 )
             except Exception:
                 # Host progress handlers must never break CMS search.
@@ -2884,6 +2897,13 @@ class LunaTVSource(_PluginBase):
         if requested_media_type:
             search_kwargs["media_type_filter"] = requested_media_type
         results = client.search(search_query, **search_kwargs)
+        completed_sources = progress_state["finished"] or source_count
+        total_sources = progress_state["total"] or source_count
+        on_progress(
+            finished=completed_sources,
+            total=total_sources,
+            text="LunaTV 正在汇总资源并检测清晰度",
+        )
         if requested_media_type:
             results = [
                 result for result in results if result.media_type == requested_media_type
@@ -3116,7 +3136,7 @@ class LunaTVSource(_PluginBase):
                 page_url=group["page_url"],
                 size=0,
                 seeders=1,
-                pri_order=height,
+                pri_order=_resource_sort_priority(height),
                 category="电视剧",
                 labels=["LunaTV", quality, "m3u8", f"第{season}季"],
             ))
@@ -3145,11 +3165,16 @@ class LunaTVSource(_PluginBase):
                 page_url=row["page_url"],
                 size=0,
                 seeders=1,
-                pri_order=height,
+                pri_order=_resource_sort_priority(height),
                 category="电视剧" if payload["media_type"] == "tv" else "电影",
                 labels=["LunaTV", quality, "m3u8"],
             ))
-        # Python's reverse numeric sort is stable for resources at the same height.
+        # Python's reverse numeric sort is stable for resources with the same priority.
+        on_progress(
+            finished=completed_sources,
+            total=total_sources,
+            text="LunaTV 正在按清晰度排序",
+        )
         torrents.sort(key=lambda item: int(getattr(item, "pri_order", 0) or 0), reverse=True)
         with self._resource_search_lock:
             self._resource_search_cache[cache_key] = (time.monotonic(), torrents)
