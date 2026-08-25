@@ -725,10 +725,10 @@ class _BaseM3U8Engine:
             while True:
                 # Reap the session leader when it exits; otherwise a zombie
                 # can keep killpg(..., 0) reporting the group as alive.
-                leader_exited = process.poll() is not None
+                process.poll()
                 if not _group_exists(process.pid):
                     return True
-                if leader_exited or time.monotonic() >= deadline:
+                if time.monotonic() >= deadline:
                     return False
                 time.sleep(min(_TERMINATE_POLL_SECONDS, max(0.0, deadline - time.monotonic())))
 
@@ -748,8 +748,7 @@ class _BaseM3U8Engine:
                 return
         if not _signal_group(signal.SIGKILL):
             return
-        if process.poll() is None:
-            _wait_group(time.monotonic() + _TERMINATE_WINDOW_SECONDS)
+        _wait_group(time.monotonic() + _TERMINATE_WINDOW_SECONDS)
 
 
     @staticmethod
@@ -912,8 +911,6 @@ class _BaseM3U8Engine:
                     )
                     if cache_activity is not None:
                         cache_count, cache_progress = cache_activity
-                        if cache_count >= expected_segments:
-                            download_stage_complete = True
                         if cache_count > last_cache_count:
                             last_progress_at = now
                         last_cache_count = cache_count

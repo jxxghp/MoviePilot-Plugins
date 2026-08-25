@@ -317,24 +317,17 @@ def test_engine_progress_growth_resets_stall_watchdog(monkeypatch, tmp_path: Pat
     assert time.monotonic() - started_at > 0.3
 
 
-@pytest.mark.parametrize("completion_source", ["progress", "cache"])
 def test_engine_allows_finalize_after_download_completion(
-    monkeypatch, tmp_path: Path, completion_source: str
+    monkeypatch, tmp_path: Path
 ):
     engine = VSDEngine(tmp_path)
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
-    expected_segments = 0
-    if completion_source == "progress":
-        command = [
-            sys.executable,
-            "-c",
-            "import time; print('completed 100%', flush=True); time.sleep(0.25)",
-        ]
-    else:
-        (cache_dir / "segment.ts").write_bytes(b"segment")
-        expected_segments = 1
-        command = [sys.executable, "-c", "import time; time.sleep(0.25)"]
+    command = [
+        sys.executable,
+        "-c",
+        "import time; print('completed 100%', flush=True); time.sleep(0.25)",
+    ]
 
     monkeypatch.setattr(engine, "PROCESS_TOTAL_TIMEOUT_SECONDS", 1.0)
     monkeypatch.setattr(engine, "PROCESS_NO_PROGRESS_TIMEOUT_SECONDS", 0.1)
@@ -345,8 +338,30 @@ def test_engine_allows_finalize_after_download_completion(
         cache_dir=cache_dir,
         control_event=None,
         progress_callback=None,
-        expected_segments=expected_segments,
+        expected_segments=0,
     )
+
+
+def test_engine_cache_file_count_does_not_mark_download_complete(
+    monkeypatch, tmp_path: Path
+):
+    engine = VSDEngine(tmp_path)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    (cache_dir / "key.bin").write_bytes(b"key")
+    (cache_dir / "init.mp4").write_bytes(b"init")
+    monkeypatch.setattr(engine, "PROCESS_TOTAL_TIMEOUT_SECONDS", 1.0)
+    monkeypatch.setattr(engine, "PROCESS_NO_PROGRESS_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(engine, "PROCESS_POLL_INTERVAL_SECONDS", 0.02)
+
+    with pytest.raises(M3U8EngineError, match="made no progress"):
+        engine._run_command(
+            [sys.executable, "-c", "import time; time.sleep(0.25)"],
+            cache_dir=cache_dir,
+            control_event=None,
+            progress_callback=None,
+            expected_segments=2,
+        )
 
 
 @pytest.mark.skipif(os.name != "posix", reason="requires POSIX process groups")
@@ -464,7 +479,7 @@ def test_terminate_escalates_to_sigkill_when_group_lingers(monkeypatch) -> None:
 
         def poll(self):
             self.poll_calls += 1
-            return None
+            return 0
 
         def terminate(self) -> None:
             self.terminated = True
@@ -477,6 +492,7 @@ def test_terminate_escalates_to_sigkill_when_group_lingers(monkeypatch) -> None:
             raise subprocess.TimeoutExpired("cmd", timeout if timeout is not None else 0)
 
     seen: list[int] = []
+    sleep_calls: list[float] = []
     monotonic_state = {"value": 0.0}
     kill_state = {"sigkill": False}
 
@@ -486,7 +502,7 @@ def test_terminate_escalates_to_sigkill_when_group_lingers(monkeypatch) -> None:
         return value
 
     def fake_sleep(seconds: float) -> None:
-        pass
+        sleep_calls.append(seconds)
 
     def fake_killpg(_pid: int, signal_number: int) -> None:
         seen.append(signal_number)
@@ -507,6 +523,8 @@ def test_terminate_escalates_to_sigkill_when_group_lingers(monkeypatch) -> None:
     assert seen[0] == signal.SIGTERM
     assert signal.SIGKILL in seen
     assert seen.count(signal.SIGKILL) == 1
+    assert seen[-1] == 0
+    assert sleep_calls
     assert process.terminated is False
     assert process.killed is False
     assert process.wait_calls == 0
