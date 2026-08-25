@@ -3099,6 +3099,7 @@ class LunaTVSource(_PluginBase):
             group["resolution_probed_episodes"] = probed_episodes
 
         torrents: List[Any] = []
+        torrent_heights: Dict[int, int] = {}
         for group in group_rows:
             group_episodes = group["sorted_episodes"]
             season = int(group["season"])
@@ -3140,6 +3141,7 @@ class LunaTVSource(_PluginBase):
                 category="电视剧",
                 labels=["LunaTV", quality, "m3u8", f"第{season}季"],
             ))
+            torrent_heights[id(torrents[-1])] = height
 
         for row in single_rows:
             payload = row["payload"]
@@ -3169,13 +3171,20 @@ class LunaTVSource(_PluginBase):
                 category="电视剧" if payload["media_type"] == "tv" else "电影",
                 labels=["LunaTV", quality, "m3u8"],
             ))
-        # Python's reverse numeric sort is stable for resources with the same priority.
+            torrent_heights[id(torrents[-1])] = height
+        # Keep exact height as the tie-breaker when three-digit priorities collide.
         on_progress(
             finished=completed_sources,
             total=total_sources,
             text="LunaTV 正在按清晰度排序",
         )
-        torrents.sort(key=lambda item: int(getattr(item, "pri_order", 0) or 0), reverse=True)
+        torrents.sort(
+            key=lambda item: (
+                int(getattr(item, "pri_order", 0) or 0),
+                torrent_heights.get(id(item), 0),
+            ),
+            reverse=True,
+        )
         with self._resource_search_lock:
             self._resource_search_cache[cache_key] = (time.monotonic(), torrents)
             self._prune_resource_search_cache(time.monotonic())

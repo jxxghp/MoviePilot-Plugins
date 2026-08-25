@@ -1247,12 +1247,15 @@ class AppleCmsClient:
         selected_groups: Dict[Tuple[str, str, int], List[CmsResult]] = {}
         selected_bundles: Dict[Tuple[str, str, int], List[CmsResult]] = {}
         selected_count = 0
+        ambiguous_year_groups: set[Tuple[str, int]] = set()
 
         def matching_group_key(
             identity: Tuple[str, str, int, int, str],
         ) -> Optional[Tuple[str, str, int]]:
             if identity[:3] in selected_groups:
                 return identity[:3]
+            if (identity[0], identity[2]) in ambiguous_year_groups:
+                return None
             matches = [
                 group_key
                 for group_key in selected_groups
@@ -1309,6 +1312,25 @@ class AppleCmsClient:
                 if (not media_type_filter or result.media_type == media_type_filter)
                 and (not require_playable or result.episodes)
             ]
+            explicit_years: Dict[Tuple[str, int], set[str]] = {}
+            unknown_year_groups: set[Tuple[str, int]] = set()
+            for result in playable_results:
+                group_identity = (
+                    _episode_row_identity(result)
+                    or _episode_row_title_identity(result)
+                )
+                if not group_identity:
+                    continue
+                base_key = (group_identity[0], group_identity[2])
+                if group_identity[1]:
+                    explicit_years.setdefault(base_key, set()).add(group_identity[1])
+                else:
+                    unknown_year_groups.add(base_key)
+            ambiguous_year_groups.update(
+                base_key
+                for base_key in unknown_year_groups
+                if len(explicit_years.get(base_key, set())) > 1
+            )
             if selected_group_only and selected_groups:
                 matched_years: Dict[Tuple[str, str, int], set[str]] = {}
                 for result in playable_results:

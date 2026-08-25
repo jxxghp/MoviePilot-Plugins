@@ -1261,6 +1261,7 @@ def test_resource_torrents_sort_actual_heights_and_keep_ties_stable(monkeypatch)
     source = CmsSource("demo", "演示源", "https://cms.example/vod")
     qualities = [
         ("1080-first", 1080),
+        ("1088", 1088),
         ("2160", 2160),
         ("1440", 1440),
         ("1200", 1200),
@@ -1298,7 +1299,7 @@ def test_resource_torrents_sort_actual_heights_and_keep_ties_stable(monkeypatch)
 
     items = plugin._resource_torrents("质量")
 
-    assert [item.pri_order for item in items] == [216, 144, 120, 108, 108, 72, 48, 0]
+    assert [item.pri_order for item in items] == [216, 144, 120, 108, 108, 108, 72, 48, 0]
     host_sorted = sorted(
         items,
         key=lambda item: str(item.pri_order or 0).rjust(3, "0"),
@@ -1313,6 +1314,7 @@ def test_resource_torrents_sort_actual_heights_and_keep_ties_stable(monkeypatch)
         "https://video.example/2160.m3u8",
         "https://video.example/1440.m3u8",
         "https://video.example/1200.m3u8",
+        "https://video.example/1088.m3u8",
         "https://video.example/1080-first.m3u8",
         "https://video.example/1080-second.m3u8",
         "https://video.example/720.m3u8",

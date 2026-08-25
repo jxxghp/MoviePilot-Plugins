@@ -1331,6 +1331,34 @@ def test_search_episode_row_expansion_stops_on_ambiguous_unknown_year():
     ]
 
 
+def test_search_episode_row_expansion_keeps_ambiguous_first_page_years_separate():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    unknown_year = _episode_row(1, year="")
+    year_2025 = _episode_row(2, year="2025")
+    year_2026 = _episode_row(3, year="2026")
+
+    def fake_request(_source, **params):
+        assert int(params["pg"]) == 1
+        return {
+            "pagecount": "1",
+            "list": [unknown_year, year_2025, year_2026],
+        }
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=3, expand_tv_episode_rows=True)
+
+    assert [
+        (result.year, [episode.episode for episode in result.episodes])
+        for result in results
+    ] == [
+        ("", [1]),
+        ("2025", [2]),
+        ("2026", [3]),
+    ]
+
+
 def test_search_episode_row_expansion_prefers_playable_bundle_over_title_only_fallback():
     source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
     client = AppleCmsClient([source])
