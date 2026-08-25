@@ -317,7 +317,7 @@ def test_engine_progress_growth_resets_stall_watchdog(monkeypatch, tmp_path: Pat
     assert time.monotonic() - started_at > 0.3
 
 
-def test_engine_allows_finalize_after_download_completion(
+def test_engine_single_track_progress_completion_keeps_watchdog(
     monkeypatch, tmp_path: Path
 ):
     engine = VSDEngine(tmp_path)
@@ -326,9 +326,41 @@ def test_engine_allows_finalize_after_download_completion(
     command = [
         sys.executable,
         "-c",
-        "import time; print('completed 100%', flush=True); time.sleep(0.25)",
+        "import time; print('track 1 100%', flush=True); time.sleep(0.25)",
     ]
 
+    monkeypatch.setattr(engine, "PROCESS_TOTAL_TIMEOUT_SECONDS", 1.0)
+    monkeypatch.setattr(engine, "PROCESS_NO_PROGRESS_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(engine, "PROCESS_POLL_INTERVAL_SECONDS", 0.02)
+
+    with pytest.raises(M3U8EngineError, match="made no progress"):
+        engine._run_command(
+            command,
+            cache_dir=cache_dir,
+            control_event=None,
+            progress_callback=None,
+            expected_segments=0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("engine_type", "finalize_line"),
+    [
+        (N_m3u8DLEngine, "INFO : Muxing to /tmp/media.mp4"),
+        (VSDEngine, "Muxing [exe] ffmpeg -i input.ts output.mp4"),
+    ],
+)
+def test_engine_allows_finalize_after_reliable_engine_signal(
+    monkeypatch, tmp_path: Path, engine_type, finalize_line: str
+):
+    engine = engine_type(tmp_path)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    command = [
+        sys.executable,
+        "-c",
+        f"import time; print({finalize_line!r}, flush=True); time.sleep(0.25)",
+    ]
     monkeypatch.setattr(engine, "PROCESS_TOTAL_TIMEOUT_SECONDS", 1.0)
     monkeypatch.setattr(engine, "PROCESS_NO_PROGRESS_TIMEOUT_SECONDS", 0.1)
     monkeypatch.setattr(engine, "PROCESS_POLL_INTERVAL_SECONDS", 0.02)

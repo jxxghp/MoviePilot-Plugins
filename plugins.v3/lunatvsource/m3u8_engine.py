@@ -645,6 +645,12 @@ class _BaseM3U8Engine:
         return None
 
     @staticmethod
+    def has_entered_finalize_stage(line: str) -> bool:
+        """Return whether engine output confirms final muxing has begun."""
+        del line
+        return False
+
+    @staticmethod
     def _cache_activity(
         cache_dir: Path, expected_segments: int
     ) -> Optional[tuple[int, float]]:
@@ -804,14 +810,14 @@ class _BaseM3U8Engine:
             if not line:
                 return
             output_tail = (output_tail + line + "\n")[-12000:]
+            if self.has_entered_finalize_stage(line):
+                download_stage_complete = True
             parsed = self.parse_progress(line)
             if parsed is None:
                 return
             if parsed <= last_parsed_progress:
                 return
             last_parsed_progress = parsed
-            if parsed >= 1.0:
-                download_stage_complete = True
             last_progress_at = time.monotonic()
             value = max(last_progress, parsed)
             if value <= last_progress:
@@ -961,6 +967,11 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
     name = "n_m3u8dl_re"
     spec = N_M3U8DL_RE_SPEC
     _MEDIA_SUFFIXES = {".mp4", ".mkv", ".ts", ".m4a", ".mov", ".webm"}
+    _FINALIZE_STAGE_RE = re.compile(r"\bmuxing\s+to\b", re.I)
+
+    @staticmethod
+    def has_entered_finalize_stage(line: str) -> bool:
+        return bool(N_m3u8DLEngine._FINALIZE_STAGE_RE.search(line))
 
     def stage_dir(
         self, task_id: str, output_parent: Optional[Path] = None
@@ -1110,6 +1121,11 @@ class VSDEngine(_BaseM3U8Engine):
     name = "vsd"
     spec = VSD_SPEC
     _PT_RE = re.compile(r"PT\s*:\s*(\d+)\s*/\s*(\d+).*?%\s*:\s*(\d+(?:\.\d+)?)", re.I)
+    _FINALIZE_STAGE_RE = re.compile(r"\bmuxing\s+\[exe\]\s+ffmpeg\b", re.I)
+
+    @staticmethod
+    def has_entered_finalize_stage(line: str) -> bool:
+        return bool(VSDEngine._FINALIZE_STAGE_RE.search(line))
 
     @staticmethod
     def parse_progress(line: str) -> Optional[float]:
