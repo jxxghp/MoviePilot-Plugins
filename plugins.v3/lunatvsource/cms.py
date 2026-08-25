@@ -1299,6 +1299,38 @@ class AppleCmsClient:
                     break
             return upgraded_group_key
 
+        def selected_group_year_conflict(page_results: Iterable[CmsResult]) -> bool:
+            explicit_years: Dict[Tuple[str, int], set[str]] = {}
+            unknown_year_groups: set[Tuple[str, int]] = set()
+            for result in page_results:
+                group_identity = (
+                    _episode_row_identity(result)
+                    or _episode_row_title_identity(result)
+                )
+                if not group_identity:
+                    continue
+                base_key = (group_identity[0], group_identity[2])
+                if group_identity[1]:
+                    explicit_years.setdefault(base_key, set()).add(group_identity[1])
+                else:
+                    unknown_year_groups.add(base_key)
+            selected_explicit_years: Dict[Tuple[str, int], set[str]] = {}
+            selected_unknown_year_groups: set[Tuple[str, int]] = set()
+            for title, year, season in selected_groups:
+                base_key = (title, season)
+                if year:
+                    selected_explicit_years.setdefault(base_key, set()).add(year)
+                else:
+                    selected_unknown_year_groups.add(base_key)
+            for base_key in unknown_year_groups | selected_unknown_year_groups:
+                known_years = {
+                    *explicit_years.get(base_key, set()),
+                    *selected_explicit_years.get(base_key, set()),
+                }
+                if len(known_years) > 1:
+                    return True
+            return False
+
         def collect_results(
             page_results: Iterable[CmsResult], selected_group_only: bool = False
         ) -> bool:
@@ -1331,22 +1363,12 @@ class AppleCmsClient:
                 for base_key in unknown_year_groups
                 if len(explicit_years.get(base_key, set())) > 1
             )
-            if selected_group_only and selected_groups:
-                matched_years: Dict[Tuple[str, str, int], set[str]] = {}
-                for result in playable_results:
-                    group_identity = (
-                        _episode_row_identity(result)
-                        or _episode_row_title_identity(result)
-                    )
-                    matching_key = (
-                        matching_group_key(group_identity) if group_identity else None
-                    )
-                    if matching_key and not matching_key[1] and group_identity[1]:
-                        matched_years.setdefault(matching_key, set()).add(
-                            group_identity[1]
-                        )
-                if any(len(years) > 1 for years in matched_years.values()):
-                    return True
+            if (
+                selected_group_only
+                and selected_groups
+                and selected_group_year_conflict(playable_results)
+            ):
+                return True
             row_group_keys = set()
             for result in playable_results:
                 identity = _episode_row_identity(result)
@@ -1485,6 +1507,7 @@ class AppleCmsClient:
                 # matching rows on broad-search pages. A gap ends expansion
                 # rather than walking an arbitrary result set.
                 matched_items: List[Mapping[str, Any]] = []
+                matched_results: List[CmsResult] = []
                 for item in page_items:
                     result = _result_from_item(source, item)
                     identity = _episode_row_title_identity(result)
@@ -1495,9 +1518,16 @@ class AppleCmsClient:
                         identity = _episode_row_title_identity(
                             replace(result, media_type="tv")
                         )
-                    if identity and matching_group_key(identity) is not None:
+                    if identity and any(
+                        identity[0] == group_key[0]
+                        and identity[2] == group_key[2]
+                        for group_key in selected_groups
+                    ):
                         matched_items.append(item)
+                        matched_results.append(result)
                 if not matched_items:
+                    break
+                if selected_group_year_conflict(matched_results):
                     break
                 if collect_results(
                     self._results_from_items(
@@ -1537,16 +1567,12 @@ class AppleCmsClient:
                     _merge_episode_row_bundles(merged, selected_bundles.get(entry, ()))
                 )
             elif not require_playable and selected_bundles.get(entry):
-                source_results.append(
-                    next(
-                        (
-                            bundle
-                            for bundle in selected_bundles[entry]
-                            if bundle.episodes
-                        ),
-                        selected_bundles[entry][0],
-                    )
+                bundles = selected_bundles[entry]
+                base_bundle = next(
+                    (bundle for bundle in bundles if bundle.episodes),
+                    bundles[0],
                 )
+                source_results.append(_merge_episode_row_bundles(base_bundle, bundles))
         return source_results
 
     def detail(self, source_key: str, vod_id: str) -> Optional[CmsResult]:

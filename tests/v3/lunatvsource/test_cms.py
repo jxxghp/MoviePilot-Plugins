@@ -1359,6 +1359,35 @@ def test_search_episode_row_expansion_keeps_ambiguous_first_page_years_separate(
     ]
 
 
+def test_search_episode_row_expansion_stops_before_later_page_year_conflict():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+    unknown_year = _episode_row(2, year="")
+    unknown_year["vod_id"] = "episode-unknown"
+    year_2026 = _episode_row(2, year="2026")
+    year_2026["vod_id"] = "episode-2026"
+
+    def fake_request(_source, **params):
+        page = int(params["pg"])
+        calls.append(page)
+        if page == 1:
+            return {"pagecount": "3", "list": [_episode_row(1, year="2025")]}
+        if page == 2:
+            return {"pagecount": "3", "list": [unknown_year, year_2026]}
+        raise AssertionError("conflicting year page must stop expansion")
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert calls == [1, 2]
+    assert [
+        (result.year, [episode.episode for episode in result.episodes])
+        for result in results
+    ] == [("2025", [1])]
+
+
 def test_search_episode_row_expansion_prefers_playable_bundle_over_title_only_fallback():
     source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
     client = AppleCmsClient([source])
@@ -1399,6 +1428,61 @@ def test_search_episode_row_expansion_prefers_playable_bundle_over_title_only_fa
     assert [(result.vod_id, [episode.episode for episode in result.episodes]) for result in results] == [
         ("bundle", [1, 2])
     ]
+
+
+def test_search_episode_row_expansion_merges_all_playable_fallback_bundles():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    title_only = {
+        "vod_id": "bad-row",
+        "vod_name": "长剧 S01E001",
+        "vod_year": "2026",
+        "type_name": "电视剧",
+        "vod_play_url": "not-a-url",
+    }
+    first_bundle = {
+        "vod_id": "bundle-1",
+        "vod_name": "长剧 S01E002",
+        "vod_year": "2026",
+        "type_name": "电视剧",
+        "vod_play_url": (
+            "第1集$https://video.example/bundle-e1.m3u8#"
+            "第2集$https://video.example/bundle-e2.m3u8"
+        ),
+    }
+    second_bundle = {
+        "vod_id": "bundle-2",
+        "vod_name": "长剧 S01E004",
+        "vod_year": "2026",
+        "type_name": "电视剧",
+        "vod_play_url": (
+            "第3集$https://video.example/bundle-e3.m3u8#"
+            "第4集$https://video.example/bundle-e4.m3u8"
+        ),
+    }
+
+    def fake_request(_source, **params):
+        page = int(params["pg"])
+        return {
+            "pagecount": "3",
+            "list": {
+                1: [title_only],
+                2: [first_bundle],
+                3: [second_bundle],
+            }[page],
+        }
+
+    client._request = fake_request
+
+    results = client.search(
+        "长剧",
+        limit=1,
+        require_playable=False,
+        expand_tv_episode_rows=True,
+    )
+
+    assert len(results) == 1
+    assert [episode.episode for episode in results[0].episodes] == [1, 2, 3, 4]
 
 
 def test_search_episode_row_expansion_does_not_upgrade_ambiguous_unknown_year():
