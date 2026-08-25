@@ -1360,6 +1360,7 @@ class AppleCmsClient:
                 | selected_unknown_year_groups
                 | set(upgraded_unknown_groups)
             )
+            has_conflict = False
             for base_key in possible_unknown_groups:
                 known_years = {
                     *seen_explicit_years.get(base_key, set()),
@@ -1367,8 +1368,8 @@ class AppleCmsClient:
                 }
                 if len(known_years) > 1:
                     restore_upgraded_group(base_key)
-                    return True
-            return False
+                    has_conflict = True
+            return has_conflict
 
         def collect_results(
             page_results: Iterable[CmsResult], selected_group_only: bool = False
@@ -1377,17 +1378,21 @@ class AppleCmsClient:
 
             nonlocal selected_count
             conflict = False
-            playable_results = [
+            media_type_results = [
                 result
                 for result in page_results
                 if (not media_type_filter or result.media_type == media_type_filter)
-                and (not require_playable or result.episodes)
             ]
-            _, unknown_year_groups = remember_year_groups(playable_results)
+            playable_results = [
+                result
+                for result in media_type_results
+                if not require_playable or result.episodes
+            ]
+            _, unknown_year_groups = remember_year_groups(media_type_results)
             if (
                 selected_group_only
                 and selected_groups
-                and selected_group_year_conflict(playable_results)
+                and selected_group_year_conflict(media_type_results)
             ):
                 return True
             row_group_keys = set()
