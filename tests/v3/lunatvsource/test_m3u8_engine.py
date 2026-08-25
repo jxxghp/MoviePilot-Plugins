@@ -317,6 +317,188 @@ def test_engine_progress_growth_resets_stall_watchdog(monkeypatch, tmp_path: Pat
     assert time.monotonic() - started_at > 0.3
 
 
+@pytest.mark.parametrize(
+    ("line", "should_timeout"),
+    [
+        ("PT: 2/2 speed %:100.0\r", False),
+        ("Muxing [exe] ffmpeg -i input.ts output.mp4\r", False),
+        ("ordinary status line\r", True),
+    ],
+)
+def test_engine_processes_ready_output_before_stall_timeout(
+    monkeypatch, tmp_path: Path, line: str, should_timeout: bool
+):
+    engine = VSDEngine(tmp_path)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    clock = {"value": 0.0}
+    read_fd, write_fd = os.pipe()
+    stream = os.fdopen(read_fd, "rb", buffering=0)
+    os.write(write_fd, line.encode())
+    os.close(write_fd)
+
+    class Process:
+        pid = 43210
+        returncode = None
+
+        def __init__(self):
+            self.poll_calls = 0
+            self.stdout = stream
+            self.stderr = None
+
+        def poll(self):
+            self.poll_calls += 1
+            if self.poll_calls > 1:
+                self.returncode = 0
+            return self.returncode
+
+        def wait(self, timeout=None):
+            del timeout
+            self.returncode = 0
+            return 0
+
+    class Selector:
+        def __init__(self):
+            self.streams = {}
+            self.select_calls = 0
+
+        def register(self, registered_stream, _event, stream_name):
+            self.streams[registered_stream] = stream_name
+            clock["value"] = 2.0
+
+        def select(self, timeout=None):
+            del timeout
+            if self.streams and self.select_calls < 2:
+                self.select_calls += 1
+                registered_stream, stream_name = next(iter(self.streams.items()))
+
+                class Key:
+                    fileobj = registered_stream
+                    data = stream_name
+
+                return [(Key(), None)]
+            return []
+
+        def unregister(self, registered_stream):
+            self.streams.pop(registered_stream, None)
+
+        def get_map(self):
+            return self.streams
+
+        def close(self):
+            pass
+
+    process = Process()
+
+    def killpg(*_args):
+        raise ProcessLookupError(3, "gone")
+
+    monkeypatch.setattr(
+        "app.plugins.lunatvsource.m3u8_engine.subprocess.Popen",
+        lambda *_args, **_kwargs: process,
+    )
+    monkeypatch.setattr(
+        "app.plugins.lunatvsource.m3u8_engine.selectors.DefaultSelector", Selector
+    )
+    monkeypatch.setattr("app.plugins.lunatvsource.m3u8_engine.os.killpg", killpg)
+    monkeypatch.setattr(
+        "app.plugins.lunatvsource.m3u8_engine.time.monotonic", lambda: clock["value"]
+    )
+    monkeypatch.setattr(engine, "PROCESS_TOTAL_TIMEOUT_SECONDS", 10.0)
+    monkeypatch.setattr(engine, "PROCESS_NO_PROGRESS_TIMEOUT_SECONDS", 1.0)
+
+    try:
+        if should_timeout:
+            with pytest.raises(M3U8EngineError, match="made no progress"):
+                engine._run_command(
+                    ["engine"],
+                    cache_dir=cache_dir,
+                    control_event=None,
+                    progress_callback=None,
+                )
+        else:
+            engine._run_command(
+                ["engine"],
+                cache_dir=cache_dir,
+                control_event=None,
+                progress_callback=None,
+            )
+    finally:
+        stream.close()
+
+
+def test_engine_processes_due_cache_activity_before_stall_timeout(
+    monkeypatch, tmp_path: Path
+):
+    engine = VSDEngine(tmp_path)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    (cache_dir / "segment.ts").write_bytes(b"segment")
+    clock = {"value": 0.0}
+
+    class Process:
+        pid = 43211
+        returncode = None
+
+        def __init__(self):
+            self.poll_calls = 0
+            self.stdout = None
+            self.stderr = None
+
+        def poll(self):
+            self.poll_calls += 1
+            if self.poll_calls > 1:
+                self.returncode = 0
+            return self.returncode
+
+        def wait(self, timeout=None):
+            del timeout
+            self.returncode = 0
+            return 0
+
+    class Selector:
+        def register(self, *_args):
+            raise AssertionError("no stream should be registered")
+
+        def select(self, timeout=None):
+            del timeout
+            return []
+
+        def get_map(self):
+            return {}
+
+        def close(self):
+            pass
+
+    process = Process()
+
+    def popen(*_args, **_kwargs):
+        clock["value"] = 2.0
+        return process
+
+    def killpg(*_args):
+        raise ProcessLookupError(3, "gone")
+
+    monkeypatch.setattr("app.plugins.lunatvsource.m3u8_engine.subprocess.Popen", popen)
+    monkeypatch.setattr(
+        "app.plugins.lunatvsource.m3u8_engine.selectors.DefaultSelector", Selector
+    )
+    monkeypatch.setattr("app.plugins.lunatvsource.m3u8_engine.os.killpg", killpg)
+    monkeypatch.setattr(
+        "app.plugins.lunatvsource.m3u8_engine.time.monotonic", lambda: clock["value"]
+    )
+    monkeypatch.setattr(engine, "PROCESS_TOTAL_TIMEOUT_SECONDS", 10.0)
+    monkeypatch.setattr(engine, "PROCESS_NO_PROGRESS_TIMEOUT_SECONDS", 1.0)
+
+    engine._run_command(
+        ["engine"],
+        cache_dir=cache_dir,
+        control_event=None,
+        progress_callback=None,
+        expected_segments=1,
+    )
+
+
 def test_engine_single_track_progress_completion_keeps_watchdog(
     monkeypatch, tmp_path: Path
 ):

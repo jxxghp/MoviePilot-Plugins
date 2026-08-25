@@ -882,15 +882,6 @@ class _BaseM3U8Engine:
                     if now - started_at > self.PROCESS_TOTAL_TIMEOUT_SECONDS:
                         self._terminate(process)
                         raise M3U8EngineError(f"{self.name} process timed out")
-                    if (
-                        not download_stage_complete
-                        and now - last_progress_at
-                        > self.PROCESS_NO_PROGRESS_TIMEOUT_SECONDS
-                    ):
-                        self._terminate(process)
-                        raise M3U8EngineError(
-                            f"{self.name} process made no progress"
-                        )
 
                 for key, _ in selector.select(timeout=self.PROCESS_POLL_INTERVAL_SECONDS):
                     stream = key.fileobj
@@ -926,6 +917,14 @@ class _BaseM3U8Engine:
                         if progress_callback is not None and cache_progress > last_progress:
                             last_progress = cache_progress
                             progress_callback(cache_progress)
+
+                if (
+                    not download_stage_complete
+                    and now - last_progress_at
+                    > self.PROCESS_NO_PROGRESS_TIMEOUT_SECONDS
+                ):
+                    self._terminate(process)
+                    raise M3U8EngineError(f"{self.name} process made no progress")
 
                 if (
                     process.poll() is not None
