@@ -149,6 +149,12 @@ def _resource_sort_priority(height: int) -> int:
     return min(999, max(0, int(height or 0) // 10))
 
 
+def _field(item: Any, key: str, default: Any = None) -> Any:
+    if isinstance(item, dict):
+        return item.get(key, default)
+    return getattr(item, key, default)
+
+
 # MoviePilot 3.0.0 returns before module resource providers are called when no
 # PT/indexer site is enabled. Keep this compatibility bridge inside the plugin.
 # Existing MoviePilot plugins use the same reversible runtime-wrapper pattern.
@@ -189,6 +195,10 @@ def _bridge_search_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
         "keyword": str(kwargs.get("keyword") or ""),
         "mtype": getattr(mediainfo, "type", None) or kwargs.get("mtype"),
         "page": kwargs.get("page") or 0,
+        "media_source": _field(mediainfo, "media_source"),
+        "media_id": _field(mediainfo, "media_id"),
+        "media_title": _field(mediainfo, "title"),
+        "media_year": _field(mediainfo, "year"),
     }
 
 
@@ -546,7 +556,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "https://raw.githubusercontent.com/OneBigMoon/moviepilot-v3-lunatv-source/master/icons/lunatvsource.png"
-    plugin_version = "0.4.42"
+    plugin_version = "0.4.43"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -2830,6 +2840,10 @@ class LunaTVSource(_PluginBase):
         keyword: str,
         mtype: Any = None,
         progress_callback: Optional[Callable[..., None]] = None,
+        target_media_source: Optional[str] = None,
+        target_media_id: Optional[str] = None,
+        target_media_title: Optional[str] = None,
+        target_media_year: Optional[Any] = None,
     ) -> List[Any]:
         """把 CMS m3u8 条目投影为 MoviePilot 原生 TorrentInfo。"""
         torrent_info_type = _HostTorrentInfo or (
@@ -2838,10 +2852,43 @@ class LunaTVSource(_PluginBase):
         if torrent_info_type is None:
             return []
         requested_type = _enum_value(mtype)
+        requested_media_type = (
+            "tv"
+            if requested_type in {"电视剧", "tv", "series", "show", "tvshow"}
+            else "movie"
+            if requested_type in {"电影", "movie", "film", "movies"}
+            else ""
+        )
+        target_media_source_value = (
+            _coerce_media_identity_source(target_media_source)
+            if target_media_source is not None
+            else None
+        )
+        target_media_id_value = (
+            str(target_media_id).strip() if target_media_id is not None else None
+        )
+        target_media_title_value = (
+            normalize_media_title(str(target_media_title).strip())
+            if target_media_title is not None
+            else ""
+        )
+        target_media_title_provided = bool(target_media_title_value)
+        target_media_year_value = (
+            str(target_media_year).strip() if target_media_year is not None else ""
+        )
+        use_target_tv_identity = (
+            requested_media_type == "tv"
+            and target_media_source_value is not None
+            and target_media_id_value
+        )
         cache_key = "|".join(
             (
                 normalize_search_title(keyword).casefold(),
                 requested_type,
+                target_media_source_value or "",
+                target_media_id_value or "",
+                target_media_title_value,
+                target_media_year_value,
             )
         )
         now = time.monotonic()
@@ -2899,13 +2946,6 @@ class LunaTVSource(_PluginBase):
         search_kwargs["limit"] = max(
             int(search_kwargs["limit"]),
             max(0, source_count) * int(search_kwargs["source_limit"]),
-        )
-        requested_media_type = (
-            "tv"
-            if requested_type in {"电视剧", "tv", "series", "show", "tvshow"}
-            else "movie"
-            if requested_type in {"电影", "movie", "film", "movies"}
-            else ""
         )
         if requested_media_type:
             search_kwargs["media_type_filter"] = requested_media_type
@@ -3130,7 +3170,17 @@ class LunaTVSource(_PluginBase):
             ]
             payload["resolution_probed_episodes"] = group["resolution_probed_episodes"]
             title = group["title"]
-            if group["year"]:
+            if (
+                payload["media_type"] == "tv"
+                and use_target_tv_identity
+                and target_media_title_provided
+            ):
+                title = target_media_title_value
+                if target_media_year_value:
+                    title = f"{title} ({target_media_year_value})"
+                elif group["year"]:
+                    title = f"{title} ({group['year']})"
+            elif group["year"]:
                 title = f"{title} ({group['year']})"
             title = f"{title} · 第{season}季 · {quality}"
             measurement = (
@@ -3145,14 +3195,19 @@ class LunaTVSource(_PluginBase):
             if latency_ms:
                 site_name = f"{site_name} · {latency_ms}ms"
                 labels.append(f"{latency_ms}ms")
-            torrents.append(torrent_info_type(
+            info_media_source = group["host_media_source"]
+            info_media_id = group["host_media_id"]
+            if payload["media_type"] == "tv" and use_target_tv_identity:
+                info_media_source = target_media_source_value
+                info_media_id = target_media_id_value
+            item = torrent_info_type(
                 site_name=site_name,
                 title=title,
                 description=(
                     f"LunaTV · 第{season}季 · {quality} · m3u8 · 共{count}集 · {measurement}"
                 ),
-                media_source=group["host_media_source"],
-                media_id=group["host_media_id"],
+                media_source=info_media_source,
+                media_id=info_media_id,
                 enclosure=self._resource_token(payload),
                 page_url=group["page_url"],
                 size=0,
@@ -3162,8 +3217,9 @@ class LunaTVSource(_PluginBase):
                 pri_order=_resource_sort_priority(height),
                 category="电视剧",
                 labels=labels,
-            ))
-            torrent_heights[id(torrents[-1])] = height
+            )
+            torrents.append(item)
+            torrent_heights[id(item)] = height
 
         for row in single_rows:
             payload = row["payload"]
@@ -3227,6 +3283,10 @@ class LunaTVSource(_PluginBase):
         mtype: Any = None,
         page: Optional[int] = 0,
         progress_callback: Optional[Callable[..., None]] = None,
+        media_source: Optional[str] = None,
+        media_id: Optional[str] = None,
+        media_title: Optional[str] = None,
+        media_year: Optional[Any] = None,
         **_: Any,
     ) -> List[Any]:
         """参与每次原生站点搜索；固定站点名使多站点调用结果可由宿主去重。"""
@@ -3235,11 +3295,22 @@ class LunaTVSource(_PluginBase):
             return []
         try:
             if progress_callback is None:
-                return self._resource_torrents(str(keyword).strip(), mtype=mtype)
+                return self._resource_torrents(
+                    str(keyword).strip(),
+                    mtype=mtype,
+                    target_media_source=media_source,
+                    target_media_id=media_id,
+                    target_media_title=media_title,
+                    target_media_year=media_year,
+                )
             return self._resource_torrents(
                 str(keyword).strip(),
                 mtype=mtype,
                 progress_callback=progress_callback,
+                target_media_source=media_source,
+                target_media_id=media_id,
+                target_media_title=media_title,
+                target_media_year=media_year,
             )
         except Exception as exc:
             self._logger.warning("LunaTV 原生资源搜索失败：%s", exc)

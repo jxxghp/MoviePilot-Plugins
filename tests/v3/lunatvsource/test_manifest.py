@@ -41,21 +41,21 @@ def test_version_consistency_across_manifest_backend_and_frontend():
         ).read_text(encoding="utf-8")
     )
 
-    assert manifest["version"] == "0.4.42"
+    assert manifest["version"] == "0.4.43"
     assert {
         manifest["version"],
         LunaTVSource.plugin_version,
         package["version"],
         lockfile["version"],
         lockfile["packages"][""]["version"],
-    } == {"0.4.42"}
+    } == {"0.4.43"}
 
     history = manifest["history"]
-    assert next(iter(history)) == "0.4.42"
-    assert history["0.4.42"] == (
-        "资源外链跳转到具体影片详情页；移除重复分辨率标签，记录并缓存清晰度探测耗时，"
-        "在资源标签和其他来源名称中显示测速；m3u8 促销状态显示为普通；设置页新增唯一下载目录，"
-        "默认 /downloads/未整理并优先用于原生下载。"
+    assert next(iter(history)) == "0.4.43"
+    assert history["0.4.43"] == (
+        "修复电视剧资源因简繁标题及媒体身份不一致在 MoviePilot 匹配阶段被清空；"
+        "桥接本次搜索目标的规范标题、年份与媒体身份，外层资源用于宿主匹配，下载载荷继续保留"
+        "资源站标题、来源及分集地址；按目标上下文隔离搜索缓存，电影逻辑保持不变。"
     )
     assert history["0.4.41"] == (
         "修复电视剧分集分页在无年份、年份冲突、无 ID 与无效地址场景下的误聚合或提前停止；"
