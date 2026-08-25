@@ -41,17 +41,34 @@ def test_version_consistency_across_manifest_backend_and_frontend():
         ).read_text(encoding="utf-8")
     )
 
-    assert manifest["version"] == "0.4.43"
+    assert manifest["version"] == "0.4.46"
     assert {
         manifest["version"],
         LunaTVSource.plugin_version,
         package["version"],
         lockfile["version"],
         lockfile["packages"][""]["version"],
-    } == {"0.4.43"}
+    } == {"0.4.46"}
 
     history = manifest["history"]
-    assert next(iter(history)) == "0.4.43"
+    assert next(iter(history)) == "0.4.46"
+    assert history["0.4.46"] == (
+        "将受管二进制真实性校验改为代码内固定可执行摘要；完善凭据脱敏、可取消且有总时限"
+        "的引擎安装，以及受目录文件描述符保护的陈旧输出清理；强化 POSIX 进程组有界终止"
+        "与外部进程看门狗，仅在引擎明确进入封装阶段后停用下载停滞检查，并先消费本轮进度"
+        "与缓存活动再判断停滞，不再把单轨 100% 或缓存文件数当作整体完成证据；修复残留"
+        "管道、日志绕过停滞及长时间封装误杀；跨文件系统提交兼容接近文件名上限的目标，"
+        "且提交后的源清理失败不再反转成功状态。"
+    )
+    assert history["0.4.45"] == (
+        "修复双引擎发布阶段的容器、缓存和权限边界：N_m3u8DL-RE 固定混流 MP4，"
+        "VSD 删除任务时清理阶段目录，跨文件系统移动保留源文件权限。"
+    )
+    assert history["0.4.44"] == (
+        "电视剧整季资源改为每个来源只抽测一个代表集，并移除全季实测提示；"
+        "接入受管 N_m3u8DL-RE 与 VSD 双引擎，失败时回退 ffmpeg，支持缓存续传、进度、暂停与安全清理；"
+        "固定 LunaTV 下载器及插件下载目录展示元数据。"
+    )
     assert history["0.4.43"] == (
         "修复电视剧资源因简繁标题及媒体身份不一致在 MoviePilot 匹配阶段被清空；"
         "桥接本次搜索目标的规范标题、年份与媒体身份，外层资源用于宿主匹配，下载载荷继续保留"

@@ -464,7 +464,7 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
     assert items[0].media_id == "123"
     assert items[0].title.endswith("第1季 · 未知")
     assert "集" not in items[0].title
-    assert items[0].description == "LunaTV · 第1季 · 未知 · m3u8 · 共1集 · 已测0/1集"
+    assert items[0].description == "LunaTV · 第1季 · 未知 · m3u8 · 共1集"
     assert "未知" not in items[0].labels
     payload = plugin._decode_resource_token(items[0].enclosure)
     assert payload["url"].endswith("01.m3u8")
@@ -1151,9 +1151,9 @@ def test_resource_torrents_choose_highest_url_for_conflicting_episode(monkeypatc
     payload = plugin._decode_resource_token(item.enclosure)
 
     assert item.site_name == "演示源 · 86ms"
-    assert item.title == "示例剧 · 第1季 · 480P"
-    assert payload["resolution_height"] == 480
-    assert item.pri_order == 48
+    assert item.title == "示例剧 · 第1季 · 1080P"
+    assert payload["resolution_height"] == 1080
+    assert item.pri_order == 108
     assert payload["resolution"] in item.description
     assert payload["resolution"] not in item.labels
     assert "86ms" in item.labels
@@ -1169,14 +1169,16 @@ def test_resource_torrents_choose_highest_url_for_conflicting_episode(monkeypatc
     assert [
         (episode["resolution"], episode["resolution_height"])
         for episode in payload["episodes"]
-    ] == [("1080P", 1080), ("480P", 480)]
-    assert payload["resolution_scope"] == "full"
-    assert payload["resolution_probed_episode_count"] == 2
-    assert payload["resolution_probed_episodes"] == [1, 2]
-    assert "https://video.example/480-e2.m3u8" in probed
+    ] == [("1080P", 1080), ("未知", 0)]
+    assert payload["resolution_scope"] == "sample"
+    assert payload["resolution_probed_episode_count"] == 1
+    assert payload["resolution_probed_episodes"] == [1]
+    assert "https://video.example/480-e2.m3u8" not in probed
+    assert "全2集实测" not in item.description
+    assert "已测" not in item.description
 
 
-def test_resource_torrents_marks_season_unknown_when_any_episode_probe_fails(monkeypatch):
+def test_resource_torrents_marks_sample_unknown_when_probe_fails(monkeypatch):
     class TorrentInfo:
         def __init__(self, **kwargs):
             self.__dict__.update(kwargs)
@@ -1190,8 +1192,8 @@ def test_resource_torrents_marks_season_unknown_when_any_episode_probe_fails(mon
         media_type="tv",
         remark="",
         episodes=(
-            CmsEpisode(1, 1, "第1集", "https://video.example/1080-e1.m3u8"),
-            CmsEpisode(1, 2, "第2集", "https://video.example/unprobed-e2.m3u8"),
+            CmsEpisode(1, 1, "第1集", "https://video.example/unprobed-e1.m3u8"),
+            CmsEpisode(1, 2, "第2集", "https://video.example/1080-e2.m3u8"),
         ),
     )
 
@@ -1217,13 +1219,18 @@ def test_resource_torrents_marks_season_unknown_when_any_episode_probe_fails(mon
     assert payload["resolution_height"] == 0
     assert item.pri_order == 0
     assert "未知" in item.title
+    assert "全2集实测" not in item.description
+    assert "已测" not in item.description
+    assert payload["resolution_scope"] == "sample"
+    assert payload["resolution_probed_episode_count"] == 0
+    assert payload["resolution_probed_episodes"] == []
     assert [
         (episode["resolution"], episode["resolution_height"])
         for episode in payload["episodes"]
-    ] == [("1080P", 1080), ("未知", 0)]
+    ] == [("未知", 0), ("未知", 0)]
 
 
-def test_resource_torrents_probes_all_episodes_in_large_seasons(monkeypatch):
+def test_resource_torrents_probes_one_episode_in_large_seasons(monkeypatch):
     class TorrentInfo:
         def __init__(self, **kwargs):
             self.__dict__.update(kwargs)
@@ -1269,24 +1276,25 @@ def test_resource_torrents_probes_all_episodes_in_large_seasons(monkeypatch):
 
         item = plugin._resource_torrents(f"抽样剧{count}")[0]
         payload = plugin._decode_resource_token(item.enclosure)
-        expected_episodes = list(range(1, count + 1))
+        expected_episodes = [1]
         expected_urls = [
             f"https://video.example/sample-{count}-e{episode}.m3u8"
             for episode in expected_episodes
         ]
 
         assert [urls for urls in probe_calls if urls] == [expected_urls]
-        assert len(expected_urls) == count
+        assert len(expected_urls) == 1
         assert item.pri_order == 108
-        assert f"全{count}集实测" in item.description
-        assert payload["resolution_scope"] == "full"
-        assert payload["resolution_probed_episode_count"] == count
-        assert payload["resolution_probed_episodes"] == expected_episodes
+        assert f"全{count}集实测" not in item.description
+        assert "已测" not in item.description
+        assert payload["resolution_scope"] == "sample"
+        assert payload["resolution_probed_episode_count"] == 1
+        assert payload["resolution_probed_episodes"] == [1]
         assert [
             (payload["episodes"][episode - 1]["resolution"],
              payload["episodes"][episode - 1]["resolution_height"])
             for episode in expected_episodes
-        ] == [("1080P", 1080)] * count
+        ] == [("1080P", 1080)]
 
 
 def test_resource_torrents_probes_all_conflicts_and_large_seasons(monkeypatch):
@@ -1372,19 +1380,19 @@ def test_resource_torrents_probes_all_conflicts_and_large_seasons(monkeypatch):
     assert probed_urls.count(low_url) == 1
     assert probed_urls.count(high_url) == 1
     assert payload["episodes"][0]["url"] == high_url
-    assert payload["resolution"] == "未知"
-    assert payload["resolution_height"] == item.pri_order == 0
-    assert "未知" in item.title
-    assert "已测51/52集" in item.description
-    assert payload["resolution_scope"] == "partial"
-    assert payload["resolution_probed_episode_count"] == 51
-    assert payload["resolution_probed_episodes"] == [
-        episode for episode in range(1, 53) if episode != 27
-    ]
+    assert payload["resolution"] == "1080P"
+    assert payload["resolution_height"] == 1080
+    assert item.pri_order == 108
+    assert "1080P" in item.title
+    assert "全52集实测" not in item.description
+    assert "已测" not in item.description
+    assert payload["resolution_scope"] == "sample"
+    assert payload["resolution_probed_episode_count"] == 1
+    assert payload["resolution_probed_episodes"] == [1]
     assert (
         payload["episodes"][1]["resolution"],
         payload["episodes"][1]["resolution_height"],
-    ) == ("720P", 720)
+    ) == ("未知", 0)
     assert (
         payload["episodes"][26]["resolution"],
         payload["episodes"][26]["resolution_height"],
@@ -2929,6 +2937,124 @@ def test_record_native_history_skips_missing_idempotency_abi(monkeypatch, tmp_pa
 
     plugin._record_native_history(task, str(tmp_path / "movie.mp4"))
     assert writes == []
+
+
+def test_resource_torrents_mark_lunatv_movie_and_season_dialog_contract(monkeypatch):
+    class TorrentInfo:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    movie = _result_from_item(
+        CmsSource("movie", "电影源", "https://movie.example/vod"),
+        {
+            "vod_id": "movie-1",
+            "vod_name": "示例电影",
+            "vod_year": "2026",
+            "type_name": "电影",
+            "vod_play_url": "正片$https://video.example/movie.m3u8",
+        },
+    )
+    show = _result_from_item(
+        CmsSource("show", "电视剧源", "https://show.example/vod"),
+        {
+            "vod_id": "show-1",
+            "vod_name": "示例剧",
+            "vod_year": "2026",
+            "type_name": "电视剧",
+            "vod_play_from": "在线播放",
+            "vod_play_url": (
+                "01$https://video.example/show-s01e01.m3u8#"
+                "02$https://video.example/show-s01e02.m3u8"
+            ),
+        },
+    )
+
+    class Client:
+        def search(self, *_args, **_kwargs):
+            return [movie, show]
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "download_root": " /media/incoming "})
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
+    monkeypatch.setattr(plugin, "_associate_tmdb", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_probe_resource_urls", lambda _urls: {})
+
+    items = plugin._resource_torrents("示例资源")
+    movie_item = next(item for item in items if item.category == "电影")
+    season_item = next(item for item in items if item.category == "电视剧")
+
+    for item in (movie_item, season_item):
+        assert item.site_downloader == "LunaTVSource"
+        assert item.download_path == "/media/incoming"
+    assert len(plugin._decode_resource_token(season_item.enclosure)["episodes"]) == 2
+
+
+def test_resource_torrents_falls_back_for_legacy_torrent_info_without_download_path(monkeypatch):
+    class LegacyTorrentInfo:
+        def __init__(
+            self,
+            *,
+            site_name,
+            title,
+            description,
+            media_source,
+            media_id,
+            enclosure,
+            page_url,
+            size,
+            seeders,
+            uploadvolumefactor,
+            downloadvolumefactor,
+            pri_order,
+            category,
+            labels,
+        ):
+            self.site_name = site_name
+            self.title = title
+            self.description = description
+            self.media_source = media_source
+            self.media_id = media_id
+            self.enclosure = enclosure
+            self.page_url = page_url
+            self.size = size
+            self.seeders = seeders
+            self.uploadvolumefactor = uploadvolumefactor
+            self.downloadvolumefactor = downloadvolumefactor
+            self.pri_order = pri_order
+            self.category = category
+            self.labels = labels
+
+        def __setattr__(self, name, value):
+            if name == "download_path":
+                raise AttributeError(name)
+            object.__setattr__(self, name, value)
+
+    movie = _result_from_item(
+        CmsSource("legacy", "旧版源", "https://legacy.example/vod"),
+        {
+            "vod_id": "legacy-1",
+            "vod_name": "旧版电影",
+            "type_name": "电影",
+            "vod_play_url": "正片$https://video.example/legacy.m3u8",
+        },
+    )
+
+    class Client:
+        def search(self, *_args, **_kwargs):
+            return [movie]
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "download_root": "/media/incoming"})
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", LegacyTorrentInfo)
+    monkeypatch.setattr(plugin, "_associate_tmdb", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(plugin, "_probe_resource_urls", lambda _urls: {})
+
+    item = plugin._resource_torrents("旧版电影")[0]
+
+    assert item.site_downloader == "LunaTVSource"
+    assert not hasattr(item, "download_path")
 
 
 def test_sync_media_server_runs_async_and_deduplicates_active_sync(monkeypatch):

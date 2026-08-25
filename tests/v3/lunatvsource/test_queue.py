@@ -480,6 +480,42 @@ def test_prepare_hls_input_decodes_zstd_and_absolutizes_urls(monkeypatch, tmp_pa
     assert "https://media.example/path/segment.ts" in content
 
 
+@pytest.mark.parametrize("uri", ["file:///tmp/playlist.m3u8", "ftp://example.test/x.m3u8"])
+def test_prepare_hls_input_rejects_non_http_top_level_uri(monkeypatch, tmp_path: Path, uri: str):
+    monkeypatch.setattr(
+        downloader_module.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not fetch")),
+    )
+
+    with pytest.raises(RuntimeError, match="http/https"):
+        DownloadQueue._prepare_hls_input(uri, tmp_path)
+
+
+@pytest.mark.parametrize("uri", ["file:///tmp/segment.ts", "ftp://example.test/segment.ts"])
+def test_prepare_hls_input_rejects_non_http_nested_uri(monkeypatch, tmp_path: Path, uri: str):
+    class Response:
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return f"#EXTM3U\n#EXTINF:1,\n{uri}\n".encode("utf-8")
+
+    monkeypatch.setattr(
+        downloader_module.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: Response(),
+    )
+
+    with pytest.raises(RuntimeError, match="http/https"):
+        DownloadQueue._prepare_hls_input("https://example.test/index.m3u8", tmp_path)
+
+
 def test_failed_download_removes_only_new_empty_directories(tmp_path: Path, monkeypatch):
     root = tmp_path / "incoming"
     root.mkdir()
@@ -673,6 +709,158 @@ def test_queue_remove_running_task_cleans_part_after_safe_stop(tmp_path: Path):
     assert not output.exists()
     assert not part.exists()
     assert queue.list_tasks() == []
+
+
+def test_queue_m3u8_engine_fallback_order_and_control(monkeypatch, tmp_path: Path):
+    playlist = tmp_path / "input.m3u8"
+    playlist.write_text("#EXTM3U\n#EXTINF:1,\nsegment.ts\n", encoding="utf-8")
+
+    class Engine:
+        def __init__(self, name: str, outcome: str, calls: list[str]):
+            self.name = name
+            self.outcome = outcome
+            self.calls = calls
+
+        def download(self, _url, output, **_kwargs):
+            self.calls.append(self.name)
+            if self.outcome == "error":
+                raise downloader_module.M3U8EngineError(self.name)
+            if self.outcome == "cancel":
+                raise downloader_module.M3U8EngineCancelled(self.name)
+            output.write_bytes(b"engine media")
+            return output
+
+        def cleanup_task(self, *_args):
+            return None
+
+    def execute(outcomes: tuple[str, str]):
+        data = {}
+        calls: list[str] = []
+        queue = DownloadQueue(
+            data.get,
+            data.__setitem__,
+            lambda *_: None,
+            data_path=tmp_path / "data",
+        )
+        queue._m3u8_engines = (
+            Engine("n_m3u8dl", outcomes[0], calls),
+            Engine("vsd", outcomes[1], calls),
+        )
+        monkeypatch.setattr(queue, "_prepare_hls_input", lambda *_args: str(playlist))
+        task = DownloadTask(
+            task_id=f"engine-{'-'.join(outcomes)}",
+            source_key="lunatv",
+            media_id="site:engine",
+            title=f"Movie {' '.join(outcomes)}",
+            year="2026",
+            media_type="movie",
+            season=1,
+            episode=1,
+            url="https://example.test/movie.m3u8",
+            root=str(tmp_path / "downloads"),
+        )
+
+        def ffmpeg(_path, _url, output, *_args):
+            calls.append("ffmpeg")
+            output.write_bytes(b"ffmpeg media")
+
+        monkeypatch.setattr(queue, "_run_ffmpeg", ffmpeg)
+        return queue, task, calls
+
+    queue, task, calls = execute(("error", "success"))
+    assert Path(queue._execute(task)).is_file()
+    assert calls == ["n_m3u8dl", "vsd"]
+
+    queue, task, calls = execute(("error", "error"))
+    assert Path(queue._execute(task)).is_file()
+    assert calls == ["n_m3u8dl", "vsd", "ffmpeg"]
+
+    queue, task, calls = execute(("cancel", "success"))
+    with pytest.raises(downloader_module._QueueControl):
+        queue._execute(task)
+    assert calls == ["n_m3u8dl"]
+
+
+def test_queue_engine_cache_lifecycle_and_resume(monkeypatch, tmp_path: Path):
+    playlist = tmp_path / "input.m3u8"
+    playlist.write_text("#EXTM3U\n#EXTINF:1,\nsegment.ts\n", encoding="utf-8")
+
+    class CacheEngine:
+        name = "cache-engine"
+
+        def __init__(self, cache: Path, outcome: str):
+            self.cache = cache
+            self.outcome = outcome
+            self.cleaned = 0
+
+        def download(self, _url, output, **_kwargs):
+            self.cache.mkdir(parents=True, exist_ok=True)
+            (self.cache / "segment-1").write_bytes(b"partial")
+            if self.outcome == "failure":
+                raise downloader_module.M3U8EngineError("failed")
+            if self.outcome == "pause":
+                raise downloader_module.M3U8EngineCancelled("paused")
+            output.write_bytes(b"complete")
+            return output
+
+        def cleanup_task(self, *_args):
+            self.cleaned += 1
+            shutil.rmtree(self.cache, ignore_errors=True)
+
+    def setup(outcome: str):
+        data = {}
+        queue = DownloadQueue(
+            data.get,
+            data.__setitem__,
+            lambda *_: None,
+            data_path=tmp_path / "data",
+        )
+        task = DownloadTask(
+            task_id="stable-cache-id",
+            source_key="lunatv",
+            media_id=f"site:{outcome}",
+            title=f"Cache {outcome}",
+            year="2026",
+            media_type="movie",
+            season=1,
+            episode=1,
+            url="https://example.test/cache.m3u8",
+            root=str(tmp_path / outcome),
+        )
+        cache = tmp_path / "data" / "m3u8-cache" / task.task_id
+        engine = CacheEngine(cache, outcome)
+        queue._m3u8_engines = (engine,)
+        monkeypatch.setattr(queue, "_prepare_hls_input", lambda *_args: str(playlist))
+        return queue, task, engine, cache
+
+    queue, task, engine, cache = setup("failure")
+    queue.enqueue(task)
+    monkeypatch.setattr(
+        queue,
+        "_run_ffmpeg",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("ffmpeg failed")),
+    )
+    assert queue.run_one()["state"] == "failed"
+    assert cache.is_dir() and engine.cleaned == 0
+    assert queue.retry(task.task_id) is True
+    assert cache.is_dir()
+
+    queue, task, engine, cache = setup("pause")
+    queue.enqueue(task)
+    assert queue.run_one()["state"] == "controlled"
+    assert queue.list_tasks()[0]["state"] == "paused"
+    assert cache.is_dir() and engine.cleaned == 0
+
+    queue, task, engine, cache = setup("success")
+    queue.enqueue(task)
+    assert queue.run_one()["state"] == "completed"
+    assert not cache.exists() and engine.cleaned == 1
+
+    queue, task, engine, cache = setup("delete")
+    cache.mkdir(parents=True)
+    queue.enqueue(task)
+    assert queue.remove(task.task_id) is True
+    assert not cache.exists() and engine.cleaned == 1
 
 
 def test_queue_wake_drains_task_enqueued_while_run_one_is_active(tmp_path: Path):

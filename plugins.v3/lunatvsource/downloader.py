@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import http.server
+import logging
 import os
 import re
 import selectors
@@ -20,7 +21,16 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from .m3u8_engine import (
+    M3U8EngineCancelled,
+    M3U8EngineError,
+    N_m3u8DLEngine,
+    VSDEngine,
+)
 from .naming import media_path
+
+
+LOGGER = logging.getLogger("LunaTVSource")
 
 
 class _QueueControl(RuntimeError):
@@ -223,6 +233,7 @@ class DownloadQueue:
         save: Callable[..., Any],
         notify: Callable[[str, str], None],
         on_complete: Optional[Callable[[DownloadTask, str], None]] = None,
+        data_path: Optional[Path] = None,
     ) -> None:
         self._load = load
         self._save = save
@@ -240,6 +251,14 @@ class DownloadQueue:
         self._idle_event = threading.Event()
         self._idle_event.set()
         self._delete_file_tasks: set[str] = set()
+        # Standalone/legacy hosts retain the historical ffmpeg-only behavior.
+        # MoviePilot passes its plugin data directory and enables the managed
+        # N_m3u8DL-RE -> VSD -> ffmpeg VOD fallback chain.
+        self._m3u8_engines = (
+            (N_m3u8DLEngine(Path(data_path)), VSDEngine(Path(data_path)))
+            if data_path is not None
+            else ()
+        )
         self._recover_interrupted_tasks()
 
     def _recover_interrupted_tasks(self) -> None:
@@ -316,9 +335,12 @@ class DownloadQueue:
                 )
             except Exception:
                 removal_persisted = False
-            if removal_persisted and delete_file:
-                self._delete_task_files(task)
+            if removal_persisted:
+                self._cleanup_m3u8_cache(task)
+                if delete_file:
+                    self._delete_task_files(task)
             raise
+        self._cleanup_m3u8_cache(task)
         if delete_file:
             self._delete_task_files(task)
 
@@ -699,6 +721,7 @@ class DownloadQueue:
             raise ValueError("目标路径越界")
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists() and destination.stat().st_size > 0:
+            self._cleanup_m3u8_cache(task, destination.parent)
             return str(destination)
 
         if task.mode == "strm":
@@ -712,17 +735,21 @@ class DownloadQueue:
                 except OSError:
                     pass
                 raise
+            self._cleanup_m3u8_cache(task, destination.parent)
             return str(destination)
 
         temp_path = destination.with_suffix(destination.suffix + ".part")
         try:
-            self._run_ffmpeg(
-                task.ffmpeg_path,
-                task.url,
-                temp_path,
-                self._control_event,
-                lambda progress: self._update_progress(task.task_id, progress),
-            )
+            if not self._run_m3u8_engines(task, temp_path):
+                if self._control_event.is_set():
+                    raise _QueueControl("controlled")
+                self._run_ffmpeg(
+                    task.ffmpeg_path,
+                    task.url,
+                    temp_path,
+                    self._control_event,
+                    lambda progress: self._update_progress(task.task_id, progress),
+                )
         except Exception:
             # 失败任务不把残留缓存留在媒体库目录，避免 Emby/监控把半成品当成文件夹内容。
             try:
@@ -739,7 +766,116 @@ class DownloadQueue:
             self._remove_empty_parents(destination.parent, root)
             raise IOError("ffmpeg 未生成有效文件")
         os.replace(temp_path, destination)
+        self._cleanup_m3u8_cache(task, destination.parent)
         return str(destination)
+
+    def _cleanup_m3u8_cache(
+        self, task: DownloadTask, destination_parent: Optional[Path] = None
+    ) -> None:
+        """Clear controlled engine cache only after success or durable deletion."""
+        if not self._m3u8_engines:
+            return
+        parent = destination_parent
+        if parent is None:
+            try:
+                relative_dir, filename = media_path(
+                    task.root,
+                    task.title,
+                    task.year,
+                    task.media_type,
+                    task.season,
+                    task.episode,
+                    task.url,
+                    task.mode,
+                )
+                root = Path(task.root).expanduser().resolve()
+                destination = (root / relative_dir / filename).resolve()
+                if root in destination.parents:
+                    parent = destination.parent
+            except (OSError, TypeError, ValueError):
+                parent = None
+        for engine in self._m3u8_engines:
+            cleanup = getattr(engine, "cleanup_task", None)
+            if callable(cleanup):
+                try:
+                    cleanup(task.task_id, parent)
+                except Exception:
+                    pass
+
+    @staticmethod
+    def _playlist_segment_count(path: Path, visited: Optional[set[str]] = None) -> int:
+        """Count materialized HLS media segments for conservative cache progress."""
+        visited = visited or set()
+        try:
+            resolved = str(path.resolve())
+        except OSError:
+            return 0
+        if resolved in visited:
+            return 0
+        visited.add(resolved)
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            return 0
+        count = 0
+        for line in lines:
+            value = line.strip()
+            if value.startswith("#EXTINF:"):
+                count += 1
+            elif value and not value.startswith("#"):
+                child = Path(value)
+                if child.is_file() and child.suffix.lower() in {".m3u8", ".m3u"}:
+                    count += DownloadQueue._playlist_segment_count(child, visited)
+        return count
+
+    def _run_m3u8_engines(self, task: DownloadTask, output: Path) -> bool:
+        """Run N_m3u8DL-RE then VSD through the established HLS proxy seam."""
+        if self._control_event.is_set():
+            raise _QueueControl("controlled")
+        if not self._m3u8_engines:
+            return False
+        try:
+            with tempfile.TemporaryDirectory(prefix="lunatv-hls-") as temp_dir, _SegmentProxy() as proxy:
+                if self._control_event.is_set():
+                    raise _QueueControl("controlled")
+                input_url = self._prepare_hls_input(
+                    task.url, Path(temp_dir), proxy.url_for
+                )
+                if self._control_event.is_set():
+                    raise _QueueControl("controlled")
+                segments = self._playlist_segment_count(Path(input_url))
+                for engine in self._m3u8_engines:
+                    if self._control_event.is_set():
+                        raise _QueueControl("controlled")
+                    try:
+                        engine.download(
+                            input_url,
+                            output,
+                            task_id=task.task_id,
+                            ffmpeg_path=task.ffmpeg_path,
+                            control_event=self._control_event,
+                            progress_callback=lambda progress: self._update_progress(
+                                task.task_id, progress
+                            ),
+                            expected_segments=segments,
+                        )
+                        return True
+                    except M3U8EngineCancelled as exc:
+                        raise _QueueControl("controlled") from exc
+                    except (M3U8EngineError, OSError):
+                        if self._control_event.is_set():
+                            raise _QueueControl("controlled")
+                        LOGGER.warning(
+                            "LunaTV %s M3U8 engine failed; trying fallback", engine.name
+                        )
+        except _QueueControl:
+            raise
+        except Exception as exc:
+            if self._control_event.is_set():
+                raise _QueueControl("controlled") from exc
+            # Avoid logging a source URL, which can contain an access token.
+            LOGGER.warning("LunaTV M3U8 engine preparation failed; using ffmpeg")
+            return False
 
     def _delete_task_files(self, task: DownloadTask) -> None:
         """Delete only the task output and cache paths below its configured root."""
@@ -853,8 +989,14 @@ class DownloadQueue:
         control_event: Optional[threading.Event] = None,
         progress_callback: Optional[Callable[[float], None]] = None,
     ) -> None:
+        if control_event is not None and control_event.is_set():
+            raise _QueueControl("controlled")
         with tempfile.TemporaryDirectory(prefix="lunatv-hls-") as temp_dir, _SegmentProxy() as proxy:
+            if control_event is not None and control_event.is_set():
+                raise _QueueControl("controlled")
             input_url = DownloadQueue._prepare_hls_input(url, Path(temp_dir), proxy.url_for)
+            if control_event is not None and control_event.is_set():
+                raise _QueueControl("controlled")
             duration = DownloadQueue._playlist_duration(Path(input_url))
             progress_args = ["-nostats", "-progress", "pipe:1"] if progress_callback is not None else []
             command = [
@@ -953,6 +1095,14 @@ class DownloadQueue:
                 raise RuntimeError(detail[-1200:])
 
     @staticmethod
+    def _validate_hls_remote_uri(uri: str) -> str:
+        """Accept only remote HTTP(S) HLS references before materializing them."""
+        parsed = urllib.parse.urlparse(uri)
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+            raise RuntimeError("M3U8 URI 仅支持 http/https")
+        return uri
+
+    @staticmethod
     def _prepare_hls_input(
         url: str,
         temp_dir: Path,
@@ -969,6 +1119,7 @@ class DownloadQueue:
         visited: Dict[str, str] = {}
 
         def materialize(playlist_url: str) -> str:
+            playlist_url = DownloadQueue._validate_hls_remote_uri(playlist_url)
             if playlist_url in visited:
                 return visited[playlist_url]
             request = urllib.request.Request(
@@ -999,7 +1150,9 @@ class DownloadQueue:
                     rewritten.append(line)
                     continue
                 if stripped and not stripped.startswith("#"):
-                    absolute = urllib.parse.urljoin(playlist_url, stripped)
+                    absolute = DownloadQueue._validate_hls_remote_uri(
+                        urllib.parse.urljoin(playlist_url, stripped)
+                    )
                     if child_playlist or urllib.parse.urlparse(absolute).path.lower().endswith(".m3u8"):
                         rewritten.append(materialize(absolute))
                     else:
@@ -1008,7 +1161,9 @@ class DownloadQueue:
                     continue
 
                 def replace_uri(match: re.Match[str]) -> str:
-                    absolute = urllib.parse.urljoin(playlist_url, match.group(1))
+                    absolute = DownloadQueue._validate_hls_remote_uri(
+                        urllib.parse.urljoin(playlist_url, match.group(1))
+                    )
                     if stripped.startswith("#EXT-X-MEDIA"):
                         absolute = materialize(absolute)
                     elif stripped.startswith("#EXT-X-MAP") and segment_url_mapper:
