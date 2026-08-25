@@ -1248,6 +1248,34 @@ class AppleCmsClient:
         selected_bundles: Dict[Tuple[str, str, int], List[CmsResult]] = {}
         selected_count = 0
         ambiguous_year_groups: set[Tuple[str, int]] = set()
+        seen_explicit_years: Dict[Tuple[str, int], set[str]] = {}
+        upgraded_unknown_groups: Dict[Tuple[str, int], str] = {}
+
+        def remember_year_groups(
+            page_results: Iterable[CmsResult],
+        ) -> Tuple[Dict[Tuple[str, int], set[str]], set[Tuple[str, int]]]:
+            explicit_years: Dict[Tuple[str, int], set[str]] = {}
+            unknown_year_groups: set[Tuple[str, int]] = set()
+            for result in page_results:
+                group_identity = (
+                    _episode_row_identity(result)
+                    or _episode_row_title_identity(result)
+                )
+                if not group_identity:
+                    continue
+                base_key = (group_identity[0], group_identity[2])
+                if group_identity[1]:
+                    explicit_years.setdefault(base_key, set()).add(group_identity[1])
+                else:
+                    unknown_year_groups.add(base_key)
+            for base_key, years in explicit_years.items():
+                seen_explicit_years.setdefault(base_key, set()).update(years)
+            ambiguous_year_groups.update(
+                base_key
+                for base_key, years in seen_explicit_years.items()
+                if len(years) > 1
+            )
+            return explicit_years, unknown_year_groups
 
         def matching_group_key(
             identity: Tuple[str, str, int, int, str],
@@ -1286,10 +1314,7 @@ class AppleCmsClient:
                 )
             ):
                 return group_key
-            selected_groups[upgraded_group_key] = [
-                replace(result, year=year) if not result.year else result
-                for result in selected_groups.pop(group_key)
-            ]
+            selected_groups[upgraded_group_key] = selected_groups.pop(group_key)
             bundles = selected_bundles.pop(group_key, None)
             if bundles is not None:
                 selected_bundles[upgraded_group_key] = bundles
@@ -1297,23 +1322,31 @@ class AppleCmsClient:
                 if kind == "group" and entry == group_key:
                     selected_entries[index] = (kind, upgraded_group_key)
                     break
+            upgraded_unknown_groups[(group_key[0], group_key[2])] = year
             return upgraded_group_key
 
+        def restore_upgraded_group(base_key: Tuple[str, int]) -> None:
+            year = upgraded_unknown_groups.pop(base_key, "")
+            if not year:
+                return
+            current_key = (base_key[0], year, base_key[1])
+            unknown_key = (base_key[0], "", base_key[1])
+            rows = selected_groups.pop(current_key, [])
+            unknown_rows = [result for result in rows if not result.year]
+            if unknown_rows:
+                selected_groups[unknown_key] = unknown_rows
+            bundles = selected_bundles.pop(current_key, [])
+            unknown_bundles = [bundle for bundle in bundles if not bundle.year]
+            if unknown_bundles:
+                selected_bundles[unknown_key] = unknown_bundles
+            for index, (kind, entry) in enumerate(selected_entries):
+                if kind == "group" and entry == current_key:
+                    selected_entries[index] = (kind, unknown_key)
+                    break
+            ambiguous_year_groups.add(base_key)
+
         def selected_group_year_conflict(page_results: Iterable[CmsResult]) -> bool:
-            explicit_years: Dict[Tuple[str, int], set[str]] = {}
-            unknown_year_groups: set[Tuple[str, int]] = set()
-            for result in page_results:
-                group_identity = (
-                    _episode_row_identity(result)
-                    or _episode_row_title_identity(result)
-                )
-                if not group_identity:
-                    continue
-                base_key = (group_identity[0], group_identity[2])
-                if group_identity[1]:
-                    explicit_years.setdefault(base_key, set()).add(group_identity[1])
-                else:
-                    unknown_year_groups.add(base_key)
+            _, unknown_year_groups = remember_year_groups(page_results)
             selected_explicit_years: Dict[Tuple[str, int], set[str]] = {}
             selected_unknown_year_groups: set[Tuple[str, int]] = set()
             for title, year, season in selected_groups:
@@ -1322,12 +1355,18 @@ class AppleCmsClient:
                     selected_explicit_years.setdefault(base_key, set()).add(year)
                 else:
                     selected_unknown_year_groups.add(base_key)
-            for base_key in unknown_year_groups | selected_unknown_year_groups:
+            possible_unknown_groups = (
+                unknown_year_groups
+                | selected_unknown_year_groups
+                | set(upgraded_unknown_groups)
+            )
+            for base_key in possible_unknown_groups:
                 known_years = {
-                    *explicit_years.get(base_key, set()),
+                    *seen_explicit_years.get(base_key, set()),
                     *selected_explicit_years.get(base_key, set()),
                 }
                 if len(known_years) > 1:
+                    restore_upgraded_group(base_key)
                     return True
             return False
 
@@ -1344,25 +1383,7 @@ class AppleCmsClient:
                 if (not media_type_filter or result.media_type == media_type_filter)
                 and (not require_playable or result.episodes)
             ]
-            explicit_years: Dict[Tuple[str, int], set[str]] = {}
-            unknown_year_groups: set[Tuple[str, int]] = set()
-            for result in playable_results:
-                group_identity = (
-                    _episode_row_identity(result)
-                    or _episode_row_title_identity(result)
-                )
-                if not group_identity:
-                    continue
-                base_key = (group_identity[0], group_identity[2])
-                if group_identity[1]:
-                    explicit_years.setdefault(base_key, set()).add(group_identity[1])
-                else:
-                    unknown_year_groups.add(base_key)
-            ambiguous_year_groups.update(
-                base_key
-                for base_key in unknown_year_groups
-                if len(explicit_years.get(base_key, set())) > 1
-            )
+            _, unknown_year_groups = remember_year_groups(playable_results)
             if (
                 selected_group_only
                 and selected_groups
@@ -1561,7 +1582,13 @@ class AppleCmsClient:
             if kind == "result":
                 source_results.append(entry)
                 continue
-            merged = _merge_episode_row_results(selected_groups[entry])
+            group_results = [
+                replace(result, year=entry[1])
+                if entry[1] and not result.year
+                else result
+                for result in selected_groups[entry]
+            ]
+            merged = _merge_episode_row_results(group_results)
             if merged and (not require_playable or merged.episodes):
                 source_results.append(
                     _merge_episode_row_bundles(merged, selected_bundles.get(entry, ()))

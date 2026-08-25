@@ -1388,6 +1388,61 @@ def test_search_episode_row_expansion_stops_before_later_page_year_conflict():
     ] == [("2025", [1])]
 
 
+def test_search_episode_row_expansion_remembers_years_excluded_by_limit():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+    year_2025 = _episode_row(1, year="2025")
+    year_2025["vod_id"] = "episode-2025"
+    year_2026 = _episode_row(1, year="2026")
+    year_2026["vod_id"] = "episode-2026"
+
+    def fake_request(_source, **params):
+        page = int(params["pg"])
+        calls.append(page)
+        if page == 1:
+            return {"pagecount": "2", "list": [year_2025, year_2026]}
+        return {"pagecount": "2", "list": [_episode_row(2, year="")]}
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert calls == [1, 2]
+    assert [
+        (result.year, [episode.episode for episode in result.episodes])
+        for result in results
+    ] == [("2025", [1])]
+
+
+def test_search_episode_row_expansion_restores_unknown_year_after_later_conflict():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+
+    def fake_request(_source, **params):
+        page = int(params["pg"])
+        calls.append(page)
+        return {
+            "pagecount": "3",
+            "list": {
+                1: [_episode_row(1, year="")],
+                2: [_episode_row(2, year="2025")],
+                3: [_episode_row(3, year="2026")],
+            }[page],
+        }
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert calls == [1, 2, 3]
+    assert [
+        (result.year, [episode.episode for episode in result.episodes])
+        for result in results
+    ] == [("", [1])]
+
+
 def test_search_episode_row_expansion_prefers_playable_bundle_over_title_only_fallback():
     source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
     client = AppleCmsClient([source])
