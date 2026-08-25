@@ -546,7 +546,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "https://raw.githubusercontent.com/OneBigMoon/moviepilot-v3-lunatv-source/master/icons/lunatvsource.png"
-    plugin_version = "0.4.41"
+    plugin_version = "0.4.42"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -575,6 +575,7 @@ class LunaTVSource(_PluginBase):
         self._download_metrics: Dict[str, Tuple[float, int]] = {}
         self._quality_cache_lock = threading.Lock()
         self._quality_cache: Dict[str, Tuple[float, int]] = {}
+        self._quality_probe_ms: Dict[str, int] = {}
 
     def init_plugin(self, config: Optional[Dict[str, Any]] = None) -> None:
         self._config = dict(config or {})
@@ -2716,10 +2717,17 @@ class LunaTVSource(_PluginBase):
             timeout=timeout,
             allowed_private_ranges=self._probe_allowed_private_ranges(),
         )
+        finished_at = time.monotonic()
+        probe_ms = max(1, round((finished_at - now) * 1000))
         with self._quality_cache_lock:
-            self._quality_cache[url] = (time.monotonic(), height)
-            self._prune_quality_cache(time.monotonic())
+            self._quality_cache[url] = (finished_at, height)
+            self._quality_probe_ms[url] = probe_ms
+            self._prune_quality_cache(finished_at)
         return height
+
+    def _probe_latency_ms(self, url: str) -> int:
+        with self._quality_cache_lock:
+            return max(0, int(self._quality_probe_ms.get(url, 0) or 0))
 
     def _probe_allowed_private_ranges(self) -> Tuple[str, ...]:
         configured = self._config.get("probe_allowed_private_ranges")
@@ -2739,6 +2747,7 @@ class LunaTVSource(_PluginBase):
         ]
         for key in expired:
             self._quality_cache.pop(key, None)
+            self._quality_probe_ms.pop(key, None)
         overflow = len(self._quality_cache) - _QUALITY_CACHE_MAX_ENTRIES
         if overflow > 0:
             oldest = sorted(
@@ -2747,6 +2756,10 @@ class LunaTVSource(_PluginBase):
             )[:overflow]
             for key in oldest:
                 self._quality_cache.pop(key, None)
+                self._quality_probe_ms.pop(key, None)
+        for key in tuple(self._quality_probe_ms):
+            if key not in self._quality_cache:
+                self._quality_probe_ms.pop(key, None)
 
     def _prune_resource_search_cache(self, now: float) -> None:
         expired = [
@@ -3125,8 +3138,15 @@ class LunaTVSource(_PluginBase):
                 if group["resolution_scope"] == "full"
                 else f"已测{group['resolution_probed_episode_count']}/{count}集"
             )
+            first_height = int(first.get("resolution_height") or 0)
+            latency_ms = self._probe_latency_ms(first["url"]) if first_height > 0 else 0
+            site_name = group["site_name"]
+            labels = ["LunaTV", "m3u8", f"第{season}季"]
+            if latency_ms:
+                site_name = f"{site_name} · {latency_ms}ms"
+                labels.append(f"{latency_ms}ms")
             torrents.append(torrent_info_type(
-                site_name=group["site_name"],
+                site_name=site_name,
                 title=title,
                 description=(
                     f"LunaTV · 第{season}季 · {quality} · m3u8 · 共{count}集 · {measurement}"
@@ -3137,9 +3157,11 @@ class LunaTVSource(_PluginBase):
                 page_url=group["page_url"],
                 size=0,
                 seeders=1,
+                uploadvolumefactor=1.0,
+                downloadvolumefactor=1.0,
                 pri_order=_resource_sort_priority(height),
                 category="电视剧",
-                labels=["LunaTV", quality, "m3u8", f"第{season}季"],
+                labels=labels,
             ))
             torrent_heights[id(torrents[-1])] = height
 
@@ -3157,8 +3179,14 @@ class LunaTVSource(_PluginBase):
             if payload["media_type"] == "tv":
                 title = f"{title} S{int(payload['season']):02d}E{int(payload['episode']):02d}"
             title = f"{title} · {quality}"
+            latency_ms = self._probe_latency_ms(row["probe_url"]) if height > 0 else 0
+            site_name = row["site_name"]
+            labels = ["LunaTV", "m3u8"]
+            if latency_ms:
+                site_name = f"{site_name} · {latency_ms}ms"
+                labels.append(f"{latency_ms}ms")
             torrents.append(torrent_info_type(
-                site_name=row["site_name"],
+                site_name=site_name,
                 title=title,
                 description=f"LunaTV · {quality} · m3u8",
                 media_source=payload["host_media_source"],
@@ -3167,9 +3195,11 @@ class LunaTVSource(_PluginBase):
                 page_url=row["page_url"],
                 size=0,
                 seeders=1,
+                uploadvolumefactor=1.0,
+                downloadvolumefactor=1.0,
                 pri_order=_resource_sort_priority(height),
                 category="电视剧" if payload["media_type"] == "tv" else "电影",
-                labels=["LunaTV", quality, "m3u8"],
+                labels=labels,
             ))
             torrent_heights[id(torrents[-1])] = height
         # Keep exact height as the tie-breaker when three-digit priorities collide.
@@ -3239,7 +3269,8 @@ class LunaTVSource(_PluginBase):
         if payload is None:
             return None
         queue = self._queue
-        root = str(download_dir or "").strip()
+        configured_root = str(self._config.get("download_root") or "").strip()
+        root = configured_root or str(download_dir or "").strip()
         if queue is None or not root:
             return "LunaTVSource", None, None, "LunaTV 下载参数无效"
         raw_episodes = episodes if isinstance(episodes, list) else payload.get("episodes")

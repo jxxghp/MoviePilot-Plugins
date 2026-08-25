@@ -16,7 +16,7 @@ const defaults = {
   source_allowlist: '',
   mode: 'download',
   source_strategy: 'first',
-  download_root: '',
+  download_root: '/downloads/未整理',
   use_moviepilot_dirs: true,
   ffmpeg_path: 'ffmpeg',
   queue_minutes: 1,
@@ -39,13 +39,17 @@ async function saveConfig() {
     showMessage('当前 MoviePilot 未提供配置保存接口', 'error')
     return
   }
+  if (!String(config.download_root || '').trim()) {
+    showMessage('请填写下载目录', 'error')
+    return
+  }
   saving.value = true
   try {
     const payload = {
       ...config,
       source_allowlist: '',
       source_strategy: 'first',
-      download_root: '',
+      download_root: String(config.download_root || '').trim(),
       ai_enabled: true,
       tmdb_association: true,
       use_moviepilot_dirs: true,
@@ -65,7 +69,10 @@ async function saveConfig() {
   }
 }
 
-onMounted(() => Object.assign(config, defaults, props.initialConfig || {}))
+onMounted(() => {
+  Object.assign(config, defaults, props.initialConfig || {})
+  if (!String(config.download_root || '').trim()) config.download_root = defaults.download_root
+})
 </script>
 
 <template>
@@ -85,6 +92,16 @@ onMounted(() => Object.assign(config, defaults, props.initialConfig || {}))
     <VRow dense>
       <VCol cols="12"><VSwitch v-model="config.enabled" label="启用原生桥接" color="success" hide-details /></VCol>
       <VCol cols="12"><VTextField v-model="config.config_url" label="LunaTV 配置地址" variant="outlined" /></VCol>
+      <VCol cols="12">
+        <VTextField
+          v-model="config.download_root"
+          label="下载目录"
+          placeholder="/downloads/未整理"
+          hint="m3u8 下载先写入此目录，完成后继续复用 MoviePilot 的整理规则。"
+          persistent-hint
+          variant="outlined"
+        />
+      </VCol>
     </VRow>
     <VAlert type="warning" variant="tonal" density="compact" class="mt-3">
       目录、DeepSeek、TMDB、整理规则、媒体服务器和链接权限均沿用 MoviePilot 设置；订阅地址内的资源站全部读取。任务始终串行执行。

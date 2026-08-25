@@ -41,17 +41,22 @@ def test_version_consistency_across_manifest_backend_and_frontend():
         ).read_text(encoding="utf-8")
     )
 
-    assert manifest["version"] == "0.4.41"
+    assert manifest["version"] == "0.4.42"
     assert {
         manifest["version"],
         LunaTVSource.plugin_version,
         package["version"],
         lockfile["version"],
         lockfile["packages"][""]["version"],
-    } == {"0.4.41"}
+    } == {"0.4.42"}
 
     history = manifest["history"]
-    assert next(iter(history)) == "0.4.41"
+    assert next(iter(history)) == "0.4.42"
+    assert history["0.4.42"] == (
+        "资源外链跳转到具体影片详情页；移除重复分辨率标签，记录并缓存清晰度探测耗时，"
+        "在资源标签和其他来源名称中显示测速；m3u8 促销状态显示为普通；设置页新增唯一下载目录，"
+        "默认 /downloads/未整理并优先用于原生下载。"
+    )
     assert history["0.4.41"] == (
         "修复电视剧分集分页在无年份、年份冲突、无 ID 与无效地址场景下的误聚合或提前停止；"
         "资源站配置加载增加过渡提示；搜索完成后提示资源汇总、清晰度检测与排序，并兼容 "
@@ -82,3 +87,14 @@ def test_app_page_shows_loading_state_before_empty_sources():
     assert loading_state in app_page
     assert empty_state in app_page
     assert app_page.index(loading_state) < app_page.index(empty_state)
+
+
+def test_config_exposes_and_preserves_single_download_directory():
+    project_root = Path(__file__).resolve().parents[3]
+    config_page = (
+        project_root / "plugins.v3" / "lunatvsource" / "src" / "components" / "Config.vue"
+    ).read_text(encoding="utf-8")
+
+    assert "download_root: '/downloads/未整理'" in config_page
+    assert 'v-model="config.download_root"' in config_page
+    assert "download_root: String(config.download_root || '').trim()" in config_page
