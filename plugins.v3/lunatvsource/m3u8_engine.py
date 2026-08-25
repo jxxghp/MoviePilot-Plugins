@@ -1170,8 +1170,8 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
             if exc.errno != errno.EXDEV:
                 raise
         descriptor, raw_path = tempfile.mkstemp(
-            prefix=f".{output.name}.",
-            suffix=".transfer",
+            prefix=".lunatv-transfer-",
+            suffix=".tmp",
             dir=output.parent,
         )
         temporary_path = Path(raw_path)

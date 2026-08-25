@@ -1358,3 +1358,37 @@ def test_n_stage_cleanup_fd_resists_parent_symlink_replacement(
     assert swapped
     assert outside_output.read_bytes() == b"outside"
     assert not (moved_parent / stage_dir.name / "media.mp4").exists()
+
+
+def test_cross_filesystem_move_accepts_name_max_output_without_temp_residue(
+    monkeypatch, tmp_path: Path
+):
+    candidate = tmp_path / "stage" / "media.mp4"
+    output_parent = tmp_path / "media"
+    candidate.parent.mkdir()
+    output_parent.mkdir()
+    try:
+        name_max = os.pathconf(output_parent, "PC_NAME_MAX")
+    except (AttributeError, OSError):
+        pytest.skip("filesystem does not expose NAME_MAX")
+    candidate.write_bytes(b"media")
+    candidate.chmod(0o640)
+    output = output_parent / ("m" * name_max)
+    real_replace = os.replace
+    replace_calls = 0
+
+    def replace(source, destination):
+        nonlocal replace_calls
+        replace_calls += 1
+        if replace_calls == 1:
+            raise OSError(errno.EXDEV, "cross-device link")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", replace)
+
+    N_m3u8DLEngine._move_stage_output(candidate, output)
+
+    assert output.read_bytes() == b"media"
+    assert stat.S_IMODE(output.stat().st_mode) == 0o640
+    assert not candidate.exists()
+    assert not list(output_parent.glob(".lunatv-transfer-*"))
