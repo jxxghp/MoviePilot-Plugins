@@ -1581,6 +1581,77 @@ def test_search_episode_row_expansion_does_not_upgrade_ambiguous_unknown_year():
     ]
 
 
+def test_search_episode_row_expansion_remembers_unplayable_year_candidates():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    unknown_year = _episode_row(1, year="")
+    unknown_year["vod_id"] = "episode-unknown"
+    year_2025 = _episode_row(1, year="2025")
+    year_2025["vod_id"] = "episode-2025"
+    year_2026 = _episode_row(1, year="2026")
+    year_2026["vod_id"] = "episode-2026"
+    year_2026["vod_play_url"] = "第1集$not-a-url"
+
+    def fake_request(_source, **params):
+        assert params.get("ac") == "list"
+        return {
+            "pagecount": "1",
+            "list": [unknown_year, year_2025, year_2026],
+        }
+
+    client._request = fake_request
+
+    results = client.search(
+        "长剧",
+        limit=1,
+        require_playable=True,
+        expand_tv_episode_rows=True,
+    )
+
+    assert [
+        (result.year, [episode.episode for episode in result.episodes])
+        for result in results
+    ] == [("", [1])]
+
+
+def test_search_episode_row_expansion_restores_all_conflicting_unknown_groups():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+
+    def row(index, *, title, year):
+        item = _episode_row(index, title=title, year=year)
+        item["vod_id"] = f"{title}-{year or 'unknown'}-{index}"
+        return item
+
+    pages = {
+        1: [
+            row(1, title="长剧甲", year=""),
+            row(1, title="长剧乙", year=""),
+        ],
+        2: [
+            row(2, title="长剧甲", year="2025"),
+            row(2, title="长剧乙", year="2025"),
+        ],
+        3: [
+            row(3, title="长剧甲", year="2026"),
+            row(3, title="长剧乙", year="2026"),
+        ],
+    }
+
+    def fake_request(_source, **params):
+        page = int(params["pg"])
+        return {"pagecount": "3", "list": pages[page]}
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=2, expand_tv_episode_rows=True)
+
+    assert [
+        (result.year, [episode.episode for episode in result.episodes])
+        for result in results
+    ] == [("", [1]), ("", [1])]
+
+
 @pytest.mark.parametrize(
     "years",
     (("2025", "2026"), ("2026", "2025")),
