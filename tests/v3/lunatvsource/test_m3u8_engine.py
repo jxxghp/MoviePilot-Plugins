@@ -317,6 +317,38 @@ def test_engine_progress_growth_resets_stall_watchdog(monkeypatch, tmp_path: Pat
     assert time.monotonic() - started_at > 0.3
 
 
+@pytest.mark.parametrize("completion_source", ["progress", "cache"])
+def test_engine_allows_finalize_after_download_completion(
+    monkeypatch, tmp_path: Path, completion_source: str
+):
+    engine = VSDEngine(tmp_path)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    expected_segments = 0
+    if completion_source == "progress":
+        command = [
+            sys.executable,
+            "-c",
+            "import time; print('completed 100%', flush=True); time.sleep(0.25)",
+        ]
+    else:
+        (cache_dir / "segment.ts").write_bytes(b"segment")
+        expected_segments = 1
+        command = [sys.executable, "-c", "import time; time.sleep(0.25)"]
+
+    monkeypatch.setattr(engine, "PROCESS_TOTAL_TIMEOUT_SECONDS", 1.0)
+    monkeypatch.setattr(engine, "PROCESS_NO_PROGRESS_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(engine, "PROCESS_POLL_INTERVAL_SECONDS", 0.02)
+
+    engine._run_command(
+        command,
+        cache_dir=cache_dir,
+        control_event=None,
+        progress_callback=None,
+        expected_segments=expected_segments,
+    )
+
+
 @pytest.mark.skipif(os.name != "posix", reason="requires POSIX process groups")
 @pytest.mark.parametrize(
     ("cancel_after", "error_type", "message"),
@@ -587,3 +619,40 @@ def test_cross_filesystem_move_preserves_source_permissions(monkeypatch, tmp_pat
     N_m3u8DLEngine._move_stage_output(candidate, output)
 
     assert stat.S_IMODE(output.stat().st_mode) == 0o640
+
+
+def test_cross_filesystem_move_keeps_committed_output_when_cleanup_fails(
+    monkeypatch, tmp_path: Path, caplog
+):
+    candidate = tmp_path / "stage" / "media.mp4"
+    output = tmp_path / "media" / "movie.mp4.part"
+    candidate.parent.mkdir()
+    output.parent.mkdir()
+    candidate.write_bytes(b"media")
+    candidate.chmod(0o640)
+
+    real_replace = os.replace
+    calls = 0
+
+    def replace(source, destination):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError(errno.EXDEV, "cross-device link")
+        return real_replace(source, destination)
+
+    original_unlink = Path.unlink
+
+    def unlink(path: Path, *args, **kwargs):
+        if path == candidate:
+            raise OSError(errno.EACCES, "stage cleanup denied")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", replace)
+    monkeypatch.setattr(Path, "unlink", unlink)
+
+    N_m3u8DLEngine._move_stage_output(candidate, output)
+
+    assert output.read_bytes() == b"media"
+    assert stat.S_IMODE(output.stat().st_mode) == 0o640
+    assert "stage output cleanup failed after committing" in caplog.text

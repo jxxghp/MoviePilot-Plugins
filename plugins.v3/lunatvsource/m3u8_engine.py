@@ -778,11 +778,12 @@ class _BaseM3U8Engine:
         }
         started_at = time.monotonic()
         last_progress_at = started_at
-        last_cache_check = started_at
+        last_cache_check = started_at - 1.0
         last_cache_count = 0
         last_cache_progress = 0.0
         last_parsed_progress = 0.0
         last_progress = 0.0
+        download_stage_complete = False
 
         def process_group_alive() -> bool:
             if process is None:
@@ -799,6 +800,7 @@ class _BaseM3U8Engine:
 
         def record_line(stream_name: str, line: str) -> None:
             del stream_name
+            nonlocal download_stage_complete
             nonlocal last_parsed_progress, last_progress_at, last_progress, output_tail
             if not line:
                 return
@@ -809,6 +811,8 @@ class _BaseM3U8Engine:
             if parsed <= last_parsed_progress:
                 return
             last_parsed_progress = parsed
+            if parsed >= 1.0:
+                download_stage_complete = True
             last_progress_at = time.monotonic()
             value = max(last_progress, parsed)
             if value <= last_progress:
@@ -873,7 +877,11 @@ class _BaseM3U8Engine:
                     if now - started_at > self.PROCESS_TOTAL_TIMEOUT_SECONDS:
                         self._terminate(process)
                         raise M3U8EngineError(f"{self.name} process timed out")
-                    if now - last_progress_at > self.PROCESS_NO_PROGRESS_TIMEOUT_SECONDS:
+                    if (
+                        not download_stage_complete
+                        and now - last_progress_at
+                        > self.PROCESS_NO_PROGRESS_TIMEOUT_SECONDS
+                    ):
                         self._terminate(process)
                         raise M3U8EngineError(
                             f"{self.name} process made no progress"
@@ -904,6 +912,8 @@ class _BaseM3U8Engine:
                     )
                     if cache_activity is not None:
                         cache_count, cache_progress = cache_activity
+                        if cache_count >= expected_segments:
+                            download_stage_complete = True
                         if cache_count > last_cache_count:
                             last_progress_at = now
                         last_cache_count = cache_count
@@ -1018,7 +1028,15 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
                 os.fsync(target.fileno())
             os.replace(temporary_path, output)
             temporary_path = None
-            candidate.unlink()
+            try:
+                candidate.unlink()
+            except OSError as exc:
+                LOGGER.warning(
+                    "stage output cleanup failed after committing %s; leaving %s: %s",
+                    output,
+                    candidate,
+                    exc,
+                )
         finally:
             if descriptor >= 0:
                 try:
