@@ -599,8 +599,8 @@ def _parse_play_urls(
 
     episodes: List[CmsEpisode] = []
     for group_name, group in selected_groups:
-        parsed_entries: List[Tuple[str, str]] = []
-        for raw in group.split("#"):
+        parsed_entries: List[Tuple[int, str, str]] = []
+        for ordinal, raw in enumerate(group.split("#"), start=1):
             raw = raw.strip()
             if not raw:
                 continue
@@ -612,7 +612,7 @@ def _parse_play_urls(
             parsed_url = urllib.parse.urlparse(url)
             if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
                 continue
-            parsed_entries.append((label.strip(), url))
+            parsed_entries.append((ordinal, label.strip(), url))
 
         # A TV detail row occasionally carries a whole season as plain
         # ``url#url`` entries despite a title such as “第52集”. Number the
@@ -621,9 +621,9 @@ def _parse_play_urls(
         number_unlabelled = (
             number_unlabelled_multi_episode
             and len(parsed_entries) > 1
-            and all(not label for label, _ in parsed_entries)
+            and all(not label for _, label, _ in parsed_entries)
         )
-        for ordinal, (label, url) in enumerate(parsed_entries, start=1):
+        for ordinal, label, url in parsed_entries:
             if number_unlabelled:
                 season = _season_hint(group_name, default_season)
                 episode = ordinal
@@ -1247,17 +1247,149 @@ class AppleCmsClient:
         selected_groups: Dict[Tuple[str, str, int], List[CmsResult]] = {}
         selected_bundles: Dict[Tuple[str, str, int], List[CmsResult]] = {}
         selected_count = 0
+        ambiguous_year_groups: set[Tuple[str, int]] = set()
+        seen_explicit_years: Dict[Tuple[str, int], set[str]] = {}
+        upgraded_unknown_groups: Dict[Tuple[str, int], str] = {}
 
-        def collect_results(page_results: Iterable[CmsResult]) -> None:
+        def remember_year_groups(
+            page_results: Iterable[CmsResult],
+        ) -> Tuple[Dict[Tuple[str, int], set[str]], set[Tuple[str, int]]]:
+            explicit_years: Dict[Tuple[str, int], set[str]] = {}
+            unknown_year_groups: set[Tuple[str, int]] = set()
+            for result in page_results:
+                group_identity = (
+                    _episode_row_identity(result)
+                    or _episode_row_title_identity(result)
+                )
+                if not group_identity:
+                    continue
+                base_key = (group_identity[0], group_identity[2])
+                if group_identity[1]:
+                    explicit_years.setdefault(base_key, set()).add(group_identity[1])
+                else:
+                    unknown_year_groups.add(base_key)
+            for base_key, years in explicit_years.items():
+                seen_explicit_years.setdefault(base_key, set()).update(years)
+            ambiguous_year_groups.update(
+                base_key
+                for base_key, years in seen_explicit_years.items()
+                if len(years) > 1
+            )
+            return explicit_years, unknown_year_groups
+
+        def matching_group_key(
+            identity: Tuple[str, str, int, int, str],
+        ) -> Optional[Tuple[str, str, int]]:
+            if identity[:3] in selected_groups:
+                return identity[:3]
+            if (identity[0], identity[2]) in ambiguous_year_groups:
+                return None
+            matches = [
+                group_key
+                for group_key in selected_groups
+                if (
+                    identity[0] == group_key[0]
+                    and identity[2] == group_key[2]
+                    and (
+                        not identity[1]
+                        or not group_key[1]
+                        or identity[1] == group_key[1]
+                    )
+                )
+            ]
+            return matches[0] if len(matches) == 1 else None
+
+        def upgrade_group_key(
+            group_key: Tuple[str, str, int], year: str
+        ) -> Tuple[str, str, int]:
+            if group_key[1] or not year:
+                return group_key
+            upgraded_group_key = (group_key[0], year, group_key[2])
+            if (
+                upgraded_group_key in selected_groups
+                or upgraded_group_key in selected_bundles
+                or any(
+                    kind == "group" and entry == upgraded_group_key
+                    for kind, entry in selected_entries
+                )
+            ):
+                return group_key
+            selected_groups[upgraded_group_key] = selected_groups.pop(group_key)
+            bundles = selected_bundles.pop(group_key, None)
+            if bundles is not None:
+                selected_bundles[upgraded_group_key] = bundles
+            for index, (kind, entry) in enumerate(selected_entries):
+                if kind == "group" and entry == group_key:
+                    selected_entries[index] = (kind, upgraded_group_key)
+                    break
+            upgraded_unknown_groups[(group_key[0], group_key[2])] = year
+            return upgraded_group_key
+
+        def restore_upgraded_group(base_key: Tuple[str, int]) -> None:
+            year = upgraded_unknown_groups.pop(base_key, "")
+            if not year:
+                return
+            current_key = (base_key[0], year, base_key[1])
+            unknown_key = (base_key[0], "", base_key[1])
+            rows = selected_groups.pop(current_key, [])
+            unknown_rows = [result for result in rows if not result.year]
+            if unknown_rows:
+                selected_groups[unknown_key] = unknown_rows
+            bundles = selected_bundles.pop(current_key, [])
+            unknown_bundles = [bundle for bundle in bundles if not bundle.year]
+            if unknown_bundles:
+                selected_bundles[unknown_key] = unknown_bundles
+            for index, (kind, entry) in enumerate(selected_entries):
+                if kind == "group" and entry == current_key:
+                    selected_entries[index] = (kind, unknown_key)
+                    break
+            ambiguous_year_groups.add(base_key)
+
+        def selected_group_year_conflict(page_results: Iterable[CmsResult]) -> bool:
+            _, unknown_year_groups = remember_year_groups(page_results)
+            selected_explicit_years: Dict[Tuple[str, int], set[str]] = {}
+            selected_unknown_year_groups: set[Tuple[str, int]] = set()
+            for title, year, season in selected_groups:
+                base_key = (title, season)
+                if year:
+                    selected_explicit_years.setdefault(base_key, set()).add(year)
+                else:
+                    selected_unknown_year_groups.add(base_key)
+            possible_unknown_groups = (
+                unknown_year_groups
+                | selected_unknown_year_groups
+                | set(upgraded_unknown_groups)
+            )
+            for base_key in possible_unknown_groups:
+                known_years = {
+                    *seen_explicit_years.get(base_key, set()),
+                    *selected_explicit_years.get(base_key, set()),
+                }
+                if len(known_years) > 1:
+                    restore_upgraded_group(base_key)
+                    return True
+            return False
+
+        def collect_results(
+            page_results: Iterable[CmsResult], selected_group_only: bool = False
+        ) -> bool:
             """Select cards and attach same-season bundles independently of row order."""
 
             nonlocal selected_count
+            conflict = False
             playable_results = [
                 result
                 for result in page_results
                 if (not media_type_filter or result.media_type == media_type_filter)
                 and (not require_playable or result.episodes)
             ]
+            _, unknown_year_groups = remember_year_groups(playable_results)
+            if (
+                selected_group_only
+                and selected_groups
+                and selected_group_year_conflict(playable_results)
+            ):
+                return True
             row_group_keys = set()
             for result in playable_results:
                 identity = _episode_row_identity(result)
@@ -1267,12 +1399,35 @@ class AppleCmsClient:
             for result in playable_results:
                 identity = _episode_row_identity(result)
                 title_identity = _episode_row_title_identity(result)
-                group_key = identity[:3] if identity else None
+                group_identity = identity or title_identity
+                matching_key = (
+                    matching_group_key(group_identity) if group_identity else None
+                )
+                if selected_group_only and selected_groups:
+                    if not group_identity:
+                        continue
+                    if matching_key is None:
+                        if any(
+                            group_identity[0] == group_key[0]
+                            and group_identity[2] == group_key[2]
+                            and group_identity[1]
+                            and group_key[1]
+                            and group_identity[1] != group_key[1]
+                            for group_key in selected_groups
+                        ):
+                            conflict = True
+                        continue
+                group_key = (
+                    upgrade_group_key(matching_key, group_identity[1])
+                    if matching_key and group_identity
+                    else (identity[:3] if identity else None)
+                )
                 if (
                     group_key is None
                     and title_identity
                     and (
-                        title_identity[:3] in selected_groups
+                        not result.episodes
+                        or title_identity[:3] in selected_groups
                         or title_identity[:3] in row_group_keys
                     )
                 ):
@@ -1292,6 +1447,7 @@ class AppleCmsClient:
                     selected_groups[group_key].append(result)
                 else:
                     selected_bundles.setdefault(group_key, []).append(result)
+            return conflict
 
         collect_results(self._results_from_items(source, items, enrich, deadline=deadline))
 
@@ -1301,8 +1457,28 @@ class AppleCmsClient:
         def page_vod_ids(page_items: Iterable[Mapping[str, Any]]) -> Tuple[str, ...]:
             return tuple(_text(item.get("vod_id")) for item in page_items)
 
+        def page_signature(
+            page_items: Iterable[Mapping[str, Any]],
+        ) -> Tuple[Tuple[str, ...], ...]:
+            signatures = []
+            for item in page_items:
+                vod_id = _text(item.get("vod_id"))
+                if vod_id:
+                    signatures.append(("id", vod_id))
+                else:
+                    signatures.append(
+                        (
+                            "content",
+                            _text(item.get("vod_name") or item.get("vod_en")),
+                            _text(item.get("vod_year")),
+                            _text(item.get("vod_play_from")),
+                            _text(item.get("vod_play_url")),
+                        )
+                    )
+            return tuple(sorted(signatures))
+
         seen_vod_ids = {vod_id for vod_id in page_vod_ids(raw_items) if vod_id}
-        seen_page_signatures = {page_vod_ids(raw_items)}
+        seen_page_signatures = {page_signature(raw_items)}
         page_count = self._page_count(payload)
         if page_count and page_count > _TV_EPISODE_ROW_MAX_PAGES:
             LOGGER.warning(
@@ -1326,11 +1502,12 @@ class AppleCmsClient:
             if not raw_page_items:
                 break
             page_ids = page_vod_ids(raw_page_items)
-            if page_ids in seen_page_signatures:
+            signature = page_signature(raw_page_items)
+            if signature in seen_page_signatures:
                 break
-            seen_page_signatures.add(page_ids)
+            seen_page_signatures.add(signature)
             new_vod_ids = {vod_id for vod_id in page_ids if vod_id} - seen_vod_ids
-            if not new_vod_ids:
+            if page_ids and all(page_ids) and not new_vod_ids:
                 break
             seen_vod_ids.update(new_vod_ids)
 
@@ -1351,6 +1528,7 @@ class AppleCmsClient:
                 # matching rows on broad-search pages. A gap ends expansion
                 # rather than walking an arbitrary result set.
                 matched_items: List[Mapping[str, Any]] = []
+                matched_results: List[CmsResult] = []
                 for item in page_items:
                     result = _result_from_item(source, item)
                     identity = _episode_row_title_identity(result)
@@ -1361,18 +1539,27 @@ class AppleCmsClient:
                         identity = _episode_row_title_identity(
                             replace(result, media_type="tv")
                         )
-                    if identity and identity[:3] in selected_groups:
+                    if identity and any(
+                        identity[0] == group_key[0]
+                        and identity[2] == group_key[2]
+                        for group_key in selected_groups
+                    ):
                         matched_items.append(item)
+                        matched_results.append(result)
                 if not matched_items:
                     break
-                collect_results(
+                if selected_group_year_conflict(matched_results):
+                    break
+                if collect_results(
                     self._results_from_items(
                         source,
                         matched_items,
                         enrich,
                         deadline=deadline,
-                    )
-                )
+                    ),
+                    selected_group_only=True,
+                ):
+                    break
                 continue
 
             # With require_playable enabled, an all-unplayable first page must
@@ -1395,11 +1582,24 @@ class AppleCmsClient:
             if kind == "result":
                 source_results.append(entry)
                 continue
-            merged = _merge_episode_row_results(selected_groups[entry])
+            group_results = [
+                replace(result, year=entry[1])
+                if entry[1] and not result.year
+                else result
+                for result in selected_groups[entry]
+            ]
+            merged = _merge_episode_row_results(group_results)
             if merged and (not require_playable or merged.episodes):
                 source_results.append(
                     _merge_episode_row_bundles(merged, selected_bundles.get(entry, ()))
                 )
+            elif not require_playable and selected_bundles.get(entry):
+                bundles = selected_bundles[entry]
+                base_bundle = next(
+                    (bundle for bundle in bundles if bundle.episodes),
+                    bundles[0],
+                )
+                source_results.append(_merge_episode_row_bundles(base_bundle, bundles))
         return source_results
 
     def detail(self, source_key: str, vod_id: str) -> Optional[CmsResult]:
