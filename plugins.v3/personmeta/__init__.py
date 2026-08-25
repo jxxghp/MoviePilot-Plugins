@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional
 
 import pytz
-from zhconv_rs import zhconv as zhconv_convert
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from requests import RequestException
@@ -25,9 +24,8 @@ from app.sdk.logging import logger
 from app.plugins import _PluginBase
 from app.schemas import MediaInfo, MediaServerItem, ServiceInfo
 from app.schemas.types import EventType, MediaSource, MediaType
-from app.sdk.utilities import retry
+from app.sdk.utilities import StringUtils, convert, retry
 from app.sdk.network import RequestUtils
-from app.sdk.utilities import StringUtils
 
 
 class PersonMeta(_PluginBase):
@@ -38,7 +36,7 @@ class PersonMeta(_PluginBase):
     # 插件图标
     plugin_icon = "actor.png"
     # 插件版本
-    plugin_version = "3.1.0"
+    plugin_version = "3.1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -1213,7 +1211,7 @@ class PersonMeta(_PluginBase):
                 for name in also_known_as:
                     if name and StringUtils.is_chinese(name):
                         # 将繁体别名统一转为简体，便于媒体库名称匹配。
-                        return zhconv_convert(name, "zh-hans")
+                        return convert(name, "zh-hans")
         except Exception as err:
             logger.error(f"获取人物中文名失败：{err}")
         return ""
