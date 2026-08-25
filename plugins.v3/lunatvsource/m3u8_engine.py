@@ -57,6 +57,7 @@ class ReleaseAsset:
 
     filename: str
     sha256: str
+    executable_sha256: str
     url: str
 
 
@@ -84,6 +85,7 @@ N_M3U8DL_RE_SPEC = EngineSpec(
         ("linux", "x86_64"): ReleaseAsset(
             "N_m3u8DL-RE_v0.5.1-beta_linux-x64_20251029.tar.gz",
             "2acce91b64af3ee676a32d1002e1382840d81f430e1b7f8d5b151ce1eb6fb590",
+            "d2fa5b4b79f243320c509a85835327a520d8c160c600d99921e764bfc519fec7",
             _github_release_url(
                 "nilaoda/N_m3u8DL-RE",
                 N_M3U8DL_RE_VERSION,
@@ -93,6 +95,7 @@ N_M3U8DL_RE_SPEC = EngineSpec(
         ("linux", "aarch64"): ReleaseAsset(
             "N_m3u8DL-RE_v0.5.1-beta_linux-arm64_20251029.tar.gz",
             "b9cce9978e94fd8ce509ee86a6543cccffeb0ee5b7b7aeff1314104265ac65ad",
+            "9cd4ef3923701cc96efb4ef4e4dc7000b42b54995a3aa27f0e363d84e1816a35",
             _github_release_url(
                 "nilaoda/N_m3u8DL-RE",
                 N_M3U8DL_RE_VERSION,
@@ -102,6 +105,7 @@ N_M3U8DL_RE_SPEC = EngineSpec(
         ("darwin", "x86_64"): ReleaseAsset(
             "N_m3u8DL-RE_v0.5.1-beta_osx-x64_20251029.tar.gz",
             "fb0d9fd6c18b08a5c55e49f60d3c219471196bd05bf15e58f318a44da500f65a",
+            "5c8c8b7f0794f9d4350cdcf2eb662993d8ec23a967c5e8b230a431144eca87e3",
             _github_release_url(
                 "nilaoda/N_m3u8DL-RE",
                 N_M3U8DL_RE_VERSION,
@@ -111,6 +115,7 @@ N_M3U8DL_RE_SPEC = EngineSpec(
         ("darwin", "aarch64"): ReleaseAsset(
             "N_m3u8DL-RE_v0.5.1-beta_osx-arm64_20251029.tar.gz",
             "537866d7d03c9aed04c910014bceae26a3db494c1d1edae9c59ddaaa29b0a1c7",
+            "90f5b7a86182c1c985ea842936ccb1e6313cd771231b9c7adade255af74dead7",
             _github_release_url(
                 "nilaoda/N_m3u8DL-RE",
                 N_M3U8DL_RE_VERSION,
@@ -128,6 +133,7 @@ VSD_SPEC = EngineSpec(
         ("linux", "x86_64"): ReleaseAsset(
             "vsd-0.5.0-x86_64-unknown-linux-musl.tar.xz",
             "bab9b5b1a02b30afdbf44b58aa9b245d54caf8f723189bb9cc4dca4872c1455b",
+            "bd0b2f2f27eb6325205e10738dad8cce3ebdd9089caef51bda5a5236cc61f588",
             _github_release_url(
                 "clitic/vsd",
                 "vsd-0.5.0",
@@ -137,6 +143,7 @@ VSD_SPEC = EngineSpec(
         ("linux", "aarch64"): ReleaseAsset(
             "vsd-0.5.0-aarch64-unknown-linux-musl.tar.xz",
             "c435f822f11da61dee85732a8eadf93a3e138041100c552c6826addee53951c6",
+            "b457f364ad238ac1f210956bc007351603aa26f3e6670826733893e15badfd28",
             _github_release_url(
                 "clitic/vsd",
                 "vsd-0.5.0",
@@ -146,6 +153,7 @@ VSD_SPEC = EngineSpec(
         ("darwin", "aarch64"): ReleaseAsset(
             "vsd-0.5.0-aarch64-apple-darwin.tar.xz",
             "55fa01823ca3566e91080e9965e1d75fa53626d6be60b10671f250de8cd34f64",
+            "8e82f47febad2a54a48b489ef9846292e2653ceb275ccb594c9666f8e27f471e",
             _github_release_url(
                 "clitic/vsd",
                 "vsd-0.5.0",
@@ -284,13 +292,14 @@ class ManagedBinaryInstaller:
     def _managed_binary_is_verified(self) -> bool:
         if not self._is_executable(self.managed_path):
             return False
-        expected = self._read_manifest_digest()
-        if expected is None:
+        asset = self.asset()
+        if asset is None:
             return False
         try:
-            return hmac.compare_digest(self._digest_file(self.managed_path), expected)
+            return hmac.compare_digest(self._digest_file(self.managed_path), asset.executable_sha256)
         except OSError:
             return False
+
 
     @contextmanager
     def _installation_lock(self) -> Iterator[None]:
@@ -667,38 +676,71 @@ class _BaseM3U8Engine:
 
     @staticmethod
     def _terminate(process: subprocess.Popen[str]) -> None:
-        """Terminate the engine and, on POSIX, its entire process group."""
-        if process.poll() is not None:
-            return
+        """Terminate engine and, on POSIX, its entire process group."""
+        _TERMINATE_WINDOW_SECONDS = 5.0
+        _TERMINATE_POLL_SECONDS = 0.1
 
-        def signal_group(signal_number: int) -> bool:
+        def _group_exists(pgid: int) -> bool:
+            """Return True when process group still exists."""
+            if os.name != "posix":
+                return True
+            try:
+                os.killpg(pgid, 0)
+                return True
+            except ProcessLookupError:
+                return False
+            except OSError as error:
+                if error.errno == errno.ESRCH:
+                    return False
+                if error.errno == errno.EPERM:
+                    return True
+                return True
+
+        def _signal_group(signal_number: int) -> bool:
             if os.name != "posix":
                 return False
             try:
                 os.killpg(process.pid, signal_number)
                 return True
-            except (AttributeError, OSError, ProcessLookupError):
+            except (AttributeError, ProcessLookupError):
+                return False
+            except OSError as error:
+                if error.errno == errno.ESRCH:
+                    return False
+                if error.errno == errno.EPERM:
+                    return True
                 return False
 
-        if not signal_group(signal.SIGTERM):
+        def _wait_group(deadline: float) -> bool:
+            """Return True when group is gone before deadline."""
+            while True:
+                # Reap the session leader when it exits; otherwise a zombie
+                # can keep killpg(..., 0) reporting the group as alive.
+                process.poll()
+                if not _group_exists(process.pid):
+                    return True
+                if time.monotonic() >= deadline:
+                    return False
+                time.sleep(min(_TERMINATE_POLL_SECONDS, max(0.0, deadline - time.monotonic())))
+
+        if os.name != "posix":
             try:
                 process.terminate()
-            except OSError:
-                pass
-        try:
-            process.wait(timeout=5)
+                process.wait(timeout=_TERMINATE_WINDOW_SECONDS)
+            except (OSError, subprocess.TimeoutExpired):
+                try:
+                    process.kill()
+                except OSError:
+                    pass
             return
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-        if not signal_group(signal.SIGKILL):
-            try:
-                process.kill()
-            except OSError:
-                pass
-        try:
-            process.wait(timeout=5)
-        except (OSError, subprocess.TimeoutExpired):
-            pass
+
+        if _signal_group(signal.SIGTERM):
+            if _wait_group(time.monotonic() + _TERMINATE_WINDOW_SECONDS):
+                return
+        if not _signal_group(signal.SIGKILL):
+            return
+        _wait_group(time.monotonic() + _TERMINATE_WINDOW_SECONDS)
+
 
     @staticmethod
     def _raise_if_cancelled(control_event: Optional[threading.Event]) -> None:
