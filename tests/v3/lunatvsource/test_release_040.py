@@ -327,3 +327,247 @@ def test_refresh_plugin_season_subscription_expands_52_cms_episode_rows(
     assert [(task["season"], task["episode"]) for task in tasks] == [
         (1, episode) for episode in range(1, 53)
     ]
+
+def test_api_download_encodes_top_level_episodes_for_native_season_download(
+    monkeypatch, tmp_path: Path
+):
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
+    wakeups = []
+    monkeypatch.setattr(plugin, "_start_queue", lambda: wakeups.append(True))
+
+    response = plugin.api_download(
+        {
+            "title": "示例剧",
+            "year": "2026",
+            "media_type": "tv",
+            "media_id": "demo:7",
+            "source_key": "demo",
+            "root": str(tmp_path),
+            "episodes": [
+                {
+                    "url": "https://example.test/s02e01.m3u8",
+                    "season": 2,
+                    "episode": 1,
+                },
+                {
+                    "url": "https://example.test/s02e02.m3u8",
+                    "season": 2,
+                    "episode": 2,
+                },
+            ],
+        }
+    )
+
+    assert response["success"] is True
+    assert response["data"]["task_id"]
+    assert [(task["season"], task["episode"])
+            for task in sorted(plugin._queue.list_tasks(), key=lambda item: item["episode"])] == [
+        (2, 1),
+        (2, 2),
+    ]
+    assert wakeups == [True]
+
+def test_api_download_rejects_non_lunatv_resource_token(monkeypatch, tmp_path: Path):
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
+    monkeypatch.setattr(
+        plugin,
+        "_client",
+        lambda: (_ for _ in ()).throw(AssertionError("API download must not search CMS")),
+    )
+
+    response = plugin.api_download(
+        {"content": "magnet:?xt=urn:btih:not-a-lunatv-resource", "root": str(tmp_path)}
+    )
+
+    assert response["success"] is False
+    assert "LunaTV 资源令牌" in response["message"]
+    assert response["data"] == {"task_id": None}
+    assert plugin._queue.list_tasks() == []
+
+def test_api_download_keeps_single_url_path_when_episodes_are_empty(
+    monkeypatch, tmp_path: Path
+):
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
+    wakeups = []
+    monkeypatch.setattr(plugin, "_start_queue", lambda: wakeups.append(True))
+
+    def native_download_must_not_run(*_args, **_kwargs):
+        raise AssertionError("empty episodes must keep the direct URL path")
+
+    monkeypatch.setattr(plugin, "download", native_download_must_not_run)
+
+    response = plugin.api_download(
+        {
+            "url": "https://example.test/movie.m3u8",
+            "title": "示例电影",
+            "media_type": "movie",
+            "episodes": [],
+        }
+    )
+
+    assert response["success"] is True
+    assert response["data"]["task_id"]
+    assert [task["url"] for task in plugin._queue.list_tasks()] == [
+        "https://example.test/movie.m3u8"
+    ]
+    assert wakeups == [True]
+
+def test_api_download_empty_episode_token_falls_back_to_single_resource(
+    monkeypatch, tmp_path: Path
+):
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
+    wakeups = []
+    monkeypatch.setattr(plugin, "_start_queue", lambda: wakeups.append(True))
+    token = plugin._resource_token(
+        {
+            "url": "https://example.test/movie.m3u8",
+            "title": "示例电影",
+            "media_type": "movie",
+            "episodes": [],
+        }
+    )
+
+    native_download = plugin.download
+
+    def download_single_resource(content, *args, **kwargs):
+        assert "episodes" not in plugin._decode_resource_token(content)
+        return native_download(content, *args, **kwargs)
+
+    monkeypatch.setattr(plugin, "download", download_single_resource)
+
+    response = plugin.api_download({"content": token})
+
+    assert response["success"] is True
+    assert response["data"]["task_id"]
+    assert [task["url"] for task in plugin._queue.list_tasks()] == [
+        "https://example.test/movie.m3u8"
+    ]
+    assert wakeups == [True]
+
+@pytest.mark.parametrize("as_token", [False, True], ids=["top-level", "token"])
+def test_api_download_season_skips_invalid_entries_before_later_valid_entry(
+    monkeypatch, tmp_path: Path, as_token: bool
+):
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
+    wakeups = []
+    monkeypatch.setattr(plugin, "_start_queue", lambda: wakeups.append(True))
+    resource = {
+        "url": "file:///tmp/not-a-stream.m3u8",
+        "title": "示例剧",
+        "media_type": "tv",
+        "episodes": [
+            None,
+            {"url": "file:///tmp/not-an-http-stream.m3u8", "season": 1, "episode": 1},
+            {"url": "https://example.test/s01e02.m3u8", "season": 1, "episode": 2},
+        ],
+    }
+
+    response = plugin.api_download(
+        {"content": plugin._resource_token(resource)} if as_token else resource
+    )
+
+    assert response["success"] is True
+    assert "2 集参数无效" in response["message"]
+    assert [task["url"] for task in plugin._queue.list_tasks()] == [
+        "https://example.test/s01e02.m3u8"
+    ]
+    assert wakeups == [True]
+
+@pytest.mark.parametrize("as_token", [False, True], ids=["top-level", "token"])
+def test_api_download_rejects_nonempty_all_invalid_episode_list(
+    monkeypatch, tmp_path: Path, as_token: bool
+):
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
+    wakeups = []
+    monkeypatch.setattr(plugin, "_start_queue", lambda: wakeups.append(True))
+    resource = {
+        "url": "https://example.test/must-not-fall-back.m3u8",
+        "title": "示例剧",
+        "media_type": "tv",
+        "episodes": [None, {"url": ""}],
+    }
+
+    response = plugin.api_download(
+        {"content": plugin._resource_token(resource)} if as_token else resource
+    )
+
+    assert response["success"] is False
+    assert response["data"] == {"task_id": None}
+    assert plugin._queue.list_tasks() == []
+    assert wakeups == []
+
+def test_api_download_token_requires_valid_effective_root(monkeypatch):
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin, "_effective_root", lambda **_kwargs: "")
+    token = plugin._resource_token(
+        {
+            "url": "https://example.test/movie.m3u8",
+            "title": "示例电影",
+            "media_type": "movie",
+        }
+    )
+
+    response = plugin.api_download({"content": token})
+
+    assert response == {
+        "success": False,
+        "message": "未找到下载目录，请先配置插件目录或 MoviePilot 目录设置",
+        "data": {"task_id": None},
+    }
+
+def test_resource_torrents_enables_episode_row_expansion(monkeypatch):
+    calls = []
+
+    class TorrentInfo:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class Client:
+        def search(self, *_args, **kwargs):
+            calls.append(kwargs)
+            return []
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+
+    assert plugin._resource_torrents("长剧") == []
+    assert calls and calls[0]["expand_tv_episode_rows"] is True
+
+def test_native_download_empty_episodes_fall_back_to_top_level_url(
+    monkeypatch, tmp_path: Path
+):
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    wakeups = []
+    monkeypatch.setattr(plugin, "_start_queue", lambda: wakeups.append(True))
+    token = plugin._resource_token(
+        {
+            "url": "https://example.test/movie.m3u8",
+            "title": "示例电影",
+            "media_type": "movie",
+            "episodes": [
+                {
+                    "url": "https://example.test/season.m3u8",
+                    "season": 1,
+                    "episode": 2,
+                }
+            ],
+        }
+    )
+
+    result = plugin.download(token, tmp_path, episodes=[])
+
+    assert result[1]
+    assert [task["url"] for task in plugin._queue.list_tasks()] == [
+        "https://example.test/movie.m3u8"
+    ]
+    assert wakeups == [True]
