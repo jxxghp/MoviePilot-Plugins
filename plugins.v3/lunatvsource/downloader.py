@@ -277,7 +277,50 @@ class DownloadQueue:
         return tasks
 
     def _write(self, tasks: List[DownloadTask]) -> None:
-        self._save(self.DATA_KEY, [task.to_dict() for task in tasks[-500:]])
+        terminal_states = {"completed", "failed"}
+        terminal_to_discard = max(
+            0,
+            sum(task.state in terminal_states for task in tasks) - 500,
+        )
+        persisted = []
+        for task in tasks:
+            if task.state in terminal_states and terminal_to_discard:
+                terminal_to_discard -= 1
+                continue
+            persisted.append(task.to_dict())
+        self._save(self.DATA_KEY, persisted)
+
+    def _persist_removal(
+        self,
+        tasks: List[DownloadTask],
+        task: DownloadTask,
+        *,
+        delete_file: bool,
+    ) -> None:
+        """Persist task removal before deleting its local artifacts.
+
+        Some MoviePilot data stores may durably apply a write and still raise
+        while reporting the result.  Re-read in that case: delete files only
+        when the task is already absent, otherwise leave both state and files
+        intact so a restart cannot resurrect a task whose file was removed.
+        This method must be called while ``_lock`` is held.
+        """
+
+        remaining = [item for item in tasks if item.task_id != task.task_id]
+        try:
+            self._write(remaining)
+        except Exception:
+            try:
+                removal_persisted = not any(
+                    item.task_id == task.task_id for item in self._read()
+                )
+            except Exception:
+                removal_persisted = False
+            if removal_persisted and delete_file:
+                self._delete_task_files(task)
+            raise
+        if delete_file:
+            self._delete_task_files(task)
 
     def enqueue(self, task: DownloadTask) -> bool:
         if not task.url or not task.root:
@@ -356,9 +399,7 @@ class DownloadQueue:
                 self._control_action = "remove"
                 self._control_event.set()
                 return True
-            if delete_file:
-                self._delete_task_files(task)
-            self._write([item for item in tasks if item.task_id != task_id])
+            self._persist_removal(tasks, task, delete_file=delete_file)
             return True
 
     def list_tasks(self) -> List[Dict[str, Any]]:
@@ -481,10 +522,8 @@ class DownloadQueue:
         task = next((item for item in tasks if item.task_id == task_id), None)
         if action == "remove":
             delete_file = task_id in self._delete_file_tasks
-            if task is not None and delete_file:
-                self._delete_task_files(task)
             if task is not None:
-                self._write([item for item in tasks if item.task_id != task_id])
+                self._persist_removal(tasks, task, delete_file=delete_file)
             self._delete_file_tasks.discard(task_id)
         else:
             if task is not None:
@@ -551,17 +590,15 @@ class DownloadQueue:
                 current = next((item for item in tasks if item.task_id == task.task_id), None)
                 if action == "remove":
                     delete_file = task.task_id in self._delete_file_tasks
-                    if delete_file:
-                        self._delete_task_files(task)
-                    tasks = [item for item in tasks if item.task_id != task.task_id]
+                    self._persist_removal(tasks, task, delete_file=delete_file)
                 elif current is not None:
                     current.state = "paused"
                     current.progress = 0.0
                     current.error = ""
-                self._write(tasks)
+                    self._write(tasks)
                 self._delete_file_tasks.discard(task.task_id)
                 self._clear_active_state()
-            return {"processed": 1, "task_id": task.task_id, "state": action}
+                return {"processed": 1, "task_id": task.task_id, "state": action}
         except Exception as exc:
             with self._lock:
                 tasks = self._read()
@@ -570,11 +607,7 @@ class DownloadQueue:
                     and self._current_task_id == task.task_id
                 ):
                     delete_file = task.task_id in self._delete_file_tasks
-                    if delete_file:
-                        self._delete_task_files(task)
-                    self._write(
-                        [item for item in tasks if item.task_id != task.task_id]
-                    )
+                    self._persist_removal(tasks, task, delete_file=delete_file)
                     self._delete_file_tasks.discard(task.task_id)
                     self._clear_active_state()
                     return {
@@ -619,11 +652,7 @@ class DownloadQueue:
             ):
                 task.output = output
                 delete_file = task.task_id in self._delete_file_tasks
-                if delete_file:
-                    self._delete_task_files(task)
-                self._write(
-                    [item for item in tasks if item.task_id != task.task_id]
-                )
+                self._persist_removal(tasks, task, delete_file=delete_file)
                 self._delete_file_tasks.discard(task.task_id)
                 self._clear_active_state()
                 return {

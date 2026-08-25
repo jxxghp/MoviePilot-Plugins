@@ -1,8 +1,10 @@
 import json
+import logging
 import socket
 import time
 
 import pytest
+import app.plugins.lunatvsource.cms as cms_module
 
 from app.plugins.lunatvsource.cms import (
     AppleCmsClient,
@@ -324,6 +326,900 @@ def test_search_enriches_sparse_list_item_with_detail_play_urls():
     assert len(results) == 1
     assert [episode.episode for episode in results[0].episodes] == [1, 2]
     assert {call.get("ac") for call in calls} == {"list", "detail"}
+
+
+def _episode_row(index: int, *, title: str = "长剧", year: str = "2026"):
+    return {
+        "vod_id": f"episode-{index}",
+        "vod_name": f"{title} S01E{index:03d}",
+        "vod_year": year,
+        "type_name": "电视剧",
+        "vod_play_url": f"第{index}集$https://video.example/{title}-{index}.m3u8",
+    }
+
+
+def _search_item(index: int, media_type: str, *, playable: bool = True):
+    type_name = {"movie": "电影", "tv": "电视剧"}[media_type]
+    item = {
+        "vod_id": f"{media_type}-{index}",
+        "vod_name": f"示例{type_name}{index}",
+        "type_name": type_name,
+    }
+    if playable:
+        item["vod_play_url"] = f"正片$https://video.example/{media_type}-{index}.m3u8"
+    return item
+
+
+def test_search_applies_media_type_filter_before_per_source_limit():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    items = [_search_item(index, "tv", playable=False) for index in range(1, 4)] + [
+        _search_item(4, "movie")
+    ]
+    detail_calls = []
+
+    def fake_request(_source, **params):
+        if params.get("ac") == "detail":
+            detail_calls.append(params["ids"])
+            return {"list": []}
+        return {"list": items}
+
+    client._request = fake_request
+
+    unfiltered = client.search(
+        "示例",
+        limit=3,
+        source_limit=3,
+        enrich=False,
+        media_type_filter="",
+    )
+    movies = client.search(
+        "示例",
+        limit=3,
+        source_limit=3,
+        media_type_filter="movie",
+    )
+
+    assert [result.vod_id for result in unfiltered] == ["tv-1", "tv-2", "tv-3"]
+    assert [result.vod_id for result in movies] == ["movie-4"]
+    assert detail_calls == []
+
+
+def test_search_tv_filter_enriches_row_without_reliable_type_hint():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    detail_calls = []
+
+    def fake_request(_source, **params):
+        if params.get("ac") == "list":
+            return {"list": [{"vod_id": "unknown-tv", "vod_name": "缺类型剧"}]}
+        detail_calls.append(params["ids"])
+        return {
+            "list": [
+                {
+                    "vod_id": "unknown-tv",
+                    "type_name": "电视剧",
+                    "vod_play_url": "第1集$https://video.example/unknown-tv.m3u8",
+                }
+            ]
+        }
+
+    client._request = fake_request
+
+    results = client.search("缺类型剧", media_type_filter="tv")
+
+    assert detail_calls == ["unknown-tv"]
+    assert [result.vod_id for result in results] == ["unknown-tv"]
+    assert [result.media_type for result in results] == ["tv"]
+
+
+def test_search_applies_tv_filter_before_per_source_limit_in_episode_row_mode():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+    detail_calls = []
+    unplayable = _episode_row(1)
+    unplayable["vod_play_url"] = "not-a-url"
+
+    def fake_request(_source, **params):
+        if params.get("ac") == "detail":
+            detail_calls.append(params["ids"])
+            return {"list": []}
+        page = int(params["pg"])
+        calls.append(page)
+        if page == 1:
+            return {
+                "pagecount": "2",
+                "list": [_search_item(index, "movie", playable=False) for index in range(1, 4)]
+                + [unplayable],
+            }
+        return {
+            "pagecount": "2",
+            "list": [_search_item(4, "movie", playable=False), _episode_row(2)],
+        }
+
+    client._request = fake_request
+
+    results = client.search(
+        "长剧",
+        limit=1,
+        source_limit=1,
+        require_playable=True,
+        expand_tv_episode_rows=True,
+        media_type_filter="tv",
+    )
+
+    assert calls == [1, 2]
+    assert detail_calls == []
+    assert [result.title for result in results] == ["长剧"]
+    assert [episode.episode for episode in results[0].episodes] == [2]
+
+
+def test_search_tv_filter_enriches_unknown_episode_row_on_later_page():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+
+    def fake_request(_source, **params):
+        if params.get("ac") == "list":
+            page = int(params["pg"])
+            calls.append(("list", page))
+            if page == 1:
+                return {"pagecount": "2", "list": [_episode_row(1)]}
+            return {
+                "pagecount": "2",
+                "list": [
+                    {
+                        "vod_id": "unknown-tv-2",
+                        "vod_name": "长剧 S01E002",
+                        "vod_year": "2026",
+                    }
+                ],
+            }
+        calls.append(("detail", params["ids"]))
+        return {
+            "list": [
+                {
+                    "vod_id": "unknown-tv-2",
+                    "type_name": "电视剧",
+                    "vod_play_url": "第2集$https://video.example/long-show-2.m3u8",
+                }
+            ]
+        }
+
+    client._request = fake_request
+
+    results = client.search(
+        "长剧",
+        limit=1,
+        expand_tv_episode_rows=True,
+        media_type_filter="tv",
+    )
+
+    assert calls == [("list", 1), ("list", 2), ("detail", "unknown-tv-2")]
+    assert [episode.episode for episode in results[0].episodes] == [1, 2]
+
+
+def test_search_episode_row_expansion_enriches_unknown_later_row_without_filter():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+
+    def fake_request(_source, **params):
+        if params.get("ac") == "list":
+            page = int(params["pg"])
+            calls.append(("list", page))
+            if page == 1:
+                return {"pagecount": "2", "list": [_episode_row(1)]}
+            return {
+                "pagecount": "2",
+                "list": [
+                    {
+                        "vod_id": "unknown-tv-2",
+                        "vod_name": "长剧 S01E002",
+                        "vod_year": "2026",
+                    }
+                ],
+            }
+        calls.append(("detail", params["ids"]))
+        return {
+            "list": [
+                {
+                    "vod_id": "unknown-tv-2",
+                    "type_name": "电视剧",
+                    "vod_play_url": "第2集$https://video.example/long-show-2.m3u8",
+                }
+            ]
+        }
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert calls == [("list", 1), ("list", 2), ("detail", "unknown-tv-2")]
+    assert [episode.episode for episode in results[0].episodes] == [1, 2]
+
+
+def test_search_tv_filter_pages_past_non_target_rows_before_first_playable_card():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    pages = {
+        1: [_search_item(1, "movie", playable=False)],
+        2: [_search_item(2, "movie", playable=False)],
+        3: [_episode_row(3)],
+    }
+    calls = []
+    detail_calls = []
+
+    def fake_request(_source, **params):
+        if params.get("ac") == "detail":
+            detail_calls.append(params["ids"])
+            return {"list": []}
+        page = int(params["pg"])
+        calls.append(page)
+        return {"pagecount": "3", "list": pages[page]}
+
+    client._request = fake_request
+
+    results = client.search(
+        "长剧",
+        limit=1,
+        require_playable=True,
+        expand_tv_episode_rows=True,
+        media_type_filter="tv",
+    )
+
+    assert calls == [1, 2, 3]
+    assert detail_calls == []
+    assert [result.title for result in results] == ["长剧"]
+    assert [episode.episode for episode in results[0].episodes] == [3]
+
+
+def test_search_expands_episode_rows_across_pagecount_before_source_limit():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+
+    def fake_request(_source, **params):
+        calls.append(params)
+        page = int(params["pg"])
+        rows = {
+            1: [_episode_row(1), _episode_row(2)],
+            2: [_episode_row(3), _episode_row(4)],
+        }[page]
+        return {"pagecount": "2", "list": rows}
+
+    client._request = fake_request
+
+    results = client.search(
+        "长剧",
+        limit=1,
+        source_limit=1,
+        expand_tv_episode_rows=True,
+    )
+
+    assert [(call["pg"], call.get("ac")) for call in calls] == [(1, "list"), (2, "list")]
+    assert len(results) == 1
+    assert results[0].title == "长剧"
+    assert results[0].season_range == (1, 1)
+    assert [(episode.season, episode.episode) for episode in results[0].episodes] == [
+        (1, 1),
+        (1, 2),
+        (1, 3),
+        (1, 4),
+    ]
+
+
+def test_search_episode_row_expansion_stops_on_empty_page_without_pagecount():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    pages = {
+        1: [_episode_row(1)],
+        2: [_episode_row(2)],
+        3: [],
+    }
+    calls = []
+
+    def fake_request(_source, **params):
+        calls.append(int(params["pg"]))
+        return {"list": pages[int(params["pg"])]}
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert calls == [1, 2, 3]
+    assert [episode.episode for episode in results[0].episodes] == [1, 2]
+
+
+def test_search_episode_row_expansion_stops_when_cms_ignores_pg():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+
+    def fake_request(_source, **params):
+        calls.append(int(params["pg"]))
+        return {"list": [_episode_row(1)]}
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert calls == [1, 2]
+    assert [episode.episode for episode in results[0].episodes] == [1]
+
+
+def test_search_episode_row_expansion_does_not_page_non_episode_results():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+
+    def fake_request(_source, **params):
+        calls.append(int(params["pg"]))
+        return {
+            "pagecount": "9",
+            "list": [
+                {
+                    "vod_id": "series",
+                    "vod_name": "长剧",
+                    "vod_year": "2026",
+                    "type_name": "电视剧",
+                    "vod_play_url": "第1集$https://video.example/long-show.m3u8",
+                }
+            ],
+        }
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert calls == [1]
+    assert [episode.episode for episode in results[0].episodes] == [1]
+
+
+def test_search_episode_row_expansion_uses_batch_detail_then_individual_fallback():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+
+    def sparse_row(index: int):
+        row = _episode_row(index)
+        row.pop("vod_play_url")
+        return row
+
+    def fake_request(_source, **params):
+        calls.append((params.get("ac"), params.get("ids"), params.get("pg")))
+        if params.get("ac") == "list":
+            return {"pagecount": 1, "list": [sparse_row(1), sparse_row(2)]}
+        if params.get("ids") == "episode-1,episode-2":
+            return {"list": [_episode_row(1)]}
+        if params.get("ids") == "episode-2":
+            return {"list": [_episode_row(2)]}
+        raise AssertionError(params)
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert ("detail", "episode-1,episode-2", None) in calls
+    assert ("detail", "episode-2", None) in calls
+    assert [episode.episode for episode in results[0].episodes] == [1, 2]
+
+
+def test_search_episode_row_expansion_collects_a_208_episode_season():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+
+    def fake_request(_source, **params):
+        page = int(params["pg"])
+        calls.append(page)
+        first = (page - 1) * 20 + 1
+        last = min(first + 20, 209)
+        return {
+            "pagecount": "11",
+            "list": [_episode_row(index) for index in range(first, last)],
+        }
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert calls == list(range(1, 12))
+    assert len(results) == 1
+    assert [episode.episode for episode in results[0].episodes] == list(range(1, 209))
+
+
+def test_search_episode_row_expansion_keeps_multi_episode_detail_as_regular_result():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+
+    def fake_request(_source, **params):
+        calls.append(dict(params))
+        if params.get("ac") == "list":
+            return {
+                "pagecount": "99",
+                "list": [
+                    {
+                        "vod_id": "bundle",
+                        "vod_name": "长剧 第52集",
+                        "vod_year": "2026",
+                        "type_name": "电视剧",
+                    }
+                ],
+            }
+        if params.get("ids") == "bundle":
+            return {
+                "list": [
+                    {
+                        "vod_id": "bundle",
+                        "vod_name": "长剧 第52集",
+                        "vod_year": "2026",
+                        "type_name": "电视剧",
+                        "vod_play_url": "#".join(
+                            f"第{episode}集$https://video.example/long-{episode}.m3u8"
+                            for episode in range(1, 4)
+                        ),
+                    }
+                ]
+            }
+        raise AssertionError(params)
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert [(call["pg"], call.get("pages")) for call in calls if call["ac"] == "list"] == [
+        (1, None)
+    ]
+    assert results[0].title == "长剧 第52集"
+    assert [episode.episode for episode in results[0].episodes] == [1, 2, 3]
+
+
+def test_search_episode_row_expansion_batches_sparse_detail_ids_in_groups_of_50():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    detail_batches = []
+
+    def sparse_row(index: int):
+        row = _episode_row(index)
+        row.pop("vod_play_url")
+        return row
+
+    def fake_request(_source, **params):
+        if params.get("ac") == "list":
+            return {"pagecount": 1, "list": [sparse_row(index) for index in range(1, 209)]}
+        ids = params.get("ids", "").split(",")
+        detail_batches.append(ids)
+        return {
+            "list": [_episode_row(int(vod_id.removeprefix("episode-"))) for vod_id in ids]
+        }
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert [len(batch) for batch in detail_batches] == [50, 50, 50, 50, 8]
+    assert [vod_id for batch in detail_batches for vod_id in batch] == [
+        f"episode-{index}" for index in range(1, 209)
+    ]
+    assert [episode.episode for episode in results[0].episodes] == list(range(1, 209))
+
+
+def test_search_episode_row_expansion_keeps_pages_compatibility_on_later_pages():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+
+    def fake_request(_source, **params):
+        calls.append(dict(params))
+        page = int(params["pg"])
+        if page == 1 and params.get("pages") is None:
+            return {"list": []}
+        assert params.get("pages") == 1
+        return {
+            "pagecount": "2",
+            "list": [_episode_row(page)],
+        }
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert [(call["pg"], call.get("pages")) for call in calls] == [
+        (1, None),
+        (1, 1),
+        (2, 1),
+    ]
+    assert [episode.episode for episode in results[0].episodes] == [1, 2]
+
+
+def test_search_episode_row_expansion_stops_at_32_page_safety_limit(caplog):
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+
+    def fake_request(_source, **params):
+        page = int(params["pg"])
+        calls.append(page)
+        return {"pagecount": "999", "list": [_episode_row(page)]}
+
+    client._request = fake_request
+
+    caplog.set_level(logging.WARNING, logger=cms_module.LOGGER.name)
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert calls == list(range(1, 33))
+    assert [episode.episode for episode in results[0].episodes] == list(range(1, 33))
+    assert "source=demo" in caplog.text
+    assert "query=长剧" in caplog.text
+    assert "pagecount=999" in caplog.text
+
+
+def test_tv_unlabelled_multi_url_bundle_keeps_all_episodes_and_does_not_paginate():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+    urls = "#".join(f"https://video.example/long-{episode}.m3u8" for episode in range(1, 53))
+
+    def fake_request(_source, **params):
+        calls.append(int(params["pg"]))
+        return {
+            "pagecount": "999",
+            "list": [
+                {
+                    "vod_id": "bundle",
+                    "vod_name": "长剧 第52集",
+                    "vod_year": "2026",
+                    "type_name": "电视剧",
+                    "vod_play_url": urls,
+                }
+            ],
+        }
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert calls == [1]
+    assert results[0].title == "长剧 第52集"
+    assert [episode.episode for episode in results[0].episodes] == list(range(1, 53))
+
+    movie = _result_from_item(
+        source,
+        {
+            "vod_id": "movie",
+            "vod_name": "示例电影",
+            "type_name": "电影",
+            "vod_play_url": "https://video.example/a.m3u8#https://video.example/b.m3u8",
+        },
+    )
+    assert [episode.episode for episode in movie.episodes] == [1, 1]
+
+
+def test_search_episode_row_expansion_stops_after_slow_page_reaches_deadline(monkeypatch):
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    client._parallel_wait_seconds = lambda: 1
+    now = [0.0]
+    calls = []
+    monkeypatch.setattr(cms_module.time, "monotonic", lambda: now[0])
+
+    def fake_request(_source, **params):
+        page = int(params["pg"])
+        calls.append(page)
+        if page == 2:
+            now[0] = 2.0
+        return {"pagecount": "3", "list": [_episode_row(page)]}
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert calls == [1, 2]
+    assert [episode.episode for episode in results[0].episodes] == [1, 2]
+
+
+def test_search_episode_row_expansion_skips_compat_retry_after_deadline(monkeypatch):
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    client._parallel_wait_seconds = lambda: 1
+    now = [0.0]
+    calls = []
+    monkeypatch.setattr(cms_module.time, "monotonic", lambda: now[0])
+
+    def fake_request(_source, **params):
+        calls.append((int(params["pg"]), params.get("pages")))
+        now[0] = 2.0
+        return {"list": []}
+
+    client._request = fake_request
+
+    assert client.search("长剧", limit=1, expand_tv_episode_rows=True) == []
+    assert calls == [(1, None)]
+
+
+def test_search_episode_row_expansion_skips_fallback_after_slow_bulk_detail(monkeypatch):
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    client._parallel_wait_seconds = lambda: 1
+    now = [0.0]
+    calls = []
+    monkeypatch.setattr(cms_module.time, "monotonic", lambda: now[0])
+
+    def fake_request(_source, **params):
+        calls.append((params.get("ac"), params.get("ids")))
+        if params.get("ac") == "list":
+            row = _episode_row(1)
+            row.pop("vod_play_url")
+            return {"pagecount": "2", "list": [row]}
+        now[0] = 2.0
+        return {"list": []}
+
+    client._request = fake_request
+
+    assert client.search(
+        "长剧",
+        limit=1,
+        require_playable=True,
+        expand_tv_episode_rows=True,
+    ) == []
+    assert calls == [("list", None), ("detail", "episode-1")]
+
+
+def test_search_episode_row_expansion_merges_later_multi_episode_bundle_into_one_card():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+
+    def fake_request(_source, **params):
+        if params.get("ac") == "list":
+            page = int(params["pg"])
+            if page == 1:
+                return {"pagecount": "2", "list": [_episode_row(1)]}
+            return {
+                "pagecount": "2",
+                "list": [
+                    {
+                        "vod_id": "bundle",
+                        "vod_name": "长剧 第52集",
+                        "vod_year": "2026",
+                        "type_name": "电视剧",
+                    }
+                ],
+            }
+        assert params.get("ids") == "bundle"
+        return {
+            "list": [
+                {
+                    "vod_id": "bundle",
+                    "vod_name": "长剧 第52集",
+                    "vod_year": "2026",
+                    "type_name": "电视剧",
+                    "vod_play_url": (
+                        "第1集$https://video.example/bundle-e1.m3u8#"
+                        "第2集$https://video.example/bundle-e2.m3u8#"
+                        "第3集$https://video.example/bundle-e3.m3u8"
+                    ),
+                }
+            ]
+        }
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert len(results) == 1
+    assert [episode.episode for episode in results[0].episodes] == [1, 1, 2, 3]
+    assert {episode.url for episode in results[0].episodes if episode.episode == 1} == {
+        "https://video.example/长剧-1.m3u8",
+        "https://video.example/bundle-e1.m3u8",
+    }
+
+
+def test_search_batch_detail_same_id_without_play_url_uses_individual_fallback():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    detail_calls = []
+
+    def fake_request(_source, **params):
+        if params.get("ac") == "list":
+            return {
+                "list": [
+                    {
+                        "vod_id": "same",
+                        "vod_name": "回退剧",
+                        "type_name": "电视剧",
+                    }
+                ]
+            }
+        detail_calls.append(params["ids"])
+        assert params == {"ac": "detail", "ids": "same"}
+        if len(detail_calls) == 1:
+            return {"list": [{"vod_id": "same", "vod_name": "回退剧"}]}
+        return {
+            "list": [
+                {
+                    "vod_id": "same",
+                    "vod_play_url": "第1集$https://video.example/fallback.m3u8",
+                }
+            ]
+        }
+
+    client._request = fake_request
+
+    results = client.search("回退剧", require_playable=True)
+
+    assert detail_calls == ["same", "same"]
+    assert [episode.url for episode in results[0].episodes] == [
+        "https://video.example/fallback.m3u8"
+    ]
+
+
+def test_search_episode_row_expansion_pages_past_unplayable_first_page_and_continues_season():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+    unplayable = _episode_row(1)
+    unplayable["vod_play_url"] = "第1集$not-a-url"
+
+    def fake_request(_source, **params):
+        page = int(params["pg"])
+        calls.append(page)
+        return {
+            "pagecount": "3",
+            "list": {
+                1: [unplayable],
+                2: [_episode_row(2)],
+                3: [_episode_row(3)],
+            }[page],
+        }
+
+    client._request = fake_request
+
+    results = client.search(
+        "长剧",
+        limit=1,
+        require_playable=True,
+        expand_tv_episode_rows=True,
+    )
+
+    assert calls == [1, 2, 3]
+    assert results[0].title == "长剧"
+    assert [episode.episode for episode in results[0].episodes] == [2, 3]
+
+
+def test_search_episode_row_expansion_returns_later_regular_playable_result():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    calls = []
+    unplayable = _episode_row(1)
+    unplayable["vod_play_url"] = "第1集$not-a-url"
+
+    def fake_request(_source, **params):
+        page = int(params["pg"])
+        calls.append(page)
+        if page == 1:
+            return {"pagecount": "3", "list": [unplayable]}
+        if page == 2:
+            return {
+                "pagecount": "3",
+                "list": [
+                    {
+                        "vod_id": "regular",
+                        "vod_name": "普通剧",
+                        "vod_year": "2026",
+                        "type_name": "电视剧",
+                        "vod_play_url": "第1集$https://video.example/regular.m3u8",
+                    }
+                ],
+            }
+        raise AssertionError(params)
+
+    client._request = fake_request
+
+    results = client.search(
+        "长剧",
+        limit=1,
+        require_playable=True,
+        expand_tv_episode_rows=True,
+    )
+
+    assert calls == [1, 2]
+    assert [(result.title, [episode.episode for episode in result.episodes]) for result in results] == [
+        ("普通剧", [1])
+    ]
+
+
+@pytest.mark.parametrize("bundle_first", (True, False), ids=("bundle-first", "row-first"))
+def test_search_episode_row_expansion_merges_same_page_bundle_regardless_of_order(bundle_first):
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    client = AppleCmsClient([source])
+    row = _episode_row(1)
+    bundle = {
+        "vod_id": "bundle",
+        "vod_name": "长剧 S01E001",
+        "vod_year": "2026",
+        "type_name": "电视剧",
+        "vod_play_url": (
+            "第1集$https://video.example/bundle-e1.m3u8#"
+            "第2集$https://video.example/bundle-e2.m3u8#"
+            "第3集$https://video.example/bundle-e3.m3u8"
+        ),
+    }
+
+    def fake_request(_source, **params):
+        assert params == {"ac": "list", "wd": "长剧", "pg": 1}
+        return {"pagecount": "1", "list": [bundle, row] if bundle_first else [row, bundle]}
+
+    client._request = fake_request
+
+    results = client.search("长剧", limit=1, expand_tv_episode_rows=True)
+
+    assert len(results) == 1
+    assert results[0].title == "长剧"
+    assert [episode.episode for episode in results[0].episodes] == [1, 1, 2, 3]
+    assert {episode.url for episode in results[0].episodes if episode.episode == 1} == {
+        "https://video.example/长剧-1.m3u8",
+        "https://video.example/bundle-e1.m3u8",
+    }
+
+
+def test_tv_without_player_names_prefers_largest_valid_group_stably_and_movies_keep_first():
+    source = CmsSource(key="demo", name="演示", api="https://cms.example/vod")
+    largest = _result_from_item(
+        source,
+        {
+            "vod_id": "largest",
+            "vod_name": "多线路剧",
+            "type_name": "电视剧",
+            "vod_play_url": (
+                "第1集$https://video.example/first-1.m3u8$$$"
+                "第1集$https://video.example/second-1.m3u8#"
+                "第2集$https://video.example/second-2.m3u8#"
+                "损坏$not-a-url"
+            ),
+        },
+    )
+    tied = _result_from_item(
+        source,
+        {
+            "vod_id": "tied",
+            "vod_name": "并列剧",
+            "type_name": "电视剧",
+            "vod_play_url": (
+                "第1集$https://video.example/tie-first-1.m3u8#"
+                "第2集$https://video.example/tie-first-2.m3u8$$$"
+                "第1集$https://video.example/tie-second-1.m3u8#"
+                "第2集$https://video.example/tie-second-2.m3u8"
+            ),
+        },
+    )
+    movie = _result_from_item(
+        source,
+        {
+            "vod_id": "movie",
+            "vod_name": "多线路电影",
+            "type_name": "电影",
+            "vod_play_url": (
+                "正片$https://video.example/movie-first.m3u8$$$"
+                "正片$https://video.example/movie-second-1.m3u8#"
+                "备份$https://video.example/movie-second-2.m3u8"
+            ),
+        },
+    )
+
+    assert [episode.url for episode in largest.episodes] == [
+        "https://video.example/second-1.m3u8",
+        "https://video.example/second-2.m3u8",
+    ]
+    assert [episode.url for episode in tied.episodes] == [
+        "https://video.example/tie-first-1.m3u8",
+        "https://video.example/tie-first-2.m3u8",
+    ]
+    assert [episode.url for episode in movie.episodes] == [
+        "https://video.example/movie-first.m3u8"
+    ]
 
 
 def test_search_can_stop_after_first_source_with_results():

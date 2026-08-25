@@ -541,7 +541,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "https://raw.githubusercontent.com/OneBigMoon/moviepilot-v3-lunatv-source/master/icons/lunatvsource.png"
-    plugin_version = "0.4.39"
+    plugin_version = "0.4.40"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -1438,7 +1438,7 @@ class LunaTVSource(_PluginBase):
             for key in list(self._tmdb_cache)[:max(0, overflow)]:
                 self._tmdb_cache.pop(key, None)
             snapshot = dict(self._tmdb_cache)
-        self.save_data("tmdb_match_cache_v1", snapshot)
+            self.save_data("tmdb_match_cache_v1", snapshot)
 
     @staticmethod
     def _media_candidate(media: Any) -> Optional[Dict[str, Any]]:
@@ -1847,7 +1847,11 @@ class LunaTVSource(_PluginBase):
                 str(payload.get("media_type") or ""),
             )
             results = self._season_media_cards(
-                self._client().search(search_query, stop_after_first_source=True)
+                self._client().search(
+                    search_query,
+                    stop_after_first_source=True,
+                    expand_tv_episode_rows=True,
+                )
             )
             data = []
             for result in results:
@@ -1932,6 +1936,50 @@ class LunaTVSource(_PluginBase):
         queue = self._queue
         if queue is None:
             return {"success": False, "message": "插件尚未初始化", "data": {}}
+        content = payload.get("content") or payload.get("enclosure")
+        raw_episodes = payload.get("episodes")
+        has_episodes = isinstance(raw_episodes, list) and bool(raw_episodes)
+        if content or has_episodes:
+            resource_payload = (
+                self._decode_resource_token(content) if content else dict(payload)
+            )
+            if resource_payload is None:
+                return {
+                    "success": False,
+                    "message": "无效的 LunaTV 资源令牌",
+                    "data": {"task_id": None},
+                }
+            resource_episodes = resource_payload.get("episodes")
+            if isinstance(resource_episodes, list) and not resource_episodes:
+                resource_payload.pop("episodes", None)
+                content = None
+            if not content:
+                content = self._resource_token(resource_payload)
+            media_type = _media_type_value(
+                resource_payload.get("media_type") or payload.get("media_type") or "tv"
+            )
+            root = str(payload.get("root") or "").strip() or self._effective_root(
+                media_type=media_type
+            )
+            if not root:
+                return {
+                    "success": False,
+                    "message": "未找到下载目录，请先配置插件目录或 MoviePilot 目录设置",
+                    "data": {"task_id": None},
+                }
+            native_result = self.download(content, Path(root))
+            if native_result is None:
+                return {
+                    "success": False,
+                    "message": "无效的 LunaTV 资源令牌",
+                    "data": {"task_id": None},
+                }
+            _, task_id, _, message = native_result
+            return {
+                "success": bool(task_id),
+                "message": message,
+                "data": {"task_id": task_id},
+            }
         episode_payload = payload.get("episode") or {}
         if not isinstance(episode_payload, dict):
             episode_payload = {}
@@ -2068,7 +2116,7 @@ class LunaTVSource(_PluginBase):
                         str(getattr(subscribe, "type", "") or ""),
                     )
                     normalized_title = search_query or title
-                    results = client.search(search_query)
+                    results = client.search(search_query, expand_tv_episode_rows=True)
                 prepared_results = []
                 for result in results:
                     prepared, association = self._prepare_result(result)
@@ -2812,11 +2860,20 @@ class LunaTVSource(_PluginBase):
             "source_limit": 3,
             "stop_after_first_source": False,
             "require_playable": True,
+            "expand_tv_episode_rows": True,
             "max_workers": 8,
         }
         if progress_callback is not None:
             search_kwargs["progress_callback"] = on_progress
-        results = self._client().search(search_query, **search_kwargs)
+        client = self._client()
+        try:
+            source_count = len(getattr(client, "sources", ()) or ())
+        except TypeError:
+            source_count = 0
+        search_kwargs["limit"] = max(
+            int(search_kwargs["limit"]),
+            max(0, source_count) * int(search_kwargs["source_limit"]),
+        )
         requested_media_type = (
             "tv"
             if requested_type in {"电视剧", "tv", "series", "show", "tvshow"}
@@ -2824,6 +2881,9 @@ class LunaTVSource(_PluginBase):
             if requested_type in {"电影", "movie", "film", "movies"}
             else ""
         )
+        if requested_media_type:
+            search_kwargs["media_type_filter"] = requested_media_type
+        results = client.search(search_query, **search_kwargs)
         if requested_media_type:
             results = [
                 result for result in results if result.media_type == requested_media_type
@@ -3009,9 +3069,12 @@ class LunaTVSource(_PluginBase):
                 episode["resolution"] = stream_quality_label(episode_height)
                 episode["resolution_height"] = episode_height
                 episode_heights.append(episode_height)
-                probed_episodes.append(int(episode["episode"]))
+                if episode_height > 0:
+                    probed_episodes.append(int(episode["episode"]))
             group["resolution_height"] = min(episode_heights, default=0)
-            group["resolution_scope"] = "full"
+            group["resolution_scope"] = (
+                "full" if len(probed_episodes) == len(episode_heights) else "partial"
+            )
             group["resolution_probed_episode_count"] = len(probed_episodes)
             group["resolution_probed_episodes"] = probed_episodes
 
@@ -3036,7 +3099,11 @@ class LunaTVSource(_PluginBase):
             if group["year"]:
                 title = f"{title} ({group['year']})"
             title = f"{title} · 第{season}季 · {quality}"
-            measurement = f"全{count}集实测"
+            measurement = (
+                f"全{count}集实测"
+                if group["resolution_scope"] == "full"
+                else f"已测{group['resolution_probed_episode_count']}/{count}集"
+            )
             torrents.append(torrent_info_type(
                 site_name=group["site_name"],
                 title=title,
@@ -3133,17 +3200,15 @@ class LunaTVSource(_PluginBase):
         **_: Any,
     ) -> Optional[Tuple[Optional[str], Optional[str], Optional[str], str]]:
         """接管带 LunaTV 标记的原生下载，转入插件持久化串行队列。"""
-        del cookie, episodes, category, label, downloader
+        del cookie, category, label, downloader
         payload = self._decode_resource_token(content)
         if payload is None:
             return None
         queue = self._queue
         root = str(download_dir or "").strip()
-        url = str(payload.get("url") or "").strip()
-        parsed = urllib.parse.urlparse(url)
-        if queue is None or not root or parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        if queue is None or not root:
             return "LunaTVSource", None, None, "LunaTV 下载参数无效"
-        raw_episodes = payload.get("episodes")
+        raw_episodes = episodes if isinstance(episodes, list) else payload.get("episodes")
         entries = raw_episodes if isinstance(raw_episodes, list) and raw_episodes else [payload]
         enqueued_ids: List[str] = []
         duplicate_count = 0
@@ -3209,7 +3274,7 @@ class LunaTVSource(_PluginBase):
             return "LunaTVSource", None, None, "任务已在串行队列或历史记录中"
         self._start_queue()
         total = len(enqueued_ids)
-        message = f"已排队 {total} 集" if total > 1 else ""
+        message = f"已排队 {total} 集" if total > 1 or duplicate_count or invalid_count else ""
         if duplicate_count:
             message += f"，{duplicate_count} 集已在队列"
         if invalid_count:

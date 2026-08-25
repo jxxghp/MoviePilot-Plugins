@@ -41,22 +41,21 @@ def test_version_consistency_across_manifest_backend_and_frontend():
         ).read_text(encoding="utf-8")
     )
 
-    assert manifest["version"] == "0.4.39"
+    assert manifest["version"] == "0.4.40"
     assert {
         manifest["version"],
         LunaTVSource.plugin_version,
         package["version"],
         lockfile["version"],
         lockfile["packages"][""]["version"],
-    } == {"0.4.39"}
+    } == {"0.4.40"}
 
     history = manifest["history"]
-    assert next(iter(history)) == "0.4.39"
-    assert history["0.4.39"] == (
-        "搜索按实际 CMS 源显示 X/N 进度，修复欧美剧等分类导致的电视剧 0 结果；"
-        "电影与电视剧按实际分辨率降序展示，整季逐集探测并在同集多地址中选择最高画质；"
-        "下载入队后立即启动，HLS 分片启用 HTTP/1.1 多连接；"
-        "修正插件图标与整理关闭、完成回调串行等边界。"
+    assert next(iter(history)) == "0.4.40"
+    assert history["0.4.40"] == (
+        "电视剧分集行完整聚合为季卡，补齐长季分页、稀疏详情和多组播放地址；"
+        "电影/电视剧在每源限额前过滤；整季下载跳过坏地址并保留有效剧集；"
+        "分辨率失败正确标记部分实测；队列保留全部非终态任务并修复删除持久化竞态。"
     )
     assert history["0.4.38"] == (
         "电视剧资源按季聚合，冲突同集自动选择最高画质；大季按首、中、末代表集实测并按该结果排序，"
