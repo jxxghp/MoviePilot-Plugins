@@ -40,6 +40,7 @@ def _plugin(config=None):
     plugin._download_metrics = {}
     plugin._quality_cache_lock = threading.Lock()
     plugin._quality_cache = {}
+    plugin._quality_probe_ms = {}
     plugin.init_plugin(config)
     return plugin
 
@@ -464,7 +465,7 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
     assert items[0].title.endswith("第1季 · 未知")
     assert "集" not in items[0].title
     assert items[0].description == "LunaTV · 第1季 · 未知 · m3u8 · 共1集 · 已测0/1集"
-    assert "未知" in items[0].labels
+    assert "未知" not in items[0].labels
     payload = plugin._decode_resource_token(items[0].enclosure)
     assert payload["url"].endswith("01.m3u8")
     assert len(payload["episodes"]) == 1
@@ -645,6 +646,15 @@ def test_resource_torrents_label_and_prefer_verified_resolution(monkeypatch):
     )
     plugin = _plugin()
     plugin.init_plugin({"enabled": True})
+    cached_at = plugin_module.time.monotonic()
+    plugin._quality_cache = {
+        "https://video.example/480.m3u8": (cached_at, 480),
+        "https://video.example/1080.m3u8": (cached_at, 1080),
+    }
+    plugin._quality_probe_ms = {
+        "https://video.example/480.m3u8": 320,
+        "https://video.example/1080.m3u8": 128,
+    }
     monkeypatch.setattr(plugin, "_client", lambda: type("Client", (), {
         "search": lambda self, *_args, **_kwargs: [low, high],
     })())
@@ -652,11 +662,14 @@ def test_resource_torrents_label_and_prefer_verified_resolution(monkeypatch):
 
     items = plugin.search_torrents(site={"id": 1}, keyword="示例电影", page=0, mtype="movie")
 
-    assert [item.site_name for item in items] == ["高清源", "标清源"]
+    assert [item.site_name for item in items] == ["高清源 · 128ms", "标清源 · 320ms"]
     assert [item.pri_order for item in items] == [108, 48]
     assert items[0].title.endswith("· 1080P")
     assert items[0].description == "LunaTV · 1080P · m3u8"
-    assert "1080P" in items[0].labels
+    assert "1080P" not in items[0].labels
+    assert "128ms" in items[0].labels
+    assert items[0].uploadvolumefactor == 1.0
+    assert items[0].downloadvolumefactor == 1.0
     assert plugin._decode_resource_token(items[0].enclosure)["resolution"] == "1080P"
 
 
@@ -1013,14 +1026,20 @@ def test_resource_torrents_choose_highest_url_for_conflicting_episode(monkeypatc
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     monkeypatch.setattr(plugin, "_associate_tmdb", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(plugin, "_probe_resource_urls", probe)
+    plugin._quality_probe_ms["https://video.example/1080-e1.m3u8"] = 86
 
     item = plugin._resource_torrents("示例剧")[0]
     payload = plugin._decode_resource_token(item.enclosure)
 
+    assert item.site_name == "演示源 · 86ms"
     assert item.title == "示例剧 · 第1季 · 480P"
     assert payload["resolution_height"] == 480
     assert item.pri_order == 48
-    assert payload["resolution"] in item.description and payload["resolution"] in item.labels
+    assert payload["resolution"] in item.description
+    assert payload["resolution"] not in item.labels
+    assert "86ms" in item.labels
+    assert item.uploadvolumefactor == 1.0
+    assert item.downloadvolumefactor == 1.0
     assert [episode["url"] for episode in payload["episodes"]] == [
         "https://video.example/1080-e1.m3u8",
         "https://video.example/480-e2.m3u8",
@@ -1325,7 +1344,8 @@ def test_resource_torrents_sort_actual_heights_and_keep_ties_stable(monkeypatch)
         payload = plugin._decode_resource_token(item.enclosure)
         quality = payload["resolution"]
         assert item.title.endswith(f"· {quality}")
-        assert quality in item.description and quality in item.labels
+        assert quality in item.description
+        assert quality not in item.labels
         assert item.pri_order == plugin_module._resource_sort_priority(
             payload["resolution_height"]
         )
@@ -1499,6 +1519,25 @@ def test_native_download_is_enqueued_into_serial_queue(tmp_path: Path):
     assert tasks[0]["media_id"] == "demo:42"
     assert tasks[0]["host_media_source"] == "themoviedb"
     assert tasks[0]["host_media_id"] == "123"
+
+
+def test_native_download_prefers_configured_download_root(tmp_path: Path):
+    configured_root = tmp_path / "未整理"
+    moviepilot_root = tmp_path / "moviepilot-selected"
+    plugin = _plugin({"enabled": True, "download_root": str(configured_root)})
+    token = plugin._resource_token({
+        "url": "https://example.test/movie.m3u8",
+        "title": "示例电影",
+        "media_type": "movie",
+        "season": 1,
+        "episode": 1,
+        "media_id": "demo:42",
+    })
+
+    result = plugin.download(token, moviepilot_root)
+
+    assert result[1]
+    assert plugin._queue.list_tasks()[0]["root"] == str(configured_root)
 
 
 def test_native_season_download_expands_to_serial_episode_tasks(tmp_path: Path):
@@ -2905,10 +2944,35 @@ def test_quality_cache_prunes_expired_entries_and_enforces_capacity(monkeypatch)
             for index in range(plugin_module._QUALITY_CACHE_MAX_ENTRIES + 20)
         },
     }
+    plugin._quality_probe_ms = {
+        key: 100 for key in plugin._quality_cache
+    }
 
     assert plugin._probe_quality("https://video.example/new.m3u8") == 1080
     assert "expired" not in plugin._quality_cache
+    assert "expired" not in plugin._quality_probe_ms
     assert len(plugin._quality_cache) <= plugin_module._QUALITY_CACHE_MAX_ENTRIES
+    assert set(plugin._quality_probe_ms) <= set(plugin._quality_cache)
+
+
+def test_quality_probe_caches_latency_with_height(monkeypatch):
+    probe_calls = []
+    monotonic_values = iter((100.0, 100.123, 101.0))
+    monkeypatch.setattr(plugin_module.time, "monotonic", lambda: next(monotonic_values))
+
+    def probe(url, **_kwargs):
+        probe_calls.append(url)
+        return 1080
+
+    monkeypatch.setattr(plugin_module, "probe_stream_height", probe)
+    plugin = _plugin({"enabled": True})
+    url = "https://video.example/cached-latency.m3u8"
+
+    assert plugin._probe_quality(url) == 1080
+    assert plugin._probe_latency_ms(url) == 123
+    assert plugin._probe_quality(url) == 1080
+    assert plugin._probe_latency_ms(url) == 123
+    assert probe_calls == [url]
 
 
 

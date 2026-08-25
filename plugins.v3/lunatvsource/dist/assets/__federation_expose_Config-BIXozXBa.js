@@ -31,7 +31,7 @@ const defaults = {
   source_allowlist: '',
   mode: 'download',
   source_strategy: 'first',
-  download_root: '',
+  download_root: '/downloads/未整理',
   use_moviepilot_dirs: true,
   ffmpeg_path: 'ffmpeg',
   queue_minutes: 1,
@@ -54,13 +54,17 @@ async function saveConfig() {
     showMessage('当前 MoviePilot 未提供配置保存接口', 'error');
     return
   }
+  if (!String(config.download_root || '').trim()) {
+    showMessage('请填写下载目录', 'error');
+    return
+  }
   saving.value = true;
   try {
     const payload = {
       ...config,
       source_allowlist: '',
       source_strategy: 'first',
-      download_root: '',
+      download_root: String(config.download_root || '').trim(),
       ai_enabled: true,
       tmdb_association: true,
       use_moviepilot_dirs: true,
@@ -80,7 +84,10 @@ async function saveConfig() {
   }
 }
 
-onMounted(() => Object.assign(config, defaults, props.initialConfig || {}));
+onMounted(() => {
+  Object.assign(config, defaults, props.initialConfig || {});
+  if (!String(config.download_root || '').trim()) config.download_root = defaults.download_root;
+});
 
 return (_ctx, _cache) => {
   const _component_VIcon = _resolveComponent("VIcon");
@@ -106,7 +113,7 @@ return (_ctx, _cache) => {
           color: "primary",
           class: "me-2"
         }),
-        _cache[3] || (_cache[3] = _createElementVNode("div", { class: "text-h6" }, "LunaTV 原生桥接配置", -1)),
+        _cache[4] || (_cache[4] = _createElementVNode("div", { class: "text-h6" }, "LunaTV 原生桥接配置", -1)),
         _createVNode(_component_VSpacer),
         _createVNode(_component_VBtn, {
           icon: "mdi-content-save",
@@ -146,7 +153,7 @@ return (_ctx, _cache) => {
       density: "compact",
       class: "mb-4"
     }, {
-      default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
+      default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
         _createTextVNode(" 保存后，LunaTV/苹果 CMS 将接入 MoviePilot 的原生搜索、订阅与下载入口。请直接使用 MoviePilot 的原生搜索、订阅和下载流程。 ", -1)
       ]))]),
       _: 1
@@ -175,6 +182,20 @@ return (_ctx, _cache) => {
             }, null, 8, ["modelValue"])
           ]),
           _: 1
+        }),
+        _createVNode(_component_VCol, { cols: "12" }, {
+          default: _withCtx(() => [
+            _createVNode(_component_VTextField, {
+              modelValue: config.download_root,
+              "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((config.download_root) = $event)),
+              label: "下载目录",
+              placeholder: "/downloads/未整理",
+              hint: "m3u8 下载先写入此目录，完成后继续复用 MoviePilot 的整理规则。",
+              "persistent-hint": "",
+              variant: "outlined"
+            }, null, 8, ["modelValue"])
+          ]),
+          _: 1
         })
       ]),
       _: 1
@@ -185,7 +206,7 @@ return (_ctx, _cache) => {
       density: "compact",
       class: "mt-3"
     }, {
-      default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
+      default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
         _createTextVNode(" 目录、DeepSeek、TMDB、整理规则、媒体服务器和链接权限均沿用 MoviePilot 设置；订阅地址内的资源站全部读取。任务始终串行执行。 ", -1)
       ]))]),
       _: 1
@@ -196,7 +217,7 @@ return (_ctx, _cache) => {
         loading: saving.value,
         onClick: saveConfig
       }, {
-        default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
+        default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
           _createTextVNode("保存配置", -1)
         ]))]),
         _: 1

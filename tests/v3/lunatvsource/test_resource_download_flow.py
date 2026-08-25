@@ -47,6 +47,7 @@ def _plugin(config=None):
     plugin._download_metrics = {}
     plugin._quality_cache_lock = threading.Lock()
     plugin._quality_cache = {}
+    plugin._quality_probe_ms = {}
     plugin.init_plugin(config)
     return plugin
 

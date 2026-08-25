@@ -284,6 +284,45 @@ def test_parse_play_urls_preserves_season_groups():
     assert [(item.season, item.episode) for item in episodes] == [(1, 1), (2, 1)]
 
 
+def test_result_from_item_builds_frontend_detail_page_url():
+    result = _result_from_item(
+        CmsSource(
+            key="demo",
+            name="演示",
+            api="https://api.example/api.php/provide/vod",
+            detail="https://video.example/",
+        ),
+        {
+            "vod_id": "42",
+            "vod_name": "示例电影",
+            "type_name": "电影",
+            "vod_play_url": "正片$https://cdn.example/movie.m3u8",
+        },
+    )
+
+    assert result.detail == "https://video.example/index.php/vod/detail/id/42.html"
+
+
+def test_result_from_item_uses_api_detail_url_without_frontend_site():
+    result = _result_from_item(
+        CmsSource(
+            key="demo",
+            name="演示",
+            api="https://api.example/api.php/provide/vod?token=test",
+        ),
+        {
+            "vod_id": "movie 42",
+            "vod_name": "示例电影",
+            "type_name": "电影",
+            "vod_play_url": "正片$https://cdn.example/movie.m3u8",
+        },
+    )
+
+    assert result.detail == (
+        "https://api.example/api.php/provide/vod?token=test&ac=detail&ids=movie+42"
+    )
+
+
 def test_result_from_item_recognizes_chinese_season_title():
     result = _result_from_item(
         CmsSource("demo", "演示", "https://cms.example/vod"),

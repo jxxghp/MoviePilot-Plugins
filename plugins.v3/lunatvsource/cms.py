@@ -810,6 +810,31 @@ def _source_key(api_key: str, item: Mapping[str, Any]) -> str:
     return _text(item.get("vod_id") or item.get("vod_name") or api_key)
 
 
+def _source_detail_url(source: CmsSource, item: Mapping[str, Any]) -> str:
+    vod_id = _text(item.get("vod_id"))
+    if not vod_id:
+        return source.detail or source.api
+    if source.detail:
+        encoded_id = urllib.parse.quote(vod_id, safe="")
+        return (
+            f"{source.detail.rstrip('/')}"
+            f"/index.php/vod/detail/id/{encoded_id}.html"
+        )
+
+    parsed = urllib.parse.urlparse(source.api)
+    query = [
+        (key, value)
+        for key, value in urllib.parse.parse_qsl(
+            parsed.query, keep_blank_values=True
+        )
+        if key not in {"ac", "ids"}
+    ]
+    query.extend((("ac", "detail"), ("ids", vod_id)))
+    return urllib.parse.urlunparse(
+        parsed._replace(query=urllib.parse.urlencode(query))
+    )
+
+
 def _result_from_item(source: CmsSource, item: Mapping[str, Any]) -> CmsResult:
     title = _text(item.get("vod_name") or item.get("vod_en"))
     year = _text(item.get("vod_year"))
@@ -843,7 +868,7 @@ def _result_from_item(source: CmsSource, item: Mapping[str, Any]) -> CmsResult:
         media_type=media_type,
         remark=_text(item.get("vod_remarks")),
         episodes=episodes,
-        detail=source.detail,
+        detail=_source_detail_url(source, item),
         season_range=season_range,
         season_ambiguous=season_ambiguous,
     )
