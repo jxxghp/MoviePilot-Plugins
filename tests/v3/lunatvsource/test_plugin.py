@@ -480,6 +480,125 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
     ]
 
 
+def test_bridge_search_kwargs_forwards_media_identity():
+    mediainfo = SimpleNamespace(
+        type="电视剧",
+        media_source="anilist",
+        media_id="anilist:anime_123",
+        title="進擊的巨人",
+        year="2013",
+    )
+    kwargs = plugin_module._bridge_search_kwargs({
+        "keyword": "进击的巨人",
+        "mtype": "电影",
+        "page": 3,
+        "mediainfo": mediainfo,
+    })
+    assert kwargs == {
+        "site": {},
+        "keyword": "进击的巨人",
+        "mtype": "电视剧",
+        "page": 3,
+        "media_source": "anilist",
+        "media_id": "anilist:anime_123",
+        "media_title": "進擊的巨人",
+        "media_year": "2013",
+    }
+
+
+def test_resource_torrents_targets_tv_identity_with_traditional_anilist_title(monkeypatch):
+    class TorrentInfo:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    source = CmsSource("demo", "演示源", "https://cms.example/vod", "https://cms.example")
+    tv_result = _result_from_item(
+        source,
+        {
+            "vod_id": "tv",
+            "vod_name": "进击的巨人",
+            "vod_year": "2013",
+            "type_name": "电视剧",
+            "vod_play_url": (
+                "01$https://example.test/s01e01.m3u8#"
+                "02$https://example.test/s01e02.m3u8"
+            ),
+        },
+    )
+    movie_result = _result_from_item(
+        source,
+        {
+            "vod_id": "movie",
+            "vod_name": "进击的巨人",
+            "vod_year": "2013",
+            "type_name": "电影",
+            "vod_play_url": "正片$https://example.test/movie.m3u8",
+        },
+    )
+
+    class Client:
+        def search(self, _query, **_kwargs):
+            return [tv_result, movie_result]
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(
+        plugin,
+        "_associate_tmdb",
+        lambda *_args, **_kwargs: {
+            "media_source": "themoviedb",
+            "media_id": "tt123456",
+        },
+    )
+
+    tv_items = plugin.search_torrents(
+        site={"id": 1},
+        keyword="进击的巨人",
+        page=0,
+        mtype="电视剧",
+        media_source="anilist",
+        media_id="anilist:anime_123",
+        media_title="進擊的巨人",
+        media_year="2013",
+    )
+    assert len(tv_items) == 1
+    tv_payload = plugin._decode_resource_token(tv_items[0].enclosure)
+    assert tv_items[0].title == "進擊的巨人 (2013) · 第1季 · 未知"
+    assert tv_items[0].media_source == "anilist"
+    assert tv_items[0].media_id == "anilist:anime_123"
+    assert tv_payload["title"] == "进击的巨人"
+    assert tv_payload["media_id"] == "demo:tv"
+    assert tv_payload["source_key"] == "demo"
+    assert tv_payload["source_name"] == "演示源"
+    assert tv_payload["host_media_source"] == "themoviedb"
+    assert tv_payload["host_media_id"] == "tt123456"
+    assert [episode["url"] for episode in tv_payload["episodes"]] == [
+        "https://example.test/s01e01.m3u8",
+        "https://example.test/s01e02.m3u8",
+    ]
+
+    movie_items = plugin.search_torrents(
+        site={"id": 1},
+        keyword="进击的巨人",
+        page=0,
+        mtype="movie",
+        media_source="anilist",
+        media_id="anilist:anime_123",
+        media_title="進擊的巨人",
+        media_year="2013",
+    )
+    assert len(movie_items) == 1
+    assert movie_items[0].media_source == "themoviedb"
+    assert movie_items[0].media_id == "tt123456"
+    movie_payload = plugin._decode_resource_token(movie_items[0].enclosure)
+    assert movie_payload["title"] == "进击的巨人"
+    assert movie_payload["media_id"] == "demo:movie"
+    assert movie_payload["source_key"] == "demo"
+    assert movie_payload["source_name"] == "演示源"
+
+
 def test_resource_torrents_groups_by_source_and_season(monkeypatch):
     calls = []
     ai_calls = []
@@ -3106,8 +3225,26 @@ def test_search_torrent_entrypoints_forward_progress_callback(monkeypatch):
     received = []
     callback = lambda **_event: None
 
-    def resource_torrents(keyword, mtype=None, progress_callback=None):
-        received.append((keyword, mtype, progress_callback))
+    def resource_torrents(
+        keyword,
+        mtype=None,
+        progress_callback=None,
+        target_media_source=None,
+        target_media_id=None,
+        target_media_title=None,
+        target_media_year=None,
+    ):
+        received.append(
+            (
+                keyword,
+                mtype,
+                progress_callback,
+                target_media_source,
+                target_media_id,
+                target_media_title,
+                target_media_year,
+            )
+        )
         return ["luna"]
 
     monkeypatch.setattr(plugin, "_resource_torrents", resource_torrents)
@@ -3127,8 +3264,8 @@ def test_search_torrent_entrypoints_forward_progress_callback(monkeypatch):
         )
     ) == ["luna"]
     assert received == [
-        ("sync demo", "tv", callback),
-        ("async demo", "movie", callback),
+        ("sync demo", "tv", callback, None, None, None, None),
+        ("async demo", "movie", callback, None, None, None, None),
     ]
 
 @pytest.mark.parametrize(
