@@ -44,6 +44,7 @@ class AcmeVideo(_PluginBase):
 | --- | --- |
 | `recognize_media` / `async_recognize_media` | 按标题或 `media_source` + `media_id` 返回 `schemas.MediaInfo` |
 | `search_medias` / `async_search_medias` | 在统一媒体搜索中返回候选媒体列表 |
+| `get_media_auxiliary_info` / `async_get_media_auxiliary_info` | 为已有电影或电视剧返回本来源的附加信息列表，宿主会聚合其中的别名 |
 | `obtain_images` / `async_obtain_images` | 补充来源图片到媒体对象 |
 | `metadata_nfo` | 生成该来源的 NFO 内容 |
 | `metadata_img` | 返回 `poster`、`backdrop` 等图片 URL |
@@ -64,11 +65,26 @@ def recognize_media(self, meta=None, media_source=None, media_id=None, **kwargs)
     )
 
 
+def get_media_auxiliary_info(self, mediainfo=None, media_source=None, **kwargs):
+    """在本来源启用时返回可参与搜索和订阅匹配的别名。"""
+    selected = (media_source,) if isinstance(media_source, MediaSource) else media_source
+    if selected and MediaSource("acme.video") not in selected:
+        return []
+    # 可按 mediainfo.title / year 查询当前来源；每个 provider 必须返回列表。
+    result = query_acme_video(
+        title=mediainfo.title,
+        year=mediainfo.year,
+        media_source=MediaSource("acme.video"),
+    )
+    return [result] if result else []
+
+
 def get_module(self) -> dict:
     """注册来源相关的模块方法。"""
     return {
         "recognize_media": self.recognize_media,
         "search_medias": self.search_medias,
+        "get_media_auxiliary_info": self.get_media_auxiliary_info,
         "metadata_nfo": self.metadata_nfo,
         "metadata_img": self.metadata_img,
     }
@@ -77,6 +93,12 @@ def get_module(self) -> dict:
 返回的每个 `MediaInfo` 必须同时包含该来源的 `media_source` 和来源原生 `media_id`。
 不要把来源 ID 写入 `tmdbid`、`doubanid` 等其它来源专用字段，也不要只返回标题而省略
 身份；缺少完整身份的结果会被识别链忽略。
+
+附加信息方法是可选能力，旧插件无需修改即可继续运行。宿主会把用户在
+`SEARCH_SOURCE` 中启用的一个或多个来源传入该方法，并对所有 provider 返回的
+`title`、`original_title`、`en_title`、地区标题和 `names` 做有序合集去重。插件只应
+返回本来源的媒体信息，不应直接修改传入对象；分类、风格、TMDB/IMDb/TVDB 等外部
+ID 仍只允许由内置 TheMovieDB provider 补充，避免跨来源字段冲突。
 
 ## 3. 前端与后端行为
 
