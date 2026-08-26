@@ -121,4 +121,6 @@ jobs:
 
       - name: Install V3 plugin dependencies
         if: steps.dependency-scope.outputs.run == 'true'
+        env:
+          PYTHONUTF8: '1'
         run: uv run --no-project --python 3.14 python scripts/check_v3_dependency_install.py --python 3.14 --platform "${{ matrix.platform }}"
