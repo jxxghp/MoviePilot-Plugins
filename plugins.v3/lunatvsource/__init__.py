@@ -556,7 +556,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "https://raw.githubusercontent.com/OneBigMoon/moviepilot-v3-lunatv-source/master/icons/lunatvsource.png"
-    plugin_version = "0.4.46"
+    plugin_version = "0.4.47"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -2994,6 +2994,17 @@ class LunaTVSource(_PluginBase):
         if results:
             context = self._resource_search_context(search_query, results, mtype)
             association = self._associate_tmdb(context, include_candidates=False)
+        canonical_tv_title = ""
+        canonical_tv_year = ""
+        if requested_media_type == "tv":
+            if use_target_tv_identity:
+                canonical_tv_title = target_media_title_value
+                canonical_tv_year = target_media_year_value
+            elif association.get("status") == "matched":
+                canonical_tv_title = normalize_media_title(
+                    str(association.get("title") or "").strip()
+                )
+                canonical_tv_year = str(association.get("year") or "").strip()
         # TV resources are presented as one native download item per
         # source/season.  The enclosure carries the ordered episode list and
         # ``download`` expands it back into the plugin's serial queue.  This
@@ -3033,6 +3044,11 @@ class LunaTVSource(_PluginBase):
                 association.get("media_source") or PLUGIN_MEDIA_SOURCE
             )
             host_media_id = str(association.get("media_id") or identity)
+            group_title = normalize_media_title(result.title)
+            group_year = result.year
+            if result.media_type == "tv":
+                group_title = canonical_tv_title or group_title
+                group_year = canonical_tv_year or group_year
             episodes = result.episodes or [CmsEpisode(1, 1, "正片", "")]
             season_episode_numbers: Dict[int, set[int]] = {}
             season_urls: Dict[int, set[str]] = {}
@@ -3063,8 +3079,8 @@ class LunaTVSource(_PluginBase):
                     group_key = (
                         result.source_key,
                         result.source_name,
-                        normalize_media_title(result.title),
-                        result.year,
+                        group_title,
+                        group_year,
                         season,
                         season_variant,
                     )
@@ -3072,8 +3088,8 @@ class LunaTVSource(_PluginBase):
                         group_key,
                         {
                             "site_name": result.source_name or "LunaTV",
-                            "title": normalize_media_title(result.title),
-                            "year": result.year,
+                            "title": group_title,
+                            "year": group_year,
                             "season": season,
                             "source_key": result.source_key,
                             "source_name": result.source_name,

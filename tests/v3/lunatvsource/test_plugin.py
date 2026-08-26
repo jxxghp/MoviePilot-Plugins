@@ -1033,7 +1033,7 @@ def test_resource_torrents_filters_by_requested_media_type(monkeypatch):
     ) == ["movie", "tv"]
 
 
-def test_resource_torrents_keep_complete_season_quality_variants_separate(monkeypatch):
+def test_resource_torrents_keep_complete_season_quality_variants_as_more_sources(monkeypatch):
     class TorrentInfo:
         def __init__(self, **kwargs):
             self.__dict__.update(kwargs)
@@ -1091,6 +1091,97 @@ def test_resource_torrents_keep_complete_season_quality_variants_separate(monkey
         len({episode["url"] for episode in payload["episodes"]}) == 2
         for payload in payloads
     )
+
+
+def test_resource_torrents_tv_sources_share_matched_identity_card_and_rank_resolution(
+    monkeypatch,
+):
+    class TorrentInfo:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    results = [
+        CmsResult(
+            source_key="high",
+            source_name="高清源",
+            vod_id="high-s04",
+            title="侠探杰克",
+            year="0",
+            media_type="tv",
+            remark="",
+            episodes=(
+                CmsEpisode(4, 1, "第1集", "https://video.example/1080-s04e01.m3u8"),
+            ),
+            detail="https://high.example/detail/high-s04",
+        ),
+        CmsResult(
+            source_key="middle",
+            source_name="中清源",
+            vod_id="middle-s04",
+            title="侠探杰克",
+            year="2026",
+            media_type="tv",
+            remark="",
+            episodes=(
+                CmsEpisode(4, 1, "第1集", "https://video.example/960-s04e01.m3u8"),
+            ),
+            detail="https://middle.example/detail/middle-s04",
+        ),
+        CmsResult(
+            source_key="low",
+            source_name="标清源",
+            vod_id="low-s04",
+            title="侠探杰克",
+            year="0",
+            media_type="tv",
+            remark="",
+            episodes=(
+                CmsEpisode(4, 1, "第1集", "https://video.example/720-s04e01.m3u8"),
+            ),
+            detail="https://low.example/detail/low-s04",
+        ),
+    ]
+
+    class Client:
+        def search(self, *_args, **_kwargs):
+            return results
+
+    plugin = _plugin()
+    plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
+    monkeypatch.setattr(plugin, "_client", lambda: Client())
+    monkeypatch.setattr(
+        plugin,
+        "_associate_tmdb",
+        lambda *_args, **_kwargs: {
+            "status": "matched",
+            "media_source": "themoviedb",
+            "media_id": "343611",
+            "title": "侠探杰克",
+            "year": "2022",
+        },
+    )
+    monkeypatch.setattr(
+        plugin,
+        "_probe_resource_urls",
+        lambda urls: {
+            url: 1080 if "/1080-" in url else 960 if "/960-" in url else 720
+            for url in urls
+        },
+    )
+
+    items = plugin._resource_torrents("侠探杰克", mtype="tv")
+
+    assert [item.pri_order for item in items] == [108, 96, 72]
+    assert [
+        item.title.rsplit(" · ", 1)[0]
+        for item in items
+    ] == ["侠探杰克 (2022) · 第4季"] * 3
+    assert [
+        plugin._decode_resource_token(item.enclosure)["resolution"]
+        for item in items
+    ] == ["1080P", "960P", "720P"]
+    assert [item.media_id for item in items] == ["343611"] * 3
 
 
 def test_resource_torrents_choose_highest_url_for_conflicting_episode(monkeypatch):
