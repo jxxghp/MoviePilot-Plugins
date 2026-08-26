@@ -18,3 +18,6 @@ explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu126" }
+
+[tool.moviepilot.dependency-gate]
+platforms = ["linux-x64"]
