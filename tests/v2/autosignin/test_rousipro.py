@@ -29,7 +29,7 @@ def _site_info(**overrides) -> CommentedMap:
 
 
 def test_signin_prefers_api_key_when_supported():
-    """API Key 签到成功时不应再发送 Authorization 请求。"""
+    """个人 API Key 签到成功时不应再发送 Authorization 请求。"""
     with patch("app.plugins.autosignin.sites.rousipro.RequestUtils") as request_utils:
         request_utils.return_value.post_res.return_value = _response(200, 0)
 
@@ -43,7 +43,7 @@ def test_signin_prefers_api_key_when_supported():
 
 
 def test_signin_falls_back_to_authorization_when_api_key_is_rejected():
-    """站点拒绝 API Key 签到时应自动使用短期 Authorization Token。"""
+    """站点拒绝个人 API Key 签到时应自动使用短期 Authorization Token。"""
     with patch("app.plugins.autosignin.sites.rousipro.RequestUtils") as request_utils:
         request_utils.return_value.post_res.side_effect = [
             _response(401, -1),
@@ -62,7 +62,7 @@ def test_signin_falls_back_to_authorization_when_api_key_is_rejected():
 
 
 def test_login_uses_api_key_profile_without_authorization_token():
-    """模拟登录应允许只配置 API Key，并通过 profile 接口完成认证。"""
+    """模拟登录应允许只配置个人 API Key，并通过 profile 接口完成认证。"""
     with patch("app.plugins.autosignin.sites.rousipro.RequestUtils") as request_utils:
         request_utils.return_value.get_res.return_value = _response(200, 0)
 
@@ -76,7 +76,7 @@ def test_login_uses_api_key_profile_without_authorization_token():
 
 
 def test_login_falls_back_to_attendance_stats_with_authorization():
-    """API Key 登录检测失败时应回退原有 Authorization 统计接口。"""
+    """个人 API Key 登录检测失败时应回退原有 Authorization 统计接口。"""
     with patch("app.plugins.autosignin.sites.rousipro.RequestUtils") as request_utils:
         request_utils.return_value.get_res.side_effect = [
             _response(401, -1),
@@ -94,11 +94,31 @@ def test_login_falls_back_to_attendance_stats_with_authorization():
 
 
 def test_missing_credentials_fails_without_request():
-    """API Key 和 Authorization 均缺失时应直接返回明确错误。"""
+    """个人 API Key 和 Authorization 均缺失时应直接返回明确错误。"""
     with patch("app.plugins.autosignin.sites.rousipro.RequestUtils") as request_utils:
         signin_result = RousiPro().signin(_site_info(apikey="", token=""))
         login_result = RousiPro().login(_site_info(apikey="", token=""))
 
-    assert signin_result == (False, "签到失败，缺少 API Key 或 Authorization 信息")
-    assert login_result == (False, "模拟登录失败，缺少 API Key 或 Authorization 信息")
+    assert signin_result == (False, "签到失败，缺少个人 API Key 或兼容 Authorization 信息")
+    assert login_result == (False, "模拟登录失败，缺少个人 API Key 或兼容 Authorization 信息")
     request_utils.assert_not_called()
+
+
+def test_signin_reports_personal_api_key_permission_error():
+    """个人 API Key 缺少 attendance:claim 权限时应返回明确提示。"""
+    with patch("app.plugins.autosignin.sites.rousipro.RequestUtils") as request_utils:
+        request_utils.return_value.post_res.return_value = _response(403, -1)
+
+        result = RousiPro().signin(_site_info(token=""))
+
+    assert result == (False, "签到失败，个人 API Key 已失效或权限不足")
+
+
+def test_login_reports_personal_api_key_permission_error():
+    """个人 API Key 缺少 profile:read 权限时应返回明确提示。"""
+    with patch("app.plugins.autosignin.sites.rousipro.RequestUtils") as request_utils:
+        request_utils.return_value.get_res.return_value = _response(403, -1)
+
+        result = RousiPro().login(_site_info(token=""))
+
+    assert result == (False, "模拟登录失败，个人 API Key 已失效或权限不足")
