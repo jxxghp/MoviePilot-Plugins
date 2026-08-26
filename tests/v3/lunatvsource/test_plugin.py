@@ -1102,8 +1102,8 @@ def test_resource_torrents_tv_sources_share_matched_identity_card_and_rank_resol
 
     results = [
         CmsResult(
-            source_key="high",
-            source_name="高清源",
+            source_key="shared",
+            source_name="同源",
             vod_id="high-s04",
             title="侠探杰克",
             year="0",
@@ -1115,8 +1115,8 @@ def test_resource_torrents_tv_sources_share_matched_identity_card_and_rank_resol
             detail="https://high.example/detail/high-s04",
         ),
         CmsResult(
-            source_key="middle",
-            source_name="中清源",
+            source_key="shared",
+            source_name="同源",
             vod_id="middle-s04",
             title="侠探杰克",
             year="2026",

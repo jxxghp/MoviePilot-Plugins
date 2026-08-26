@@ -3079,8 +3079,8 @@ class LunaTVSource(_PluginBase):
                     group_key = (
                         result.source_key,
                         result.source_name,
-                        group_title,
-                        group_year,
+                        normalize_media_title(result.title),
+                        result.year,
                         season,
                         season_variant,
                     )
