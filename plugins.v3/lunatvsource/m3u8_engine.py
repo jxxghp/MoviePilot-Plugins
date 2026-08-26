@@ -25,6 +25,7 @@ import tarfile
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -222,6 +223,8 @@ class ManagedBinaryInstaller:
     _MAX_MEMBER_BYTES = 1024 * 1024 * 1024
     DOWNLOAD_TOTAL_TIMEOUT_SECONDS = 15 * 60
     DOWNLOAD_IO_TIMEOUT_SECONDS = 10.0
+    DOWNLOAD_CONNECT_ATTEMPTS = 3
+    DOWNLOAD_RETRY_DELAY_SECONDS = 0.5
     DOWNLOAD_CHUNK_BYTES = 64 * 1024
     INSTALL_LOCK_POLL_SECONDS = 0.1
 
@@ -419,9 +422,30 @@ class ManagedBinaryInstaller:
                     "User-Agent": "MoviePilot-LunaTV/1.0",
                 },
             )
-            response = urllib.request.urlopen(
-                request, timeout=self._download_io_timeout(deadline)
-            )
+            for attempt in range(self.DOWNLOAD_CONNECT_ATTEMPTS):
+                _raise_if_cancelled(control_event)
+                try:
+                    response = urllib.request.urlopen(
+                        request, timeout=self._download_io_timeout(deadline)
+                    )
+                    break
+                except urllib.error.HTTPError:
+                    raise
+                except (urllib.error.URLError, TimeoutError, OSError):
+                    if attempt + 1 >= self.DOWNLOAD_CONNECT_ATTEMPTS:
+                        raise
+                    delay = min(
+                        self.DOWNLOAD_RETRY_DELAY_SECONDS,
+                        max(0.0, deadline - time.monotonic()),
+                    )
+                    if delay <= 0:
+                        self._download_io_timeout(deadline)
+                    if control_event is None:
+                        time.sleep(delay)
+                    elif control_event.wait(delay):
+                        raise M3U8EngineCancelled("download cancelled")
+            if response is None:
+                raise M3U8EngineInstallError("release download failed")
             read_chunk = getattr(response, "read1", None)
             if not callable(read_chunk):
                 read_chunk = response.read
@@ -1214,6 +1238,8 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
         stage_dir: Path,
         ffmpeg_path: str,
     ) -> Sequence[str]:
+        ffmpeg_binary = ffmpeg_path or "ffmpeg"
+        ffmpeg_binary = shutil.which(ffmpeg_binary) or ffmpeg_binary
         return [
             str(binary),
             url,
@@ -1231,7 +1257,7 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
             "--mux-after-done",
             "format=mp4",
             "--ffmpeg-binary-path",
-            ffmpeg_path or "ffmpeg",
+            ffmpeg_binary,
             "--no-ansi-color",
         ]
 

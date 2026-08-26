@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 import signal
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -243,6 +244,24 @@ def test_engine_commands_and_progress_parsing(tmp_path: Path):
     assert vsd_command[vsd_command.index("--output") + 1] == str(tmp_path / "movie.mp4.part")
     assert VSDEngine.parse_progress("PT: 8/20 speed %:40.0") == pytest.approx(0.4)
     assert N_m3u8DLEngine.parse_progress("completed 64.7%") == pytest.approx(0.647)
+
+
+def test_n_engine_resolves_bare_ffmpeg_path(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(
+        "app.plugins.lunatvsource.m3u8_engine.shutil.which",
+        lambda executable: "/resolved/bin/ffmpeg" if executable == "ffmpeg" else None,
+    )
+    engine = N_m3u8DLEngine(tmp_path)
+
+    command = engine.command(
+        Path("/bin/n_m3u8dl"),
+        "playlist.m3u8",
+        tmp_path / "cache",
+        tmp_path / "stage",
+        "ffmpeg",
+    )
+
+    assert command[command.index("--ffmpeg-binary-path") + 1] == "/resolved/bin/ffmpeg"
 
 
 def test_engine_reads_carriage_return_progress_and_enforces_watchdog(
@@ -1207,6 +1226,52 @@ def test_installer_limits_io_timeout_and_prefers_read1(monkeypatch, tmp_path: Pa
     assert response.read_calls == 0
     assert 0 < timeouts[0] <= installer.DOWNLOAD_IO_TIMEOUT_SECONDS <= 10
     archive.unlink()
+
+
+def test_installer_retries_transient_connection_failures(monkeypatch, tmp_path: Path):
+    installer = ManagedBinaryInstaller(tmp_path, _spec())
+    asset = installer.asset()
+    assert asset is not None
+    installer.DOWNLOAD_RETRY_DELAY_SECONDS = 0
+    attempts = []
+
+    def urlopen(_request, *, timeout):
+        attempts.append(timeout)
+        if len(attempts) < installer.DOWNLOAD_CONNECT_ATTEMPTS:
+            raise urllib.error.URLError("temporary TLS timeout")
+        return io.BytesIO(b"tool")
+
+    monkeypatch.setattr(
+        "app.plugins.lunatvsource.m3u8_engine.urllib.request.urlopen", urlopen
+    )
+
+    archive = installer._download_archive(asset)
+
+    assert archive.read_bytes() == b"tool"
+    assert len(attempts) == installer.DOWNLOAD_CONNECT_ATTEMPTS
+    assert all(0 < timeout <= installer.DOWNLOAD_IO_TIMEOUT_SECONDS for timeout in attempts)
+    archive.unlink()
+
+
+def test_installer_does_not_retry_http_errors(monkeypatch, tmp_path: Path):
+    installer = ManagedBinaryInstaller(tmp_path, _spec())
+    asset = installer.asset()
+    assert asset is not None
+    attempts = []
+
+    def urlopen(_request, *, timeout):
+        attempts.append(timeout)
+        raise urllib.error.HTTPError(asset.url, 404, "not found", None, None)
+
+    monkeypatch.setattr(
+        "app.plugins.lunatvsource.m3u8_engine.urllib.request.urlopen", urlopen
+    )
+
+    with pytest.raises(M3U8EngineInstallError, match="release download failed"):
+        installer._download_archive(asset)
+
+    assert len(attempts) == 1
+    assert not list(installer.bin_dir.glob("*.download"))
 
 
 def test_installer_in_process_lock_wait_is_cancellable(tmp_path: Path):

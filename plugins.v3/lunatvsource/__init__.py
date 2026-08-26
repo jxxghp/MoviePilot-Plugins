@@ -556,7 +556,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "https://raw.githubusercontent.com/OneBigMoon/moviepilot-v3-lunatv-source/master/icons/lunatvsource.png"
-    plugin_version = "0.4.47"
+    plugin_version = "0.4.48"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -3496,22 +3496,42 @@ class LunaTVSource(_PluginBase):
 
     @eventmanager.register(getattr(ChainEventType, "ResourceDownload", "resource.download"))
     def _on_resource_download(self, event: Event) -> None:
-        """保留事件兼容入口，但不取消 MoviePilot 的原生下载链。
-
-        V3 会在事件之后调用插件模块提供的 ``download`` 方法。若在这里把
-        ``event_data.cancel`` 设为 ``True``，宿主会把已经入队的任务仍判定为
-        “任务添加失败”，并且不会记录原生下载历史。真正的接管由
-        :meth:`download` 完成，这里只识别 LunaTV 标记后放行。
-        """
+        """在宿主目录校验前接管 LunaTV 资源并转入插件下载队列。"""
 
         if not self._enabled or not event:
             return
         event_data = getattr(event, "event_data", None)
         context = getattr(event_data, "context", None)
         torrent = getattr(context, "torrent_info", None)
-        if self._decode_resource_token(getattr(torrent, "enclosure", None)) is None:
+        content = getattr(torrent, "enclosure", None)
+        if self._decode_resource_token(content) is None:
             return
-        event_data.source = "LunaTVSource-原生下载模块"
+        event_data.source = "LunaTVSource"
+
+        configured_root = str(self._config.get("download_root") or "").strip()
+        if not configured_root:
+            event_data.reason = "未配置 LunaTV 下载目录，继续交由 MoviePilot 处理"
+            return
+
+        try:
+            result = self.download(content, Path(configured_root))
+        except Exception as exc:
+            self._logger.error("LunaTV 事件下载入队失败：%s", exc)
+            event_data.reason = f"LunaTV 下载入队失败：{exc}"
+            return
+
+        if not result:
+            event_data.reason = "LunaTV 下载任务未入队，继续交由 MoviePilot 处理"
+            return
+        downloader, task_id, _, message = result
+        event_data.source = downloader or "LunaTVSource"
+        event_data.reason = message or (
+            "已加入 LunaTV 下载队列"
+            if task_id
+            else "LunaTV 下载任务未入队，继续交由 MoviePilot 处理"
+        )
+        if task_id:
+            event_data.cancel = True
 
     @eventmanager.register(getattr(EventType, "SubscribeAdded", "subscribe.added"))
     def _on_subscribe_added(self, event: Event) -> None:
