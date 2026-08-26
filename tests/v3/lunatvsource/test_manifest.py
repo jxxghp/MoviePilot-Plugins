@@ -41,24 +41,21 @@ def test_version_consistency_across_manifest_backend_and_frontend():
         ).read_text(encoding="utf-8")
     )
 
-    assert manifest["version"] == "0.4.46"
+    assert manifest["version"] == "0.4.47"
     assert {
         manifest["version"],
         LunaTVSource.plugin_version,
         package["version"],
         lockfile["version"],
         lockfile["packages"][""]["version"],
-    } == {"0.4.46"}
+    } == {"0.4.47"}
 
     history = manifest["history"]
-    assert next(iter(history)) == "0.4.46"
-    assert history["0.4.46"] == (
-        "将受管二进制真实性校验改为代码内固定可执行摘要；完善凭据脱敏、可取消且有总时限"
-        "的引擎安装，以及受目录文件描述符保护的陈旧输出清理；强化 POSIX 进程组有界终止"
-        "与外部进程看门狗，仅在引擎明确进入封装阶段后停用下载停滞检查，并先消费本轮进度"
-        "与缓存活动再判断停滞，不再把单轨 100% 或缓存文件数当作整体完成证据；修复残留"
-        "管道、日志绕过停滞及长时间封装误杀；跨文件系统提交兼容接近文件名上限的目标，"
-        "且提交后的源清理失败不再反转成功状态。"
+    assert next(iter(history)) == "0.4.47"
+    assert history["0.4.47"] == (
+        "电视剧搜索结果统一使用同一次匹配得到的标准作品标题与年份，使同一作品同一季的"
+        "不同来源与不同分辨率归入同一 MoviePilot 资源卡；仍按分辨率从高到低排序，最高分辨率"
+        "作为主项，其余归入“更多来源”；不同季和不同作品/年份保持隔离。"
     )
     assert history["0.4.45"] == (
         "修复双引擎发布阶段的容器、缓存和权限边界：N_m3u8DL-RE 固定混流 MP4，"
