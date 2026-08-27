@@ -205,7 +205,11 @@ class _DownloadersConfigProxy:
         object.__setattr__(self, "_config", config)
 
     def get(self, key: Any, default: Any = None) -> Any:
-        value = self._config.get(key, default)
+        # MoviePilot v3 的 SystemConfigService.get() 仅接受 key；这里不能按
+        # dict.get(key, default) 调用，否则 /download/clients 会直接返回 500。
+        value = self._config.get(key)
+        if value is None and default is not None:
+            value = default
         if not _is_downloaders_config_key(key):
             return value
         clients: List[Dict[str, Any]] = []
@@ -674,7 +678,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "https://raw.githubusercontent.com/OneBigMoon/moviepilot-v3-lunatv-source/master/icons/lunatvsource.png"
-    plugin_version = "0.4.50"
+    plugin_version = "0.4.51"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -3545,12 +3549,12 @@ class LunaTVSource(_PluginBase):
         **_: Any,
     ) -> Optional[Tuple[Optional[str], Optional[str], Optional[str], str]]:
         """接管带 LunaTV 标记的原生下载，转入插件持久化串行队列。"""
-        if not self._is_lunatv_downloader(downloader):
-            return None
-        del cookie, category, label
         payload = self._decode_resource_token(content)
         if payload is None:
             return None
+        # MoviePilot 会优先传入全局或站点下载器；LunaTV 资源令牌才是
+        # 接管依据，不能让该默认值将其转交给其他下载器。
+        del cookie, category, label, downloader
         queue = self._queue
         configured_root = str(self._config.get("download_root") or "").strip()
         root = (
@@ -3669,7 +3673,7 @@ class LunaTVSource(_PluginBase):
 
     @eventmanager.register(getattr(ChainEventType, "ResourceDownload", "resource.download"))
     def _on_resource_download(self, event: Event) -> None:
-        """在宿主目录校验前接管 LunaTV 资源并转入插件下载队列。"""
+        """在宿主目录校验前为 LunaTV 资源补充下载目录。"""
 
         if not self._enabled or not event:
             return
@@ -3689,25 +3693,12 @@ class LunaTVSource(_PluginBase):
             event_data.reason = "未配置 LunaTV 下载目录，继续交由 MoviePilot 处理"
             return
 
-        try:
-            result = self.download(content, Path(configured_root))
-        except Exception as exc:
-            self._logger.error("LunaTV 事件下载入队失败：%s", exc)
-            event_data.reason = f"LunaTV 下载入队失败：{exc}"
-            return
-
-        if not result:
-            event_data.reason = "LunaTV 下载任务未入队，继续交由 MoviePilot 处理"
-            return
-        downloader, task_id, _, message = result
-        event_data.source = downloader or "LunaTVSource"
-        event_data.reason = message or (
-            "已加入 LunaTV 下载队列"
-            if task_id
-            else "LunaTV 下载任务未入队，继续交由 MoviePilot 处理"
-        )
-        if task_id:
-            event_data.cancel = True
+        options = getattr(event_data, "options", None)
+        if not isinstance(options, dict):
+            options = {}
+            event_data.options = options
+        options["save_path"] = configured_root
+        event_data.reason = "已准备 LunaTV 下载目录，继续交由 MoviePilot 下载链处理"
 
     @eventmanager.register(getattr(EventType, "SubscribeAdded", "subscribe.added"))
     def _on_subscribe_added(self, event: Event) -> None:

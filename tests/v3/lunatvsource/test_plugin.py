@@ -1661,8 +1661,8 @@ def test_download_clients_bridge_augments_only_downloaders_and_restores(monkeypa
                 "Other": "unchanged",
             }
 
-        def get(self, key, default=None):
-            return self.values.get(key, default)
+        def get(self, key=None):
+            return self.values.get(key)
 
     plugin_module._DOWNLOAD_CLIENTS_BRIDGE.update(
         {"owner": None, "module": None, "original": None, "wrapper": None}
@@ -1821,7 +1821,10 @@ def test_native_download_is_enqueued_into_serial_queue(tmp_path: Path):
     assert tasks[0]["host_media_id"] == "123"
 
 
-def test_native_download_defers_other_system_downloaders(tmp_path: Path):
+@pytest.mark.parametrize("host_downloader", ["qBittorrent", "Transmission"])
+def test_native_download_lunatv_token_overrides_host_selected_downloader(
+    tmp_path: Path, host_downloader: str
+):
     plugin = _plugin({"enabled": True})
     token = plugin._resource_token(
         {
@@ -1834,11 +1837,15 @@ def test_native_download_defers_other_system_downloaders(tmp_path: Path):
         }
     )
 
-    assert plugin.download(token, tmp_path, downloader="qBittorrent") is None
-    assert plugin._queue.list_tasks() == []
-    assert plugin.start_torrents(["unknown"], downloader="qBittorrent") is None
-    assert plugin.stop_torrents(["unknown"], downloader="qBittorrent") is None
-    assert plugin.remove_torrents(["unknown"], downloader="qBittorrent") is None
+    result = plugin.download(token, tmp_path, downloader=host_downloader)
+
+    assert result is not None
+    assert result[0] == "LunaTVSource"
+    assert result[1]
+    assert len(plugin._queue.list_tasks()) == 1
+    assert plugin.start_torrents(["unknown"], downloader=host_downloader) is None
+    assert plugin.stop_torrents(["unknown"], downloader=host_downloader) is None
+    assert plugin.remove_torrents(["unknown"], downloader=host_downloader) is None
 
 
 def test_native_download_prefers_configured_download_root(tmp_path: Path):
@@ -2183,7 +2190,7 @@ def test_active_queue_projection_clamps_fractional_progress_to_percent():
     assert plugin._active_download_torrent(task).progress == 0.0
 
 
-def test_resource_download_event_enqueues_before_host_directory_validation(
+def test_resource_download_event_prepares_host_chain_before_directory_validation(
     monkeypatch, tmp_path: Path
 ):
     plugin = _plugin()
@@ -2211,9 +2218,18 @@ def test_resource_download_event_enqueues_before_host_directory_validation(
 
     plugin._on_resource_download(SimpleNamespace(event_data=event_data))
 
-    assert event_data.cancel is True
+    assert event_data.cancel is False
     assert event_data.source == "LunaTVSource"
-    assert event_data.reason == "已加入 LunaTV 下载队列"
+    assert event_data.reason == "已准备 LunaTV 下载目录，继续交由 MoviePilot 下载链处理"
+    assert event_data.options["save_path"] == str(tmp_path)
+    assert plugin._queue.list_tasks() == []
+    assert wakeups == []
+
+    result = plugin.download(token, Path(event_data.options["save_path"]))
+
+    assert result is not None
+    assert result[0] == "LunaTVSource"
+    assert result[1]
     tasks = plugin._queue.list_tasks()
     assert len(tasks) == 1
     assert tasks[0]["url"] == "https://example.test/event.m3u8"
@@ -2251,9 +2267,10 @@ def test_resource_download_event_uses_moviepilot_local_root(monkeypatch):
 
     plugin._on_resource_download(SimpleNamespace(event_data=event_data))
 
-    assert event_data.cancel is True
+    assert event_data.cancel is False
     assert event_data.source == "LunaTVSource"
-    assert plugin._queue.list_tasks()[0]["root"] == "/media/incoming"
+    assert event_data.options["save_path"] == "/media/incoming"
+    assert plugin._queue.list_tasks() == []
 
 
 def test_resource_download_event_ignores_non_lunatv_resource():
@@ -2296,38 +2313,6 @@ def test_resource_download_event_without_plugin_root_keeps_host_chain():
     assert event_data.source == "LunaTVSource"
     assert event_data.reason == "未配置 LunaTV 下载目录，继续交由 MoviePilot 处理"
     assert plugin._queue.list_tasks() == []
-
-
-def test_resource_download_event_failed_enqueue_keeps_host_chain(monkeypatch, tmp_path: Path):
-    plugin = _plugin()
-    plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
-    token = plugin._resource_token({
-        "url": "https://example.test/event-failed.m3u8",
-        "title": "事件电影",
-        "media_type": "movie",
-    })
-    monkeypatch.setattr(
-        plugin,
-        "download",
-        lambda *_args, **_kwargs: (
-            "LunaTVSource",
-            None,
-            None,
-            "任务已在串行队列或历史记录中",
-        ),
-    )
-    event_data = SimpleNamespace(
-        context=SimpleNamespace(torrent_info=SimpleNamespace(enclosure=token)),
-        cancel=False,
-        source="",
-        reason="",
-    )
-
-    plugin._on_resource_download(SimpleNamespace(event_data=event_data))
-
-    assert event_data.cancel is False
-    assert event_data.source == "LunaTVSource"
-    assert event_data.reason == "任务已在串行队列或历史记录中"
 
 
 def test_native_transfer_uses_host_identity(monkeypatch, tmp_path: Path):
