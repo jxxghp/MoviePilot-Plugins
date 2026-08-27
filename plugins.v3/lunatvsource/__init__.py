@@ -13,6 +13,7 @@ import hashlib
 import inspect
 import logging
 import asyncio
+from collections import deque
 from contextvars import ContextVar
 import re
 import threading
@@ -21,7 +22,7 @@ import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 try:  # MoviePilot V3 runtime imports
     from app.plugins import _PluginBase
@@ -111,7 +112,18 @@ from .cms import (
     probe_stream_height,
     stream_quality_label,
 )
-from .downloader import DownloadQueue, DownloadTask
+from .downloader import (
+    DEFAULT_MAX_CONCURRENT_TASKS,
+    DEFAULT_SEGMENT_THREAD_COUNT,
+    MAX_MAX_CONCURRENT_TASKS,
+    MAX_SEGMENT_THREAD_COUNT,
+    MAX_TOTAL_SEGMENT_THREADS,
+    MIN_MAX_CONCURRENT_TASKS,
+    MIN_SEGMENT_THREAD_COUNT,
+    DownloadQueue,
+    DownloadTask,
+    normalize_download_concurrency,
+)
 from .naming import media_path, normalize_media_title, normalize_search_title
 
 try:  # Optional host services used for directory and TMDB association hints.
@@ -142,6 +154,7 @@ _TMDB_CACHE_MAX_ENTRIES = 512
 _QUALITY_CACHE_MAX_ENTRIES = 512
 _RESOURCE_SEARCH_CACHE_MAX_ENTRIES = 128
 _RESOURCE_SEARCH_CACHE_TTL = 30.0
+_QUEUE_RELOAD_STOP_TIMEOUT_SECONDS = 2.0
 
 
 def _resource_sort_priority(height: int) -> int:
@@ -647,6 +660,14 @@ def _bool(value: Any, default: bool = False) -> bool:
     return bool(value) if value is not None else default
 
 
+def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    """Coerce persisted plugin configuration without trusting old UI values."""
+    try:
+        return max(minimum, min(maximum, int(value)))
+    except (TypeError, ValueError):
+        return default
+
+
 def _source_keys(value: Any) -> Tuple[str, ...]:
     if isinstance(value, str):
         values = value.replace("\n", ",").split(",")
@@ -678,7 +699,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "https://raw.githubusercontent.com/OneBigMoon/moviepilot-v3-lunatv-source/master/icons/lunatvsource.png"
-    plugin_version = "0.4.51"
+    plugin_version = "0.4.52"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -704,7 +725,7 @@ class LunaTVSource(_PluginBase):
         super().__init__()
         self._logger = LOGGER
         self._download_metrics_lock = threading.Lock()
-        self._download_metrics: Dict[str, Tuple[float, int]] = {}
+        self._download_metrics: Dict[str, Deque[Tuple[float, int]]] = {}
         self._quality_cache_lock = threading.Lock()
         self._quality_cache: Dict[str, Tuple[float, int]] = {}
         self._quality_probe_ms: Dict[str, int] = {}
@@ -721,7 +742,34 @@ class LunaTVSource(_PluginBase):
             return None
 
     def init_plugin(self, config: Optional[Dict[str, Any]] = None) -> None:
+        previous_queue = self._queue
+        if previous_queue is not None:
+            try:
+                stopped = previous_queue.stop_and_wait(
+                    timeout=_QUEUE_RELOAD_STOP_TIMEOUT_SECONDS
+                )
+            except Exception as exc:
+                self._logger.warning("停止旧 LunaTV 下载队列失败，保留当前实例：%s", exc)
+                return
+            if not stopped:
+                self._logger.warning(
+                    "旧 LunaTV 下载队列未在 %.1f 秒内退出，保留当前实例以避免重复下载",
+                    _QUEUE_RELOAD_STOP_TIMEOUT_SECONDS,
+                )
+                return
         self._config = dict(config or {})
+        max_concurrent_tasks, segment_thread_count = normalize_download_concurrency(
+            self._config.get(
+                "max_concurrent_tasks",
+                DEFAULT_MAX_CONCURRENT_TASKS,
+            ),
+            self._config.get(
+                "segment_thread_count",
+                DEFAULT_SEGMENT_THREAD_COUNT,
+            ),
+        )
+        self._config["max_concurrent_tasks"] = max_concurrent_tasks
+        self._config["segment_thread_count"] = segment_thread_count
         self._enabled = _bool(self._config.get("enabled"), False)
         self._source_config_origin = "未加载"
         self._source_config_error = ""
@@ -734,6 +782,8 @@ class LunaTVSource(_PluginBase):
             notify=self._notify,
             on_complete=self._record_completion,
             data_path=self._queue_data_path(),
+            max_concurrent_tasks=self._config["max_concurrent_tasks"],
+            segment_thread_count=self._config["segment_thread_count"],
         )
         with self._tmdb_cache_lock:
             loaded_tmdb_cache = dict(self.get_data("tmdb_match_cache_v1") or {})
@@ -775,7 +825,7 @@ class LunaTVSource(_PluginBase):
                     "type": "info" if root else "warning",
                     "variant": "tonal",
                     "text": (
-                        f"已启用，下载目录：{root}。任务按队列串行执行，完成后可刷新 Emby。"
+                            f"已启用，下载目录：{root}。任务按设置并发执行，完成后可刷新 Emby。"
                         if root
                         else "未找到下载目录。可在插件设置填写目录，或在 MoviePilot 目录设置中配置本地下载目录。"
                     ),
@@ -887,6 +937,39 @@ class LunaTVSource(_PluginBase):
                         },
                     },
                     {
+                        "component": "VTextField",
+                        "props": {
+                            "model": "max_concurrent_tasks",
+                            "label": "同时下载任务数",
+                            "type": "number",
+                            "min": MIN_MAX_CONCURRENT_TASKS,
+                            "max": MAX_MAX_CONCURRENT_TASKS,
+                            "step": 1,
+                            "hint": (
+                                f"范围 {MIN_MAX_CONCURRENT_TASKS}–{MAX_MAX_CONCURRENT_TASKS}，"
+                                f"默认 {DEFAULT_MAX_CONCURRENT_TASKS}。"
+                            ),
+                            "persistentHint": True,
+                        },
+                    },
+                    {
+                        "component": "VTextField",
+                        "props": {
+                            "model": "segment_thread_count",
+                            "label": "单任务分片线程数",
+                            "type": "number",
+                            "min": MIN_SEGMENT_THREAD_COUNT,
+                            "max": MAX_SEGMENT_THREAD_COUNT,
+                            "step": 1,
+                            "hint": (
+                                f"范围 {MIN_SEGMENT_THREAD_COUNT}–{MAX_SEGMENT_THREAD_COUNT}，"
+                                f"默认 {DEFAULT_SEGMENT_THREAD_COUNT}；总分片并发不超过 "
+                                f"{MAX_TOTAL_SEGMENT_THREADS}。"
+                            ),
+                            "persistentHint": True,
+                        },
+                    },
+                    {
                         "component": "VSwitch",
                         "props": {
                             "model": "use_moviepilot_dirs",
@@ -963,7 +1046,7 @@ class LunaTVSource(_PluginBase):
                         "props": {
                             "type": "info",
                             "variant": "tonal",
-                        "text": "订阅任务串行执行；目录、智能助手、TMDB、整理链和媒体库均复用 MoviePilot 设置。目录内没有正在下载的缓存文件后，媒体库才会显示完整文件夹。",
+                            "text": "订阅任务按设置并发执行；目录、智能助手、TMDB、整理链和媒体库均复用 MoviePilot 设置。目录内没有正在下载的缓存文件后，媒体库才会显示完整文件夹。",
                         },
                     },
                 ],
@@ -981,6 +1064,8 @@ class LunaTVSource(_PluginBase):
             "request_timeout": 15,
             "poll_minutes": 30,
             "queue_minutes": 1,
+            "max_concurrent_tasks": DEFAULT_MAX_CONCURRENT_TASKS,
+            "segment_thread_count": DEFAULT_SEGMENT_THREAD_COUNT,
             "ai_enabled": True,
             "tmdb_association": True,
             "moviepilot_organize": True,
@@ -1022,11 +1107,44 @@ class LunaTVSource(_PluginBase):
                         },
                     },
                     {
+                        "component": "VTextField",
+                        "props": {
+                            "model": "max_concurrent_tasks",
+                            "label": "同时下载任务数",
+                            "type": "number",
+                            "min": MIN_MAX_CONCURRENT_TASKS,
+                            "max": MAX_MAX_CONCURRENT_TASKS,
+                            "step": 1,
+                            "hint": (
+                                f"范围 {MIN_MAX_CONCURRENT_TASKS}–{MAX_MAX_CONCURRENT_TASKS}，"
+                                f"默认 {DEFAULT_MAX_CONCURRENT_TASKS}。"
+                            ),
+                            "persistentHint": True,
+                        },
+                    },
+                    {
+                        "component": "VTextField",
+                        "props": {
+                            "model": "segment_thread_count",
+                            "label": "单任务分片线程数",
+                            "type": "number",
+                            "min": MIN_SEGMENT_THREAD_COUNT,
+                            "max": MAX_SEGMENT_THREAD_COUNT,
+                            "step": 1,
+                            "hint": (
+                                f"范围 {MIN_SEGMENT_THREAD_COUNT}–{MAX_SEGMENT_THREAD_COUNT}，"
+                                f"默认 {DEFAULT_SEGMENT_THREAD_COUNT}；总分片并发不超过 "
+                                f"{MAX_TOTAL_SEGMENT_THREADS}。"
+                            ),
+                            "persistentHint": True,
+                        },
+                    },
+                    {
                         "component": "VAlert",
                         "props": {
                             "type": "info",
                             "variant": "tonal",
-                            "text": "无需重复配置 DeepSeek、TMDB、下载目录、整理规则、Emby 或链接权限；订阅地址内的资源站全部读取。任务串行执行，目录内没有正在下载的缓存文件后才显示完整文件夹。",
+                        "text": "无需重复配置 DeepSeek、TMDB、下载目录、整理规则、Emby 或链接权限；订阅地址内的资源站全部读取。任务按设置并发执行，目录内没有正在下载的缓存文件后才显示完整文件夹。",
                         },
                     },
                 ],
@@ -1044,6 +1162,8 @@ class LunaTVSource(_PluginBase):
             "request_timeout": 15,
             "poll_minutes": 30,
             "queue_minutes": 1,
+            "max_concurrent_tasks": DEFAULT_MAX_CONCURRENT_TASKS,
+            "segment_thread_count": DEFAULT_SEGMENT_THREAD_COUNT,
             "ai_enabled": True,
             "tmdb_association": True,
             "moviepilot_organize": True,
@@ -1965,6 +2085,16 @@ class LunaTVSource(_PluginBase):
             "data": {
                 "enabled": self._enabled,
                 "queue": queue.summary(),
+                "download_settings": {
+                    "max_concurrent_tasks": self._config.get(
+                        "max_concurrent_tasks",
+                        DEFAULT_MAX_CONCURRENT_TASKS,
+                    ),
+                    "segment_thread_count": self._config.get(
+                        "segment_thread_count",
+                        DEFAULT_SEGMENT_THREAD_COUNT,
+                    ),
+                },
                 "ai": (self._ai or AiTitleNormalizer(False)).status(),
                 "media_source": PLUGIN_MEDIA_SOURCE,
                 "media_server_sync_running": self._media_sync_running,
@@ -2082,7 +2212,9 @@ class LunaTVSource(_PluginBase):
 
     def api_tasks(self) -> Dict[str, Any]:
         queue = self._queue or DownloadQueue(lambda *_: None, lambda *_: None, self._notify)
-        return {"success": True, "data": queue.list_tasks()}
+        tasks = queue.list_tasks()
+        self._sweep_download_metrics(tasks)
+        return {"success": True, "data": tasks}
 
     def api_download(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         payload = payload or {}
@@ -2169,9 +2301,10 @@ class LunaTVSource(_PluginBase):
         if not queue.enqueue(task):
             return {"success": False, "message": "任务重复，或未配置下载目录", "data": {}}
         self._start_queue()
-        return {"success": True, "message": "已加入串行下载队列", "data": {"task_id": task.task_id}}
+        return {"success": True, "message": "已加入下载队列", "data": {"task_id": task.task_id}}
 
     def _record_completion(self, task: DownloadTask, output: str) -> None:
+        self._clear_download_metrics(getattr(task, "task_id", ""))
         if self._config.get("moviepilot_organize", True):
             self._native_transfer(task, output)
         # 下载历史始终记录 ffmpeg 的原始产物。若原生整理成功，TransferChain
@@ -2189,6 +2322,7 @@ class LunaTVSource(_PluginBase):
         queue = self._queue
         if not queue or not queue.retry(task_id):
             return {"success": False, "message": "任务不存在或不可重试", "data": {}}
+        self._clear_download_metrics(task_id)
         return {"success": True, "data": {"task_id": task_id}}
 
     def _start_background(self, func) -> bool:
@@ -2456,7 +2590,7 @@ class LunaTVSource(_PluginBase):
         return {"processed": 0, "scheduled": self._queue.wake()}
 
     def _start_queue(self) -> bool:
-        """立即唤醒一次串行队列，避免原生继续操作等待下个定时周期。"""
+        """立即唤醒下载队列，避免原生继续操作等待下个定时周期。"""
         queue = self._queue
         if queue is None:
             return False
@@ -2467,9 +2601,13 @@ class LunaTVSource(_PluginBase):
         return []
 
     def _active_download_torrent(self, task: DownloadTask) -> Any:
-        """将串行队列中的活跃任务归一为 MoviePilot 下载器任务。"""
+        """将队列中的活跃任务归一为 MoviePilot 下载器任务。"""
         media_source, media_id = self._task_media_identity(task)
         size, dlspeed = self._active_download_metrics(task)
+        download_engine = str(getattr(task, "download_engine", "") or "").strip()
+        site_name = task.source_name or task.source_key or PLUGIN_MEDIA_SOURCE
+        if download_engine:
+            site_name = f"{site_name} · {download_engine}"
         season_episode = None
         if task.media_type == "tv":
             try:
@@ -2481,7 +2619,7 @@ class LunaTVSource(_PluginBase):
             "hash": str(task.task_id),
             "title": task.title,
             "name": task.title,
-            "site_name": task.source_name or task.source_key or PLUGIN_MEDIA_SOURCE,
+            "site_name": site_name,
             "year": task.year or None,
             "season_episode": season_episode,
             "state": "paused" if task.state == "paused" else "downloading",
@@ -2525,8 +2663,30 @@ class LunaTVSource(_PluginBase):
             amount /= 1024
         return f"{amount:.1f}{unit}"
 
+    def _clear_download_metrics(self, *task_ids: Any) -> None:
+        ids = {str(task_id).strip() for task_id in task_ids if str(task_id).strip()}
+        if not ids:
+            return
+        with self._download_metrics_lock:
+            for task_id in ids:
+                self._download_metrics.pop(task_id, None)
+
+    def _sweep_download_metrics(self, raw_tasks: List[Any]) -> None:
+        live_task_ids = {
+            str(item.get("task_id") or "").strip()
+            for item in raw_tasks
+            if isinstance(item, dict)
+            and str(item.get("task_id") or "").strip()
+            and str(item.get("state") or "").strip().lower()
+            not in {"completed", "failed"}
+        }
+        with self._download_metrics_lock:
+            for task_id in list(self._download_metrics):
+                if task_id not in live_task_ids:
+                    self._download_metrics.pop(task_id, None)
+
     def _active_download_metrics(self, task: DownloadTask) -> Tuple[float, Optional[str]]:
-        """根据 ffmpeg 临时文件为原生下载页补充大小和实时速度。"""
+        """Project safe task-owned bytes and a rolling 20-second download speed."""
         try:
             relative_dir, filename = media_path(
                 task.root,
@@ -2547,17 +2707,36 @@ class LunaTVSource(_PluginBase):
         except (OSError, RuntimeError, TypeError, ValueError):
             current_size = 0
 
+        # N_m3u8DL-RE writes its live bytes into a queue-controlled cache/stage
+        # directory rather than the final ``.part`` path.  The queue owns the
+        # path validation, so this never scans a task-provided root or arbitrary
+        # filesystem location.
+        if str(getattr(task, "download_engine", "") or "").strip().casefold() == "n_m3u8dl-re":
+            queue = self._queue
+            cache_size = getattr(queue, "task_cache_size", None)
+            if callable(cache_size):
+                try:
+                    current_size = max(current_size, max(0, int(cache_size(task.task_id))))
+                except (OSError, RuntimeError, TypeError, ValueError):
+                    pass
+
         now = time.monotonic()
         speed = 0.0
         task_id = str(task.task_id or "")
         with self._download_metrics_lock:
-            previous = self._download_metrics.get(task_id)
-            if current_size > 0:
-                self._download_metrics[task_id] = (now, current_size)
-                if previous and current_size >= previous[1] and now > previous[0]:
-                    speed = (current_size - previous[1]) / (now - previous[0])
-            else:
-                self._download_metrics.pop(task_id, None)
+            samples = self._download_metrics.setdefault(task_id, deque())
+            # A restarted/truncated file is a new transfer: never retain the
+            # old larger byte count, which would otherwise produce a negative
+            # or inflated speed.
+            if samples and current_size < samples[-1][1]:
+                samples.clear()
+            samples.append((now, current_size))
+            while samples and now - samples[0][0] > 20.0:
+                samples.popleft()
+            if len(samples) > 1:
+                first_time, first_size = samples[0]
+                if current_size >= first_size and now > first_time:
+                    speed = (current_size - first_size) / (now - first_time)
 
         progress = max(0.0, min(0.99, float(getattr(task, "progress", 0.0) or 0.0)))
         estimated_size = float(current_size)
@@ -2613,6 +2792,7 @@ class LunaTVSource(_PluginBase):
         except Exception as exc:
             self._logger.debug("读取 LunaTV 活跃下载任务失败：%s", exc)
             return []
+        self._sweep_download_metrics(raw_tasks)
 
         torrents: List[Any] = []
         for raw_task in raw_tasks:
@@ -2672,10 +2852,13 @@ class LunaTVSource(_PluginBase):
         if not callable(handler):
             return False
         if operation == "remove":
-            return all(
-                bool(handler(task_id, delete_file=delete_file))
+            removed_ids = [
+                task_id
                 for task_id in requested
-            )
+                if handler(task_id, delete_file=delete_file)
+            ]
+            self._clear_download_metrics(*removed_ids)
+            return len(removed_ids) == len(requested)
         return all(bool(handler(task_id)) for task_id in requested)
 
     @staticmethod
@@ -3145,7 +3328,7 @@ class LunaTVSource(_PluginBase):
                 canonical_tv_year = str(association.get("year") or "").strip()
         # TV resources are presented as one native download item per
         # source/season.  The enclosure carries the ordered episode list and
-        # ``download`` expands it back into the plugin's serial queue.  This
+        # ``download`` expands it back into the plugin's download queue.  This
         # matches how an Apple CMS result is published (for example,
         # “小猪佩奇 第一季 第52集”), while still keeping every source selectable.
         season_groups: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
@@ -3548,7 +3731,7 @@ class LunaTVSource(_PluginBase):
         downloader: Optional[str] = None,
         **_: Any,
     ) -> Optional[Tuple[Optional[str], Optional[str], Optional[str], str]]:
-        """接管带 LunaTV 标记的原生下载，转入插件持久化串行队列。"""
+        """接管带 LunaTV 标记的原生下载，转入插件持久化下载队列。"""
         payload = self._decode_resource_token(content)
         if payload is None:
             return None
@@ -3627,7 +3810,7 @@ class LunaTVSource(_PluginBase):
         if not enqueued_ids:
             if invalid_count:
                 return "LunaTVSource", None, None, "LunaTV 下载参数无效"
-            return "LunaTVSource", None, None, "任务已在串行队列或历史记录中"
+            return "LunaTVSource", None, None, "任务已在下载队列或历史记录中"
         self._start_queue()
         total = len(enqueued_ids)
         message = f"已排队 {total} 集" if total > 1 or duplicate_count or invalid_count else ""

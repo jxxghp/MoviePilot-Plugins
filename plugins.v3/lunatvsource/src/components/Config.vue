@@ -25,8 +25,19 @@ const defaults = {
   moviepilot_organize: true,
   native_recognize: true,
   mediaserver_name: '',
+  max_concurrent_tasks: 2,
+  segment_thread_count: 16,
 }
 const config = reactive({ ...defaults })
+
+function validateIntegerRange(value, label, min, max) {
+  const number = Number(value)
+  if (!Number.isInteger(number) || number < min || number > max) {
+    showMessage(`${label}需为 ${min} 到 ${max} 之间的整数`, 'error')
+    return false
+  }
+  return true
+}
 
 function showMessage(text, type = 'info') {
   message.text = text
@@ -43,6 +54,12 @@ async function saveConfig() {
     showMessage('请填写下载目录', 'error')
     return
   }
+  if (!validateIntegerRange(config.max_concurrent_tasks, '任务并发数', 1, 4)
+    || !validateIntegerRange(config.segment_thread_count, '分片线程数', 4, 32)) return
+  if (Number(config.max_concurrent_tasks) * Number(config.segment_thread_count) > 64) {
+    showMessage('任务并发数 × 分片线程数不能超过 64', 'error')
+    return
+  }
   saving.value = true
   try {
     const payload = {
@@ -56,6 +73,8 @@ async function saveConfig() {
       moviepilot_organize: true,
       native_recognize: true,
       mode: 'download',
+      max_concurrent_tasks: Number(config.max_concurrent_tasks),
+      segment_thread_count: Number(config.segment_thread_count),
     }
     const response = await props.api.put(`plugin/${props.pluginId || 'LunaTVSource'}`, payload)
     const result = response?.data ?? response
@@ -102,9 +121,35 @@ onMounted(() => {
           variant="outlined"
         />
       </VCol>
+      <VCol cols="12" md="6">
+        <VTextField
+          v-model="config.max_concurrent_tasks"
+          label="最大任务并发数"
+          type="number"
+          min="1"
+          max="4"
+          step="1"
+          hint="范围 1–4，默认 2。"
+          persistent-hint
+          variant="outlined"
+        />
+      </VCol>
+      <VCol cols="12" md="6">
+        <VTextField
+          v-model="config.segment_thread_count"
+          label="分片线程数"
+          type="number"
+          min="4"
+          max="32"
+          step="1"
+          hint="范围 4–32，默认 16；与任务并发数相乘不能超过 64。"
+          persistent-hint
+          variant="outlined"
+        />
+      </VCol>
     </VRow>
     <VAlert type="warning" variant="tonal" density="compact" class="mt-3">
-      目录、DeepSeek、TMDB、整理规则、媒体服务器和链接权限均沿用 MoviePilot 设置；订阅地址内的资源站全部读取。任务始终串行执行。
+      目录、DeepSeek、TMDB、整理规则、媒体服务器和链接权限均沿用 MoviePilot 设置；订阅地址内的资源站全部读取。默认 2 个任务、每任务 16 个分片线程，总分片并发限制为 64；遇到 429、超时或磁盘繁忙时请调低。
     </VAlert>
     <div class="d-flex justify-end mt-4"><VBtn color="primary" :loading="saving" @click="saveConfig">保存配置</VBtn></div>
   </div>

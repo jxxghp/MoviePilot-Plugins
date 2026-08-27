@@ -22,10 +22,12 @@ from app.plugins.lunatvsource.m3u8_engine import (
     ManagedBinaryInstaller,
     N_m3u8DLEngine,
     ReleaseAsset,
-    VSDEngine,
     _safe_error_text,
     normalized_platform,
 )
+
+# Shared process/watchdog tests exercise the common base implementation.
+ENGINE_UNDER_TEST = N_m3u8DLEngine
 
 
 def _spec(executable: str = "tool", executable_digest: str | None = None) -> EngineSpec:
@@ -49,14 +51,11 @@ def _archive(path: Path, member_name: str, payload: bytes = b"tool") -> Path:
     return path
 
 
-def test_engine_platform_assets_and_vsd_macos_x64_limit():
+def test_engine_platform_assets():
     assert N_m3u8DLEngine.asset_for_current_platform("Linux", "amd64")
     assert N_m3u8DLEngine.asset_for_current_platform("Linux", "arm64")
     assert N_m3u8DLEngine.asset_for_current_platform("Darwin", "x86_64")
     assert N_m3u8DLEngine.asset_for_current_platform("Darwin", "arm64")
-    assert VSDEngine.asset_for_current_platform("Linux", "x86_64")
-    assert VSDEngine.asset_for_current_platform("Darwin", "arm64")
-    assert VSDEngine.asset_for_current_platform("Darwin", "x86_64") is None
     assert N_m3u8DLEngine.asset_for_current_platform("Windows", "x86_64") is None
 
 
@@ -226,6 +225,7 @@ def test_engine_commands_and_progress_parsing(tmp_path: Path):
         "/bin/ffmpeg",
     )
     assert n_command[n_command.index("--thread-count") + 1] == "16"
+    assert "--concurrent-download" not in n_command
     assert n_command[n_command.index("--download-retry-count") + 1] == "3"
     assert n_command[n_command.index("--tmp-dir") + 1] == str(tmp_path / "cache")
     assert n_command[n_command.index("--save-dir") + 1] == str(tmp_path / "stage")
@@ -234,15 +234,6 @@ def test_engine_commands_and_progress_parsing(tmp_path: Path):
     assert "--auto-select" in n_command
     assert "--no-ansi-color" in n_command
 
-    vsd_engine = VSDEngine(tmp_path)
-    vsd_command = vsd_engine.command(
-        Path("/bin/vsd"), "playlist.m3u8", tmp_path / "movie.mp4.part", tmp_path / "cache"
-    )
-    assert vsd_command[:3] == ["/bin/vsd", "save", "playlist.m3u8"]
-    assert vsd_command[vsd_command.index("--threads") + 1] == "16"
-    assert vsd_command[vsd_command.index("--retries") + 1] == "10"
-    assert vsd_command[vsd_command.index("--output") + 1] == str(tmp_path / "movie.mp4.part")
-    assert VSDEngine.parse_progress("PT: 8/20 speed %:40.0") == pytest.approx(0.4)
     assert N_m3u8DLEngine.parse_progress("completed 64.7%") == pytest.approx(0.647)
 
 
@@ -267,7 +258,7 @@ def test_n_engine_resolves_bare_ffmpeg_path(monkeypatch, tmp_path: Path):
 def test_engine_reads_carriage_return_progress_and_enforces_watchdog(
     monkeypatch, tmp_path: Path
 ):
-    engine = VSDEngine(tmp_path)
+    engine = ENGINE_UNDER_TEST(tmp_path)
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     progress = []
@@ -298,7 +289,7 @@ def test_engine_reads_carriage_return_progress_and_enforces_watchdog(
 def test_engine_no_progress_watchdog_ignores_logs_and_repeated_progress(
     monkeypatch, tmp_path: Path
 ):
-    engine = VSDEngine(tmp_path)
+    engine = ENGINE_UNDER_TEST(tmp_path)
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     monkeypatch.setattr(engine, "PROCESS_TOTAL_TIMEOUT_SECONDS", 1.0)
@@ -321,7 +312,7 @@ def test_engine_no_progress_watchdog_ignores_logs_and_repeated_progress(
 
 
 def test_engine_progress_growth_resets_stall_watchdog(monkeypatch, tmp_path: Path):
-    engine = VSDEngine(tmp_path)
+    engine = ENGINE_UNDER_TEST(tmp_path)
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     monkeypatch.setattr(engine, "PROCESS_TOTAL_TIMEOUT_SECONDS", 2.0)
@@ -347,14 +338,13 @@ def test_engine_progress_growth_resets_stall_watchdog(monkeypatch, tmp_path: Pat
     ("line", "should_timeout"),
     [
         ("PT: 2/2 speed %:100.0\r", False),
-        ("Muxing [exe] ffmpeg -i input.ts output.mp4\r", False),
         ("ordinary status line\r", True),
     ],
 )
 def test_engine_processes_ready_output_before_stall_timeout(
     monkeypatch, tmp_path: Path, line: str, should_timeout: bool
 ):
-    engine = VSDEngine(tmp_path)
+    engine = ENGINE_UNDER_TEST(tmp_path)
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     clock = {"value": 0.0}
@@ -456,7 +446,7 @@ def test_engine_processes_ready_output_before_stall_timeout(
 def test_engine_processes_due_cache_activity_before_stall_timeout(
     monkeypatch, tmp_path: Path
 ):
-    engine = VSDEngine(tmp_path)
+    engine = ENGINE_UNDER_TEST(tmp_path)
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     (cache_dir / "segment.ts").write_bytes(b"segment")
@@ -528,7 +518,7 @@ def test_engine_processes_due_cache_activity_before_stall_timeout(
 def test_engine_single_track_progress_completion_keeps_watchdog(
     monkeypatch, tmp_path: Path
 ):
-    engine = VSDEngine(tmp_path)
+    engine = ENGINE_UNDER_TEST(tmp_path)
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     command = [
@@ -555,7 +545,6 @@ def test_engine_single_track_progress_completion_keeps_watchdog(
     ("engine_type", "finalize_line"),
     [
         (N_m3u8DLEngine, "INFO : Muxing to /tmp/media.mp4"),
-        (VSDEngine, "Muxing [exe] ffmpeg -i input.ts output.mp4"),
     ],
 )
 def test_engine_allows_finalize_after_reliable_engine_signal(
@@ -585,7 +574,7 @@ def test_engine_allows_finalize_after_reliable_engine_signal(
 def test_engine_cache_file_count_does_not_mark_download_complete(
     monkeypatch, tmp_path: Path
 ):
-    engine = VSDEngine(tmp_path)
+    engine = ENGINE_UNDER_TEST(tmp_path)
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     (cache_dir / "key.bin").write_bytes(b"key")
@@ -619,7 +608,7 @@ def test_engine_watchdogs_exited_leader_with_child_holding_pipes(
     error_type: type[Exception],
     message: str,
 ):
-    engine = VSDEngine(tmp_path)
+    engine = ENGINE_UNDER_TEST(tmp_path)
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     monkeypatch.setattr(
@@ -810,51 +799,6 @@ def test_n_stage_is_plugin_cache_and_accepts_only_fixed_output(tmp_path: Path):
     (stage_dir / "media.mp4").write_bytes(b"output")
     assert engine._output_from_stage(stage_dir) == stage_dir / "media.mp4"
 
-
-def test_vsd_download_uses_mp4_stage_before_part_output(monkeypatch, tmp_path: Path):
-    engine = VSDEngine(tmp_path / "plugin-data")
-    requested_output = tmp_path / "movie.mp4.part"
-    captured = {}
-
-    monkeypatch.setattr(
-        engine._installer, "ensure_binary", lambda control_event=None: Path("/bin/vsd")
-    )
-
-    def run_command(command, **_kwargs):
-        stage_output = Path(command[command.index("--output") + 1])
-        captured["stage_output"] = stage_output
-        assert stage_output.name == "media.mp4"
-        assert str(stage_output).startswith(str(tmp_path / "plugin-data"))
-        stage_output.write_bytes(b"muxed")
-
-    monkeypatch.setattr(engine, "_run_command", run_command)
-
-    result = engine.download(
-        "https://example.test/index.m3u8",
-        requested_output,
-        task_id="vsd-stage",
-        ffmpeg_path="ffmpeg",
-        control_event=None,
-        progress_callback=None,
-    )
-
-    assert result == requested_output
-    assert requested_output.read_bytes() == b"muxed"
-    assert not captured["stage_output"].exists()
-
-
-def test_vsd_cleanup_removes_stage_and_download_cache(tmp_path: Path):
-    engine = VSDEngine(tmp_path / "plugin-data")
-    stage = engine._cache_root("task") / "vsd-stage"
-    cache = engine.task_cache_dir("task")
-    stage.mkdir(parents=True)
-    cache.mkdir(parents=True)
-    (stage / "media.mp4").write_bytes(b"stage")
-    (cache / "segment.ts").write_bytes(b"cache")
-
-    engine.cleanup_task("task")
-
-    assert not engine._cache_root("task").exists()
 
 
 def test_cross_filesystem_move_preserves_source_permissions(monkeypatch, tmp_path: Path):

@@ -41,21 +41,21 @@ def test_version_consistency_across_manifest_backend_and_frontend():
         ).read_text(encoding="utf-8")
     )
 
-    assert manifest["version"] == "0.4.51"
+    assert manifest["version"] == "0.4.52"
     assert {
         manifest["version"],
         LunaTVSource.plugin_version,
         package["version"],
         lockfile["version"],
         lockfile["packages"][""]["version"],
-    } == {"0.4.51"}
+    } == {"0.4.52"}
 
     history = manifest["history"]
-    assert next(iter(history)) == "0.4.51"
-    assert history["0.4.51"] == (
-        "修复 MoviePilot 下载器配置服务单参数读取导致的原生下载管理 500；"
-        "LunaTV 资源事件仅补充保存目录并继续宿主下载链，使成功入队返回真实任务 ID，"
-        "原生页面可显示和控制下载任务。"
+    assert next(iter(history)) == "0.4.52"
+    assert history["0.4.52"] == (
+        "M3U8 下载统一使用 N_m3u8DL-RE，默认 2 个任务×16 分片并发并限制总预算 64；"
+        "支持任务级暂停与删除、断点缓存、20 秒真实速度和缓存统计；同一目标路径自动串行，"
+        "终态持久化失败安全重放，并补充开源依赖声明。"
     )
     assert history["0.4.50"] == (
         "LunaTV 下载队列接入 MoviePilot 原生下载管理，支持进度展示及暂停、继续、删除；"

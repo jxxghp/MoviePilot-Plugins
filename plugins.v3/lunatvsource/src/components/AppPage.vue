@@ -70,7 +70,7 @@ onMounted(load)
         <p>接入 MoviePilot 原生搜索、订阅与下载；播放继续交给既有 Emby。</p>
       </div>
       <div class="header-status">
-        <span class="chip">串行队列</span>
+        <span class="chip">默认 2 任务并发 · N_m3u8DL-RE</span>
         <span :class="['chip', status.ai?.available ? 'ready' : 'muted-chip']">AI {{ status.ai?.available ? '已就绪' : '未启用' }}</span>
         <span :class="['chip', status.media_server_sync_running ? 'busy' : 'muted-chip']">媒体库 {{ status.media_server_sync_running ? '同步中' : '自动刷新' }}</span>
       </div>

@@ -72,7 +72,6 @@ class EngineSpec:
 
 
 N_M3U8DL_RE_VERSION = "v0.5.1-beta"
-VSD_VERSION = "0.5.0"
 
 
 def _github_release_url(repository: str, tag: str, filename: str) -> str:
@@ -127,42 +126,6 @@ N_M3U8DL_RE_SPEC = EngineSpec(
 )
 
 
-VSD_SPEC = EngineSpec(
-    name="vsd",
-    executable="vsd",
-    assets={
-        ("linux", "x86_64"): ReleaseAsset(
-            "vsd-0.5.0-x86_64-unknown-linux-musl.tar.xz",
-            "bab9b5b1a02b30afdbf44b58aa9b245d54caf8f723189bb9cc4dca4872c1455b",
-            "bd0b2f2f27eb6325205e10738dad8cce3ebdd9089caef51bda5a5236cc61f588",
-            _github_release_url(
-                "clitic/vsd",
-                "vsd-0.5.0",
-                "vsd-0.5.0-x86_64-unknown-linux-musl.tar.xz",
-            ),
-        ),
-        ("linux", "aarch64"): ReleaseAsset(
-            "vsd-0.5.0-aarch64-unknown-linux-musl.tar.xz",
-            "c435f822f11da61dee85732a8eadf93a3e138041100c552c6826addee53951c6",
-            "b457f364ad238ac1f210956bc007351603aa26f3e6670826733893e15badfd28",
-            _github_release_url(
-                "clitic/vsd",
-                "vsd-0.5.0",
-                "vsd-0.5.0-aarch64-unknown-linux-musl.tar.xz",
-            ),
-        ),
-        ("darwin", "aarch64"): ReleaseAsset(
-            "vsd-0.5.0-aarch64-apple-darwin.tar.xz",
-            "55fa01823ca3566e91080e9965e1d75fa53626d6be60b10671f250de8cd34f64",
-            "8e82f47febad2a54a48b489ef9846292e2653ceb275ccb594c9666f8e27f471e",
-            _github_release_url(
-                "clitic/vsd",
-                "vsd-0.5.0",
-                "vsd-0.5.0-aarch64-apple-darwin.tar.xz",
-            ),
-        ),
-    },
-)
 
 
 _ARCH_ALIASES = {
@@ -1057,8 +1020,30 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
 
     name = "n_m3u8dl_re"
     spec = N_M3U8DL_RE_SPEC
+    DEFAULT_THREAD_COUNT = 16
+    MIN_THREAD_COUNT = 4
+    MAX_THREAD_COUNT = 32
     _MEDIA_SUFFIXES = {".mp4", ".mkv", ".ts", ".m4a", ".mov", ".webm"}
     _FINALIZE_STAGE_RE = re.compile(r"\bmuxing\s+to\b", re.I)
+
+    def __init__(
+        self,
+        data_path: Path,
+        logger: Optional[logging.Logger] = None,
+        thread_count: object = DEFAULT_THREAD_COUNT,
+    ) -> None:
+        super().__init__(data_path, logger)
+        self.thread_count = self._normalized_thread_count(thread_count)
+
+    @classmethod
+    def _normalized_thread_count(cls, value: object) -> int:
+        """Coerce configuration to the engine's safe supported range."""
+
+        try:
+            requested = int(value)
+        except (TypeError, ValueError):
+            requested = cls.DEFAULT_THREAD_COUNT
+        return max(cls.MIN_THREAD_COUNT, min(cls.MAX_THREAD_COUNT, requested))
 
     @staticmethod
     def has_entered_finalize_stage(line: str) -> bool:
@@ -1237,7 +1222,12 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
         cache_dir: Path,
         stage_dir: Path,
         ffmpeg_path: str,
+        thread_count: Optional[object] = None,
     ) -> Sequence[str]:
+        selected_thread_count = self._normalized_thread_count(
+            self.thread_count if thread_count is None else thread_count
+        )
+        # ffmpeg is used exclusively by N_m3u8DL-RE's final mux step.
         ffmpeg_binary = ffmpeg_path or "ffmpeg"
         ffmpeg_binary = shutil.which(ffmpeg_binary) or ffmpeg_binary
         return [
@@ -1245,7 +1235,7 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
             url,
             "--auto-select",
             "--thread-count",
-            "16",
+            str(selected_thread_count),
             "--download-retry-count",
             "3",
             "--tmp-dir",
@@ -1271,6 +1261,7 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
         control_event: Optional[threading.Event],
         progress_callback: Optional[Callable[[float], None]],
         expected_segments: int = 0,
+        thread_count: Optional[object] = None,
     ) -> Path:
         self._raise_if_cancelled(control_event)
         binary = self._installer.ensure_binary(control_event=control_event)
@@ -1279,7 +1270,14 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
         stage_dir = self._prepare_stage_dir(task_id)
         self._raise_if_cancelled(control_event)
         self._run_command(
-            self.command(binary, url, cache_dir, stage_dir, ffmpeg_path),
+            self.command(
+                binary,
+                url,
+                cache_dir,
+                stage_dir,
+                ffmpeg_path,
+                thread_count,
+            ),
             cache_dir=cache_dir,
             control_event=control_event,
             progress_callback=progress_callback,
@@ -1287,98 +1285,4 @@ class N_m3u8DLEngine(_BaseM3U8Engine):
         )
         candidate = self._output_from_stage(stage_dir)
         self._move_stage_output(candidate, output)
-        return output
-
-
-class VSDEngine(_BaseM3U8Engine):
-    """Pinned VSD 0.5.0 adapter used only after N_m3u8DL-RE fails."""
-
-    name = "vsd"
-    spec = VSD_SPEC
-    _PT_RE = re.compile(r"PT\s*:\s*(\d+)\s*/\s*(\d+).*?%\s*:\s*(\d+(?:\.\d+)?)", re.I)
-    _FINALIZE_STAGE_RE = re.compile(r"\bmuxing\s+\[exe\]\s+ffmpeg\b", re.I)
-
-    @staticmethod
-    def has_entered_finalize_stage(line: str) -> bool:
-        return bool(VSDEngine._FINALIZE_STAGE_RE.search(line))
-
-    @staticmethod
-    def parse_progress(line: str) -> Optional[float]:
-        match = VSDEngine._PT_RE.search(line)
-        if match:
-            try:
-                percent = float(match.group(3)) / 100.0
-                return max(0.0, min(1.0, percent))
-            except ValueError:
-                return None
-        return _BaseM3U8Engine.parse_progress(line)
-
-    def command(
-        self, binary: Path, url: str, output: Path, cache_dir: Path
-    ) -> Sequence[str]:
-        return [
-            str(binary),
-            "save",
-            url,
-            "--output",
-            str(output),
-            "--directory",
-            str(cache_dir),
-            "--threads",
-            "16",
-            "--retries",
-            "10",
-        ]
-
-    def _prepare_stage_output(self, task_id: str) -> Path:
-        """Give VSD an MP4 suffix so its internal ffmpeg can select a muxer."""
-        self._prepare_task_cache(task_id)
-        stage_dir = self._ensure_real_directory(
-            self._cache_root(task_id) / "vsd-stage",
-            "vsd stage directory",
-        )
-        output = stage_dir / "media.mp4"
-        if output.exists() or output.is_symlink():
-            if not self._is_safe_regular_file(output):
-                raise M3U8EngineError("vsd stage output is unsafe")
-            try:
-                output.unlink()
-            except OSError as exc:
-                raise M3U8EngineError("vsd stage output is unavailable") from exc
-        return output
-
-    def cleanup_task(self, task_id: str, output_parent: Optional[Path] = None) -> None:
-        del output_parent
-        cache_root = self._cache_root(task_id)
-        self._remove_controlled_tree(cache_root / "vsd-stage", cache_root)
-        super().cleanup_task(task_id)
-
-    def download(
-        self,
-        url: str,
-        output: Path,
-        *,
-        task_id: str,
-        ffmpeg_path: str,
-        control_event: Optional[threading.Event],
-        progress_callback: Optional[Callable[[float], None]],
-        expected_segments: int = 0,
-    ) -> Path:
-        del ffmpeg_path
-        self._raise_if_cancelled(control_event)
-        binary = self._installer.ensure_binary(control_event=control_event)
-        self._raise_if_cancelled(control_event)
-        cache_dir = self._prepare_task_cache(task_id)
-        stage_output = self._prepare_stage_output(task_id)
-        self._raise_if_cancelled(control_event)
-        self._run_command(
-            self.command(binary, url, stage_output, cache_dir),
-            cache_dir=cache_dir,
-            control_event=control_event,
-            progress_callback=progress_callback,
-            expected_segments=expected_segments,
-        )
-        if not self._is_safe_regular_file(stage_output) or stage_output.stat().st_size <= 0:
-            raise M3U8EngineError("vsd did not produce a safe output")
-        N_m3u8DLEngine._move_stage_output(stage_output, output)
         return output

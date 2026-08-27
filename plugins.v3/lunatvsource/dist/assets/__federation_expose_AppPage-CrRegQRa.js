@@ -122,7 +122,7 @@ return (_ctx, _cache) => {
         _createElementVNode("p", null, "接入 MoviePilot 原生搜索、订阅与下载；播放继续交给既有 Emby。")
       ], -1)),
       _createElementVNode("div", _hoisted_3, [
-        _cache[0] || (_cache[0] = _createElementVNode("span", { class: "chip" }, "串行队列", -1)),
+        _cache[0] || (_cache[0] = _createElementVNode("span", { class: "chip" }, "默认 2 任务并发 · N_m3u8DL-RE", -1)),
         _createElementVNode("span", {
           class: _normalizeClass(['chip', status.value.ai?.available ? 'ready' : 'muted-chip'])
         }, "AI " + _toDisplayString(status.value.ai?.available ? '已就绪' : '未启用'), 3),
@@ -210,12 +210,12 @@ return (_ctx, _cache) => {
               ])
             ]))
     ]),
-    _cache[7] || (_cache[7] = _createStaticVNode("<section class=\"panel help-panel\" data-v-2fd7c932><div class=\"section-title\" data-v-2fd7c932>使用说明</div><div class=\"help-grid\" data-v-2fd7c932><p data-v-2fd7c932><strong data-v-2fd7c932>目录</strong>：目录留空时按媒体类型读取 MoviePilot 的本地目录；填写插件目录则优先使用插件目录。</p><p data-v-2fd7c932><strong data-v-2fd7c932>多季合集</strong>：有明确季号或 TMDB 季集数能完整对应时才会自动分季；无法确认时会暂停，避免错放。</p><p data-v-2fd7c932><strong data-v-2fd7c932>媒体库</strong>：目录内没有正在下载的缓存文件后才显示完整文件夹；完成后可请求 Emby/Jellyfin 刷新。</p><p data-v-2fd7c932><strong data-v-2fd7c932>播放</strong>：插件不内置 m3u8 播放器，播放仍由已有 Emby/Jellyfin 页面负责。</p></div></section>", 1))
+    _cache[7] || (_cache[7] = _createStaticVNode("<section class=\"panel help-panel\" data-v-c69d3e25><div class=\"section-title\" data-v-c69d3e25>使用说明</div><div class=\"help-grid\" data-v-c69d3e25><p data-v-c69d3e25><strong data-v-c69d3e25>目录</strong>：目录留空时按媒体类型读取 MoviePilot 的本地目录；填写插件目录则优先使用插件目录。</p><p data-v-c69d3e25><strong data-v-c69d3e25>多季合集</strong>：有明确季号或 TMDB 季集数能完整对应时才会自动分季；无法确认时会暂停，避免错放。</p><p data-v-c69d3e25><strong data-v-c69d3e25>媒体库</strong>：目录内没有正在下载的缓存文件后才显示完整文件夹；完成后可请求 Emby/Jellyfin 刷新。</p><p data-v-c69d3e25><strong data-v-c69d3e25>播放</strong>：插件不内置 m3u8 播放器，播放仍由已有 Emby/Jellyfin 页面负责。</p></div></section>", 1))
   ]))
 }
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2fd7c932"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c69d3e25"]]);
 
 export { AppPage as default };

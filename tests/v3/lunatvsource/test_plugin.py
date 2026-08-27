@@ -1948,6 +1948,7 @@ def test_native_download_reports_duplicate_instead_of_fake_success(tmp_path: Pat
 def test_active_queue_tasks_project_to_native_download_list_and_filter(monkeypatch):
     plugin = _plugin()
     plugin.init_plugin({"enabled": True})
+    monkeypatch.setattr(plugin._queue, "wake", lambda: False)
     monkeypatch.setattr(plugin, "_start_queue", lambda: True)
     pending = DownloadTask(
         task_id="pending-task",
