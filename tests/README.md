@@ -55,6 +55,27 @@ MoviePilot 环境；默认 V3 回归只承诺覆盖仍声明兼容 V3 的 V2 测
 新增 V3 插件必须同时增加 `tests/v3/<plugin_id>/test_*.py`；V1/V2 历史实现仍可维护和
 发版，不受这个新增插件测试门禁约束。
 
+## 依赖清单
+
+V3 插件有额外依赖时使用 `pyproject.toml` 的 `[project].dependencies`，不提交插件级锁文件。
+PR 修改 V3 依赖清单或依赖门禁本身时，CI 会在 Python 3.14 的 Linux x64/arm64、Windows x64、
+macOS Intel/ARM runner 中创建隔离环境，按宿主的 `uv pip install -r pyproject.toml` 语义真实安装
+并执行 `uv pip check`。
+
+普通清单默认覆盖五个平台。插件仅支持其中一部分平台时，在清单中声明安装门禁范围：
+
+```toml
+[tool.moviepilot.dependency-gate]
+platforms = ["linux-x64"]
+```
+
+本地可按目标平台执行同一入口：
+
+```bash
+uv run --no-project --python 3.14 python scripts/check_v3_dependency_install.py \
+  --python 3.14 --platform macos-arm64
+```
+
 ## 新增用例
 
 1. 放到对应代际的插件独立目录：`tests/<v1|v2|v3>/<plugin_id>/`，例如
