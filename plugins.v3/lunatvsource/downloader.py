@@ -1,4 +1,4 @@
-"""Persistent, serial m3u8 download/STRM queue."""
+"""Persistent m3u8 download/STRM queue."""
 
 from __future__ import annotations
 
@@ -8,9 +8,8 @@ import http.server
 import logging
 import os
 import re
-import selectors
 import socketserver
-import subprocess
+import stat
 import tempfile
 import threading
 import time
@@ -25,16 +24,52 @@ from .m3u8_engine import (
     M3U8EngineCancelled,
     M3U8EngineError,
     N_m3u8DLEngine,
-    VSDEngine,
 )
 from .naming import media_path
 
 
 LOGGER = logging.getLogger("LunaTVSource")
 
+DEFAULT_MAX_CONCURRENT_TASKS = 2
+MIN_MAX_CONCURRENT_TASKS = 1
+MAX_MAX_CONCURRENT_TASKS = 4
+DEFAULT_SEGMENT_THREAD_COUNT = 16
+MIN_SEGMENT_THREAD_COUNT = 4
+MAX_SEGMENT_THREAD_COUNT = 32
+MAX_TOTAL_SEGMENT_THREADS = 64
+
+
+def normalize_download_concurrency(
+    max_concurrent_tasks: object,
+    segment_thread_count: object,
+) -> tuple[int, int]:
+    """Bound per-task work and keep aggregate segment concurrency predictable."""
+    try:
+        max_tasks = int(max_concurrent_tasks)
+    except (TypeError, ValueError):
+        max_tasks = DEFAULT_MAX_CONCURRENT_TASKS
+    max_tasks = max(
+        MIN_MAX_CONCURRENT_TASKS,
+        min(MAX_MAX_CONCURRENT_TASKS, max_tasks),
+    )
+
+    try:
+        segment_threads = int(segment_thread_count)
+    except (TypeError, ValueError):
+        segment_threads = DEFAULT_SEGMENT_THREAD_COUNT
+    segment_threads = max(
+        MIN_SEGMENT_THREAD_COUNT,
+        min(MAX_SEGMENT_THREAD_COUNT, segment_threads),
+    )
+    segment_threads = min(
+        segment_threads,
+        max(MIN_SEGMENT_THREAD_COUNT, MAX_TOTAL_SEGMENT_THREADS // max_tasks),
+    )
+    return max_tasks, segment_threads
+
 
 class _QueueControl(RuntimeError):
-    """Internal signal used to stop the active ffmpeg process safely."""
+    """Internal signal used to stop the active download process safely."""
 
     def __init__(self, action: str) -> None:
         super().__init__(action)
@@ -182,6 +217,8 @@ class DownloadTask:
     # MoviePilot's native download projection uses a 0..1 value.  Older
     # persisted tasks do not have this field and are restored with 0.0.
     progress: float = 0.0
+    # Empty keeps persisted tasks created before engine attribution compatible.
+    download_engine: str = ""
 
     @classmethod
     def from_episode(
@@ -222,7 +259,7 @@ class DownloadTask:
         return asdict(self)
 
 
-class DownloadQueue:
+class _SerialDownloadQueue:
     """One-at-a-time queue; no worker fan-out or parallel download."""
 
     DATA_KEY = "download_tasks_v1"
@@ -251,18 +288,18 @@ class DownloadQueue:
         self._idle_event = threading.Event()
         self._idle_event.set()
         self._delete_file_tasks: set[str] = set()
-        # Standalone/legacy hosts retain the historical ffmpeg-only behavior.
+        # Standalone/legacy hosts retain the historical N-only behavior.
         # MoviePilot passes its plugin data directory and enables the managed
-        # N_m3u8DL-RE -> VSD -> ffmpeg VOD fallback chain.
+        # N_m3u8DL-RE is the sole VOD download engine.
         self._m3u8_engines = (
-            (N_m3u8DLEngine(Path(data_path)), VSDEngine(Path(data_path)))
+            (N_m3u8DLEngine(Path(data_path)),)
             if data_path is not None
             else ()
         )
         self._recover_interrupted_tasks()
 
     def _recover_interrupted_tasks(self) -> None:
-        """Put tasks left in ``running`` back into the serial queue.
+        """Put tasks left in ``running`` back into the download queue.
 
         MoviePilot may restart while ffmpeg is running.  Persisting the
         transient state is useful for UI feedback, but it must not strand a
@@ -392,7 +429,7 @@ class DownloadQueue:
         return False
 
     def resume(self, task_id: str) -> bool:
-        """Return a paused task to the serial queue."""
+        """Return a paused task to the pending queue."""
         with self._lock:
             tasks = self._read()
             task = next((item for item in tasks if item.task_id == task_id), None)
@@ -500,7 +537,7 @@ class DownloadQueue:
                 return
 
     def _drain_until_idle(self) -> None:
-        """Continue serial work until no pending task remains.
+        """Continue legacy single-worker processing until no task remains.
 
         The idle check and worker hand-off share ``_lock`` with enqueue(), so
         a task added as another task finishes cannot lose its wake-up.
@@ -585,7 +622,14 @@ class DownloadQueue:
                 return replayed
             if self._stop:
                 return {"processed": 0, "stopped": True}
-            task = next((item for item in tasks if item.state == "pending"), None)
+            task = next(
+                (
+                    item
+                    for item in tasks
+                    if item.state == "pending" and item.task_id not in self._pending_terminal
+                ),
+                None,
+            )
             if task is None:
                 task = next((item for item in tasks if item.state == "running"), None)
                 if task is not None:
@@ -705,20 +749,7 @@ class DownloadQueue:
         return {"processed": 1, "task_id": task.task_id, "state": "completed", "output": output}
 
     def _execute(self, task: DownloadTask) -> str:
-        relative_dir, filename = media_path(
-            task.root,
-            task.title,
-            task.year,
-            task.media_type,
-            task.season,
-            task.episode,
-            task.url,
-            task.mode,
-        )
-        root = Path(task.root).expanduser().resolve()
-        destination = (root / relative_dir / filename).resolve()
-        if root not in destination.parents:
-            raise ValueError("目标路径越界")
+        root, destination = self._destination_for_task(task)
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists() and destination.stat().st_size > 0:
             self._cleanup_m3u8_cache(task, destination.parent)
@@ -741,15 +772,7 @@ class DownloadQueue:
         temp_path = destination.with_suffix(destination.suffix + ".part")
         try:
             if not self._run_m3u8_engines(task, temp_path):
-                if self._control_event.is_set():
-                    raise _QueueControl("controlled")
-                self._run_ffmpeg(
-                    task.ffmpeg_path,
-                    task.url,
-                    temp_path,
-                    self._control_event,
-                    lambda progress: self._update_progress(task.task_id, progress),
-                )
+                raise RuntimeError("N_m3u8DL-RE 不可用或下载失败")
         except Exception:
             # 失败任务不把残留缓存留在媒体库目录，避免 Emby/监控把半成品当成文件夹内容。
             try:
@@ -764,7 +787,7 @@ class DownloadQueue:
             except OSError:
                 pass
             self._remove_empty_parents(destination.parent, root)
-            raise IOError("ffmpeg 未生成有效文件")
+            raise IOError("N_m3u8DL-RE 未生成有效文件")
         os.replace(temp_path, destination)
         self._cleanup_m3u8_cache(task, destination.parent)
         return str(destination)
@@ -829,7 +852,7 @@ class DownloadQueue:
         return count
 
     def _run_m3u8_engines(self, task: DownloadTask, output: Path) -> bool:
-        """Run N_m3u8DL-RE then VSD through the established HLS proxy seam."""
+        """Run N_m3u8DL-RE through the established HLS proxy seam."""
         if self._control_event.is_set():
             raise _QueueControl("controlled")
         if not self._m3u8_engines:
@@ -866,7 +889,7 @@ class DownloadQueue:
                         if self._control_event.is_set():
                             raise _QueueControl("controlled")
                         LOGGER.warning(
-                            "LunaTV %s M3U8 engine failed; trying fallback", engine.name
+                    "LunaTV %s M3U8 engine failed", engine.name
                         )
         except _QueueControl:
             raise
@@ -932,7 +955,7 @@ class DownloadQueue:
             current = current.parent
 
     def _update_progress(self, task_id: str, progress: float) -> None:
-        """Persist ffmpeg's current VOD progress for the native download page."""
+        """Persist N_m3u8DL-RE progress for the native download page."""
 
         value = max(0.0, min(0.99, float(progress or 0.0)))
         with self._lock:
@@ -942,157 +965,6 @@ class DownloadQueue:
                 return
             task.progress = value
             self._write(tasks)
-
-    @staticmethod
-    def _playlist_duration(path: Path, visited: Optional[set[str]] = None) -> float:
-        """Estimate VOD duration from a materialized HLS playlist.
-
-        A master playlist generally contains local child playlist paths after
-        ``_prepare_hls_input``.  Use the longest child duration so adaptive
-        variants do not make progress jump past 100%; for a media playlist the
-        sum of ``#EXTINF`` values is the exact VOD duration.
-        """
-
-        visited = visited or set()
-        try:
-            resolved = str(path.resolve())
-            if resolved in visited:
-                return 0.0
-            visited.add(resolved)
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            return 0.0
-
-        durations = []
-        child_durations = []
-        for line in text.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("#EXTINF:"):
-                value = stripped.partition(":")[2].partition(",")[0]
-                try:
-                    durations.append(float(value))
-                except ValueError:
-                    continue
-            elif stripped and not stripped.startswith("#"):
-                child = Path(stripped)
-                if child.is_file() and child.suffix.lower() in {".m3u8", ".m3u"}:
-                    child_durations.append(DownloadQueue._playlist_duration(child, visited))
-        if durations:
-            return max(0.0, sum(durations))
-        return max(child_durations, default=0.0)
-
-    @staticmethod
-    def _run_ffmpeg(
-        ffmpeg_path: str,
-        url: str,
-        output: Path,
-        control_event: Optional[threading.Event] = None,
-        progress_callback: Optional[Callable[[float], None]] = None,
-    ) -> None:
-        if control_event is not None and control_event.is_set():
-            raise _QueueControl("controlled")
-        with tempfile.TemporaryDirectory(prefix="lunatv-hls-") as temp_dir, _SegmentProxy() as proxy:
-            if control_event is not None and control_event.is_set():
-                raise _QueueControl("controlled")
-            input_url = DownloadQueue._prepare_hls_input(url, Path(temp_dir), proxy.url_for)
-            if control_event is not None and control_event.is_set():
-                raise _QueueControl("controlled")
-            duration = DownloadQueue._playlist_duration(Path(input_url))
-            progress_args = ["-nostats", "-progress", "pipe:1"] if progress_callback is not None else []
-            command = [
-                ffmpeg_path or "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                *progress_args,
-                "-y",
-                "-protocol_whitelist",
-                "file,http,https,tcp,tls,crypto",
-                "-allowed_extensions",
-                "ALL",
-                "-allowed_segment_extensions",
-                "ALL",
-                "-extension_picky",
-                "0",
-                "-seg_max_retry",
-                "2",
-                "-http_persistent",
-                "1",
-                "-http_multiple",
-                "1",
-                "-http_seekable",
-                "0",
-                "-i",
-                input_url,
-                "-c",
-                "copy",
-                "-bsf:a",
-                "aac_adtstoasc",
-                "-f",
-                "mp4",
-                str(output),
-            ]
-            if control_event is None:
-                completed = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    timeout=6 * 60 * 60,
-                )
-                if completed.returncode != 0:
-                    detail = (completed.stderr or completed.stdout or "ffmpeg 执行失败").strip()
-                    raise RuntimeError(detail[-1200:])
-                return
-
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            started_at = time.monotonic()
-            stdout_lines: List[str] = []
-            stderr_lines: List[str] = []
-            selector = selectors.DefaultSelector()
-            if process.stdout is not None:
-                selector.register(process.stdout, selectors.EVENT_READ, "stdout")
-            if process.stderr is not None:
-                selector.register(process.stderr, selectors.EVENT_READ, "stderr")
-            while True:
-                if control_event is not None and control_event.is_set():
-                    process.terminate()
-                    try:
-                        process.communicate(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.communicate()
-                    raise _QueueControl("controlled")
-                if time.monotonic() - started_at > 6 * 60 * 60:
-                    process.kill()
-                    process.communicate()
-                    raise TimeoutError("ffmpeg 下载超时")
-                events = selector.select(timeout=0.5)
-                for key, _ in events:
-                    line = key.fileobj.readline()
-                    if not line:
-                        try:
-                            selector.unregister(key.fileobj)
-                        except Exception:
-                            pass
-                        continue
-                    if key.data == "stderr":
-                        stderr_lines.append(line)
-                        continue
-                    stdout_lines.append(line)
-                    if progress_callback is not None and duration > 0:
-                        name, _, raw_value = line.strip().partition("=")
-                        if name == "out_time_ms":
-                            try:
-                                progress_callback(float(raw_value) / 1_000_000 / duration)
-                            except (TypeError, ValueError):
-                                pass
-                if process.poll() is not None and not selector.get_map():
-                    break
-            selector.close()
-            process.wait(timeout=5)
-            if process.returncode != 0:
-                detail = ("".join(stderr_lines) or "".join(stdout_lines) or "ffmpeg 执行失败").strip()
-                raise RuntimeError(detail[-1200:])
 
     @staticmethod
     def _validate_hls_remote_uri(uri: str) -> str:
@@ -1226,3 +1098,755 @@ class DownloadQueue:
             if self._running:
                 self._control_action = "pause"
                 self._control_event.set()
+
+
+@dataclass
+class _TaskControl:
+    """Control plane owned by exactly one running task."""
+
+    event: threading.Event = field(default_factory=threading.Event)
+    action: str = ""
+    delete_file: bool = False
+
+
+@dataclass
+class _TerminalIntent:
+    """A terminal transition that could not yet be made durable."""
+
+    task: DownloadTask
+    control: _TaskControl
+    state: str
+    output: str = ""
+    error: str = ""
+
+
+class DownloadQueue(_SerialDownloadQueue):
+    """Persistent bounded-concurrency queue with task-local cancellation."""
+
+    def __init__(
+        self,
+        load: Callable[[str, Any], Any],
+        save: Callable[[str, Any], None],
+        notify: Callable[[str, str], None],
+        on_complete: Optional[Callable[[DownloadTask, str], None]] = None,
+        data_path: Optional[Path] = None,
+        max_concurrent_tasks: int = 1,
+        segment_thread_count: int = DEFAULT_SEGMENT_THREAD_COUNT,
+    ) -> None:
+        self._load = load
+        self._save = save
+        self._notify = notify
+        self._on_complete = on_complete
+        self._lock = threading.RLock()
+        self._stop = False
+        (
+            self.max_concurrent_tasks,
+            self.segment_thread_count,
+        ) = normalize_download_concurrency(
+            max_concurrent_tasks,
+            segment_thread_count,
+        )
+        self._drain_running = False
+        self._drain_failed = False
+        self._wake_generation = 0
+        self._drain_wakeup = threading.Event()
+        self._active: Dict[str, _TaskControl] = {}
+        self._active_destinations: Dict[str, str] = {}
+        self._pending_terminal: Dict[str, _TerminalIntent] = {}
+        self._dispatching = 0
+        self._execution = threading.local()
+        self._compat_control_event = threading.Event()
+        # Legacy attributes remain observable, but are not the source of truth.
+        self._running = False
+        self._current_task_id = ""
+        self._active_owner_id: Optional[int] = None
+        self._control_action = ""
+        self._idle_event = threading.Event()
+        self._idle_event.set()
+        self._delete_file_tasks: set[str] = set()
+        self._data_path = Path(data_path).resolve() if data_path is not None else None
+        self._m3u8_engines = (self._new_n_engine(self._data_path),) if self._data_path else ()
+        self._recover_interrupted_tasks()
+
+    def _new_n_engine(self, data_path: Path) -> N_m3u8DLEngine:
+        try:
+            return N_m3u8DLEngine(data_path, thread_count=self.segment_thread_count)
+        except TypeError as exc:
+            if "thread_count" not in str(exc):
+                raise
+            return N_m3u8DLEngine(data_path)
+
+    @staticmethod
+    def _destination_for_task(task: DownloadTask) -> tuple[Path, Path]:
+        relative_dir, filename = media_path(
+            task.root,
+            task.title,
+            task.year,
+            task.media_type,
+            task.season,
+            task.episode,
+            task.url,
+            task.mode,
+        )
+        root = Path(task.root).expanduser().resolve()
+        destination = (root / relative_dir / filename).resolve()
+        if root not in destination.parents:
+            raise ValueError("目标路径越界")
+        return root, destination
+
+    @classmethod
+    def _destination_key(cls, task: DownloadTask) -> str:
+        try:
+            _, destination = cls._destination_for_task(task)
+        except (OSError, TypeError, ValueError):
+            return f"invalid:{task.task_id}"
+        return os.path.normcase(str(destination))
+
+    def _next_claimable_task(
+        self,
+        tasks: List[DownloadTask],
+    ) -> Optional[DownloadTask]:
+        active_destinations = set(self._active_destinations.values())
+        return next(
+            (
+                item
+                for item in tasks
+                if item.state == "pending"
+                and self._destination_key(item) not in active_destinations
+            ),
+            None,
+        )
+
+    @property
+    def _control_event(self) -> threading.Event:
+        control = getattr(self._execution, "control", None)
+        return control.event if control is not None else self._compat_control_event
+
+    def _claim_next(self) -> Optional[tuple[DownloadTask, _TaskControl]]:
+        with self._lock:
+            if self._stop or len(self._active) >= self.max_concurrent_tasks:
+                return None
+            tasks = self._read()
+            task = self._next_claimable_task(tasks)
+            if task is None:
+                return None
+            task.state = "running"
+            task.progress = max(0.0, min(1.0, float(task.progress or 0.0)))
+            task.attempts += 1
+            task.download_engine = "N_m3u8DL-RE"
+            control = _TaskControl()
+            self._active[task.task_id] = control
+            self._active_destinations[task.task_id] = self._destination_key(task)
+            self._running = True
+            self._current_task_id = task.task_id
+            self._active_owner_id = threading.get_ident()
+            self._idle_event.clear()
+            if getattr(self._execution, "dispatched", False):
+                self._dispatching -= 1
+                self._execution.dispatched = False
+            try:
+                self._write(tasks)
+            except Exception:
+                self._active.pop(task.task_id, None)
+                self._active_destinations.pop(task.task_id, None)
+                self._running = bool(self._active)
+                # A failed running-state write must not strand the persisted
+                # task or let this drain execute it from an in-memory claim.
+                rollback = self._read()
+                current = next((item for item in rollback if item.task_id == task.task_id), None)
+                if current is not None and current.state == "running":
+                    current.state = "pending"
+                    current.progress = 0.0
+                    current.error = ""
+                    current.attempts = max(0, current.attempts - 1)
+                    current.download_engine = ""
+                    try:
+                        self._write(rollback)
+                    except Exception:
+                        LOGGER.exception("LunaTV queue claim rollback failed")
+                if not self._running:
+                    self._current_task_id = ""
+                    self._active_owner_id = None
+                    self._idle_event.set()
+                raise
+            return task, control
+
+    def run_one(self) -> Dict[str, Any]:
+        claimed = self._claim_next()
+        if claimed is None:
+            return {"processed": 0, "stopped": True} if self._stop else {"processed": 0}
+        return self._run_claimed(*claimed)
+
+    def enqueue(self, task: DownloadTask) -> bool:
+        """Persist a new task while preserving the legacy boolean contract."""
+        if not task.url or not task.root:
+            return False
+        with self._lock:
+            tasks = self._read()
+            for existing in tasks:
+                if existing.identity_key == task.identity_key and existing.state in {
+                    "pending", "running", "paused", "completed",
+                }:
+                    return False
+            tasks.append(task)
+            self._write(tasks)
+        return True
+
+    def summary(self) -> Dict[str, int]:
+        counts = {"pending": 0, "running": 0, "paused": 0, "completed": 0, "failed": 0}
+        with self._lock:
+            for task in self._read():
+                counts[task.state] = counts.get(task.state, 0) + 1
+        return counts
+
+    def retry(self, task_id: str) -> bool:
+        with self._lock:
+            if task_id in self._pending_terminal:
+                return False
+            retried = super().retry(task_id)
+        if retried:
+            self.wake()
+        return retried
+
+    def resume(self, task_id: str) -> bool:
+        with self._lock:
+            if task_id in self._pending_terminal:
+                return False
+            resumed = super().resume(task_id)
+        if resumed:
+            self.wake()
+        return resumed
+
+    def _run_claimed(self, task: DownloadTask, control: _TaskControl) -> Dict[str, Any]:
+        self._execution.control = control
+        try:
+            output = self._execute(task)
+        except _QueueControl as exc:
+            action = control.action or exc.action
+            if action not in {"pause", "remove"}:
+                action = "pause"
+            return self._finish_controlled(task, control, action)
+        except Exception as exc:
+            return self._finish_failed(task, control, exc)
+        finally:
+            self._execution.control = None
+        return self._finish_completed(task, control, output)
+
+    def _finish_controlled(
+        self, task: DownloadTask, control: _TaskControl, action: str
+    ) -> Dict[str, Any]:
+        with self._lock:
+            try:
+                self._persist_control_transition(task, control, action)
+            except Exception as exc:
+                self._defer_terminal(task, control, action, error=str(exc))
+            else:
+                self._release(task.task_id)
+        return {"processed": 1, "task_id": task.task_id, "state": action or "pause"}
+
+    def _persist_control_transition(
+        self, task: DownloadTask, control: _TaskControl, action: str
+    ) -> None:
+        """Durably apply pause/remove without allowing a second execution."""
+        last_error: Optional[Exception] = None
+        for _attempt in range(2):
+            tasks = self._read()
+            current = next((item for item in tasks if item.task_id == task.task_id), None)
+            try:
+                if action == "remove":
+                    if current is not None:
+                        current.output = task.output
+                        self._persist_removal(tasks, current, delete_file=control.delete_file)
+                elif current is not None:
+                    if current.state == "paused":
+                        return
+                    current.state = "paused"
+                    current.progress = 0.0
+                    current.error = ""
+                    self._write(tasks)
+                return
+            except Exception as exc:
+                last_error = exc
+        assert last_error is not None
+        raise last_error
+
+    def _persist_state_transition(
+        self,
+        task: DownloadTask,
+        state: str,
+        *,
+        output: str = "",
+        error: str = "",
+    ) -> None:
+        """Persist a failed/completed transition, tolerating an applied write."""
+        last_error: Optional[Exception] = None
+        for _attempt in range(2):
+            tasks = self._read()
+            current = next((item for item in tasks if item.task_id == task.task_id), None)
+            if current is None:
+                return
+            if state == "failed" and current.state == "failed":
+                return
+            if state == "completed" and current.state == "completed" and current.output == output:
+                return
+            try:
+                current.state = state
+                if state == "failed":
+                    current.error = error
+                else:
+                    current.progress = 1.0
+                    current.output = output
+                    current.completed_at = time.time()
+                    task.state = current.state
+                    task.progress = current.progress
+                    task.output = current.output
+                    task.completed_at = current.completed_at
+                self._write(tasks)
+                return
+            except Exception as exc:
+                last_error = exc
+        assert last_error is not None
+        raise last_error
+
+    def _persist_terminal_intent(self, intent: _TerminalIntent) -> None:
+        if intent.state in {"pause", "remove"}:
+            if intent.state == "remove" and intent.output:
+                intent.task.output = intent.output
+            self._persist_control_transition(intent.task, intent.control, intent.state)
+            return
+        self._persist_state_transition(
+            intent.task,
+            intent.state,
+            output=intent.output,
+            error=intent.error,
+        )
+
+    def _defer_terminal(
+        self,
+        task: DownloadTask,
+        control: _TaskControl,
+        state: str,
+        *,
+        output: str = "",
+        error: str = "",
+    ) -> None:
+        """Release execution capacity while retaining the durable transition intent."""
+        self._pending_terminal[task.task_id] = _TerminalIntent(
+            task=task,
+            control=control,
+            state=state,
+            output=output,
+            error=error,
+        )
+        self._release(task.task_id, release_destination=False)
+
+    def _replay_terminal_intents(self) -> None:
+        completed: List[_TerminalIntent] = []
+        failed: List[_TerminalIntent] = []
+        with self._lock:
+            for task_id, intent in list(self._pending_terminal.items()):
+                try:
+                    self._persist_terminal_intent(intent)
+                except Exception:
+                    LOGGER.warning("LunaTV terminal transition replay failed for %s", task_id)
+                    continue
+                self._pending_terminal.pop(task_id, None)
+                if intent.state == "completed":
+                    completed.append(intent)
+                elif intent.state == "failed":
+                    failed.append(intent)
+                if intent.state != "completed":
+                    self._active_destinations.pop(task_id, None)
+        for intent in completed:
+            try:
+                try:
+                    if self._on_complete is not None:
+                        self._on_complete(intent.task, intent.output)
+                except Exception:
+                    LOGGER.exception("LunaTV completion hook failed")
+                self._notify("LunaTV 已完成", self._notification_text(intent.task))
+            finally:
+                with self._lock:
+                    self._active_destinations.pop(intent.task.task_id, None)
+                    self._drain_wakeup.set()
+        for intent in failed:
+            self._notify(
+                "LunaTV 下载失败",
+                f"{self._notification_text(intent.task)}：{intent.error}",
+            )
+
+    def _finish_failed(
+        self, task: DownloadTask, control: _TaskControl, exc: Exception
+    ) -> Dict[str, Any]:
+        with self._lock:
+            if control.action == "remove":
+                state = "remove"
+            elif control.action == "pause":
+                state = "pause"
+            else:
+                state = "failed"
+            try:
+                self._persist_terminal_intent(
+                    _TerminalIntent(
+                        task=task,
+                        control=control,
+                        state=state,
+                        error=str(exc),
+                    )
+                )
+            except Exception:
+                self._defer_terminal(task, control, state, error=str(exc))
+                persisted = False
+            else:
+                self._release(task.task_id)
+                persisted = True
+        if state == "failed" and persisted:
+            self._notify("LunaTV 下载失败", f"{self._notification_text(task)}：{exc}")
+            return {"processed": 1, "task_id": task.task_id, "state": state, "error": str(exc)}
+        return {"processed": 1, "task_id": task.task_id, "state": state}
+
+    def _finish_completed(
+        self, task: DownloadTask, control: _TaskControl, output: str
+    ) -> Dict[str, Any]:
+        with self._lock:
+            if control.action == "remove":
+                state = "remove"
+            elif control.action == "pause":
+                state = "pause"
+            else:
+                state = "completed"
+            final_output = task.output or output if state == "remove" else output
+            try:
+                self._persist_terminal_intent(
+                    _TerminalIntent(
+                        task=task,
+                        control=control,
+                        state=state,
+                        output=final_output,
+                    )
+                )
+            except Exception as exc:
+                self._defer_terminal(
+                    task,
+                    control,
+                    state,
+                    output=final_output,
+                    error=str(exc),
+                )
+                persisted = False
+            else:
+                persisted = True
+                if state != "completed":
+                    self._release(task.task_id)
+
+        if state != "completed":
+            return {"processed": 1, "task_id": task.task_id, "state": state}
+        if not persisted:
+            return {"processed": 1, "task_id": task.task_id, "state": state, "output": output}
+        try:
+            try:
+                if self._on_complete is not None:
+                    self._on_complete(task, output)
+            except Exception:
+                LOGGER.exception("LunaTV completion hook failed")
+            self._notify("LunaTV 已完成", self._notification_text(task))
+        finally:
+            with self._lock:
+                self._release(task.task_id)
+        return {"processed": 1, "task_id": task.task_id, "state": "completed", "output": output}
+
+    def _release(self, task_id: str, *, release_destination: bool = True) -> None:
+        self._active.pop(task_id, None)
+        if release_destination:
+            self._active_destinations.pop(task_id, None)
+        self._delete_file_tasks.discard(task_id)
+        self._running = bool(self._active)
+        self._current_task_id = next(iter(self._active), "")
+        self._active_owner_id = None
+        if not self._running:
+            self._idle_event.set()
+        self._drain_wakeup.set()
+
+    def pause(self, task_id: str) -> bool:
+        with self._lock:
+            intent = self._pending_terminal.get(task_id)
+            if intent is not None:
+                return intent.state in {"pause", "remove"}
+            tasks = self._read()
+            task = next((item for item in tasks if item.task_id == task_id), None)
+            if task is None or task.state == "completed":
+                return False
+            if task.state == "paused":
+                return True
+            control = self._active.get(task_id)
+            if task.state == "running" and control is not None:
+                if control.action == "remove":
+                    return True
+                control.action = "pause"
+                control.event.set()
+                return True
+            if task.state == "pending":
+                task.state = "paused"
+                task.progress = 0.0
+                task.error = ""
+                self._write(tasks)
+                return True
+            return False
+
+    def remove(self, task_id: str, delete_file: bool = False) -> bool:
+        with self._lock:
+            intent = self._pending_terminal.get(task_id)
+            if intent is not None:
+                intent.state = "remove"
+                intent.control.action = "remove"
+                intent.control.delete_file = intent.control.delete_file or delete_file
+                self._drain_wakeup.set()
+                return True
+            tasks = self._read()
+            task = next((item for item in tasks if item.task_id == task_id), None)
+            if task is None:
+                return False
+            control = self._active.get(task_id)
+            if task.state == "running" and control is not None:
+                control.action = "remove"
+                control.delete_file = control.delete_file or delete_file
+                control.event.set()
+                return True
+            self._persist_removal(tasks, task, delete_file=delete_file)
+            return True
+
+    def wake(self) -> bool:
+        with self._lock:
+            if self._stop:
+                return False
+            self._wake_generation += 1
+            self._drain_failed = False
+            self._drain_wakeup.set()
+            if self._drain_running:
+                return True
+            self._drain_running = True
+        try:
+            threading.Thread(target=self._drain, name="lunatvsource-download", daemon=True).start()
+        except RuntimeError:
+            with self._lock:
+                self._drain_running = False
+            return False
+        return True
+
+    def _drain(self) -> None:
+        try:
+            while True:
+                self._replay_terminal_intents()
+                with self._lock:
+                    if self._stop or self._drain_failed:
+                        return
+                    tasks = self._read()
+                    pending = any(task.state == "pending" for task in tasks)
+                    can_dispatch = (
+                        pending
+                        and self._next_claimable_task(tasks) is not None
+                        and len(self._active) + self._dispatching < self.max_concurrent_tasks
+                    )
+                    if can_dispatch:
+                        self._dispatching += 1
+                        dispatch_generation = self._wake_generation
+                if can_dispatch:
+                    try:
+                        threading.Thread(
+                            target=self._run_dispatched,
+                            args=(dispatch_generation,),
+                            name="lunatvsource-download-worker",
+                            daemon=True,
+                        ).start()
+                    except RuntimeError:
+                        with self._lock:
+                            self._dispatching -= 1
+                            self._drain_failed = self._wake_generation <= dispatch_generation
+                            self._drain_wakeup.set()
+                        LOGGER.exception("LunaTV queue worker start failed")
+                    continue
+                with self._lock:
+                    active = bool(self._active)
+                    pending = any(task.state == "pending" for task in self._read())
+                    terminal_pending = bool(self._pending_terminal)
+                    stopped = self._stop
+                if stopped:
+                    return
+                if not active and not pending and not terminal_pending:
+                    return
+                self._drain_wakeup.wait(timeout=0.25)
+                self._drain_wakeup.clear()
+        finally:
+            with self._lock:
+                self._drain_running = False
+                if (
+                    not self._stop
+                    and not self._drain_failed
+                    and (
+                        self._active
+                        or self._pending_terminal
+                        or any(task.state == "pending" for task in self._read())
+                    )
+                ):
+                    self.wake()
+
+    def _run_dispatched(self, dispatch_generation: int) -> None:
+        self._execution.dispatched = True
+        try:
+            # Keep wake()/run_one() monkeypatch compatibility for host tests
+            # and integrations while the scheduler owns only the slot count.
+            self.run_one()
+        except Exception:
+            with self._lock:
+                # A wake requested while this worker was failing is an
+                # explicit retry intent; do not discard it with this failure.
+                self._drain_failed = self._wake_generation <= dispatch_generation
+            LOGGER.exception("LunaTV queue worker failed")
+        finally:
+            with self._lock:
+                if getattr(self._execution, "dispatched", False):
+                    self._dispatching -= 1
+                    self._execution.dispatched = False
+                self._drain_wakeup.set()
+
+    def stop(self, wait: bool = False, timeout: Optional[float] = None) -> bool:
+        with self._lock:
+            self._stop = True
+            for control in self._active.values():
+                if not control.action:
+                    control.action = "pause"
+                control.event.set()
+            self._drain_wakeup.set()
+        return self.wait_until_idle(timeout) if wait else True
+
+    def wait_until_idle(self, timeout: Optional[float] = None) -> bool:
+        """Wait for active workers and the scheduler to exit without polling callers."""
+        deadline = None if timeout is None else time.monotonic() + max(0.0, timeout)
+        while True:
+            with self._lock:
+                if (
+                    not self._active
+                    and not self._pending_terminal
+                    and not self._dispatching
+                    and not self._drain_running
+                ):
+                    return True
+            if deadline is not None and time.monotonic() >= deadline:
+                return False
+            self._drain_wakeup.wait(timeout=0.02)
+            self._drain_wakeup.clear()
+
+    def stop_and_wait(self, timeout: float = 5.0) -> bool:
+        """Compatibility-friendly bounded shutdown for plugin hot reload."""
+        stopped = self.stop(wait=True, timeout=timeout)
+        if stopped:
+            return True
+        with self._lock:
+            self._stop = False
+            self._drain_failed = False
+            self._drain_wakeup.set()
+        self.wake()
+        return False
+
+    def _execute(self, task: DownloadTask) -> str:
+        relative_dir, filename = media_path(
+            task.root, task.title, task.year, task.media_type, task.season,
+            task.episode, task.url, task.mode,
+        )
+        root = Path(task.root).expanduser().resolve()
+        destination = (root / relative_dir / filename).resolve()
+        if root not in destination.parents:
+            raise ValueError("目标路径越界")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists() and destination.stat().st_size > 0:
+            self._cleanup_m3u8_cache(task, destination.parent)
+            return str(destination)
+        if task.mode == "strm":
+            temp_path = destination.with_suffix(destination.suffix + ".part")
+            try:
+                temp_path.write_text(task.url + "\n", encoding="utf-8")
+                os.replace(temp_path, destination)
+            except Exception:
+                temp_path.unlink(missing_ok=True)
+                raise
+            self._cleanup_m3u8_cache(task, destination.parent)
+            return str(destination)
+        temp_path = destination.with_suffix(destination.suffix + ".part")
+        try:
+            if not self._run_m3u8_engines(task, temp_path):
+                raise RuntimeError("N_m3u8DL-RE 不可用或下载失败")
+        except Exception:
+            # Never invoke a plugin fallback. Keep engine cache for retry.
+            temp_path.unlink(missing_ok=True)
+            self._remove_empty_parents(destination.parent, root)
+            raise
+        if not temp_path.exists() or temp_path.stat().st_size <= 0:
+            temp_path.unlink(missing_ok=True)
+            self._remove_empty_parents(destination.parent, root)
+            raise IOError("N_m3u8DL-RE 未生成有效文件")
+        os.replace(temp_path, destination)
+        self._cleanup_m3u8_cache(task, destination.parent)
+        return str(destination)
+
+    def _run_m3u8_engines(self, task: DownloadTask, output: Path) -> bool:
+        if self._control_event.is_set():
+            raise _QueueControl("controlled")
+        if not self._m3u8_engines:
+            return False
+        with tempfile.TemporaryDirectory(prefix="lunatv-hls-") as temp_dir, _SegmentProxy() as proxy:
+            input_url = self._prepare_hls_input(task.url, Path(temp_dir), proxy.url_for)
+            segments = self._playlist_segment_count(Path(input_url))
+            engine = self._m3u8_engines[0]
+            kwargs = dict(
+                task_id=task.task_id,
+                ffmpeg_path=task.ffmpeg_path,
+                control_event=self._control_event,
+                progress_callback=lambda progress: self._update_progress(task.task_id, progress),
+                expected_segments=segments,
+            )
+            try:
+                engine.download(input_url, output, thread_count=self.segment_thread_count, **kwargs)
+            except TypeError as exc:
+                if "thread_count" not in str(exc):
+                    raise
+                engine.download(input_url, output, **kwargs)
+            except M3U8EngineCancelled:
+                raise _QueueControl("controlled")
+            except (M3U8EngineError, OSError) as exc:
+                if self._control_event.is_set():
+                    raise _QueueControl("controlled") from exc
+                LOGGER.warning("LunaTV N_m3u8DL-RE failed for %s: %s", task.task_id, exc)
+                return False
+        return True
+
+    def task_cache_size(self, task_id: str) -> int:
+        """Return bytes in the controlled cache/stage tree for one task only."""
+        if not task_id or self._data_path is None or not self._m3u8_engines:
+            return 0
+        try:
+            cache_base_path = self._data_path / "m3u8-cache"
+            task_root_path = self._m3u8_engines[0]._cache_root(task_id)
+            cache_base_path.lstat()
+            task_root_path.lstat()
+            if cache_base_path.is_symlink() or task_root_path.is_symlink() or not task_root_path.is_dir():
+                return 0
+            cache_base = cache_base_path.resolve(strict=True)
+            task_root = task_root_path.resolve(strict=True)
+            task_root.relative_to(cache_base)
+            if task_root == cache_base:
+                return 0
+        except (AttributeError, OSError, ValueError):
+            return 0
+        total = 0
+        for current, dirs, files in os.walk(task_root, followlinks=False):
+            current_path = Path(current)
+            dirs[:] = [name for name in dirs if not (current_path / name).is_symlink()]
+            for name in files:
+                path = current_path / name
+                try:
+                    info = path.lstat()
+                except OSError:
+                    continue
+                if stat.S_ISREG(info.st_mode) and info.st_nlink == 1:
+                    total += info.st_size
+        return total

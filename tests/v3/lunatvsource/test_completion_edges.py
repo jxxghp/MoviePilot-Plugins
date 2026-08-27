@@ -30,6 +30,7 @@ def _plugin(config=None):
     plugin.init_plugin(config)
     return plugin
 
+
 def test_api_search_collapses_tv_episode_rows_into_season_result(monkeypatch):
     source = CmsSource("demo", "演示源", "https://cms.example/vod")
     rows = [
@@ -86,7 +87,7 @@ def test_record_completion_respects_disabled_moviepilot_organize(monkeypatch):
     assert calls == [("history", "/downloads/movie.mp4"), "sync"]
 
 
-def test_queue_stays_serial_during_completion_callback(tmp_path: Path):
+def test_queue_holds_slot_during_completion_callback(tmp_path: Path):
     data = {}
     callback_entered = threading.Event()
     release_callback = threading.Event()
@@ -128,7 +129,7 @@ def test_queue_stays_serial_during_completion_callback(tmp_path: Path):
 
     assert callback_entered.wait(timeout=2)
     overlapping_result = queue.run_one()
-    assert overlapping_result == {"processed": 0, "stopped": True}
+    assert overlapping_result == {"processed": 0}
 
     release_callback.set()
     first_thread.join(timeout=2)

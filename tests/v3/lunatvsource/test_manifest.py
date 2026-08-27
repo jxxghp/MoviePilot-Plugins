@@ -41,17 +41,34 @@ def test_version_consistency_across_manifest_backend_and_frontend():
         ).read_text(encoding="utf-8")
     )
 
-    assert manifest["version"] == "0.4.47"
+    assert manifest["version"] == "0.4.53"
     assert {
         manifest["version"],
         LunaTVSource.plugin_version,
         package["version"],
         lockfile["version"],
         lockfile["packages"][""]["version"],
-    } == {"0.4.47"}
+    } == {"0.4.53"}
 
     history = manifest["history"]
-    assert next(iter(history)) == "0.4.47"
+    assert next(iter(history)) == "0.4.53"
+    assert history["0.4.53"] == (
+        "插件工作台跟随 MoviePilot/Vuetify 的主题色、深浅色与透明效果，移除 1200px 固定宽度以修复"
+        "宽屏弹窗两侧漏白；构建时过滤共享 Vuetify 基础样式，避免覆盖宿主主题。"
+    )
+    assert history["0.4.50"] == (
+        "LunaTV 下载队列接入 MoviePilot 原生下载管理，支持进度展示及暂停、继续、删除；"
+        "客户端仅在内存中注册且按下载器隔离，未显式配置目录时复用 MoviePilot 本地下载目录。"
+    )
+    assert history["0.4.49"] == (
+        "电视剧原生资源按标准作品、年份和季聚合，同季来源保持清晰度降序并保留整季下载身份；"
+        "插件工作台仅保留状态与配置，不再提供独立搜索旁路；清晰度探测兼容中文 URL 和无扩展名分片。"
+    )
+    assert history["0.4.48"] == (
+        "修复 LunaTV 资源下载被 MoviePilot 目录白名单提前拦截，现由插件在校验前接管并进入"
+        "串行队列；N_m3u8DL-RE 解析 ffmpeg 绝对路径，稳定启用 16 线程下载；受管引擎包"
+        "遇临时连接错误有限重试，HTTP 确定性错误不重试。"
+    )
     assert history["0.4.47"] == (
         "电视剧搜索结果统一使用同一次匹配得到的标准作品标题与年份，使同一作品同一季的"
         "不同来源与不同分辨率归入同一 MoviePilot 资源卡；仍按分辨率从高到低排序，最高分辨率"
@@ -101,6 +118,28 @@ def test_app_page_shows_loading_state_before_empty_sources():
     assert loading_state in app_page
     assert empty_state in app_page
     assert app_page.index(loading_state) < app_page.index(empty_state)
+
+
+def test_app_page_follows_moviepilot_theme_and_fills_plugin_dialog():
+    project_root = Path(__file__).resolve().parents[3]
+    app_page = (
+        project_root / "plugins.v3" / "lunatvsource" / "src" / "components" / "AppPage.vue"
+    ).read_text(encoding="utf-8")
+    vite_config = (
+        project_root / "plugins.v3" / "lunatvsource" / "vite.config.js"
+    ).read_text(encoding="utf-8")
+
+    assert "width: 100%" in app_page
+    assert "max-width: none" in app_page
+    assert "rgb(var(--v-theme-background" in app_page
+    assert "rgb(var(--v-theme-primary" in app_page
+    assert "#101018" not in app_page
+    assert "postcssPlugin: 'vuetify-filter'" in vite_config
+    assert not list(
+        (project_root / "plugins.v3" / "lunatvsource" / "dist" / "assets").glob(
+            "__federation_shared_vuetify/styles-*.css"
+        )
+    )
 
 
 def test_config_exposes_and_preserves_single_download_directory():

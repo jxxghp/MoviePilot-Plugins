@@ -48,23 +48,3 @@ def test_search_can_stop_after_first_source_with_results():
         "示例电影", stop_after_first_source=True
     )] == ["first"]
     assert set(called) == {"first"}
-
-
-def test_ffmpeg_explicitly_sets_mp4_muxer_for_part_file(monkeypatch, tmp_path: Path):
-    captured = {}
-
-    def fake_run(command, **kwargs):
-        captured["command"] = command
-        return type("Completed", (), {"returncode": 0, "stderr": "", "stdout": ""})()
-
-    monkeypatch.setattr(downloader_module.subprocess, "run", fake_run)
-    monkeypatch.setattr(
-        DownloadQueue,
-        "_prepare_hls_input",
-        staticmethod(lambda url, _temp_dir, *_args: url),
-    )
-    DownloadQueue._run_ffmpeg(
-        "ffmpeg", "https://example.test/video.m3u8", tmp_path / "movie.mp4.part"
-    )
-    command = captured["command"]
-    assert command[command.index("-f") + 1] == "mp4"
