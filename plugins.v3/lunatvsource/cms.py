@@ -291,7 +291,20 @@ def _fetch_public_url(
         else:
             connection = http.client.HTTPConnection(address, port, timeout=request_timeout)
         path = urllib.parse.urlunparse(
-            ("", "", parsed.path or "/", parsed.params, parsed.query, "")
+            (
+                "",
+                "",
+                urllib.parse.quote(
+                    parsed.path or "/",
+                    safe="/%:@!$&'()*+,;=-._~",
+                ),
+                urllib.parse.quote(parsed.params, safe="%:@!$&'()*+,;=-._~"),
+                urllib.parse.quote(
+                    parsed.query,
+                    safe="%=&/:?+;,@!$'()*-._~",
+                ),
+                "",
+            )
         )
         try:
             connection.request(
@@ -354,6 +367,16 @@ def _playlist_followup_urls(playlist: str, base_url: str) -> Tuple[List[str], bo
     return list(dict.fromkeys(url for url in urls if url)), False
 
 
+def _probe_sample_suffix(url: str) -> str:
+    """Return a safe temporary suffix from the final URL filename only."""
+
+    filename = urllib.parse.urlparse(str(url or "")).path.rsplit("/", 1)[-1]
+    _, separator, extension = filename.rpartition(".")
+    if not separator or not re.fullmatch(r"[A-Za-z0-9]{1,16}", extension):
+        return ".bin"
+    return f".{extension.lower()}"
+
+
 def _probe_media_sample(
     url: str,
     timeout: float,
@@ -368,8 +391,7 @@ def _probe_media_sample(
     )
     playlist = payload.decode("utf-8", errors="replace")
     if "#EXTM3U" not in playlist:
-        suffix = urllib.parse.urlparse(final_url).path.rpartition(".")[2]
-        return 0, payload, f".{suffix}" if suffix else ".bin"
+        return 0, payload, _probe_sample_suffix(final_url)
 
     height = _master_playlist_height(playlist)
     if height:
@@ -397,9 +419,7 @@ def _probe_media_sample(
             allowed_private_ranges,
         )
         chunks.append(chunk)
-        extension = urllib.parse.urlparse(final_media_url).path.rpartition(".")[2]
-        if extension:
-            suffix = f".{extension}"
+        suffix = _probe_sample_suffix(final_media_url)
     return 0, b"".join(chunks), suffix
 
 

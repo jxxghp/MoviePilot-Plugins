@@ -458,14 +458,14 @@ def test_native_resource_search_returns_marked_download_items(monkeypatch):
     monkeypatch.setattr(plugin, "_associate_tmdb", associate)
     items = plugin.search_torrents(site={"id": 1}, keyword="示例剧", page=0)
     assert len(items) == 1
-    assert items[0].site_name == "演示源"
-    assert items[0].to_dict()["site_name"] == "演示源"
+    assert items[0].site_name == "演示源 · 未知"
+    assert items[0].to_dict()["site_name"] == "演示源 · 未知"
     assert items[0].media_source == "themoviedb"
     assert items[0].media_id == "123"
-    assert items[0].title.endswith("第1季 · 未知")
+    assert items[0].title.endswith("第1季")
     assert "集" not in items[0].title
-    assert items[0].description == "LunaTV · 第1季 · 未知 · m3u8 · 共1集"
-    assert "未知" not in items[0].labels
+    assert items[0].description == "LunaTV · 第1季 · m3u8 · 共1集"
+    assert "未知" in items[0].labels
     payload = plugin._decode_resource_token(items[0].enclosure)
     assert payload["url"].endswith("01.m3u8")
     assert len(payload["episodes"]) == 1
@@ -565,15 +565,15 @@ def test_resource_torrents_targets_tv_identity_with_traditional_anilist_title(mo
     )
     assert len(tv_items) == 1
     tv_payload = plugin._decode_resource_token(tv_items[0].enclosure)
-    assert tv_items[0].title == "進擊的巨人 (2013) · 第1季 · 未知"
+    assert tv_items[0].title == "進擊的巨人 (2013) · 第1季"
     assert tv_items[0].media_source == "anilist"
     assert tv_items[0].media_id == "anilist:anime_123"
-    assert tv_payload["title"] == "进击的巨人"
+    assert tv_payload["title"] == "進擊的巨人"
     assert tv_payload["media_id"] == "demo:tv"
     assert tv_payload["source_key"] == "demo"
     assert tv_payload["source_name"] == "演示源"
-    assert tv_payload["host_media_source"] == "themoviedb"
-    assert tv_payload["host_media_id"] == "tt123456"
+    assert tv_payload["host_media_source"] == "anilist"
+    assert tv_payload["host_media_id"] == "anilist:anime_123"
     assert [episode["url"] for episode in tv_payload["episodes"]] == [
         "https://example.test/s01e01.m3u8",
         "https://example.test/s01e02.m3u8",
@@ -671,14 +671,14 @@ def test_resource_torrents_groups_by_source_and_season(monkeypatch):
     items = plugin.search_torrents(site={"id": 1}, keyword="示例剧", page=0, mtype="tv")
     assert len(items) == 2
     payloads = [plugin._decode_resource_token(item.enclosure) for item in items]
-    assert [item.site_name for item in items] == ["源A", "源B"]
+    assert [item.site_name for item in items] == ["源A · 未知", "源B · 未知"]
     assert [len(payload["episodes"]) for payload in payloads] == [2, 1]
     assert [
         [episode["url"] for episode in payload["episodes"]]
         for payload in payloads
     ] == [["https://example.test/01.m3u8", "https://example.test/02.m3u8"],
           ["https://example.test/01.m3u8"]]
-    assert all("· 第1季 · " in item.title and "集" not in item.title for item in items)
+    assert all(item.title.endswith("· 第1季") and "集" not in item.title for item in items)
     assert calls == [{
         "limit": 50,
         "source_limit": 3,
@@ -728,7 +728,7 @@ def test_resource_torrents_collapses_episode_named_cms_rows_into_one_season(monk
 
     items = plugin.search_torrents(site={"id": 1}, keyword="小猪佩奇", page=0, mtype="tv")
     assert len(items) == 1
-    assert items[0].title == "小猪佩奇 · 第1季 · 未知"
+    assert items[0].title == "小猪佩奇 · 第1季"
     payload = plugin._decode_resource_token(items[0].enclosure)
     assert [episode["episode"] for episode in payload["episodes"]] == [1, 2]
 
@@ -1176,7 +1176,7 @@ def test_resource_torrents_tv_sources_share_matched_identity_card_and_rank_resol
     assert [
         item.title.rsplit(" · ", 1)[0]
         for item in items
-    ] == ["侠探杰克 (2022) · 第4季"] * 3
+    ] == ["侠探杰克 (2022)"] * 3
     assert [
         plugin._decode_resource_token(item.enclosure)["resolution"]
         for item in items
@@ -1241,12 +1241,12 @@ def test_resource_torrents_choose_highest_url_for_conflicting_episode(monkeypatc
     item = plugin._resource_torrents("示例剧")[0]
     payload = plugin._decode_resource_token(item.enclosure)
 
-    assert item.site_name == "演示源 · 86ms"
-    assert item.title == "示例剧 · 第1季 · 1080P"
+    assert item.site_name == "演示源 · 1080P · 86ms"
+    assert item.title == "示例剧 · 第1季"
     assert payload["resolution_height"] == 1080
     assert item.pri_order == 108
-    assert payload["resolution"] in item.description
-    assert payload["resolution"] not in item.labels
+    assert payload["resolution"] not in item.description
+    assert payload["resolution"] in item.labels
     assert "86ms" in item.labels
     assert item.uploadvolumefactor == 1.0
     assert item.downloadvolumefactor == 1.0
@@ -1309,7 +1309,7 @@ def test_resource_torrents_marks_sample_unknown_when_probe_fails(monkeypatch):
     assert payload["resolution"] == "未知"
     assert payload["resolution_height"] == 0
     assert item.pri_order == 0
-    assert "未知" in item.title
+    assert "未知" in item.site_name
     assert "全2集实测" not in item.description
     assert "已测" not in item.description
     assert payload["resolution_scope"] == "sample"
@@ -1474,7 +1474,7 @@ def test_resource_torrents_probes_all_conflicts_and_large_seasons(monkeypatch):
     assert payload["resolution"] == "1080P"
     assert payload["resolution_height"] == 1080
     assert item.pri_order == 108
-    assert "1080P" in item.title
+    assert "1080P" in item.site_name
     assert "全52集实测" not in item.description
     assert "已测" not in item.description
     assert payload["resolution_scope"] == "sample"

@@ -154,6 +154,83 @@ def test_public_fetch_pins_dns_and_rejects_private_redirect(monkeypatch):
     ]
 
 
+def test_public_fetch_percent_encodes_non_ascii_request_target(monkeypatch):
+    requests = []
+
+    class Response:
+        status = 200
+
+        @staticmethod
+        def read(_limit):
+            return b"#EXTM3U\n"
+
+    class Connection:
+        def __init__(self, address, port, timeout):
+            requests.append({"address": address, "port": port, "timeout": timeout})
+
+        def request(self, method, path, headers):
+            requests[-1].update({"method": method, "path": path, "headers": headers})
+
+        @staticmethod
+        def getresponse():
+            return Response()
+
+        @staticmethod
+        def close():
+            return None
+
+    monkeypatch.setattr(
+        cms_module.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 80)),
+        ],
+    )
+    monkeypatch.setattr(cms_module.http.client, "HTTPConnection", Connection)
+
+    payload, final_url = _fetch_public_url(
+        "http://video.example/第1集/播放.m3u8?token=值&part=1%2F2",
+        3.0,
+        1024,
+    )
+
+    assert payload == b"#EXTM3U\n"
+    assert final_url == "http://video.example/第1集/播放.m3u8?token=值&part=1%2F2"
+    assert requests[0]["path"] == (
+        "/%E7%AC%AC1%E9%9B%86/%E6%92%AD%E6%94%BE.m3u8"
+        "?token=%E5%80%BC&part=1%2F2"
+    )
+
+
+def test_probe_media_sample_uses_safe_suffix_for_dotted_parent_path(monkeypatch):
+    responses = iter(
+        [
+            (
+                b"#EXTM3U\n#EXTINF:6,\nsegment\n",
+                "https://video.example/index.m3u8",
+            ),
+            (
+                b"segment-bytes",
+                "https://cdn.example/index.m3u8/play/b2kWxqvd",
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        cms_module,
+        "_fetch_public_url",
+        lambda *_args, **_kwargs: next(responses),
+    )
+
+    height, sample, suffix = cms_module._probe_media_sample(
+        "https://video.example/index.m3u8",
+        3.0,
+    )
+
+    assert height == 0
+    assert sample == b"segment-bytes"
+    assert suffix == ".bin"
+
+
 def test_probe_stream_height_reads_master_playlist_resolution(monkeypatch):
     monkeypatch.setattr("app.plugins.lunatvsource.cms._is_public_probe_url", lambda *_args: True)
     monkeypatch.setattr(

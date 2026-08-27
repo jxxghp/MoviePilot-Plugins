@@ -556,7 +556,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "https://raw.githubusercontent.com/OneBigMoon/moviepilot-v3-lunatv-source/master/icons/lunatvsource.png"
-    plugin_version = "0.4.48"
+    plugin_version = "0.4.49"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -3020,11 +3020,13 @@ class LunaTVSource(_PluginBase):
             identity: str,
             host_media_source: str,
             host_media_id: str,
+            canonical_title: str,
+            canonical_year: str,
         ) -> Dict[str, Any]:
             return {
                 "url": episode.url,
-                "title": normalize_media_title(result.title),
-                "year": result.year,
+                "title": canonical_title,
+                "year": canonical_year,
                 "media_type": result.media_type,
                 "season": int(episode.season or 1),
                 "episode": int(episode.episode or 1),
@@ -3064,7 +3066,13 @@ class LunaTVSource(_PluginBase):
                 if not episode.url:
                     continue
                 payload = episode_payload(
-                    result, episode, identity, host_media_source, host_media_id
+                    result,
+                    episode,
+                    identity,
+                    host_media_source,
+                    host_media_id,
+                    group_title,
+                    group_year,
                 )
                 if result.media_type == "tv" and not episode.season_known:
                     continue
@@ -3230,11 +3238,16 @@ class LunaTVSource(_PluginBase):
                     title = f"{title} ({group['year']})"
             elif group["year"]:
                 title = f"{title} ({group['year']})"
-            title = f"{title} · 第{season}季 · {quality}"
+            # MoviePilot derives the native-card key from title/meta fields.
+            # Do not put the actual resolution in TV title/description, or a
+            # 1080P and 720P line becomes separate cards. The selectable line
+            # still carries its true quality in site_name/labels and keeps its
+            # independent enclosure for whole-season download.
+            title = f"{title} · 第{season}季"
             first_height = int(first.get("resolution_height") or 0)
             latency_ms = self._probe_latency_ms(first["url"]) if first_height > 0 else 0
-            site_name = group["site_name"]
-            labels = ["LunaTV", "m3u8", f"第{season}季"]
+            site_name = f"{group['site_name']} · {quality}"
+            labels = ["LunaTV", "m3u8", f"第{season}季", quality]
             if latency_ms:
                 site_name = f"{site_name} · {latency_ms}ms"
                 labels.append(f"{latency_ms}ms")
@@ -3243,11 +3256,28 @@ class LunaTVSource(_PluginBase):
             if payload["media_type"] == "tv" and use_target_tv_identity:
                 info_media_source = target_media_source_value
                 info_media_id = target_media_id_value
+            canonical_title = str(group["title"] or payload.get("title") or "")
+            canonical_year = str(group["year"] or payload.get("year") or "")
+            # The token feeds the later LunaTV queue, while the TorrentInfo
+            # feeds MoviePilot's card grouping. Keep both identities exactly
+            # aligned, including every episode in a season token.
+            for episode_payload in group_episodes:
+                episode_payload["title"] = canonical_title
+                episode_payload["year"] = canonical_year
+                episode_payload["host_media_source"] = info_media_source
+                episode_payload["host_media_id"] = info_media_id
+            payload["title"] = canonical_title
+            payload["year"] = canonical_year
+            payload["host_media_source"] = info_media_source
+            payload["host_media_id"] = info_media_id
+            payload["latency_ms"] = latency_ms
+            payload["page_url"] = group["page_url"]
+            payload["episode_count"] = count
             item = build_torrent(
                 site_name=site_name,
                 title=title,
                 description=(
-                    f"LunaTV · 第{season}季 · {quality} · m3u8 · 共{count}集"
+                    f"LunaTV · 第{season}季 · m3u8 · 共{count}集"
                 ),
                 media_source=info_media_source,
                 media_id=info_media_id,
@@ -3279,6 +3309,9 @@ class LunaTVSource(_PluginBase):
                 title = f"{title} S{int(payload['season']):02d}E{int(payload['episode']):02d}"
             title = f"{title} · {quality}"
             latency_ms = self._probe_latency_ms(row["probe_url"]) if height > 0 else 0
+            payload["latency_ms"] = latency_ms
+            payload["page_url"] = row["page_url"]
+            payload["episode_count"] = 1
             site_name = row["site_name"]
             labels = ["LunaTV", "m3u8"]
             if latency_ms:

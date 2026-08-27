@@ -134,8 +134,8 @@ def test_search_tv_resources_are_season_cards_and_download_runs_episodes_seriall
     )
 
     assert [item.title for item in resources] == [
-        "示例剧 · 第1季 · 1080P",
-        "示例剧 · 第1季 · 480P",
+        "示例剧 · 第1季",
+        "示例剧 · 第1季",
     ]
     assert all("集" not in item.title for item in resources)
     assert [item.pri_order for item in resources] == [108, 48]
@@ -216,8 +216,8 @@ def test_long_season_cards_probe_one_episode_and_keep_full_hd_download(
 
     assert [item.pri_order for item in resources] == [108, 108]
     assert [item.title for item in resources] == [
-        "长季剧 · 第1季 · 1080P",
-        "长季剧 · 第1季 · 1080P",
+        "长季剧 · 第1季",
+        "长季剧 · 第1季",
     ]
     assert all("抽样" not in item.description for item in resources)
     assert all("全6集实测" not in item.description for item in resources)
