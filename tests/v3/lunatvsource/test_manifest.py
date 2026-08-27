@@ -41,17 +41,21 @@ def test_version_consistency_across_manifest_backend_and_frontend():
         ).read_text(encoding="utf-8")
     )
 
-    assert manifest["version"] == "0.4.49"
+    assert manifest["version"] == "0.4.50"
     assert {
         manifest["version"],
         LunaTVSource.plugin_version,
         package["version"],
         lockfile["version"],
         lockfile["packages"][""]["version"],
-    } == {"0.4.49"}
+    } == {"0.4.50"}
 
     history = manifest["history"]
-    assert next(iter(history)) == "0.4.49"
+    assert next(iter(history)) == "0.4.50"
+    assert history["0.4.50"] == (
+        "LunaTV 下载队列接入 MoviePilot 原生下载管理，支持进度展示及暂停、继续、删除；"
+        "客户端仅在内存中注册且按下载器隔离，未显式配置目录时复用 MoviePilot 本地下载目录。"
+    )
     assert history["0.4.49"] == (
         "电视剧原生资源按标准作品、年份和季聚合，同季来源保持清晰度降序并保留整季下载身份；"
         "插件工作台仅保留状态与配置，不再提供独立搜索旁路；清晰度探测兼容中文 URL 和无扩展名分片。"

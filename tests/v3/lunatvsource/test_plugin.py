@@ -1625,6 +1625,88 @@ def test_resource_search_does_not_hold_cache_lock_during_network_request(monkeyp
     assert lock_available == [True]
 
 
+def _install_download_endpoint_module(monkeypatch, configured_system_config):
+    app_module = ModuleType("app")
+    app_module.__path__ = []
+    api_module = ModuleType("app.api")
+    api_module.__path__ = []
+    endpoints_module = ModuleType("app.api.endpoints")
+    endpoints_module.__path__ = []
+    download_module = ModuleType("app.api.endpoints.download")
+
+    def get_configured_system_config():
+        return configured_system_config
+
+    download_module.get_configured_system_config = get_configured_system_config
+    app_module.api = api_module
+    api_module.endpoints = endpoints_module
+    endpoints_module.download = download_module
+    monkeypatch.setitem(sys.modules, "app", app_module)
+    monkeypatch.setitem(sys.modules, "app.api", api_module)
+    monkeypatch.setitem(sys.modules, "app.api.endpoints", endpoints_module)
+    monkeypatch.setitem(sys.modules, "app.api.endpoints.download", download_module)
+    return download_module, get_configured_system_config
+
+
+def test_download_clients_bridge_augments_only_downloaders_and_restores(monkeypatch):
+    class Config:
+        marker = object()
+
+        def __init__(self):
+            self.values = {
+                "Downloaders": [
+                    {"name": "qBittorrent", "type": "qbittorrent", "enabled": True},
+                    {"name": "LunaTVSource", "type": "legacy", "enabled": False},
+                ],
+                "Other": "unchanged",
+            }
+
+        def get(self, key, default=None):
+            return self.values.get(key, default)
+
+    plugin_module._DOWNLOAD_CLIENTS_BRIDGE.update(
+        {"owner": None, "module": None, "original": None, "wrapper": None}
+    )
+    config = Config()
+    download_module, original = _install_download_endpoint_module(monkeypatch, config)
+    plugin = _plugin({"enabled": True})
+    wrapper = download_module.get_configured_system_config
+    proxied = wrapper()
+    clients = proxied.get("Downloaders")
+    assert [client["name"] for client in clients].count("LunaTVSource") == 1
+    luna_client = next(client for client in clients if client["name"] == "LunaTVSource")
+    assert luna_client == {"name": "LunaTVSource", "type": "plugin", "enabled": True}
+    assert [client["name"] for client in clients if client.get("enabled")] == [
+        "qBittorrent",
+        "LunaTVSource",
+    ]
+    assert proxied.get("Other") == "unchanged"
+    assert proxied.get("Missing", "fallback") == "fallback"
+    assert proxied.marker is config.marker
+
+    config.values["Downloaders"] = "malformed"
+    assert proxied.get("Downloaders") == [
+        {"name": "LunaTVSource", "type": "plugin", "enabled": True}
+    ]
+
+    replacement = _plugin({"enabled": True})
+    assert download_module.get_configured_system_config is wrapper
+    plugin.stop_service()
+    assert download_module.get_configured_system_config is wrapper
+
+    plugin_module._DOWNLOAD_CLIENTS_BRIDGE.update(
+        {"owner": None, "module": None, "original": None, "wrapper": None}
+    )
+    reloaded = _plugin({"enabled": True})
+    reloaded_wrapper = download_module.get_configured_system_config
+    assert reloaded_wrapper is not wrapper
+    assert reloaded_wrapper._lunatv_download_clients_original is original
+    replacement.stop_service()
+    assert download_module.get_configured_system_config is reloaded_wrapper
+    reloaded.init_plugin({"enabled": False})
+    assert download_module.get_configured_system_config is original
+
+
 def test_plugin_search_bridge_augments_native_search_and_restores(monkeypatch):
     class SearchChain:
         def __search_all_sites(self, **kwargs):
@@ -1737,6 +1819,26 @@ def test_native_download_is_enqueued_into_serial_queue(tmp_path: Path):
     assert tasks[0]["media_id"] == "demo:42"
     assert tasks[0]["host_media_source"] == "themoviedb"
     assert tasks[0]["host_media_id"] == "123"
+
+
+def test_native_download_defers_other_system_downloaders(tmp_path: Path):
+    plugin = _plugin({"enabled": True})
+    token = plugin._resource_token(
+        {
+            "url": "https://example.test/movie.m3u8",
+            "title": "示例电影",
+            "media_type": "movie",
+            "season": 1,
+            "episode": 1,
+            "media_id": "demo:42",
+        }
+    )
+
+    assert plugin.download(token, tmp_path, downloader="qBittorrent") is None
+    assert plugin._queue.list_tasks() == []
+    assert plugin.start_torrents(["unknown"], downloader="qBittorrent") is None
+    assert plugin.stop_torrents(["unknown"], downloader="qBittorrent") is None
+    assert plugin.remove_torrents(["unknown"], downloader="qBittorrent") is None
 
 
 def test_native_download_prefers_configured_download_root(tmp_path: Path):
@@ -1919,21 +2021,13 @@ def test_active_queue_tasks_project_to_native_download_list_and_filter(monkeypat
     assert _field(pending_torrent.media, "media_source") == "themoviedb"
     assert _field(pending_torrent.media, "media_id") == "123"
 
-    assert sorted(torrent.hash for torrent in plugin.list_torrents(downloader="qBittorrent")) == [
-        "paused-task",
-        "pending-task",
-        "running-task",
-    ]
-    assert sorted(torrent.hash for torrent in plugin.list_torrents(downloader="下载器1")) == [
-        "paused-task",
-        "pending-task",
-        "running-task",
-    ]
-    assert sorted(torrent.hash for torrent in plugin.list_torrents(downloader="我的自定义客户端")) == [
-        "paused-task",
-        "pending-task",
-        "running-task",
-    ]
+    # 其他标签页不投影 LunaTV 任务，并把查询继续交给对应的系统下载器。
+    assert plugin.list_torrents(downloader="qBittorrent") is None
+    assert plugin.list_torrents(downloader="下载器1") is None
+    assert plugin.list_torrents(downloader="我的自定义客户端") is None
+    assert sorted(
+        torrent.hash for torrent in plugin.list_torrents(downloader=" lunatvsource ")
+    ) == ["paused-task", "pending-task", "running-task"]
     assert plugin.list_torrents(status="completed") == []
     assert plugin.list_torrents(status="transfer") == []
     assert [torrent.hash for torrent in plugin.list_torrents(
@@ -1942,7 +2036,7 @@ def test_active_queue_tasks_project_to_native_download_list_and_filter(monkeypat
     paused_torrents = plugin.list_torrents(status="paused")
     assert [torrent.hash for torrent in paused_torrents] == ["paused-task"]
     assert paused_torrents[0].state == "paused"
-    assert module["start_torrents"](["paused-task"], downloader="下载器1") is True
+    assert module["start_torrents"](["paused-task"], downloader="LunaTVSource") is True
     assert next(item for item in plugin._queue.list_tasks() if item["task_id"] == "paused-task")["state"] == "pending"
     assert next(
         torrent
@@ -1951,12 +2045,12 @@ def test_active_queue_tasks_project_to_native_download_list_and_filter(monkeypat
     ).state == "downloading"
 
     assert {"start_torrents", "stop_torrents", "remove_torrents"} <= module.keys()
-    assert module["stop_torrents"](["pending-task"], downloader="下载器1") is True
+    assert module["stop_torrents"](["pending-task"], downloader="LunaTVSource") is True
     assert next(item for item in plugin._queue.list_tasks() if item["task_id"] == "pending-task")["state"] == "paused"
-    assert module["start_torrents"](["pending-task"], downloader="下载器1") is True
+    assert module["start_torrents"](["pending-task"], downloader="LunaTVSource") is True
     assert next(item for item in plugin._queue.list_tasks() if item["task_id"] == "pending-task")["state"] == "pending"
     assert module["remove_torrents"](
-        ["pending-task"], delete_file=True, downloader="下载器1"
+        ["pending-task"], delete_file=True, downloader="LunaTVSource"
     ) is True
     assert all(item["task_id"] != "pending-task" for item in plugin._queue.list_tasks())
     assert module["stop_torrents"](["native-qbt-hash"], downloader="下载器1") is None
@@ -1987,7 +2081,7 @@ def test_native_resume_wakes_serial_queue(monkeypatch, tmp_path: Path):
 
     monkeypatch.setattr(plugin._queue, "wake", run_one)
 
-    assert plugin.start_torrents([task.task_id], downloader="下载器1") is True
+    assert plugin.start_torrents([task.task_id], downloader="LunaTVSource") is True
     assert started.wait(timeout=1)
     assert plugin._queue.list_tasks()[0]["state"] == "pending"
 
@@ -2125,6 +2219,60 @@ def test_resource_download_event_enqueues_before_host_directory_validation(
     assert tasks[0]["url"] == "https://example.test/event.m3u8"
     assert tasks[0]["root"] == str(tmp_path)
     assert wakeups == [True]
+
+
+def test_resource_download_event_uses_moviepilot_local_root(monkeypatch):
+    plugin = _plugin({"enabled": True})
+    monkeypatch.setattr(plugin, "_start_queue", lambda: None)
+    monkeypatch.setattr(
+        plugin,
+        "_system_directory_info",
+        lambda media_type: {
+            "download_path": "/media/incoming",
+            "media_type": media_type,
+        },
+    )
+    token = plugin._resource_token(
+        {
+            "url": "https://example.test/event-system-root.m3u8",
+            "title": "系统目录电影",
+            "media_type": "movie",
+            "season": 1,
+            "episode": 1,
+            "media_id": "demo:system-root",
+        }
+    )
+    event_data = SimpleNamespace(
+        context=SimpleNamespace(torrent_info=SimpleNamespace(enclosure=token)),
+        cancel=False,
+        source=None,
+        reason=None,
+    )
+
+    plugin._on_resource_download(SimpleNamespace(event_data=event_data))
+
+    assert event_data.cancel is True
+    assert event_data.source == "LunaTVSource"
+    assert plugin._queue.list_tasks()[0]["root"] == "/media/incoming"
+
+
+def test_resource_download_event_ignores_non_lunatv_resource():
+    plugin = _plugin({"enabled": True, "download_root": "/media/incoming"})
+    event_data = SimpleNamespace(
+        context=SimpleNamespace(
+            torrent_info=SimpleNamespace(enclosure="https://example.test/native.torrent")
+        ),
+        cancel=False,
+        source="native",
+        reason="unchanged",
+    )
+
+    plugin._on_resource_download(SimpleNamespace(event_data=event_data))
+
+    assert event_data.cancel is False
+    assert event_data.source == "native"
+    assert event_data.reason == "unchanged"
+    assert plugin._queue.list_tasks() == []
 
 
 def test_resource_download_event_without_plugin_root_keeps_host_chain():
@@ -3127,8 +3275,15 @@ def test_resource_torrents_mark_lunatv_movie_and_season_dialog_contract(monkeypa
         def search(self, *_args, **_kwargs):
             return [movie, show]
 
-    plugin = _plugin()
-    plugin.init_plugin({"enabled": True, "download_root": " /media/incoming "})
+    plugin = _plugin({"enabled": True})
+    monkeypatch.setattr(
+        plugin,
+        "_system_directory_info",
+        lambda media_type: {
+            "download_path": "/media/incoming",
+            "media_type": media_type,
+        },
+    )
     monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
     monkeypatch.setattr(plugin, "_associate_tmdb", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(plugin, "_client", lambda: Client())

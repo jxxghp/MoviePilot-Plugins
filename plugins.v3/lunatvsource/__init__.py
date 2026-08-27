@@ -164,6 +164,12 @@ _SEARCH_BRIDGE: Dict[str, Any] = {
     "originals": {},
     "mode": None,
 }
+_DOWNLOAD_CLIENTS_BRIDGE: Dict[str, Any] = {
+    "owner": None,
+    "module": None,
+    "original": None,
+    "wrapper": None,
+}
 _SEARCH_PROGRESS_CALLBACK: ContextVar[Optional[Callable[..., None]]] = ContextVar(
     "lunatv_search_progress_callback",
     default=None,
@@ -181,6 +187,118 @@ class _CompatDownloaderTorrent:
 
     def dict(self, **_: Any) -> Dict[str, Any]:
         return self.model_dump()
+
+
+def _is_downloaders_config_key(key: Any) -> bool:
+    """兼容 SystemConfigKey 枚举和值字符串，避免绑定宿主的具体枚举实现。"""
+    return (
+        getattr(key, "name", None) == "Downloaders"
+        or _enum_value(key) == "downloaders"
+        or str(key).rsplit(".", 1)[-1] == "Downloaders"
+    )
+
+
+class _DownloadersConfigProxy:
+    """只为下载器读取投影插件客户端，其余配置保持由宿主对象负责。"""
+
+    def __init__(self, config: Any) -> None:
+        object.__setattr__(self, "_config", config)
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        value = self._config.get(key, default)
+        if not _is_downloaders_config_key(key):
+            return value
+        clients: List[Dict[str, Any]] = []
+        found = False
+        for client in value if isinstance(value, (list, tuple)) else []:
+            if not isinstance(client, dict):
+                continue
+            projected = dict(client)
+            if str(projected.get("name") or "").strip().casefold() == "lunatvsource":
+                # /download/clients 会再次过滤 enabled；同名旧配置不能遮蔽插件投影。
+                projected.update(
+                    {"name": "LunaTVSource", "type": "plugin", "enabled": True}
+                )
+                found = True
+            clients.append(projected)
+        if not found:
+            clients.append({"name": "LunaTVSource", "type": "plugin", "enabled": True})
+        return clients
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._config, name)
+
+    def __getitem__(self, key: Any) -> Any:
+        return self._config[key]
+
+
+def _install_download_clients_bridge(owner: "LunaTVSource") -> None:
+    """在内存中给下载页补充插件客户端，不写入 SystemConfig。"""
+    try:
+        from app.api.endpoints import download as download_endpoint
+    except Exception as exc:  # pragma: no cover - MoviePilot runtime only
+        owner._logger.warning("LunaTV 下载器兼容桥不可用：%s", exc)
+        return
+
+    current = getattr(download_endpoint, "get_configured_system_config", None)
+    bridge_module = _DOWNLOAD_CLIENTS_BRIDGE.get("module")
+    wrapper = _DOWNLOAD_CLIENTS_BRIDGE.get("wrapper")
+    if bridge_module is download_endpoint and wrapper is current:
+        _DOWNLOAD_CLIENTS_BRIDGE["owner"] = owner
+        return
+    if bridge_module is not None:
+        _restore_download_clients_bridge(owner, force=True)
+
+    current = getattr(download_endpoint, "get_configured_system_config", None)
+    original = current
+    seen: set[int] = set()
+    while getattr(original, "_lunatv_download_clients_bridge", False):
+        if id(original) in seen:
+            owner._logger.warning("LunaTV 下载器兼容桥不可用：检测到 wrapper 循环")
+            return
+        seen.add(id(original))
+        original = getattr(original, "_lunatv_download_clients_original", None)
+    if not callable(original):
+        owner._logger.warning("LunaTV 下载器兼容桥不可用：未找到宿主配置读取函数")
+        return
+
+    @wraps(original)
+    def config_wrapper(*args: Any, **kwargs: Any) -> Any:
+        # 下载页只经此函数读取 Downloaders；代理让插件显示为内存客户端，
+        # 避免把运行时兼容状态写回用户的 SystemConfig。
+        config = original(*args, **kwargs)
+        active_owner = _DOWNLOAD_CLIENTS_BRIDGE.get("owner")
+        if not active_owner or not getattr(active_owner, "_enabled", False):
+            return config
+        return _DownloadersConfigProxy(config)
+
+    setattr(config_wrapper, "_lunatv_download_clients_bridge", True)
+    setattr(config_wrapper, "_lunatv_download_clients_original", original)
+
+    setattr(download_endpoint, "get_configured_system_config", config_wrapper)
+    _DOWNLOAD_CLIENTS_BRIDGE.update(
+        {
+            "owner": owner,
+            "module": download_endpoint,
+            "original": original,
+            "wrapper": config_wrapper,
+        }
+    )
+    owner._logger.info("LunaTV 已启用下载器客户端兼容桥")
+
+
+def _restore_download_clients_bridge(owner: "LunaTVSource", force: bool = False) -> None:
+    """仅撤销仍由本插件持有的 wrapper，避免覆盖热更新后的宿主实现。"""
+    if not force and _DOWNLOAD_CLIENTS_BRIDGE.get("owner") is not owner:
+        return
+    module = _DOWNLOAD_CLIENTS_BRIDGE.get("module")
+    original = _DOWNLOAD_CLIENTS_BRIDGE.get("original")
+    wrapper = _DOWNLOAD_CLIENTS_BRIDGE.get("wrapper")
+    if module is not None and getattr(module, "get_configured_system_config", None) is wrapper:
+        setattr(module, "get_configured_system_config", original)
+    _DOWNLOAD_CLIENTS_BRIDGE.update(
+        {"owner": None, "module": None, "original": None, "wrapper": None}
+    )
 
 
 def _bridge_owner() -> Optional["LunaTVSource"]:
@@ -556,7 +674,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "https://raw.githubusercontent.com/OneBigMoon/moviepilot-v3-lunatv-source/master/icons/lunatvsource.png"
-    plugin_version = "0.4.49"
+    plugin_version = "0.4.50"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -622,10 +740,12 @@ class LunaTVSource(_PluginBase):
             self._resource_search_cache = {}
         if self._enabled:
             _install_search_bridge(self)
+            _install_download_clients_bridge(self)
         else:
             # A disabled replacement instance must also remove a bridge owned
             # by the previously loaded instance.
             _restore_search_bridge(self, force=True)
+            _restore_download_clients_bridge(self, force=True)
 
     def get_state(self) -> bool:
         return self._enabled
@@ -958,6 +1078,7 @@ class LunaTVSource(_PluginBase):
 
     def stop_service(self) -> None:
         _restore_search_bridge(self)
+        _restore_download_clients_bridge(self)
         if self._queue:
             self._queue.stop()
 
@@ -2451,9 +2572,10 @@ class LunaTVSource(_PluginBase):
         del include_all_tags
         if not self._enabled:
             return None
-        # MoviePilot 的原生下载页始终携带当前系统下载器名称；模块调度器会把
-        # 本列表与该系统下载器的结果继续合并，因此这里不能按名称排除插件任务。
-        del downloader
+        # 原生下载页按当前客户端名称分栏；LunaTV 任务只投影到自己的标签。
+        if not self._is_lunatv_downloader(downloader):
+            # None 让插件不参与该客户端投影，宿主仍会继续查询系统下载器。
+            return None
 
         if isinstance(hashs, str):
             requested_hashes = {hashs.strip()} if hashs.strip() else set()
@@ -2552,11 +2674,20 @@ class LunaTVSource(_PluginBase):
             )
         return all(bool(handler(task_id)) for task_id in requested)
 
+    @staticmethod
+    def _is_lunatv_downloader(downloader: Optional[str]) -> bool:
+        """未指定下载器时参与聚合；指定时只响应 LunaTV 标签页。"""
+        return downloader is None or str(downloader).strip().casefold() in {
+            "",
+            "lunatvsource",
+        }
+
     def start_torrents(
         self, hashs: Any, downloader: Optional[str] = None
     ) -> Optional[bool]:
         """Continue paused LunaTV tasks from MoviePilot's native download page."""
-        del downloader
+        if not self._is_lunatv_downloader(downloader):
+            return None
         resumed = self._control_queue_tasks(hashs, "resume")
         if resumed:
             self._start_queue()
@@ -2566,7 +2697,8 @@ class LunaTVSource(_PluginBase):
         self, hashs: Any, downloader: Optional[str] = None
     ) -> Optional[bool]:
         """Pause queued or running LunaTV tasks from the native download page."""
-        del downloader
+        if not self._is_lunatv_downloader(downloader):
+            return None
         return self._control_queue_tasks(hashs, "pause")
 
     def remove_torrents(
@@ -2576,7 +2708,8 @@ class LunaTVSource(_PluginBase):
         downloader: Optional[str] = None,
     ) -> Optional[bool]:
         """Remove LunaTV tasks locally and honor MoviePilot's delete-file choice."""
-        del downloader
+        if not self._is_lunatv_downloader(downloader):
+            return None
         return self._control_queue_tasks(hashs, "remove", delete_file=delete_file)
 
     def get_module(self) -> Dict[str, Any]:
@@ -2863,14 +2996,15 @@ class LunaTVSource(_PluginBase):
         )
         if torrent_info_type is None:
             return []
-        configured_root = str(self._config.get("download_root") or "").strip()
-
         def build_torrent(**kwargs: Any) -> Any:
             item = torrent_info_type(**kwargs)
             item.site_downloader = "LunaTVSource"
-            if configured_root:
+            root = self._effective_root(
+                media_type="tv" if str(kwargs.get("category") or "") == "电视剧" else "movie"
+            )
+            if root:
                 try:
-                    item.download_path = configured_root
+                    item.download_path = root
                 except (AttributeError, ValueError):
                     # 旧版宿主未声明展示字段时，仍可使用 LunaTV 下载器。
                     pass
@@ -3411,13 +3545,19 @@ class LunaTVSource(_PluginBase):
         **_: Any,
     ) -> Optional[Tuple[Optional[str], Optional[str], Optional[str], str]]:
         """接管带 LunaTV 标记的原生下载，转入插件持久化串行队列。"""
-        del cookie, category, label, downloader
+        if not self._is_lunatv_downloader(downloader):
+            return None
+        del cookie, category, label
         payload = self._decode_resource_token(content)
         if payload is None:
             return None
         queue = self._queue
         configured_root = str(self._config.get("download_root") or "").strip()
-        root = configured_root or str(download_dir or "").strip()
+        root = (
+            configured_root
+            or str(download_dir or "").strip()
+            or self._effective_root(media_type=_media_type_value(payload.get("media_type")))
+        )
         if queue is None or not root:
             return "LunaTVSource", None, None, "LunaTV 下载参数无效"
         raw_episodes = episodes if isinstance(episodes, list) else payload.get("episodes")
@@ -3537,11 +3677,14 @@ class LunaTVSource(_PluginBase):
         context = getattr(event_data, "context", None)
         torrent = getattr(context, "torrent_info", None)
         content = getattr(torrent, "enclosure", None)
-        if self._decode_resource_token(content) is None:
+        payload = self._decode_resource_token(content)
+        if payload is None:
             return
         event_data.source = "LunaTVSource"
 
-        configured_root = str(self._config.get("download_root") or "").strip()
+        configured_root = str(self._config.get("download_root") or "").strip() or self._effective_root(
+            media_type=_media_type_value(payload.get("media_type"))
+        )
         if not configured_root:
             event_data.reason = "未配置 LunaTV 下载目录，继续交由 MoviePilot 处理"
             return
