@@ -1,4 +1,5 @@
 import gc
+import hashlib
 import warnings
 from datetime import datetime, timedelta
 from threading import Lock
@@ -32,7 +33,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.9.2"
+    plugin_version = "1.9.3"
     # 插件作者
     plugin_author = "lightolly,jxxghp"
     # 作者主页
@@ -203,8 +204,10 @@ class SiteStatistic(_PluginBase):
 
     @eventmanager.register(EventType.SiteRefreshed)
     def send_msg(self, event: Event = None):
-        """
-        站点数据刷新事件时发送消息
+        """在全量站点刷新后发送通知，并仅跳过内容完全相同的重复事件。
+
+        宿主事件不会区分凌晨首次刷新和后续定时刷新，因此不能按日期锁定通知；
+        后续刷新只要产生新的统计内容，就应继续发送今日增量或累计数据。
         """
         # 插件重载窗口期事件可能携带空 event 或未启用通知，此时直接返回避免误报
         if not self._notify_type or not event:
@@ -272,27 +275,36 @@ class SiteStatistic(_PluginBase):
                                       f"总上传：{StringUtils.str_filesize(incUploads)}\n"
                                       f"总下载：{StringUtils.str_filesize(incDownloads)}\n"
                                       f"————————————")
-            # 同一天内只推送一次通知：
-            # 定时刷新服务、自动签到、手动刷新等都会触发全量刷新事件，
-            # 而增量基准是昨天数据，同一天内多次刷新会重复推送几乎相同的内容
+            notification_text = "\n".join(sorted_messages)
+            notification_fingerprint = self.__get_notification_fingerprint(notification_text)
+
+            # 同一份统计内容只推送一次；后续定时刷新若数据发生变化，仍需继续推送。
             with lock:
                 last_notify = self.get_data("last_notify") or {}
-                if last_notify.get("date") == today_date and last_notify.get("type") == self._notify_type:
-                    logger.info(f"站点数据统计今日（{today_date}）通知已发送过，跳过本次重复通知，"
+                if (last_notify.get("date") == today_date
+                        and last_notify.get("type") == self._notify_type
+                        and last_notify.get("fingerprint") == notification_fingerprint):
+                    logger.info(f"站点数据统计通知内容未变化，跳过本次重复通知（{today_date}），"
                                 f"本次增量：上传 {StringUtils.str_filesize(incUploads)}，"
                                 f"下载 {StringUtils.str_filesize(incDownloads)}")
                     return
                 self.post_message(mtype=NotificationType.SiteMessage,
-                                  title="站点数据统计", text="\n".join(sorted_messages))
-                # 持久化记录当日已发送状态，避免插件重载或重启后再次重复推送
+                                  title="站点数据统计", text=notification_text)
+                # 持久化最近一次通知内容，避免插件重载或重启后重复推送同一份快照。
                 self.save_data("last_notify", {
                     "date": today_date,
                     "type": self._notify_type,
+                    "fingerprint": notification_fingerprint,
                     "time": datetime.now().strftime("%H:%M:%S")
                 })
                 logger.info(f"站点数据统计通知发送完成（{today_date}），"
                             f"总上传 {StringUtils.str_filesize(incUploads)}，"
                             f"总下载 {StringUtils.str_filesize(incDownloads)}")
+
+    @staticmethod
+    def __get_notification_fingerprint(notification_text: str) -> str:
+        """计算通知正文指纹，用于识别同一轮刷新产生的重复通知。"""
+        return hashlib.sha256(notification_text.encode("utf-8")).hexdigest()
 
     @staticmethod
     def __get_data() -> Tuple[str, List[SiteUserData], List[SiteUserData]]:
