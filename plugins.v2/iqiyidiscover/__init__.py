@@ -328,7 +328,7 @@ class IqiyiDiscover(_PluginBase):
                 title_year=self.__get_title_year(movie_info),
                 mediaid_prefix="iqiyi",
                 media_id=str(movie_info.get("album_id") or movie_info.get("entity_id")),
-                poster_path=movie_info.get("image_cover"),
+                poster_path=self.__get_poster(movie_info),
             )
 
         def __series_to_media(series_info: dict) -> schemas.MediaInfo:
@@ -342,7 +342,7 @@ class IqiyiDiscover(_PluginBase):
                 title_year=self.__get_title_year(series_info),
                 mediaid_prefix="iqiyi",
                 media_id=str(series_info.get("album_id") or series_info.get("entity_id")),
-                poster_path=series_info.get("image_cover"),
+                poster_path=self.__get_poster(series_info),
             )
 
         try:
@@ -414,6 +414,33 @@ class IqiyiDiscover(_PluginBase):
         if title and year:
             return f"{title} ({year})"
         return title
+
+    @staticmethod
+    def __get_poster(media_info: dict) -> Optional[str]:
+        """
+        获取高清海报地址。
+
+        优先使用接口返回的高清字段 image_url_2x（318x424），
+        其次从 image_cover 基础地址构造 300x450 高清竖版海报（JPEG），
+        最后回退到 image_cover（120x160）。
+
+        :param media_info: 爱奇艺媒体数据
+        :return: 海报地址
+        """
+        # 优先使用接口直接返回的高清海报
+        poster = media_info.get("image_url_2x") or media_info.get("image_url_normal")
+        if poster:
+            return poster
+        # 从 image_cover 基础地址构造高清竖版海报
+        cover = media_info.get("image_cover")
+        if cover:
+            import re
+            # 去掉尺寸后缀和格式后缀，例如 a_xxx_m_601_m7.avif -> a_xxx_m_601_m7
+            base = re.sub(r"_\d+_\d+\.\w+$", "", cover)
+            base = re.sub(r"\.\w+$", "", base)
+            if base:
+                return f"{base}_300_450.jpg"
+        return cover
 
     @staticmethod
     def iqiyi_filter_ui() -> List[dict]:
