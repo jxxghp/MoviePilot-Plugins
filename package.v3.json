@@ -590,5 +590,18 @@
     "history": {
       "v1.0.0": "V3 独立版本：在重命名模板渲染前读取 MediaInfo 并注入技术字段。"
     }
+  },
+  "IqiyiDiscover": {
+    "name": "爱奇艺探索",
+    "description": "让探索支持爱奇艺的数据浏览。",
+    "labels": "探索",
+    "version": "2.0.0",
+    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/iqiyi_A.png",
+    "author": "LLL001a",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v2.0.0": "V3 独立大版本：适配 V3 SDK 导入规范，使用 MediaSource 枚举和统一响应格式"
+    }
   }
 }
