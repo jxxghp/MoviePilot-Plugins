@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Any, List, Dict, Tuple, Optional
 
 from app import schemas
@@ -10,6 +11,11 @@ from app.plugins import _PluginBase
 from app.schemas import DiscoverSourceEventData
 from app.schemas.types import ChainEventType
 from app.utils.http import RequestUtils
+
+try:
+    from cloakbrowser import launch_context
+except ImportError:
+    launch_context = None
 
 
 # 爱奇艺频道映射：key 为频道标识，value 为频道名称与 channel_id
@@ -158,7 +164,7 @@ class IqiyiDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/iqiyi_A.png"
     # 插件版本
-    plugin_version = "1.0.1"
+    plugin_version = "1.1.0"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -172,6 +178,8 @@ class IqiyiDiscover(_PluginBase):
 
     # 私有属性
     _enabled = False
+    _cookie = ""
+    _cookie_refresh_time = 0
 
     def init_plugin(self, config: dict = None):
         """
@@ -182,9 +190,13 @@ class IqiyiDiscover(_PluginBase):
         global BASE_UI
         if config:
             self._enabled = config.get("enabled")
+            self._cookie = config.get("cookie") or ""
         if "iqiyipic.com" not in settings.SECURITY_IMAGE_DOMAINS:
             settings.SECURITY_IMAGE_DOMAINS.append("iqiyipic.com")
         BASE_UI = init_base_ui()
+        # 启用插件时自动获取 Cookie
+        if self._enabled:
+            self._auto_refresh_cookie()
 
     def get_state(self) -> bool:
         """
@@ -193,6 +205,59 @@ class IqiyiDiscover(_PluginBase):
         :return: 插件启用状态
         """
         return self._enabled
+
+    def _auto_refresh_cookie(self) -> bool:
+        """
+        使用 CloakBrowser 自动获取爱奇艺 Cookie。
+
+        通过浏览器访问爱奇艺片库页面，自动完成验证并获取有效 Cookie（含 __dfp 设备指纹），
+        用于绕过爱奇艺风控。Cookie 有效期约 15 天，失效后需重新获取。
+
+        :return: 是否成功获取 Cookie
+        """
+        if launch_context is None:
+            logger.warning("CloakBrowser 不可用，无法自动获取 Cookie，请手动配置")
+            return False
+        context = None
+        page = None
+        try:
+            logger.info("正在通过 CloakBrowser 自动获取爱奇艺 Cookie...")
+            context = launch_context(headless=True)
+            page = context.new_page()
+            # 访问爱奇艺片库页面，触发验证并生成 Cookie（含 __dfp）
+            page.goto("https://www.iqiyi.com/list/tv/", timeout=120000)
+            page.wait_for_load_state("networkidle", timeout=60000)
+            # 等待 __dfp 生成
+            time.sleep(3)
+            cookies = context.cookies()
+            if not cookies:
+                logger.warning("未获取到爱奇艺 Cookie")
+                return False
+            # 拼接 Cookie 字符串
+            cookie_str = "; ".join(
+                f"{c.get('name')}={c.get('value')}" for c in cookies if c.get("name") and c.get("value")
+            )
+            if not cookie_str:
+                logger.warning("爱奇艺 Cookie 为空")
+                return False
+            self._cookie = cookie_str
+            self._cookie_refresh_time = time.time()
+            logger.info(f"成功获取爱奇艺 Cookie（{len(cookies)} 项）")
+            return True
+        except Exception as err:
+            logger.error(f"自动获取爱奇艺 Cookie 失败: {str(err)}")
+            return False
+        finally:
+            if page:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+            if context:
+                try:
+                    context.close()
+                except Exception:
+                    pass
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -244,10 +309,65 @@ class IqiyiDiscover(_PluginBase):
                                 ],
                             }
                         ],
-                    }
+                    },
+                    {
+                        "component": "VTextField",
+                        "props": {
+                            "model": "cookie",
+                            "label": "爱奇艺 Cookie",
+                            "placeholder": "从爱奇艺浏览器复制 Cookie（含 __dfp）",
+                            "hint": "用于绕过爱奇艺风控，访问 iqiyi.com/list/tv/ 后从浏览器开发者工具复制",
+                        },
+                    },
+                    {
+                        "component": "VCard",
+                        "props": {
+                            "variant": "flat",
+                            "class": "mt-3",
+                            "color": "surface",
+                        },
+                        "content": [
+                            {
+                                "component": "VCardItem",
+                                "props": {"class": "px-6 pb-0"},
+                                "content": [
+                                    {
+                                        "component": "VCardTitle",
+                                        "props": {"class": "d-flex align-center text-h6"},
+                                        "content": [
+                                            {
+                                                "component": "VIcon",
+                                                "props": {
+                                                    "style": "color: #16b1ff;",
+                                                    "class": "mr-2",
+                                                },
+                                                "text": "mdi-information",
+                                            },
+                                            {
+                                                "component": "span",
+                                                "text": "使用说明",
+                                            },
+                                        ],
+                                    }
+                                ],
+                            },
+                            {"component": "VDivider"},
+                            {
+                                "component": "VCardText",
+                                "props": {"class": "px-6"},
+                                "content": [
+                                    {
+                                        "component": "div",
+                                        "props": {"class": "text-body-1"},
+                                        "text": "爱奇艺接口有风控，插件会通过浏览器自动获取 Cookie（含 __dfp 设备指纹）以绕过风控。Cookie 有效期约 15 天，失效后插件会自动重新获取。如需手动配置，可访问 iqiyi.com/list/tv/ 后从浏览器开发者工具复制 Cookie 填入上方。",
+                                    }
+                                ],
+                            },
+                        ],
+                    },
                 ],
             }
-        ], {"enabled": False}
+        ], {"enabled": False, "cookie": ""}
 
     def get_page(self) -> List[dict]:
         """
@@ -271,16 +391,51 @@ class IqiyiDiscover(_PluginBase):
         params["channel_id"] = channel_id
         params["page_id"] = str(page)
         params["filter"] = filter_params or '{"mode":"11"}'
+        headers = dict(HEADERS)
+        # 携带 Cookie 绕过爱奇艺风控，并从 Cookie 中提取设备ID（QC005）
+        if self._cookie:
+            headers["Cookie"] = self._cookie
+            device_id = self.__extract_device_id(self._cookie)
+            if device_id:
+                params["device_id"] = device_id
         try:
-            res = RequestUtils(headers=HEADERS).get_res(VIDEOLIB_DATA_URL, params=params)
+            res = RequestUtils(headers=headers).get_res(VIDEOLIB_DATA_URL, params=params)
             if res is None:
                 raise ConnectionError("无法连接爱奇艺，请检查网络连接！")
             if not res.ok:
                 raise ValueError(f"请求爱奇艺 API失败：{res.text}")
-            return res.json().get("data") or []
+            data = res.json()
+            # 风控拦截时返回空数据，自动刷新 Cookie 后重试一次
+            if data.get("code") == 0 and not data.get("data"):
+                logger.warning("爱奇艺接口返回空数据，可能被风控拦截，尝试自动刷新 Cookie")
+                if self._auto_refresh_cookie():
+                    headers["Cookie"] = self._cookie
+                    device_id = self.__extract_device_id(self._cookie)
+                    if device_id:
+                        params["device_id"] = device_id
+                    res = RequestUtils(headers=headers).get_res(VIDEOLIB_DATA_URL, params=params)
+                    if res is not None and res.ok:
+                        data = res.json()
+            return data.get("data") or []
         except Exception as err:
             logger.error(f"获取爱奇艺数据失败: {str(err)}")
             raise
+
+    @staticmethod
+    def __extract_device_id(cookie: str) -> Optional[str]:
+        """
+        从 Cookie 中提取设备ID（QC005）。
+
+        :param cookie: Cookie 字符串
+        :return: 设备ID，未找到时返回 None
+        """
+        if not cookie:
+            return None
+        for part in cookie.split(";"):
+            part = part.strip()
+            if part.startswith("QC005="):
+                return part.split("=", 1)[1].strip()
+        return None
 
     def iqiyi_discover(
         self,
