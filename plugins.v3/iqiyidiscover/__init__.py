@@ -282,6 +282,7 @@ class IqiyiDiscover(_PluginBase):
                 "methods": ["GET"],
                 "summary": "爱奇艺探索数据源",
                 "description": "获取爱奇艺探索数据",
+                "response_model": schemas.Response[List[schemas.MediaInfo]],
             }
         ]
 
@@ -440,6 +441,7 @@ class IqiyiDiscover(_PluginBase):
 
     def iqiyi_discover(
         self,
+        apikey: str = None,
         mtype: str = "tv",
         mode: str = None,
         type: str = None,
@@ -456,6 +458,7 @@ class IqiyiDiscover(_PluginBase):
         """
         获取爱奇艺探索数据。
 
+        :param apikey: API密钥
         :param mtype: 频道类型，tv/movie/anime/variety
         :param mode: 排序方式，11最热/4最新/8高分
         :param type: 类型筛选
@@ -469,6 +472,9 @@ class IqiyiDiscover(_PluginBase):
         :param page: 页码
         :param count: 每页数量
         """
+        # 无效令牌不访问爱奇艺，按探索组件合同返回空的统一响应
+        if apikey != settings.API_TOKEN:
+            return Response(success=True, data=[])
         if mtype not in CHANNEL_PARAMS:
             logger.warning(f"未知的爱奇艺频道类型: {mtype}")
             return Response(success=True, data=[])
