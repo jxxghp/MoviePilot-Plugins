@@ -1285,5 +1285,18 @@
     },
     "release": true,
     "v3": false
+  },
+  "IqiyiDiscover": {
+    "name": "爱奇艺探索",
+    "description": "让探索支持爱奇艺的数据浏览。",
+    "labels": "探索",
+    "version": "1.0.0",
+    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/iqiyi_A.png",
+    "author": "LLL001a",
+    "v3": false,
+    "level": 1,
+    "history": {
+      "v1.0.0": "发布"
+    }
   }
 }
