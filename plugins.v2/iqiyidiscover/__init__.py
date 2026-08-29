@@ -8,7 +8,7 @@ from app.core.event import eventmanager, Event
 from app.core.cache import cached
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas import DiscoverSourceEventData
+from app.schemas import DiscoverSourceEventData, Response
 from app.schemas.types import ChainEventType
 from app.utils.http import RequestUtils
 
@@ -164,7 +164,7 @@ class IqiyiDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/iqiyi_A.png"
     # 插件版本
-    plugin_version = "1.1.0"
+    plugin_version = "1.1.1"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -451,7 +451,7 @@ class IqiyiDiscover(_PluginBase):
         theater: str = None,
         page: int = 1,
         count: int = 60,
-    ) -> List[schemas.MediaInfo]:
+    ) -> Response[List[schemas.MediaInfo]]:
         """
         获取爱奇艺探索数据。
 
@@ -470,7 +470,26 @@ class IqiyiDiscover(_PluginBase):
         """
         if mtype not in CHANNEL_PARAMS:
             logger.warning(f"未知的爱奇艺频道类型: {mtype}")
-            return []
+            return Response(success=True, data=[])
+
+        # 探索页面会将 None 参数以字符串 "None"、"null" 或空字符串传递，需清理为 None
+        def __clean(value):
+            """
+            将字符串 "None"、"null" 或空字符串转换为 None。
+            """
+            if value is None or value == "None" or value == "null" or value == "":
+                return None
+            return value
+
+        mode = __clean(mode)
+        type = __clean(type)
+        area = __clean(area)
+        year = __clean(year)
+        pay = __clean(pay)
+        hall = __clean(hall)
+        recommend = __clean(recommend)
+        award = __clean(award)
+        theater = __clean(theater)
 
         def __movie_to_media(movie_info: dict) -> schemas.MediaInfo:
             """
@@ -481,7 +500,7 @@ class IqiyiDiscover(_PluginBase):
                 title=movie_info.get("display_name") or movie_info.get("title"),
                 year=self.__get_year(movie_info),
                 title_year=self.__get_title_year(movie_info),
-                mediaid_prefix="iqiyi",
+                media_source="iqiyidiscover",
                 media_id=str(movie_info.get("album_id") or movie_info.get("entity_id")),
                 poster_path=self.__get_poster(movie_info),
             )
@@ -495,7 +514,7 @@ class IqiyiDiscover(_PluginBase):
                 title=series_info.get("display_name") or series_info.get("title"),
                 year=self.__get_year(series_info),
                 title_year=self.__get_title_year(series_info),
-                mediaid_prefix="iqiyi",
+                media_source="iqiyidiscover",
                 media_id=str(series_info.get("album_id") or series_info.get("entity_id")),
                 poster_path=self.__get_poster(series_info),
             )
@@ -529,9 +548,9 @@ class IqiyiDiscover(_PluginBase):
             )
         except Exception as err:
             logger.error(str(err))
-            return []
+            return Response(success=True, data=[])
         if not result:
-            return []
+            return Response(success=True, data=[])
         # 根据 channel_id 过滤，确保只返回当前频道的准确数据
         target_channel_id = CHANNEL_PARAMS[mtype]["channel_id"]
         result = [item for item in result if str(item.get("channel_id")) == target_channel_id]
@@ -539,7 +558,7 @@ class IqiyiDiscover(_PluginBase):
             results = [__movie_to_media(movie) for movie in result]
         else:
             results = [__series_to_media(series) for series in result]
-        return results[:count]
+        return Response(success=True, data=results[:count])
 
     @staticmethod
     def __get_year(media_info: dict) -> Optional[str]:
@@ -643,6 +662,7 @@ class IqiyiDiscover(_PluginBase):
         event_data: DiscoverSourceEventData = event.event_data
         iqiyi_source = schemas.DiscoverMediaSource(
             name="爱奇艺",
+            media_source="iqiyidiscover",
             mediaid_prefix="iqiyi",
             api_path=f"plugin/IqiyiDiscover/iqiyi_discover?apikey={settings.API_TOKEN}",
             filter_params={
