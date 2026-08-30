@@ -274,6 +274,34 @@
     },
     "system_version": ">=3.0.0"
   },
+  "MoviePilotUpdateNotify": {
+    "name": "MoviePilot更新推送",
+    "description": "MoviePilot 推送 V3 release 更新通知、自动重启。",
+    "labels": "消息通知,自动更新",
+    "version": "3.0.0",
+    "icon": "Moviepilot_A.png",
+    "author": "thsrite",
+    "level": 1,
+    "release": true,
+    "history": {
+      "v3.0.0": "V3 独立版本：迁移至 plugins.v3，按 V3 发布线检查后端与前端更新，并使用稳定 SDK 入口。"
+    },
+    "system_version": ">=3.0.0"
+  },
+  "TvFirstWatch": {
+    "name": "首播试看",
+    "description": "定时抓取 RSS，只下载电视剧前 N 集，自动跳过合集和过大文件。",
+    "labels": "订阅,RSS",
+    "version": "2.0.0",
+    "icon": "rss.png",
+    "author": "Raymond38324",
+    "level": 2,
+    "release": true,
+    "history": {
+      "v2.0.0": "V3 独立大版本：迁移至 plugins.v3，使用稳定媒体上下文与下载链，并将第三方依赖声明迁移至 pyproject.toml。"
+    },
+    "system_version": ">=3.0.0"
+  },
   "HistoryToV2": {
     "name": "V1历史记录迁移至V3",
     "description": "将 MoviePilot V1 的整理历史记录迁移至当前 MoviePilot V3。",

@@ -1,0 +1,7 @@
+[project]
+name = "moviepilot-plugin-tvfirstwatch"
+dynamic = ["version"]
+requires-python = ">=3.12"
+dependencies = [
+    "feedparser>=6.0.0",
+]

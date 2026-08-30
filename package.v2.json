@@ -489,6 +489,7 @@
     }
   },
   "MoviePilotUpdateNotify": {
+    "v3": false,
     "name": "MoviePilot更新推送",
     "description": "MoviePilot推送release更新通知、自动重启。",
     "labels": "消息通知,自动更新",
@@ -830,6 +831,7 @@
     }
   },
   "TvFirstWatch": {
+    "v3": false,
     "name": "首播试看",
     "description": "定时抓取RSS,只下载电视剧前N集,自动跳过合集和过大文件。",
     "labels": "订阅,RSS",
