@@ -603,5 +603,18 @@
     "history": {
       "v2.0.0": "V3 独立大版本：适配 V3 SDK 导入规范，使用 MediaSource 枚举和统一响应格式"
     }
+  },
+  "EmailMsg": {
+    "name": "邮箱通知",
+    "description": "支持通过 SMTP 发送邮件通知，收件人根据通知发送范围设置从用户管理邮箱中获取。",
+    "labels": "消息通知",
+    "version": "1.0.0",
+    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/email_A.png",
+    "author": "LLL001a",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v1.0.0": "首次发布。"
+    }
   }
 }
