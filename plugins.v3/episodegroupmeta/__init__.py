@@ -23,7 +23,6 @@ from app.sdk.media import (
     parse_media_key,
     resolve_media_identity,
 )
-from app.db.models import PluginData
 
 
 class ExistMediaInfo(BaseModel):
@@ -49,7 +48,7 @@ class EpisodeGroupMeta(_PluginBase):
     # 主题色
     plugin_color = "#098663"
     # 插件版本
-    plugin_version = "3.1.0"
+    plugin_version = "3.2.0"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -76,6 +75,8 @@ class EpisodeGroupMeta(_PluginBase):
     _allowlist = []
 
     def init_plugin(self, config: dict = None):
+        # 每次装配使用独立取消令牌，避免重载时清除旧实例仍在等待的停止信号。
+        self._event = threading.Event()
         self.tv = TV()
         self.mediaserver_helper = MediaServerHelper()
         self.__migrate_media_identity_data()
@@ -117,15 +118,19 @@ class EpisodeGroupMeta(_PluginBase):
                 "path": "/delete_media_database",
                 "endpoint": self.delete_media_database,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "剧集组刮削",
                 "description": "移除待处理媒体信息",
+                "response_model": schemas.Response[None],
             },
             {
                 "path": "/start_rt",
                 "endpoint": self.go_start_rt,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "剧集组刮削",
                 "description": "刮削指定剧集组",
+                "response_model": schemas.Response[None],
             }
         ]
 
@@ -133,13 +138,10 @@ class EpisodeGroupMeta(_PluginBase):
             self,
             media_source: MediaSource,
             media_id: str,
-            apikey: str,
     ) -> schemas.Response:
         """
         删除待处理剧集组的媒体信息
         """
-        if apikey != settings.API_TOKEN:
-            return schemas.Response(success=False, message="API密钥错误")
         media_key = build_media_key(media_source, media_id)
         if normalize_media_source(media_source) != MediaSource.TMDB or not media_key:
             return schemas.Response(success=False, message="缺少有效的 TMDB 媒体身份")
@@ -151,11 +153,8 @@ class EpisodeGroupMeta(_PluginBase):
             media_source: MediaSource,
             media_id: str,
             group_id: str,
-            apikey: str,
     ) -> schemas.Response:
         """按统一媒体身份读取待处理记录并刮削指定剧集组。"""
-        if apikey != settings.API_TOKEN:
-            return schemas.Response(success=False, message="API密钥错误")
         media_key = build_media_key(media_source, media_id)
         if normalize_media_source(media_source) != MediaSource.TMDB or not media_key or not group_id:
             return schemas.Response(success=False, message="缺少重要参数")
@@ -463,7 +462,7 @@ class EpisodeGroupMeta(_PluginBase):
         拼装插件详情页面，需要返回页面配置，同时附带数据
         """
         # 查询待处理数据列表
-        mediainfo_list: List[PluginData] = self.get_data()
+        mediainfo_list: List[Any] = self.get_data()
         # 拼装页面
         contents = []
         for plugin_data in mediainfo_list:
@@ -497,7 +496,6 @@ class EpisodeGroupMeta(_PluginBase):
                             'api': 'plugin/EpisodeGroupMeta/start_rt',
                             'method': 'get',
                             'params': {
-                                'apikey': settings.API_TOKEN,
                                 'media_source': media_source.value,
                                 'media_id': media_id,
                                 'group_id': group.get('id')
@@ -599,7 +597,6 @@ class EpisodeGroupMeta(_PluginBase):
                                             'api': 'plugin/EpisodeGroupMeta/delete_media_database',
                                             'method': 'get',
                                             'params': {
-                                                'apikey': settings.API_TOKEN,
                                                 'media_source': media_source.value,
                                                 'media_id': media_id
                                             }
@@ -729,7 +726,8 @@ class EpisodeGroupMeta(_PluginBase):
         # 延迟
         if self._delay:
             self.log_warn(f"{mediainfo.title} 将在 {self._delay} 秒后开始处理..")
-            time.sleep(int(self._delay))
+            if self._event.wait(int(self._delay)):
+                return
         # 开始处理
         if self.start_rt(mediainfo=mediainfo, episode_groups=episode_groups):
             # 处理完成时， 属于自动匹配的, 发送通知
@@ -806,6 +804,7 @@ class EpisodeGroupMeta(_PluginBase):
                      'TagItems', 'Studios', 'PremiereDate', 'DateCreated', 'ProductionYear', 'Video3DFormat',
                      'OfficialRating', 'CustomRating', 'People', 'LockData', 'LockedFields', 'ProviderIds',
                      'PreferredMetadataLanguage', 'PreferredMetadataCountryCode', 'Taglines']
+        updated = False
         for episode_group in episode_groups:
             if not bool(existsinfo.groupep):
                 break
@@ -879,8 +878,9 @@ class EpisodeGroupMeta(_PluginBase):
                             self.__append_to_list(new_dict["LockedFields"], "Name")
                             self.__append_to_list(new_dict["LockedFields"], "Overview")
                             # 更新数据
-                            self.set_iteminfo(server_type=existsinfo.server_type, itemid=_id, iteminfo=new_dict,
-                                              mediaserver_instance=mediaserver_instance)
+                            if self.set_iteminfo(server_type=existsinfo.server_type, itemid=_id, iteminfo=new_dict,
+                                                 mediaserver_instance=mediaserver_instance):
+                                updated = True
                             # still_path 图片
                             if episode.get("still_path"):
                                 self.set_item_image(server_type=existsinfo.server_type, itemid=_id,
@@ -896,7 +896,7 @@ class EpisodeGroupMeta(_PluginBase):
                 continue
 
         self.log_info(f"{mediainfo.title_year} 已经运行完毕了..")
-        return True
+        return updated
 
     @staticmethod
     def __append_to_list(list, item):
@@ -1141,7 +1141,11 @@ class EpisodeGroupMeta(_PluginBase):
 
     def get_iteminfo(self, server_type: str, itemid: str, mediaserver_instance: Any = None) -> dict:
         """
-        获得媒体项详情
+        获得媒体项详情。
+
+        媒体服务器适配器的实例方法属于本插件必须承担的运行态侵入；宿主
+        ``>=3.0.0`` 需保持对应 ``get_data``、``jellyfin.get_data`` 与 Plex
+        library 访问协议，调用失败统一返回空字典并跳过当前媒体项。
         """
 
         def __get_emby_iteminfo() -> dict:
@@ -1234,7 +1238,10 @@ class EpisodeGroupMeta(_PluginBase):
 
     def set_iteminfo(self, server_type: str, itemid: str, iteminfo: dict, mediaserver_instance: Any = None):
         """
-        更新媒体项详情
+        更新媒体项详情。
+
+        该写入依赖媒体服务器适配器实例的具体协议；宿主版本变化时由插件
+        维护者负责适配，所有异常路径均返回 ``False`` 以阻止误报成功。
         """
 
         def __set_emby_iteminfo():
@@ -1435,6 +1442,6 @@ class EpisodeGroupMeta(_PluginBase):
 
     def stop_service(self):
         """
-        停止服务
+        停止服务并唤醒等待中的整理任务。
         """
-        pass
+        self._event.set()
