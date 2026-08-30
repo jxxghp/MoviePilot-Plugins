@@ -1,4 +1,4 @@
-"""邮箱消息通知插件测试。"""
+"""邮箱通知插件测试。"""
 
 from unittest.mock import MagicMock, patch
 
