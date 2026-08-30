@@ -1,0 +1,13 @@
+[project]
+name = "moviepilot-plugin-autosubv2"
+dynamic = ["version"]
+requires-python = ">=3.12"
+dependencies = [
+    "cacheout~=0.16.0",
+    "faster-whisper~=1.2.1",
+    "iso639~=0.1.4",
+    "srt~=3.5.3",
+]
+
+[tool.moviepilot.dependency-gate]
+platforms = ["linux-x64", "linux-arm64", "windows-x64", "macos-arm64"]

@@ -228,6 +228,7 @@ def test_send_custom_notification_rejects_empty() -> None:
     plugin._enabled = True
     plugin._smtp_server = "smtp.qq.com"
     plugin._sender = "sender@qq.com"
+    plugin._password = "auth-code"
     response = plugin.send_custom_notification({"title": "", "text": ""})
     assert response.success is False
     assert "不能同时为空" in response.message
@@ -271,6 +272,7 @@ def test_send_custom_notification_no_recipient(mock_switch) -> None:
     plugin._enabled = True
     plugin._smtp_server = "smtp.qq.com"
     plugin._sender = "sender@qq.com"
+    plugin._password = "auth-code"
 
     with patch("app.db.oper.user.UserOper") as mock_user_oper:
         mock_user_oper.return_value.list.return_value = []

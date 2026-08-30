@@ -19,6 +19,40 @@ from ._bootstrap import (
 )
 
 
+def _configure_test_plugin_runtime() -> None:
+    """为绕过完整启动流程的插件测试装配最小插件 Runtime。"""
+    from app.runtime.config import settings
+    from app.runtime.extensions.plugin import manager as plugin_manager_module
+    from app.runtime.extensions.plugin.manager import PluginManager
+    from app.runtime.extensions.plugin.runtime import (
+        PluginRuntimeEnvironment,
+        build_plugin_runtime,
+    )
+    from app.runtime.extensions.plugin.storage import get_plugin_storage
+    from app.runtime.extensions.plugin.system import get_plugin_system
+
+    def build_test_plugin_runtime(host):
+        """构造使用隔离配置的插件运行时，避免隐式依赖生产组合根。"""
+        return build_plugin_runtime(
+            host,
+            PluginRuntimeEnvironment(
+                plugins_root=settings.ROOT_PATH / "app" / "plugins",
+                storage=get_plugin_storage,
+                system=get_plugin_system,
+                catalog_factory=lambda _mapper: None,
+                import_preparer=lambda **_kwargs: None,
+                import_scanner=lambda **_kwargs: None,
+                auth_level=lambda: 0,
+                remote_entry=host.get_plugin_remote_entry,
+                development=lambda: False,
+                logger=plugin_manager_module.logger,
+            ),
+            tool_build_max_attempts=PluginManager.AGENT_TOOLS_BUILD_MAX_ATTEMPTS,
+        )
+
+    plugin_manager_module.configure_plugin_runtime_factory(build_test_plugin_runtime)
+
+
 def _selected_generation(config) -> str:
     """根据 pytest 本次目标路径判断插件代际，禁止同一进程混跑不同代。"""
     generations = set()
@@ -49,6 +83,7 @@ def pytest_configure(config) -> None:
         prepare_v2_backend()
     else:
         prepare_v1_backend()
+    _configure_test_plugin_runtime()
 
 
 def _report_session_cleanup_error(session, name: str, err: Exception) -> None:
@@ -76,3 +111,10 @@ def pytest_sessionfinish(session, exitstatus) -> None:
         LoggerManager.shutdown()
     except Exception as err:
         _report_session_cleanup_error(session, "logger manager", err)
+
+    try:
+        from app.runtime.extensions.plugin.manager import reset_plugin_runtime_factory
+
+        reset_plugin_runtime_factory()
+    except Exception as err:
+        _report_session_cleanup_error(session, "plugin runtime factory", err)

@@ -21,14 +21,14 @@ def _imports(source: str) -> list[ast.ImportFrom]:
 
 
 def test_v3_metadata_and_source_are_generation_isolated() -> None:
-    """V3 索引必须指向 3.0.0 副本，旧命名空间不得进入 V3 实现。"""
+    """V3 索引必须指向 3.1.0 副本，旧命名空间不得进入 V3 实现。"""
     metadata = json.loads((REPO_ROOT / "package.v3.json").read_text(encoding="utf-8"))["AutoSubv2"]
     source = SOURCE_PATH.read_text(encoding="utf-8")
 
-    assert metadata["version"] == "3.0.0"
+    assert metadata["version"] == "3.1.0"
     assert metadata["system_version"] == ">=3.0.0"
-    assert metadata["history"]["v3.0.0"]
-    assert "plugin_version = \"3.0.0\"" in source
+    assert metadata["history"]["v3.1.0"]
+    assert "plugin_version = \"3.1.0\"" in source
 
     imports = _imports(source)
     imported_modules = {node.module or "" for node in imports}
