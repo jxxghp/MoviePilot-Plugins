@@ -27,6 +27,7 @@ const saving = ref(false);
 const message = reactive({ text: '', type: 'info' });
 const defaults = {
   enabled: false,
+  generate_nfo: false,
   config_url: 'https://raw.githubusercontent.com/hafrey1/LunaTV-config/main/LunaTV-config.json',
   source_allowlist: '',
   mode: 'download',
@@ -42,6 +43,7 @@ const defaults = {
   mediaserver_name: '',
   max_concurrent_tasks: 2,
   segment_thread_count: 16,
+  source_check_minutes: 60,
 };
 const config = reactive({ ...defaults });
 
@@ -70,7 +72,8 @@ async function saveConfig() {
     return
   }
   if (!validateIntegerRange(config.max_concurrent_tasks, '任务并发数', 1, 4)
-    || !validateIntegerRange(config.segment_thread_count, '分片线程数', 4, 32)) return
+    || !validateIntegerRange(config.segment_thread_count, '分片线程数', 4, 32)
+    || !validateIntegerRange(config.source_check_minutes, '来源健康检查间隔', 15, 1440)) return
   if (Number(config.max_concurrent_tasks) * Number(config.segment_thread_count) > 64) {
     showMessage('任务并发数 × 分片线程数不能超过 64', 'error');
     return
@@ -90,6 +93,7 @@ async function saveConfig() {
       mode: 'download',
       max_concurrent_tasks: Number(config.max_concurrent_tasks),
       segment_thread_count: Number(config.segment_thread_count),
+      source_check_minutes: Number(config.source_check_minutes),
     };
     const response = await props.api.put(`plugin/${props.pluginId || 'LunaTVSource'}`, payload);
     const result = response?.data ?? response;
@@ -132,7 +136,7 @@ return (_ctx, _cache) => {
           color: "primary",
           class: "me-2"
         }),
-        _cache[6] || (_cache[6] = _createElementVNode("div", { class: "text-h6" }, "LunaTV 原生桥接配置", -1)),
+        _cache[8] || (_cache[8] = _createElementVNode("div", { class: "text-h6" }, "LunaTV 原生桥接配置", -1)),
         _createVNode(_component_VSpacer),
         _createVNode(_component_VBtn, {
           icon: "mdi-content-save",
@@ -172,7 +176,7 @@ return (_ctx, _cache) => {
       density: "compact",
       class: "mb-4"
     }, {
-      default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
+      default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
         _createTextVNode(" 保存后，LunaTV/苹果 CMS 将接入 MoviePilot 的原生搜索、订阅与下载入口。请直接使用 MoviePilot 的原生搜索、订阅和下载流程。 ", -1)
       ]))]),
       _: 1
@@ -193,9 +197,22 @@ return (_ctx, _cache) => {
         }),
         _createVNode(_component_VCol, { cols: "12" }, {
           default: _withCtx(() => [
+            _createVNode(_component_VSwitch, {
+              modelValue: config.generate_nfo,
+              "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((config.generate_nfo) = $event)),
+              label: "生成 NFO 元数据",
+              hint: "开启后，下载完成并由 MoviePilot 原生整理时生成 NFO。",
+              "persistent-hint": "",
+              color: "success"
+            }, null, 8, ["modelValue"])
+          ]),
+          _: 1
+        }),
+        _createVNode(_component_VCol, { cols: "12" }, {
+          default: _withCtx(() => [
             _createVNode(_component_VTextField, {
               modelValue: config.config_url,
-              "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((config.config_url) = $event)),
+              "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((config.config_url) = $event)),
               label: "LunaTV 配置地址",
               variant: "outlined"
             }, null, 8, ["modelValue"])
@@ -206,7 +223,7 @@ return (_ctx, _cache) => {
           default: _withCtx(() => [
             _createVNode(_component_VTextField, {
               modelValue: config.download_root,
-              "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((config.download_root) = $event)),
+              "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((config.download_root) = $event)),
               label: "下载目录",
               placeholder: "/downloads/未整理",
               hint: "m3u8 下载先写入此目录，完成后继续复用 MoviePilot 的整理规则。",
@@ -223,7 +240,7 @@ return (_ctx, _cache) => {
           default: _withCtx(() => [
             _createVNode(_component_VTextField, {
               modelValue: config.max_concurrent_tasks,
-              "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((config.max_concurrent_tasks) = $event)),
+              "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((config.max_concurrent_tasks) = $event)),
               label: "最大任务并发数",
               type: "number",
               min: "1",
@@ -242,8 +259,28 @@ return (_ctx, _cache) => {
         }, {
           default: _withCtx(() => [
             _createVNode(_component_VTextField, {
+              modelValue: config.source_check_minutes,
+              "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((config.source_check_minutes) = $event)),
+              label: "来源健康检查间隔（分钟）",
+              type: "number",
+              min: "15",
+              max: "1440",
+              step: "1",
+              hint: "范围 15–1440，默认 60。打开插件页仅读取缓存，定时任务才会执行健康检查。",
+              "persistent-hint": "",
+              variant: "outlined"
+            }, null, 8, ["modelValue"])
+          ]),
+          _: 1
+        }),
+        _createVNode(_component_VCol, {
+          cols: "12",
+          md: "6"
+        }, {
+          default: _withCtx(() => [
+            _createVNode(_component_VTextField, {
               modelValue: config.segment_thread_count,
-              "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((config.segment_thread_count) = $event)),
+              "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((config.segment_thread_count) = $event)),
               label: "分片线程数",
               type: "number",
               min: "4",
@@ -265,7 +302,7 @@ return (_ctx, _cache) => {
       density: "compact",
       class: "mt-3"
     }, {
-      default: _withCtx(() => [...(_cache[8] || (_cache[8] = [
+      default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
         _createTextVNode(" 目录、DeepSeek、TMDB、整理规则、媒体服务器和链接权限均沿用 MoviePilot 设置；订阅地址内的资源站全部读取。默认 2 个任务、每任务 16 个分片线程，总分片并发限制为 64；遇到 429、超时或磁盘繁忙时请调低。 ", -1)
       ]))]),
       _: 1
@@ -276,7 +313,7 @@ return (_ctx, _cache) => {
         loading: saving.value,
         onClick: saveConfig
       }, {
-        default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
+        default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
           _createTextVNode("保存配置", -1)
         ]))]),
         _: 1

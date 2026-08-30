@@ -468,8 +468,9 @@ def test_queue_pause_resume_and_remove_pending_task(tmp_path: Path, monkeypatch)
     assert queue.list_tasks()[0]["progress"] == 0.0
     assert queue.run_one() == {"processed": 0}
     assert queue.resume(task.task_id) is True
-    assert queue.list_tasks()[0]["state"] == "pending"
+    assert queue.list_tasks()[0]["state"] in {"pending", "running"}
     assert queue.remove(task.task_id) is True
+    assert queue.wait_until_idle(timeout=2)
     assert queue.list_tasks() == []
 
 

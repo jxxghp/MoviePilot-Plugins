@@ -12,6 +12,7 @@ const saving = ref(false)
 const message = reactive({ text: '', type: 'info' })
 const defaults = {
   enabled: false,
+  generate_nfo: false,
   config_url: 'https://raw.githubusercontent.com/hafrey1/LunaTV-config/main/LunaTV-config.json',
   source_allowlist: '',
   mode: 'download',
@@ -27,6 +28,7 @@ const defaults = {
   mediaserver_name: '',
   max_concurrent_tasks: 2,
   segment_thread_count: 16,
+  source_check_minutes: 60,
 }
 const config = reactive({ ...defaults })
 
@@ -55,7 +57,8 @@ async function saveConfig() {
     return
   }
   if (!validateIntegerRange(config.max_concurrent_tasks, '任务并发数', 1, 4)
-    || !validateIntegerRange(config.segment_thread_count, '分片线程数', 4, 32)) return
+    || !validateIntegerRange(config.segment_thread_count, '分片线程数', 4, 32)
+    || !validateIntegerRange(config.source_check_minutes, '来源健康检查间隔', 15, 1440)) return
   if (Number(config.max_concurrent_tasks) * Number(config.segment_thread_count) > 64) {
     showMessage('任务并发数 × 分片线程数不能超过 64', 'error')
     return
@@ -75,6 +78,7 @@ async function saveConfig() {
       mode: 'download',
       max_concurrent_tasks: Number(config.max_concurrent_tasks),
       segment_thread_count: Number(config.segment_thread_count),
+      source_check_minutes: Number(config.source_check_minutes),
     }
     const response = await props.api.put(`plugin/${props.pluginId || 'LunaTVSource'}`, payload)
     const result = response?.data ?? response
@@ -110,6 +114,15 @@ onMounted(() => {
     </VAlert>
     <VRow dense>
       <VCol cols="12"><VSwitch v-model="config.enabled" label="启用原生桥接" color="success" hide-details /></VCol>
+      <VCol cols="12">
+        <VSwitch
+          v-model="config.generate_nfo"
+          label="生成 NFO 元数据"
+          hint="开启后，下载完成并由 MoviePilot 原生整理时生成 NFO。"
+          persistent-hint
+          color="success"
+        />
+      </VCol>
       <VCol cols="12"><VTextField v-model="config.config_url" label="LunaTV 配置地址" variant="outlined" /></VCol>
       <VCol cols="12">
         <VTextField
@@ -130,6 +143,19 @@ onMounted(() => {
           max="4"
           step="1"
           hint="范围 1–4，默认 2。"
+          persistent-hint
+          variant="outlined"
+        />
+      </VCol>
+      <VCol cols="12" md="6">
+        <VTextField
+          v-model="config.source_check_minutes"
+          label="来源健康检查间隔（分钟）"
+          type="number"
+          min="15"
+          max="1440"
+          step="1"
+          hint="范围 15–1440，默认 60。打开插件页仅读取缓存，定时任务才会执行健康检查。"
           persistent-hint
           variant="outlined"
         />

@@ -1,8 +1,10 @@
+import hashlib
 import json
 from pathlib import Path
 from urllib.parse import urlparse
 
 from app.plugins.lunatvsource import LunaTVSource
+from app.plugins.lunatvsource.m3u8_engine import N_M3U8DL_RE_SPEC
 
 
 def test_manifest_and_plugin_icons_use_https_url():
@@ -17,6 +19,25 @@ def test_manifest_and_plugin_icons_use_https_url():
     assert parsed_icon.scheme == "https"
     assert Path(parsed_icon.path).name == "lunatvsource.png"
     assert (project_root / "icons" / "lunatvsource.png").is_file()
+
+
+def test_linux_engine_archives_and_license_are_bundled_and_verified():
+    project_root = Path(__file__).resolve().parents[3]
+    vendor_dir = (
+        project_root
+        / "plugins.v3"
+        / "lunatvsource"
+        / "vendor"
+        / "n_m3u8dl_re"
+    )
+
+    assert (vendor_dir / "LICENSE").is_file()
+    assert (vendor_dir / "README.md").is_file()
+    for platform_key in (("linux", "x86_64"), ("linux", "aarch64")):
+        asset = N_M3U8DL_RE_SPEC.assets[platform_key]
+        archive = vendor_dir / asset.filename
+        assert archive.is_file()
+        assert hashlib.sha256(archive.read_bytes()).hexdigest() == asset.sha256
 
 
 def test_version_consistency_across_manifest_backend_and_frontend():
@@ -41,17 +62,45 @@ def test_version_consistency_across_manifest_backend_and_frontend():
         ).read_text(encoding="utf-8")
     )
 
-    assert manifest["version"] == "0.4.53"
+    assert manifest["version"] == "0.4.59"
     assert {
         manifest["version"],
         LunaTVSource.plugin_version,
         package["version"],
         lockfile["version"],
         lockfile["packages"][""]["version"],
-    } == {"0.4.53"}
+    } == {"0.4.59"}
 
     history = manifest["history"]
-    assert next(iter(history)) == "0.4.53"
+    assert next(iter(history)) == "0.4.59"
+    assert history["0.4.59"] == (
+        "新增可选的 NFO 元数据开关，默认关闭；启用后下载完成并由 MoviePilot 原生整理时生成标准 "
+        "NFO，关闭时明确不触发刮削。"
+    )
+    assert history["0.4.58"] == (
+        "识别 CMS API 1002 关键词搜索禁用响应，明确显示源站在线但禁止搜索并自动排除，"
+        "避免误报为缺少 list/data。"
+    )
+    assert history["0.4.57"] == (
+        "修复立即健康检查每 2 秒完整刷新来源表导致页面闪烁；"
+        "检查期间仅静默轮询运行状态，完成后一次性刷新缓存结果。"
+    )
+    assert history["0.4.56"] == (
+        "修复来源重新启用、换址及检查/搜索并发时旧健康结果回写或旧搜索结果进入订阅队列；"
+        "重新启用后必须复检成功才参与搜索，周期全量检查可在单源复检后排队执行。"
+    )
+    assert history["0.4.55"] == (
+        "来源清单与搜索健康改为按可配置间隔后台刷新（默认 60 分钟），插件页只读持久化缓存；"
+        "未检查、已知或实时检查失败的来源退出所有搜索与订阅追更并定时复测，恢复后自动启用；"
+        "支持手动永久停用、重新启用和单源立即复检。"
+    )
+    assert history["0.4.54"] == (
+        "修复 MoviePilot 原生下载链未调用 LunaTV 队列的问题；整季下载保持单行并显示正在整理"
+        "第 x/n 集、稳定统计总大小，整理成功后清除空目录且隐藏无意义上传速度；失败任务原地重试"
+        "并清理重复记录；内置经固定 SHA-256 校验的 N_m3u8DL-RE Linux x64/arm64 官方包，离线 "
+        "NAS 首次安装无需访问 GitHub；未完结电视剧订阅兼容 MoviePilot TV 枚举，只追加身份匹配且"
+        "位于订阅集数范围内的缺失新集，并把历史已完成集计入整季单任务；普通磁力和种子保持原逻辑。"
+    )
     assert history["0.4.53"] == (
         "插件工作台跟随 MoviePilot/Vuetify 的主题色、深浅色与透明效果，移除 1200px 固定宽度以修复"
         "宽屏弹窗两侧漏白；构建时过滤共享 Vuetify 基础样式，避免覆盖宿主主题。"
@@ -142,7 +191,7 @@ def test_app_page_follows_moviepilot_theme_and_fills_plugin_dialog():
     )
 
 
-def test_config_exposes_and_preserves_single_download_directory():
+def test_config_exposes_download_directory_and_nfo_switch():
     project_root = Path(__file__).resolve().parents[3]
     config_page = (
         project_root / "plugins.v3" / "lunatvsource" / "src" / "components" / "Config.vue"
@@ -151,3 +200,32 @@ def test_config_exposes_and_preserves_single_download_directory():
     assert "download_root: '/downloads/未整理'" in config_page
     assert 'v-model="config.download_root"' in config_page
     assert "download_root: String(config.download_root || '').trim()" in config_page
+    assert "generate_nfo: false" in config_page
+    assert 'v-model="config.generate_nfo"' in config_page
+    assert "生成 NFO 元数据" in config_page
+
+
+def test_source_health_ui_uses_cached_reads_and_persists_interval():
+    project_root = Path(__file__).resolve().parents[3]
+    app_page = (
+        project_root / "plugins.v3" / "lunatvsource" / "src" / "components" / "AppPage.vue"
+    ).read_text(encoding="utf-8")
+    config_page = (
+        project_root / "plugins.v3" / "lunatvsource" / "src" / "components" / "Config.vue"
+    ).read_text(encoding="utf-8")
+
+    assert "onMounted(load)" in app_page
+    assert "onMounted(startHealthCheck)" not in app_page
+    assert "'/sources/refresh'" in app_page
+    assert "'/sources/state'" in app_page
+    assert "const silent = options?.silent === true" in app_page
+    assert "await loadHealthStatus()" in app_page
+    assert "await load({ silent: true })" in app_page
+    assert "打开页面仅读取缓存" in app_page
+    assert "搜索仅使用健康且已启用的来源" in app_page
+    assert "source.manual_disabled ? '重新启用' : '永久停用'" in app_page
+    assert '@click="recheckSource(source)"' in app_page
+    assert "source_check_minutes: 60" in config_page
+    assert 'v-model="config.source_check_minutes"' in config_page
+    assert "来源健康检查间隔（分钟）" in config_page
+    assert "15–1440" in config_page

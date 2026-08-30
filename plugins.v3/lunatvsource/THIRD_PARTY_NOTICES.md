@@ -8,7 +8,7 @@
 - 用途：LunaTV 的 M3U8/VOD 下载与混流。
 - 许可证：MIT License，详见上游仓库的 `LICENSE` 文件。
 
-插件仅按需从 N_m3u8DL-RE 官方 release 获取受管二进制，并校验固定 SHA-256 后安装。具体版本与校验值以仓库代码为准。
+插件随发布包再分发 N_m3u8DL-RE 的 Linux x64/arm64 官方归档及 MIT License，安装前校验固定 SHA-256；归档缺失时才从官方 release 获取。具体版本与校验值以仓库代码为准。
 
 ## FFmpeg
 
