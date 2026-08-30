@@ -3,7 +3,7 @@
 The plugin deliberately keeps the executable download/install boundary here so
 the queue can retain its serial scheduling, MoviePilot projection and ffmpeg
 seam.  Only pinned, verified release archives are installed under the plugin
-data directory; an unavailable engine is a normal signal for the next fallback.
+data directory; no alternate downloader or unverified mirror is used.
 """
 
 from __future__ import annotations
@@ -72,6 +72,7 @@ class EngineSpec:
 
 
 N_M3U8DL_RE_VERSION = "v0.5.1-beta"
+BUNDLED_ASSET_DIR = Path(__file__).resolve().parent / "vendor" / "n_m3u8dl_re"
 
 
 def _github_release_url(repository: str, tag: str, filename: str) -> str:
@@ -191,9 +192,15 @@ class ManagedBinaryInstaller:
     DOWNLOAD_CHUNK_BYTES = 64 * 1024
     INSTALL_LOCK_POLL_SECONDS = 0.1
 
-    def __init__(self, data_path: Path, spec: EngineSpec) -> None:
+    def __init__(
+        self,
+        data_path: Path,
+        spec: EngineSpec,
+        bundled_asset_dir: Optional[Path] = None,
+    ) -> None:
         self.data_path = Path(data_path)
         self.spec = spec
+        self.bundled_asset_dir = Path(bundled_asset_dir or BUNDLED_ASSET_DIR)
 
     @property
     def bin_dir(self) -> Path:
@@ -448,6 +455,30 @@ class ManagedBinaryInstaller:
                 except OSError:
                     pass
 
+    def _bundled_archive(self, asset: ReleaseAsset) -> Optional[Path]:
+        """Return a verified plugin-bundled archive, or none when not shipped."""
+
+        archive_path = self.bundled_asset_dir / asset.filename
+        try:
+            file_stat = archive_path.lstat()
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise M3U8EngineInstallError(
+                "bundled release archive is unavailable"
+            ) from exc
+        if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_nlink != 1:
+            raise M3U8EngineInstallError("bundled release archive is unsafe")
+        try:
+            archive_digest = self._digest_file(archive_path)
+        except OSError as exc:
+            raise M3U8EngineInstallError(
+                "bundled release archive could not be read"
+            ) from exc
+        if not hmac.compare_digest(archive_digest.lower(), asset.sha256.lower()):
+            raise M3U8EngineInstallError("bundled release checksum mismatch")
+        return archive_path
+
     def _write_manifest(self, digest: str) -> None:
         """Atomically record the digest of the installed executable."""
         directory = self._require_safe_bin_dir()
@@ -569,8 +600,12 @@ class ManagedBinaryInstaller:
             if self._managed_binary_is_verified():
                 return self.managed_path
             archive_path: Optional[Path] = None
+            remove_archive = False
             try:
-                archive_path = self._download_archive(asset, control_event)
+                archive_path = self._bundled_archive(asset)
+                if archive_path is None:
+                    archive_path = self._download_archive(asset, control_event)
+                    remove_archive = True
                 _raise_if_cancelled(control_event)
                 self._extract_executable(archive_path)
                 if not self._managed_binary_is_verified():
@@ -580,7 +615,7 @@ class ManagedBinaryInstaller:
                 _raise_if_cancelled(control_event)
                 return self.managed_path
             finally:
-                if archive_path is not None:
+                if remove_archive and archive_path is not None:
                     try:
                         archive_path.unlink(missing_ok=True)
                     except OSError:

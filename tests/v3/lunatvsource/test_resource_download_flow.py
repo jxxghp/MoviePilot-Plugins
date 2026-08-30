@@ -48,6 +48,17 @@ def _plugin(config=None):
     plugin._quality_cache_lock = threading.Lock()
     plugin._quality_cache = {}
     plugin._quality_probe_ms = {}
+    plugin._completed_download_sizes = {}
+    plugin._source_health_lock = threading.RLock()
+    plugin._source_health_running = False
+    plugin._source_health = {}
+    plugin._source_health_stop = threading.Event()
+    plugin._source_health_thread = None
+    plugin._source_health_pending_keys = set()
+    plugin._source_health_pending_full = False
+    plugin._source_health_last_error = ""
+    plugin._source_health_last_finished = 0.0
+    plugin._source_health_revision = 0
     plugin.init_plugin(config)
     return plugin
 

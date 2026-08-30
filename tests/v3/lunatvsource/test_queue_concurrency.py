@@ -482,3 +482,123 @@ def test_queue_replays_unpersisted_terminal_without_rerunning_task(
         assert first.task_id not in tasks
     else:
         assert tasks[first.task_id]["state"] == expected_state
+
+
+def test_failed_task_reenqueue_reuses_existing_record(tmp_path: Path):
+    data = {}
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+    failed = make_task("retry-same", tmp_path)
+    failed.state = "failed"
+    failed.progress = 0.4
+    failed.error = "first attempt failed"
+    data[queue.DATA_KEY] = [failed.to_dict()]
+
+    replacement = make_task("retry-same", tmp_path / "new-root")
+    assert queue.enqueue(replacement) is True
+
+    tasks = queue.list_tasks()
+    assert len(tasks) == 1
+    assert tasks[0]["task_id"] == failed.task_id
+    assert tasks[0]["state"] == "pending"
+    assert tasks[0]["progress"] == 0.0
+    assert tasks[0]["error"] == ""
+    assert tasks[0]["root"] == replacement.root
+
+
+def test_startup_recovery_removes_duplicate_task_ids_and_keeps_completion(
+    tmp_path: Path,
+):
+    completed = make_task("duplicate", tmp_path)
+    completed.state = "completed"
+    completed.progress = 1.0
+    completed.output = str(tmp_path / "duplicate.mp4")
+    completed.error = "stale error"
+    completed.completed_at = time.time()
+
+    ghost = make_task("duplicate", tmp_path)
+    ghost.state = "running"
+    ghost.created_at = completed.created_at + 1
+    data = {
+        DownloadQueue.DATA_KEY: [completed.to_dict(), ghost.to_dict()],
+    }
+
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+
+    tasks = queue.list_tasks()
+    assert len(tasks) == 1
+    assert tasks[0]["task_id"] == completed.task_id
+    assert tasks[0]["state"] == "completed"
+    assert tasks[0]["progress"] == 1.0
+    assert tasks[0]["output"] == completed.output
+    assert tasks[0]["error"] == ""
+
+
+def test_failed_reenqueue_racing_claim_keeps_one_task_record(tmp_path: Path):
+    data = {}
+    failed = make_task("retry-race", tmp_path)
+    failed.state = "failed"
+    failed.error = "temporary failure"
+    data[DownloadQueue.DATA_KEY] = [failed.to_dict()]
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
+    start = threading.Barrier(3)
+    results = {}
+
+    def reenqueue() -> None:
+        start.wait()
+        results["enqueued"] = queue.enqueue(make_task("retry-race", tmp_path))
+
+    def claim() -> None:
+        start.wait()
+        results["claimed"] = queue._claim_next()
+
+    enqueue_thread = threading.Thread(target=reenqueue)
+    claim_thread = threading.Thread(target=claim)
+    enqueue_thread.start()
+    claim_thread.start()
+    start.wait()
+    enqueue_thread.join(timeout=2)
+    claim_thread.join(timeout=2)
+
+    assert not enqueue_thread.is_alive()
+    assert not claim_thread.is_alive()
+    assert results["enqueued"] is True
+    tasks = queue._read()
+    assert len(tasks) == 1
+    assert tasks[0].task_id == failed.task_id
+    assert tasks[0].state in {"pending", "running"}
+    claimed = results["claimed"]
+    if claimed is not None:
+        assert claimed[0].task_id == failed.task_id
+
+
+def test_startup_recovery_collapses_different_ids_for_same_episode(tmp_path: Path):
+    completed = make_task("completed-id", tmp_path)
+    completed.source_key = "cms-demo"
+    completed.media_id = "cms-demo:old-row"
+    completed.host_media_source = "themoviedb"
+    completed.host_media_id = "1234"
+    completed.media_type = "tv"
+    completed.season = 1
+    completed.episode = 3
+    completed.state = "completed"
+    completed.progress = 1.0
+    completed.output = str(tmp_path / "completed.mp4")
+
+    ghost = make_task("ghost-id", tmp_path)
+    ghost.source_key = "cms-demo"
+    ghost.media_id = "cms-demo:new-row"
+    ghost.host_media_source = "themoviedb"
+    ghost.host_media_id = "1234"
+    ghost.media_type = "tv"
+    ghost.season = 1
+    ghost.episode = 3
+    ghost.state = "running"
+    ghost.created_at = completed.created_at + 1
+
+    data = {DownloadQueue.DATA_KEY: [completed.to_dict(), ghost.to_dict()]}
+    queue = DownloadQueue(data.get, data.__setitem__, lambda *_args: None)
+
+    tasks = queue.list_tasks()
+    assert len(tasks) == 1
+    assert tasks[0]["task_id"] == completed.task_id
+    assert tasks[0]["state"] == "completed"

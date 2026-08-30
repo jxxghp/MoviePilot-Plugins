@@ -23,6 +23,8 @@ from typing import Any, Callable, Dict, List, Optional
 from .m3u8_engine import (
     M3U8EngineCancelled,
     M3U8EngineError,
+    M3U8EngineUnavailable,
+    N_M3U8DL_RE_VERSION,
     N_m3u8DLEngine,
 )
 from .naming import media_path
@@ -37,6 +39,17 @@ DEFAULT_SEGMENT_THREAD_COUNT = 16
 MIN_SEGMENT_THREAD_COUNT = 4
 MAX_SEGMENT_THREAD_COUNT = 32
 MAX_TOTAL_SEGMENT_THREADS = 64
+
+
+def _regular_file_size(value: str) -> int:
+    """Return a completed regular file size without following symlinks."""
+    try:
+        info = Path(value).lstat()
+    except (OSError, TypeError, ValueError):
+        return 0
+    if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+        return 0
+    return max(0, int(info.st_size))
 
 
 def normalize_download_concurrency(
@@ -219,6 +232,9 @@ class DownloadTask:
     progress: float = 0.0
     # Empty keeps persisted tasks created before engine attribution compatible.
     download_engine: str = ""
+    # Persist before MoviePilot moves the completed file so season totals stay
+    # stable across plugin/container restarts.
+    downloaded_bytes: int = 0
 
     @classmethod
     def from_episode(
@@ -253,7 +269,17 @@ class DownloadTask:
 
     @property
     def identity_key(self) -> str:
-        return f"{self.source_key}|{self.media_id}|{self.season}|{self.episode}|{self.mode}"
+        host_source = str(self.host_media_source or "").strip().casefold()
+        host_id = str(self.host_media_id or "").strip()
+        media_identity = (
+            f"{host_source}:{host_id}"
+            if host_source and host_id
+            else str(self.media_id or "").strip()
+        )
+        return (
+            f"{self.source_key}|{media_identity}|"
+            f"{self.season}|{self.episode}|{self.mode}"
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -309,6 +335,79 @@ class _SerialDownloadQueue:
         with self._lock:
             tasks = self._read()
             changed = False
+
+            # A task id is the queue's persistence and control identity. Older
+            # versions could append a second record after a failed submission,
+            # then update only the first matching row on completion. Collapse
+            # those historical duplicates before recovering interrupted work.
+            task_order: List[str] = []
+            tasks_by_id: Dict[str, DownloadTask] = {}
+            tasks_without_id: List[DownloadTask] = []
+            for task in tasks:
+                if not task.task_id:
+                    tasks_without_id.append(task)
+                    continue
+                current = tasks_by_id.get(task.task_id)
+                if current is None:
+                    task_order.append(task.task_id)
+                    tasks_by_id[task.task_id] = task
+                    continue
+                if task.state == "completed" or (
+                    current.state != "completed"
+                    and task.created_at >= current.created_at
+                ):
+                    tasks_by_id[task.task_id] = task
+                changed = True
+            if changed:
+                tasks = [tasks_by_id[task_id] for task_id in task_order]
+                tasks.extend(tasks_without_id)
+
+            # Old subscription refreshes generated a fresh task id each time.
+            # Collapse those rows by the stable episode identity as well, so
+            # a completed item always wins over a newer ghost execution.
+            state_rank = {
+                "completed": 5,
+                "running": 4,
+                "pending": 3,
+                "paused": 2,
+                "failed": 1,
+            }
+            identity_order: List[str] = []
+            tasks_by_identity: Dict[str, DownloadTask] = {}
+            tasks_without_identity: List[DownloadTask] = []
+            identity_duplicates = False
+            for task in tasks:
+                has_identity = bool(
+                    str(task.source_key or "").strip()
+                    and (
+                        str(task.media_id or "").strip()
+                        or (
+                            str(task.host_media_source or "").strip()
+                            and str(task.host_media_id or "").strip()
+                        )
+                    )
+                )
+                if not has_identity:
+                    tasks_without_identity.append(task)
+                    continue
+                identity = task.identity_key
+                current = tasks_by_identity.get(identity)
+                if current is None:
+                    identity_order.append(identity)
+                    tasks_by_identity[identity] = task
+                    continue
+                current_rank = state_rank.get(current.state, 0)
+                task_rank = state_rank.get(task.state, 0)
+                if task_rank > current_rank or (
+                    task_rank == current_rank and task.created_at >= current.created_at
+                ):
+                    tasks_by_identity[identity] = task
+                identity_duplicates = True
+            if identity_duplicates:
+                tasks = [tasks_by_identity[key] for key in identity_order]
+                tasks.extend(tasks_without_identity)
+                changed = True
+
             for task in tasks:
                 if task.state == "running":
                     task.state = "pending"
@@ -317,6 +416,10 @@ class _SerialDownloadQueue:
                     changed = True
                 elif task.state == "paused" and task.progress:
                     task.progress = 0.0
+                    changed = True
+                elif task.state == "completed" and task.error:
+                    task.progress = 1.0
+                    task.error = ""
                     changed = True
             if changed:
                 self._write(tasks)
@@ -393,6 +496,49 @@ class _SerialDownloadQueue:
             self._write(tasks)
             return True
 
+    def reconcile_completed(self, task: DownloadTask, *, output: str = "") -> bool:
+        """Persist an already-downloaded episode for season-level counters."""
+
+        if not task.url or not task.root:
+            return False
+        with self._lock:
+            tasks = self._read()
+            existing = next(
+                (item for item in tasks if item.identity_key == task.identity_key),
+                None,
+            )
+            if existing and existing.state in {"pending", "running", "paused"}:
+                return False
+            target = existing or task
+            target.source_key = task.source_key
+            target.media_id = task.media_id
+            target.title = task.title
+            target.year = task.year
+            target.media_type = task.media_type
+            target.season = task.season
+            target.episode = task.episode
+            target.url = task.url
+            target.root = task.root
+            target.host_media_source = task.host_media_source
+            target.host_media_id = task.host_media_id
+            target.source_name = task.source_name
+            target.mode = task.mode
+            target.ffmpeg_path = task.ffmpeg_path
+            target.state = "completed"
+            target.progress = 1.0
+            target.error = ""
+            target.output = str(output or "")
+            target.completed_at = target.completed_at or time.time()
+            target.downloaded_bytes = max(
+                0,
+                int(getattr(target, "downloaded_bytes", 0) or 0),
+                int(getattr(task, "downloaded_bytes", 0) or 0),
+            )
+            if existing is None:
+                tasks.append(target)
+            self._write(tasks)
+            return True
+
     def retry(self, task_id: str) -> bool:
         with self._lock:
             tasks = self._read()
@@ -401,6 +547,7 @@ class _SerialDownloadQueue:
                     task.state = "pending"
                     task.progress = 0.0
                     task.error = ""
+                    task.downloaded_bytes = 0
                     self._write(tasks)
                     return True
         return False
@@ -470,6 +617,39 @@ class _SerialDownloadQueue:
         for task in self._read():
             counts[task.state] = counts.get(task.state, 0) + 1
         return counts
+
+    def finalizing_task_ids(self) -> set[str]:
+        """Return active workers whose download is durable but hook still runs."""
+        with self._lock:
+            states = {task.task_id: task.state for task in self._read()}
+            return {
+                task_id
+                for task_id in self._active
+                if states.get(task_id) == "completed"
+            }
+
+    def engine_status(self) -> Dict[str, Any]:
+        """Report the pinned engine without triggering a network install."""
+        status: Dict[str, Any] = {
+            "name": "N_m3u8DL-RE",
+            "version": N_M3U8DL_RE_VERSION.removeprefix("v"),
+            "supported": False,
+            "ready": False,
+            "install_source": "插件内置官方固定版本（缺失时 GitHub）",
+            "managed_path": "",
+        }
+        if not self._m3u8_engines:
+            return status
+        installer = getattr(self._m3u8_engines[0], "_installer", None)
+        if installer is None:
+            return status
+        try:
+            status["supported"] = installer.asset() is not None
+            status["managed_path"] = str(installer.managed_path)
+            status["ready"] = bool(installer._managed_binary_is_verified())
+        except (OSError, RuntimeError, TypeError, ValueError):
+            pass
+        return status
 
     @staticmethod
     def _notification_text(task: DownloadTask) -> str:
@@ -732,9 +912,11 @@ class _SerialDownloadQueue:
             current.progress = 1.0
             current.output = output
             current.completed_at = time.time()
+            current.downloaded_bytes = _regular_file_size(output)
             task.state = current.state
             task.output = output
             task.completed_at = current.completed_at
+            task.downloaded_bytes = current.downloaded_bytes
             self._write(tasks)
         if self._on_complete is not None:
             try:
@@ -1250,6 +1432,11 @@ class DownloadQueue(_SerialDownloadQueue):
                 self._active.pop(task.task_id, None)
                 self._active_destinations.pop(task.task_id, None)
                 self._running = bool(self._active)
+                # Stop this drain generation after a persistence failure.
+                # Otherwise the drain loop can immediately reclaim the same
+                # pending task and hide the failure in a tight retry race.
+                # A later explicit/scheduled wake clears this backoff flag.
+                self._drain_failed = True
                 # A failed running-state write must not strand the persisted
                 # task or let this drain execute it from an in-memory claim.
                 rollback = self._read()
@@ -1284,10 +1471,41 @@ class DownloadQueue(_SerialDownloadQueue):
         with self._lock:
             tasks = self._read()
             for existing in tasks:
-                if existing.identity_key == task.identity_key and existing.state in {
-                    "pending", "running", "paused", "completed",
-                }:
+                if existing.task_id != task.task_id:
+                    continue
+                if existing.identity_key != task.identity_key:
                     return False
+                break
+            for existing in tasks:
+                if existing.identity_key != task.identity_key:
+                    continue
+                if existing.state in {"pending", "running", "paused", "completed"}:
+                    return False
+                if existing.state != "failed":
+                    return False
+                existing.state = "pending"
+                existing.progress = 0.0
+                existing.error = ""
+                existing.output = ""
+                existing.completed_at = 0.0
+                existing.downloaded_bytes = 0
+                existing.source_key = task.source_key
+                existing.media_id = task.media_id
+                existing.title = task.title
+                existing.year = task.year
+                existing.media_type = task.media_type
+                existing.season = task.season
+                existing.episode = task.episode
+                existing.url = task.url
+                existing.root = task.root
+                existing.host_media_source = task.host_media_source
+                existing.host_media_id = task.host_media_id
+                existing.source_name = task.source_name
+                existing.mode = task.mode
+                existing.ffmpeg_path = task.ffmpeg_path
+                existing.download_engine = ""
+                self._write(tasks)
+                return True
             tasks.append(task)
             self._write(tasks)
         return True
@@ -1393,14 +1611,19 @@ class DownloadQueue(_SerialDownloadQueue):
                 current.state = state
                 if state == "failed":
                     current.error = error
+                    current.downloaded_bytes = 0
                 else:
+                    current.error = ""
                     current.progress = 1.0
                     current.output = output
                     current.completed_at = time.time()
-                    task.state = current.state
-                    task.progress = current.progress
-                    task.output = current.output
-                    task.completed_at = current.completed_at
+                    current.downloaded_bytes = _regular_file_size(output)
+                task.state = current.state
+                task.error = current.error
+                task.progress = current.progress
+                task.output = current.output
+                task.completed_at = current.completed_at
+                task.downloaded_bytes = current.downloaded_bytes
                 self._write(tasks)
                 return
             except Exception as exc:
@@ -1607,6 +1830,11 @@ class DownloadQueue(_SerialDownloadQueue):
             if task is None:
                 return False
             control = self._active.get(task_id)
+            if task.state == "completed" and control is not None:
+                # The completion hook may currently be moving/organizing the
+                # file. Removing queue state underneath that operation can
+                # lose both its durable history and the remaining season.
+                return False
             if task.state == "running" and control is not None:
                 control.action = "remove"
                 control.delete_file = control.delete_file or delete_file
@@ -1812,6 +2040,14 @@ class DownloadQueue(_SerialDownloadQueue):
                 engine.download(input_url, output, **kwargs)
             except M3U8EngineCancelled:
                 raise _QueueControl("controlled")
+            except M3U8EngineUnavailable as exc:
+                if self._control_event.is_set():
+                    raise _QueueControl("controlled") from exc
+                raise RuntimeError(
+                    "N_m3u8DL-RE 安装不可用："
+                    f"{exc}；仅允许插件内置或 GitHub 官方固定版本，请重新安装插件；"
+                    "若内置包缺失，再检查 NAS 到 GitHub Release 的网络"
+                ) from exc
             except (M3U8EngineError, OSError) as exc:
                 if self._control_event.is_set():
                     raise _QueueControl("controlled") from exc

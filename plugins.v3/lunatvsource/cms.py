@@ -1116,6 +1116,41 @@ class AppleCmsClient:
             raise ValueError("CMS 响应不是 JSON 对象")
         return payload
 
+    def verify_search(self, source: CmsSource, query: str = "1") -> None:
+        """Verify that a source implements the Apple CMS search response shape.
+
+        A valid empty list still proves that the search endpoint works.  This
+        deliberately distinguishes protocol health from whether one probe
+        keyword happens to match a title.
+        """
+
+        payload = self._request(source, ac="list", wd=query, pg=1)
+        if "list" not in payload and "data" not in payload:
+            error_code = _text(payload.get("code"))
+            error_message = _text(payload.get("msg") or payload.get("message"))
+            normalized_error = error_message.lower()
+            explicitly_forbidden = error_code == "1002" or (
+                "search" in normalized_error
+                and any(
+                    token in normalized_error
+                    for token in ("forbid", "disabled", "not support", "unsupported")
+                )
+            ) or any(
+                token in error_message
+                for token in ("禁止搜索", "禁止关键词搜索", "不支持搜索", "禁用搜索")
+            )
+            if explicitly_forbidden:
+                code_label = f"（API {error_code}）" if error_code else ""
+                raise ValueError(f"CMS 源站在线，但禁止关键词搜索{code_label}")
+            raise ValueError("CMS 搜索响应缺少 list/data")
+        items: Any = payload.get("list") if "list" in payload else payload.get("data")
+        if isinstance(items, Mapping):
+            if "list" not in items:
+                raise ValueError("CMS 搜索 data 缺少 list")
+            items = items.get("list")
+        if items is not None and not isinstance(items, list):
+            raise ValueError("CMS 搜索结果不是列表")
+
     @staticmethod
     def _items(payload: Mapping[str, Any]) -> List[Mapping[str, Any]]:
         items = payload.get("list") or payload.get("data") or []

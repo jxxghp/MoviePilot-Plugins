@@ -53,6 +53,67 @@ def _archive(path: Path, member_name: str, payload: bytes = b"tool") -> Path:
     return path
 
 
+def test_installer_prefers_verified_bundled_archive_without_network(
+    monkeypatch, tmp_path: Path
+):
+    bundled_dir = tmp_path / "bundled"
+    bundled_dir.mkdir()
+    archive = _archive(bundled_dir / "tool.tar.gz", "tool")
+    asset = ReleaseAsset(
+        filename=archive.name,
+        sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
+        executable_sha256=hashlib.sha256(b"tool").hexdigest(),
+        url="https://example.test/tool.tar.gz",
+    )
+    installer = ManagedBinaryInstaller(
+        tmp_path / "data",
+        EngineSpec("test-tool", "tool", {normalized_platform(): asset}),
+        bundled_asset_dir=bundled_dir,
+    )
+    monkeypatch.setattr(
+        installer,
+        "_download_archive",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("verified bundled archive must avoid the network")
+        ),
+    )
+
+    assert installer.ensure_binary().read_bytes() == b"tool"
+    assert archive.is_file()
+
+
+def test_installer_rejects_tampered_bundled_archive_without_network(
+    monkeypatch, tmp_path: Path
+):
+    bundled_dir = tmp_path / "bundled"
+    bundled_dir.mkdir()
+    archive = _archive(bundled_dir / "tool.tar.gz", "tool")
+    asset = ReleaseAsset(
+        filename=archive.name,
+        sha256="0" * 64,
+        executable_sha256=hashlib.sha256(b"tool").hexdigest(),
+        url="https://example.test/tool.tar.gz",
+    )
+    installer = ManagedBinaryInstaller(
+        tmp_path / "data",
+        EngineSpec("test-tool", "tool", {normalized_platform(): asset}),
+        bundled_asset_dir=bundled_dir,
+    )
+    monkeypatch.setattr(
+        installer,
+        "_download_archive",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("tampered bundled archive must fail closed")
+        ),
+    )
+
+    with pytest.raises(M3U8EngineInstallError, match="bundled release checksum mismatch"):
+        installer.ensure_binary()
+
+    assert archive.is_file()
+    assert not installer.managed_path.exists()
+
+
 def test_engine_platform_assets():
     assert N_m3u8DLEngine.asset_for_current_platform("Linux", "amd64")
     assert N_m3u8DLEngine.asset_for_current_platform("Linux", "arm64")
