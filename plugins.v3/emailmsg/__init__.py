@@ -63,7 +63,7 @@ class EmailMsg(_PluginBase):
 
     def get_state(self) -> bool:
         """获取插件启用状态。"""
-        return self._enabled and bool(self._smtp_server and self._sender)
+        return self._enabled and bool(self._smtp_server and self._sender and self._password)
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -469,8 +469,9 @@ class EmailMsg(_PluginBase):
             if self._ssl:
                 server = smtplib.SMTP_SSL(self._smtp_server, port, timeout=15)
             else:
+                # 未启用 SSL 时使用普通 SMTP 连接，不强制 STARTTLS，
+                # 避免不支持 STARTTLS 的服务器或 465 端口握手失败
                 server = smtplib.SMTP(self._smtp_server, port, timeout=15)
-                server.starttls()
 
             server.login(self._sender, self._password)
             # 序列化邮件内容前移除 Bcc 头，避免 Bcc 头进入邮件正文导致收件人地址泄露；
