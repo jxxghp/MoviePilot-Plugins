@@ -19,18 +19,23 @@ def test_plugin_metadata() -> None:
 
 
 def test_get_state_requires_enabled_and_smtp() -> None:
-    """启用状态需要同时开启插件并配置 SMTP 服务器与发件人。"""
+    """启用状态需要同时开启插件并配置 SMTP 服务器、发件人与密码。"""
     plugin = _make_plugin()
     plugin._enabled = True
     plugin._smtp_server = "smtp.qq.com"
     plugin._sender = "sender@qq.com"
+    plugin._password = "auth-code"
     assert plugin.get_state() is True
 
     plugin._sender = None
     assert plugin.get_state() is False
 
-    plugin._enabled = False
     plugin._sender = "sender@qq.com"
+    plugin._password = None
+    assert plugin.get_state() is False
+
+    plugin._password = "auth-code"
+    plugin._enabled = False
     assert plugin.get_state() is False
 
 
@@ -165,8 +170,8 @@ def test_send_mail_no_recipients(mock_smtplib) -> None:
 
 
 @patch("app.plugins.emailmsg.smtplib")
-def test_send_mail_starttls_failure(mock_smtplib) -> None:
-    """STARTTLS 握手失败时仍应关闭 SMTP 连接，避免连接泄漏。"""
+def test_send_mail_no_starttls_when_ssl_disabled(mock_smtplib) -> None:
+    """未启用 SSL 时使用普通 SMTP 连接，不强制 STARTTLS。"""
     plugin = _make_plugin()
     plugin._smtp_server = "smtp.qq.com"
     plugin._smtp_port = "25"
@@ -175,13 +180,17 @@ def test_send_mail_starttls_failure(mock_smtplib) -> None:
     plugin._password = "auth-code"
 
     server = MagicMock()
-    server.starttls.side_effect = Exception("STARTTLS not supported")
+    server.sendmail.return_value = {}
     mock_smtplib.SMTP.return_value = server
 
     result = plugin._send_mail(["a@example.com"], "标题", "正文")
 
-    assert result is False
-    # 连接创建后即使握手失败，也应关闭连接
+    assert result is True
+    # 未启用 SSL 时不应调用 starttls，也不应使用 SMTP_SSL
+    server.starttls.assert_not_called()
+    mock_smtplib.SMTP.assert_called_once()
+    mock_smtplib.SMTP_SSL.assert_not_called()
+    # 连接应被关闭
     server.quit.assert_called_once()
 
 
