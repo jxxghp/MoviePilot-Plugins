@@ -461,7 +461,7 @@ class EmailMsg(_PluginBase):
             msg = MIMEText(text or "", "plain", "utf-8")
             msg["Subject"] = Header(title or "MoviePilot 通知", "utf-8")
             msg["From"] = formataddr((str(Header("MoviePilot", "utf-8")), self._sender))
-            # 收件人地址放入 Bcc（密送），避免收件人之间互相看到邮箱地址
+            # To 使用发件人自身地址，收件人地址放入 Bcc（密送），避免收件人之间互相看到邮箱地址
             msg["To"] = formataddr((str(Header("MoviePilot", "utf-8")), self._sender))
             msg["Bcc"] = ",".join(recipients)
 
@@ -473,7 +473,13 @@ class EmailMsg(_PluginBase):
 
             try:
                 server.login(self._sender, self._password)
-                server.sendmail(self._sender, recipients, msg.as_string())
+                # 序列化邮件内容前移除 Bcc 头，避免 Bcc 头进入邮件正文导致收件人地址泄露；
+                # 收件人列表仍通过 SMTP envelope（sendmail 第二参数）投递。
+                del msg["Bcc"]
+                rejected = server.sendmail(self._sender, recipients, msg.as_string())
+                if rejected:
+                    logger.warn(f"邮箱消息发送部分失败，拒收地址：{list(rejected.keys())}")
+                    return False
                 logger.info(f"邮箱消息发送成功，收件人：{recipients}")
                 return True
             finally:
