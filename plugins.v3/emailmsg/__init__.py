@@ -456,6 +456,7 @@ class EmailMsg(_PluginBase):
             logger.warn("邮箱消息通知：没有有效的收件人邮箱，跳过发送")
             return False
 
+        server = None
         try:
             port = int(self._smtp_port or 465)
             msg = MIMEText(text or "", "plain", "utf-8")
@@ -471,22 +472,26 @@ class EmailMsg(_PluginBase):
                 server = smtplib.SMTP(self._smtp_server, port, timeout=15)
                 server.starttls()
 
-            try:
-                server.login(self._sender, self._password)
-                # 序列化邮件内容前移除 Bcc 头，避免 Bcc 头进入邮件正文导致收件人地址泄露；
-                # 收件人列表仍通过 SMTP envelope（sendmail 第二参数）投递。
-                del msg["Bcc"]
-                rejected = server.sendmail(self._sender, recipients, msg.as_string())
-                if rejected:
-                    logger.warn(f"邮箱消息发送部分失败，拒收地址：{list(rejected.keys())}")
-                    return False
-                logger.info(f"邮箱消息发送成功，收件人：{recipients}")
-                return True
-            finally:
-                server.quit()
+            server.login(self._sender, self._password)
+            # 序列化邮件内容前移除 Bcc 头，避免 Bcc 头进入邮件正文导致收件人地址泄露；
+            # 收件人列表仍通过 SMTP envelope（sendmail 第二参数）投递。
+            del msg["Bcc"]
+            rejected = server.sendmail(self._sender, recipients, msg.as_string())
+            if rejected:
+                logger.warn(f"邮箱消息发送部分失败，拒收地址：{list(rejected.keys())}")
+                return False
+            logger.info(f"邮箱消息发送成功，收件人：{recipients}")
+            return True
         except Exception as err:
             logger.error(f"邮箱消息发送异常，{str(err)}")
             return False
+        finally:
+            # 无论连接创建、握手、登录还是发送环节出错，都关闭 SMTP 连接，避免连接泄漏
+            if server is not None:
+                try:
+                    server.quit()
+                except Exception:
+                    pass
 
     @eventmanager.register(EventType.NoticeMessage)
     def send(self, event: Event) -> None:
