@@ -1,5 +1,12 @@
 # OidcAuth 更新日志
 
+## v0.3.3
+
+- 强化 MoviePilot V2 认证模块加载逻辑，优先使用 `app.core.auth` 并兼容旧版 `app.core.auth_bridge`
+- 发布新版本以确保已安装旧代码的用户能够收到插件升级
+
+---
+
 ## v0.3.2
 
 - 兼容 MoviePilot v2.15.3 的认证模块路径调整，修复插件加载时报 `No module named 'app.core.auth_bridge'`

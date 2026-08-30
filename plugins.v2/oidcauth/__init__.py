@@ -3,7 +3,8 @@ import json
 import secrets
 import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from importlib import import_module
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
 import httpx
@@ -11,17 +12,29 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import schemas
-try:
-    from app.core.auth import create_plugin_auth_ticket
-except ModuleNotFoundError as err:
-    if err.name != "app.core.auth":
-        raise
-    from app.core.auth_bridge import create_plugin_auth_ticket
 from app.core.config import settings
 from app.db.models.user import User
 from app.db.user_oper import get_current_active_user
 from app.log import logger
 from app.plugins import _PluginBase
+
+
+def _load_auth_ticket_factory() -> Callable[..., str]:
+    """按新旧模块顺序加载 MoviePilot 插件认证票据工厂。"""
+    for module_name in ("app.core.auth", "app.core.auth_bridge"):
+        try:
+            module = import_module(module_name)
+        except ModuleNotFoundError as err:
+            if err.name != module_name:
+                raise
+            continue
+        factory = getattr(module, "create_plugin_auth_ticket", None)
+        if callable(factory):
+            return factory
+    raise ImportError("MoviePilot 认证模块未提供 create_plugin_auth_ticket")
+
+
+create_plugin_auth_ticket = _load_auth_ticket_factory()
 
 
 class OidcAuth(_PluginBase):
@@ -34,7 +47,7 @@ class OidcAuth(_PluginBase):
         "通过 OpenID Connect Provider 为 MoviePilot 提供插件化登录与账号绑定。"
     )
     plugin_icon = "Oidcauth_A.png"
-    plugin_version = "0.3.2"
+    plugin_version = "0.3.3"
     plugin_author = "ui-beam-9,jxxghp"
     author_url = "https://github.com/ui-beam-9"
     plugin_label = "认证,OIDC,SSO"
