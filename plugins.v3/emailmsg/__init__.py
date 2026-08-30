@@ -461,7 +461,9 @@ class EmailMsg(_PluginBase):
             msg = MIMEText(text or "", "plain", "utf-8")
             msg["Subject"] = Header(title or "MoviePilot 通知", "utf-8")
             msg["From"] = formataddr((str(Header("MoviePilot", "utf-8")), self._sender))
-            msg["To"] = ",".join(recipients)
+            # 收件人地址放入 Bcc（密送），避免收件人之间互相看到邮箱地址
+            msg["To"] = formataddr((str(Header("MoviePilot", "utf-8")), self._sender))
+            msg["Bcc"] = ",".join(recipients)
 
             if self._ssl:
                 server = smtplib.SMTP_SSL(self._smtp_server, port, timeout=15)
