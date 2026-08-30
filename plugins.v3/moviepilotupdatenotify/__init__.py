@@ -132,7 +132,7 @@ class MoviePilotUpdateNotify(_PluginBase):
             dt = datetime.datetime.strptime(update_time, "%Y-%m-%dT%H:%M:%SZ")
             # 设置时区
             timezone = pytz.timezone(settings.TZ)
-            dt = dt.replace(tzinfo=timezone)
+            dt = dt.replace(tzinfo=datetime.timezone.utc).astimezone(timezone)
             # 将datetime对象转换为带时区的字符串
             update_time = dt.strftime("%Y-%m-%d %H:%M:%S")
             if not description.startswith(release_version):

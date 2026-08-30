@@ -71,3 +71,19 @@ def test_stop_service_is_idempotent() -> None:
 
     assert calls == ["remove", "shutdown"]
     assert plugin._scheduler is None
+
+
+def test_notification_converts_github_utc_timestamp_to_configured_timezone(monkeypatch) -> None:
+    """GitHub 的 UTC 发布时间应按宿主时区显示，避免通知时间偏移。"""
+    module = importlib.import_module("app.plugins.moviepilotupdatenotify")
+    plugin = object.__new__(module.MoviePilotUpdateNotify)
+    plugin._notify = True
+    messages = []
+    plugin.post_message = lambda **kwargs: messages.append(kwargs)
+    monkeypatch.setattr(module.settings, "TZ", "Asia/Shanghai")
+
+    plugin._MoviePilotUpdateNotify__notify_update(
+        "2026-08-31T10:00:00Z", "v3.10.0", "修复更新检查", "后端"
+    )
+
+    assert messages[0]["text"].endswith("2026-08-31 18:00:00")

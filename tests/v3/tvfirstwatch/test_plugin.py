@@ -50,6 +50,81 @@ def test_manifest_and_plugin_are_v3_aligned() -> None:
     assert not (ROOT / "plugins.v3/tvfirstwatch/requirements.txt").exists()
 
 
+def test_api_uses_host_bearer_authentication(monkeypatch: pytest.MonkeyPatch) -> None:
+    """页面 API 使用宿主登录态认证，避免把 API token 拼进页面请求。"""
+    module = _load_plugin(monkeypatch)
+    plugin = object.__new__(module.TvFirstWatch)
+    plugin._history_path = None
+
+    apis = plugin.get_api()
+
+    assert [api["auth"] for api in apis] == ["bear", "bear"]
+    assert all("token" not in api for api in apis)
+
+
+def test_api_declares_exact_response_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    """动态路由应声明与实际 JSON 字段一致的输出模型。"""
+    module = _load_plugin(monkeypatch)
+    plugin = object.__new__(module.TvFirstWatch)
+    plugin._history_path = None
+
+    apis = {api["path"]: api for api in plugin.get_api()}
+
+    assert apis["/clear_history"]["response_model"] is module.ClearHistoryResponse
+    assert apis["/storage_status"]["response_model"] is module.StorageStatusResponse
+
+    assert module.ClearHistoryResponse.model_validate(
+        plugin._clear_history()
+    ).model_dump() == {"success": True, "message": "历史已清空"}
+
+
+def test_storage_status_response_model_matches_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """存储状态接口返回值应可被声明模型完整校验。"""
+    module = _load_plugin(monkeypatch)
+    plugin = object.__new__(module.TvFirstWatch)
+    plugin._history_path = None
+    plugin._max_storage_gb = 12
+
+    response = plugin._storage_status()
+
+    assert module.StorageStatusResponse.model_validate(response).model_dump() == {
+        "success": True,
+        "total_bytes": 0,
+        "total_gb": 0.0,
+        "max_gb": 12,
+        "count": 0,
+    }
+
+
+def test_rss_logs_never_include_passkey_or_cookie(monkeypatch: pytest.MonkeyPatch) -> None:
+    """RSS 凭据只能用于请求，日志只允许出现来源 host 和异常类型。"""
+    module = _load_plugin(monkeypatch)
+    records: list[str] = []
+
+    class Logger:
+        def info(self, message, *args):
+            records.append(str(message) % args if args else str(message))
+
+        def error(self, message, *args):
+            records.append(str(message) % args if args else str(message))
+
+        def warning(self, message, *args):
+            records.append(str(message) % args if args else str(message))
+
+    monkeypatch.setattr(module, "logger", Logger())
+    plugin = object.__new__(module.TvFirstWatch)
+    plugin._rss_urls = "https://alice:secret@rss.example/feed?passkey=secret|Cookie: sid=private"
+    plugin._process_feed = lambda _line: (_ for _ in ()).throw(RuntimeError("sid=private"))
+
+    plugin._check_all_feeds()
+
+    output = "\n".join(records)
+    assert "rss.example" in output
+    assert "alice" not in output
+    assert "secret" not in output
+    assert "private" not in output
+
+
 def test_feed_line_and_episode_helpers_preserve_business_rules(monkeypatch: pytest.MonkeyPatch) -> None:
     """RSS 行、集号和去重键应保持可重复且无网络副作用。"""
     module = _load_plugin(monkeypatch)

@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from pydantic import BaseModel
 
 import feedparser
 import requests
@@ -22,6 +23,23 @@ from app.sdk.events import eventmanager
 from app.schemas.types import MediaType, EventType
 
 lock = Lock()
+
+
+class ClearHistoryResponse(BaseModel):
+    """清空下载历史接口的稳定响应结构。"""
+
+    success: bool
+    message: str
+
+
+class StorageStatusResponse(BaseModel):
+    """下载历史占用空间接口的稳定响应结构。"""
+
+    success: bool
+    total_bytes: int
+    total_gb: float
+    max_gb: int
+    count: int
 
 EPISODE_PATTERNS = [
     re.compile(r"[Ss]\d{1,2}[Ee](\d{1,3})", re.IGNORECASE),
@@ -125,13 +143,17 @@ class TvFirstWatch(_PluginBase):
                 "path": "/clear_history",
                 "endpoint": self._clear_history,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "清空首播试看下载历史",
+                "response_model": ClearHistoryResponse,
             },
             {
                 "path": "/storage_status",
                 "endpoint": self._storage_status,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "获取存储空间使用情况",
+                "response_model": StorageStatusResponse,
             },
         ]
 
@@ -348,7 +370,6 @@ class TvFirstWatch(_PluginBase):
                             "click": {
                                 "api": "plugin/TvFirstWatch/clear_history",
                                 "method": "get",
-                                "params": {"token": settings.API_TOKEN},
                             }
                         },
                     },
@@ -430,7 +451,12 @@ class TvFirstWatch(_PluginBase):
             try:
                 self._process_feed(line)
             except Exception as exc:
-                logger.error("[首播试看] 处理 RSS 源出错: %s — %s", line, exc)
+                source = urlparse(line.split("|", 1)[0].strip()).hostname or "unknown"
+                logger.error(
+                    "[首播试看] 处理 RSS 源出错 [%s]: %s",
+                    source,
+                    type(exc).__name__,
+                )
 
     def _parse_feed_line(self, line: str) -> Tuple[str, dict]:
         parts = line.split("|", 1)
@@ -452,14 +478,18 @@ class TvFirstWatch(_PluginBase):
 
     def _process_feed(self, line: str) -> None:
         url, headers = self._parse_feed_line(line)
-        source = urlparse(url).netloc
-        logger.info("[首播试看] 抓取 RSS: %s", url)
+        source = urlparse(url).hostname or "unknown"
+        logger.info("[首播试看] 抓取 RSS: %s", source)
 
         try:
             resp = requests.get(url, headers=headers, timeout=30)
             resp.raise_for_status()
         except requests.RequestException as exc:
-            logger.error("[首播试看] RSS 请求失败 [%s]: %s", source, exc)
+            logger.error(
+                "[首播试看] RSS 请求失败 [%s]: %s",
+                source,
+                type(exc).__name__,
+            )
             return
 
         parsed = feedparser.parse(resp.text)
@@ -721,16 +751,12 @@ class TvFirstWatch(_PluginBase):
     def _is_downloaded(history: dict, series_name: str, episode: int) -> bool:
         return _make_key(series_name, episode) in history
 
-    def _clear_history(self, token: str = "") -> dict:
-        if token != settings.API_TOKEN:
-            return {"success": False, "message": "认证失败"}
+    def _clear_history(self) -> dict:
         self._save_history({})
         logger.info("[首播试看] 下载历史已清空。")
         return {"success": True, "message": "历史已清空"}
 
-    def _storage_status(self, token: str = "") -> dict:
-        if token != settings.API_TOKEN:
-            return {"success": False, "message": "认证失败"}
+    def _storage_status(self) -> dict:
         history = self._load_history()
         total_bytes = self._calculate_total_size(history)
         total_gb = total_bytes / (1024**3)
