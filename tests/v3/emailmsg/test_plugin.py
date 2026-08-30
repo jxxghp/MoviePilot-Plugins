@@ -13,7 +13,7 @@ def _make_plugin() -> EmailMsg:
 def test_plugin_metadata() -> None:
     """插件元数据应与市场索引保持一致。"""
     plugin = _make_plugin()
-    assert plugin.plugin_name == "邮箱消息通知"
+    assert plugin.plugin_name == "邮箱通知"
     assert plugin.plugin_version == "1.0.0"
     assert plugin.plugin_config_prefix == "emailmsg_"
 
@@ -164,6 +164,27 @@ def test_send_mail_no_recipients(mock_smtplib) -> None:
     mock_smtplib.SMTP_SSL.assert_not_called()
 
 
+@patch("app.plugins.emailmsg.smtplib")
+def test_send_mail_starttls_failure(mock_smtplib) -> None:
+    """STARTTLS 握手失败时仍应关闭 SMTP 连接，避免连接泄漏。"""
+    plugin = _make_plugin()
+    plugin._smtp_server = "smtp.qq.com"
+    plugin._smtp_port = "25"
+    plugin._ssl = False
+    plugin._sender = "sender@qq.com"
+    plugin._password = "auth-code"
+
+    server = MagicMock()
+    server.starttls.side_effect = Exception("STARTTLS not supported")
+    mock_smtplib.SMTP.return_value = server
+
+    result = plugin._send_mail(["a@example.com"], "标题", "正文")
+
+    assert result is False
+    # 连接创建后即使握手失败，也应关闭连接
+    server.quit.assert_called_once()
+
+
 def test_get_api_declares_send_endpoint() -> None:
     """插件 API 应声明手动发送通知端点。"""
     plugin = _make_plugin()
@@ -210,7 +231,10 @@ def test_send_custom_notification_success(mock_switch) -> None:
     plugin = _make_plugin()
     plugin._enabled = True
     plugin._smtp_server = "smtp.qq.com"
+    plugin._smtp_port = "465"
+    plugin._ssl = True
     plugin._sender = "sender@qq.com"
+    plugin._password = "auth-code"
 
     user_a = MagicMock()
     user_a.email = "admin@example.com"
@@ -220,6 +244,7 @@ def test_send_custom_notification_success(mock_switch) -> None:
         mock_user_oper.return_value.list.return_value = [user_a, user_b]
         with patch("app.plugins.emailmsg.smtplib") as mock_smtplib:
             server = MagicMock()
+            server.sendmail.return_value = {}
             mock_smtplib.SMTP_SSL.return_value = server
             response = plugin.send_custom_notification({"title": "标题", "text": "内容"})
 
