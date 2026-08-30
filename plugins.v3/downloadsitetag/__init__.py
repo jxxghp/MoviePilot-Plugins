@@ -1,5 +1,6 @@
 import datetime
 import threading
+from dataclasses import dataclass
 from typing import List, Tuple, Dict, Any, Optional
 
 import pytz
@@ -8,16 +9,42 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.sdk.config import settings
-from app.sdk.media import Context
+from app.sdk.media import Context, normalize_media_source
 from app.sdk.events import eventmanager, Event
 from app.db.oper.downloadhistory import DownloadHistoryOper
-from app.db.models.downloadhistory import DownloadHistory
 from app.sdk.services import DownloaderHelper
 from app.sdk.logging import logger
 from app.plugins import _PluginBase
 from app.schemas import ServiceInfo
 from app.schemas.types import EventType, MediaSource, MediaType
 from app.sdk.utilities import StringUtils
+
+
+@dataclass
+class _DownloadHistoryView:
+    """下载历史字段的插件侧视图，避免把 ORM 模型泄漏到插件逻辑。"""
+
+    torrent_site: Optional[str] = None
+    media_id: Optional[str] = None
+    type: Optional[str] = None
+    title: Optional[str] = None
+    media_source: Optional[MediaSource] = None
+
+    @classmethod
+    def from_record(cls, record: Any) -> "_DownloadHistoryView":
+        """将 Oper 返回的记录投影为本插件所需的最小媒体身份视图。"""
+        media_source = normalize_media_source(record.media_source)
+        media_id = str(record.media_id).strip() if record.media_id is not None else None
+        if not media_source or not media_id or media_id == "0":
+            media_source = None
+            media_id = None
+        return cls(
+            torrent_site=record.torrent_site,
+            media_id=media_id,
+            type=record.type,
+            title=record.title,
+            media_source=media_source,
+        )
 
 
 class DownloadSiteTag(_PluginBase):
@@ -28,7 +55,7 @@ class DownloadSiteTag(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "3.1.0"
+    plugin_version = "3.2.0"
     # 插件作者
     plugin_author = "叮叮当"
     # 作者主页
@@ -203,7 +230,7 @@ class DownloadSiteTag(_PluginBase):
             if self._interval == "计划任务" or self._interval == "固定间隔":
                 if self._interval == "固定间隔":
                     if self._interval_unit == "小时":
-                        return [{
+                        tasks.append({
                             "id": "DownloadSiteTag",
                             "name": "补全下载历史的标签与分类",
                             "trigger": "interval",
@@ -211,7 +238,7 @@ class DownloadSiteTag(_PluginBase):
                             "kwargs": {
                                 "hours": self._interval_time
                             }
-                        }]
+                        })
                     else:
                         if self._interval_time < 5:
                             self._interval_time = 5
@@ -236,10 +263,10 @@ class DownloadSiteTag(_PluginBase):
         return tasks
 
     @staticmethod
-    def str_to_number(s: str, i: int) -> int:
+    def str_to_number(s: Optional[str], i: int) -> int:
         try:
             return int(s)
-        except ValueError:
+        except (TypeError, ValueError):
             return i
 
     @staticmethod
@@ -300,17 +327,18 @@ class DownloadSiteTag(_PluginBase):
                     # 获取种子当前标签
                     torrent_tags = self._get_label(torrent=torrent, dl_type=service.type)
                     torrent_cat = self._get_category(torrent=torrent, dl_type=service.type)
-                    # 提取种子hash对应的下载历史
-                    history: DownloadHistory = downloadhis.get_by_hash(_hash)
-                    if not history:
-                        # 如果找到已处理种子的历史, 表明当前种子是辅种, 否则创建一个空DownloadHistory
+                    # 提取种子hash对应的下载历史，并复制为插件侧视图，避免修改宿主 ORM 对象。
+                    record = downloadhis.get_by_hash(_hash)
+                    if record is None:
+                        # 如果找到已处理种子的历史, 表明当前种子是辅种, 否则创建一个空视图。
                         if _key and _key in dispose_history:
                             history = dispose_history[_key]
                             # 因为辅种站点必定不同, 所以需要更新站点名字 history.torrent_site
                             history.torrent_site = None
                         else:
-                            history = DownloadHistory()
+                            history = _DownloadHistoryView()
                     else:
+                        history = _DownloadHistoryView.from_record(record)
                         # 加入历史记录
                         if _key:
                             dispose_history[_key] = history
@@ -625,7 +653,7 @@ class DownloadSiteTag(_PluginBase):
             return None
 
     def _set_torrent_info(self, service: ServiceInfo, _hash: str, _torrent: Any = None, _tags=None, _cat: str = None,
-                          _original_tags: list = None, _tags_to_remove: list = []):
+                          _original_tags: list = None, _tags_to_remove: Optional[list] = None):
         """
         设置种子标签与分类
         """
@@ -633,6 +661,8 @@ class DownloadSiteTag(_PluginBase):
             return
         if _tags is None:
             _tags = []
+        if _tags_to_remove is None:
+            _tags_to_remove = []
         downloader_obj = service.instance
         if not _torrent:
             _torrent, error = downloader_obj.get_torrents(ids=_hash)
@@ -661,6 +691,7 @@ class DownloadSiteTag(_PluginBase):
                     except Exception as e:
                         logger.warn(f"下载器 {service.name} 种子id: {_hash} 设置分类 {_cat} 失败：{str(e)}, "
                                     f"尝试创建分类再设置 ...")
+                        # qBittorrent 适配器的分类创建仍通过 qbc 暴露，创建后才能重试当前种子。
                         downloader_obj.qbc.torrents_createCategory(name=_cat)
                         _torrent.setCategory(category=_cat)
             else:
@@ -695,7 +726,7 @@ class DownloadSiteTag(_PluginBase):
                 logger.error(f"{self.LOG_TAG} 删除未使用标签公共服务，获取下载器失败 {downloader}")
                 continue
             try:
-                # 初始化下载器 获取全量数据
+                # qBittorrent 的增量同步接口仍由 qbc 暴露，用于发现删除种子事件。
                 if downloader not in self._del_tags_task_rid:
                     data = downloader_obj.qbc.sync_maindata(rid=0)
                     logger.info(f"{self.LOG_TAG}初始化删除未使用标签任务 RID for {downloader}  full_update: {data.get('full_update', False)}")
