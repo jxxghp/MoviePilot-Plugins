@@ -49,6 +49,16 @@ def test_animeupscale_dependency_gate_matches_linux_cuda_contract() -> None:
     assert module.manifest_platforms(manifest) == frozenset({"linux-x64"})
 
 
+def test_autosubv2_dependency_gate_excludes_unsupported_macos_intel() -> None:
+    """AutoSubv2 只在 Python 3.14 依赖可安装的平台进入真实安装门禁。"""
+    module = _load_install_module()
+    manifest = REPO_ROOT / "plugins.v3/autosubv2/pyproject.toml"
+
+    assert module.manifest_platforms(manifest) == frozenset(
+        {"linux-x64", "linux-arm64", "windows-x64", "macos-arm64"}
+    )
+
+
 def test_installation_uses_fresh_environment_and_host_manifest_semantics(
     tmp_path: Path,
 ) -> None:
