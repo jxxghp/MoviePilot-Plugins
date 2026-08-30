@@ -1,4 +1,27 @@
 {
+  "AutoSubv2": {
+    "name": "AI字幕自动生成(v2)",
+    "description": "使用 whisper 自动生成视频文件字幕，并使用大模型翻译字幕成中文。",
+    "labels": "字幕",
+    "version": "3.0.0",
+    "icon": "autosubtitles.jpeg",
+    "author": "TimoYoung",
+    "level": 1,
+    "release": true,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v3.0.0": "V3 独立版本：迁移至 plugins.v3，使用稳定 SDK 导入并修复插件内部模块加载。",
+      "v2.5.1": "更新依赖",
+      "v2.5": "适配 openai api v1",
+      "v2.3": "支持独立的大模型调用配置",
+      "v2.2": "fix",
+      "v2.1": "支持清除历史记录",
+      "v2.0": "引入任务队列，支持监听媒体入库自动生成字幕并展示任务状态。",
+      "v1.2": "修复 openai_proxy 打开时翻译失败的问题，优化日志输出。",
+      "v1.1": "优化字幕翻译逻辑，优化日志输出。",
+      "v1.0": "首个稳定版本。"
+    }
+  },
   "AgentResourceOfficer": {
     "name": "Agent影视助手",
     "description": "龙虾agent稳定控制 MP：飞书入口、盘搜/影巢搜索、115/夸克转存、智能评分推荐。",

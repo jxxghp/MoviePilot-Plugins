@@ -31,6 +31,7 @@
     "author": "TimoYoung",
     "level": 1,
     "v2": true,
+    "v3": false,
     "history": {
       "v1.0": "first stable version",
       "v1.1": "优化字幕翻译逻辑，优化日志输出",
