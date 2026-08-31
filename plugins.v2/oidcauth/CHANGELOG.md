@@ -1,5 +1,12 @@
 # OidcAuth 更新日志
 
+## v0.3.4
+
+- 修复 MoviePilot V3 中 OIDC 登录、绑定和按用户名自动绑定回调使用旧数据库调用时崩溃的问题
+- 用 V2/V3 兼容的 `UserOper` 查询宿主用户，同时为早期 V2 宿主保留按 ID 查询兜底
+
+---
+
 ## v0.3.3
 
 - 强化 MoviePilot V2 认证模块加载逻辑，优先使用 `app.core.auth` 并兼容旧版 `app.core.auth_bridge`

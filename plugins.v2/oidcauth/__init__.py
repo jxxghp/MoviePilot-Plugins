@@ -13,8 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import schemas
 from app.core.config import settings
-from app.db.models.user import User
-from app.db.user_oper import get_current_active_user
+from app.db.user_oper import UserOper, get_current_active_user
 from app.log import logger
 from app.plugins import _PluginBase
 
@@ -47,7 +46,7 @@ class OidcAuth(_PluginBase):
         "通过 OpenID Connect Provider 为 MoviePilot 提供插件化登录与账号绑定。"
     )
     plugin_icon = "Oidcauth_A.png"
-    plugin_version = "0.3.3"
+    plugin_version = "0.3.4"
     plugin_author = "ui-beam-9,jxxghp"
     author_url = "https://github.com/ui-beam-9"
     plugin_label = "认证,OIDC,SSO"
@@ -578,7 +577,7 @@ class OidcAuth(_PluginBase):
         issuer = self._config.get("issuer") or ""
         binding = self.get_data(self._sub_key(issuer, sub))
         user = (
-            User.get(db=None, rid=(binding or {}).get("user_id")) if binding else None
+            self._get_user_by_id((binding or {}).get("user_id")) if binding else None
         )
         if not user and self._config.get("allow_auto_bind_by_username"):
             user = self._auto_bind_by_username(userinfo=userinfo, sub=sub)
@@ -607,7 +606,7 @@ class OidcAuth(_PluginBase):
         :return: 回调 HTML
         """
         user_id = state_data.get("user_id")
-        user = User.get(db=None, rid=user_id) if user_id else None
+        user = self._get_user_by_id(user_id) if user_id else None
         if not user or not user.is_active:
             return self._callback_html(
                 False,
@@ -638,7 +637,7 @@ class OidcAuth(_PluginBase):
             True, data={"bound": True}, event_type="oidcauth_bind_callback"
         )
 
-    def _auto_bind_by_username(self, userinfo: dict, sub: str) -> Optional[User]:
+    def _auto_bind_by_username(self, userinfo: dict, sub: str) -> Optional[Any]:
         """
         按用户名 claim 自动绑定已有用户。
 
@@ -652,7 +651,7 @@ class OidcAuth(_PluginBase):
         ).strip()
         if not username:
             return None
-        user = User.get_by_name(db=None, name=username)
+        user = self._get_user_by_name(username)
         if not user or not user.is_active or self._get_user_binding(user.id):
             return None
         binding = self._binding_payload(user_id=user.id, userinfo=userinfo, sub=sub)
@@ -660,6 +659,21 @@ class OidcAuth(_PluginBase):
         self.save_data(self._user_key(user.id), binding)
         self.save_data(self._sub_key(issuer, sub), binding)
         return user
+
+    @staticmethod
+    def _get_user_by_id(user_id: int) -> Optional[Any]:
+        """通过宿主兼容数据访问层按 ID 查询用户。"""
+        user_oper = UserOper()
+        get_by_id = getattr(user_oper, "get_by_id", None)
+        if callable(get_by_id):
+            return get_by_id(user_id)
+        # 较早的 V2 UserOper 没有同步 get_by_id，只在该兼容分支遍历本地用户。
+        return next((user for user in user_oper.list() if user.id == user_id), None)
+
+    @staticmethod
+    def _get_user_by_name(username: str) -> Optional[Any]:
+        """通过 V2/V3 均保留的 UserOper 接口按用户名查询用户。"""
+        return UserOper().get_by_name(username)
 
     def _binding_payload(self, user_id: int, userinfo: dict, sub: str) -> dict:
         """
