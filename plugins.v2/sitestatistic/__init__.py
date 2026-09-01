@@ -26,6 +26,8 @@ lock = Lock()
 
 
 class SiteStatistic(_PluginBase):
+    """站点数据统计插件，聚合各站点最新用户数据并展示统计信息。"""
+
     # 插件名称
     plugin_name = "站点数据统计"
     # 插件描述
@@ -33,7 +35,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.9.4"
+    plugin_version = "1.9.5"
     # 插件作者
     plugin_author = "lightolly,jxxghp"
     # 作者主页
@@ -309,26 +311,34 @@ class SiteStatistic(_PluginBase):
     @staticmethod
     def __get_data() -> Tuple[str, List[SiteUserData], List[SiteUserData]]:
         """
-        获取最近一次统计的日期、最近一次统计的站点数据、上一次的站点数据
-        如果上一次某个站点数据缺失，则 fallback 到该站点之前最近有数据的日期
+        获取站点最新数据、前一份可用数据及对应的日期标签。
+
+        宿主按站点分别返回最新日期，因此多个站点可能对应不同日期；只有所有站点
+        日期一致时才返回具体日期，否则使用“各站点最近更新日”避免误导页面用户。
+        前一份数据按日期缓存，避免为每个站点重复查询相同日期的整批快照。
         """
+        site_oper = SiteOper()
         # 优化：只获取最近的站点数据，而不是所有历史数据
-        latest_data: List[SiteUserData] = SiteOper().get_userdata_latest()
+        latest_data: List[SiteUserData] = site_oper.get_userdata_latest()
         if not latest_data:
             return "", [], []
 
         # 过滤未启用或不存在的站点
-        site_domains = [site.domain for site in SiteOper().list_active()]
+        site_domains = {site.domain for site in site_oper.list_active()}
         latest_data = [data for data in latest_data if data and data.domain in site_domains]
+        if not latest_data:
+            return "", [], []
 
-        # 获取最新日期（用于显示）
-        latest_day = max(data.updated_day for data in latest_data)
+        # 只有各站点日期一致时才显示具体日期，混合日期用统一说明避免误标整张表。
+        latest_days = {data.updated_day for data in latest_data}
+        latest_day = next(iter(latest_days)) if len(latest_days) == 1 else "各站点最近更新日"
         
         # 按上传量降序排序
         latest_data.sort(key=lambda x: x.upload or 0, reverse=True)
 
         # 为每个站点查找对应的前一天数据
         previous_data = []
+        previous_by_date: Dict[str, Dict[str, SiteUserData]] = {}
         for current_site in latest_data:
             site_name = current_site.name
             current_day = current_site.updated_day
@@ -336,9 +346,12 @@ class SiteStatistic(_PluginBase):
             # 计算该站点的前一天日期
             previous_day_str = (datetime.strptime(current_day, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
             
-            # 获取前一天的数据
-            previous_data_list = SiteOper().get_userdata_by_date(previous_day_str)
-            previous_by_site = {data.name: data for data in previous_data_list}
+            # 按日期缓存整批数据，避免同一天被每个站点重复查询。
+            if previous_day_str not in previous_by_date:
+                previous_by_date[previous_day_str] = {
+                    data.name: data for data in site_oper.get_userdata_by_date(previous_day_str)
+                }
+            previous_by_site = previous_by_date[previous_day_str]
             site_prev = previous_by_site.get(site_name)
             
             # 如果前一天没有该站点数据，尝试查找更早的数据
@@ -346,8 +359,11 @@ class SiteStatistic(_PluginBase):
                 # 最多回溯7天，避免查询过多历史数据
                 for i in range(2, 8):
                     fallback_date = (datetime.strptime(current_day, "%Y-%m-%d") - timedelta(days=i)).strftime("%Y-%m-%d")
-                    fallback_data_list = SiteOper().get_userdata_by_date(fallback_date)
-                    fallback_by_site = {data.name: data for data in fallback_data_list}
+                    if fallback_date not in previous_by_date:
+                        previous_by_date[fallback_date] = {
+                            data.name: data for data in site_oper.get_userdata_by_date(fallback_date)
+                        }
+                    fallback_by_site = previous_by_date[fallback_date]
                     candidate = fallback_by_site.get(site_name)
                     if candidate and not candidate.err_msg:
                         site_prev = candidate
@@ -783,7 +799,7 @@ class SiteStatistic(_PluginBase):
                                     },
                                     'labels': upload_sites,
                                     'title': {
-                                        'text': f'今日上传（{today}）共 {today_upload} GB'
+                                        'text': f'上传增量（{today}）共 {today_upload} GB'
                                     },
                                     'legend': {
                                         'show': True
@@ -820,7 +836,7 @@ class SiteStatistic(_PluginBase):
                                     },
                                     'labels': download_sites,
                                     'title': {
-                                        'text': f'今日下载（{today}）共 {today_download} GB'
+                                        'text': f'下载增量（{today}）共 {today_download} GB'
                                     },
                                     'legend': {
                                         'show': True
@@ -917,6 +933,7 @@ class SiteStatistic(_PluginBase):
         # 先准备表头
         table_headers = [
             {'text': '站点', 'class': 'text-start ps-4'},
+            {'text': '数据日期', 'class': 'text-start ps-4'},
             {'text': '用户名', 'class': 'text-start ps-4'},
             {'text': '用户等级', 'class': 'text-start ps-4'},
             {'text': '上传量', 'class': 'text-start ps-4'},
@@ -945,6 +962,7 @@ class SiteStatistic(_PluginBase):
             # 预先计算所有需要的值
             row_data = [
                 {'text': data.name, 'class': 'whitespace-nowrap break-keep text-high-emphasis'},
+                {'text': data.updated_day, 'class': ''},
                 {'text': data.username, 'class': ''},
                 {'text': data.user_level, 'class': ''},
                 {'text': self.__format_filesize(data.upload), 'class': 'text-success'},

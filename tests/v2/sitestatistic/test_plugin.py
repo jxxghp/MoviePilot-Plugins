@@ -133,3 +133,56 @@ def test_format_filesize_supports_large_float_without_scientific_notation():
     assert formatted == "11210.42PB"
     assert "e+" not in formatted
     assert SiteStatistic._SiteStatistic__format_filesize(1024 ** 3) == "1.0G"
+
+
+def test_get_data_labels_mixed_dates_and_caches_previous_snapshots():
+    """各站点日期不一致时应明确标注，并按日期复用前一天整批查询结果。"""
+    latest_data = [
+        SimpleNamespace(
+            domain="a.example",
+            name="站点A",
+            upload=300,
+            updated_day="2026-09-01",
+        ),
+        SimpleNamespace(
+            domain="b.example",
+            name="站点B",
+            upload=200,
+            updated_day="2026-08-31",
+        ),
+        SimpleNamespace(
+            domain="c.example",
+            name="站点C",
+            upload=100,
+            updated_day="2026-08-31",
+        ),
+    ]
+    previous_by_date = {
+        "2026-08-31": [SimpleNamespace(name="站点A", err_msg="")],
+        "2026-08-30": [
+            SimpleNamespace(name="站点B", err_msg=""),
+            SimpleNamespace(name="站点C", err_msg=""),
+        ],
+    }
+
+    with patch("app.plugins.sitestatistic.SiteOper") as site_oper_class:
+        site_oper = site_oper_class.return_value
+        site_oper.get_userdata_latest.return_value = latest_data
+        site_oper.list_active.return_value = [
+            SimpleNamespace(domain="a.example"),
+            SimpleNamespace(domain="b.example"),
+            SimpleNamespace(domain="c.example"),
+        ]
+        site_oper.get_userdata_by_date.side_effect = previous_by_date.__getitem__
+
+        latest_day, latest, previous = SiteStatistic._SiteStatistic__get_data()
+
+    assert latest_day == "各站点最近更新日"
+    assert [site.name for site in latest] == ["站点A", "站点B", "站点C"]
+    assert [site.name for site in previous] == ["站点A", "站点B", "站点C"]
+    assert site_oper_class.call_count == 1
+    assert site_oper.get_userdata_by_date.call_count == 2
+    assert [call.args[0] for call in site_oper.get_userdata_by_date.call_args_list] == [
+        "2026-08-31",
+        "2026-08-30",
+    ]
