@@ -122,3 +122,14 @@ def test_send_msg_migrates_legacy_daily_marker():
 
     post_message.assert_called_once()
     assert stored_data["last_notify"]["fingerprint"]
+
+
+def test_format_filesize_supports_large_float_without_scientific_notation():
+    """大容量浮点流量应显示 PB 单位，而不是把科学计数法当作文本返回。"""
+    large_upload = 1.2621812704607864e19
+
+    formatted = SiteStatistic._SiteStatistic__format_filesize(large_upload)
+
+    assert formatted == "11210.42PB"
+    assert "e+" not in formatted
+    assert SiteStatistic._SiteStatistic__format_filesize(1024 ** 3) == "1.0G"

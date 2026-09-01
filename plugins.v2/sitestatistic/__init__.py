@@ -33,7 +33,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.9.3"
+    plugin_version = "1.9.4"
     # 插件作者
     plugin_author = "lightolly,jxxghp"
     # 作者主页
@@ -264,16 +264,16 @@ class SiteStatistic(_PluginBase):
                 incDownloads += download
                 messages[upload + (rand / 1000)] = (
                         f"【{site}】{updated_date}\n"
-                        + f"上传量：{StringUtils.str_filesize(upload)}\n"
-                        + f"下载量：{StringUtils.str_filesize(download)}\n"
+                        + f"上传量：{self.__format_filesize(upload)}\n"
+                        + f"下载量：{self.__format_filesize(download)}\n"
                         + "————————————"
                 )
 
         if incDownloads or incUploads:
             sorted_messages = [messages[key] for key in sorted(messages.keys(), reverse=True)]
             sorted_messages.insert(0, f"【汇总】\n"
-                                      f"总上传：{StringUtils.str_filesize(incUploads)}\n"
-                                      f"总下载：{StringUtils.str_filesize(incDownloads)}\n"
+                                      f"总上传：{self.__format_filesize(incUploads)}\n"
+                                      f"总下载：{self.__format_filesize(incDownloads)}\n"
                                       f"————————————")
             notification_text = "\n".join(sorted_messages)
             notification_fingerprint = self.__get_notification_fingerprint(notification_text)
@@ -285,8 +285,8 @@ class SiteStatistic(_PluginBase):
                         and last_notify.get("type") == self._notify_type
                         and last_notify.get("fingerprint") == notification_fingerprint):
                     logger.info(f"站点数据统计通知内容未变化，跳过本次重复通知（{today_date}），"
-                                f"本次增量：上传 {StringUtils.str_filesize(incUploads)}，"
-                                f"下载 {StringUtils.str_filesize(incDownloads)}")
+                                f"本次增量：上传 {self.__format_filesize(incUploads)}，"
+                                f"下载 {self.__format_filesize(incDownloads)}")
                     return
                 self.post_message(mtype=NotificationType.SiteMessage,
                                   title="站点数据统计", text=notification_text)
@@ -298,8 +298,8 @@ class SiteStatistic(_PluginBase):
                     "time": datetime.now().strftime("%H:%M:%S")
                 })
                 logger.info(f"站点数据统计通知发送完成（{today_date}），"
-                            f"总上传 {StringUtils.str_filesize(incUploads)}，"
-                            f"总下载 {StringUtils.str_filesize(incDownloads)}")
+                            f"总上传 {self.__format_filesize(incUploads)}，"
+                            f"总下载 {self.__format_filesize(incDownloads)}")
 
     @staticmethod
     def __get_notification_fingerprint(notification_text: str) -> str:
@@ -359,10 +359,29 @@ class SiteStatistic(_PluginBase):
         return latest_day, latest_data, previous_data
 
     @staticmethod
+    def __format_filesize(size: Any) -> str:
+        """格式化站点字节数，兼容宿主旧接口无法处理的 PB 和科学计数法。"""
+        if size is None:
+            return ""
+        try:
+            numeric_size = float(size)
+        except (TypeError, ValueError):
+            return StringUtils.str_filesize(size)
+
+        # SiteUserData 的流量字段在 V2 宿主中是 Float，数值较大时会先变成科学计数法。
+        # 旧 str_filesize 只支持到 T，故在插件边界补齐 PB，并统一转回整数输入。
+        if numeric_size >= 1024 ** 5:
+            return f"{numeric_size / (1024 ** 5):.2f}PB"
+        try:
+            return StringUtils.str_filesize(int(numeric_size))
+        except (OverflowError, ValueError):
+            return StringUtils.str_filesize(size)
+
+    @staticmethod
     def __get_total_elements(today: str, stattistic_data: List[SiteUserData], yesterday_sites_data: List[SiteUserData],
                              dashboard: str = "today") -> List[dict]:
         """
-        获取统计元素
+        获取统计元素，统一使用插件侧的大容量字节格式化逻辑。
         """
 
         def __gb(value: int) -> float:
@@ -492,7 +511,7 @@ class SiteStatistic(_PluginBase):
                                                             'props': {
                                                                 'class': 'text-h6'
                                                             },
-                                                            'text': StringUtils.str_filesize(total_upload)
+                                                            'text': SiteStatistic.__format_filesize(total_upload)
                                                         }
                                                     ]
                                                 }
@@ -561,7 +580,7 @@ class SiteStatistic(_PluginBase):
                                                             'props': {
                                                                 'class': 'text-h6'
                                                             },
-                                                            'text': StringUtils.str_filesize(total_download)
+                                                            'text': SiteStatistic.__format_filesize(total_download)
                                                         }
                                                     ]
                                                 }
@@ -699,7 +718,7 @@ class SiteStatistic(_PluginBase):
                                                             'props': {
                                                                 'class': 'text-h6'
                                                             },
-                                                            'text': StringUtils.str_filesize(total_seed_size)
+                                                            'text': SiteStatistic.__format_filesize(total_seed_size)
                                                         }
                                                     ]
                                                 }
@@ -928,12 +947,12 @@ class SiteStatistic(_PluginBase):
                 {'text': data.name, 'class': 'whitespace-nowrap break-keep text-high-emphasis'},
                 {'text': data.username, 'class': ''},
                 {'text': data.user_level, 'class': ''},
-                {'text': StringUtils.str_filesize(data.upload), 'class': 'text-success'},
-                {'text': StringUtils.str_filesize(data.download), 'class': 'text-error'},
+                {'text': self.__format_filesize(data.upload), 'class': 'text-success'},
+                {'text': self.__format_filesize(data.download), 'class': 'text-error'},
                 {'text': data.ratio, 'class': ''},
                 {'text': format_bonus(data.bonus or 0), 'class': ''},
                 {'text': data.seeding, 'class': ''},
-                {'text': StringUtils.str_filesize(data.seeding_size), 'class': ''}
+                {'text': self.__format_filesize(data.seeding_size), 'class': ''}
             ]
             
             # 构建单行配置
