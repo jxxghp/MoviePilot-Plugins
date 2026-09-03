@@ -10,7 +10,6 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
@@ -70,6 +69,7 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+docs/superpowers/
 
 # PyBuilder
 .pybuilder/
@@ -161,3 +161,8 @@ cython_debug/
 
 .idea/
 .vscode/
+
+# 前端构建产物与系统文件
+node_modules/
+yarn.lock
+.DS_Store

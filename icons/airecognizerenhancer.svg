@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AI Recognizer Enhancer">
+  <defs>
+    <linearGradient id="bg" x1="74" y1="54" x2="438" y2="458" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1e3a8a"/>
+      <stop offset="0.52" stop-color="#6d28d9"/>
+      <stop offset="1" stop-color="#be185d"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="143" y1="149" x2="369" y2="375" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e0e7ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#16072f" flood-opacity="0.34"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <path d="M116 172h280" stroke="#fdf2f8" stroke-width="20" stroke-linecap="round" opacity="0.58"/>
+  <path d="M116 340h280" stroke="#bfdbfe" stroke-width="20" stroke-linecap="round" opacity="0.48"/>
+  <path d="M137 126l46 92M239 126l46 92M341 126l46 92" stroke="#f0abfc" stroke-width="18" stroke-linecap="round" opacity="0.72"/>
+  <g filter="url(#shadow)">
+    <path d="M96 256c39-67 94-101 160-101s121 34 160 101c-39 67-94 101-160 101S135 323 96 256Z" fill="url(#lens)"/>
+    <circle cx="256" cy="256" r="70" fill="#111827"/>
+    <circle cx="256" cy="256" r="42" fill="#38bdf8"/>
+    <circle cx="274" cy="238" r="15" fill="#f8fafc"/>
+  </g>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M165 256h-34M381 256h-34M256 141v-34M256 405v-34" stroke="#d9f99d" stroke-width="18"/>
+    <path d="M177 360l-24 24M359 153l-24 24M177 153l-24-24M359 360l24 24" stroke="#fde68a" stroke-width="14" opacity="0.9"/>
+  </g>
+  <path d="M210 418h92" stroke="#ffffff" stroke-width="18" stroke-linecap="round" opacity="0.78"/>
+</svg>

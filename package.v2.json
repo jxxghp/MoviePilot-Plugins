@@ -53,5 +53,1314 @@
             "v0.2.0": "支持西甲比赛自动下载和打标签，仅供调试",
             "v0.1.0": "初始版本，仅供调试"
         }
+  "CourseOrganizer": {
+    "name": "按文件夹分类整理",
+    "description": "待整理目录稳定后，结合 TMDB/豆瓣与 DeepSeek 安全分类并整理到电视剧、电影或儿童媒体库。",
+    "labels": "文件整理",
+    "version": "1.7.20",
+    "v3": false,
+    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/courseorganizer.png",
+    "author": "OneBigMoon",
+    "project_url": "https://github.com/OneBigMoon/moviepilot-v2-course-organizer",
+    "level": 1,
+    "release": true,
+    "history": {
+      "v1.7.20": "目录改为插件独立维护的可增删下载目录和归档目录列表，支持多下载目录、多归档目录并兼容旧配置。",
+      "v1.7.19": "修复插件主图使用相对路径时显示为默认拼图的问题。",
+      "v1.7.18": "修复插件图标和作者头像地址；自动检测来源目录的 MoviePilot 监控冲突，冲突时强制保持安全预览并禁止自动整理。",
+      "v1.7.17": "强制刷新插件前端缓存，设置页仅保留自动整理开关，并在前后端过滤回收站、隐藏目录和系统索引项",
+      "v1.7.16": "新增符合条件后自动整理开关，运行时直接读取 MoviePilot 目录规则并精简重复设置；修复整理安全边界并统一图标",
+      "v1.7.15": "更新专用插件图标；扫描来源目录时忽略 NAS 回收站、系统索引和点开头隐藏项，避免显示为待整理项目",
+      "v1.7.14": "识别来源和命名规则改为沿用 MoviePilot 系统设置，移除重复配置项并明确自动采用策略提示",
+      "v1.7.13": "历史候选统一遵守当前识别来源配置，禁止绕过数据源白名单",
+      "v1.7.12": "新增智能助手开关说明，明确需先在 MoviePilot 配置并启用模型",
+      "v1.7.11": "智能助手先精简复杂目录名再搜索 TMDB，并识别 1-8 季范围",
+      "v1.7.10": "重新打开或搜索后保留已关联的 TMDB 作品并默认选中",
+      "v1.7.9": "修复全角标点目录名被搜索归一化后无法绑定真实来源目录的问题，并补充待整理文件夹显示条件说明",
+      "v1.7.8": "声明独立项目主页；空目录时隐藏无关的自动监控警告",
+      "v1.7.7": "等待插件弹窗完成关闭后再进入目录设置，避免遮挡系统设置页面",
+      "v1.7.6": "进入MoviePilot目录设置前关闭插件弹窗，确保设置页面可直接操作",
+      "v1.7.5": "修复插件项目主页空白页，并让目录设置按钮可靠跳转到MoviePilot系统设置",
+      "v1.7.4": "新增多选批量整理队列，任务串行执行并隔离单项失败",
+      "v1.7.3": "精简复核操作并复用MoviePilot媒体类别与目录规则，新增规则摘要、使用说明和安全恢复处理",
+      "v1.7.2": "课程直接搬移改用MoviePilot配置的电视剧/电影重命名格式（按目标媒体库动态选用），无配置时回退Season/S01E01",
+      "v1.7.1": "精简复核页顶部提示：合并重复说明，去掉冗余副标题",
+      "v1.7.0": "修复课程文件在Season结构中未改名：支持“10.标题”式前置序号识别为重命名S01E10",
+      "v1.6.9": "课程直接搬移后重组为标准剧集结构：Season N/S01E01，多集合并文件保留",
+      "v1.6.8": "选定TMDB后匹配下拉显示所选结果，建议名称跟随TMDB标题",
+      "v1.6.7": "课程(本地/空媒体ID)确定走直接搬移到所选媒体库，不再误入MoviePilot原生识别",
+      "v1.6.6": "无媒体ID条目按标题直接搬移到目标媒体库（课程也能搬）",
+      "v1.6.5": "修复关联TMDB时候选失效（关联/搜索统一按修改后名称）",
+      "v1.6.4": "删除“目标位置”列，界面更精简",
+      "v1.6.3": "精简UI：去掉冗余提示/识别来源标签，候选列表改紧凑下拉，自动查找不打断",
+      "v1.6.2": "搜索词自动回退；操作失败提示显示在对应行",
+      "v1.6.1": "插件更名为按文件夹分类整理",
+      "v1.6.0": "支持无媒体ID手动整理；搜索按修改后新名称；进入页面自动查找候选"
     }
+  },
+  "SiteStatistic": {
+    "name": "站点数据统计",
+    "description": "站点统计数据图表。",
+    "labels": "站点,仪表板",
+    "version": "1.9.5",
+    "icon": "statistic.png",
+    "author": "lightolly,jxxghp",
+    "level": 2,
+    "release": true,
+    "history": {
+      "v1.9.5": "修复混合更新日期导致面板日期标签误导的问题，并缓存历史日期查询以消除站点数据统计的重复查询",
+      "v1.9.4": "修复站点总量超过 10PB 时显示科学计数法",
+      "v1.9.3": "修复每日通知去重导致后续定时刷新不再推送的问题",
+      "v1.9.2": "修复同一天内多次刷新数据时重复发送通知的问题",
+      "v1.9.1": "修复插件重载窗口期事件参数缺失报错",
+      "v1.9": "过滤未启用的站点数据",
+      "v1.8": "修复站点数据增量处理逻辑",
+      "v1.7.1": "优化内存占用",
+      "v1.6": "优化了站点数据获取失败时的回退逻辑",
+      "v1.5": "修复了发送增量通知失败等一些问题",
+      "v1.4.1": "支持数据刷新时发送消息通知",
+      "v1.3": "远程刷新命令移植到主程序",
+      "v1.2": "继续修复增量数据统计问题",
+      "v1.1": "修复增量数据统计问题",
+      "v1.0": "MoviePilot V2 版本站点数据统计插件"
+    }
+  },
+  "BrushFlow": {
+    "v3": false,
+    "name": "站点刷流",
+    "description": "多站点刷流任务独立调度、托管、统计与运行诊断。",
+    "labels": "刷流,仪表板",
+    "version": "5.2.3",
+    "icon": "brush-flow.png",
+    "author": "jxxghp,InfinityPacer,Seed680",
+    "level": 2,
+    "release": true,
+    "system_version": ">=2.14.6",
+    "history": {
+      "v5.2.3": "兼容 qBittorrent 5.2.3，修复动态删种后的未使用标签清理报缺少 hashes 参数",
+      "v5.2.2": "固定详情页顶部标题栏和左侧任务栏，并移除重复失效的配置切换按钮",
+      "v5.2.1": "修复共享种子跨任务保护与按任务删除原因记录",
+      "v5.2.0": "恢复跨任务全局动态删种，支持共享体积阈值与多下载器统一淘汰",
+      "v5.1.2": "按促销截止时间即时检查未完成下载，并修正跨时区到期判断",
+      "v5.1.1": "修复 YemaPT 刷流无法获取种子 Hash 的问题",
+      "v5.1.0": "新增站点账号分享率目标控制，修复运行诊断内容溢出",
+      "v5.0.2": "自动清理不再使用的刷流任务标签",
+      "v5.0.1": "修复历史配置原样保存时报错 422，恢复跨站点全局运行限额",
+      "v5.0.0": "使用 Vue 重构多站点独立刷流任务工作台，需要 MoviePilot v2.14.6+",
+      "v4.3.5": "提升匹配规则时的健壮性",
+      "v4.3.4": "添加RSS支持配置选项",
+      "v4.3.2": "增加'删除促销结束的未完成下载'功能",
+      "v4.3.1": "修复了一些细节问题",
+      "v4.3": "支持带宽采样并计算平均值，以优化刷流效率",
+      "v4.2": "优化执行周期输入，需要MoviePilot v2.2.1+",
+      "v4.1": "支持通过CRON表达式配置开启时间，固定10分钟为执行周期",
+      "v4.0": "站点独立配置项支持配置NexusPHP 站点自动跳过下载提示页",
+      "v3.9": "MoviePilot V2 版本站点刷流插件"
+    }
+  },
+  "AutoSignIn": {
+    "name": "站点自动签到",
+    "description": "自动模拟登录、签到站点。",
+    "labels": "站点",
+    "version": "2.9.4",
+    "icon": "signin.png",
+    "author": "thsrite",
+    "level": 2,
+    "release": true,
+    "history": {
+      "v2.9.4": "适配 Rousi Pro PeerGo 个人 API Key 权限认证",
+      "v2.9.3": "修复北洋园(tjupt)签到",
+      "v2.9.2": "Rousi Pro 优先使用 API Key 认证并支持回退 Authorization",
+      "v2.9.1": "修复详情页历史记录部分站点只显示站点ID的问题",
+      "v2.9.0": "优化插件详情页，改为紧凑状态矩阵展示签到和登录情况",
+      "v2.8.2": "优化站点 Rousi Pro 签到失败提示信息",
+      "v2.8.1": "更新站点 Rousi Pro 签到接口",
+      "v2.8": "适配站点 Rousi Pro",
+      "v2.7": "站点请求使用站点设置的超时时间",
+      "v2.6": "感谢madrays佬提供的UI!",
+      "v2.5.4": "增加保号风险提示",
+      "v2.5.3": "优化执行周期输入，需要MoviePilot v2.2.1+",
+      "v2.5.2": "修复HDArea签到",
+      "v2.5.1": "修复空签到失败问题",
+      "v2.5": "MoviePilot V2 版本站点自动签到插件"
+    }
+  },
+  "DownloadSiteTag": {
+    "v3": false,
+    "name": "下载任务分类与标签",
+    "description": "自动给下载任务分类与打站点标签、剧集名称标签",
+    "labels": "下载管理",
+    "version": "2.6",
+    "icon": "Youtube-dl_B.png",
+    "author": "叮叮当",
+    "level": 1,
+    "history": {
+      "v2.6": "增加站点/剧名前缀功能",
+      "v2.5": "优化采用公共服务自动清理未使用标签",
+      "v2.4": "增加自动清理未使用标签",
+      "v2.3": "增加tracker映射配置",
+      "v2.2": "MoviePilot V2 版本下载任务分类与标签插件"
+    }
+  },
+  "MediaServerRefresh": {
+    "name": "媒体库服务器刷新",
+    "description": "入库后自动刷新Emby/Jellyfin/Plex服务器海报墙。",
+    "labels": "媒体库",
+    "version": "1.3.3",
+    "icon": "refresh2.png",
+    "author": "jxxghp",
+    "level": 1,
+    "history": {
+      "v1.3.3": "优化延迟刷新",
+      "v1.3.2": "适配飞牛媒体库",
+      "v1.3.1": "修复兼容性问题",
+      "v1.3": "MoviePilot V2 版本媒体库服务器刷新插件"
+    }
+  },
+  "MediaServerMsg": {
+    "v3": false,
+    "name": "媒体库服务器通知",
+    "description": "发送Emby/Jellyfin/Plex服务器的播放、入库等通知消息。",
+    "labels": "消息通知,媒体库",
+    "version": "1.8.5",
+    "icon": "mediaplay.png",
+    "author": "jxxghp",
+    "level": 1,
+    "release": true,
+    "history": {
+      "v1.8.5": "停止时封闭Webhook并取消等待聚合任务；Timer回调超时会保留所有权供宿主重试",
+      "v1.8.4": "修复媒体服务器通知Webhook处理时 item_type 未定义的问题",
+      "v1.8.3": "修复Plex音乐播放通知误识别为剧集的问题，并显示歌手名称",
+      "v1.8.2.3": "兼容Jellyfin ItemAdded入库Webhook事件",
+      "v1.8.2.2": "修复emby多条相同新入库消息推送多次的问题",
+      "v1.8.2.1": "修复多集时有概率图片获取失败的问题；修复emby测试通知类型接收失败的问题",
+      "v1.8.1": "修复单集剧情信息有概率获取失败的问题",
+      "v1.8": "当整理路径中没有tmdbid时，会尝试从媒体服务器中获取",
+      "v1.7.1": "未获取到tmdb信息则按原有逻辑发送；电影显示海报",
+      "v1.7": "对TV剧集入库事件进行聚合，避免消息轰炸。更新后如果打不开插件，请重置插件",
+      "v1.6": "查询剧集图片兼容没有季集信息的情况",
+      "v1.5": "支持独立控制媒体服务器通知",
+      "v1.4": "MoviePilot V2 版本媒体库服务器通知插件"
+    }
+  },
+  "ChatGPT": {
+    "name": "ChatGPT",
+    "description": "大模型对话与媒体识别增强。",
+    "labels": "消息通知,识别",
+    "version": "2.1.9",
+    "icon": "Chatgpt_A.png",
+    "author": "jxxghp",
+    "level": 1,
+    "v3": false,
+    "history": {
+      "v2.1.9": "更新依赖库",
+      "v2.1.8": "修复 OpenAI API >=1.0.0 兼容性问题",
+      "v2.1.7": "独立安装OpenAi SDK依赖",
+      "v2.1.6": "支持自定义辅助识别提示词",
+      "v2.1.5": "兼容一些模型返回json数据信息用markdown语法包裹的情况",
+      "v2.1.4": "不处理http链接",
+      "v2.1.3": "修复通知异常",
+      "v2.1.2": "支持传入多个api key",
+      "v2.1.1": "兼容/v1后仍有路径的接口",
+      "v2.1.0": "优化辅助识别提示词",
+      "v2.0.1": "修复辅助识别",
+      "v2.0": "适配MoviePilot V2 版本，采用链式事件机制"
+    }
+  },
+  "TorrentTransfer": {
+    "name": "自动转移做种",
+    "description": "定期转移下载器中的做种任务到另一个下载器。",
+    "labels": "做种",
+    "version": "1.10.3",
+    "icon": "seed.png",
+    "author": "jxxghp",
+    "level": 2,
+    "history": {
+      "v1.10.3": "更新依赖库",
+      "v1.10.2": "增加保留原标签和原分类的选项",
+      "v1.10.1": "优化“立即运行一次”按钮位置",
+      "v1.10": "支持跳过校验（仅支持 qBittorrent）",
+      "v1.9": "优化执行周期输入，需要MoviePilot v2.2.1+",
+      "v1.8": "支持qbittorrent 5",
+      "v1.7": "MoviePilot V2 版本自动转移做种插件",
+      "v1.7.1": "修复兼容性问题"
+    }
+  },
+  "RssSubscribe": {
+    "v3": false,
+    "name": "自定义订阅",
+    "description": "定时刷新RSS报文，识别内容后添加订阅或直接下载。",
+    "labels": "订阅",
+    "version": "2.1",
+    "icon": "rss.png",
+    "author": "jxxghp",
+    "level": 2,
+    "history": {
+      "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
+      "v2.0": "兼容MoviePilot V2 版本"
+    }
+  },
+  "FFmpegThumb": {
+    "name": "FFmpeg缩略图",
+    "description": "TheMovieDb没有背景图片时使用FFmpeg截取视频文件缩略图",
+    "labels": "刮削",
+    "version": "2.1",
+    "icon": "ffmpeg.png",
+    "author": "jxxghp",
+    "level": 1,
+    "history": {
+      "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
+      "v2.0": "兼容MoviePilot V2 版本"
+    }
+  },
+  "LibraryScraper": {
+    "v3": false,
+    "name": "媒体库刮削",
+    "description": "定时对媒体库进行刮削，补齐缺失元数据和图片。",
+    "labels": "刮削",
+    "version": "2.1.3",
+    "icon": "scraper.png",
+    "author": "jxxghp",
+    "level": 1,
+    "history": {
+      "v2.1.3": "修复分类路径下按文件标记识别及强制类型跨库扫描问题",
+      "v2.1.2": "修复分类目录被误识别导致下级媒体未刮削的问题",
+      "v2.1.1": "调整目录计算方法，以支持更多重命名格式",
+      "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
+      "v2.0": "兼容MoviePilot V2 版本",
+      "v1.5": "修复未获取fanart图片的问题",
+      "v1.4.1": "修复nfo文件读取失败时任务中断问题"
+    }
+  },
+  "PersonMeta": {
+    "v3": false,
+    "name": "演职人员刮削",
+    "description": "刮削演职人员图片以及中文名称。",
+    "labels": "媒体库,刮削",
+    "version": "2.2.5",
+    "icon": "actor.png",
+    "author": "jxxghp",
+    "level": 1,
+    "system_version": ">2.12.4",
+    "history": {
+      "v2.2.5": "增加单轮人物缓存，避免剧集重复刮削同一人物",
+      "v2.2.4": "改为监听元数据刮削事件并增加实时防重，修复媒体服务器过滤和空人物保存问题",
+      "v2.2.3": "简繁转换依赖改用 zhconv-rs，需要 MoviePilot >2.12.4",
+      "v2.2.2": "修复异常日志问题",
+      "v2.2.1": "优化错误数据兼容处理",
+      "v2.2": "修改使用自定义图片域名时无法下载图片的问题",
+      "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
+      "v2.0": "兼容MoviePilot V2 版本",
+      "v1.4": "人物图片调整为优先从TMDB获取，避免douban图片CDN加载过慢的问题",
+      "v1.3": "修复v1.8.5版本后刮削报错问题"
+    }
+  },
+  "SpeedLimiter": {
+    "name": "播放限速",
+    "description": "外网播放媒体库视频时，自动对下载器进行限速。",
+    "labels": "网络",
+    "version": "2.2",
+    "icon": "Librespeed_A.png",
+    "author": "Shurelol",
+    "level": 1,
+    "history": {
+      "v2.2": "兼容 Jellyfin 10.8-10.11 多版本会话结构，过滤停止后的残留会话并修复缺少比特率时不触发限速",
+      "v2.1": "修复表单参数",
+      "v2.0": "兼容MoviePilot V2 版本",
+      "v1.2": "增加不限速路径配置，以应对网盘直链播放的情况"
+    }
+  },
+  "AutoClean": {
+    "v3": false,
+    "name": "定时清理媒体库",
+    "description": "定时清理用户下载的种子、源文件、媒体库文件。",
+    "labels": "媒体库",
+    "version": "2.2",
+    "icon": "clean.png",
+    "author": "thsrite",
+    "level": 2,
+    "history": {
+      "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
+      "v2.0": "兼容MoviePilot V2 版本",
+      "v2.2": "fix"
+    }
+  },
+  "TorrentRemover": {
+    "name": "自动删种",
+    "description": "自动删除下载器中的下载任务。",
+    "labels": "做种",
+    "version": "2.3",
+    "icon": "delete.jpg",
+    "author": "jxxghp",
+    "level": 2,
+    "history": {
+      "v2.3": "新增 Transmission 任务状态过滤，支持按做种、下载中、错误等状态处理种子",
+      "v2.2": "优化执行周期输入，需要MoviePilot v2.2.1+",
+      "v2.1.1": "修复兼容MoviePilot V2 版本",
+      "v2.0": "兼容MoviePilot V2 版本"
+    }
+  },
+  "IYUUAutoSeed": {
+    "name": "IYUU自动辅种",
+    "description": "基于IYUU官方Api实现自动辅种。",
+    "labels": "做种,IYUU",
+    "version": "2.18",
+    "icon": "IYUU.png",
+    "author": "jxxghp,CKun",
+    "level": 2,
+    "history": {
+      "v2.18": "修复 qBittorrent 辅种未沿用原种保存路径导致文件丢失的问题，新增沿用原种路径开关",
+      "v2.17": "修复由于站点哈希值过期导致辅种失败的问题，并优化代码逻辑",
+      "v2.16": "限制辅种缓存大小并重置运行期校验队列，避免长期运行缓存无限增长",
+      "v2.15": "修复海豹不能辅种的问题",
+      "v2.14": "修复馒头不能辅种的问题",
+      "v2.13": "开启跳过校验后需手动开启自动开始",
+      "v2.12": "增加qb下载器分类复用配置",
+      "v2.11": "修复qb跳过校验不自动开始的问题",
+      "v2.10": "Revert 辅种结束后，一起开始所有辅种后暂停的种子（排除了出错的种子）",
+      "v2.9": "修复开启跳过校验后，Tr下载器不自动开始的问题",
+      "v2.8": "为配置主辅分离时，不走辅种下载器检查",
+      "v2.7": "增加主辅分离配置，单独指定辅种下载器",
+      "v2.6": "优化执行周期输入，需要MoviePilot v2.2.1+",
+      "v2.5": "修复qb辅种结束后自动开始暂停的种子",
+      "v2.4": "辅种结束后，一起开始所有辅种后暂停的种子（排除了出错的种子）",
+      "v2.3": "支持qbittorrent 5",
+      "v2.2": "修复种子校验服务未生效",
+      "v2.1": "调整IYUU最新域名",
+      "v2.0": "兼容MoviePilot V2 版本"
+    }
+  },
+  "CrossSeed": {
+    "name": "青蛙辅种助手",
+    "description": "参考ReseedPuppy和IYUU辅种插件实现自动辅种，支持站点：青蛙、AGSVPT、麒麟、UBits、聆音、憨憨等。",
+    "labels": "做种",
+    "version": "3.0.3",
+    "icon": "qingwa.png",
+    "author": "233@qingwa",
+    "level": 2,
+    "history": {
+      "v3.0.3": "限制辅种缓存大小并重置运行期校验队列，避免长期运行缓存无限增长",
+      "v3.0.2": "更新依赖库",
+      "v3.0.1": "遗漏了一个私有属性",
+      "v3.0": "兼容MoviePilot V2 版本"
+    }
+  },
+  "QbCommand": {
+    "name": "QB远程操作",
+    "description": "通过定时任务或交互命令远程操作QB暂停/开始/限速等。",
+    "labels": "下载管理,Qbittorrent",
+    "version": "2.1",
+    "icon": "Qbittorrent_A.png",
+    "author": "DzAvril",
+    "level": 1,
+    "history": {
+      "v2.1": "支持qbittorrent 5",
+      "v2.0": "适配MoviePilot V2 版本"
+    }
+  },
+  "HistoryToV2": {
+    "v3": false,
+    "name": "历史记录迁移",
+    "description": "将MoviePilot V1版本的整理历史记录迁移至V2版本。",
+    "labels": "整理,历史记录",
+    "version": "1.1",
+    "icon": "Moviepilot_A.png",
+    "author": "jxxghp",
+    "level": 1,
+    "history": {
+      "v1.1": "修复启动提示信息"
+    }
+  },
+  "SyncCookieCloud": {
+    "name": "同步CookieCloud",
+    "description": "同步MoviePilot站点Cookie到本地CookieCloud。",
+    "labels": "站点",
+    "version": "2.2",
+    "icon": "Cookiecloud_A.png",
+    "author": "thsrite",
+    "level": 1,
+    "history": {
+      "v2.2": "优化执行周期输入，需要MoviePilot v2.2.1+",
+      "v2.1": "兼容MoviePilot V2"
+    }
+  },
+  "ChineseSubFinder": {
+    "name": "ChineseSubFinder",
+    "description": "整理入库时通知ChineseSubFinder下载字幕。",
+    "labels": "字幕",
+    "version": "2.0",
+    "icon": "chinesesubfinder.png",
+    "author": "jxxghp",
+    "level": 1,
+    "history": {
+      "v2.0": "兼容MoviePilot V2"
+    }
+  },
+  "CleanInvalidSeed": {
+    "name": "清理QB无效做种",
+    "description": "清理已经被站点删除的种子及对应源文件，仅支持QB",
+    "labels": "Qbittorrent",
+    "version": "2.0",
+    "icon": "clean_a.png",
+    "author": "DzAvril",
+    "level": 1,
+    "history": {
+      "v2.0": "适配 MoviePilot V2"
+    }
+  },
+  "PlayletCategory": {
+    "name": "短剧自动分类",
+    "description": "网络短剧自动整理到独立的分类目录。",
+    "labels": "文件整理",
+    "version": "2.1",
+    "icon": "Amule_A.png",
+    "author": "jxxghp,longqiuyu",
+    "level": 1,
+    "history": {
+      "v2.1": "兼容MoviePilot V2",
+      "v2.0": "适配新的目录结构变化，短剧分类名称调整为配置目录路径，升级后需要重新调整设置后才能使用。"
+    }
+  },
+  "MultiClass": {
+    "name": "视频多级分类",
+    "description": "支持视频多级分类",
+    "labels": "文件整理",
+    "version": "0.1",
+    "icon": "Calibreweb_B.png",
+    "author": "liuhangbin",
+    "level": 1,
+    "history": {
+      "v0.1": "视频多级分类插件, 目前仅支持电影按评分，年代，系列分类。"
+    }
+  },
+  "NotifyImage": {
+    "name": "通知高清图片",
+    "description": "发送通知前将 TMDB 图片地址从 w500 升级为 w1280 高清尺寸，提升飞书等推送渠道的图片清晰度。",
+    "labels": "消息通知",
+    "version": "1.0",
+    "icon": "notifyimage.png",
+    "author": "zf",
+    "level": 1,
+    "history": {
+      "v1.0": "通知图片升级为 w1280 高清"
+    }
+  },
+  "MoviePilotUpdateNotify": {
+    "v3": false,
+    "name": "MoviePilot更新推送",
+    "description": "MoviePilot推送release更新通知、自动重启。",
+    "labels": "消息通知,自动更新",
+    "version": "2.3.1",
+    "icon": "Moviepilot_A.png",
+    "author": "thsrite",
+    "level": 1,
+    "history": {
+      "v2.3.1": "修复版本号比较逻辑",
+      "v2.3": "修复版本描述为空时的报错",
+      "v2.2": "支持 MoviePilot v2.5.0+",
+      "v2.1": "优化执行周期输入，需要MoviePilot v2.2.1+",
+      "v2.0": "兼容MoviePilot V2"
+    }
+  },
+  "DoubanRank": {
+    "v3": false,
+    "name": "豆瓣榜单订阅",
+    "description": "监控豆瓣热门榜单，自动添加订阅。",
+    "labels": "订阅",
+    "version": "2.1.0",
+    "icon": "movie.jpg",
+    "author": "jxxghp",
+    "level": 2,
+    "history": {
+      "v2.1.0": "支持切换使用豆瓣评分或TMDB评分筛选订阅",
+      "v2.0.1": "优化douban_id匹配和类型匹配",
+      "v2.0.0": "优化cron表达式输入"
+    }
+  },
+  "DoubanSync": {
+    "v3": false,
+    "name": "豆瓣想看",
+    "description": "同步豆瓣想看数据，自动添加订阅。",
+    "labels": "订阅",
+    "version": "2.1.1",
+    "icon": "douban.png",
+    "author": "jxxghp,dwhmofly",
+    "level": 2,
+    "history": {
+      "v2.1.1": "修复全局媒体识别源为 TMDB 时，豆瓣条目无法映射到 TMDB 会直接跳过的问题，增加豆瓣数据识别回退。",
+      "v2.1.0": "新增配置项-搜索下载，开启后会优先搜索站点资源进行下载，下载不到才会添加订阅",
+      "v2.0.1": "支持将豆瓣ID转换为MoviePilot中已有用户（在用户个人信息中绑定豆瓣ID），需要MoviePilot v2.2.6+",
+      "v2.0.0": "优化cron表达式输入"
+    }
+  },
+  "TvdbDiscover": {
+    "v3": false,
+    "name": "TheTVDB探索",
+    "description": "让探索支持TheTVDB的数据浏览。",
+    "labels": "探索",
+    "version": "1.1",
+    "icon": "TheTVDB_A.png",
+    "author": "jxxghp",
+    "level": 1,
+    "history": {
+      "v1.1": "需要MoviePilot v2.2.7-1+ 版本，否则无法显示图片"
+    }
+  },
+  "SubscribeClear": {
+    "name": "订阅种子清理",
+    "description": "删除指定下载信息。",
+    "labels": "下载管理",
+    "version": "1.0",
+    "icon": "Moviepilot_A.jpg",
+    "author": "k0ala",
+    "level": 1,
+    "history": {
+      "v1.0": "支持清理QB中已下载的订阅文件"
+    }
+  },
+  "ToBypassTrackers": {
+    "name": "绕过Trackers",
+    "description": "提供tracker服务器IP地址列表，帮助IPv6连接绕过OpenClash。",
+    "labels": "工具",
+    "version": "1.5.3",
+    "icon": "Clash_A.png",
+    "author": "wumode",
+    "level": 2,
+    "history": {
+      "v1.5.3": "修复 Rousi 种子获取问题",
+      "v1.5.2": "支持从站点首页获取最新 Trackers",
+      "v1.5.1": "新增 Tracker",
+      "v1.5.0": "新增 Page 界面; 支持通过`/check_ip` 命令检查IP; 改进 UI",
+      "v1.4.3": "修复 bug",
+      "v1.4.2": "修复插件动作",
+      "v1.4.1": "修复通知类型错误",
+      "v1.4": "异步查询DNS",
+      "v1.3": "新增一些Trackers",
+      "v1.2": "修复Trackers加载错误",
+      "v1.1": "更新列表后发送通知",
+      "v1.0": "支持自定义Trackers"
+    }
+  },
+  "ImdbSource": {
+    "v3": false,
+    "name": "IMDb源",
+    "description": "让探索，推荐和媒体识别支持IMDb数据源。",
+    "labels": "探索",
+    "version": "1.6.13",
+    "icon": "IMDb_IOS-OSX_App.png",
+    "author": "wumode",
+    "level": 1,
+    "system_version": ">2.12.4",
+    "history": {
+      "v1.6.13": "优化 API 请求 Header，提升请求兼容性与稳定性",
+      "v1.6.12": "支持按 IMDb ID 识别媒体详情，补全剧集与季数等元数据信息",
+      "v1.6.11": "修复 IMDb API 请求 403 问题",
+      "v1.6.10": "更新 IMDb API 域名与超时设置",
+      "v1.6.9": "简繁转换依赖改用 zhconv-rs，需要 MoviePilot >2.12.4",
+      "v1.6.8": "兼容 MoviePilot v2.11.0 识别链新增 share_meta 参数，修复辅助识别模式下刮削报错",
+      "v1.6.7": "优化界面显示; 增加榜单排名显示; 添加制作公司过滤项",
+      "v1.6.6": "优化主页组件链接跳转",
+      "v1.6.5": "仪表盘组件支持图片缓存",
+      "v1.6.4": "为元数据增加背景图",
+      "v1.6.3": "优化媒体识别速度; 适配 Pydantic V2 (主程序版本需高于 2.8.1-1)",
+      "v1.6.2": "修复 API 查询错误重试问题",
+      "v1.6.1": "添加中文主屏幕组件; 修复 bug",
+      "v1.5.8": "修改UA",
+      "v1.5.7": "改进异常处理",
+      "v1.5.6": "固定仪表盘组件海报比例; 修复 bug",
+      "v1.5.5": "修复初始化错误",
+      "v1.5.4": "改进媒体识别",
+      "v1.5.3": "异步执行; 修复 bugs (主程序版本需要高于 2.6.8)",
+      "v1.5.2": "修复一些bugs",
+      "v1.5.1": "改进媒体id转换; 支持二级分类和自定义推荐",
+      "v1.5.0": "支持媒体识别",
+      "v1.4.4": "更新数据源",
+      "v1.4.3": "为仪表盘组件添加缓存",
+      "v1.4.2": "优化小屏幕组件显示",
+      "v1.4.1": "优化亮色主题显示",
+      "v1.4.0": "添加仪表盘组件: IMDb 编辑精选",
+      "v1.3.3": "修复依赖问题",
+      "v1.3.2": "更新 API query hash",
+      "v1.3.1": "修复按日期排序错误",
+      "v1.3": "优化网络连接",
+      "v1.2": "推荐热门纪录片",
+      "v1.1": "推荐支持IMDB数据源; 优化海报尺寸，减少卡顿",
+      "v1.0": "探索支持IMDb数据源"
+    }
+  },
+  "ClashRuleProvider": {
+    "name": "Clash Rule Provider",
+    "description": "随时为Clash添加一些额外的规则。",
+    "labels": "工具",
+    "version": "2.1.8",
+    "icon": "Mihomo_Meta_A.png",
+    "author": "wumode",
+    "level": 1,
+    "release": true,
+    "history": {
+      "v2.1.8": "扩充代理协议与路由规则支持；优化配置页面",
+      "v2.1.7": "移除全局 TLS 指纹配置，请在代理节点中直接设置 client-fingerprint",
+      "v2.1.6": "修复依赖冲突",
+      "v2.1.5": "优化仪表盘连接鉴权；优化订阅更新提示",
+      "v2.1.4": "支持 xhttp 协议",
+      "v2.1.3": "修复代理删除问题",
+      "v2.1.2": "修复规则集序列化错误",
+      "v2.1.1": "增强数据管理功能",
+      "v2.0.10": "适配 MoviePilot 2.8.4",
+      "v2.0.9": "适配 Pydantic V2 (主程序版本需高于 2.8.1-1)",
+      "v2.0.8": "修复已知问题",
+      "v2.0.7": "修复子规则比较错误",
+      "v2.0.6": "修复已知问题; 改进对代理组的配置和验证",
+      "v2.0.5": "完善了对嵌套逻辑规则和子规则的配置和验证",
+      "v2.0.4": "修复已知问题; 使用异步调度器; 显示规则更改日期",
+      "v2.0.3": "修复已知问题",
+      "v2.0.2": "修复分享链接转换问题",
+      "v2.0.1": "支持独立的订阅链接配置, 覆写代理组和出站代理; 优化数据结构; 修复分享链接解析问题",
+      "v1.4.2": "优化移动端 UI; 支持显示节点链接",
+      "v1.4.1": "修复配置模板保存错误, 请重新配置Clash模板",
+      "v1.4.0": "优化 UI; 支持连接多个 Clash Dashboards",
+      "v1.3.3": "通过emoji识别国家; 按国家分组节点; mrs格式支持",
+      "v1.3.2": "注册插件动作",
+      "v1.3.1": "支持配置 Hosts",
+      "v1.2.8": "改进导入界面",
+      "v1.2.7": "修复分享链接解析错误",
+      "v1.2.6": "修复代理组修改丢失问题",
+      "v1.2.4": "支持geo规则补全; 代理组编辑",
+      "v1.2.3": "修复规则集名称错误",
+      "v1.2.2": "展示更多信息; 修复交互问题",
+      "v1.2.1": "修复配置模板错误",
+      "v1.2.0": "支持管理多个订阅; 支持导入配置模板和 V2Ray 链接; 优化界面",
+      "v1.1.3": "添加仪表盘组件",
+      "v1.1.1": "支持解析 V2ray 订阅",
+      "v1.1.0": "支持规则集合; 添加ACL4SSR规则集; 配置说明",
+      "v1.0.1": "支持规则搜索, 优化细节",
+      "v1.0.0": "支持: 规则分页; 导入规则; 代理组; 附加出站代理; 按区域分组",
+      "v0.1.0": "新增ClashRuleProvider"
+    }
+  },
+  "LexiAnnot": {
+    "name": "美剧生词标注",
+    "description": "根据CEFR等级，为英语影视剧标注高级词汇。",
+    "labels": "英语",
+    "version": "1.2.6",
+    "icon": "LexiAnnot.png",
+    "author": "wumode",
+    "level": 1,
+    "history": {
+      "v1.2.6": "适配 MoviePilot 新版 LLM 助手",
+      "v1.2.5": "langchain 1.x 兼容 (主程序版本需高于 2.9.17)",
+      "v1.2.4": "增强数据校验",
+      "v1.2.3": "优化提示词",
+      "v1.2.1": "改进字幕样式获取方法",
+      "v1.2.0": "引入大模型候选词决策和词义丰富处理链; 支持读取系统智能体配置; 添加智能体工具; 优化通知样式; 改进 UI",
+      "v1.1.4": "优化字幕选择决策",
+      "v1.1.3": "适配 Pydantic V2 (主程序版本需高于 2.8.1-1)",
+      "v1.1.2": "使用子进程避免 spaCy 模型常驻内存",
+      "v1.1.1": "添加任务页面; 改进 spaCy 模型加载逻辑",
+      "v1.1.0": "支持考试词汇标注; 优化分词处理; 修复错误",
+      "v1.0.1": "合并连字符词; 避免ARM平台依赖问题",
+      "v1.0": "新增LexiAnnot"
+    }
+  },
+  "MeoWMsg": {
+    "name": "MeoW消息通知",
+    "description": "支持使用MeoW发送消息通知。",
+    "labels": "消息通知",
+    "version": "1.0.1",
+    "icon": "MeoW_A.png",
+    "author": "Licardo",
+    "level": 2,
+    "history": {
+      "v1.0.0": "首个版本，新增MeoW消息通知",
+      "v1.0.1": "优化代码，修复运行一次按钮没办法自动关闭的问题"
+    }
+  },
+  "BugReporter": {
+    "name": "Bug反馈",
+    "description": "自动上报异常，协助开发者发现和解决问题。",
+    "labels": "开发",
+    "version": "1.5.1",
+    "icon": "Alist_encrypt_A.png",
+    "author": "jxxghp",
+    "level": 1,
+    "history": {
+      "v1.5": "更换上报端点",
+      "v1.4": "仅上报包含异常堆栈的错误，普通日志不再上报",
+      "v1.3": "减少网络异常信息上送",
+      "v1.2": "优化上报信息量",
+      "v1.1": "加强脱敏处理"
+    }
+  },
+  "TmdbWallpaper": {
+    "name": "登录壁纸本地化",
+    "description": "将MoviePilot的登录壁纸下载到本地。",
+    "labels": "壁纸,本地化",
+    "version": "1.4.2",
+    "icon": "Macos_Sierra.png",
+    "author": "jxxghp",
+    "level": 1,
+    "history": {
+      "v1.4.2": "适配MoviePilot v2.8.8+",
+      "v1.4.1": "MoviePilot V2 版本登录壁纸本地化插件"
+    }
+  },
+  "DailySummary": {
+    "name": "活动总结",
+    "description": "定时发送每日/每周/每月活动总结通知，支持自定义报告模块、历史记录查看",
+    "labels": "通知",
+    "version": "2.0.0",
+    "icon": "Bark_A.png",
+    "author": "yuhoye",
+    "level": 1,
+    "history": {
+      "v2.0.0": "首次发布：可配置报告模块、历史记录页面、下载器通用化、存储路径可配置"
+    }
+  },
+  "DynamicWeChat": {
+    "name": "动态企微可信IP",
+    "description": "修改企微应用可信IP，支持Srever酱等第三方通知。验证码以？结尾发送到企业微信应用",
+    "labels": "消息通知",
+    "version": "2.1.8",
+    "icon": "Wecom_A.png",
+    "author": "RamenRa",
+    "level": 2,
+    "system_version": ">=2.12.0",
+    "history": {
+      "v2.1.8": "fix:修复github@318182456指出的问题。校验cookie出现的not enough values to unpack (expected 2, got 1)。错误。",
+      "v2.1.7": "修复多线程环境下的任务管理及cookie误报等问题，提升稳定性",
+      "v2.1.6-1": "修复并发安全与资源管理问题",
+      "v2.1.6": "修复并发安全与异步阻塞问题，优化浏览器启动兼容性",
+      "v2.1.5": "优化浏览器生命周期管理，修复 Cookie 误判及界面卡死问题",
+      "v2.1.4": "修复动态企微可信IP启动异常",
+      "v2.1.3": "完全迁移至 CloakBrowser 异步 API，修复同步/异步冲突错误",
+      "v2.1.2": "修复本地扫码获取不到验证码的问题",
+      "v2.1.1": "优化MP/Nas关闭期间IP变动检测不到的现象。支持IYUU通知移除AnPush v2支持在微信通知失效时用第三方发送通知 支持||Q修改IP时不发送通知 使用全局AI助手需使用/wxcode 510010的格式发送验证码",
+      "v2.0.1": "修复企业微信后台页面语言未稳定切换为中文导致无法匹配配置按钮的问题。",
+      "v2.0.0": "V2 专用大版本改用 CloakBrowser 启动企业微信浏览器流程，默认插件不再声明 V2 兼容。",
+      "v1.7.3": "修复检测登录的元素",
+      "v1.7.2": "||wan参数细分,修复使用||wan时立即检测一次实际不生效,修复v1第三方备用通知可能无效,调整验证码获取",
+      "v1.7.1": "允许使用'||wan2'选项及无法使用'立即检测一次'",
+      "v1.7.0": "使用第三方通知时可IP变动后通知，拟支持多网络出口检查。",
+      "v1.6.0": "忽略因网络波动导致获取ip错误。自定义的类合并为helper.py。后续核心功能没问题将不再更新",
+      "v1.5.2": "可以从指定url获取ip,修复不使用cc时cookie失效过快，v1可配置第三方为备用通知，server酱可以将文本发送到server3,二维码给服务号",
+      "v1.5.1": "修复v2微信通知，可以指定微信通知ID",
+      "v1.5.0": "支持企微应用通知和第Serve酱等第三方推送。按要求修改插件名称",
+      "v1.4.1": "完善面板说明",
+      "v1.4.0": "修复强制更改IP时配置面板延时过长的问题。庆祝v2进入正式版，显示了一个没用的参数"
+    }
+  },
+  "InvitesSignin": {
+    "name": "药丸签到",
+    "description": "药丸论坛签到。",
+    "labels": "站点",
+    "version": "3.0.1",
+    "icon": "invites.png",
+    "author": "thsrite",
+    "level": 2,
+    "release": true,
+    "system_version": ">=2.12.0",
+    "history": {
+      "v3.0.1": "切换药丸真实签到接口并校验站点实时签到状态，修复失败误报成功问题",
+      "v3.0.0": "V2 专用大版本的浏览器仿真改用 CloakBrowser 获取页面，默认插件不再声明 V2 兼容。",
+      "v2.0.3": "增加启用浏览器仿真功能发送请求",
+      "v2.0.2": "增加签到检测机制防止重复签到，增强代码健壮性。",
+      "v2.0.1": "尝试修复签到失败问题，新增使用代理、Cookie自动更新功能",
+      "v2.0.0": "修复签到失败问题，新增账户登录签到功能、新增签到失败重试机制，美化界面UI",
+      "v1.4.1": "更新签到域名前缀",
+      "v1.4": "自定义保留消息天数"
+    }
+  },
+  "ContractCheck": {
+    "name": "契约检查",
+    "description": "定时检查保种契约达成情况。",
+    "labels": "做种",
+    "version": "2.0.0",
+    "icon": "contract.png",
+    "author": "DzAvril",
+    "level": 1,
+    "system_version": ">=2.12.0",
+    "history": {
+      "v2.0.0": "V2 专用大版本的渲染模式改用 CloakBrowser 获取站点页面，默认插件不再声明 V2 兼容。",
+      "v1.4.1": "增加站点猪猪",
+      "v1.4": "支持仪表板组件显示",
+      "v1.3": "修复观众做种数据异常问题",
+      "v1.2": "修复契约检查无数据返回的问题"
+    }
+  },
+  "TvFirstWatch": {
+    "v3": false,
+    "name": "首播试看",
+    "description": "定时抓取RSS,只下载电视剧前N集,自动跳过合集和过大文件。",
+    "labels": "订阅,RSS",
+    "version": "1.0.0",
+    "icon": "rss.png",
+    "author": "Raymond38324",
+    "level": 2,
+    "history": {
+      "v1.0.0": "首次发布"
+    }
+  },
+  "WechatClawBot": {
+    "name": "WechatClawBot消息推送",
+    "description": "支持使用微信(通过ClawBot)发送消息通知。",
+    "labels": "消息通知,微信",
+    "version": "0.2.2",
+    "icon": "Wechat_A.png",
+    "author": "mijjjj",
+    "level": 1,
+    "v2": true,
+    "history": {
+      "v0.2.2": "修复重复推送消息问题，增加入站消息去重并修正轮询更新提取逻辑",
+      "v0.2.1": "修复详情页状态信息换行显示问题",
+      "v0.2.0": "优化配置页UI布局，修复回复消息携带多余类型前缀的问题",
+      "v0.1.0": "初始版本"
+    }
+  },
+  "AIRecognizerEnhancer": {
+    "name": "AI识别增强",
+    "description": "直接复用 MoviePilot 当前 LLM 配置，在原生识别失败后做本地结构化识别兜底，并交回原生链路继续二次识别。",
+    "labels": "AI,识别,LLM,本地兜底,MoviePilot,TMDB",
+    "version": "0.1.14",
+    "icon": "airecognizerenhancer.png",
+    "author": "liuyuexi1987",
+    "level": 1,
+    "history": {
+      "0.1.14": "修复部分模型/网关返回 markdown 代码块包裹的 JSON 时结构化输出解析失败的问题，改为普通调用后剥围栏手工解析并保留重试。",
+      "0.1.13": "同步运行态能力，兼容 MoviePilot 最新 LLM 路径与异步 get_llm 接口，并修复失败样本持久化、清空和自动移除后的配置保存一致性。",
+      "0.1.10": "完善失败样本批量工作流，支持复查、批量建议、批量写入、低 token 摘要，并在模型异常时提供精确规则兜底。",
+      "0.1.4": "建立失败样本治理闭环，支持失败样本查看、摘要洞察、清理去重、保留上限，以及生成并写入 CustomIdentifiers。",
+      "0.1.0": "首个可用版本，复用 MoviePilot 当前 LLM 配置，在原生识别失败后通过 Chain NameRecognize 做本地结构化兜底。"
+    }
+  },
+  "AgentResourceOfficer": {
+    "v3": false,
+    "name": "Agent影视助手",
+    "description": "龙虾agent稳定控制 MP：飞书入口、盘搜/影巢搜索、115/夸克转存、智能评分推荐。",
+    "labels": "Agent,影巢,HDHive,115,夸克,Quark,智能体,转存,解锁",
+    "version": "0.3.2",
+    "icon": "agentresourceofficer.png",
+    "author": "liuyuexi1987",
+    "level": 1,
+    "release": true,
+    "history": {
+      "0.3.2": "修复 p115client 依赖版本号错误（0.0.8.5.1.1 不存在），固定为 PyPI 实际存在的 0.0.9.6.5.1，解决依赖安装失败问题。",
+      "0.3.1": "回退并固定 p115client 到 0.0.8.5.1.1，避免与 MoviePilot 当前环境和 115 插件依赖版本冲突。",
+      "0.3.0": "精简 Agent/MCP 暴露工具集，仅保留核心业务能力工具，移除自建计划、会话和自描述脚手架噪声；保留飞书与 HTTP 端点。",
+      "0.2.99": "重做 Vue 配置页与 115 扫码体验，修复扫码登录、配置保存、依赖误判、影巢网页登录 Cookie、自动刷新和 Playwright 兜底等问题。",
+      "0.2.74": "收口云盘搜索、转存、影巢签到和恢复链路，适配影巢 OpenAPI 新鉴权，补齐 115/夸克目录清理、Cookie 修复、远端接入和兼容检查。",
+      "0.2.67": "沉淀外部智能体执行契约和低 token 模板，统一 followup、error、score、command 摘要，并完善执行后追踪、恢复、维护与模板编排。",
+      "0.2.43": "形成 MP 原生 PT 主线与智能评分推荐，新增媒体识别、热门推荐、搜索详情、下载/订阅/控制计划、生命周期追踪、入库诊断、偏好画像和安全确认链路。",
+      "0.1.119": "完善请求模板协议、启动包、自检、维护和飞书入口迁移，并内置影巢签到日志与 Cookie 自动刷新，降低外部智能体接入成本。",
+      "0.1.79": "建立 assistant 协议层，新增 action、workflow、plans、history、readiness、recover、startup、toolbox、selfcheck 等能力，支持 compact 回执、会话恢复和安全 dry-run 计划执行。",
+      "0.1.34": "打通统一智能入口、原生 Agent Tool、会话状态/清理、115 扫码登录、待处理任务恢复与 115 独立直转执行层。",
+      "0.1.9": "首版接入夸克/115 转存、影巢搜索/解锁、盘搜/直链路由、候选分页详情、账号配额、签到兜底和健康检查。"
+    }
+  },
+  "AutoAuction": {
+    "name": "朱雀交易行自动上架",
+    "description": "自动上架上传或灵石到交易行，支持定时任务和历史记录",
+    "labels": "交易行自动化",
+    "version": "1.0.1",
+    "icon": "auction.png",
+    "author": "no_reply",
+    "level": 2,
+    "history": {
+      "v1.0.0": "初始版本，支持交易行自动上架和定时任务",
+      "v1.0.1": "修复定时任务重复触发问题"
+    }
+  },
+  "OidcAuth": {
+    "name": "OIDC 认证",
+    "description": "通过 OpenID Connect Provider 为 MoviePilot 提供插件化登录与账号绑定。",
+    "labels": "认证,OIDC,SSO",
+    "version": "0.3.4",
+    "icon": "Oidcauth_A.png",
+    "author": "ui-beam-9,jxxghp",
+    "level": 1,
+    "system_version": ">=2.13.5",
+    "release": true,
+    "history": {
+      "v0.1.0": "新增插件化 OIDC 登录、账号绑定、Provider 配置与联邦认证界面。",
+      "v0.2.0": "AuthPage 自动跳转 OIDC 授权，新增加载动画与错误重试；修复弹窗拦截提示及 PROXY_HOST 空值崩溃，补充配置表单指南。",
+      "v0.3.0": "重构双栏布局与动态背景，支持深浅主题自适应；新增绑定可视化、详情卡片及解绑确认；升级通信机制，新增特性介绍与底部信息栏，统一图标风格。",
+      "v0.3.1": "修复回调事件类型不匹配导致前端错误提示不准确；移除解绑方法多余检查，允许 OIDC 关闭状态下正常解绑。",
+      "v0.3.2": "兼容 MoviePilot v2.15.3 认证模块路径调整，修复插件无法加载的问题，同时保留对旧版认证模块的支持。",
+      "v0.3.3": "强化新版认证模块优先、旧版认证模块兜底的加载逻辑，并发布新版本确保旧安装可收到升级。",
+      "v0.3.4": "修复 MoviePilot V3 中 OIDC 登录、绑定及按用户名自动绑定时使用旧数据库调用导致回调崩溃的问题，并保留 V2 兼容。"
+    }
+  },
+  "AgentTokens": {
+    "name": "Agent Tokens 管理",
+    "description": "管理多平台免费 Token 配额，支持定向选择及按优先级切换 Agent LLM 供应商。",
+    "labels": "Agent,AI,系统",
+    "version": "1.1.3",
+    "icon": "agentresourceofficer.png",
+    "author": "jxxghp",
+    "level": 1,
+    "system_version": ">=2.13.2",
+    "release": true,
+    "history": {
+      "v1.1.3": "为供应商新增、编辑表单的全部输入项补充持久显示的配置说明",
+      "v1.1.2": "将插件启用和侧栏入口开关移至右上角设置菜单，并支持在菜单内保存",
+      "v1.1.1": "修复供应商复制按钮因提示组件占用默认插槽导致图标不可见的问题",
+      "v1.1.0": "支持按 provider ID 定向选择供应商、显式控制不可用时自动回退，并新增供应商配置复制功能",
+      "v1.0.13": "区分限量模型使用进度和不限量模型调用量统计，避免不限量用量计入配额进度",
+      "v1.0.12": "优化仪表板组件主题 token 适配和手动调整大小后的紧凑自适应布局",
+      "v1.0.11": "重设计仪表板组件，改为紧凑卡片式配额概览并对齐主仪表板视觉风格",
+      "v1.0.10": "新增供应商使用代理服务器配置，分配 Agent LLM 供应商时按配置传递代理开关",
+      "v1.0.9": "统一配置页和管理页内容，新增总使用进度图表卡片并优化大小屏布局",
+      "v1.0.8": "支持为 Agent LLM 供应商配置并传递 User-Agent",
+      "v1.0.7": "禁用VWindow触摸滑动，修复表格内滑动触发tab切换问题",
+      "v1.0.6": "优化标题样式并对齐站点管理页面风格，修复弹窗标题截断问题",
+      "v1.0.5": "优化UI布局，修复页面标题和按钮滚动问题",
+      "v1.0.4": "补充分配模型信息及更新用量的运行日志",
+      "v1.0.3": "修复因组件导出导致的界面空白问题、统一图标样式并去除全局样式污染",
+      "v1.0.2": "修复UI界面显示不全及前端路由报错问题",
+      "v1.0.1": "新增 Agent Tokens 配额管理、供应商优先级切换和用量展示"
+    }
+  },
+  "TraktCleaner": {
+    "name": "Trakt 观看清理",
+    "description": "根据 Trakt 播放记录，自动清理下载器中已观看的种子。",
+    "labels": "Trakt,清理",
+    "version": "1.4",
+    "icon": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/trakt.png",
+    "author": "Guoyin-Wen",
+    "level": 1,
+    "history": {
+      "v1.0": "初始版本：根据 Trakt 播放记录自动清理下载器中已观看的种子",
+      "v1.1": "fail-safe：信息不足（取不到文件列表/解析不全/无集数详情）时跳过而非删除；种子文件季号识别失败回退种子标题季号；集数解析完整性校验；同名不同年份媒体 key 加年份防覆盖",
+      "v1.2": "watched/shows 无 seasons 时回退 progress 端点获取季集（实验性，解析未过滤）",
+      "v1.3": "修正 progress 解析：按 last_watched_at 过滤只取真正看过的集（交叉验证准确）；移除 playback 第二数据源，以 Trakt watched 为唯一事实来源",
+      "v1.4": "新增延期清理模式：配置延迟天数（0 仍为即时清理），满足条件的种子先进入待清理队列，到期后自动清理；详情页顶部展示待清理队列，支持手动「立即清理」和「清除发现」（重置计时）；失效条目（种子消失/观看取消/不再满足）自动移出并可在下次满足时重新入列"
+    }
+  },
+  "UpdateWeChatIp": {
+    "name": "动态企微可信IP",
+    "description": "修改企微应用可信IP,可本地扫码刷新Cookie,直接调用接口更稳定",
+    "labels": "消息通知",
+    "version": "1.0.8",
+    "icon": "Wecom_A.png",
+    "author": "书小白",
+    "level": 2,
+    "v2": true,
+    "history": {
+      "1.0.8": "完善日志输出",
+      "1.0.7": "插件初始化时调用一下check确定登录状态",
+      "1.0.6": "修复未登录时_party_cache_data为空导致UI崩溃的BUG\n图片地址优先使用MP_DOMAIN获取,如果未配置使用127.0.0.1地址\n回调解析qrcode_key时判断是否存在,不存在发送错误\n优化请求企微接口的参数",
+      "1.0.5": "根据Code Review结果优化代码",
+      "1.0.4": "增加IP更新记录查询",
+      "1.0.3": "cookie保活输出返回值",
+      "1.0.2": "支持多个应用ID",
+      "1.0.1": "IP更新时发送通知,增加API接口,指定更新的IP",
+      "1.0.0": "初始化"
+    }
+  },
+  "MaoyanRank": {
+    "v3": false,
+    "name": "猫眼榜单订阅",
+    "description": "监控猫眼数据，自动添加订阅。",
+    "version": "3.2",
+    "icon": "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg",
+    "color": "#fefefe",
+    "author": "逗猫",
+    "level": 1,
+    "system_version": ">=2.12.0",
+    "history": {
+      "v3.2": "修复剧集订阅季号识别，标题含季号时优先使用标题季号，否则按TMDB最新季订阅",
+      "v3.1": "优化详情页UI，增加分页卡片与空值兜底，避免历史记录显示None",
+      "v3.0": "适配MoviePilot浏览器助手，修复Playwright浏览器可执行文件路径失配问题",
+      "v2.7": "增加优酷平台获取",
+      "v1.7": "更改榜单的排列组合支持多个平台同时订阅的功能",
+      "v1.6": "适配新的url获取",
+      "v1.5": "增加了条数配置选项支持1,2,3,5,7,10选择",
+      "v1.4": "增加支持了网络电影的订阅功能",
+      "v1.3": "取消猫眼榜单删除的平台",
+      "v1.2": "修改获取榜单的方法增加成功率",
+      "v1.1": "优化执行周期录入",
+      "v1.0": "修复使用缓存进行订阅搜索集数不全的问题",
+      "v0.7": "界面点击名称跳转TMDB",
+      "v0.6": "更改图标",
+      "v0.5": "更改爬取方式，提高成功率",
+      "v0.4": "电视剧订阅添加去重",
+      "v0.3": "增加平台分类",
+      "v0.2": "电视剧电影以及综艺的分类",
+      "v0.1": "初始化版本猫眼订阅功能"
+    }
+  },
+  "WxPusher": {
+    "name": "WxPusher消息通知",
+    "description": "支持使用 WxPusher 将通知推送到微信及全平台 App（极简推送 SPT / 标准推送 AppToken）。",
+    "labels": "消息通知",
+    "version": "1.1.2",
+    "icon": "WxPusher_A.png",
+    "author": "zjiecode",
+    "level": 1,
+    "history": {
+      "v1.1.2": "WxPusher 消息通知，支持极简推送 SPT（可多个）与标准推送 AppToken"
+    }
+  },
+  "BlurayRemux": {
+    "name": "蓝光原盘转封装",
+    "description": "整理电影蓝光原盘目录时，使用 ffmpeg 自动转封装为单个 MKV 文件。",
+    "labels": "文件整理,蓝光原盘,ffmpeg",
+    "version": "1.0.0",
+    "icon": "ffmpeg.png",
+    "author": "drdon1234",
+    "level": 1,
+    "system_version": ">=2.14.2",
+    "history": {
+      "v1.0.0": "新增电影蓝光原盘转封装插件，支持 MPLS 播放列表解析、覆盖检查和安全回滚。"
+    }
+  },
+  "EpisodeTag": {
+    "name": "集数标签",
+    "description": "下载剧集时自动给任务打上集数标签（如 E01-E12），qBittorrent / Transmission 通用，支持一次性补全历史",
+    "labels": "下载管理",
+    "version": "1.1",
+    "icon": "Youtube-dl_B.png",
+    "author": "devin",
+    "level": 1,
+    "history": {
+      "v1.1": "每集拆成独立标签（不再用范围）；补全时读种子文件列表覆盖无历史种子；自动迁移旧范围标签",
+      "v1.0": "初始版本：下载时自动打集数标签，支持一次性补全历史"
+    }
+  },
+  "PromotionTag": {
+    "name": "促销标签",
+    "description": "自动为下载任务打上 PT 站点促销标签（免费/2X免费/50%/2X 等），限时促销到期后自动移除；支持兜底扫描补全手动添加的种子。",
+    "labels": "下载,标签",
+    "version": "1.0",
+    "icon": "seed.png",
+    "author": "devin",
+    "level": 1,
+    "history": {
+      "v1.0": "首次发布：下载添加时打促销标签，未完成/已完成种子按间隔刷新，促销到期自动移除标签，兜底扫描覆盖非 MoviePilot 触发的下载"
+    }
+  },
+  "GoldPrice": {
+    "name": "金价日报",
+    "description": "每日定时推送金店零售价(周大福/老凤祥等)、银行纸黄金(工行/建行)、大盘金价到通知渠道(微信)。数据来自 ip138 与金价表公开页面，免费无需密钥。",
+    "labels": "工具,通知",
+    "version": "1.2.1",
+    "icon": "gold.png",
+    "author": "nshzswz",
+    "level": 2,
+    "history": {
+      "v1.2.1": "修复审核问题: 历史合并防覆盖/解析空值告警/周报错日/汇报崩溃/白名单筛选",
+      "v1.2.0": "每日推送加昨日涨跌率; 新增周/月/年周期汇报",
+      "v1.1.0": "新增历史数据记录与详情页金价走势折线图(大盘/金店/银行)",
+      "v1.0.0": "首个版本：金店 / 银行纸黄金 / 大盘金价每日定时推送"
+    }
+  },
+  "FullScreenPosterWall": {
+    "name": "全屏海报墙",
+    "description": "这是一个全屏海报墙插件，让所有终端可以播放精美的电影海报。抓取 MoviePilot 推荐媒体（流行趋势/TMDB热门电影/TMDB热门电视剧）的海报图片，以照片/拼贴/纵深穿梭/滑动面板/浮动/怀旧冲印/光舞等多种动效全屏展示，支持局域网海报墙页面。",
+    "labels": "媒体展示",
+    "version": "1.15.11",
+    "icon": "fullscreenposterwall.png",
+    "author": "ltdstudio",
+    "level": 1,
+    "system_version": ">=2.12.0",
+    "release": true,
+    "history": {
+      "v1.15.11": "插件页/配置页右上角新增关闭按钮；效果卡片收窄；文案精简",
+      "v1.15.10": "数据源改为下拉多选（配置页不再过长）；插件市场「项目主页」指向插件仓库",
+      "v1.15.9": "浮动动效倾角微调（有界摆动，峰值约 5°）",
+      "v1.15.8": "浮动效果卡片倾角改为有界摆动，避免过度倾斜",
+      "v1.15.7": "竖屏设备优先使用竖版海报图；lan-wall 新增全屏浮动按钮；修复仪表板格子图片填充",
+      "v1.15.6": "新增图片/Logo 拉取状态显示（插件页与 lan-wall 双端）",
+      "v1.15.5": "TMDB/Fanart 图片统一走服务器代理缓存（多设备共享 7 天磁盘缓存，加载更快）",
+      "v1.15.4": "补充 AniList 数据源；修复代理图片路径被前端误拼 TMDB 域名导致图片红叉的问题",
+      "v1.15.3": "修复豆瓣图源防盗链导致图片加载失败；单类型源勾选框精简",
+      "v1.15.2": "取消进入全屏前的倒数遮罩；单类型源禁止反向勾选",
+      "v1.15.1": "修复配置页数据源列表加载失败（响应解包判定错误）",
+      "v1.15.0": "推荐数据源动态化：跟随系统推荐链自动增减，每源可分别勾选电影/电视剧",
+      "v1.14.5": "修复主页仪表板格子塌缩（只见标题、内容不占位）",
+      "v1.14.4": "插件图标改为完整 URL 地址，修复图标不显示",
+      "v1.14.3": "修复 Logo 丢失：logo 模式下原生带字图加载失败回退到普通图时，按实际加载结果恢复 Logo 叠层；更换插件图标",
+      "v1.14.2": "新增海报数量设置（30/60/120/180/240，按源自动分页拉取）；图片预加载失败时在同条目内按候选链回退（Fanart CDN 不可达自动降级 TMDB），死主机记忆避免重复白等超时；纵深穿梭/流动拼贴/局域网海报墙同步优化",
+      "v1.13.1": "修复审查问题：Logo 补抓每缓存周期仅一次（防穿透限流）、浮动动效素材循环复用且预览不再空转、环形画廊按真实间隔配置轮换、纵深穿梭缺图时进入空态不再卡死",
+      "v1.13.0": "新增 3D 环形画廊动效（极光光斑/微尘光点氛围背景、螺旋飞出切换），拼贴动效更名「流动拼贴」，纵深穿梭动效优化，局域网海报墙页面同步升级",
+      "v1.11.0": "新增不断变化的拼贴/纵深穿梭/滑动面板等动效，海报图支持 Fanart 原生带片名横图与官方 Logo 叠加，新增局域网海报墙页面",
+      "v1.0.2": "修复 dashboard 格式/API 解包/timer 响应，新增 lan-wall 与 public-data 无认证接口",
+      "v1.0.0": "初始版本，支持照片/浮动/怀旧冲印/光舞等屏幕保护动效"
+    }
+  },
+  "BangumiProxy": {
+    "name": "Bangumi代理",
+    "description": "为 MoviePilot 内置 Bangumi 动漫数据与图片请求配置自定义代理 Base URL。",
+    "labels": "Bangumi,动漫,网络",
+    "version": "1.0.0",
+    "icon": "Bangumi_A.png",
+    "author": "kiritoxjf",
+    "level": 1,
+    "history": {
+      "v1.0.0": "新增 Bangumi 数据与图片代理 Base URL 配置，兼容 MoonPlus 代理拼接规则。"
+    }
+  },
+  "StorageCleanup": {
+    "name": "存储清理",
+    "description": "一键清理全链路耦合：自动发现 MoviePilot、qB、媒体目录与硬链接关系，联动核验做种、H&R 后安全释放空间。无特定媒体服务器也能使用。需先部署 NAS 清理台服务。",
+    "labels": "存储,媒体库,下载管理",
+    "version": "1.0.15",
+    "icon": "https://raw.githubusercontent.com/Hommchen/nas-storage-cleanup-ui-public/main/public/storagecleanup.svg",
+    "author": "Hommchen",
+    "level": 1,
+    "release": true,
+    "system_version": ">=2.14.6",
+    "history": {
+      "v1.0.15": "覆盖 Docker、群晖、Unraid 与多卷布局；候选不唯一时失败关闭",
+      "v1.0.14": "修正设置弹窗被 MoviePilot 侧栏遮挡的问题",
+      "v1.0.13": "精简设置页；自动识别失败时直接打开手动配置，并为路径字段提供填写提示",
+      "v1.0.12": "媒体服务器改为可选；无 Jellyfin 等特定媒体服务时也可按 MoviePilot/qB/文件关联工作",
+      "v1.0.11": "新增 NAS 配置自动发现，普通用户无需手填数据库路径",
+      "v1.0.10": "新增主页面设置入口，移除不通用的刷流任务筛选，突出全链路耦合清理",
+      "v1.0.9": "修正不完整电视剧仅按应有集数与实际集号判断，并排除未入库误报",
+      "v1.0.8": "新增电影、电视剧和不完整电视剧筛选",
+      "v1.0.6": "刷新资源清单时显示阶段与耗时，明确长时间 H&R 只读探测仍在进行",
+      "v1.0.7": "移除 MoviePilot 内部标识，改用面向用户的安全清理台标题",
+      "v1.0.5": "新增 NAS 拓扑设置、路径只读探测与配置变更后的安全锁定",
+      "v1.0.4": "丢弃过期清理计划响应，并修复执行前计划重建异常",
+      "v1.0.3": "新增手机卡片布局、横向筛选、双行操作面板及安全区弹窗适配",
+      "v1.0.2": "全部操作栏和弹窗统一挂到浏览器根节点，始终相对当前视口定位",
+      "v1.0.1": "操作栏固定到浏览器视口，并使用版本化联邦入口避免旧前端缓存",
+      "v1.0.0": "接入 PiNAS 清理台原生 Vue 页面、侧栏入口与三档真实执行链路"
+    }
+  },
+  "HRBlocker": {
+    "name": "H&R Blocker",
+    "description": "屏蔽所有带H&R的种子，搜索、订阅等任何场景都不会选中H&R种子。",
+    "labels": "站点",
+    "version": "1.2.0",
+    "icon": "hrblocker.png",
+    "author": "ltdstudio",
+    "level": 1,
+    "system_version": ">=2.12.0",
+    "release": true,
+    "history": {
+      "v1.2.0": "搜索结果列表直接过滤H&R种子（运行时包装搜索链，显示层也不出现）；记录显示 X/100；屏蔽记录弹窗新增两段确认的「清除记录」功能",
+      "v1.1.3": "设置按钮加大并移至插件页右下角（参照插件卡片 bottom-right 动作位样式）",
+      "v1.1.2": "插件页补标题栏（H&R Blocker + 版本号 + 设置齿轮按钮，emit switch 切到宿主设置弹窗）；/status 返回版本号",
+      "v1.1.1": "修复设置弹窗组件加载错误（补 Config 联邦组件）；插件页改为居中「查看屏蔽记录」按钮，点击弹出记录窗口，记录显示精简",
+      "v1.1.0": "新增插件页「H&R 屏蔽记录」固定面板（Vue联邦），保留最近100条屏蔽记录",
+      "v1.0.0": "初始版本：资源选择+资源下载双事件拦截，支持站点H&R标记种子与全站H&R站点屏蔽（联动H&R助手）"
+    }
+  },
+  "AnimeUpscale": {
+    "v3": false,
+    "name": "动漫视频超分",
+    "description": "在 MoviePilot 内直接使用 GPU 完成动漫视频 2 倍超分与 HEVC Main10 编码。",
+    "labels": "动漫,视频处理,GPU",
+    "version": "1.1.1",
+    "icon": "ffmpeg.png",
+    "author": "RWDai",
+    "level": 1,
+    "release": true,
+    "system_version": ">=2.12.0",
+    "history": {
+      "v1.1.1": "修复符号链接越界、非默认 GPU 的 NVENC 编码和 mov_text 字幕封装",
+      "v1.1.0": "将任务队列、GPU 推理和 FFmpeg 流水线直接集成到 MoviePilot 插件",
+      "v1.0.0": "首个版本：支持服务状态、模型下载与校验、任务提交和管理"
+    }
+  },
+  "ScrapeFileClean": {
+    "v3": false,
+    "name": "源文件联动清理",
+    "description": "为手动清理下载目录设计：手动删除源文件后，自动联动清理媒体库中对应的硬链接文件、刮削文件（元数据、图片、字幕）与转移记录，支持延迟删除防止误删",
+    "labels": "文件整理,媒体库",
+    "version": "1.0.7",
+    "icon": "clean.png",
+    "author": "xlmc",
+    "level": 1,
+    "history": {
+      "v1.0.7": "修复 PR-Agent 审查发现的问题：①延迟删除到期时路径已被其他 inode 文件占用，仅清理旧实体的剩余硬链接，不再对该现存路径执行刮削、历史记录、删种等路径关联副作用；②监控范围内改名为临时文件或过滤关键字等忽略目标时视为重命名，不再触发源文件删除清理。",
+      "v1.0.6": "修复 PR-Agent 审查发现的问题：①watchfiles 回退层增加初始身份建表，重命名启动前已存在的文件也能正确配对为移动；②同目录存在同 stem 的其他媒体文件时视为共享刮削文件，删除当前媒体不再清理；③移动覆盖已监控目标时按删除处理被替换的旧实体，避免其硬链接残留；④全量扫描与删除事件统一应用临时文件过滤，.tmp/.temp 等不再进入监控状态。",
+      "v1.0.5": "修复 PR-Agent 审查发现的问题：①watchfiles 回退层将同一批次中 inode 相同的新增+删除事件配对为移动，避免重命名误触发删除清理；②刮削文件匹配排除同目录其他媒体文件拥有的名称，避免误删 Film-2 等关联元数据；③延迟到期校验仅当路径重新出现且仍为原文件实体（同 inode）时才跳过，并在任务中记录删除时已存在的硬链接，区分原有硬链接与重整理产生的新路径。",
+      "v1.0.4": "修复 PR-Agent 审查发现的问题：①状态采集跳过符号链接，避免误删链接目标及其硬链接；②刮削清理入口与每个待删除候选项应用不删除目录检查；③删除目录事件先应用过滤关键字再联动删种。",
+      "v1.0.3": "修复 PR-Agent 审查发现的问题：①刮削文件匹配增加媒体名边界，避免 S01E01 误删 S01E010 等其他媒体的文件；②删除硬链接、刮削文件与空目录清理时统一应用过滤关键字；③停止服务时不再提前执行未到期的延迟删除任务；④空目录清理使用规范化路径比较监控根目录，避免误删监控目录本身。",
+      "v1.0.2": "优化插件介绍：明确为手动删除源文件后自动清理硬链接、刮削文件与转移记录而设计。",
+      "v1.0.1": "修复插件类名与插件ID不一致，导致安装后不在本地插件列表显示的问题。",
+      "v1.0.0": "新增源文件联动清理插件：监控源文件删除，自动联动删除硬链接、刮削文件与转移记录。"
+    },
+    "release": true
+  },
+  "QbUploadLimiter": {
+    "name": "QB上传限速",
+    "description": "仅处理 MoviePilot 已整理入库成功的种子：分享率达到全局或站点单独阈值后自动限制上传速度（qBittorrent 与全局上传限速取较小值）；可选 AI 智能限速——调用系统设置的大模型按种子分享率、上传活跃度与站点账号分享率逐种子智能决策限速；支持多下载器、站点筛选、定时检测，停用/卸载自动恢复不限速。",
+    "labels": "下载管理,Qbittorrent,Transmission,限速,分享率,站点,AI",
+    "version": "1.3.19",
+    "icon": "Qbittorrent_A.png",
+    "author": "xlmc",
+    "level": 1,
+    "history": {
+      "v1.3.19": "通知补齐：除原有「限速」通知外，新增「取消限速」「AI 接管」「AI 取消接管」三类状态通知，均沿用限速通知模板（站点/种子文本加粗）；仅在状态实际变化时通知（AI 调整限速、AI 解限恢复不限速、下载完成/限速后超时取消监控并成功恢复不限速），避免每轮重复推送；AI 限速通知不再与普通限速通知混淆。",
+      "v1.3.18": "AI 账号分享率门槛值限定为正整数（0=不启用，浮点数视为无效回退 0），保持门槛语义清晰、避免小数阈值。同时修复 PR-Agent 审查发现的问题：①只认可本轮有效的 AI no_limit 决策，账号分享率降至门槛以下等不再参与 AI 评估的种子回退常规阈值规则，不再沿用决策缓存中的陈旧 no_limit 结论；②分享率阈值归一化改用十进制四舍五入（1.25 -> 1.3），修正内置 round 银行家舍入（1.25 -> 1.2）与表单承诺不符的偏差；③种子状态详情页限速值改为读取下载器中实际生效的限速，防抖维持现状与常规规则限速如实展示。",
+      "v1.3.17": "新增「AI 账号分享率门槛」：站点账号分享率达到设定值（0=不启用）才对该站种子生效 AI 智能限速决策，未达标或查不到账号分享率的站点回退常规阈值规则；用于高分享率账号（上传指标已充足）主动限速减上行流量，规避家宽被运营商限速。",
+      "v1.3.16": "AI 智能限速支持复核已限速种子（方案 A）：已限速种子也参与每轮 AI 评估，AI 可根据最新分享率/活跃度加限、减限或解限；加/减限带 20% 防抖（差异不显著维持现状、避免抖动），解限恢复不限速且不移入取消监控（后续仍可重新限速），修复「限速后 AI 失声、决策单向不可逆」的问题。",
+      "v1.3.15": "统一处理门槛为「入库成功」：不再额外判断种子是否真正下载完成，入库成功即进入分享率限速与 AI 评估流程（分享率阈值会自然挡掉下载中的种子）；种子状态机与限速/评估门槛完全对齐。「下载完成后监控超时」功能保留其独立的下载完成语义。",
+      "v1.3.14": "修复 AI 介入前后逻辑漏洞：①大模型配置缺失后降频重试探测，补配置后无需重新保存插件即可自动恢复 AI（原先会永久锁死）；②AI 失效（配置缺失/获取失败）时自动关闭种子状态详情页，避免页面继续误导；③新增「AI 不限速」种子状态，被 AI 判定不限速的活跃种子不再误显示为「待评估」。",
+      "v1.3.13": "修复 AI 智能限速逻辑疏漏：①活跃度快照更新顺序错误导致活跃判断恒为不活跃（AI 从未真正介入），现改为先判断后更新快照，窗口增量恢复正常；②AI 限速日志误把限速值当分享率阈值显示，现区分 AI 决策与阈值规则日志；③限频间隔内新活跃（尚未评估）的种子不再被跳过，自动回退阈值规则兜底，同时尊重 AI 的 no_limit 决策；④限频复用决策时丢弃超过一个评估间隔未刷新的过期缓存，避免陈旧结论。",
+      "v1.3.12": "分享率阈值（全局与站点单独）支持浮点数：允许最多 1 位小数（如 1.5），不能为 0、不能为负；0、负数或非法值自动回退默认值 1，多余小数位四舍五入。",
+      "v1.3.11": "开启 AI 智能限速（保存配置）时自动后台自检一次大模型连通性，结果写入插件日志：自检通过即视为 AI 生效、立即开启种子状态详情页；自检失败（未配置大模型/调用异常/返回空）则保持点击卡片直接进设置，限速继续回退常规分享率阈值规则。",
+      "v1.3.10": "新增种子状态详情页（彩蛋）：AI 智能限速成功生效（至少一次大模型调用并解析成功）后，点击插件卡片进入种子状态页面，展示顶部状态统计（待评估/限速中/恢复中/忽略）与每种子明细（下载器/名称/站点/状态/限速值/AI 决策原因）；AI 未启用或未成功生效时保持原有行为——点击卡片直接进入插件设置。",
+      "v1.3.9": "优化 AI 智能限速算法：修复提示词中限速上限占位符未替换的问题（{max_limit} 原样输出导致大模型无法获知真实上限，现正确写入配置值）；适配带思考（reasoning）的大模型——调用超时放宽至 180 秒、模型回复内容为空时安全兜底回退常规阈值规则。已用备用站 glm-5.3 端到端实测：决策输出稳定可解析，按站点账号分享率与种子分享率合理限速。",
+      "v1.3.8": "新增 AI 智能限速：启用后调用 MoviePilot 系统设置中已配置的大模型（智能体），按「种子分享率、上传活跃度、站点账号分享率」逐种子智能决策是否限速与限速值（可独立设置 AI 限速上限与评估间隔，AI 上限 0 时使用配置的上传速度）；仅在种子活跃（有实际上传流量）时评估，休眠种子自动跳过；大模型未配置（日志会提示前往系统设置-大模型配置）、调用失败或输出解析失败时自动回退常规分享率阈值限速。启用 AI 后运行日志额外输出种子状态统计（待评估/限速中/恢复中/忽略）作为状态彩蛋；未启用 AI 时保持原有行为不变。",
+      "v1.3.4": "优化插件介绍文案，突出「仅处理 MoviePilot 已整理入库成功的种子」的核心行为。",
+      "v1.3.3": "新增入库成功门禁：插件仅处理 MoviePilot 已「整理入库成功」的种子（下载完成并转移刮削进媒体库，整理记录 status=成功），种子入库成功前对插件完全不可见，不监控、不限速，等同于插件未开启；入库成功后才按分享率阈值限速。同时修复 _load_history_sites 静态方法异常分支误用 self 导致查询失败时抛 NameError 的问题。",
+      "v1.3.2": "修复 Transmission 下载器健壮性：核心下载器未请求单种限速字段（uploadLimited/uploadLimit），导致每轮检测误判「非目标限速」而重复设置限速并重复发送通知，且「限速后超时」的持续限速计时被持续重置；现以插件自身「已限速」记录兜底判断，避免重复限速与重复通知，恢复「限速后超时」计时；同时仅对首次新限速的种子发送通知，重新应用（外部改回）不再重复通知。",
+      "v1.3.1": "新增 qBittorrent 全局上传限速联动：种子达到分享率阈值后，若插件上传速度配置高于 qB 全局上传限速，则以全局值限速；若插件配置更低或 qB 全局不限速，则保持插件配置。",
+      "v1.3.0": "新增按站点单独分享率阈值：支持以「站点名称=阈值」逐行配置，已识别站点优先使用单独阈值，未配置或无法识别站点时回退到全局阈值；与站点筛选组合使用时筛选范围优先。",
+      "v1.2.29": "修复两处问题：①未勾选任何下载器或全部下载器离线时提前返回，导致已从插件选择中移除的下载器重连后待恢复记录无法自动重试，现改为提前返回前也执行兜底恢复重试并持久化；②downloaders/sites 配置若为单个字符串会按字符拆分导致名称匹配失效，新增 _normalize_config_list 统一归一化为去重字符串列表。",
+      "v1.2.28": "代码自查修复：①外部将种子改为非目标限速时，「限速后超时」的持续限速计时与低速计时改用 setdefault 写入，修复下载器首次出现时计时被写入临时字典而丢失、低速计时未真正重新起算的问题；②重新启用插件时等待在途的兜底恢复重试任务结束后再执行新一轮限速，消除在途恢复任务并发撤销刚重新应用的限速并清空限速记录的竞态；③兜底恢复重试达到报告间隔后不再提前终止的说明与实现保持一致（任务持续运行直到全部恢复成功）。",
+      "v1.2.27": "修复 PR-Agent 审查发现的问题：①停用/卸载后的兜底恢复重试不再提前终止——下载器长时间离线时持续定时重试，下载器重连后无需重新启用插件即可恢复不限速；②启用状态下每轮检测对所有存在待恢复记录的下载器兜底重试，覆盖已从插件选择中移除的下载器，离线期间被移除选择导致的恢复失败在重连后也能自动恢复；③上传速度填 0（不做限速处理）时同样顺带重试所有待恢复记录，不再因提前返回而阻断旧限速的自动恢复；④种子被外部改为非目标限速时，「限速后超时」的持续限速计时与低速计时一并重新起算，避免沿用旧低速时长提前取消监控。",
+      "v1.2.26": "修复 PR-Agent 审查发现的问题：①下载器成功返回空种子列表时不再误报获取失败，空列表是「没有匹配对象」的合法成功结果；②种子当前进度明确小于 1（缺文件、重新校验或扩展下载导致完成状态回退）时以当前进度为准，不再回退到历史完成时间误判为已完成；③种子被手动或其他插件改为非目标限速时重新开始「限速后超时」计时，不再沿用旧时间戳误判超时并永久取消监控；④停用/卸载时下载器离线导致恢复失败的种子，自动定时兜底重试，下载器重连后无需重新启用插件即可恢复不限速，启用状态下每轮检测也会顺带重试「已取消监控但恢复失败」的种子。",
+      "v1.2.25": "修复 PR-Agent 审查发现的问题：①停止调度器时等待正在执行的检测任务结束，消除停用/卸载恢复不限速与运行中任务的竞态，避免任务在恢复后再次设置限速；②「下载完成后监控超时」判定扩展到所有已完成且未认领的种子（不再依赖分享率达标），持续低速达到设定秒数即取消监控，避免速度回升后仍可能被限速。",
+      "v1.2.24": "修复 PR-Agent 审查发现的问题：①每个检测周期结束后立即持久化待恢复/已取消监控记录，避免周期任务或停用状态下的单次运行产生的限速归属/取消状态在下次保存配置时被旧快照覆盖；②从待恢复记录恢复出的已认领种子在重新检测时重建限速起始时间，保证「限速后取消监控超时」计时可用；③恢复不限速时从待恢复记录与当前配置合并确定下载器目标，用户清空/更换下载器选择后，旧下载器的待恢复记录仍会在停用/卸载时重试。",
+      "v1.2.23": "修复 PR-Agent 审查发现的问题：①限速所有权仅在插件实际设置限速时认领——种子当前限速已等于目标值且并非本插件所设时，不再登记为待恢复，避免停用/卸载时误将外部设置的限速恢复为不限速；②取消监控时校验恢复不限速的返回结果，恢复失败保留待恢复记录，停用/卸载时仍会兜底重试；③待恢复记录与已取消监控记录跨重新初始化/重启持久化，不再因保存配置被清空，已取消种子也不会因重新初始化被再次限速。",
+      "v1.2.22": "修复 PR-Agent 审查发现的问题：①状态清理按集合/字典各自语义删除已不在下载器中的种子，修复集合误用字典 pop 导致 TypeError 中断整轮轮询；②完成状态判定排除 completion_on=-1 等非正哨兵值，避免下载中的种子被提前限速；③「立即运行一次」与启用状态下的周期定时检测独立调度，不再因勾选立即运行而停掉周期任务；④启用状态下修改配置时先恢复旧配置下已限速的种子，避免记录清空后旧限速无法在停用/卸载时恢复；⑤恢复不限速时校验下载器返回结果，失败不再误报成功并保留记录以便重试。",
+      "v1.2.21": "取消监控时立即恢复该种子不限速：下载完成后超时或限速后持续低速达到设定秒数而取消监控的种子，若此前被本插件限速过，取消监控的同时立即将上传速度恢复为不限速，并从待恢复集合移除，此后插件不再干预该种子（qB 后续如何限速与插件无关）；恢复失败时保留在待恢复集合，停用/卸载插件时仍会兜底恢复。",
+      "v1.2.20": "修复 PR-Agent 审查发现的问题：①仅对已下载完成的种子按分享率限速，避免下载中提前限速；②「下载完成后监控超时」改为按连续低速时长判定：上传速度持续低于限速值达到设定秒数才取消监控，速度回升到限速值即重新计时，避免仅凭当前速度快照误取消；③取消监控的种子仍纳入停用/卸载时的统一恢复范围，不再残留限速状态。",
+      "v1.2.19": "修复分享率阈值可手动输入 0 的问题：输入框禁止输入或粘贴全 0 数值并增加提示（必须为正整数 ≥1）；同时自动规范化并持久化历史遗留的非法配置（如 0），避免非法值回显到表单。",
+      "v1.2.18": "上传限速更名为「上传速度」：填 0 表示分享率达到阈值后不做限速处理；上传速度、检测间隔与两个监控超时均要求为正整数（不允许小数），两个监控超时填 0 表示不启用对应功能。",
+      "v1.2.17": "新增监控超时取消机制：①种子下载完成后，若在设定秒数内上传速度达不到限速值，取消监控不再设置限速；②种子限速后，持续限速或上传速度低于限速值 80% 达到设定秒数时，取消监控不再设置限速；超时秒数可自定义，0 表示不启用，输入框隐藏加减按钮。",
+      "v1.2.16": "修复 v1.2.14 重构导致的插件加载失败：get_form、_load_site_domains、_send_limit_notify 三个方法定义被误并入注释行，导致插件无法加载、点击插件提示「插件数据加载失败」；已恢复方法定义并通过语法与完整性校验。",
+      "v1.2.15": "升级插件后自动重置测试通知标记，允许重新发送一次测试通知（同一版本内仍仅发送一次），便于升级后验证通知渠道；修复版本升级后测试通知无法再次发送的问题。",
+      "v1.2.14": "修复通知发送：不再受 MoviePilot 通知场景开关限制，勾选的通知渠道必定收到；站点筛选优先使用下载历史中的站点记录，提升识别准确性；重构核心逻辑，优化算法与可读性。",
+      "v1.2.13": "发送通知支持多选通知渠道，可同时推送到多个渠道；上传限速、定时检测两个数字输入框隐藏右侧上下箭头。",
+      "v1.2.12": "移除旧版分钟配置的兼容逻辑，定时检测间隔仅使用以秒为单位的配置项。",
+      "v1.2.11": "定时检测间隔默认值调整为 30 秒；输入框提示简化为「建议设置 30 秒以上」，最短 10 秒说明移至 README。",
+      "v1.2.10": "定时检测间隔输入框补充单位说明与建议：单位秒，建议设置 30 秒以上（最短 10 秒），备注不影响输入。",
+      "v1.2.9": "定时检测间隔改为按秒设置（最短 10 秒，建议 60 秒），分享率达到阈值后最快 10 秒内自动限速；旧版分钟配置自动换算为秒。",
+      "v1.2.8": "限速通知改为逐种子发送：「站点所下的种子已限速多少KB/s」，站点、种子、速度加粗显示；点击「立即运行一次」自动发送一次测试通知（仅首次）。",
+      "v1.2.7": "下载器与站点筛选并列显示在第二行；分享率阈值、上传限速、定时检测间隔合并为一行。",
+      "v1.2.6": "站点筛选独立占一行显示，站点下拉顺序与站点管理一致；分享率阈值、上传限速、定时检测间隔合并为一行。",
+      "v1.2.5": "新增按站点筛选：可勾选站点，仅对所选站点下载的种子按分享率限速。",
+      "v1.2.4": "点击插件卡片或通知消息直接进入插件设置，不再显示状态详情页。",
+      "v1.2.3": "分享率阈值仅允许设置正整数（不允许 0 或小数）；上传限速默认值为 2000 KB/s。",
+      "v1.2.2": "停用或卸载插件时自动恢复已限速种子为不限速；发送通知改为选择 MoviePilot 中已配置并启用的通知渠道；默认上传限速调整为 2000 KB/s。",
+      "v1.2.1": "插件显示名与介绍恢复为「QB上传限速」；下载器下拉支持选择 MoviePilot 中已启用的 qBittorrent / Transmission 下载器。",
+      "v1.2.0": "新增支持 Transmission（TR）下载器，支持 qBittorrent 与 Transmission 按分享率逐种子限速。",
+      "v1.1.1": "作者信息更新为 xlmc，并补充作者主页链接。",
+      "v1.1.0": "核心功能改为按分享率限速：种子分享率达到设定阈值后自动限制该种子上传速度（KB/s），支持多下载器与定时检测。",
+      "v1.0.0": "新增 qBittorrent 全局上传限速功能，支持多下载器、立即应用、定时重试和停用恢复不限速。"
+    },
+    "release": true,
+    "v3": false
+  },
+  "IqiyiDiscover": {
+    "name": "爱奇艺探索",
+    "description": "让探索支持爱奇艺的数据浏览。",
+    "labels": "探索",
+    "version": "1.1.0",
+    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/iqiyi_A.png",
+    "author": "LLL001a",
+    "v3": false,
+    "level": 1,
+    "history": {
+      "v1.1.0": "新增自动获取Cookie机制，通过CloakBrowser自动获取爱奇艺Cookie绕过风控，修复探索页面404问题",
+      "v1.0.1": "优化海报清晰度，优先使用高清海报字段",
+      "v1.0.0": "发布"
+    }
+  }
 }

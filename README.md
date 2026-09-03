@@ -1,55 +1,97 @@
 # MoviePilot-Plugins
-MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 
-## 目录
-- [1. Sportscult 比赛自动下载及简单刮削](#1-Sportscult比赛自动下载及简单刮削)
-- [2. ios快捷指令添加订阅修改版](#2-IOS快捷指令添加订阅修改版)
+MoviePilot 官方插件仓库，也是默认插件市场的源码与索引仓库：
+<https://github.com/jxxghp/MoviePilot-Plugins>
 
-## 插件介绍
+当前开发目标是 MoviePilot V3。新插件开发者不需要先阅读 V2 文档，也不要在多份
+“适配指南”之间自行拼接流程。
 
-### 1. Sportscult 比赛自动下载及简单刮削【更新中】
-[插件目录](./plugins.v2/autosports)
-  #### **如何使用**：
-  1. 站点索引器：
-     - 添加了 Sportscult 站点的索引器，安装此插件后即可使用，不需要启用该插件
-     - 需要在站点 -> 添加站点中像其它站点一样填入相关信息
-     - 直接搜索应该就可以搜到种子了，但无法直接下载，尝试通过 get_module 重载系统方法来解决这个问题，但是未成功，暂时放弃
-  2. 自动下载功能及整理刮削：
-     > 该功能目前内置支持西甲/五大联赛/欧冠/西班牙国王杯/西班牙超级杯 
-     > 如需添加别的比赛，可以在参考[赛事自定义指南](./docs/Self_Defined_Competitions_Guide.md)部分进行自定义
-     > 该插件测试场景并不充分，可能会遇到各种各样的问题，欢迎反馈
-     > 如果遇到了问题，可以（打开 MP 的调试模式）先看日志，如果是比赛元数据识别错误之类的问题，可以参考日志信息和 football-data.org 上的球队名添加相应的识别词
-     
-     1. 请前往 [football-data.org](https://www.football-data.org/client/register) 获取 API key
-     2. 添加球队识别词（根据种子站里常见的球队名和 football-data.org 上的球队名实际结果调整）
-        ```
-        Kobenhavn => København
-        UCL Slavia Praha => UCL.Slavia Praha
-        Villareal => Villarreal
-        Barcelona => FC Barcelona
-        FC FC Barcelona => FC Barcelona
-        ```
-     3. 在 MP 设置中添加体育比赛的做种目录和媒体库目录，选项最好保持一致：
-        ![image](./docs/images/example_storage_settings.png)
-     4. 执行周期间隔建议设置为 30 分钟以上，避免频繁请求 API / 站点
-     5. 运行模式可选下载+整理或仅整理，在选择仅整理时，会覆盖`是否进行下载目录全量扫描整理`开关的设置，即在每次运行插件时进行一次下载目录的全量扫描及整理
-     6. 将获取到的 API key 填入插件设置中
-     7. 在球队名关键词一栏填入你想要自动下载的球队名称关键词，一行一个
-     8. 设置（可留空）种子筛选条件：包含规则、排除规则、大小限制、清晰度，如果不想要女足比赛，记得排除里填上 'Women'
-     9. 设置（可留空）种子分类和标签，由该插件添加的下载任务会默认有一个 `AutoSports` 标签
-     10. 下载器和转移方式根据自己的环境配置
-     11. 下载目录和转移目录必须与第 3 条里设置的做种目录和媒体库目录相同或是 3 中目录的子集：
-     12. 推荐设置可参考：
-         ![image](./docs/images/example_settings.png)
-  ___
-#### 已知问题：
-    1. 部分比赛可能无法被正确刮削
-    2. 部分自定义杯赛轮次可能无法正确识别，发生该情况时会以暂停状态添加种子，便于进行手动检查和手动刮削
-    3. Sportscult 站点种子命名千奇百怪，只能手动添加识别词解决，目前版本对西班牙的赛事体系的精调较为完善
-    4. 在检测已入库比赛信息时，需要对整个设置的转移目录进行扫描，可能对含有大量文件的目录性能不佳，请谨慎使用
-    5. 一生只爱一支球队，该插件只支持同时订阅一支球队（但可以设置多个搜索关键词）。底层原因是检测已入库比赛信息时是通过赛事名+赛季+轮次来判断的，无法区分同一赛事的同一轮的多场比赛
+## 从这里开始
 
-### 2. IOS快捷指令添加订阅修改版【仅维护】
-[插件目录](./plugins.v2/shortcutmodified)
-  - 在[原作者](https://github.com/honue/MoviePilot-Plugins)的基础上做了现版本 MP 的适配
-  - 添加了一些小功能，增强易读性
+### 开发一个新的 V3 插件
+
+阅读 [MoviePilot 插件开发指南（V3）](./docs/Plugin_Development.md)。这是当前唯一的
+完整主指南，覆盖目录、最小骨架、生命周期、稳定 SDK、配置与数据、V3 数据库事务、
+页面、事件、API、服务、测试和发布。
+
+### 把旧插件迁移到 V3
+
+先阅读主指南，再查看
+[V2 插件迁移到 V3](./docs/V3_Plugin_Adaptation.md)。迁移专题只讲旧导入兼容、
+数据库事务、媒体身份、音乐链、数据迁移和 V3 合同差异，不再承担从零开发说明。
+
+### 维护官方仓库或发布版本
+
+查看 [仓库与发布指南](./docs/Repository_Guide.md)，了解索引、版本选择、元数据、
+CI、Release 和跨仓协作边界。
+
+### 按具体功能查示例
+
+查看 [常见问题](./docs/FAQ.md)。API 返回与前端调用另见
+[插件 API 专题](./docs/V3_API_Response_Adaptation.md)。
+
+### 仍然维护 V2 插件
+
+[V2 插件开发指南](./docs/V2_Plugin_Development.md) 仅作为历史版本参考。新插件和
+V3 专用实现不要从该文档开始。
+
+## 仓库负责什么
+
+本仓库不是独立运行时：
+
+- `MoviePilot` 负责插件加载、事件分发、API、服务、数据、工作流和 Agent 运行时。
+- `MoviePilot-Frontend` 负责配置页、详情页、仪表板和 Vue 联邦组件渲染。
+- `MoviePilot-Plugins` 负责插件源码、市场索引、图标、测试、文档和发布流程。
+
+## 当前目录
+
+```text
+MoviePilot-Plugins/
+├── plugins.v3/              # 当前 V3 专用插件，新插件放这里
+├── tests/v3/                # V3 插件测试
+├── package.v3.json          # V3 插件市场索引
+├── plugins.v2/              # V2 历史专用实现
+├── package.v2.json          # V2 历史索引
+├── plugins/                 # 更早或跨版本的存量实现
+├── package.json             # 默认历史索引
+├── icons/                   # 插件图标
+├── docs/                    # 开发、迁移、FAQ 和发布文档
+└── .github/                 # CI 与 Release 工作流
+```
+
+V3 新插件使用 `plugins.v3/<plugin_id_lower>/`、`tests/v3/<plugin_id_lower>/` 和
+`package.v3.json`。V3 对旧插件的回退加载只用于兼容存量实现，不是新插件继续写入
+旧目录的理由。
+
+## 最重要的提交规则
+
+- 插件目录名必须是插件主类名的小写形式，主类定义在目录的 `__init__.py`。
+- 新增类和方法需要补充说明职责的注释。
+- `plugin_version`、索引 `version` 和最新 `history` 必须一致。
+- 当前版本历史置顶，所有历史按语义版本降序排列。
+- V3 新代码优先使用 `app.sdk`；不要新增对宿主内部目录布局的无必要依赖。
+- 宿主数据通过 Oper、Chain 或稳定 SDK 访问；不要直接操作宿主 Model，也不要自行持有
+  `SessionFactory` 等裸会话工厂。数据库事务装饰器只用于插件自有表。
+- 插件运行数据写入插件数据目录，不要写回源码目录。
+- V3 第三方依赖写入插件 `pyproject.toml`，不提交插件 `uv.lock`；V1/V2 保留 `requirements.txt`。
+- 第三方依赖安装在宿主共享环境，不能降级或覆盖 MoviePilot 核心依赖，也不要由插件直接执行包管理器。
+- 测试放在仓库根 `tests/v3/<plugin_id>/`，不要放进插件源码目录。
+- 提交前运行 Python 编译、版本门禁、相关测试和 `git diff --check`。
+
+## 第三方插件仓库
+
+第三方仓库建议 fork 本项目并保留相同目录和索引结构。MoviePilot 插件市场只读取
+GitHub 仓库的 `main` 分支；仓库地址通过 `PLUGIN_MARKET` 配置，多个地址用逗号
+分隔。
+
+请勿开发用于破解 MoviePilot 用户认证，或提供色情、赌博等违法违规内容的插件。
+
+## 常用链接
+
+- [完整 V3 开发指南](./docs/Plugin_Development.md)
+- [V2 插件迁移到 V3](./docs/V3_Plugin_Adaptation.md)
+- [插件 API 专题](./docs/V3_API_Response_Adaptation.md)
+- [仓库与发布指南](./docs/Repository_Guide.md)
+- [FAQ 索引](./docs/FAQ.md)
+- [插件仓测试说明](./tests/README.md)
+- [MoviePilot-Frontend V3 模块联邦指南](https://github.com/jxxghp/MoviePilot-Frontend/blob/v3/docs/module-federation-guide.md)

@@ -1,0 +1,125 @@
+name: Plugin Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  plugin-release-gate:
+    name: Plugin release gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check plugin versions
+        run: python .github/scripts/check_plugin_versions.py package.json package.v2.json package.v3.json
+
+      - name: Check federation plugin CSS
+        run: python .github/scripts/check_federation_css.py
+
+      - name: Check new plugin tests
+        run: |
+          git fetch origin main:refs/remotes/origin/main --depth=1
+          python scripts/check_new_plugin_tests.py --base-ref origin/main
+
+  plugin-test-gate:
+    name: Plugin test gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout plugin repository
+        uses: actions/checkout@v7
+        with:
+          path: MoviePilot-Plugins-Official
+
+      - name: Checkout MoviePilot V3 backend
+        uses: actions/checkout@v7
+        with:
+          repository: jxxghp/MoviePilot
+          ref: v3
+          path: MoviePilot
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version-file: MoviePilot/pyproject.toml
+          python-version: '3.14'
+          enable-cache: true
+          cache-dependency-glob: |
+            MoviePilot/pyproject.toml
+            MoviePilot/uv.lock
+
+      - name: Install backend test environment
+        working-directory: MoviePilot
+        run: uv sync --locked
+
+      - name: Run V3 plugin tests
+        env:
+          MOVIEPILOT_BACKEND_PATH: ${{ github.workspace }}/MoviePilot
+        working-directory: MoviePilot-Plugins-Official
+        run: ../MoviePilot/.venv/bin/python tests/run.py
+
+  plugin-dependency-install-gate:
+    name: V3 dependency install (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-latest
+            platform: linux-x64
+          - name: Linux arm64
+            os: ubuntu-24.04-arm
+            platform: linux-arm64
+          - name: Windows x64
+            os: windows-latest
+            platform: windows-x64
+          - name: macOS Intel
+            os: macos-15-intel
+            platform: macos-x64
+          - name: macOS arm64
+            os: macos-15
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout plugin repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Determine whether dependency gate is required
+        id: dependency-scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet "${{ github.event.pull_request.base.sha }}" HEAD -- \
+            'plugins.v3/*/pyproject.toml' \
+            'scripts/check_v3_dependency_install.py' \
+            'tests/ci/test_v3_dependency_install_gate.py' \
+            '.github/workflows/plugin-gate.yml'; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up uv
+        if: steps.dependency-scope.outputs.run == 'true'
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: '3.14'
+          enable-cache: true
+          cache-dependency-glob: plugins.v3/*/pyproject.toml
+
+      - name: Install V3 plugin dependencies
+        if: steps.dependency-scope.outputs.run == 'true'
+        env:
+          PYTHONUTF8: '1'
+        run: uv run --no-project --python 3.14 python scripts/check_v3_dependency_install.py --python 3.14 --platform "${{ matrix.platform }}"
