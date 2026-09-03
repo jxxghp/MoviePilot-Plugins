@@ -243,6 +243,7 @@ V3 已为插件整理稳定 SDK。新插件应优先从 `app.sdk` 导入，不�
 | 日志 | `app.sdk.logging` |
 | 缓存 | `app.sdk.cache` |
 | 媒体上下文、名称解析和媒体身份 | `app.sdk.media` |
+| 媒体分类来源、字段声明、受控事实、缺失事实补充和统一分类调用 | `app.sdk.classification` |
 | HTTP、URL、站点和安全网络工具 | `app.sdk.network` |
 | 浏览器自动化（Playwright 上下文管理与页面操作） | `app.sdk.browser` |
 | 数据库备份、备份列表与校验 | `app.sdk.database` |

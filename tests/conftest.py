@@ -23,6 +23,7 @@ def _configure_test_plugin_runtime() -> None:
     """为绕过完整启动流程的插件测试装配最小插件 Runtime。"""
     from app.runtime.config import settings
     from app.runtime.extensions.plugin import manager as plugin_manager_module
+    from app.runtime.extensions.plugin.database import get_plugin_database
     from app.runtime.extensions.plugin.manager import PluginManager
     from app.runtime.extensions.plugin.runtime import (
         PluginRuntimeEnvironment,
@@ -39,6 +40,7 @@ def _configure_test_plugin_runtime() -> None:
                 plugins_root=settings.ROOT_PATH / "app" / "plugins",
                 storage=get_plugin_storage,
                 system=get_plugin_system,
+                database=get_plugin_database,
                 catalog_factory=lambda _mapper: None,
                 import_preparer=lambda **_kwargs: None,
                 import_scanner=lambda **_kwargs: None,

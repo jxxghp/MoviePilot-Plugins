@@ -80,3 +80,30 @@ def test_event_identity_preserves_valid_pair() -> None:
     )
 
     assert plugin._resolve_event_media_identity(event_info) == (MediaSource.IMDb, "tt123")
+
+
+def test_classification_path_uses_host_sdk_without_mutating_tmdb_payload(monkeypatch) -> None:
+    """分类展示应复用宿主统一策略，并保持插件取得的 TMDB 字典不变。"""
+    plugin = _plugin()
+    tmdb_info = {"id": 550, "title": "Fight Club"}
+    monkeypatch.setattr(
+        mediaservermsg,
+        "classify_media",
+        lambda media: SimpleNamespace(library_category="电影/经典"),
+    )
+
+    assert plugin._classification_path(tmdb_info) == "电影/经典"
+    assert tmdb_info == {"id": 550, "title": "Fight Club"}
+
+
+def test_classification_path_is_optional_when_host_sdk_fails(monkeypatch) -> None:
+    """宿主分类不可用时只省略通知字段，不阻断媒体服务器消息。"""
+    plugin = _plugin()
+
+    def fail(_media):
+        """模拟宿主分类服务暂不可用。"""
+        raise RuntimeError("classification unavailable")
+
+    monkeypatch.setattr(mediaservermsg, "classify_media", fail)
+
+    assert plugin._classification_path({"id": 550}) is None

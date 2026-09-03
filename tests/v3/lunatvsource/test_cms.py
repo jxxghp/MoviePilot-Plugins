@@ -1,4 +1,3 @@
-import json
 import logging
 import socket
 import time
@@ -2228,6 +2227,23 @@ def test_result_from_item_recognizes_regional_drama_category_without_movie_class
         },
     )
     assert movie.media_type == "movie"
+
+
+def test_result_from_item_preserves_normalized_classification_fields():
+    result = _result_from_item(
+        CmsSource("demo", "演示", "https://cms.example/vod"),
+        {
+            "vod_id": "classification-fields",
+            "vod_name": "分类示例",
+            "type_name": "欧美剧",
+            "vod_class": "剧情，科幻/剧情、冒险 | 科幻",
+            "vod_play_url": "第01集$https://example.test/01.m3u8",
+        },
+    )
+
+    assert result.cms_type_name == "欧美剧"
+    assert result.cms_class_names == ("剧情", "科幻", "冒险")
+    assert result.to_dict()["cms_class_names"] == ["剧情", "科幻", "冒险"]
 
 @pytest.mark.parametrize("type_name", ("喜剧", "悲剧", "戏剧", "舞台剧"))
 def test_result_from_item_does_not_treat_generic_drama_labels_as_tv(type_name: str):

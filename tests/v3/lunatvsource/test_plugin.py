@@ -1,7 +1,6 @@
 from app.plugins.lunatvsource import LunaTVSource
 import app.plugins.lunatvsource as plugin_module
 from app.plugins.lunatvsource.cms import (
-    AppleCmsClient,
     CmsEpisode,
     CmsResult,
     CmsSource,
@@ -473,6 +472,7 @@ def test_global_media_search_returns_lunatv_cards_without_explore_tab(monkeypatc
     results = plugin.search_medias(meta=meta)
     assert len(results) == 1
     assert results[0].title == "示例电影"
+    monkeypatch.setattr(plugin_module, "build_media_source_declaration", lambda: None)
     assert plugin.get_media_source() == []
 
 

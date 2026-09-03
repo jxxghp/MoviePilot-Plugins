@@ -114,6 +114,11 @@ from .cms import (
     probe_stream_height,
     stream_quality_label,
 )
+from .classification import (
+    build_media_source_declaration,
+    classification_protocol_available,
+    extract_classification_facts,
+)
 from .downloader import (
     DEFAULT_MAX_CONCURRENT_TASKS,
     DEFAULT_SEGMENT_THREAD_COUNT,
@@ -856,7 +861,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "https://raw.githubusercontent.com/OneBigMoon/moviepilot-v3-lunatv-source/master/icons/lunatvsource.png"
-    plugin_version = "0.4.59"
+    plugin_version = "0.4.60"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -2152,6 +2157,115 @@ class LunaTVSource(_PluginBase):
         return source, media_id
 
     @staticmethod
+    def _classification_path(value: Any) -> Optional[str]:
+        """Normalize a trusted host category path without accepting traversal segments."""
+
+        if isinstance(value, (list, tuple)):
+            parts = [str(part or "").strip() for part in value]
+        else:
+            parts = [
+                part.strip()
+                for part in str(value or "").replace("\\", "/").split("/")
+            ]
+        if not parts or any(not part or part in {".", ".."} for part in parts):
+            return None
+        return "/".join(parts)
+
+    @classmethod
+    def _media_classification_snapshot(cls, media: Any) -> Dict[str, Any]:
+        """Freeze the effective host classification attached to one MediaInfo identity."""
+
+        media_source = _coerce_media_identity_source(_field(media, "media_source", ""))
+        media_id = str(_field(media, "media_id", "") or "").strip()
+        if not media_source or not media_id:
+            return {}
+
+        classification = _field(media, "classification")
+        effective = _field(classification, "effective") if classification else None
+        if effective is not None:
+            category_path = cls._classification_path(
+                _field(effective, "category_path")
+            )
+            try:
+                policy_revision = int(_field(classification, "policy_revision"))
+            except (TypeError, ValueError):
+                policy_revision = None
+            snapshot = {
+                "media_source": media_source,
+                "media_id": media_id,
+                "media_category_id": str(
+                    _field(effective, "category_id", "") or ""
+                ).strip()
+                or None,
+                "media_category": category_path,
+                "classification_rule_id": str(
+                    _field(effective, "rule_id", "") or ""
+                ).strip()
+                or None,
+                "classification_policy_revision": policy_revision,
+                "classification_source": str(
+                    _field(effective, "source", "") or ""
+                ).strip()
+                or None,
+            }
+            if snapshot["media_category_id"] or snapshot["media_category"]:
+                return snapshot
+
+        # Older V3 hosts expose only the effective library path. Descriptive
+        # metadata_category is intentionally excluded from this compatibility path.
+        category_path = cls._classification_path(
+            _field(media, "library_category") or _field(media, "category")
+        )
+        if not category_path:
+            return {}
+        return {
+            "media_source": media_source,
+            "media_id": media_id,
+            "media_category_id": None,
+            "media_category": category_path,
+            "classification_rule_id": None,
+            "classification_policy_revision": None,
+            "classification_source": "legacy",
+        }
+
+    @staticmethod
+    def _classification_for_identity(
+        snapshot: Any,
+        media_source: Any,
+        media_id: Any,
+    ) -> Dict[str, Any]:
+        """Return a copied classification snapshot only for the same media identity."""
+
+        if not isinstance(snapshot, dict):
+            return {}
+        expected = (
+            _coerce_media_identity_source(media_source),
+            str(media_id or "").strip(),
+        )
+        actual = (
+            _coerce_media_identity_source(snapshot.get("media_source")),
+            str(snapshot.get("media_id") or "").strip(),
+        )
+        return dict(snapshot) if expected == actual and all(expected) else {}
+
+    def _apply_task_classification(
+        self, task: DownloadTask, snapshot: Any
+    ) -> None:
+        """Attach a same-identity frozen classification to a persisted task."""
+
+        media_source, media_id = self._task_media_identity(task)
+        matched = self._classification_for_identity(snapshot, media_source, media_id)
+        if not matched:
+            return
+        task.media_category_id = matched.get("media_category_id")
+        task.media_category = matched.get("media_category")
+        task.classification_rule_id = matched.get("classification_rule_id")
+        task.classification_policy_revision = matched.get(
+            "classification_policy_revision"
+        )
+        task.classification_source = matched.get("classification_source")
+
+    @staticmethod
     def _host_meta_info(title: str, year: str = "") -> Any:
         """Build MetaInfo across V3 runtimes (the SDK export is a function)."""
 
@@ -2216,6 +2330,25 @@ class LunaTVSource(_PluginBase):
         ):
             if association.get(field) not in (None, ""):
                 fields[field] = association[field]
+        classification_facts: Dict[str, Any] = {}
+        try:
+            if classification_protocol_available():
+                classification_facts = extract_classification_facts(result)
+        except Exception as exc:
+            self._logger.debug(
+                "LunaTV 分类事实提取失败，继续返回媒体信息：%s", exc
+            )
+        if classification_facts:
+            try:
+                return _schemas.MediaInfo(
+                    **fields, classification_facts=classification_facts
+                )
+            except Exception as exc:
+                # An old or partial host may reject the new field. Preserve the
+                # original media identity and return shape in that case.
+                self._logger.debug(
+                    "LunaTV 分类事实不受宿主支持，使用兼容返回：%s", exc
+                )
         try:
             return _schemas.MediaInfo(**fields)
         except TypeError:
@@ -2324,6 +2457,8 @@ class LunaTVSource(_PluginBase):
                     detail=base.detail,
                     season_range=(season, season) if season else (0, 0),
                     season_ambiguous=bool(group["season_ambiguous"]),
+                    cms_type_name=base.cms_type_name,
+                    cms_class_names=base.cms_class_names,
                 )
             )
         return cards
@@ -2576,6 +2711,7 @@ class LunaTVSource(_PluginBase):
                     "overview": getattr(media, "overview", None),
                     "vote_average": getattr(media, "vote_average", None),
                     "release_date": getattr(media, "release_date", None),
+                    "classification": self._media_classification_snapshot(media),
                 }
                 if include_candidates:
                     candidates = self._search_tmdb_candidates(
@@ -2884,6 +3020,37 @@ class LunaTVSource(_PluginBase):
             self._logger.warning("MoviePilot 原生整理失败，保留直写文件：%s", exc)
             return f"fallback:{exc}"
 
+    @staticmethod
+    def _download_history_classification_payload(
+        task: DownloadTask,
+    ) -> Dict[str, Any]:
+        """Project a task snapshot only when the host DownloadHistory supports it."""
+
+        values = {
+            "media_category_id": getattr(task, "media_category_id", None),
+            "media_category": getattr(task, "media_category", None),
+            "classification_rule_id": getattr(
+                task, "classification_rule_id", None
+            ),
+            "classification_policy_revision": getattr(
+                task, "classification_policy_revision", None
+            ),
+            "classification_source": getattr(
+                task, "classification_source", None
+            ),
+        }
+        if not values["media_category_id"] and not values["media_category"]:
+            return {}
+        try:
+            from app.db.models.downloadhistory import DownloadHistory
+        except Exception:
+            return {}
+        return {
+            field: value
+            for field, value in values.items()
+            if hasattr(DownloadHistory, field)
+        }
+
     def _record_native_history(self, task: DownloadTask, output: str) -> None:
         """把成功文件写入 MoviePilot 下载历史，供订阅详情读取。数据库不可用时不影响下载。"""
         media_source, media_id = self._task_media_identity(task)
@@ -2972,6 +3139,9 @@ class LunaTVSource(_PluginBase):
                 return
 
             if not existing_history:
+                classification_payload = (
+                    self._download_history_classification_payload(task)
+                )
                 add_history(
                     path=output_path,
                     type="电视剧" if task.media_type == "tv" else "电影",
@@ -2991,6 +3161,7 @@ class LunaTVSource(_PluginBase):
                         or PLUGIN_MEDIA_SOURCE
                     ),
                     date=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+                    **classification_payload,
                 )
             if not has_same_hash_file and not path_has_active_file:
                 add_files([
@@ -3812,6 +3983,8 @@ class LunaTVSource(_PluginBase):
                                 detail=result.detail,
                                 season_range=result.season_range,
                                 season_ambiguous=False,
+                                cms_type_name=result.cms_type_name,
+                                cms_class_names=result.cms_class_names,
                             ),
                             association,
                         )
@@ -3877,6 +4050,9 @@ class LunaTVSource(_PluginBase):
                         # completion transfer can scrape and file the media.
                         task.host_media_source = tmdb_source
                         task.host_media_id = tmdb_id
+                    self._apply_task_classification(
+                        task, association.get("classification")
+                    )
                     existing_path = self._local_episode_path(task)
                     if existing_path is not None:
                         # Older plugin versions could leave a correctly
@@ -3932,9 +4108,17 @@ class LunaTVSource(_PluginBase):
             return False
         return queue.wake()
 
-    def get_media_source(self) -> List[Dict[str, Any]]:
-        """LunaTV participates in the global search instead of adding an empty Explore tab."""
-        return []
+    def get_media_source(self) -> List[Any]:
+        """Declare LunaTV only when the host supports classification-aware sources."""
+
+        try:
+            declaration = build_media_source_declaration()
+        except Exception as exc:
+            self._logger.debug(
+                "LunaTV 媒体来源分类声明失败，保持旧宿主行为：%s", exc
+            )
+            return []
+        return [declaration] if declaration is not None else []
 
     def _active_download_torrent(
         self, task: DownloadTask, *, finalizing: bool = False
@@ -5095,7 +5279,7 @@ class LunaTVSource(_PluginBase):
             canonical_title: str,
             canonical_year: str,
         ) -> Dict[str, Any]:
-            return {
+            payload = {
                 "url": episode.url,
                 "title": canonical_title,
                 "year": canonical_year,
@@ -5110,6 +5294,14 @@ class LunaTVSource(_PluginBase):
                 "host_media_source": host_media_source,
                 "host_media_id": host_media_id,
             }
+            classification = self._classification_for_identity(
+                association.get("classification"),
+                host_media_source,
+                host_media_id,
+            )
+            if classification:
+                payload["classification"] = classification
+            return payload
 
         for result in results:
             result = self._apply_resource_association(result, association)
@@ -5564,6 +5756,9 @@ class LunaTVSource(_PluginBase):
                 or resource_identity
                 or "native"
             ).strip()
+            self._apply_task_classification(
+                task, entry.get("classification") or payload.get("classification")
+            )
             task.task_id = hashlib.sha1(
                 f"{content}:{task.season}:{task.episode}:{entry_url}".encode("utf-8")
             ).hexdigest()

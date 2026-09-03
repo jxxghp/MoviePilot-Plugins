@@ -62,17 +62,21 @@ def test_version_consistency_across_manifest_backend_and_frontend():
         ).read_text(encoding="utf-8")
     )
 
-    assert manifest["version"] == "0.4.59"
+    assert manifest["version"] == "0.4.60"
     assert {
         manifest["version"],
         LunaTVSource.plugin_version,
         package["version"],
         lockfile["version"],
         lockfile["packages"][""]["version"],
-    } == {"0.4.59"}
+    } == {"0.4.60"}
 
     history = manifest["history"]
-    assert next(iter(history)) == "0.4.59"
+    assert next(iter(history)) == "0.4.60"
+    assert history["0.4.60"] == (
+        "接入 MoviePilot V3 统一媒体分类协议：向宿主提供 LunaTV 来源分类事实与规则扩展，"
+        "并将分类快照写入下载历史供整理链稳定复用。"
+    )
     assert history["0.4.59"] == (
         "新增可选的 NFO 元数据开关，默认关闭；启用后下载完成并由 MoviePilot 原生整理时生成标准 "
         "NFO，关闭时明确不触发刮削。"

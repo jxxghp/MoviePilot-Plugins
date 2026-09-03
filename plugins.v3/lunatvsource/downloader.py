@@ -218,6 +218,11 @@ class DownloadTask:
     root: str
     host_media_source: Optional[str] = None
     host_media_id: Optional[str] = None
+    media_category_id: Optional[str] = None
+    media_category: Optional[str] = None
+    classification_rule_id: Optional[str] = None
+    classification_policy_revision: Optional[int] = None
+    classification_source: Optional[str] = None
     source_name: Optional[str] = None
     mode: str = "download"
     ffmpeg_path: str = "ffmpeg"
@@ -521,6 +526,14 @@ class _SerialDownloadQueue:
             target.root = task.root
             target.host_media_source = task.host_media_source
             target.host_media_id = task.host_media_id
+            if task.media_category_id or task.media_category:
+                target.media_category_id = task.media_category_id
+                target.media_category = task.media_category
+                target.classification_rule_id = task.classification_rule_id
+                target.classification_policy_revision = (
+                    task.classification_policy_revision
+                )
+                target.classification_source = task.classification_source
             target.source_name = task.source_name
             target.mode = task.mode
             target.ffmpeg_path = task.ffmpeg_path
@@ -1500,6 +1513,14 @@ class DownloadQueue(_SerialDownloadQueue):
                 existing.root = task.root
                 existing.host_media_source = task.host_media_source
                 existing.host_media_id = task.host_media_id
+                if task.media_category_id or task.media_category:
+                    existing.media_category_id = task.media_category_id
+                    existing.media_category = task.media_category
+                    existing.classification_rule_id = task.classification_rule_id
+                    existing.classification_policy_revision = (
+                        task.classification_policy_revision
+                    )
+                    existing.classification_source = task.classification_source
                 existing.source_name = task.source_name
                 existing.mode = task.mode
                 existing.ffmpeg_path = task.ffmpeg_path

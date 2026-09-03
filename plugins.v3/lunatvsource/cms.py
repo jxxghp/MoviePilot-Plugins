@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import http.client
 import ipaddress
 import json
@@ -15,8 +14,11 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+
+from .classification import normalize_cms_class_names
 
 
 LOGGER = logging.getLogger(__name__)
@@ -752,6 +754,8 @@ class CmsEpisode:
 
 @dataclass(frozen=True)
 class CmsResult:
+    """Normalized media row returned by one configured Apple CMS source."""
+
     source_key: str
     source_name: str
     vod_id: str
@@ -763,8 +767,12 @@ class CmsResult:
     detail: str = ""
     season_range: Tuple[int, int] = (1, 1)
     season_ambiguous: bool = False
+    cms_type_name: str = ""
+    cms_class_names: Tuple[str, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return a JSON-compatible projection without changing source facts."""
+
         return {
             "source_key": self.source_key,
             "source_name": self.source_name,
@@ -777,6 +785,8 @@ class CmsResult:
             "detail": self.detail,
             "season_range": list(self.season_range),
             "season_ambiguous": self.season_ambiguous,
+            "cms_type_name": self.cms_type_name,
+            "cms_class_names": list(self.cms_class_names),
         }
 
 
@@ -856,6 +866,8 @@ def _source_detail_url(source: CmsSource, item: Mapping[str, Any]) -> str:
 
 
 def _result_from_item(source: CmsSource, item: Mapping[str, Any]) -> CmsResult:
+    """Normalize one Apple CMS row while preserving stable source facts."""
+
     title = _text(item.get("vod_name") or item.get("vod_en"))
     year = _text(item.get("vod_year"))
     media_type = _media_type(item)
@@ -891,6 +903,8 @@ def _result_from_item(source: CmsSource, item: Mapping[str, Any]) -> CmsResult:
         detail=_source_detail_url(source, item),
         season_range=season_range,
         season_ambiguous=season_ambiguous,
+        cms_type_name=_text(item.get("type_name")).strip(),
+        cms_class_names=normalize_cms_class_names(item.get("vod_class")),
     )
 
 

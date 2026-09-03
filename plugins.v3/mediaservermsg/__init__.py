@@ -5,12 +5,12 @@ from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional
 
 from app.sdk.cache import cached
+from app.sdk.classification import classify_media
 from app.sdk.config import settings
 from app.sdk.events import eventmanager, Event
-from app.sdk.media import MetaInfoPath
+from app.sdk.media import MediaInfo, MetaInfoPath
 from app.sdk.services import MediaServerHelper
 from app.sdk.logging import logger
-from app.modules.themoviedb import CategoryHelper
 from app.plugins import _PluginBase
 from app.schemas import WebhookEventInfo, ServiceInfo, MediaServerItem
 from app.schemas.types import EventType, MediaSource, MediaType, MediaImageType, NotificationType
@@ -42,7 +42,7 @@ class MediaServerMsg(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "2.1.1"
+    plugin_version = "2.1.2"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -99,7 +99,6 @@ class MediaServerMsg(_PluginBase):
     def __init__(self):
         """初始化插件依赖及聚合 Timer 的实例级生命周期状态。"""
         super().__init__()
-        self.category = CategoryHelper()
         self._initialize_lifecycle_state()
         logger.debug("媒体服务器消息插件初始化完成")
 
@@ -509,7 +508,7 @@ class MediaServerMsg(_PluginBase):
 
             # 验证媒体服务器配置
             if not self.service_infos():
-                logger.info(f"未开启任一媒体服务器的消息通知")
+                logger.info("未开启任一媒体服务器的消息通知")
                 return
 
             server_name = getattr(event_info, 'server_name', None)
@@ -975,16 +974,8 @@ class MediaServerMsg(_PluginBase):
             episodes_detail = self._merge_continuous_episodes(events)
             message_texts.append(f"📺 季集：{episodes_detail}")
 
-            # 确定二级分类
-            cat = None
-            if tmdb_info:
-                try:
-                    if tmdb_info.get('media_type') == MediaType.TV:
-                        cat = self.category.get_tv_category(tmdb_info)
-                    else:
-                        cat = self.category.get_movie_category(tmdb_info)
-                except Exception as e:
-                    logger.debug(f"获取分类时出错: {str(e)}")
+            # 统一分类服务返回稳定 ID 对应的当前路径，不再读取 legacy category.yaml。
+            cat = self._classification_path(tmdb_info)
 
             if cat:
                 message_texts.append(f"📚 分类：{cat}")
@@ -1395,6 +1386,18 @@ class MediaServerMsg(_PluginBase):
             logger.debug(f"获取播放链接时发生未知错误: {str(e)}")
 
         return None
+
+    @staticmethod
+    def _classification_path(tmdb_info: Optional[dict]) -> Optional[str]:
+        """通过宿主分类 SDK 返回当前 TMDB 媒体的生效分类路径。"""
+        if not tmdb_info:
+            return None
+        try:
+            classified = classify_media(MediaInfo(tmdb_info=dict(tmdb_info)))
+        except Exception as error:
+            logger.debug(f"获取分类时出错: {str(error)}")
+            return None
+        return str(classified.library_category or "").strip() or None
 
     def _resolve_event_media_identity(
             self,
