@@ -355,7 +355,7 @@ class AutoSports(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/autosports.png"
     # 插件版本
-    plugin_version = "1.0.6"
+    plugin_version = "2.0.6"
     # 插件作者
     plugin_author = "Sinterdial"
     # 作者主页
