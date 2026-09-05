@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from typing import Any, List, Dict, Tuple, Optional
@@ -10,7 +11,8 @@ from app.sdk.events import eventmanager, Event
 from app.sdk.logging import logger
 from app.plugins import _PluginBase
 from app.schemas import DiscoverSourceEventData, Response
-from app.schemas.types import ChainEventType, MediaSource
+from app.schemas.types import ChainEventType, MediaSource, MediaType
+from app.sdk.media import MetaInfo
 from app.sdk.network import RequestUtils
 
 try:
@@ -165,7 +167,7 @@ class IqiyiDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/iqiyi_A.png"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.1.0"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -181,6 +183,7 @@ class IqiyiDiscover(_PluginBase):
     _enabled = False
     _cookie = ""
     _cookie_refresh_time = 0
+    _identity_cache_key = "media_identity"
 
     def init_plugin(self, config: dict = None):
         """
@@ -206,6 +209,209 @@ class IqiyiDiscover(_PluginBase):
         :return: 插件启用状态
         """
         return self._enabled
+
+    def get_module(self) -> Dict[str, Any]:
+        """
+        返回爱奇艺媒体识别模块。
+
+        :return: 模块方法映射
+        """
+        return {
+            "recognize_media": self.recognize_media,
+            "async_recognize_media": self.async_recognize_media,
+        }
+
+    @staticmethod
+    def get_media_source() -> List[Dict[str, Any]]:
+        """
+        返回爱奇艺媒体数据源声明。
+
+        :return: 媒体数据源声明列表
+        """
+        return [
+            {
+                "name": "爱奇艺",
+                "media_source": MediaSource.Iqiyi,
+                "media_types": [MediaType.MOVIE, MediaType.TV],
+            }
+        ]
+
+    async def _save_media_identities(self, items: List[Dict[str, Any]]) -> None:
+        """
+        保存媒体身份缓存。
+
+        :param items: 媒体数据列表
+        """
+        identities = await self.async_get_data(self._identity_cache_key) or {}
+        for item in items:
+            media_id = str(item.get("album_id") or item.get("entity_id") or "")
+            title = item.get("display_name") or item.get("title")
+            if not media_id or not title:
+                continue
+            identities[media_id] = {
+                "title": title,
+                "year": self.__get_year(item),
+            }
+        await self.async_save_data(self._identity_cache_key, dict(list(identities.items())[-2000:]))
+
+    def _get_media_identity(self, media_id: str) -> Dict[str, Any]:
+        """
+        获取媒体身份缓存。
+
+        :param media_id: 爱奇艺媒体ID
+        :return: 媒体身份字典
+        """
+        identities = self.get_data(self._identity_cache_key) or {}
+        return identities.get(str(media_id)) or {}
+
+    def _remember_media_identity(
+        self, media_id: str, title: str, year: Optional[str]
+    ) -> None:
+        """
+        记住媒体身份。
+
+        :param media_id: 爱奇艺媒体ID
+        :param title: 标题
+        :param year: 年份
+        """
+        identities = self.get_data(self._identity_cache_key) or {}
+        identities[str(media_id)] = {
+            "title": title,
+            "year": year,
+        }
+        self.save_data(self._identity_cache_key, dict(list(identities.items())[-2000:]))
+
+    @staticmethod
+    def _normalize_media_type(mtype: Any) -> Optional[MediaType]:
+        """
+        规范化媒体类型。
+
+        :param mtype: 媒体类型
+        :return: MediaType 枚举或 None
+        """
+        if isinstance(mtype, MediaType):
+            return mtype
+        try:
+            return MediaType(mtype) if mtype else None
+        except (TypeError, ValueError):
+            return None
+
+    def recognize_media(
+        self,
+        meta: Any = None,
+        mtype: Any = None,
+        media_source: Optional[MediaSource] = None,
+        media_id: Optional[str] = None,
+        episode_group: Optional[str] = None,
+        cache: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        通过爱奇艺媒体ID识别媒体信息。
+
+        :param meta: 已知媒体元数据
+        :param mtype: 媒体类型
+        :param media_source: 媒体来源
+        :param media_id: 爱奇艺媒体ID
+        :param episode_group: 剧集组
+        :param cache: 是否使用 MoviePilot 识别缓存
+        :return: 识别成功返回媒体信息，否则返回 None
+        """
+        if (
+            str(media_source or "").lower()
+            not in {
+                "iqiyi",
+                "iqiyidiscover",
+            }
+            or not media_id
+        ):
+            return None
+        media_type = self._normalize_media_type(mtype or getattr(meta, "type", None))
+        source_media = self._get_media_identity(str(media_id))
+        title = source_media.get("title") or getattr(meta, "title", None)
+        year = source_media.get("year") or getattr(meta, "year", None)
+        if not title:
+            return None
+        self._remember_media_identity(str(media_id), title, str(year) if year else None)
+        recognize_meta = MetaInfo(title=title)
+        recognize_meta.year = str(year) if year else None
+        recognize_meta.type = media_type
+        mediainfo = self.chain.run_module(
+            "recognize_media",
+            meta=recognize_meta,
+            mtype=media_type,
+            media_source=MediaSource.TMDB,
+            media_id=None,
+            episode_group=episode_group,
+            cache=cache,
+        )
+        if not mediainfo:
+            return None
+        mediainfo.media_source = MediaSource.Iqiyi
+        mediainfo.media_id = str(media_id)
+        return mediainfo
+
+    async def async_recognize_media(
+        self,
+        meta: Any = None,
+        mtype: Any = None,
+        media_source: Optional[MediaSource] = None,
+        media_id: Optional[str] = None,
+        episode_group: Optional[str] = None,
+        cache: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        异步通过爱奇艺媒体ID识别媒体信息。
+
+        :param meta: 已知媒体元数据
+        :param mtype: 媒体类型
+        :param media_source: 媒体来源
+        :param media_id: 爱奇艺媒体ID
+        :param episode_group: 剧集组
+        :param cache: 是否使用 MoviePilot 识别缓存
+        :return: 识别成功返回媒体信息，否则返回 None
+        """
+        if (
+            str(media_source or "").lower()
+            not in {
+                "iqiyi",
+                "iqiyidiscover",
+            }
+            or not media_id
+        ):
+            return None
+        media_type = self._normalize_media_type(mtype or getattr(meta, "type", None))
+        source_media = self._get_media_identity(str(media_id))
+        title = source_media.get("title") or getattr(meta, "title", None)
+        year = source_media.get("year") or getattr(meta, "year", None)
+        if not title:
+            return None
+        identities = await self.async_get_data(self._identity_cache_key) or {}
+        identities[str(media_id)] = {
+            "title": title,
+            "year": str(year) if year else None,
+        }
+        await self.async_save_data(
+            self._identity_cache_key, dict(list(identities.items())[-2000:])
+        )
+        recognize_meta = MetaInfo(title=title)
+        recognize_meta.year = str(year) if year else None
+        recognize_meta.type = media_type
+        mediainfo = await self.chain.async_run_module(
+            "async_recognize_media",
+            meta=recognize_meta,
+            mtype=media_type,
+            media_source=MediaSource.TMDB,
+            media_id=None,
+            episode_group=episode_group,
+            cache=cache,
+        )
+        if not mediainfo:
+            return None
+        mediainfo.media_source = MediaSource.Iqiyi
+        mediainfo.media_id = str(media_id)
+        return mediainfo
 
     def _auto_refresh_cookie(self) -> bool:
         """
@@ -439,7 +645,7 @@ class IqiyiDiscover(_PluginBase):
                 return part.split("=", 1)[1].strip()
         return None
 
-    def iqiyi_discover(
+    async def iqiyi_discover(
         self,
         apikey: str = None,
         mtype: str = "tv",
@@ -565,6 +771,8 @@ class IqiyiDiscover(_PluginBase):
             results = [__movie_to_media(movie) for movie in result]
         else:
             results = [__series_to_media(series) for series in result]
+        # 保存媒体身份缓存，供媒体识别使用
+        await self._save_media_identities(result)
         return Response(success=True, data=results[:count])
 
     @staticmethod
