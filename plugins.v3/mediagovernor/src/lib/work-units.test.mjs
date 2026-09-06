@@ -26,3 +26,11 @@ test('字幕跟随所属作品，有整理历史的孤立字幕也能被审计',
   const subtitleOnly = createWorkUnits({ id: 'sub', root: { path: '/d/Film', name: 'Film' }, entries: [file('/d/Film/Film.2007.srt')], history: [{ status: true, src: '/d/Film/Film.2007.srt' }], complete: true })
   assert.equal(subtitleOnly[0].attachment_only, true)
 })
+
+test('Sample 样片及其旧失败历史不会形成媒体问题单元', () => {
+  const sample = file('/d/Film/Sample/Film.sample.mkv')
+  const rows = createWorkUnits({ id: 'pkg', root: { path: '/d/Film', name: 'Film' }, entries: [file('/d/Film/Film.mkv'), sample], history: [{ status: true, src: '/d/Film/Film.mkv' }, { status: false, src: sample.path }], complete: true })
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].entries.some(item => item.path === sample.path), false)
+  assert.equal(rows[0].history.some(item => item.src === sample.path), false)
+})

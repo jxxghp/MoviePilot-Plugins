@@ -1,4 +1,4 @@
-import { cleanTitle, isWithinPath, latestHistoryRows, pathKey, sourcePath, videoPattern } from './governance.js'
+import { cleanTitle, isSampleItem, isWithinPath, latestHistoryRows, pathKey, sourcePath, subtitlePattern, videoPattern } from './governance.js'
 import { previewComplete } from './preview-audit.js'
 
 const stable = value => String(value || '').trim()
@@ -46,7 +46,7 @@ export function appendTreeEvidence (pkg, trees = []) {
 }
 
 export function packageEvidence (pkg = {}) {
-  const entries = Array.isArray(pkg.entries) ? pkg.entries : []
+  const entries = Array.isArray(pkg.entries) ? pkg.entries.filter(item => !isSampleItem(item)) : []
   const videos = entries.filter(item => videoPattern.test(item?.name || ''))
   const directories = entries.filter(item => item?.type === 'dir')
   const subtitles = entries.filter(item => /\.(ass|ssa|srt|sub|vtt)$/i.test(item?.name || ''))
@@ -67,13 +67,19 @@ export function packageEvidence (pkg = {}) {
 }
 
 export function previewSourceFiles (pkg = {}) {
-  return (pkg.entries || []).filter(item => videoPattern.test(item?.name || '') && item?.path).map(item => ({ type: item.type || 'file', storage: item.storage || pkg.root?.storage || 'local', path: item.path, name: item.name, size: item.size, modify_time: item.modify_time }))
+  const historySources = new Set(latestHistoryRows(pkg.history || []).map(row => pathKey(sourcePath(row))).filter(Boolean))
+  return (pkg.entries || []).filter(item => {
+    if (!item?.path || isSampleItem(item)) return false
+    if (videoPattern.test(item?.name || '')) return true
+    return subtitlePattern.test(item?.name || '') && historySources.has(pathKey(item.path))
+  }).map(item => ({ type: item.type || 'file', storage: item.storage || pkg.root?.storage || 'local', path: item.path, name: item.name, size: item.size, modify_time: item.modify_time }))
 }
 
 export function repairAdmission (pkg = {}, identity = null, preview = null) {
   if (!pkg.complete) return { allowed: false, reason: '文件证据没有完整读取，不能重建' }
   if (pkg.boundary !== 'download_hash') return { allowed: false, reason: '下载包边界未由下载任务编号确认，不能自动重建' }
   if (!identity?.media_source || !identity?.media_id) return { allowed: false, reason: '作品身份没有得到 MoviePilot 数据源编号确认，不能重建' }
+  if (!identity?.evidence_verified && !identity?.user_confirmed) return { allowed: false, reason: '作品身份没有经过整包证据核验或你的明确选择，不能重建' }
   const sourceCount = previewSourceFiles(pkg).length
   if (!previewComplete(preview, sourceCount)) return { allowed: false, reason: '官方逐文件预览不完整或含失败项，不能重建' }
   const histories = latestHistoryRows(pkg.history || []).filter(row => row?.status === true && row?.id)

@@ -4,6 +4,11 @@ const unique = values => [...new Set(values.filter(Boolean))]
 export const videoPattern = /\.(mkv|mp4|avi|m2ts|ts|mov|webm)$/i
 export const subtitlePattern = /\.(ass|ssa|srt|sub|vtt)$/i
 
+export function isSampleItem(item = {}) {
+  const path = pathKey(item.path || item.name)
+  return /(?:^|\/)samples?(?:\/|$)/i.test(path) || /(?:^|[ ._-])sample(?:[ ._-]|\.)/i.test(String(item.name || ''))
+}
+
 export function cleanTitle(value) {
   return text(value).replace(/\.[a-z0-9]{2,5}$/i, '').replace(/[\[【(（].*?[\]】)）]/g, ' ')
     .replace(/\b(2160p|1080p|720p|web[ .-]?(dl|rip)|bluray|bdrip|remux|x26[45]|h\.?26[45]|hevc|aac|dts|atmos|hdr10?\+?|dv|10bit|proper|repack|complete|中字|简繁|国语|粤语)\b/gi, ' ')
@@ -16,6 +21,14 @@ export function strictEpisodeHints(value) {
   for (const match of name.matchAll(/\b(?:EP|E)(\d{1,3})\b/ig)) found.push(Number(match[1]))
   for (const match of name.matchAll(/[\[【](\d{1,3})[\]】]/g)) found.push(Number(match[1]))
   return unique(found.filter(value => value > 0 && value < 1000)).sort((a, b) => a - b)
+}
+
+export function strictEpisodeKeys(value) {
+  const name = text(value); const found = []
+  for (const match of name.matchAll(/\bS(\d{1,2})E(\d{1,3})\b/ig)) found.push(`S${Number(match[1])}E${Number(match[2])}`)
+  if (found.length) return unique(found)
+  const season = Number(name.match(/(?:^|[\\/ ._-])(?:season|s)[ ._-]?(\d{1,2})(?=[\\/ ._-]|$)/i)?.[1] || 0)
+  return strictEpisodeHints(name).map(episode => `S${season}E${episode}`)
 }
 
 export function fileFingerprint(item = {}) {
@@ -132,14 +145,16 @@ export function libraryRootSnapshot(roots = []) {
 export function summarizeUnit(unit = {}) {
   const episodeFiles = new Map(); let video_count = 0; let subtitle_count = 0; let nfo_count = 0
   for (const item of unit.entries || []) {
+    if (isSampleItem(item)) continue
     const name = text(item.name)
-    if (videoPattern.test(name)) { video_count += 1; for (const episode of strictEpisodeHints(name)) episodeFiles.set(episode, [...(episodeFiles.get(episode) || []), name]) }
+    if (videoPattern.test(name)) { video_count += 1; for (const episode of strictEpisodeKeys(name)) episodeFiles.set(episode, [...(episodeFiles.get(episode) || []), name]) }
     else if (subtitlePattern.test(name)) subtitle_count += 1
     else if (/\.nfo$/i.test(name)) nfo_count += 1
   }
-  const episodes = [...episodeFiles.keys()].sort((a, b) => a - b)
+  const episode_keys = [...episodeFiles.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  const episodes = unique(episode_keys.map(value => Number(value.match(/E(\d+)$/)?.[1] || 0)).filter(Boolean)).sort((a, b) => a - b)
   const duplicateEpisodes = [...episodeFiles].filter(([, files]) => new Set(files).size > 1).map(([episode]) => episode)
-  return { video_count, subtitle_count, nfo_count, episodes, duplicateEpisodes, fingerprint: unitFingerprint(unit), names: unique([cleanTitle(unit.root?.name), ...(unit.entries || []).map(item => cleanTitle(item.name))].filter(Boolean)).slice(0, 50) }
+  return { video_count, subtitle_count, nfo_count, episodes, episode_keys, duplicateEpisodes, fingerprint: unitFingerprint(unit), names: unique([cleanTitle(unit.root?.name), ...(unit.entries || []).map(item => cleanTitle(item.name))].filter(Boolean)).slice(0, 50) }
 }
 
 export function historyIndex(rows = []) {
@@ -181,38 +196,41 @@ export function classifyFinding({ unit, summary, history = [], library = [], dia
   const currentHistory = latestHistoryRows(history)
   const successful = currentHistory.filter(row => row?.status === true)
   const failed = currentHistory.filter(row => row?.status === false)
-  const presentSuccessful = successful.filter(row => !presentPaths.size || presentPaths.has(pathKey(destinationPath(row))))
+  const presentSuccessful = successful.filter(row => presentPaths.has(pathKey(destinationPath(row))))
   const targetMissing = successful.length && successful.every(row => !row?.dest_fileitem?.path && !row?.dest)
   if (failed.length && !successful.length) return [finding('native_failure', '原生整理失败后，当前下载单元仍在且没有成功整理记录')]
-  if (targetMissing) return [finding('native_failure', '原生整理记录没有当前可核验的媒体库目标')]
-  if (summary.duplicateEpisodes.length) return [finding('episode_error', `同一下载单元有重复集号：${summary.duplicateEpisodes.join('、')}`)]
+  if (targetMissing) return [finding('unconfirmed', '历史记录没有保存可核验的目标位置，不能判断当前是否仍有问题', 'review')]
   if (!diagnosis || diagnosis.abstain || diagnosis.confidence < .5) return []
-  const record = successful[0] || {}; const recordKind = mediaKind(record.type || record.media_type || record.category)
+  const currentRecords = presentSuccessful
+  const record = currentRecords[0] || {}; const recordKind = mediaKind(record.type || record.media_type || record.category)
   const expectedKind = diagnosis.media_type
   const missingSuffix = failed.length ? `；另有 ${failed.length} 个源文件当前仍未整理成功` : ''
   const expectedCategory = categoryOfIdentity(diagnosis)
-  const currentRoots = successful.map(row => libraryRootForPath(destinationPath(row), library)).filter(Boolean)
+  const currentRoots = currentRecords.map(row => libraryRootForPath(destinationPath(row), library)).filter(Boolean)
   const currentCategories = [...new Set(currentRoots.map(categoryOfRoot).filter(Boolean))]
-  if (expectedCategory && currentCategories.length && currentCategories.some(value => value !== expectedCategory)) return [finding('category_error', `目录分类错误：当前位置与已确认作品类型不同${missingSuffix}`)]
-  if (recordKind && expectedKind !== 'unknown' && recordKind !== expectedKind) return [finding('category_error', `媒体类型对不上：当前整理结果与已确认作品类型不同${missingSuffix}`)]
-  const recordMedia = record.media_info || record.mediainfo || record.media || {}
-  const recordSource = text(record.media_source || recordMedia.media_source || recordMedia.source)
-  const recordId = text(record.media_id || record.tmdb_id || record.douban_id || recordMedia.media_id || recordMedia.tmdb_id || recordMedia.douban_id || recordMedia.id)
-  if (recordSource && recordId && diagnosis.media_source && diagnosis.media_id && `${recordSource}:${recordId}` !== `${diagnosis.media_source}:${diagnosis.media_id}`) return [finding('identity_error', `作品识别错误：当前硬链接归到了另一部作品${missingSuffix}`)]
-  const recordYear = text(record.year || recordMedia.year || recordMedia.release_year)
-  if (recordYear && diagnosis.year && recordYear !== text(diagnosis.year)) return [finding('identity_error', `作品年份对不上：当前硬链接归到了同名的另一版${missingSuffix}`)]
-  const titles = [record.title, record.original_title, record.media_name, recordMedia.title, recordMedia.original_title, recordMedia.name].map(cleanTitle).filter(Boolean)
-  const proposed = [diagnosis.title, diagnosis.original_title].map(cleanTitle).filter(Boolean)
-  if (titles.length && proposed.length && !titles.some(left => proposed.some(right => left === right || left.includes(right) || right.includes(left)))) return [finding('identity_error', `作品识别错误：当前硬链接归到了另一部作品${missingSuffix}`)]
-  if (diagnosis.season && record.season && Number(record.season) !== Number(diagnosis.season)) return [finding('hierarchy_error', '季目录对不上：当前整理季与整包证据不一致', 'review')]
-  for (const row of successful) {
-    const sourceEpisodes = strictEpisodeHints(sourcePath(row)); const targetEpisodes = strictEpisodeHints(destinationPath(row))
-    if (sourceEpisodes.length && targetEpisodes.length && sourceEpisodes.join(',') !== targetEpisodes.join(',')) return [finding('episode_error', `剧集对应错误：源文件与当前硬链接的集号不一致${missingSuffix}`)]
+  const results = []
+  if (expectedCategory && currentCategories.length && currentCategories.some(value => value !== expectedCategory)) results.push(finding('category_error', `目录分类错误：当前位置与已确认作品类型不同${missingSuffix}`))
+  else if (recordKind && expectedKind !== 'unknown' && recordKind !== expectedKind) results.push(finding('category_error', `媒体类型对不上：当前整理结果与已确认作品类型不同${missingSuffix}`))
+  for (const current of currentRecords) {
+    const recordMedia = current.media_info || current.mediainfo || current.media || {}
+    const recordSource = normaliseMediaSource(current.media_source || recordMedia.media_source || recordMedia.source)
+    const recordId = text(current.media_id || current.tmdb_id || current.douban_id || recordMedia.media_id || recordMedia.tmdb_id || recordMedia.douban_id || recordMedia.id)
+    if (recordSource && recordId && diagnosis.media_source && diagnosis.media_id && `${recordSource}:${recordId}` !== `${normaliseMediaSource(diagnosis.media_source)}:${diagnosis.media_id}`) { results.push(finding('identity_error', `作品识别错误：当前硬链接归到了另一部作品${missingSuffix}`)); break }
+    const recordYear = text(current.year || recordMedia.year || recordMedia.release_year)
+    if (recordYear && diagnosis.year && recordYear !== text(diagnosis.year)) { results.push(finding('identity_error', `作品年份对不上：当前硬链接归到了同名的另一版${missingSuffix}`)); break }
+    const titles = [current.title, current.original_title, current.media_name, recordMedia.title, recordMedia.original_title, recordMedia.name].map(cleanTitle).filter(Boolean)
+    const proposed = [diagnosis.title, diagnosis.original_title].map(cleanTitle).filter(Boolean)
+    if (titles.length && proposed.length && !titles.some(left => proposed.some(right => left === right || left.includes(right) || right.includes(left)))) { results.push(finding('identity_error', `作品识别错误：当前硬链接归到了另一部作品${missingSuffix}`)); break }
   }
-  if (expectedKind === 'tv' && summary.episodes.length && successful.length && successful.every(row => !/(?:^|[\\/])(?:season|s)[ ._-]?\d{1,2}(?:[\\/]|$)/i.test(destinationPath(row)))) return [finding('hierarchy_error', `目录层级错误：剧集被平铺，没有作品和季目录${missingSuffix}`)]
-  if (failed.length) return [finding('native_failure', `部分整理失败：当前仍有 ${failed.length} 个源文件没有建立成功硬链接`)]
-  if (successful.length && presentSuccessful.length < successful.length) return [finding('native_failure', `已有整理记录，但当前缺少 ${successful.length - presentSuccessful.length} 个硬链接目标`)]
-  return []
+  if (diagnosis.season && record.season && Number(record.season) !== Number(diagnosis.season)) results.push(finding('hierarchy_error', '季目录对不上：当前整理季与整包证据不一致', 'review'))
+  for (const row of successful) {
+    const sourceEpisodes = strictEpisodeKeys(sourcePath(row)); const targetEpisodes = strictEpisodeKeys(destinationPath(row))
+    if (sourceEpisodes.length && targetEpisodes.length && sourceEpisodes.join(',') !== targetEpisodes.join(',')) { results.push(finding('episode_error', `剧集对应错误：源文件与当前硬链接的集号不一致${missingSuffix}`)); break }
+  }
+  if (expectedKind === 'tv' && summary.episodes.length && currentRecords.length && currentRecords.every(row => !/(?:^|[\\/])(?:season|s)[ ._-]?\d{1,2}(?:[\\/]|$)/i.test(destinationPath(row)))) results.push(finding('hierarchy_error', `目录层级错误：剧集被平铺，没有作品和季目录${missingSuffix}`))
+  if (failed.length) results.push(finding('native_failure', `部分整理失败：当前仍有 ${failed.length} 个源文件没有建立成功硬链接`))
+  if (!failed.length && successful.length && presentSuccessful.length < successful.length) results.push(finding('unconfirmed', `有 ${successful.length - presentSuccessful.length} 个历史硬链接现在不存在；可能是手工删除，确认前不会当成整理失败`, 'review'))
+  return [...new Map(results.map(item => [`${item.kind}:${item.reason}`, item])).values()]
 }
 
 export function diffMap(previous = {}, next = {}) {
@@ -222,5 +240,14 @@ export function diffMap(previous = {}, next = {}) {
 }
 
 export function findingLabel(kind) {
-  return ({ native_failure: '原生整理失败', category_error: '目录分类错误', hierarchy_error: '目录层级错误', episode_error: '剧集对应错误', identity_error: '作品识别错误', unconfirmed: '无法确认', uncovered: '尚未覆盖' })[kind] || '需要核对'
+  return ({ multiple_errors: '多个整理问题', native_failure: '原生整理失败', category_error: '目录分类错误', hierarchy_error: '目录层级错误', episode_error: '剧集对应错误', identity_error: '作品识别错误', unconfirmed: '无法确认', uncovered: '尚未覆盖' })[kind] || '需要核对'
+}
+
+export function normaliseMediaSource(value) {
+  const raw = text(value).toLowerCase()
+  if (raw.includes('豆瓣')) return 'douban'
+  const source = raw.replace(/[^a-z0-9]/g, '')
+  if (['tmdb', 'themoviedb'].includes(source)) return 'tmdb'
+  if (source === 'douban') return 'douban'
+  return source
 }

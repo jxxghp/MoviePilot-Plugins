@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { classifyFinding, configuredDownloadRoots, createDownloadUnits, diffMap, fileFingerprint, historyRowsForUnit, latestHistory, latestHistoryRows, libraryRootForPath, libraryRootSnapshot, strictEpisodeHints, summarizeUnit } from './governance.js'
+import { classifyFinding, configuredDownloadRoots, createDownloadUnits, diffMap, fileFingerprint, historyRowsForUnit, latestHistory, latestHistoryRows, libraryRootForPath, libraryRootSnapshot, normaliseMediaSource, strictEpisodeHints, strictEpisodeKeys, summarizeUnit } from './governance.js'
 
 test('下载区顶层目录和单文件各是一个真实下载单元，不按相似标题拼包', () => {
   const units = createDownloadUnits({ storage: 'local', path: '/downloads' }, [{ type: 'dir', path: '/downloads/A', name: 'A' }, { type: 'file', path: '/downloads/B.mkv', name: 'B.mkv' }, { type: 'file', name: 'note.txt' }])
@@ -22,6 +22,7 @@ test('地图只保存媒体库根摘要，不把海量子项塞进持久化状�
 
 test('集号只接收明确集号，不把清晰度误读为集数', () => {
   assert.deepEqual(strictEpisodeHints('Show.S01E02.2160p.mkv'), [2])
+  assert.deepEqual(strictEpisodeKeys('Show.S02E02.2160p.mkv'), ['S2E2'])
   assert.deepEqual(strictEpisodeHints('Movie.2024.2160p.mkv'), [])
 })
 
@@ -34,8 +35,20 @@ test('真实失败与目标丢失才是问题，成功 move 的源缺失不是�
 test('分类、季和作品名错误需要已确认身份，不能由猜测生成', () => {
   const unit = { id: 'u', root: { name: 'Show' }, entries: [{ name: 'Show.S01E01.mkv' }] }; const summary = summarizeUnit(unit)
   const diagnosis = { title: '正确作品', original_title: '', media_type: 'tv', season: 2, confidence: .9, abstain: false }
-  const results = classifyFinding({ unit, summary, history: [{ status: true, dest: '/library/A', title: '错误作品', type: '电影', season: 1 }], diagnosis })
+  const results = classifyFinding({ unit, summary, history: [{ status: true, dest: '/library/A', title: '错误作品', type: '电影', season: 1 }], diagnosis, presentPaths: new Set(['/library/a']) })
   assert.equal(results.some(item => item.kind === 'category_error'), true)
+})
+
+test('同集号位于不同季时不是重复集', () => {
+  const summary = summarizeUnit({ entries: [{ name: 'Story.S01E01.mkv' }, { name: 'Story.S02E01.mkv' }] })
+  assert.deepEqual(summary.duplicateEpisodes, [])
+  assert.deepEqual(summary.episode_keys, ['S1E1', 'S2E1'])
+})
+
+test('历史目标被手工删除时进入确认区，不冒充原生整理失败', () => {
+  const unit = { id: 'deleted', entries: [{ name: 'Film.mkv' }] }
+  const result = classifyFinding({ unit, summary: summarizeUnit(unit), history: [{ status: true, src: '/d/Film.mkv', dest: '/library/Film.mkv' }], diagnosis: { title: 'Film', media_type: 'movie', confidence: 1, abstain: false }, presentPaths: new Set() })
+  assert.equal(result[0].kind, 'unconfirmed')
 })
 
 test('下载范围只能来自 download_path，空路径和容器根目录必须硬拒绝且相同路径去重', () => {
@@ -83,4 +96,9 @@ test('旧成功目标不会参与当前目标核验，当前状态只认同一�
 test('目标目录必须按最长匹配的媒体库配置归属，才能核验分类', () => {
   const roots = [{ path: '/library', media_type: '' }, { path: '/library/tv', media_type: 'tv' }]
   assert.equal(libraryRootForPath('/library/tv/Show/S01/E01.mkv', roots).media_type, 'tv')
+})
+
+test('MoviePilot 数据源名称统一为可比较的 TMDB 与豆瓣键', () => {
+  assert.equal(normaliseMediaSource('TheMovieDb'), 'tmdb')
+  assert.equal(normaliseMediaSource('豆瓣'), 'douban')
 })

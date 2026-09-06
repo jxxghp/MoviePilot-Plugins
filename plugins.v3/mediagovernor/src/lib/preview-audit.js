@@ -1,4 +1,4 @@
-import { cleanTitle, destinationPath, latestHistoryRows, pathKey, strictEpisodeHints } from './governance.js'
+import { cleanTitle, destinationPath, latestHistoryRows, pathKey, strictEpisodeHints, subtitlePattern, videoPattern } from './governance.js'
 
 export function officialPreviewItems (preview = {}) {
   const rows = Array.isArray(preview?.items) ? preview.items : Array.isArray(preview?.data?.items) ? preview.data.items : []
@@ -18,7 +18,8 @@ export function evaluateOfficialPreview ({ unit, identity, preview, presentPaths
   const finding = (kind, reason, details = []) => ({ kind, reason, details, strength: 'strong', unit_id: unit?.id || '', history_id: latestHistoryRows(unit?.history || [])[0]?.id || null })
   if (!unit?.complete) return finding('uncovered', '文件没有完整读取，暂时不能判断')
   if (!identity || identity.abstain || !identity.media_source || !identity.media_id) return finding('unconfirmed', unit?.identity_reason || '作品身份还没有确认')
-  const sourceCount = (unit.entries || []).filter(item => item?.path).length
+  const requestedCount = Array.isArray(unit?.previewPayload?.fileitems) ? unit.previewPayload.fileitems.length : 0
+  const sourceCount = requestedCount || (unit.entries || []).filter(item => item?.path && (videoPattern.test(item?.name || item?.path) || (unit?.attachment_only && subtitlePattern.test(item?.name || item?.path)))).length
   if (!previewComplete(preview, sourceCount)) return finding('unconfirmed', unit?.preview_error || 'MoviePilot 没有生成完整逐文件预览')
   const expected = officialPreviewItems(preview).map(item => pathKey(item.target))
   const successful = latestHistoryRows(unit.history || []).filter(row => row?.status === true && destinationPath(row))
