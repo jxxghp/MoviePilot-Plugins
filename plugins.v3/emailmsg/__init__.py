@@ -29,7 +29,7 @@ class EmailMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Email_A.png"
     # 插件版本
-    plugin_version = "1.0.0"
+    plugin_version = "1.1.0"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -399,7 +399,7 @@ class EmailMsg(_PluginBase):
         if not recipients:
             return schemas.Response(success=False, message="未获取到收件人邮箱")
 
-        if self._send_mail(recipients, title, text):
+        if self._send_mail(recipients, title, text, msg_type=NotificationType.Other.value):
             return schemas.Response(success=True, message=f"通知发送成功，收件人：{', '.join(recipients)}")
         return schemas.Response(success=False, message="通知发送失败")
 
@@ -444,12 +444,102 @@ class EmailMsg(_PluginBase):
         # 去重
         return list(dict.fromkeys(recipients))
 
-    def _send_mail(self, recipients: List[str], title: str, text: str) -> bool:
+    def _build_html(self, title: str, text: str, image: Optional[str] = None,
+                    link: Optional[str] = None, msg_type: Optional[str] = None) -> str:
+        """生成美化后的 HTML 邮件正文。
+
+        :param title: 邮件标题
+        :param text: 邮件正文
+        :param image: 海报图片地址
+        :param link: 跳转链接
+        :param msg_type: 消息类型名称
+        :return: HTML 字符串
+        """
+        # 转义文本，避免 HTML 注入
+        import html as html_lib
+        safe_title = html_lib.escape(title or "MoviePilot 通知")
+        safe_text = html_lib.escape(text or "")
+        # 将纯文本换行转换为 <br>
+        safe_text = safe_text.replace("\n", "<br>")
+        safe_type = html_lib.escape(msg_type or "通知")
+
+        # 海报区域
+        poster_html = ""
+        if image:
+            poster_html = (
+                '<div style="text-align:center;margin:0 0 20px 0;">'
+                f'<img src="{html_lib.escape(image)}" alt="海报" '
+                'style="max-width:100%;max-height:320px;border-radius:12px;'
+                'box-shadow:0 4px 16px rgba(0,0,0,0.15);display:block;margin:0 auto;"/>'
+                '</div>'
+            )
+
+        # 链接按钮区域
+        button_html = ""
+        if link:
+            button_html = (
+                '<div style="text-align:center;margin:24px 0 0 0;">'
+                f'<a href="{html_lib.escape(link)}" '
+                'style="display:inline-block;padding:12px 28px;background:#3f51b5;color:#ffffff;'
+                'text-decoration:none;border-radius:24px;font-size:14px;font-weight:600;">'
+                '查看详情</a>'
+                '</div>'
+            )
+
+        # 顶部色条
+        top_bar = '<div style="height:6px;background:linear-gradient(90deg,#3f51b5,#7c4dff);"></div>'
+        # 内容区
+        content_area = (
+            '<div style="padding:32px 32px 28px 32px;">'
+            # 类型标签
+            f'<div style="margin-bottom:16px;"><span style="display:inline-block;'
+            'padding:4px 12px;background:#eef0fb;color:#3f51b5;border-radius:12px;'
+            f'font-size:12px;font-weight:600;">{safe_type}</span></div>'
+            # 标题
+            f'<h1 style="margin:0 0 16px 0;font-size:20px;color:#1a1a1a;line-height:1.4;">'
+            f'{safe_title}</h1>'
+            # 海报
+            f'{poster_html}'
+            # 正文
+            f'<div style="font-size:14px;color:#555555;line-height:1.8;">{safe_text}</div>'
+            # 按钮
+            f'{button_html}'
+            '</div>'
+        )
+        # 底部
+        footer = (
+            '<div style="padding:16px 32px;background-color:#fafafa;border-top:1px solid #eeeeee;'
+            'text-align:center;font-size:12px;color:#999999;">'
+            '此邮件由 MoviePilot 邮箱通知插件自动发送</div>'
+        )
+
+        return (
+            '<!DOCTYPE html>'
+            '<html lang="zh-CN">'
+            '<head><meta charset="utf-8"></head>'
+            '<body style="margin:0;padding:0;background-color:#f4f5f7;font-family:'
+            '\'Helvetica Neue\',Helvetica,Arial,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;">'
+            '<div style="max-width:600px;margin:24px auto;background-color:#ffffff;'
+            'border-radius:16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">'
+            f'{top_bar}'
+            f'{content_area}'
+            f'{footer}'
+            '</div>'
+            '</body>'
+            '</html>'
+        )
+
+    def _send_mail(self, recipients: List[str], title: str, text: str,
+                   image: Optional[str] = None, link: Optional[str] = None,
+                   msg_type: Optional[str] = None) -> bool:
         """通过 SMTP 发送邮件。
 
         :param recipients: 收件人邮箱列表
         :param title: 邮件标题
         :param text: 邮件正文
+        :param image: 海报图片地址
+        :param link: 跳转链接
+        :param msg_type: 消息类型名称
         :return: 发送是否成功
         """
         if not recipients:
@@ -459,7 +549,9 @@ class EmailMsg(_PluginBase):
         server = None
         try:
             port = int(self._smtp_port or 465)
-            msg = MIMEText(text or "", "plain", "utf-8")
+            # 生成美化后的 HTML 正文
+            html_body = self._build_html(title, text, image=image, link=link, msg_type=msg_type)
+            msg = MIMEText(html_body, "html", "utf-8")
             msg["Subject"] = Header(title or "MoviePilot 通知", "utf-8")
             msg["From"] = formataddr((str(Header("MoviePilot", "utf-8")), self._sender))
             # To 使用发件人自身地址，收件人地址放入 Bcc（密送），避免收件人之间互相看到邮箱地址
@@ -514,6 +606,10 @@ class EmailMsg(_PluginBase):
         title = msg_body.get("title")
         # 文本
         text = msg_body.get("text")
+        # 海报图片
+        image = msg_body.get("image")
+        # 跳转链接
+        link = msg_body.get("link")
         # 用户名
         username = msg_body.get("username")
 
@@ -533,7 +629,14 @@ class EmailMsg(_PluginBase):
             return
 
         # 发送邮件
-        self._send_mail(recipients, title, text)
+        self._send_mail(
+            recipients,
+            title,
+            text,
+            image=image,
+            link=link,
+            msg_type=msg_type.value if msg_type else None,
+        )
 
     def stop_service(self) -> None:
         """退出插件。"""
