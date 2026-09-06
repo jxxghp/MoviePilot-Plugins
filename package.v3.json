@@ -739,5 +739,18 @@
       "v1.1.0": "美化邮件 HTML 样式，通知携带资源海报与跳转链接。",
       "v1.0.0": "首次发布。"
     }
+  },
+  "WPushMsg": {
+    "name": "WPUSH消息推送",
+    "description": "支持使用 WPUSH 发送消息通知（多渠道：微信/App/短信/邮件/钉钉/飞书等）。",
+    "labels": "消息通知",
+    "version": "1.0.0",
+    "icon": "WPush_A.png",
+    "author": "Alone88",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v1.0.0": "首次发布：WPUSH V3 消息通知插件，成功判定以接口 JSON code===0 为准。"
+    }
   }
 }
