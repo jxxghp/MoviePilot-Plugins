@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { classifyFinding, configuredDownloadRoots, createDownloadUnits, diffMap, fileFingerprint, historyRowsForUnit, latestHistory, latestHistoryRows, libraryRootForPath, libraryRootSnapshot, normaliseMediaSource, strictEpisodeHints, strictEpisodeKeys, summarizeUnit } from './governance.js'
+import { classifyFinding, configuredDownloadRoots, createDownloadUnits, diffMap, episodeKeysCompatible, fileFingerprint, historyRowsForUnit, latestHistory, latestHistoryRows, libraryRootForPath, libraryRootSnapshot, normaliseMediaSource, strictEpisodeHints, strictEpisodeKeys, summarizeUnit } from './governance.js'
 
 test('下载区顶层目录和单文件各是一个真实下载单元，不按相似标题拼包', () => {
   const units = createDownloadUnits({ storage: 'local', path: '/downloads' }, [{ type: 'dir', path: '/downloads/A', name: 'A' }, { type: 'file', path: '/downloads/B.mkv', name: 'B.mkv' }, { type: 'file', name: 'note.txt' }])
@@ -24,6 +24,43 @@ test('集号只接收明确集号，不把清晰度误读为集数', () => {
   assert.deepEqual(strictEpisodeHints('Show.S01E02.2160p.mkv'), [2])
   assert.deepEqual(strictEpisodeKeys('Show.S02E02.2160p.mkv'), ['S2E2'])
   assert.deepEqual(strictEpisodeHints('Movie.2024.2160p.mkv'), [])
+})
+
+test('源文件只有 E09 时与目标 S01E09 兼容，但明确的不同季仍不兼容', () => {
+  assert.deepEqual(strictEpisodeKeys('Show.E09.mkv'), ['E9'])
+  assert.equal(episodeKeysCompatible('Show.E09.mkv', '/tv/Show/Season 1/Show.S01E09.mkv'), true)
+  assert.equal(episodeKeysCompatible('Show.S02E09.mkv', '/tv/Show/Season 1/Show.S01E09.mkv'), false)
+})
+
+test('当前作品目录正确时，旧历史身份字段不再单独制造误报', () => {
+  const unit = { id: 'stale-history', entries: [{ name: 'Forrest.Gump.mkv' }] }
+  const result = classifyFinding({
+    unit,
+    summary: summarizeUnit(unit),
+    history: [{ status: true, src: '/download/Forrest.Gump.mkv', dest: '/library/movie/Forrest Gump/Forrest.Gump.mkv', media_source: 'tmdb', media_id: 'old', title: 'Old Result' }],
+    diagnosis: { title: '阿甘正传', original_title: 'Forrest Gump', media_type: 'movie', media_source: 'tmdb', media_id: '13', confidence: 1, abstain: false },
+    presentPaths: new Set(['/library/movie/forrest gump/forrest.gump.mkv']),
+    library: [{ path: '/library/movie', name: '电影' }],
+  })
+  assert.deepEqual(result, [])
+})
+
+test('六个已知正常作品不会再被旧身份或 E/EP 季号差异误报', () => {
+  const samples = [
+    ['阿甘正传', 'Forrest Gump', 'movie'],
+    ['兄弟连', 'Band of Brothers', 'tv'],
+    ['第五共和国', 'The 5th Republic', 'tv'],
+    ['我的团长我的团', 'My Chief and My Regiment', 'tv'],
+    ['沉默的真相', 'The Long Night', 'tv'],
+    ['康熙王朝', 'Kangxi Dynasty', 'tv'],
+  ]
+  for (const [title, original, type] of samples) {
+    const source = `/download/${original}.E09.mkv`
+    const dest = type === 'movie' ? `/library/movie/${original}/${original}.mkv` : `/library/tv/${original}/Season 1/${original}.S01E09.mkv`
+    const unit = { id: title, entries: [{ name: source.split('/').pop(), path: source }] }
+    const result = classifyFinding({ unit, summary: summarizeUnit(unit), history: [{ status: true, src: source, dest, media_source: 'tmdb', media_id: 'stale', title: '旧记录' }], diagnosis: { title, original_title: original, media_type: type, media_source: 'tmdb', media_id: 'current', confidence: 1, abstain: false }, presentPaths: new Set([dest.toLowerCase()]), library: [{ path: `/library/${type === 'movie' ? 'movie' : 'tv'}`, name: type === 'movie' ? '电影' : '电视剧' }] })
+    assert.deepEqual(result, [], title)
+  }
 })
 
 test('真实失败与目标丢失才是问题，成功 move 的源缺失不是问题', () => {

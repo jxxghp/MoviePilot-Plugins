@@ -1,4 +1,4 @@
-"""MediaGovernor 4.3 合同测试：不访问 NAS、模型以外的网络或真实媒体。"""
+"""MediaGovernor 4.4 合同测试：不访问 NAS、模型以外的网络或真实媒体。"""
 from __future__ import annotations
 
 import asyncio
@@ -56,9 +56,9 @@ class Request:
 def test_versions_assets_and_new_api_contract_are_synced():
     module = _load_plugin(); manifest = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))["MediaGovernor"]
     package = json.loads((ROOT / "plugins.v3/mediagovernor/package.json").read_text(encoding="utf-8"))
-    assert manifest["version"] == package["version"] == module.MediaGovernor.plugin_version == "4.3.0"
-    assert list(manifest["history"])[0] == "v4.3.0"
-    assert module.MediaGovernor.get_render_mode() == ("vue", "dist/v4.3.0/assets")
+    assert manifest["version"] == package["version"] == module.MediaGovernor.plugin_version == "4.4.0"
+    assert list(manifest["history"])[0] == "v4.4.0"
+    assert module.MediaGovernor.get_render_mode() == ("vue", "dist/v4.4.0/assets")
     instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
     assert [row["path"] for row in instance.get_api()] == ["/map_status", "/map_snapshot", "/map_watch", "/map_plan", "/map_commit", "/map_unit", "/map_dirty", "/ai_probe", "/bundle_analyze_batch"]
     assert all(row["auth"] == "bear" for row in instance.get_api())
@@ -116,6 +116,19 @@ def test_ai_cache_fingerprint_is_versioned_and_cannot_reuse_v42_diagnoses():
     assert current == instance._diagnosis_fingerprint(evidence)
 
 
+def test_ai_abstention_is_returned_but_never_cached():
+    module = _load_plugin(); instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
+    async def abstain(items):
+        return {key: module.Diagnosis(abstain=True, confidence=0, reasons=["本批无法确认"]) for key, _ in items}
+    instance._model = abstain
+    body = {"items": [{"id": "one", "evidence": {"title_hints": ["示例"], "entries": [{"name": "Example.mkv"}]}}]}
+    first = asyncio.run(instance.api_bundle_analyze_batch(Request(body)))
+    second = asyncio.run(instance.api_bundle_analyze_batch(Request(body)))
+    assert first.success and second.success
+    assert first.data["cached"] == second.data["cached"] == 0
+    assert instance._diagnosis_cache == {}
+
+
 def test_events_only_mark_dirty_and_never_read_media_or_call_model():
     module = _load_plugin(); instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
     instance._on_transfer_result({"event_data": {"transfer_history_id": 7, "fileitem": {"path": "/private/A"}}})
@@ -142,7 +155,9 @@ def test_frontend_builds_evidence_packages_and_uses_only_declared_official_previ
     assert "createEvidencePackages(top.map(unit => unit.root), histories.value)" in page
     assert "scanDownloadUnits(toScan, packages.length)" in page
     assert "Math.min(4, toScan.length)" in page
-    assert "MediaGovernor 4.3.0" in page
+    assert "MediaGovernor 4.4.0" in page
+    assert "selectLibraryTarget" in page
+    assert "transfer/manual/target-path" not in page
     assert "configuredDownloadRoots(downloadConfigurations)" in page
     assert "scope_verified: true" in page
     assert "evaluateCurrentState" in page

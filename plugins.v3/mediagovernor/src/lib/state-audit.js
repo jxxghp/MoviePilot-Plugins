@@ -1,4 +1,4 @@
-import { categoryOfIdentity, categoryOfRoot, classifyFinding, cleanTitle, destinationPath, latestHistoryRows, libraryRootForPath, pathKey, sourcePath, strictEpisodeKeys, summarizeUnit, videoPattern } from './governance.js'
+import { categoryOfIdentity, categoryOfRoot, classifyFinding, cleanTitle, destinationPath, episodeKeysCompatible, latestHistoryRows, libraryRootForPath, pathKey, sourcePath, strictEpisodeKeys, summarizeUnit, videoPattern } from './governance.js'
 import { evaluateOfficialPreview, officialPreviewItems } from './preview-audit.js'
 
 const workFolder = value => {
@@ -20,12 +20,13 @@ export function validatePreviewTarget ({ identity, preview, libraryRoots = [] } 
   const identityNames = [identity?.title, identity?.original_title].map(cleanTitle).filter(Boolean)
   for (const item of items) {
     const targetTitle = workFolder(item.target)
-    if (identityNames.length && targetTitle && !identityNames.includes(targetTitle)) return { valid: false, reason: '官方预览的作品目录与已确认作品名称不一致，已禁止修复' }
+    const normalizedTarget = targetTitle.replace(/\s+(?:19|20)\d{2}$/i, '').trim()
+    if (identityNames.length && normalizedTarget && !identityNames.includes(normalizedTarget)) return { valid: false, reason: '官方预览的作品目录与已确认作品名称不一致，已禁止修复' }
     const targetYear = String(item?.year || item?.release_year || item?.target || '').match(/\b(?:19|20)\d{2}\b/)?.[0]
     if (identity?.year && targetYear && String(identity.year) !== targetYear) return { valid: false, reason: '官方预览的作品年份与已确认版本不一致，已禁止修复' }
     const sourceKeys = strictEpisodeKeys(item.source)
     const targetKeys = strictEpisodeKeys(item.target)
-    if (sourceKeys.length && targetKeys.length && sourceKeys.join(',') !== targetKeys.join(',')) return { valid: false, reason: '官方预览的季集对应与原文件不一致，已禁止修复' }
+    if (sourceKeys.length && targetKeys.length && !episodeKeysCompatible(item.source, item.target)) return { valid: false, reason: '官方预览的季集对应与原文件不一致，已禁止修复' }
   }
   return { valid: true, reason: '官方预览的目标分类已通过独立核对' }
 }

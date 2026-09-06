@@ -52,14 +52,14 @@ class MediaGovernor(_PluginBase):
     plugin_name = "媒体治理"
     plugin_desc = "以当前下载区与媒体库为准，找出真实整理问题并只经官方预览重建。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "4.3.0"
+    plugin_version = "4.4.0"
     plugin_author = "MoviePilotMediaGovernor contributors"
     author_url = ""
     plugin_config_prefix = "mediagovernor_"
     plugin_order = 99
     auth_level = 1
-    _map_schema = "4.3"
-    _diagnosis_cache_schema = "4.3-evidence-v1"
+    _map_schema = "4.4"
+    _diagnosis_cache_schema = "4.4-evidence-v2"
     _max_units, _max_nodes, _max_batch_units, _max_batch_chars = 2500, 30000, 12, 28000
     _max_cached_diagnoses, _request_timeout_seconds = 300, 45
 
@@ -81,7 +81,7 @@ class MediaGovernor(_PluginBase):
 
     @staticmethod
     def get_render_mode() -> tuple[str, str]:
-        return "vue", "dist/v4.3.0/assets"
+        return "vue", "dist/v4.4.0/assets"
 
     def get_sidebar_nav(self) -> list[dict[str, Any]]:
         return []
@@ -413,7 +413,10 @@ class MediaGovernor(_PluginBase):
         except Exception: return BatchAnalysisResponse(success=False, message="智能助手无法完成本批分析；没有改变任何媒体")
         for key, evidence in batches:
             diagnosis = diagnoses.get(key, Diagnosis()); fingerprint = self._diagnosis_fingerprint(evidence)
-            self._diagnosis_cache[fingerprint] = diagnosis.model_dump(mode="json"); result[key] = diagnosis
+            # 弃权和低置信结果可能来自瞬时模型/网关问题，不能永久污染后续检查。
+            if not diagnosis.abstain and diagnosis.confidence >= .5:
+                self._diagnosis_cache[fingerprint] = diagnosis.model_dump(mode="json")
+            result[key] = diagnosis
         self._diagnosis_cache = dict(list(self._diagnosis_cache.items())[-self._max_cached_diagnoses:])
         try: self.save_data("diagnosis_cache", self._diagnosis_cache)
         except Exception: pass

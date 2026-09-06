@@ -37,8 +37,16 @@ test('真正失败没有旧成功目标时只建立新硬链接，不猜测删�
   assert.equal(admission.mode, 'create')
 })
 
+test('没有 download_hash 但文件、历史和预览都可唯一归因时允许安全计划', () => {
+  const pkg = { complete: true, boundary: 'top_level', root: { path: '/fixture/work' }, entries: [{ type: 'file', path: '/fixture/work/Film.mkv', name: 'Film.mkv' }], history: [{ id: 13, status: true, src: '/fixture/work/Film.mkv' }] }
+  const preview = { summary: { total: 1, success: 1, failed: 0 }, items: [{ source: '/fixture/work/Film.mkv', target: '/fixture/library/movie/Film/Film.mkv', success: true }] }
+  const result = repairAdmission(pkg, { media_source: 'tmdb', media_id: '13', evidence_verified: true }, preview)
+  assert.equal(result.allowed, true)
+  assert.equal(result.mode, 'rebuild')
+})
+
 test('同一作品同时有假成功和真失败时生成混合修复计划', () => {
-  const pkg = { complete: true, boundary: 'download_hash', root: { storage: 'local' }, entries: [{ type: 'file', path: '/fixture/E01.mkv', name: 'E01.mkv' }, { type: 'file', path: '/fixture/E02.mkv', name: 'E02.mkv' }], history: [{ id: 7, status: true, src: '/fixture/E01.mkv' }, { id: 8, status: false, src: '/fixture/E02.mkv' }] }
+  const pkg = { complete: true, boundary: 'download_hash', root: { storage: 'local', path: '/fixture' }, entries: [{ type: 'file', path: '/fixture/E01.mkv', name: 'E01.mkv' }, { type: 'file', path: '/fixture/E02.mkv', name: 'E02.mkv' }], history: [{ id: 7, status: true, src: '/fixture/E01.mkv' }, { id: 8, status: false, src: '/fixture/E02.mkv' }] }
   const preview = { summary: { total: 2, success: 2, failed: 0 }, items: [{ target: '/fixture/library/E01.mkv', success: true }, { target: '/fixture/library/E02.mkv', success: true }] }
   const result = repairAdmission(pkg, { media_source: 'tmdb', media_id: '1', evidence_verified: true }, preview)
   assert.equal(result.mode, 'mixed')
@@ -47,7 +55,7 @@ test('同一作品同时有假成功和真失败时生成混合修复计划', ()
 })
 
 test('有整理关系的字幕必须进入同一次预览，不能未经预览就清理旧链接', () => {
-  const pkg = { complete: true, boundary: 'download_hash', root: { storage: 'local' }, entries: [{ type: 'file', path: '/fixture/Show.S01E01.mkv', name: 'Show.S01E01.mkv' }, { type: 'file', path: '/fixture/Show.S01E01.chs.srt', name: 'Show.S01E01.chs.srt' }, { type: 'file', path: '/fixture/Show.nfo', name: 'Show.nfo' }], history: [{ id: 11, status: true, src: '/fixture/Show.S01E01.mkv' }, { id: 12, status: true, src: '/fixture/Show.S01E01.chs.srt' }] }
+  const pkg = { complete: true, boundary: 'download_hash', root: { storage: 'local', path: '/fixture' }, entries: [{ type: 'file', path: '/fixture/Show.S01E01.mkv', name: 'Show.S01E01.mkv' }, { type: 'file', path: '/fixture/Show.S01E01.chs.srt', name: 'Show.S01E01.chs.srt' }, { type: 'file', path: '/fixture/Show.nfo', name: 'Show.nfo' }], history: [{ id: 11, status: true, src: '/fixture/Show.S01E01.mkv' }, { id: 12, status: true, src: '/fixture/Show.S01E01.chs.srt' }] }
   const preview = { summary: { total: 2, success: 2, failed: 0 }, items: [{ source: '/fixture/Show.S01E01.mkv', target: '/fixture/library/Show.S01E01.mkv', success: true }, { source: '/fixture/Show.S01E01.chs.srt', target: '/fixture/library/Show.S01E01.chs.srt', success: true }] }
   const result = repairAdmission(pkg, { media_source: 'tmdb', media_id: '1', evidence_verified: true }, preview)
   assert.equal(result.allowed, true)

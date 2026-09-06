@@ -31,7 +31,15 @@ function strictEpisodeKeys(value) {
   for (const match of name.matchAll(/\bS(\d{1,2})E(\d{1,3})\b/ig)) found.push(`S${Number(match[1])}E${Number(match[2])}`);
   if (found.length) return unique(found)
   const season = Number(name.match(/(?:^|[\\/ ._-])(?:season|s)[ ._-]?(\d{1,2})(?=[\\/ ._-]|$)/i)?.[1] || 0);
-  return strictEpisodeHints(name).map(episode => `S${season}E${episode}`)
+  return strictEpisodeHints(name).map(episode => season ? `S${season}E${episode}` : `E${episode}`)
+}
+
+function episodeKeysCompatible(leftValue, rightValue) {
+  const left = strictEpisodeKeys(leftValue); const right = strictEpisodeKeys(rightValue);
+  if (!left.length || !right.length) return true
+  const parts = key => ({ season: Number(key.match(/^S(\d+)E/)?.[1] || 0), episode: Number(key.match(/E(\d+)$/)?.[1] || 0) });
+  const a = left.map(parts); const b = right.map(parts);
+  return a.length === b.length && a.every((item, index) => item.episode === b[index].episode && (!item.season || !b[index].season || item.season === b[index].season))
 }
 
 function fileFingerprint(item = {}) {
@@ -82,7 +90,12 @@ function configuredLibraryRoots(configurations = []) {
     const key = `${storage}:${pathKey(path)}`;
     if (seen.has(key)) continue
     seen.add(key);
-    roots.push({ type: 'dir', storage, path, name: text$1(configuration?.name) || path, media_type: text$1(configuration?.media_type), media_category: text$1(configuration?.media_category) });
+    roots.push({
+      type: 'dir', storage, path, name: text$1(configuration?.name) || path,
+      media_type: text$1(configuration?.media_type), media_category: text$1(configuration?.media_category),
+      transfer_type: text$1(configuration?.transfer_type) || 'link', scraping: Boolean(configuration?.scraping),
+      library_type_folder: Boolean(configuration?.library_type_folder), library_category_folder: Boolean(configuration?.library_category_folder),
+    });
   }
   return roots
 }
@@ -176,6 +189,17 @@ const categoryOfRoot = root => {
   return ''
 };
 
+function destinationWorkFolder(value) {
+  const parts = String(value || '').replace(/\\/g, '/').split('/').filter(Boolean);
+  const season = parts.findIndex(part => /^(?:season|s)[ ._-]?\d{1,2}$/i.test(part));
+  return cleanTitle(parts[season > 0 ? season - 1 : Math.max(0, parts.length - 2)] || '')
+}
+
+function titlesCompatible(leftValues = [], rightValues = []) {
+  const left = leftValues.map(cleanTitle).filter(Boolean); const right = rightValues.map(cleanTitle).filter(Boolean);
+  return left.some(a => right.some(b => a === b || (Math.min(a.length, b.length) >= 4 && (a.includes(b) || b.includes(a)))))
+}
+
 function classifyFinding({ unit, summary, history = [], library = [], diagnosis = null, presentPaths = new Set() }) {
   const finding = (kind, reason, strength = 'strong') => ({ kind, reason, strength, unit_id: unit.id, history_id: latestHistory(history)?.id || null });
   if (!summary.video_count && !(unit?.attachment_only && summary.subtitle_count)) return []
@@ -184,9 +208,9 @@ function classifyFinding({ unit, summary, history = [], library = [], diagnosis 
   const failed = currentHistory.filter(row => row?.status === false);
   const presentSuccessful = successful.filter(row => presentPaths.has(pathKey(destinationPath(row))));
   const targetMissing = successful.length && successful.every(row => !row?.dest_fileitem?.path && !row?.dest);
-  if (failed.length && !successful.length) return [finding('native_failure', '原生整理失败后，当前下载单元仍在且没有成功整理记录')]
+  if (failed.length && !successful.length) return [finding('native_failure', '原生整理失败：当前源文件仍在且没有成功建立硬链接')]
   if (targetMissing) return [finding('unconfirmed', '历史记录没有保存可核验的目标位置，不能判断当前是否仍有问题', 'review')]
-  if (!diagnosis || diagnosis.abstain || diagnosis.confidence < .5) return []
+  if (!diagnosis || diagnosis.abstain || diagnosis.confidence < .5) return failed.length ? [finding('native_failure', `部分整理失败：当前仍有 ${failed.length} 个源文件没有建立成功硬链接`)] : []
   const currentRecords = presentSuccessful;
   const record = currentRecords[0] || {}; const recordKind = mediaKind$1(record.type || record.media_type || record.category);
   const expectedKind = diagnosis.media_type;
@@ -201,17 +225,20 @@ function classifyFinding({ unit, summary, history = [], library = [], diagnosis 
     const recordMedia = current.media_info || current.mediainfo || current.media || {};
     const recordSource = normaliseMediaSource(current.media_source || recordMedia.media_source || recordMedia.source);
     const recordId = text$1(current.media_id || current.tmdb_id || current.douban_id || recordMedia.media_id || recordMedia.tmdb_id || recordMedia.douban_id || recordMedia.id);
-    if (recordSource && recordId && diagnosis.media_source && diagnosis.media_id && `${recordSource}:${recordId}` !== `${normaliseMediaSource(diagnosis.media_source)}:${diagnosis.media_id}`) { results.push(finding('identity_error', `作品识别错误：当前硬链接归到了另一部作品${missingSuffix}`)); break }
+    const currentFolder = destinationWorkFolder(destinationPath(current));
+    const proposed = [diagnosis.title, diagnosis.original_title];
+    const currentFolderMatches = currentFolder && titlesCompatible([currentFolder], proposed);
     const recordYear = text$1(current.year || recordMedia.year || recordMedia.release_year);
-    if (recordYear && diagnosis.year && recordYear !== text$1(diagnosis.year)) { results.push(finding('identity_error', `作品年份对不上：当前硬链接归到了同名的另一版${missingSuffix}`)); break }
+    const targetYear = text$1(destinationPath(current).match(/\b(?:19|20)\d{2}\b/)?.[0]);
+    if (diagnosis.year && ((targetYear && targetYear !== text$1(diagnosis.year)) || (!currentFolderMatches && recordYear && recordYear !== text$1(diagnosis.year)))) { results.push(finding('identity_error', `作品年份对不上：当前硬链接归到了同名的另一版${missingSuffix}`)); break }
     const titles = [current.title, current.original_title, current.media_name, recordMedia.title, recordMedia.original_title, recordMedia.name].map(cleanTitle).filter(Boolean);
-    const proposed = [diagnosis.title, diagnosis.original_title].map(cleanTitle).filter(Boolean);
-    if (titles.length && proposed.length && !titles.some(left => proposed.some(right => left === right || left.includes(right) || right.includes(left)))) { results.push(finding('identity_error', `作品识别错误：当前硬链接归到了另一部作品${missingSuffix}`)); break }
+    const identityMismatch = recordSource && recordId && diagnosis.media_source && diagnosis.media_id && `${recordSource}:${recordId}` !== `${normaliseMediaSource(diagnosis.media_source)}:${diagnosis.media_id}`;
+    if (!currentFolderMatches && ((currentFolder && !titlesCompatible([currentFolder], proposed)) || (titles.length && !titlesCompatible(titles, proposed))) && identityMismatch) { results.push(finding('identity_error', `作品识别错误：当前硬链接归到了另一部作品${missingSuffix}`)); break }
   }
   if (diagnosis.season && record.season && Number(record.season) !== Number(diagnosis.season)) results.push(finding('hierarchy_error', '季目录对不上：当前整理季与整包证据不一致', 'review'));
   for (const row of successful) {
     const sourceEpisodes = strictEpisodeKeys(sourcePath(row)); const targetEpisodes = strictEpisodeKeys(destinationPath(row));
-    if (sourceEpisodes.length && targetEpisodes.length && sourceEpisodes.join(',') !== targetEpisodes.join(',')) { results.push(finding('episode_error', `剧集对应错误：源文件与当前硬链接的集号不一致${missingSuffix}`)); break }
+    if (sourceEpisodes.length && targetEpisodes.length && !episodeKeysCompatible(sourcePath(row), destinationPath(row))) { results.push(finding('episode_error', `剧集对应错误：源文件与当前硬链接的集号不一致${missingSuffix}`)); break }
   }
   if (expectedKind === 'tv' && summary.episodes.length && currentRecords.length && currentRecords.every(row => !/(?:^|[\\/])(?:season|s)[ ._-]?\d{1,2}(?:[\\/]|$)/i.test(destinationPath(row)))) results.push(finding('hierarchy_error', `目录层级错误：剧集被平铺，没有作品和季目录${missingSuffix}`));
   if (failed.length) results.push(finding('native_failure', `部分整理失败：当前仍有 ${failed.length} 个源文件没有建立成功硬链接`));
@@ -252,8 +279,8 @@ function nativeEvidenceConflict(unit = {}, identity = null) {
   if (years.length > 1) return true
   if (years.length === 1 && String(identity.year || '') !== years[0]) return true
   if ((unit?.summary?.episode_keys || []).length && identity.media_type !== 'tv') return true
-  const identityNames = [identity.title, identity.original_title].map(cleanTitle).filter(Boolean);
-  if (identityNames.length && names.length && !identityNames.some(title => names.some(name => title === name || (Math.min(title.length, name.length) >= 4 && (title.includes(name) || name.includes(title)))))) return true
+  // 发布名常含压制组、语言、分辨率与别名，标题字面不一致不能单独推翻
+  // MoviePilot 已在多个样本上给出的同一数据源身份；年份与媒体类型硬冲突仍须 AI 复核。
   return false
 }
 
@@ -406,11 +433,14 @@ function previewSourceFiles (pkg = {}) {
 
 function repairAdmission (pkg = {}, identity = null, preview = null) {
   if (!pkg.complete) return { allowed: false, reason: '文件证据没有完整读取，不能重建' }
-  if (pkg.boundary !== 'download_hash') return { allowed: false, reason: '下载包边界未由下载任务编号确认，不能自动重建' }
+  if (pkg.boundary === 'conflict') return { allowed: false, reason: '同一文件边界关联了多个下载任务，不能自动重建' }
   if (!identity?.media_source || !identity?.media_id) return { allowed: false, reason: '作品身份没有得到 MoviePilot 数据源编号确认，不能重建' }
   if (!identity?.evidence_verified && !identity?.user_confirmed) return { allowed: false, reason: '作品身份没有经过整包证据核验或你的明确选择，不能重建' }
   const sourceCount = previewSourceFiles(pkg).length;
   if (!previewComplete(preview, sourceCount)) return { allowed: false, reason: '官方逐文件预览不完整或含失败项，不能重建' }
+  const roots = pkg.roots || [pkg.root];
+  const attributable = previewSourceFiles(pkg).every(item => roots.some(root => isWithinPath(item.path, root?.path))) && latestHistoryRows(pkg.history || []).every(row => roots.some(root => isWithinPath(sourcePath(row), root?.path)));
+  if (!attributable) return { allowed: false, reason: '有文件或历史无法唯一归到当前下载单元，不能自动重建' }
   const histories = latestHistoryRows(pkg.history || []).filter(row => row?.status === true && row?.id);
   if (!histories.length) return { allowed: true, mode: 'create', reason: '这是没有旧成功目标的原生整理失败；将只从原始下载建立新硬链接', history_ids: [] }
   const successfulSources = new Set(histories.map(row => pathKey(sourcePath(row))));
@@ -620,12 +650,13 @@ function validatePreviewTarget ({ identity, preview, libraryRoots = [] } = {}) {
   const identityNames = [identity?.title, identity?.original_title].map(cleanTitle).filter(Boolean);
   for (const item of items) {
     const targetTitle = workFolder(item.target);
-    if (identityNames.length && targetTitle && !identityNames.includes(targetTitle)) return { valid: false, reason: '官方预览的作品目录与已确认作品名称不一致，已禁止修复' }
+    const normalizedTarget = targetTitle.replace(/\s+(?:19|20)\d{2}$/i, '').trim();
+    if (identityNames.length && normalizedTarget && !identityNames.includes(normalizedTarget)) return { valid: false, reason: '官方预览的作品目录与已确认作品名称不一致，已禁止修复' }
     const targetYear = String(item?.year || item?.release_year || item?.target || '').match(/\b(?:19|20)\d{2}\b/)?.[0];
     if (identity?.year && targetYear && String(identity.year) !== targetYear) return { valid: false, reason: '官方预览的作品年份与已确认版本不一致，已禁止修复' }
     const sourceKeys = strictEpisodeKeys(item.source);
     const targetKeys = strictEpisodeKeys(item.target);
-    if (sourceKeys.length && targetKeys.length && sourceKeys.join(',') !== targetKeys.join(',')) return { valid: false, reason: '官方预览的季集对应与原文件不一致，已禁止修复' }
+    if (sourceKeys.length && targetKeys.length && !episodeKeysCompatible(item.source, item.target)) return { valid: false, reason: '官方预览的季集对应与原文件不一致，已禁止修复' }
   }
   return { valid: true, reason: '官方预览的目标分类已通过独立核对' }
 }
@@ -649,6 +680,36 @@ function evaluateCurrentState ({ unit, identity, preview, presentPaths = new Set
     .map(row => pathKey(sourcePath(row))));
   if (sourceVideos.size && [...sourceVideos].every(path => currentVideoSources.has(path))) return null
   return evaluateOfficialPreview({ unit, identity, preview, presentPaths, libraryRootFor: path => libraryRootForPath(path, libraryRoots) })
+}
+
+/**
+ * 目标根目录只由已确认作品类型和 MoviePilot 的媒体库配置共同决定。
+ * 下载源目录的映射不能作为目标真值；同类配置不唯一时必须让用户处理配置歧义。
+ */
+function selectLibraryTarget (identity = {}, roots = []) {
+  const category = categoryOfIdentity(identity);
+  if (!category) return { selected: null, reason: '作品类型还没有确认，无法选择媒体库目录' }
+  const matches = roots.filter(root => categoryOfRoot(root) === category);
+  if (!matches.length) return { selected: null, reason: `没有找到唯一的${categoryLabel(category)}媒体库目录` }
+  if (matches.length > 1) return { selected: null, reason: `${categoryLabel(category)}媒体库目录有 ${matches.length} 个，无法安全地自动选择` }
+  const root = matches[0];
+  return {
+    selected: {
+      target_path: root.path,
+      target_storage: root.storage || 'local',
+      transfer_type: 'link',
+      scrape: root.scraping || false,
+      library_type_folder: root.library_type_folder || false,
+      library_category_folder: root.library_category_folder || false,
+    },
+    root,
+    category,
+    reason: `已按作品类型选择${categoryLabel(category)}媒体库目录`,
+  }
+}
+
+function categoryLabel (category) {
+  return ({ movie: '电影', tv: '电视剧', animation: '动漫', other: '其他' })[category] || '对应类型'
 }
 
 const {createElementVNode:_createElementVNode,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeStyle:_normalizeStyle,renderList:_renderList,Fragment:_Fragment,unref:_unref,normalizeClass:_normalizeClass} = await importShared('vue');
@@ -848,8 +909,9 @@ function modelEvidence(unit, summary) {
 async function askAi(candidates) {
   if (!candidates.length || aiAvailable.value === false) return new Map()
   phase.value = `让智能助手复核 ${candidates.length} 个无法靠原生识别确认的单元`;
+  const diagnoses = new Map();
+  const failures = [];
   try {
-    const diagnoses = new Map();
     const pending = candidates.map(item => ({ id: item.id, evidence: modelEvidence(item, item.summary) }));
     while (pending.length && !stopped.value) {
       const rows = []; let chars = 0;
@@ -858,12 +920,19 @@ async function askAi(candidates) {
         if (rows.length && chars + cost > 24000) break
         pending.shift(); rows.push(next); chars += cost;
       }
-      const result = await post('plugin/MediaGovernor/bundle_analyze_batch', { items: rows });
-      for (const [id, diagnosis] of Object.entries(result.diagnoses || {})) diagnoses.set(id, diagnosis);
-      for (const id of result.omitted || []) diagnoses.set(id, { abstain: true, confidence: 0, reasons: ['证据超过智能助手单批安全上限'] });
+      try {
+        const result = await post('plugin/MediaGovernor/bundle_analyze_batch', { items: rows });
+        for (const [id, diagnosis] of Object.entries(result.diagnoses || {})) diagnoses.set(id, diagnosis);
+        for (const id of result.omitted || []) diagnoses.set(id, { abstain: true, confidence: 0, reasons: ['证据超过智能助手单批安全上限'] });
+      } catch (error) {
+        const reason = error?.message || '智能助手没有完成这一批';
+        failures.push(reason);
+        for (const row of rows) diagnoses.set(row.id, { abstain: true, confidence: 0, reasons: [reason], transient_error: true });
+      }
     }
+    if (failures.length) notice.value = `智能助手有 ${failures.length} 批未完成；其他批次已继续，失败原因已保留在对应作品。`;
     return diagnoses
-  } catch (error) { aiAvailable.value = false; notice.value = `${error?.message || '智能助手不可用'}；本轮只保留规则能证明的问题。`; return new Map() }
+  } catch (error) { aiAvailable.value = false; notice.value = `${error?.message || '智能助手不可用'}；本轮只保留规则能证明的问题。`; return diagnoses }
 }
 async function identifyUnits() {
   const target = identityTargets(units.value);
@@ -913,6 +982,7 @@ async function groundAiDiagnoses(aiDiagnoses) {
       }
       const resolved = reconcileIdentities(unit.nativeIdentity, grounded, hint, unit.native_conflict);
       unit.diagnosis = resolved.identity; unit.candidates = resolved.candidates; unit.identity_reason = resolved.reason; unit.aiDiagnosis = hint;
+      if (hint?.transient_error && unit.diagnosis?.abstain) unit.identity_reason = `智能助手本批失败：${hint.reasons?.[0] || '未知原因'}；下次检查会重试`;
       progress.value.done += 1; phase.value = `核对作品候选：${index + 1}/${target.length}`; progress.value.current = 'AI 只提出作品线索；正在回到 MoviePilot 数据源取得可执行作品编号。';
     }
   };
@@ -929,8 +999,9 @@ async function generateOfficialPreviews() {
       const unit = target[index];
       try {
         const base = manualPreviewRequest(unit, unit.diagnosis);
-        const targetPath = await post('transfer/manual/target-path', base);
-        if (!targetPath?.target_path || !targetPath?.target_storage) throw new Error('MoviePilot 没有给出唯一媒体库目标')
+        const selection = selectLibraryTarget(unit.diagnosis, unit.libraryRoots || []);
+        if (!selection.selected) throw new Error(selection.reason)
+        const targetPath = selection.selected;
         unit.previewPayload = { ...base, ...targetPath, preview: true, reorganize: false };
         unit.officialPreview = await post('transfer/manual', unit.previewPayload);
         if (!previewComplete(unit.officialPreview, base.fileitems.length)) throw new Error('MoviePilot 逐文件预览不完整')
@@ -1040,8 +1111,9 @@ async function makePreview() {
   try {
     const base = previewPayload();
     if (!base.fileitems.length || !base.media_source || !base.media_id) throw new Error('缺少经 MoviePilot 确认的作品身份或视频文件')
-    const target = await post('transfer/manual/target-path', base);
-    if (!target?.target_path || !target?.target_storage) throw new Error('MoviePilot 没有为这批文件给出唯一媒体库目标')
+    const selection = selectLibraryTarget(selected.value.candidate, selected.value.unit.libraryRoots || []);
+    if (!selection.selected) throw new Error(selection.reason)
+    const target = selection.selected;
     const payload = { ...base, ...target, preview: true, reorganize: false };
     preview.value = await post('transfer/manual', payload);
     selected.value.preview_payload = payload;
@@ -1053,6 +1125,13 @@ async function makePreview() {
     const targetState = targetAudit.states.get(selected.value.unit.id) || { present: new Map(), complete: false };
     const updated = targetState.complete ? evaluateOfficialPreview({ unit: selected.value.unit, identity: selected.value.candidate, preview: preview.value, presentPaths: new Set(targetState.present.keys()) }) : null;
     selected.value.card = updated ? { ...selected.value.card, ...updated } : { ...selected.value.card, kind: 'normal', reason: '按当前官方预览核对，这个作品暂时没有已证明的整理差异' };
+    const index = findings.value.findIndex(item => item.unit_id === selected.value.card.unit_id);
+    if (updated) {
+      const next = { ...selected.value.card, ...updated, title: titleFor(selected.value.card) };
+      if (index >= 0) findings.value.splice(index, 1, next);
+      else findings.value.push(next);
+      selected.value.card = next;
+    } else if (index >= 0) findings.value.splice(index, 1);
   } catch (error) { selected.value.error = error?.message || '官方预览没有生成'; fail(error, '官方预览没有生成；没有删除或重建任何硬链接。'); }
 }
 async function repair() {
@@ -1076,9 +1155,9 @@ return (_ctx, _cache) => {
   return (_openBlock(), _createElementBlock("main", _hoisted_1, [
     _createElementVNode("section", _hoisted_2, [
       _cache[3] || (_cache[3] = _createElementVNode("div", null, [
-        _createElementVNode("p", { class: "eyebrow" }, "MediaGovernor 4.3.0"),
+        _createElementVNode("p", { class: "eyebrow" }, "MediaGovernor 4.4.0"),
         _createElementVNode("h1", null, "找到问题，再安全修好"),
-        _createElementVNode("p", null, "原生识别只提供候选；文件名、年份、类型和数据源详情一致后，才能判定问题或生成修复。")
+        _createElementVNode("p", null, "当前文件和硬链接决定问题；历史只负责关联，修复目标按作品类型选择唯一媒体库。")
       ], -1)),
       _createElementVNode("div", _hoisted_3, [
         _createElementVNode("button", {
@@ -1302,6 +1381,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0934eebc"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-78f450ae"]]);
 
 export { AppPage as default };

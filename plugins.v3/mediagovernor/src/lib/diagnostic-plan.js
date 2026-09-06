@@ -20,7 +20,7 @@ export function nativeEvidenceConflict(unit = {}, identity = null) {
   if (years.length > 1) return true
   if (years.length === 1 && String(identity.year || '') !== years[0]) return true
   if ((unit?.summary?.episode_keys || []).length && identity.media_type !== 'tv') return true
-  const identityNames = [identity.title, identity.original_title].map(cleanTitle).filter(Boolean)
-  if (identityNames.length && names.length && !identityNames.some(title => names.some(name => title === name || (Math.min(title.length, name.length) >= 4 && (title.includes(name) || name.includes(title)))))) return true
+  // 发布名常含压制组、语言、分辨率与别名，标题字面不一致不能单独推翻
+  // MoviePilot 已在多个样本上给出的同一数据源身份；年份与媒体类型硬冲突仍须 AI 复核。
   return false
 }
