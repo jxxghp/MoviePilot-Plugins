@@ -1,4 +1,4 @@
-import { cleanTitle, latestHistoryRows, pathKey, sourcePath, strictEpisodeHints, subtitlePattern, videoPattern } from './governance.js'
+import { cleanTitle, isSampleItem, latestHistoryRows, pathKey, sourcePath, strictEpisodeHints, subtitlePattern, videoPattern } from './governance.js'
 
 const seasonOf = value => Number(String(value || '').match(/(?:^|[\\/ ._-])S(?:eason[ ._-]?)?(\d{1,2})(?=E\d|$|[\\/ ._-])/i)?.[1] || 0)
 const matchingRoot = (path, roots = []) => [...roots]
@@ -14,7 +14,7 @@ const relativeParts = (path, root) => {
  * 没有独立子目录时再按季拆分。单文件电影和普通单季剧保持为一个作品单元。
  */
 export function createWorkUnits (pkg = {}) {
-  const allEntries = pkg.entries || []
+  const allEntries = (pkg.entries || []).filter(item => !isSampleItem(item))
   const videos = allEntries.filter(item => videoPattern.test(item?.name || '') && item?.path)
   const historySources = new Set((pkg.history || []).map(row => pathKey(sourcePath(row))))
   const orphanSubtitles = allEntries.filter(item => subtitlePattern.test(item?.name || '') && item?.path && historySources.has(pathKey(item.path)))
@@ -32,7 +32,7 @@ export function createWorkUnits (pkg = {}) {
   const isStructural = key => /^dir:(season|specials?|extras?|bonus|disc|cd)[ ._-]*\d*$/i.test(key)
   const namedTopGroups = [...topGroups].filter(([key]) => key && !isStructural(key))
   // 季目录是同一作品的结构，不再拆成多张卡；只有多个明确作品子目录才拆分。
-  const groups = namedTopGroups.length > 1 && !topGroups.has('')
+  const groups = pkg.complete !== false && namedTopGroups.length > 1 && !topGroups.has('')
     ? namedTopGroups.map(([key, rows]) => ({ key, rows }))
     : [{ key: 'all', rows: primaryFiles }]
   return groups.map((group, index) => {
@@ -42,9 +42,9 @@ export function createWorkUnits (pkg = {}) {
         ? (pkg.roots || [pkg.root]).map(root => `${pathKey(root?.path)}/${group.key.slice(4)}`)
         : (pkg.roots || [pkg.root]).map(root => pathKey(root?.path))
     const belongs = path => group.key === 'all' || groupRoots.some(root => pathKey(path) === root || pathKey(path).startsWith(`${root}/`))
-    const entries = (pkg.entries || []).filter(item => item?.path && belongs(item.path))
+    const entries = allEntries.filter(item => item?.path && belongs(item.path))
     const paths = new Set(entries.map(item => pathKey(item.path)))
-    const history = latestHistoryRows((pkg.history || []).filter(row => paths.has(pathKey(sourcePath(row))) || belongs(sourcePath(row))))
+    const history = latestHistoryRows((pkg.history || []).filter(row => !isSampleItem({ path: sourcePath(row), name: sourcePath(row).split(/[\\/]/).pop() }) && (paths.has(pathKey(sourcePath(row))) || belongs(sourcePath(row)))))
     const seasons = [...new Set(group.rows.flatMap(item => [seasonOf(item.path), seasonOf(item.name)].filter(Boolean)))]
     const label = group.key.startsWith('dir:') ? cleanTitle(group.key.slice(4)) : group.key.startsWith('root:')
       ? cleanTitle((pkg.roots || []).find(root => pathKey(root?.path) === group.key.slice(5))?.name)

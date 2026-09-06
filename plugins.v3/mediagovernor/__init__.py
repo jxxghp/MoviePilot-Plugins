@@ -52,13 +52,14 @@ class MediaGovernor(_PluginBase):
     plugin_name = "媒体治理"
     plugin_desc = "以当前下载区与媒体库为准，找出真实整理问题并只经官方预览重建。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "4.2.0"
+    plugin_version = "4.3.0"
     plugin_author = "MoviePilotMediaGovernor contributors"
     author_url = ""
     plugin_config_prefix = "mediagovernor_"
     plugin_order = 99
     auth_level = 1
-    _map_schema = "4.2"
+    _map_schema = "4.3"
+    _diagnosis_cache_schema = "4.3-evidence-v1"
     _max_units, _max_nodes, _max_batch_units, _max_batch_chars = 2500, 30000, 12, 28000
     _max_cached_diagnoses, _request_timeout_seconds = 300, 45
 
@@ -80,7 +81,7 @@ class MediaGovernor(_PluginBase):
 
     @staticmethod
     def get_render_mode() -> tuple[str, str]:
-        return "vue", "dist/v4.2.0/assets"
+        return "vue", "dist/v4.3.0/assets"
 
     def get_sidebar_nav(self) -> list[dict[str, Any]]:
         return []
@@ -278,7 +279,7 @@ class MediaGovernor(_PluginBase):
             # 私有地图只保留继续预览所必需的字段，并用 JSON 大小上限拒绝异常载荷。
             try:
                 encoded = json.dumps(detail, ensure_ascii=False, separators=(",", ":"))
-                row["detail"] = json.loads(encoded) if len(encoded) <= 2_000_000 else {}
+                row["detail"] = json.loads(encoded) if len(encoded) <= 8_000_000 else {}
             except Exception:
                 row["detail"] = {}
         for row in library:
@@ -400,7 +401,7 @@ class MediaGovernor(_PluginBase):
             if not isinstance(row, dict): continue
             key, evidence = self._safe_text(row.get("id"), 80), self._normalise_evidence(row.get("evidence"))
             if not key or not (evidence["entries"] or evidence["title_hints"]): continue
-            fingerprint = hashlib.sha256(json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+            fingerprint = self._diagnosis_fingerprint(evidence)
             if fingerprint in self._diagnosis_cache: result[key] = self._diagnosis(self._diagnosis_cache[fingerprint]); cached += 1; continue
             cost = len(json.dumps(evidence, ensure_ascii=False))
             if chars + cost > self._max_batch_chars:
@@ -411,9 +412,15 @@ class MediaGovernor(_PluginBase):
         except asyncio.TimeoutError: return BatchAnalysisResponse(success=False, message="智能助手超时；没有改变任何媒体")
         except Exception: return BatchAnalysisResponse(success=False, message="智能助手无法完成本批分析；没有改变任何媒体")
         for key, evidence in batches:
-            diagnosis = diagnoses.get(key, Diagnosis()); fingerprint = hashlib.sha256(json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+            diagnosis = diagnoses.get(key, Diagnosis()); fingerprint = self._diagnosis_fingerprint(evidence)
             self._diagnosis_cache[fingerprint] = diagnosis.model_dump(mode="json"); result[key] = diagnosis
         self._diagnosis_cache = dict(list(self._diagnosis_cache.items())[-self._max_cached_diagnoses:])
         try: self.save_data("diagnosis_cache", self._diagnosis_cache)
         except Exception: pass
         return BatchAnalysisResponse(success=True, data={"diagnoses": {key: value.model_dump(mode="json") for key, value in result.items()}, "cached": cached, "analyzed": len(batches), "omitted": omitted})
+
+    @classmethod
+    def _diagnosis_fingerprint(cls, evidence: dict[str, Any]) -> str:
+        """缓存身份绑定当前证据合同，升级后绝不复用旧提示词产生的结论。"""
+        payload = json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(f"{cls._diagnosis_cache_schema}\n{payload}".encode("utf-8")).hexdigest()

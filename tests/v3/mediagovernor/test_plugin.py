@@ -1,4 +1,4 @@
-"""MediaGovernor 4.2 合同测试：不访问 NAS、模型以外的网络或真实媒体。"""
+"""MediaGovernor 4.3 合同测试：不访问 NAS、模型以外的网络或真实媒体。"""
 from __future__ import annotations
 
 import asyncio
@@ -14,6 +14,7 @@ PLUGIN = ROOT / "plugins.v3/mediagovernor/__init__.py"
 PAGE = ROOT / "plugins.v3/mediagovernor/src/components/AppPage.vue"
 RULES = ROOT / "plugins.v3/mediagovernor/src/lib/governance.js"
 GOLDEN = ROOT / "tests/v3/mediagovernor/fixtures/golden/v1/cases.json"
+LIVE_GOLDEN = ROOT / "tests/v3/mediagovernor/fixtures/golden/v1/live-baseline.json"
 
 
 class _FakeLLM:
@@ -55,9 +56,9 @@ class Request:
 def test_versions_assets_and_new_api_contract_are_synced():
     module = _load_plugin(); manifest = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))["MediaGovernor"]
     package = json.loads((ROOT / "plugins.v3/mediagovernor/package.json").read_text(encoding="utf-8"))
-    assert manifest["version"] == package["version"] == module.MediaGovernor.plugin_version == "4.2.0"
-    assert list(manifest["history"])[0] == "v4.2.0"
-    assert module.MediaGovernor.get_render_mode() == ("vue", "dist/v4.2.0/assets")
+    assert manifest["version"] == package["version"] == module.MediaGovernor.plugin_version == "4.3.0"
+    assert list(manifest["history"])[0] == "v4.3.0"
+    assert module.MediaGovernor.get_render_mode() == ("vue", "dist/v4.3.0/assets")
     instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
     assert [row["path"] for row in instance.get_api()] == ["/map_status", "/map_snapshot", "/map_watch", "/map_plan", "/map_commit", "/map_unit", "/map_dirty", "/ai_probe", "/bundle_analyze_batch"]
     assert all(row["auth"] == "bear" for row in instance.get_api())
@@ -106,6 +107,15 @@ def test_batch_analysis_is_bounded_path_free_and_cached():
     assert len(instance._normalise_evidence(oversized)["entries"]) == 80
 
 
+def test_ai_cache_fingerprint_is_versioned_and_cannot_reuse_v42_diagnoses():
+    module = _load_plugin(); instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
+    evidence = instance._normalise_evidence({"title_hints": ["示例剧"], "entries": [{"name": "Show.S01E01.mkv"}], "video_count": 1})
+    legacy = module.hashlib.sha256(json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    current = instance._diagnosis_fingerprint(evidence)
+    assert current != legacy
+    assert current == instance._diagnosis_fingerprint(evidence)
+
+
 def test_events_only_mark_dirty_and_never_read_media_or_call_model():
     module = _load_plugin(); instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
     instance._on_transfer_result({"event_data": {"transfer_history_id": 7, "fileitem": {"path": "/private/A"}}})
@@ -132,7 +142,7 @@ def test_frontend_builds_evidence_packages_and_uses_only_declared_official_previ
     assert "createEvidencePackages(top.map(unit => unit.root), histories.value)" in page
     assert "scanDownloadUnits(toScan, packages.length)" in page
     assert "Math.min(4, toScan.length)" in page
-    assert "MediaGovernor 4.2.0" in page
+    assert "MediaGovernor 4.3.0" in page
     assert "configuredDownloadRoots(downloadConfigurations)" in page
     assert "scope_verified: true" in page
     assert "evaluateCurrentState" in page
@@ -140,6 +150,8 @@ def test_frontend_builds_evidence_packages_and_uses_only_declared_official_previ
     assert "createDownloadUnits(downloadConfigurations" not in page
     assert "src_fileitem" not in page
     assert "manualPreviewRequest" in page and "manualRebuildRequests" in page
+    assert "media/${encodeURIComponent(identity.media_id)}?media_source=" in page
+    assert "const pageSize = 100, entryLimit = 20000" in page
     assert "result.omitted" in page and "chars + cost > 24000" in page
     assert "整理前后对比" in page
 
@@ -166,8 +178,11 @@ def test_incremental_normal_commit_removes_only_that_units_stale_finding():
 
 def test_golden_fixtures_are_deidentified_and_cover_the_known_failure_contract():
     payload = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    live_payload = json.loads(LIVE_GOLDEN.read_text(encoding="utf-8"))
     assert payload["schema"] == "mediagovernor-golden-fixture/v2"
+    assert live_payload["schema"] == "mediagovernor-golden-fixture/v2"
     assert len(payload["cases"]) >= 10
+    assert len(live_payload["cases"]) >= 16
     def contains_real_path(value):
         if isinstance(value, dict):
             return any(
@@ -180,5 +195,28 @@ def test_golden_fixtures_are_deidentified_and_cover_the_known_failure_contract()
             return any(contains_real_path(item) for item in value)
         return isinstance(value, str) and (value.startswith(("/", "\\")) or ":\\" in value) and not value.startswith("/fixture/")
     assert not contains_real_path(payload)
+    assert not contains_real_path(live_payload)
     required = {"normal-target-present", "native-failure", "wrong-category", "wrong-season", "wrong-episode", "wrong-identity", "incomplete-preview-abstains", "native-ai-conflict", "ai-unique-grounding", "anime-not-live-action", "multi-season-one-work", "movie-collection-split", "multi-root-download-split", "no-download-hash-auditable-not-executable", "one-work-one-finding"}
     assert required <= {item["id"] for item in payload["cases"]}
+    live_required = {
+        "baseline-blue-eye-samurai-season-failed",
+        "baseline-cyberpunk-one-episode-failed",
+        "baseline-cowboy-bebop-mixed-failure-and-wrong-work",
+        "baseline-one-piece-live-action-wrong-anime",
+        "baseline-chuka-ichiban-wrong-live-action",
+        "baseline-rick-and-morty-wrong-category",
+        "baseline-love-death-old-seasons-wrong-category",
+        "baseline-pantheon-wrong-category",
+        "baseline-scavengers-reign-wrong-category",
+        "baseline-asia-sound-split-and-wrong-category",
+        "baseline-chorus-variety-wrong-category",
+        "baseline-comedy-variety-wrong-category",
+        "baseline-prehistoric-planet-flat-hierarchy",
+        "baseline-demon-slayer-subtitle-wrong-work",
+        "baseline-protege-subtitle-wrong-year",
+        "baseline-normal-boba-fett",
+        "baseline-normal-my-altay",
+        "baseline-normal-love-death-season-four",
+        "baseline-sample-is-ignored",
+    }
+    assert live_required <= {item["id"] for item in live_payload["cases"]}

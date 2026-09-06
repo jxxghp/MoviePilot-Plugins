@@ -16,6 +16,12 @@ test('原生识别与整包证据冲突时必须停下来', () => {
   assert.equal(result.candidates.length, 2)
 })
 
+test('AI 重复原生的冲突答案不能把错误身份重新盖章', () => {
+  const result = reconcileIdentities(live, { selected: live, candidates: [live] }, { year: '1998' }, true)
+  assert.equal(result.identity.abstain, true)
+  assert.equal(result.identity.evidence_verified, false)
+})
+
 test('不同数据源但标题年份类型一致时认定为同一作品', () => {
   const native = { title: 'Example Story', year: '2020', media_type: 'movie', media_source: 'tmdb', media_id: '10' }
   const douban = { title: 'Example Story', year: '2020', media_type: 'movie', media_source: 'douban', media_id: '20' }

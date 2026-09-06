@@ -7,6 +7,11 @@ const unique = values => [...new Set(values.filter(Boolean))];
 const videoPattern = /\.(mkv|mp4|avi|m2ts|ts|mov|webm)$/i;
 const subtitlePattern = /\.(ass|ssa|srt|sub|vtt)$/i;
 
+function isSampleItem(item = {}) {
+  const path = pathKey(item.path || item.name);
+  return /(?:^|\/)samples?(?:\/|$)/i.test(path) || /(?:^|[ ._-])sample(?:[ ._-]|\.)/i.test(String(item.name || ''))
+}
+
 function cleanTitle(value) {
   return text$1(value).replace(/\.[a-z0-9]{2,5}$/i, '').replace(/[\[【(（].*?[\]】)）]/g, ' ')
     .replace(/\b(2160p|1080p|720p|web[ .-]?(dl|rip)|bluray|bdrip|remux|x26[45]|h\.?26[45]|hevc|aac|dts|atmos|hdr10?\+?|dv|10bit|proper|repack|complete|中字|简繁|国语|粤语)\b/gi, ' ')
@@ -19,6 +24,14 @@ function strictEpisodeHints(value) {
   for (const match of name.matchAll(/\b(?:EP|E)(\d{1,3})\b/ig)) found.push(Number(match[1]));
   for (const match of name.matchAll(/[\[【](\d{1,3})[\]】]/g)) found.push(Number(match[1]));
   return unique(found.filter(value => value > 0 && value < 1000)).sort((a, b) => a - b)
+}
+
+function strictEpisodeKeys(value) {
+  const name = text$1(value); const found = [];
+  for (const match of name.matchAll(/\bS(\d{1,2})E(\d{1,3})\b/ig)) found.push(`S${Number(match[1])}E${Number(match[2])}`);
+  if (found.length) return unique(found)
+  const season = Number(name.match(/(?:^|[\\/ ._-])(?:season|s)[ ._-]?(\d{1,2})(?=[\\/ ._-]|$)/i)?.[1] || 0);
+  return strictEpisodeHints(name).map(episode => `S${season}E${episode}`)
 }
 
 function fileFingerprint(item = {}) {
@@ -129,14 +142,16 @@ function libraryRootSnapshot(roots = []) {
 function summarizeUnit(unit = {}) {
   const episodeFiles = new Map(); let video_count = 0; let subtitle_count = 0; let nfo_count = 0;
   for (const item of unit.entries || []) {
+    if (isSampleItem(item)) continue
     const name = text$1(item.name);
-    if (videoPattern.test(name)) { video_count += 1; for (const episode of strictEpisodeHints(name)) episodeFiles.set(episode, [...(episodeFiles.get(episode) || []), name]); }
+    if (videoPattern.test(name)) { video_count += 1; for (const episode of strictEpisodeKeys(name)) episodeFiles.set(episode, [...(episodeFiles.get(episode) || []), name]); }
     else if (subtitlePattern.test(name)) subtitle_count += 1;
     else if (/\.nfo$/i.test(name)) nfo_count += 1;
   }
-  const episodes = [...episodeFiles.keys()].sort((a, b) => a - b);
+  const episode_keys = [...episodeFiles.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const episodes = unique(episode_keys.map(value => Number(value.match(/E(\d+)$/)?.[1] || 0)).filter(Boolean)).sort((a, b) => a - b);
   const duplicateEpisodes = [...episodeFiles].filter(([, files]) => new Set(files).size > 1).map(([episode]) => episode);
-  return { video_count, subtitle_count, nfo_count, episodes, duplicateEpisodes, fingerprint: unitFingerprint(unit), names: unique([cleanTitle(unit.root?.name), ...(unit.entries || []).map(item => cleanTitle(item.name))].filter(Boolean)).slice(0, 50) }
+  return { video_count, subtitle_count, nfo_count, episodes, episode_keys, duplicateEpisodes, fingerprint: unitFingerprint(unit), names: unique([cleanTitle(unit.root?.name), ...(unit.entries || []).map(item => cleanTitle(item.name))].filter(Boolean)).slice(0, 50) }
 }
 
 const mediaKind$1 = value => /tv|series|电视剧|剧集|动漫|动画|综艺|纪录片/i.test(text$1(value)) ? 'tv' : /movie|film|电影/i.test(text$1(value)) ? 'movie' : '';
@@ -167,42 +182,54 @@ function classifyFinding({ unit, summary, history = [], library = [], diagnosis 
   const currentHistory = latestHistoryRows(history);
   const successful = currentHistory.filter(row => row?.status === true);
   const failed = currentHistory.filter(row => row?.status === false);
-  const presentSuccessful = successful.filter(row => !presentPaths.size || presentPaths.has(pathKey(destinationPath(row))));
+  const presentSuccessful = successful.filter(row => presentPaths.has(pathKey(destinationPath(row))));
   const targetMissing = successful.length && successful.every(row => !row?.dest_fileitem?.path && !row?.dest);
   if (failed.length && !successful.length) return [finding('native_failure', '原生整理失败后，当前下载单元仍在且没有成功整理记录')]
-  if (targetMissing) return [finding('native_failure', '原生整理记录没有当前可核验的媒体库目标')]
-  if (summary.duplicateEpisodes.length) return [finding('episode_error', `同一下载单元有重复集号：${summary.duplicateEpisodes.join('、')}`)]
+  if (targetMissing) return [finding('unconfirmed', '历史记录没有保存可核验的目标位置，不能判断当前是否仍有问题', 'review')]
   if (!diagnosis || diagnosis.abstain || diagnosis.confidence < .5) return []
-  const record = successful[0] || {}; const recordKind = mediaKind$1(record.type || record.media_type || record.category);
+  const currentRecords = presentSuccessful;
+  const record = currentRecords[0] || {}; const recordKind = mediaKind$1(record.type || record.media_type || record.category);
   const expectedKind = diagnosis.media_type;
   const missingSuffix = failed.length ? `；另有 ${failed.length} 个源文件当前仍未整理成功` : '';
   const expectedCategory = categoryOfIdentity(diagnosis);
-  const currentRoots = successful.map(row => libraryRootForPath(destinationPath(row), library)).filter(Boolean);
+  const currentRoots = currentRecords.map(row => libraryRootForPath(destinationPath(row), library)).filter(Boolean);
   const currentCategories = [...new Set(currentRoots.map(categoryOfRoot).filter(Boolean))];
-  if (expectedCategory && currentCategories.length && currentCategories.some(value => value !== expectedCategory)) return [finding('category_error', `目录分类错误：当前位置与已确认作品类型不同${missingSuffix}`)]
-  if (recordKind && expectedKind !== 'unknown' && recordKind !== expectedKind) return [finding('category_error', `媒体类型对不上：当前整理结果与已确认作品类型不同${missingSuffix}`)]
-  const recordMedia = record.media_info || record.mediainfo || record.media || {};
-  const recordSource = text$1(record.media_source || recordMedia.media_source || recordMedia.source);
-  const recordId = text$1(record.media_id || record.tmdb_id || record.douban_id || recordMedia.media_id || recordMedia.tmdb_id || recordMedia.douban_id || recordMedia.id);
-  if (recordSource && recordId && diagnosis.media_source && diagnosis.media_id && `${recordSource}:${recordId}` !== `${diagnosis.media_source}:${diagnosis.media_id}`) return [finding('identity_error', `作品识别错误：当前硬链接归到了另一部作品${missingSuffix}`)]
-  const recordYear = text$1(record.year || recordMedia.year || recordMedia.release_year);
-  if (recordYear && diagnosis.year && recordYear !== text$1(diagnosis.year)) return [finding('identity_error', `作品年份对不上：当前硬链接归到了同名的另一版${missingSuffix}`)]
-  const titles = [record.title, record.original_title, record.media_name, recordMedia.title, recordMedia.original_title, recordMedia.name].map(cleanTitle).filter(Boolean);
-  const proposed = [diagnosis.title, diagnosis.original_title].map(cleanTitle).filter(Boolean);
-  if (titles.length && proposed.length && !titles.some(left => proposed.some(right => left === right || left.includes(right) || right.includes(left)))) return [finding('identity_error', `作品识别错误：当前硬链接归到了另一部作品${missingSuffix}`)]
-  if (diagnosis.season && record.season && Number(record.season) !== Number(diagnosis.season)) return [finding('hierarchy_error', '季目录对不上：当前整理季与整包证据不一致', 'review')]
-  for (const row of successful) {
-    const sourceEpisodes = strictEpisodeHints(sourcePath(row)); const targetEpisodes = strictEpisodeHints(destinationPath(row));
-    if (sourceEpisodes.length && targetEpisodes.length && sourceEpisodes.join(',') !== targetEpisodes.join(',')) return [finding('episode_error', `剧集对应错误：源文件与当前硬链接的集号不一致${missingSuffix}`)]
+  const results = [];
+  if (expectedCategory && currentCategories.length && currentCategories.some(value => value !== expectedCategory)) results.push(finding('category_error', `目录分类错误：当前位置与已确认作品类型不同${missingSuffix}`));
+  else if (recordKind && expectedKind !== 'unknown' && recordKind !== expectedKind) results.push(finding('category_error', `媒体类型对不上：当前整理结果与已确认作品类型不同${missingSuffix}`));
+  for (const current of currentRecords) {
+    const recordMedia = current.media_info || current.mediainfo || current.media || {};
+    const recordSource = normaliseMediaSource(current.media_source || recordMedia.media_source || recordMedia.source);
+    const recordId = text$1(current.media_id || current.tmdb_id || current.douban_id || recordMedia.media_id || recordMedia.tmdb_id || recordMedia.douban_id || recordMedia.id);
+    if (recordSource && recordId && diagnosis.media_source && diagnosis.media_id && `${recordSource}:${recordId}` !== `${normaliseMediaSource(diagnosis.media_source)}:${diagnosis.media_id}`) { results.push(finding('identity_error', `作品识别错误：当前硬链接归到了另一部作品${missingSuffix}`)); break }
+    const recordYear = text$1(current.year || recordMedia.year || recordMedia.release_year);
+    if (recordYear && diagnosis.year && recordYear !== text$1(diagnosis.year)) { results.push(finding('identity_error', `作品年份对不上：当前硬链接归到了同名的另一版${missingSuffix}`)); break }
+    const titles = [current.title, current.original_title, current.media_name, recordMedia.title, recordMedia.original_title, recordMedia.name].map(cleanTitle).filter(Boolean);
+    const proposed = [diagnosis.title, diagnosis.original_title].map(cleanTitle).filter(Boolean);
+    if (titles.length && proposed.length && !titles.some(left => proposed.some(right => left === right || left.includes(right) || right.includes(left)))) { results.push(finding('identity_error', `作品识别错误：当前硬链接归到了另一部作品${missingSuffix}`)); break }
   }
-  if (expectedKind === 'tv' && summary.episodes.length && successful.length && successful.every(row => !/(?:^|[\\/])(?:season|s)[ ._-]?\d{1,2}(?:[\\/]|$)/i.test(destinationPath(row)))) return [finding('hierarchy_error', `目录层级错误：剧集被平铺，没有作品和季目录${missingSuffix}`)]
-  if (failed.length) return [finding('native_failure', `部分整理失败：当前仍有 ${failed.length} 个源文件没有建立成功硬链接`)]
-  if (successful.length && presentSuccessful.length < successful.length) return [finding('native_failure', `已有整理记录，但当前缺少 ${successful.length - presentSuccessful.length} 个硬链接目标`)]
-  return []
+  if (diagnosis.season && record.season && Number(record.season) !== Number(diagnosis.season)) results.push(finding('hierarchy_error', '季目录对不上：当前整理季与整包证据不一致', 'review'));
+  for (const row of successful) {
+    const sourceEpisodes = strictEpisodeKeys(sourcePath(row)); const targetEpisodes = strictEpisodeKeys(destinationPath(row));
+    if (sourceEpisodes.length && targetEpisodes.length && sourceEpisodes.join(',') !== targetEpisodes.join(',')) { results.push(finding('episode_error', `剧集对应错误：源文件与当前硬链接的集号不一致${missingSuffix}`)); break }
+  }
+  if (expectedKind === 'tv' && summary.episodes.length && currentRecords.length && currentRecords.every(row => !/(?:^|[\\/])(?:season|s)[ ._-]?\d{1,2}(?:[\\/]|$)/i.test(destinationPath(row)))) results.push(finding('hierarchy_error', `目录层级错误：剧集被平铺，没有作品和季目录${missingSuffix}`));
+  if (failed.length) results.push(finding('native_failure', `部分整理失败：当前仍有 ${failed.length} 个源文件没有建立成功硬链接`));
+  if (!failed.length && successful.length && presentSuccessful.length < successful.length) results.push(finding('unconfirmed', `有 ${successful.length - presentSuccessful.length} 个历史硬链接现在不存在；可能是手工删除，确认前不会当成整理失败`, 'review'));
+  return [...new Map(results.map(item => [`${item.kind}:${item.reason}`, item])).values()]
 }
 
 function findingLabel(kind) {
-  return ({ native_failure: '原生整理失败', category_error: '目录分类错误', hierarchy_error: '目录层级错误', episode_error: '剧集对应错误', identity_error: '作品识别错误', unconfirmed: '无法确认', uncovered: '尚未覆盖' })[kind] || '需要核对'
+  return ({ multiple_errors: '多个整理问题', native_failure: '原生整理失败', category_error: '目录分类错误', hierarchy_error: '目录层级错误', episode_error: '剧集对应错误', identity_error: '作品识别错误', unconfirmed: '无法确认', uncovered: '尚未覆盖' })[kind] || '需要核对'
+}
+
+function normaliseMediaSource(value) {
+  const raw = text$1(value).toLowerCase();
+  if (raw.includes('豆瓣')) return 'douban'
+  const source = raw.replace(/[^a-z0-9]/g, '');
+  if (['tmdb', 'themoviedb'].includes(source)) return 'tmdb'
+  if (source === 'douban') return 'douban'
+  return source
 }
 
 /** 所有完整读取到的视频作品单元都要识别；历史不得决定诊断范围。 */
@@ -213,10 +240,21 @@ function identityTargets (units = []) {
 /** AI 只兜底 MoviePilot 无法给出唯一身份的单元，避免全库重复消耗。 */
 function aiFallbackTargets (units = []) {
   return identityTargets(units).filter(unit => {
-    if (!unit?.nativeIdentity || unit?.attachment_only) return true
-    const years = [...new Set((unit?.summary?.names || []).flatMap(name => String(name).match(/\b(?:19|20)\d{2}\b/g) || []))];
-    return years.length === 1 && unit.nativeIdentity.year && String(unit.nativeIdentity.year) !== years[0]
+    unit.native_conflict = nativeEvidenceConflict(unit, unit?.nativeIdentity);
+    return !unit?.nativeIdentity || unit?.attachment_only || unit.native_conflict
   })
+}
+
+function nativeEvidenceConflict(unit = {}, identity = null) {
+  if (!identity?.media_id || !identity?.media_source) return true
+  const names = [unit?.work_label, ...(unit?.summary?.names || [])].map(cleanTitle).filter(Boolean);
+  const years = [...new Set(names.flatMap(name => String(name).match(/\b(?:19|20)\d{2}\b/g) || []))];
+  if (years.length > 1) return true
+  if (years.length === 1 && String(identity.year || '') !== years[0]) return true
+  if ((unit?.summary?.episode_keys || []).length && identity.media_type !== 'tv') return true
+  const identityNames = [identity.title, identity.original_title].map(cleanTitle).filter(Boolean);
+  if (identityNames.length && names.length && !identityNames.some(title => names.some(name => title === name || (Math.min(title.length, name.length) >= 4 && (title.includes(name) || name.includes(title)))))) return true
+  return false
 }
 
 /**
@@ -265,7 +303,8 @@ function evaluateOfficialPreview ({ unit, identity, preview, presentPaths = new 
   const finding = (kind, reason, details = []) => ({ kind, reason, details, strength: 'strong', unit_id: unit?.id || '', history_id: latestHistoryRows(unit?.history || [])[0]?.id || null });
   if (!unit?.complete) return finding('uncovered', '文件没有完整读取，暂时不能判断')
   if (!identity || identity.abstain || !identity.media_source || !identity.media_id) return finding('unconfirmed', unit?.identity_reason || '作品身份还没有确认')
-  const sourceCount = (unit.entries || []).filter(item => item?.path).length;
+  const requestedCount = Array.isArray(unit?.previewPayload?.fileitems) ? unit.previewPayload.fileitems.length : 0;
+  const sourceCount = requestedCount || (unit.entries || []).filter(item => item?.path && (videoPattern.test(item?.name || item?.path) || (unit?.attachment_only && subtitlePattern.test(item?.name || item?.path)))).length;
   if (!previewComplete(preview, sourceCount)) return finding('unconfirmed', unit?.preview_error || 'MoviePilot 没有生成完整逐文件预览')
   const expected = officialPreviewItems(preview).map(item => pathKey(item.target));
   const successful = latestHistoryRows(unit.history || []).filter(row => row?.status === true && destinationPath(row));
@@ -336,7 +375,7 @@ function appendTreeEvidence (pkg, trees = []) {
 }
 
 function packageEvidence (pkg = {}) {
-  const entries = Array.isArray(pkg.entries) ? pkg.entries : [];
+  const entries = Array.isArray(pkg.entries) ? pkg.entries.filter(item => !isSampleItem(item)) : [];
   const videos = entries.filter(item => videoPattern.test(item?.name || ''));
   const directories = entries.filter(item => item?.type === 'dir');
   const subtitles = entries.filter(item => /\.(ass|ssa|srt|sub|vtt)$/i.test(item?.name || ''));
@@ -357,13 +396,19 @@ function packageEvidence (pkg = {}) {
 }
 
 function previewSourceFiles (pkg = {}) {
-  return (pkg.entries || []).filter(item => videoPattern.test(item?.name || '') && item?.path).map(item => ({ type: item.type || 'file', storage: item.storage || pkg.root?.storage || 'local', path: item.path, name: item.name, size: item.size, modify_time: item.modify_time }))
+  const historySources = new Set(latestHistoryRows(pkg.history || []).map(row => pathKey(sourcePath(row))).filter(Boolean));
+  return (pkg.entries || []).filter(item => {
+    if (!item?.path || isSampleItem(item)) return false
+    if (videoPattern.test(item?.name || '')) return true
+    return subtitlePattern.test(item?.name || '') && historySources.has(pathKey(item.path))
+  }).map(item => ({ type: item.type || 'file', storage: item.storage || pkg.root?.storage || 'local', path: item.path, name: item.name, size: item.size, modify_time: item.modify_time }))
 }
 
 function repairAdmission (pkg = {}, identity = null, preview = null) {
   if (!pkg.complete) return { allowed: false, reason: '文件证据没有完整读取，不能重建' }
   if (pkg.boundary !== 'download_hash') return { allowed: false, reason: '下载包边界未由下载任务编号确认，不能自动重建' }
   if (!identity?.media_source || !identity?.media_id) return { allowed: false, reason: '作品身份没有得到 MoviePilot 数据源编号确认，不能重建' }
+  if (!identity?.evidence_verified && !identity?.user_confirmed) return { allowed: false, reason: '作品身份没有经过整包证据核验或你的明确选择，不能重建' }
   const sourceCount = previewSourceFiles(pkg).length;
   if (!previewComplete(preview, sourceCount)) return { allowed: false, reason: '官方逐文件预览不完整或含失败项，不能重建' }
   const histories = latestHistoryRows(pkg.history || []).filter(row => row?.status === true && row?.id);
@@ -431,7 +476,7 @@ const relativeParts = (path, root) => {
  * 没有独立子目录时再按季拆分。单文件电影和普通单季剧保持为一个作品单元。
  */
 function createWorkUnits (pkg = {}) {
-  const allEntries = pkg.entries || [];
+  const allEntries = (pkg.entries || []).filter(item => !isSampleItem(item));
   const videos = allEntries.filter(item => videoPattern.test(item?.name || '') && item?.path);
   const historySources = new Set((pkg.history || []).map(row => pathKey(sourcePath(row))));
   const orphanSubtitles = allEntries.filter(item => subtitlePattern.test(item?.name || '') && item?.path && historySources.has(pathKey(item.path)));
@@ -449,7 +494,7 @@ function createWorkUnits (pkg = {}) {
   const isStructural = key => /^dir:(season|specials?|extras?|bonus|disc|cd)[ ._-]*\d*$/i.test(key);
   const namedTopGroups = [...topGroups].filter(([key]) => key && !isStructural(key));
   // 季目录是同一作品的结构，不再拆成多张卡；只有多个明确作品子目录才拆分。
-  const groups = namedTopGroups.length > 1 && !topGroups.has('')
+  const groups = pkg.complete !== false && namedTopGroups.length > 1 && !topGroups.has('')
     ? namedTopGroups.map(([key, rows]) => ({ key, rows }))
     : [{ key: 'all', rows: primaryFiles }];
   return groups.map((group, index) => {
@@ -459,9 +504,9 @@ function createWorkUnits (pkg = {}) {
         ? (pkg.roots || [pkg.root]).map(root => `${pathKey(root?.path)}/${group.key.slice(4)}`)
         : (pkg.roots || [pkg.root]).map(root => pathKey(root?.path));
     const belongs = path => group.key === 'all' || groupRoots.some(root => pathKey(path) === root || pathKey(path).startsWith(`${root}/`));
-    const entries = (pkg.entries || []).filter(item => item?.path && belongs(item.path));
+    const entries = allEntries.filter(item => item?.path && belongs(item.path));
     const paths = new Set(entries.map(item => pathKey(item.path)));
-    const history = latestHistoryRows((pkg.history || []).filter(row => paths.has(pathKey(sourcePath(row))) || belongs(sourcePath(row))));
+    const history = latestHistoryRows((pkg.history || []).filter(row => !isSampleItem({ path: sourcePath(row), name: sourcePath(row).split(/[\\/]/).pop() }) && (paths.has(pathKey(sourcePath(row))) || belongs(sourcePath(row)))));
     const seasons = [...new Set(group.rows.flatMap(item => [seasonOf(item.path), seasonOf(item.name)].filter(Boolean)))];
     const label = group.key.startsWith('dir:') ? cleanTitle(group.key.slice(4)) : group.key.startsWith('root:')
       ? cleanTitle((pkg.roots || []).find(root => pathKey(root?.path) === group.key.slice(5))?.name)
@@ -497,7 +542,7 @@ function identityFromRaw (raw = {}) {
     year: text(value.year),
     media_type: mediaKind(value.type || value.media_type || value.mtype),
     season: Number(value.season || value.season_number || 0) || 0,
-    media_source: text(value.media_source || value.source),
+    media_source: normaliseMediaSource(value.media_source || value.source),
     media_id: text(value.media_id || value.id),
     genres,
     genre_ids: genreIds,
@@ -530,34 +575,58 @@ function chooseGroundedCandidate (hint = {}, rawCandidates = []) {
   const scored = candidates.map(candidate => {
     const names = [candidate.title, candidate.original_title].map(cleanTitle).filter(Boolean);
     const titleScore = wanted && names.some(name => name === wanted) ? 4 : wanted && names.some(name => name.includes(wanted) || wanted.includes(name)) ? 2 : 0;
-    const yearScore = !hint.year || !candidate.year ? 0 : String(hint.year) === String(candidate.year) ? 2 : -3;
-    const typeScore = !hint.media_type || hint.media_type === 'unknown' || candidate.media_type === 'unknown' ? 0 : hint.media_type === candidate.media_type ? 1 : -3;
-    return { candidate, score: titleScore + yearScore + typeScore }
-  }).filter(item => item.score >= 3).sort((a, b) => b.score - a.score);
+    const yearConflict = Boolean(hint.year && candidate.year && String(hint.year) !== String(candidate.year));
+    const typeConflict = Boolean(hint.media_type && hint.media_type !== 'unknown' && candidate.media_type !== 'unknown' && hint.media_type !== candidate.media_type);
+    const yearScore = !hint.year || !candidate.year ? 0 : 2;
+    const typeScore = !hint.media_type || hint.media_type === 'unknown' || candidate.media_type === 'unknown' ? 0 : 1;
+    return { candidate, score: titleScore + yearScore + typeScore, conflict: yearConflict || typeConflict }
+  }).filter(item => !item.conflict && item.score >= 3).sort((a, b) => b.score - a.score);
   const best = scored[0];
-  const unique = best && !scored.slice(1).some(item => item.score === best.score && !sameIdentity(item.candidate, best.candidate));
-  return { selected: unique ? best.candidate : null, candidates: scored.slice(0, 6).map(item => item.candidate) }
+  const unique = best && best.score >= 5 && !scored.slice(1).some(item => item.score >= best.score - 1 && !sameIdentity(item.candidate, best.candidate));
+  return { selected: unique ? { ...best.candidate, evidence_verified: true } : null, candidates: scored.slice(0, 6).map(item => item.candidate) }
 }
 
-function reconcileIdentities (nativeIdentity, aiGrounded, evidenceHint = null) {
+function reconcileIdentities (nativeIdentity, aiGrounded, evidenceHint = null, nativeConflict = false) {
   const native = identityKey(nativeIdentity) ? nativeIdentity : null;
   const ai = identityKey(aiGrounded?.selected) ? aiGrounded.selected : null;
   const candidates = [...new Map([native, ...(aiGrounded?.candidates || [])].filter(Boolean).map(item => [identityKey(item), item])).values()];
-  if (native && ai && (sameIdentity(native, ai) || sameWork(native, ai))) return { identity: { ...native, confidence: 1, abstain: false }, candidates, reason: '原生识别与整包 AI 证据指向同一作品' }
+  if (nativeConflict && ai && native && (sameIdentity(native, ai) || sameWork(native, ai))) return { identity: { abstain: true, confidence: 0, title: '', media_type: 'unknown', evidence_verified: false }, candidates, reason: '整包证据与原生身份冲突，AI 仍返回同一冲突身份，不能自动确认' }
+  if (native && ai && (sameIdentity(native, ai) || sameWork(native, ai))) return { identity: { ...native, evidence_verified: true, confidence: 1, abstain: false }, candidates, reason: '原生识别与整包 AI 证据指向同一作品' }
   if (native && ai && evidenceHint?.year && String(ai.year) === String(evidenceHint.year) && String(native.year || '') !== String(evidenceHint.year)) return { identity: { ...ai, confidence: 0.95, abstain: false }, candidates, reason: '文件结构有明确年份，AI 候选已由 MoviePilot 数据源落地' }
+  if (nativeConflict && ai) return { identity: { ...ai, evidence_verified: true, confidence: 0.9, abstain: false }, candidates, reason: '原生识别与整包证据冲突，采用经数据源详情核验的整包候选' }
   // MoviePilot 已经给出唯一数据源编号时，它本身就是可执行身份。
   // AI 是原生弃权时的兜底，不应反过来否定原生唯一结果。
-  if (native && !ai) return { identity: { ...native, confidence: Math.max(Number(native.confidence) || 0, 0.85), abstain: false }, candidates, reason: 'MoviePilot 原生识别已给出唯一作品' }
+  if (native && !ai && !nativeConflict) return { identity: { ...native, evidence_verified: true, confidence: Math.max(Number(native.confidence) || 0, 0.85), abstain: false }, candidates, reason: 'MoviePilot 原生识别与文件名、年份、类型证据没有冲突' }
   if (!native && ai) return { identity: { ...ai, confidence: 0.9, abstain: false }, candidates, reason: 'AI 候选已由 MoviePilot 数据源唯一落地' }
-  return { identity: { abstain: true, confidence: 0, title: '', media_type: 'unknown' }, candidates, reason: native && ai ? '原生识别与整包证据冲突' : '没有唯一作品身份' }
+  return { identity: { abstain: true, confidence: 0, title: '', media_type: 'unknown', evidence_verified: false }, candidates, reason: nativeConflict ? 'MoviePilot 原生识别与整包的年份、类型或标题证据冲突' : native && ai ? '原生识别与整包证据冲突' : '没有唯一作品身份' }
 }
 
+const workFolder = value => {
+  const parts = String(value || '').replace(/\\/g, '/').split('/').filter(Boolean);
+  const season = parts.findIndex(part => /^(?:season|s)[ ._-]?\d{1,2}$/i.test(part));
+  return cleanTitle(parts[season > 0 ? season - 1 : Math.max(0, parts.length - 2)] || '')
+};
+
 function validatePreviewTarget ({ identity, preview, libraryRoots = [] } = {}) {
+  if (!identity?.evidence_verified && !identity?.user_confirmed) return { valid: false, reason: '作品身份没有经过整包证据核验或你的明确选择，已禁止修复' }
   const expected = categoryOfIdentity(identity);
-  const roots = officialPreviewItems(preview).map(item => libraryRootForPath(item.target, libraryRoots)).filter(Boolean);
+  const items = officialPreviewItems(preview);
+  const roots = items.map(item => libraryRootForPath(item.target, libraryRoots)).filter(Boolean);
   const actual = [...new Set(roots.map(categoryOfRoot).filter(Boolean))];
   if (!expected || !actual.length) return { valid: false, reason: '无法确认官方预览选中的媒体库分类' }
   if (actual.some(value => value !== expected)) return { valid: false, reason: '官方预览选中的目录与作品类型不一致，已禁止修复' }
+  const targets = items.map(item => pathKey(item.target));
+  if (new Set(targets).size !== targets.length) return { valid: false, reason: '官方预览存在重复目标，已禁止修复' }
+  const identityNames = [identity?.title, identity?.original_title].map(cleanTitle).filter(Boolean);
+  for (const item of items) {
+    const targetTitle = workFolder(item.target);
+    if (identityNames.length && targetTitle && !identityNames.includes(targetTitle)) return { valid: false, reason: '官方预览的作品目录与已确认作品名称不一致，已禁止修复' }
+    const targetYear = String(item?.year || item?.release_year || item?.target || '').match(/\b(?:19|20)\d{2}\b/)?.[0];
+    if (identity?.year && targetYear && String(identity.year) !== targetYear) return { valid: false, reason: '官方预览的作品年份与已确认版本不一致，已禁止修复' }
+    const sourceKeys = strictEpisodeKeys(item.source);
+    const targetKeys = strictEpisodeKeys(item.target);
+    if (sourceKeys.length && targetKeys.length && sourceKeys.join(',') !== targetKeys.join(',')) return { valid: false, reason: '官方预览的季集对应与原文件不一致，已禁止修复' }
+  }
   return { valid: true, reason: '官方预览的目标分类已通过独立核对' }
 }
 
@@ -569,7 +638,11 @@ function validatePreviewTarget ({ identity, preview, libraryRoots = [] } = {}) {
 function evaluateCurrentState ({ unit, identity, preview, presentPaths = new Set(), libraryRoots = [] } = {}) {
   const summary = unit?.summary || summarizeUnit(unit);
   const rules = classifyFinding({ unit, summary, history: unit?.history || [], library: libraryRoots, diagnosis: identity, presentPaths });
+  const proven = rules.filter(item => !['unconfirmed', 'uncovered'].includes(item.kind));
+  if (proven.length > 1) return { ...proven[0], kind: 'multiple_errors', reason: proven.map(item => item.reason).join('；'), issues: proven }
+  if (proven.length) return proven[0]
   if (rules.length) return rules[0]
+  if (!identity || identity.abstain || !identity.evidence_verified) return { kind: 'unconfirmed', reason: unit?.identity_reason || '作品身份还没有经过整包证据确认', strength: 'review', unit_id: unit?.id || '' }
   const sourceVideos = new Set((unit?.entries || []).filter(item => videoPattern.test(item?.name || '')).map(item => pathKey(item.path)));
   const currentVideoSources = new Set(latestHistoryRows(unit?.history || [])
     .filter(row => row?.status === true && videoPattern.test(sourcePath(row)) && presentPaths.has(pathKey(destinationPath(row))))
@@ -642,7 +715,7 @@ const _hoisted_28 = ["disabled"];
 
 const {computed,onMounted,ref} = await importShared('vue');
 
-const pageSize = 100, entryLimit = 1200;
+const pageSize = 100, entryLimit = 20000;
 
 const _sfc_main = {
   __name: 'AppPage',
@@ -801,7 +874,9 @@ async function identifyUnits() {
     while (!stopped.value) {
       const index = cursor; cursor += 1;
       if (index >= target.length) return
-      const unit = target[index]; const samples = unit.entries.filter(item => videoPattern.test(item?.name || '') && item?.path).slice(0, 3);
+      const unit = target[index]; const videos = unit.entries.filter(item => videoPattern.test(item?.name || '') && item?.path);
+      const sampleIndexes = [...new Set([0, Math.floor((videos.length - 1) / 2), videos.length - 1].filter(value => value >= 0))];
+      const samples = sampleIndexes.map(value => videos[value]).filter(Boolean);
       if (!samples.length && unit.attachment_only) samples.push(...unit.entries.filter(item => item?.path && /\.(ass|ssa|srt|sub|vtt)$/i.test(item?.name || '')).slice(0, 3));
       try {
         const candidates = await Promise.all(samples.map(async sample => identityFromRaw(await get(`media/recognize_file?path=${encodeURIComponent(sample.path)}`))));
@@ -826,10 +901,17 @@ async function groundAiDiagnoses(aiDiagnoses) {
         try {
           const query = [hint.title, hint.year].filter(Boolean).join(' ');
           const rows = listOf(await get(`media/search?title=${encodeURIComponent(query)}&type=media&page=1&count=8`));
-          grounded = chooseGroundedCandidate(hint, rows);
+          const detailed = await Promise.all(rows.slice(0, 8).map(async row => {
+            const identity = identityFromRaw(row);
+            if (!identityKey(identity) || identity.media_type === 'unknown') return row
+            try {
+              return await get(`media/${encodeURIComponent(identity.media_id)}?media_source=${encodeURIComponent(identity.media_source)}&type_name=${encodeURIComponent(moviePilotTypeName(identity.media_type))}`)
+            } catch { return row }
+          }));
+          grounded = chooseGroundedCandidate(hint, detailed);
         } catch { grounded = { selected: null, candidates: [] }; }
       }
-      const resolved = reconcileIdentities(unit.nativeIdentity, grounded, hint);
+      const resolved = reconcileIdentities(unit.nativeIdentity, grounded, hint, unit.native_conflict);
       unit.diagnosis = resolved.identity; unit.candidates = resolved.candidates; unit.identity_reason = resolved.reason; unit.aiDiagnosis = hint;
       progress.value.done += 1; phase.value = `核对作品候选：${index + 1}/${target.length}`; progress.value.current = 'AI 只提出作品线索；正在回到 MoviePilot 数据源取得可执行作品编号。';
     }
@@ -903,7 +985,7 @@ async function buildMap(full = false) {
     const diagnoses = await askAi(candidates);
     await groundAiDiagnoses(diagnoses);
     for (const unit of units.value.filter(item => !item.diagnosis)) {
-      const resolved = reconcileIdentities(unit.nativeIdentity, { selected: null, candidates: [] });
+      const resolved = reconcileIdentities(unit.nativeIdentity, { selected: null, candidates: [] }, null, unit.native_conflict);
       unit.diagnosis = resolved.identity; unit.candidates = resolved.candidates; unit.identity_reason = resolved.reason;
     }
     await generateOfficialPreviews();
@@ -950,7 +1032,7 @@ async function recognize(card) {
   if (preview.value && selected.value.candidate) selected.value.admission = repairAdmission(unit, selected.value.candidate, preview.value);
   if (!selected.value.candidate && !selected.value.candidates.length) selected.value.error = '当前证据没有得到可用候选。请先检查智能助手和媒体数据源配置。';
 }
-function selectCandidate(candidate) { selected.value.candidate = candidate; selected.value.error = ''; selected.value.preview_payload = null; selected.value.admission = null; preview.value = null; }
+function selectCandidate(candidate) { selected.value.candidate = { ...candidate, user_confirmed: true }; selected.value.error = ''; selected.value.preview_payload = null; selected.value.admission = null; preview.value = null; }
 function previewPayload() {
   return manualPreviewRequest(selected.value?.unit, selected.value?.candidate)
 }
@@ -994,9 +1076,9 @@ return (_ctx, _cache) => {
   return (_openBlock(), _createElementBlock("main", _hoisted_1, [
     _createElementVNode("section", _hoisted_2, [
       _cache[3] || (_cache[3] = _createElementVNode("div", null, [
-        _createElementVNode("p", { class: "eyebrow" }, "MediaGovernor 4.2.0"),
+        _createElementVNode("p", { class: "eyebrow" }, "MediaGovernor 4.3.0"),
         _createElementVNode("h1", null, "找到问题，再安全修好"),
-        _createElementVNode("p", null, "MoviePilot 唯一识别直接作为作品身份；规则先核对当前硬链接，AI 只兜底原生无法确认的作品。")
+        _createElementVNode("p", null, "原生识别只提供候选；文件名、年份、类型和数据源详情一致后，才能判定问题或生成修复。")
       ], -1)),
       _createElementVNode("div", _hoisted_3, [
         _createElementVNode("button", {
@@ -1220,6 +1302,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-33fb3d0b"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0934eebc"]]);
 
 export { AppPage as default };

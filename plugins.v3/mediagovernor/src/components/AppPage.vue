@@ -4,7 +4,7 @@ import { cleanTitle, configuredDownloadRoots, configuredLibraryRoots, createDown
 import { aiFallbackTargets, identityTargets } from '../lib/diagnostic-plan.js'
 import { normaliseHistoryRows, unwrapMoviePilotResponse } from '../lib/moviepilot-response.js'
 import { appendTreeEvidence, createEvidencePackages, packageEvidence, repairAdmission } from '../lib/evidence-pipeline.js'
-import { manualPreviewRequest, manualRebuildRequests } from '../lib/manual-transfer.js'
+import { manualPreviewRequest, manualRebuildRequests, moviePilotTypeName } from '../lib/manual-transfer.js'
 import { createWorkUnits } from '../lib/work-units.js'
 import { chooseGroundedCandidate, identityFromRaw, identityKey, reconcileIdentities } from '../lib/identity.js'
 import { evaluateOfficialPreview, officialPreviewItems, previewComplete } from '../lib/preview-audit.js'
@@ -15,7 +15,7 @@ const state = ref({ ready: false, updated_at: '', download_units: 0, library_nod
 const phase = ref('尚未建立地图'), notice = ref(''), running = ref(false), stopped = ref(false), aiAvailable = ref(null)
 const progress = ref({ done: 0, total: 0, current: '' }), findings = ref([]), units = ref([]), histories = ref([]), preview = ref(null), selected = ref(null)
 const liveMapReady = ref(false)
-const pageSize = 100, entryLimit = 1200
+const pageSize = 100, entryLimit = 20000
 const canUseApi = computed(() => typeof props.api?.get === 'function' && typeof props.api?.post === 'function')
 const percent = computed(() => progress.value.total ? Math.min(100, Math.round(progress.value.done * 100 / progress.value.total)) : 0)
 const elapsedLabel = computed(() => running.value ? '正在读取真实文件状态' : state.value.updated_at ? '已有媒体地图' : '首次建立地图会较久，之后只复核变动项')
@@ -163,7 +163,9 @@ async function identifyUnits() {
     while (!stopped.value) {
       const index = cursor; cursor += 1
       if (index >= target.length) return
-      const unit = target[index]; const samples = unit.entries.filter(item => videoPattern.test(item?.name || '') && item?.path).slice(0, 3)
+      const unit = target[index]; const videos = unit.entries.filter(item => videoPattern.test(item?.name || '') && item?.path)
+      const sampleIndexes = [...new Set([0, Math.floor((videos.length - 1) / 2), videos.length - 1].filter(value => value >= 0))]
+      const samples = sampleIndexes.map(value => videos[value]).filter(Boolean)
       if (!samples.length && unit.attachment_only) samples.push(...unit.entries.filter(item => item?.path && /\.(ass|ssa|srt|sub|vtt)$/i.test(item?.name || '')).slice(0, 3))
       try {
         const candidates = await Promise.all(samples.map(async sample => identityFromRaw(await get(`media/recognize_file?path=${encodeURIComponent(sample.path)}`))))
@@ -188,10 +190,17 @@ async function groundAiDiagnoses(aiDiagnoses) {
         try {
           const query = [hint.title, hint.year].filter(Boolean).join(' ')
           const rows = listOf(await get(`media/search?title=${encodeURIComponent(query)}&type=media&page=1&count=8`))
-          grounded = chooseGroundedCandidate(hint, rows)
+          const detailed = await Promise.all(rows.slice(0, 8).map(async row => {
+            const identity = identityFromRaw(row)
+            if (!identityKey(identity) || identity.media_type === 'unknown') return row
+            try {
+              return await get(`media/${encodeURIComponent(identity.media_id)}?media_source=${encodeURIComponent(identity.media_source)}&type_name=${encodeURIComponent(moviePilotTypeName(identity.media_type))}`)
+            } catch { return row }
+          }))
+          grounded = chooseGroundedCandidate(hint, detailed)
         } catch { grounded = { selected: null, candidates: [] } }
       }
-      const resolved = reconcileIdentities(unit.nativeIdentity, grounded, hint)
+      const resolved = reconcileIdentities(unit.nativeIdentity, grounded, hint, unit.native_conflict)
       unit.diagnosis = resolved.identity; unit.candidates = resolved.candidates; unit.identity_reason = resolved.reason; unit.aiDiagnosis = hint
       progress.value.done += 1; phase.value = `核对作品候选：${index + 1}/${target.length}`; progress.value.current = 'AI 只提出作品线索；正在回到 MoviePilot 数据源取得可执行作品编号。'
     }
@@ -265,7 +274,7 @@ async function buildMap(full = false) {
     const diagnoses = await askAi(candidates)
     await groundAiDiagnoses(diagnoses)
     for (const unit of units.value.filter(item => !item.diagnosis)) {
-      const resolved = reconcileIdentities(unit.nativeIdentity, { selected: null, candidates: [] })
+      const resolved = reconcileIdentities(unit.nativeIdentity, { selected: null, candidates: [] }, null, unit.native_conflict)
       unit.diagnosis = resolved.identity; unit.candidates = resolved.candidates; unit.identity_reason = resolved.reason
     }
     await generateOfficialPreviews()
@@ -312,7 +321,7 @@ async function recognize(card) {
   if (preview.value && selected.value.candidate) selected.value.admission = repairAdmission(unit, selected.value.candidate, preview.value)
   if (!selected.value.candidate && !selected.value.candidates.length) selected.value.error = '当前证据没有得到可用候选。请先检查智能助手和媒体数据源配置。'
 }
-function selectCandidate(candidate) { selected.value.candidate = candidate; selected.value.error = ''; selected.value.preview_payload = null; selected.value.admission = null; preview.value = null }
+function selectCandidate(candidate) { selected.value.candidate = { ...candidate, user_confirmed: true }; selected.value.error = ''; selected.value.preview_payload = null; selected.value.admission = null; preview.value = null }
 function previewPayload() {
   return manualPreviewRequest(selected.value?.unit, selected.value?.candidate)
 }
@@ -355,7 +364,7 @@ onMounted(status)
 
 <template>
   <main class="governor-page">
-    <section class="hero"><div><p class="eyebrow">MediaGovernor 4.2.0</p><h1>找到问题，再安全修好</h1><p>MoviePilot 唯一识别直接作为作品身份；规则先核对当前硬链接，AI 只兜底原生无法确认的作品。</p></div><div class="actions"><button class="secondary" :disabled="running" @click="probeAi">检查智能助手</button><button v-if="state.ready" class="secondary" :disabled="running" @click="buildMap(true)">完整重建地图</button><button class="primary" :disabled="running" @click="buildMap(state.ready ? false : true)">{{ state.ready ? '检查变动' : '开始首次检查' }}</button></div></section>
+    <section class="hero"><div><p class="eyebrow">MediaGovernor 4.3.0</p><h1>找到问题，再安全修好</h1><p>原生识别只提供候选；文件名、年份、类型和数据源详情一致后，才能判定问题或生成修复。</p></div><div class="actions"><button class="secondary" :disabled="running" @click="probeAi">检查智能助手</button><button v-if="state.ready" class="secondary" :disabled="running" @click="buildMap(true)">完整重建地图</button><button class="primary" :disabled="running" @click="buildMap(state.ready ? false : true)">{{ state.ready ? '检查变动' : '开始首次检查' }}</button></div></section>
     <section class="summary"><span><b>{{ provenCount }}</b>真实问题</span><span><b>{{ pendingCards.length }}</b>等待确认作品</span><span><b>{{ uncoveredCards.length }}</b>未完成覆盖</span><span><b>{{ units.length || state.download_units }}</b>作品单元</span></section>
     <section v-if="running || progress.total" class="progress"><div><b>{{ phase }}</b><button v-if="running" class="link" @click="stop">停止</button></div><p>{{ progress.current }}</p><i><em :style="{ width: `${percent}%` }"></em></i><small>{{ progress.done }}/{{ progress.total }} · {{ elapsedLabel }}</small></section>
     <p v-if="notice" class="notice">{{ notice }}</p>
