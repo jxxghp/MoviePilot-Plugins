@@ -1,0 +1,10 @@
+{
+  "schema": "knowledgeradar-research-quality-receipt/v1",
+  "status": "pass",
+  "checked_at": "2026-09-06T10:18:51.520341+00:00",
+  "report_path": "D:\\Projects\\NAS docker\\media-next\\plugins\\moviepilot-media-governor\\docs\\architecture\\mediagovernor-ai-recognition-experiment-plan-2026-09-06.md",
+  "evidence_path": "D:\\Projects\\NAS docker\\media-next\\plugins\\moviepilot-media-governor\\docs\\architecture\\mediagovernor-ai-recognition-experiment-plan-2026-09-06.evidence.json",
+  "report_sha256": "84e1e706f82c90bdb9232baffb09d9c814f2e96b433425e70f546585e936bed1",
+  "evidence_sha256": "ba46739ccb5da2f5514b7b477bca0c893ecc59d7bac47845de200fdb8d481e77",
+  "quality_check_schema": "knowledgeradar-research-quality-check/v1"
+}

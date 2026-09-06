@@ -57,11 +57,11 @@ class Request:
 def test_versions_assets_and_new_api_contract_are_synced():
     module = _load_plugin(); manifest = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))["MediaGovernor"]
     package = json.loads((ROOT / "plugins.v3/mediagovernor/package.json").read_text(encoding="utf-8"))
-    assert manifest["version"] == package["version"] == module.MediaGovernor.plugin_version == "4.5.0"
-    assert list(manifest["history"])[0] == "v4.5.0"
-    assert module.MediaGovernor.get_render_mode() == ("vue", "dist/v4.5.0/assets")
+    assert manifest["version"] == package["version"] == module.MediaGovernor.plugin_version == "4.6.0"
+    assert list(manifest["history"])[0] == "v4.6.0"
+    assert module.MediaGovernor.get_render_mode() == ("vue", "dist/v4.6.0/assets")
     instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
-    assert [row["path"] for row in instance.get_api()] == ["/map_status", "/map_snapshot", "/map_watch", "/map_identities", "/map_plan", "/map_commit", "/map_unit", "/map_dirty", "/ai_probe", "/bundle_analyze_batch"]
+    assert [row["path"] for row in instance.get_api()] == ["/map_status", "/map_snapshot", "/map_watch", "/map_identities", "/map_plan", "/map_commit", "/map_unit", "/map_dirty", "/ai_probe", "/bundle_analyze_batch", "/experiment_sample", "/experiment_run"]
     assert all(row["auth"] == "bear" for row in instance.get_api())
 
 
@@ -145,6 +145,91 @@ def test_batch_analysis_is_bounded_path_free_and_cached():
     assert len(instance._normalise_evidence(oversized)["entries"]) == 80
 
 
+def test_real_sample_experiment_uses_saved_evidence_without_paths_or_expected_answers():
+    module = _load_plugin(); instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
+    detail = {"complete": True, "boundary_reason": "按顶层目录分组", "summary": {"names": ["Example Show S01"], "video_count": 3, "episodes": [1, 2, 3]}, "entries": [{"path": f"/private/Example.S01E{index:02d}.mkv", "name": f"Example.S01E{index:02d}.mkv", "type": "file", "depth": 1} for index in range(1, 4)]}
+    body = {"baseline": True, "scope_verified": True, "download_units": [{"id": "unit-a", "package_id": "pkg-a", "label": "Example Show", "video_count": 3, "detail": detail}], "library_nodes": [], "findings": [{"unit_id": "unit-a", "kind": "native_failure", "reason": "没有建立硬链接"}]}
+    assert asyncio.run(instance.api_map_commit(Request(body))).success
+    unit_id = instance._runtime_map["download_units"][0]["id"]
+    sampled = asyncio.run(instance.api_experiment_sample(Request({"unit_ids": [unit_id]})))
+    assert sampled.success and sampled.data["samples"][0]["evidence"]["video_count"] == 3
+    encoded = json.dumps(sampled.data, ensure_ascii=False)
+    assert "/private" not in encoded and "expected" not in encoded
+
+    calls = []
+    async def measured(items, timeout=None):
+        calls.append((items, timeout))
+        return {key: module.Diagnosis(title="Example Show", media_type="tv", confidence=.9, queries=[{"title": "Example Show", "year": "", "media_type": "tv"}], abstain=False) for key, _ in items}, {"contract": instance._experiment_contract, "model": "fake", "elapsed_ms": 1, "input_chars": 20, "usage": {"input_tokens": 10}, "usage_available": True, "item_count": len(items)}
+    instance._model_with_receipt = measured
+    result = asyncio.run(instance.api_experiment_run(Request({"unit_ids": [unit_id], "modes": ["full_tree", "compact", "compact_with_current"], "batch_size": 1})))
+    assert result.success and len(result.data["runs"]) == 3 and len(calls) == 3
+    assert all(call[1] == 90 for call in calls)
+    assert result.data["runs"][0]["diagnoses"][unit_id]["title"] == "Example Show"
+    assert result.data["runs"][0]["diagnoses"][unit_id]["queries"][0]["title"] == "Example Show"
+    assert "/private" not in json.dumps(result.data, ensure_ascii=False)
+
+
+def test_real_sample_experiment_preserves_full_saved_evidence_and_compacts_safely():
+    module = _load_plugin(); instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
+    saved = {"title_hints": ["Real Show"], "entries": [{"name": f"Real.Show.S01E{index:03d}.mkv", "type": "file", "depth": 2, "path": "/private"} for index in range(120)], "video_count": 120, "episodes": list(range(1, 121))}
+    detail = {"complete": True, "evidence": saved, "entries": [{"name": "wrong-fallback.mkv", "type": "file"}], "summary": {"names": ["wrong fallback"], "video_count": 1}}
+    body = {"baseline": True, "scope_verified": True, "download_units": [{"id": "unit-a", "package_id": "pkg-a", "label": "Real Show", "detail": detail}], "library_nodes": [], "findings": [{"unit_id": "unit-a", "kind": "native_failure", "reason": "没有建立硬链接"}]}
+    assert asyncio.run(instance.api_map_commit(Request(body))).success
+    unit_id = instance._runtime_map["download_units"][0]["id"]
+    sample = asyncio.run(instance.api_experiment_sample(Request({"unit_ids": [unit_id]}))).data["samples"][0]
+    assert len(sample["evidence"]["entries"]) == 120
+    assert sample["evidence"]["title_hints"] == ["Real Show"]
+    assert "/private" not in json.dumps(sample, ensure_ascii=False)
+    full = instance._experiment_evidence(sample, "full_tree")
+    compact = instance._experiment_evidence(sample, "compact")
+    current = instance._experiment_evidence(sample, "compact_with_current")
+    assert len(full["entries"]) == 120 and len(compact["entries"]) == 12
+    assert set(current["current_state"]) == {"kind", "reason", "boundary"}
+    assert "expected" not in json.dumps(current, ensure_ascii=False)
+
+
+def test_real_sample_experiment_limits_inputs_filters_modes_and_keeps_partial_failures():
+    module = _load_plugin(); instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
+    units = [{"id": f"unit-{index}", "package_id": f"pkg-{index}", "label": f"Show {index}", "detail": {"complete": True, "evidence": {"title_hints": [f"Show {index}"], "entries": [{"name": f"Show.{index}.mkv"}], "video_count": 1}}} for index in range(7)]
+    assert asyncio.run(instance.api_map_commit(Request({"baseline": True, "scope_verified": True, "download_units": units, "library_nodes": [], "findings": []}))).success
+    ids = [row["id"] for row in instance._runtime_map["download_units"]]
+    calls = 0
+    async def partial(items, timeout=None):
+        nonlocal calls
+        calls += 1
+        if calls == 2: raise asyncio.TimeoutError()
+        return {key: module.Diagnosis(title="Show", media_type="tv", confidence=.9) for key, _ in items}, {"model": "fake", "elapsed_ms": 1, "input_chars": 1, "usage": {}, "usage_available": False, "item_count": len(items)}
+    instance._model_with_receipt = partial
+    result = asyncio.run(instance.api_experiment_run(Request({"unit_ids": ids, "modes": ["full_tree", "invalid", "compact"], "batch_size": 5})))
+    assert not result.success and result.data["failure_class"] == "timeout"
+    assert result.data["failed_mode"] == "compact" and result.data["failed_batch"] == 1
+    assert len(result.data["runs"]) == 1 and result.data["runs"][0]["receipt"]["item_count"] == 5
+
+
+def test_model_receipt_flattens_nested_cached_token_usage():
+    module = _load_plugin(); instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
+    class Response:
+        content = '{"one":{"title":"Show","media_type":"tv","confidence":0.9}}'
+        usage_metadata = {"input_tokens": 100, "input_token_details": {"cached_tokens": 64}}
+        response_metadata = {"model_name": "fake-model"}
+    class Model:
+        async def ainvoke(self, _prompt): return Response()
+    module.LLMHelper.get_llm = staticmethod(lambda streaming=False: Model())
+    _, receipt = asyncio.run(instance._model_with_receipt([("one", {"title_hints": ["Show"]})]))
+    assert receipt["model"] == "fake-model"
+    assert receipt["usage"]["input_tokens"] == 100
+    assert receipt["usage"]["input_token_details.cached_tokens"] == 64
+
+
+def test_diagnosis_keeps_at_most_three_safe_database_queries():
+    module = _load_plugin()
+    diagnosis = module.MediaGovernor._diagnosis({"queries": [{"title": f"Show {index}", "year": "2024", "media_type": "tv", "path": "/private"} for index in range(5)], "confidence": .8})
+    assert diagnosis.title == "Show 0" and diagnosis.year == "2024"
+    assert len(diagnosis.queries) == 3
+    assert all(set(query) == {"title", "year", "media_type"} for query in diagnosis.queries)
+    assert "/private" not in json.dumps(diagnosis.model_dump(), ensure_ascii=False)
+
+
 def test_ai_cache_fingerprint_is_versioned_and_cannot_reuse_v42_diagnoses():
     module = _load_plugin(); instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
     evidence = instance._normalise_evidence({"title_hints": ["示例剧"], "entries": [{"name": "Show.S01E01.mkv"}], "video_count": 1})
@@ -196,8 +281,12 @@ def test_events_only_mark_dirty_and_never_read_media_or_call_model():
 def test_frontend_builds_evidence_packages_and_uses_only_declared_official_preview_fields():
     page, rules = PAGE.read_text(encoding="utf-8"), RULES.read_text(encoding="utf-8")
     budget = BUDGET.read_text(encoding="utf-8")
-    for endpoint in ("storage/directories?directory_type=${kind}", "storage/list", "history/transfer?status=${status}", "plugin/MediaGovernor/map_snapshot", "plugin/MediaGovernor/map_identities", "plugin/MediaGovernor/map_commit", "plugin/MediaGovernor/bundle_analyze_batch", "media/recognize_file", "transfer/manual"):
+    for endpoint in ("storage/directories?directory_type=${kind}", "storage/list", "history/transfer?status=${status}", "plugin/MediaGovernor/map_snapshot", "plugin/MediaGovernor/map_identities", "plugin/MediaGovernor/map_commit", "plugin/MediaGovernor/bundle_analyze_batch", "plugin/MediaGovernor/experiment_run", "media/recognize_file", "transfer/manual"):
         assert endpoint in page
+    assert "加入真实识别实验" in page and "比较三种输入" in page
+    assert "candidate_receipts" in page and "候选搜索失败" in page
+    assert "unwrapExperimentResponse" in page and "failure_message" in page
+    assert "normalExperimentChoices" in page and "加入正常对照" in page
     assert "preview: true" in page and "preview: false" in page and "reorganize: false" in page
     assert "storage/delete" not in page and "fetch(" not in page
     for name in ("createDownloadUnits", "unitFingerprint", "diffMap", "classifyFinding"):
@@ -211,7 +300,7 @@ def test_frontend_builds_evidence_packages_and_uses_only_declared_official_previ
     assert "createEvidencePackages(top.map(unit => unit.root), histories.value)" in page
     assert "scanDownloadUnits(toScan, packages.length)" in page
     assert "Math.min(4, toScan.length)" in page
-    assert "MediaGovernor 4.5.0" in page
+    assert "MediaGovernor 4.6.0" in page
     assert "selectLibraryTarget" in page
     assert "transfer/manual/target-path" not in page
     assert "configuredDownloadRoots(downloadConfigurations)" in page
