@@ -30,9 +30,11 @@ const defaults = {
   generate_nfo: false,
   config_url: 'https://raw.githubusercontent.com/hafrey1/LunaTV-config/main/LunaTV-config.json',
   source_allowlist: '',
+  probe_allowed_private_ranges: '',
+  hls_ad_filter_regex: '(?i)(?:adjump|redtraffic|alimama|chenggao|laomaotao|[/_.-](?:ad|ads|advert|advertisement|promo|sponsor)[/_.-])',
   mode: 'download',
   source_strategy: 'first',
-  download_root: '/downloads/未整理',
+  download_root: '',
   use_moviepilot_dirs: true,
   ffmpeg_path: 'ffmpeg',
   queue_minutes: 1,
@@ -45,6 +47,10 @@ const defaults = {
   segment_thread_count: 16,
   source_check_minutes: 60,
 };
+const modeItems = [
+  { title: '下载到本地并整理（去广告）', value: 'download' },
+  { title: '生成 STRM（原始直链，不去广告）', value: 'strm' },
+];
 const config = reactive({ ...defaults });
 
 function validateIntegerRange(value, label, min, max) {
@@ -67,10 +73,6 @@ async function saveConfig() {
     showMessage('当前 MoviePilot 未提供配置保存接口', 'error');
     return
   }
-  if (!String(config.download_root || '').trim()) {
-    showMessage('请填写下载目录', 'error');
-    return
-  }
   if (!validateIntegerRange(config.max_concurrent_tasks, '任务并发数', 1, 4)
     || !validateIntegerRange(config.segment_thread_count, '分片线程数', 4, 32)
     || !validateIntegerRange(config.source_check_minutes, '来源健康检查间隔', 15, 1440)) return
@@ -80,17 +82,19 @@ async function saveConfig() {
   }
   saving.value = true;
   try {
+    const mode = config.mode === 'strm' ? 'strm' : 'download';
     const payload = {
       ...config,
-      source_allowlist: '',
-      source_strategy: 'first',
+      source_allowlist: String(config.source_allowlist || '').trim(),
+      probe_allowed_private_ranges: String(config.probe_allowed_private_ranges || '').trim(),
+      hls_ad_filter_regex: String(config.hls_ad_filter_regex || '').trim(),
       download_root: String(config.download_root || '').trim(),
       ai_enabled: true,
       tmdb_association: true,
       use_moviepilot_dirs: true,
       moviepilot_organize: true,
       native_recognize: true,
-      mode: 'download',
+      mode,
       max_concurrent_tasks: Number(config.max_concurrent_tasks),
       segment_thread_count: Number(config.segment_thread_count),
       source_check_minutes: Number(config.source_check_minutes),
@@ -109,7 +113,7 @@ async function saveConfig() {
 
 onMounted(() => {
   Object.assign(config, defaults, props.initialConfig || {});
-  if (!String(config.download_root || '').trim()) config.download_root = defaults.download_root;
+  config.mode = config.mode === 'strm' ? 'strm' : 'download';
 });
 
 return (_ctx, _cache) => {
@@ -121,6 +125,7 @@ return (_ctx, _cache) => {
   const _component_VAlert = _resolveComponent("VAlert");
   const _component_VSwitch = _resolveComponent("VSwitch");
   const _component_VCol = _resolveComponent("VCol");
+  const _component_VSelect = _resolveComponent("VSelect");
   const _component_VTextField = _resolveComponent("VTextField");
   const _component_VRow = _resolveComponent("VRow");
 
@@ -136,7 +141,7 @@ return (_ctx, _cache) => {
           color: "primary",
           class: "me-2"
         }),
-        _cache[8] || (_cache[8] = _createElementVNode("div", { class: "text-h6" }, "LunaTV 原生桥接配置", -1)),
+        _cache[12] || (_cache[12] = _createElementVNode("div", { class: "text-h6" }, "LunaTV 原生桥接配置", -1)),
         _createVNode(_component_VSpacer),
         _createVNode(_component_VBtn, {
           icon: "mdi-content-save",
@@ -176,8 +181,8 @@ return (_ctx, _cache) => {
       density: "compact",
       class: "mb-4"
     }, {
-      default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
-        _createTextVNode(" 保存后，LunaTV/苹果 CMS 将接入 MoviePilot 的原生搜索、订阅与下载入口。请直接使用 MoviePilot 的原生搜索、订阅和下载流程。 ", -1)
+      default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
+        _createTextVNode(" 保存后，LunaTV/苹果 CMS 将接入 MoviePilot 的原生搜索、订阅与下载入口。要去广告请选择“下载到本地并整理”；STRM 是原始直链，不经过 HLS 分片过滤。 ", -1)
       ]))]),
       _: 1
     }),
@@ -210,9 +215,23 @@ return (_ctx, _cache) => {
         }),
         _createVNode(_component_VCol, { cols: "12" }, {
           default: _withCtx(() => [
+            _createVNode(_component_VSelect, {
+              modelValue: config.mode,
+              "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((config.mode) = $event)),
+              items: modeItems,
+              label: "处理方式",
+              hint: "只有本地下载模式会执行 HLS 广告分片过滤并生成 MP4。",
+              "persistent-hint": "",
+              variant: "outlined"
+            }, null, 8, ["modelValue"])
+          ]),
+          _: 1
+        }),
+        _createVNode(_component_VCol, { cols: "12" }, {
+          default: _withCtx(() => [
             _createVNode(_component_VTextField, {
               modelValue: config.config_url,
-              "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((config.config_url) = $event)),
+              "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((config.config_url) = $event)),
               label: "LunaTV 配置地址",
               variant: "outlined"
             }, null, 8, ["modelValue"])
@@ -222,11 +241,53 @@ return (_ctx, _cache) => {
         _createVNode(_component_VCol, { cols: "12" }, {
           default: _withCtx(() => [
             _createVNode(_component_VTextField, {
+              modelValue: config.source_allowlist,
+              "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((config.source_allowlist) = $event)),
+              label: "启用资源站（可选）",
+              placeholder: "留空允许配置中的全部来源",
+              hint: "填写来源 key，使用逗号分隔。",
+              "persistent-hint": "",
+              variant: "outlined"
+            }, null, 8, ["modelValue"])
+          ]),
+          _: 1
+        }),
+        _createVNode(_component_VCol, { cols: "12" }, {
+          default: _withCtx(() => [
+            _createVNode(_component_VTextField, {
+              modelValue: config.hls_ad_filter_regex,
+              "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((config.hls_ad_filter_regex) = $event)),
+              label: "HLS 广告分片 URL 正则（可选）",
+              placeholder: "例如 adjump|redtraffic|/ad/",
+              hint: "默认过滤常见广告路径；留空则只删除闭合 CUE-OUT/CUE-IN 标记区间。不要用单独的 DISCONTINUITY 作为删除条件。",
+              "persistent-hint": "",
+              variant: "outlined"
+            }, null, 8, ["modelValue"])
+          ]),
+          _: 1
+        }),
+        _createVNode(_component_VCol, { cols: "12" }, {
+          default: _withCtx(() => [
+            _createVNode(_component_VTextField, {
+              modelValue: config.probe_allowed_private_ranges,
+              "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((config.probe_allowed_private_ranges) = $event)),
+              label: "可信网络 CIDR（可选）",
+              placeholder: "例如 198.18.0.0/15",
+              hint: "默认拒绝私网配置、CMS 和媒体地址；Fake-IP 或可信内网环境才填写。",
+              "persistent-hint": "",
+              variant: "outlined"
+            }, null, 8, ["modelValue"])
+          ]),
+          _: 1
+        }),
+        _createVNode(_component_VCol, { cols: "12" }, {
+          default: _withCtx(() => [
+            _createVNode(_component_VTextField, {
               modelValue: config.download_root,
-              "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((config.download_root) = $event)),
-              label: "下载目录",
-              placeholder: "/downloads/未整理",
-              hint: "m3u8 下载先写入此目录，完成后继续复用 MoviePilot 的整理规则。",
+              "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((config.download_root) = $event)),
+              label: "下载目录（可留空）",
+              placeholder: "留空自动选择",
+              hint: "填写后优先使用；留空时依次使用 MoviePilot 传入目录、订阅保存目录、按媒体类型的本地下载目录。",
               "persistent-hint": "",
               variant: "outlined"
             }, null, 8, ["modelValue"])
@@ -240,7 +301,7 @@ return (_ctx, _cache) => {
           default: _withCtx(() => [
             _createVNode(_component_VTextField, {
               modelValue: config.max_concurrent_tasks,
-              "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((config.max_concurrent_tasks) = $event)),
+              "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((config.max_concurrent_tasks) = $event)),
               label: "最大任务并发数",
               type: "number",
               min: "1",
@@ -260,7 +321,7 @@ return (_ctx, _cache) => {
           default: _withCtx(() => [
             _createVNode(_component_VTextField, {
               modelValue: config.source_check_minutes,
-              "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((config.source_check_minutes) = $event)),
+              "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((config.source_check_minutes) = $event)),
               label: "来源健康检查间隔（分钟）",
               type: "number",
               min: "15",
@@ -280,7 +341,7 @@ return (_ctx, _cache) => {
           default: _withCtx(() => [
             _createVNode(_component_VTextField, {
               modelValue: config.segment_thread_count,
-              "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((config.segment_thread_count) = $event)),
+              "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((config.segment_thread_count) = $event)),
               label: "分片线程数",
               type: "number",
               min: "4",
@@ -302,7 +363,7 @@ return (_ctx, _cache) => {
       density: "compact",
       class: "mt-3"
     }, {
-      default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
+      default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
         _createTextVNode(" 目录、DeepSeek、TMDB、整理规则、媒体服务器和链接权限均沿用 MoviePilot 设置；订阅地址内的资源站全部读取。默认 2 个任务、每任务 16 个分片线程，总分片并发限制为 64；遇到 429、超时或磁盘繁忙时请调低。 ", -1)
       ]))]),
       _: 1
@@ -313,7 +374,7 @@ return (_ctx, _cache) => {
         loading: saving.value,
         onClick: saveConfig
       }, {
-        default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
+        default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
           _createTextVNode("保存配置", -1)
         ]))]),
         _: 1

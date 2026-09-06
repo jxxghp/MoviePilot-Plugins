@@ -24,7 +24,7 @@ _SEASON_SUFFIX = re.compile(
     re.IGNORECASE,
 )
 _EPISODE_SUFFIX = re.compile(
-    r"\s*(?:S\s*\d{1,3}\s*E\s*\d{1,4}|第\s*\d{1,4}\s*[集话])\s*$",
+    r"\s*(?:S\s*\d{1,3}\s*E\s*\d{1,4}|第\s*(?:\d{1,4}|[一二两三四五六七八九十百千万]+)\s*[集话])\s*$",
     re.IGNORECASE,
 )
 _VIDEO_METADATA_SUFFIX = re.compile(
@@ -101,7 +101,8 @@ def media_path(
     display_title = f"{title_component}{year_component}"
     ext = ".strm" if mode == "strm" else extension_for_url(url)
     if media_type == "tv":
-        season_dir = f"Season {max(1, int(season)):02d}"
-        filename = f"{display_title} - S{max(1, int(season)):02d}E{max(1, int(episode)):02d}{ext}"
+        season_number = max(0, int(season))
+        season_dir = f"Season {season_number:02d}"
+        filename = f"{display_title} - S{season_number:02d}E{max(1, int(episode)):02d}{ext}"
         return f"{display_title}/{season_dir}", filename
     return display_title, f"{display_title}{ext}"
