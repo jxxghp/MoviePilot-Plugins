@@ -1,0 +1,111 @@
+{
+  "schema": "knowledgeradar-research-evidence/v1",
+  "artifact": {
+    "report_path": "docs/architecture/mediagovernor-ai-recognition-experiment-plan-2026-09-06.md",
+    "title": "MediaGovernor AI 识别实验方案",
+    "created_at": "2026-09-06T17:45:00+08:00",
+    "scope": "只读源码考古、外部接口调研与实验设计"
+  },
+  "research_task": {
+    "task_id": "kr-research-33184140b1540c7c",
+    "objective": "设计低 token、快速、可证伪的 MoviePilot AI 影视识别实验，并比较模板缓存和批次策略。"
+  },
+  "budget": {
+    "selected_profile": "deep",
+    "remaining_repair_rounds": 2,
+    "rationale": "用户要求把提示模板、token、速度、批次、超时、并发和上线风险统一纳入实验。"
+  },
+  "tool_calls": [
+    {"id": "T001", "tool": "mcp__knowledgeradar__health_check/get_capabilities", "purpose": "确认原生研究能力与运行状态。"},
+    {"id": "T002", "tool": "PowerShell rg/Get-Content/git", "purpose": "核对 4.5 模型输入、批次、超时、缓存、测试和人工基线。"},
+    {"id": "T003", "tool": "mcp__knowledgeradar__kr_research", "purpose": "建立提示缓存、批处理与工程实践的深研路线。"},
+    {"id": "T004", "tool": "mcp__knowledgeradar__kr_web_search/extract_web_page", "purpose": "读取 OpenAI、Anthropic、Gemini、LangChain 官方文档与 BatchPrompt 论文页面。"},
+    {"id": "T005", "tool": "mcp__knowledgeradar__search_academic", "purpose": "检索成本自适应与批量推理的学术反例和方法证据。"},
+    {"id": "T006", "tool": "mcp__knowledgeradar__search_github_repositories", "purpose": "尝试发现 MoviePilot LLMHelper 公开实现；未获得可用代码候选。"}
+  ],
+  "evidence_items": [
+    {"id": "E001", "type": "local_code", "source": "plugins.v3/mediagovernor/__init__.py:64-65,409-500", "summary": "4.5 每批最多 4 项、10000 字符、统一 30 秒超时，普通 ainvoke/invoke；结果缓存按证据指纹，但无 token、缓存命中 token 和逐项模型回执。", "strength": "strong"},
+    {"id": "E002", "type": "local_code", "source": "plugins.v2/airecognizerenhancer/__init__.py:743-914", "summary": "现有插件可复用 ChatPromptTemplate；因模型/网关差异不强依赖 with_structured_output，而使用普通调用和 JSON 解析。", "strength": "strong"},
+    {"id": "E003", "type": "prior_report", "source": "docs/architecture/mediagovernor-live-ground-truth-2026-09-06.md", "summary": "人工基线覆盖 3 个真失败作品单元、13 类假成功和正常对照，可作为无答案泄漏 corpus 的评分来源。", "strength": "strong"},
+    {"id": "E004", "type": "web", "source": "https://developers.openai.com/api/docs/guides/prompt-caching", "summary": "OpenAI 对支持模型按相同渲染前缀缓存；存在最低可缓存长度和 usage cached-token 观测，缓存能力与模型有关。", "strength": "strong", "receipt_id": "receipt-aefe9ee09ab37f73"},
+    {"id": "E005", "type": "web", "source": "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching", "summary": "Anthropic 支持自动/显式提示缓存、TTL 和 usage 观测；低于门槛静默跳过，并发请求需等待首个响应开始后缓存才可用。", "strength": "strong", "receipt_id": "receipt-09cf7b79b4ba3149"},
+    {"id": "E006", "type": "web", "source": "https://ai.google.dev/gemini-api/docs/caching", "summary": "Gemini 部分模型默认隐式缓存并提供 cached-token usage；显式缓存依赖具体 API。", "strength": "strong", "receipt_id": "receipt-fa342abfce106c34"},
+    {"id": "E007", "type": "web", "source": "https://reference.langchain.com/python/langchain_core/runnables/base/Runnable", "summary": "LangChain 默认 batch/abatch 是并行 invoke/ainvoke；只有底层覆写才使用供应商真正批处理。", "strength": "strong", "receipt_id": "receipt-1a2003257e18fb86"},
+    {"id": "E008", "type": "academic", "source": "https://www.microsoft.com/en-us/research/publication/batchprompt-accomplish-more-with-less/", "summary": "ICLR 2024 BatchPrompt 证明多问题共用提示可降低重复调用，但准确率与批次和缓解策略有关，不能外推出本项目固定最优批次。", "strength": "medium", "receipt_id": "receipt-d25681db2aa13cd8"}
+  ],
+  "coverage": {
+    "required_surfaces": ["local_code", "prior_report", "official_web", "academic"],
+    "covered_surfaces": ["local_code", "prior_report", "official_web", "academic"],
+    "skipped_surfaces": [
+      {"surface": "paid_model_runtime", "reason": "本轮先设计实验，未经用户确认不调用 NAS 付费模型。"},
+      {"surface": "live_media_write", "reason": "识别实验必须只读，不需要媒体写入。"}
+    ],
+    "required_source_ecologies": ["github_repository_ecology", "academic_literature_ecology", "generic_web_ecology"],
+    "covered_source_ecologies": ["github_repository_ecology", "academic_literature_ecology", "generic_web_ecology"],
+    "skipped_source_ecologies": [
+      {"source_ecology": "wechat_public_article_ecology", "reason": "官方模型文档和本地代码足以回答接口合同。", "claim_gap_ids": ["none"], "reopen_condition": "需要中文社区部署经验时。"},
+      {"source_ecology": "bilibili_video_ecology", "reason": "视频讲解不能替代官方 API 与真实模型测量。", "claim_gap_ids": ["none"], "reopen_condition": "需要界面操作教程时。"},
+      {"source_ecology": "youtube_video_ecology", "reason": "无独特接口证据。", "claim_gap_ids": ["none"], "reopen_condition": "需要供应商发布会演示时。"},
+      {"source_ecology": "zhihu_discussion_ecology", "reason": "观点不能证明 token 计费与缓存合同。", "claim_gap_ids": ["none"], "reopen_condition": "需要中文用户失败案例时。"},
+      {"source_ecology": "xiaohongshu_experience_ecology", "reason": "与模型接口和批次实验无直接关系。", "claim_gap_ids": ["none"], "reopen_condition": "不适用。"}
+    ]
+  },
+  "claims": [
+    {"id": "C001", "importance": "critical", "claim": "固定模板可在 MoviePilot 通用 LLM 接口上复用，但模板复用不等于供应商提示缓存或账单 token 自动减少。", "supporting_evidence_ids": ["E001", "E002", "E004", "E005", "E006"]},
+    {"id": "C002", "importance": "critical", "claim": "长期成本首先应由确定性筛选、结构压缩和 evidence-hash 结果缓存降低；提示缓存只作经 usage 验证的额外优化。", "supporting_evidence_ids": ["E001", "E003", "E004", "E005", "E006"]},
+    {"id": "C003", "importance": "high", "claim": "LangChain 并行 batch 不等于单提示多作品；前者主要缩短墙钟时间，后者可能省重复提示但扩大串扰和失败范围。", "supporting_evidence_ids": ["E001", "E007", "E008"]},
+    {"id": "C004", "importance": "high", "claim": "每批 3 项是待验证默认值；先用 2 个典型真实案例和 3 个例外哨兵筛选，再以完整 19 项人工基线验收。", "supporting_evidence_ids": ["E001", "E003", "E007", "E008"]}
+  ],
+  "questioner_checkpoints": [
+    {"stage": "after_local_archaeology", "questions": ["现有模板是否记录 token 和缓存命中？", "当前批次和 30 秒超时有何证据？", "并行调用与合并提示是否混淆？"], "decision": "不沿用 4.5 参数，先建立 usage 和逐项回执。", "reason": "当前代码缺少足以比较成本和失败范围的观测。"},
+    {"stage": "after_first_external_round", "questions": ["模板保存是否自动省 token？", "供应商缓存是否可跨模型通用？", "并行首批能否命中缓存？"], "decision": "稳定前缀、结果缓存和供应商提示缓存分层处理。", "reason": "三家官方合同的门槛、控制字段和 usage 均不同。"},
+    {"stage": "before_final_report", "questions": ["如何避免实验组合爆炸？", "什么结果能阻止再次直接发产品版？", "全量批次是否还有必要？"], "decision": "采用难例筛模板、全样本筛批次、前两名复测的顺序淘汰；全量只作一次对照。", "reason": "以最少调用获得可证伪结论，并把准确率设为成本优化前置硬门。"}
+  ],
+  "roadmap": [
+    {"phase": "P0 冻结样本", "task": "形成 2 个典型真实案例加 3 个例外哨兵的无答案泄漏 corpus。", "method": "从 NAS 当前只读接口重新取得真实证据；旧简化 fixture 只作评分答案。", "input": "真实基线和本轮接口快照", "output": "corpus/answers/SHA-256", "acceptance": "5 项可追溯、输入不含正确身份且不以假数据补缺", "dependency": "none"},
+    {"phase": "P1 证据卡验证", "task": "验证完整树和压缩卡没有丢决定性关系。", "method": "自动结构检查加脱敏人工审核。", "input": "P0 corpus", "output": "evidence_document 回执", "acceptance": "父子关系、季集、附件和混包均可解释", "dependency": "P0"},
+    {"phase": "P2 模板筛选", "task": "先用《碧眼武士》和《海贼王 真人版》比较 3 种输入模板。", "method": "批次 1，先做 6 次调用；通过后才进入 3 个例外哨兵。", "input": "2 个主样本和 3 个例外哨兵", "output": "模板排名", "acceptance": "淘汰漏项、解析失败或 Recall@5 失败格式", "dependency": "P1"},
+    {"phase": "P3 批次筛选", "task": "在同一 5 项上比较单项、2+3 和 5 项一批。", "method": "同模型、同模板、并发 1。", "input": "获胜模板", "output": "准确率/token/时延/失败范围", "acceptance": "准确率硬门优先于成本", "dependency": "P2"},
+    {"phase": "P4 稳定性复测", "task": "复测前两名，再用胜出模式跑一次完整 19 项人工基线。", "method": "哨兵再跑两轮；全基线只跑胜出模式，并进行真实候选回查。", "input": "5 项哨兵和 19 项本轮真实快照", "output": "哨兵三轮与全基线一次回执", "acceptance": "Recall@5 100%、正常零误改、JSON 100%", "dependency": "P3"},
+    {"phase": "P5 冻结合同", "task": "生成 recognition-contract-v1 或否决报告。", "method": "冻结 schema、模板、批次、超时、缓存和降级规则。", "input": "P0-P4 回执", "output": "后续产品 PR 输入合同", "acceptance": "未通过不得接硬链接修复", "dependency": "P4"}
+  ],
+  "known_issues": {
+    "schema": "knowledgeradar-known-issues/v1",
+    "generated_at": "2026-09-06T17:45:00+08:00",
+    "report_path": "docs/architecture/mediagovernor-ai-recognition-experiment-plan-2026-09-06.md",
+    "issues": [
+      {"id": "KI001", "description": "尚未确认 NAS 当前 LLM provider/model 和 usage 是否暴露 cached token。", "discovered_at": "2026-09-06", "status": "未解决", "resolved_in_report": "P2 首次调用记录模型指纹与原始 usage，缺失则标为不可测。", "next_action": "只读实验候选运行时核验。"},
+      {"id": "KI002", "description": "尚未实测 1/3/5/全量哪个批次最优。", "discovered_at": "2026-09-06", "status": "未解决", "resolved_in_report": "P3 使用同一 corpus 做受控对照。", "next_action": "完成 P0/P1 后执行 P2-P4。"}
+    ]
+  },
+  "decision_register": {
+    "schema": "knowledgeradar-decision-register/v1",
+    "generated_at": "2026-09-06T17:45:00+08:00",
+    "report_path": "docs/architecture/mediagovernor-ai-recognition-experiment-plan-2026-09-06.md",
+    "decisions": [
+      {"id": "D001", "title": "先实验后产品重构", "status": "approved", "recommended_action": "下一阶段只建立只读实验候选，一次包含全部对照模式。", "options": [{"value": "approve"}, {"value": "reject"}, {"value": "defer"}], "decision_record_location": ["最小实验，不做组合爆炸"], "next_review": "P4 完成后"},
+      {"id": "D002", "title": "真实案例优先且禁止假样本补缺", "status": "approved", "recommended_action": "用 2 个典型真实案例、3 个例外哨兵筛选，最后以完整 19 项真实快照验收。", "options": [{"value": "approve"}, {"value": "reject"}, {"value": "defer"}], "decision_record_location": ["固定模板怎么设计", "详细执行步骤"], "next_review": "P4 完成后"}
+    ]
+  },
+  "process_quality": {
+    "schema": "knowledgeradar-process-quality/v1",
+    "task_type": "mediagovernor_ai_recognition_experiment_design",
+    "capability_handshake": {"health_check": true, "get_capabilities": true, "access_path": "native_mcp"},
+    "local_archaeology": {"performed": true, "scope": ["4.5 model call and cache", "AI enhancer prompt template", "live ground truth", "existing diagnosis report"], "evidence_ids": ["E001", "E002", "E003"]},
+    "source_ecology_plan": {"considered": ["github_repository_ecology", "academic_literature_ecology", "generic_web_ecology", "platform_search"], "selected": ["github_repository_ecology", "academic_literature_ecology", "generic_web_ecology"], "skipped": ["platform_search"]},
+    "validation_ladder": {"selected_profile": "deep", "selected": "readonly_experiment_design", "commands": ["rg/Get-Content/git", "KR search/detail", "check_research_quality.py"], "skipped_heavier_gates": ["付费模型调用留给用户确认后的只读实验候选", "媒体写入与发布不在本轮范围"]},
+    "preflight_skip_reason": "本轮沿既有 AI 诊断报告继续，先完成能力握手和本地考古后冻结新实验范围。",
+    "presentation": [{"surface": "report_section", "path": "docs/architecture/mediagovernor-ai-recognition-experiment-plan-2026-09-06.md"}],
+    "candidate_lifecycle": "official_docs_extracted_academic_counterevidence_recorded",
+    "counterevidence": "批量提示论文证明大批次可能显著节省重复开销，因此不能先验断言单项永远最好；但其准确率依赖专门策略，故本项目必须保留 1/3/5/全量实测。供应商缓存可节省 token，但短提示、前缀变化或通用接口不暴露控制时可能完全不命中。",
+    "host_internal_web_wave": "not_used",
+    "code_modified": false,
+    "media_modified": false
+  },
+  "planning_diagram": {"maps_to_roadmap": true},
+  "claim_evidence_chains": [
+    {"claim_id": "C001", "tool_call_ids": ["T002", "T004"], "evidence_ids": ["E001", "E002", "E004", "E005", "E006"], "sources": ["local MoviePilot plugin code", "OpenAI/Anthropic/Gemini official docs"], "extracted_facts": ["template is local prompt object", "provider caches require matching prefix and thresholds", "usage reveals cache reads when exposed"], "inference": "模板可复用但不等于跨供应商缓存承诺。", "limitations": "当前 NAS 模型身份未实测。", "strength": "strong"},
+    {"claim_id": "C003", "tool_call_ids": ["T002", "T004", "T005"], "evidence_ids": ["E001", "E007", "E008"], "sources": ["4.5 code", "LangChain official reference", "BatchPrompt ICLR 2024"], "extracted_facts": ["current code merges four works in one JSON", "LangChain default batch is parallel invokes", "multi-item prompts trade cost against accuracy"], "inference": "必须分别测量合并提示和并行请求。", "limitations": "论文任务不同于媒体识别。", "strength": "strong"},
+    {"claim_id": "C004", "tool_call_ids": ["T002", "T004"], "evidence_ids": ["E001", "E003", "E007", "E008"], "sources": ["current batch constants", "human ground truth", "official/runtime research"], "extracted_facts": ["four-item batch lacks empirical receipt", "12-item stratified corpus can cover known failure modes", "batch size has task-dependent effects"], "inference": "采用顺序淘汰实验而非直接发布另一个固定批次。", "limitations": "获胜参数必须由下一阶段真实调用决定。", "strength": "strong"}
+  ]
+}

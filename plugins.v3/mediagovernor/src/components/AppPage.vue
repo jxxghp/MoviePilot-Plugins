@@ -16,6 +16,7 @@ const props = defineProps({ api: { type: Object, default: () => ({}) } })
 const state = ref({ ready: false, updated_at: '', download_units: 0, library_nodes: 0, findings: 0, dirty: 0 })
 const phase = ref('尚未建立地图'), notice = ref(''), running = ref(false), stopped = ref(false), aiAvailable = ref(null)
 const progress = ref({ done: 0, total: 0, current: '', started_at: 0 }), findings = ref([]), units = ref([]), histories = ref([]), preview = ref(null), selected = ref(null)
+const experimentSamples = ref([]), experimentRunning = ref(false), experimentResult = ref(null), normalSampleId = ref('')
 const liveMapReady = ref(false)
 const pageSize = 100, entryLimit = 20000
 const now = ref(Date.now()), requestBudget = createRequestBudget()
@@ -28,6 +29,12 @@ const pendingCards = computed(() => findings.value.filter(item => item.kind === 
 const uncoveredCards = computed(() => findings.value.filter(item => item.kind === 'uncovered'))
 const provenCount = computed(() => cards.value.length)
 const uncoveredCount = computed(() => findings.value.filter(item => item.kind === 'uncovered').length)
+const normalExperimentChoices = computed(() => {
+  const findingIds = new Set(findings.value.map(item => item.unit_id))
+  const selectedIds = new Set(experimentSamples.value.map(item => item.id))
+  return units.value.filter(item => Number(item.video_count || item.summary?.video_count || 0) > 0 && !findingIds.has(item.id) && !selectedIds.has(item.id)).slice(0, 30)
+})
+const experimentRows = computed(() => (experimentResult.value?.runs || []).flatMap(run => Object.entries(run.diagnoses || {}).map(([id, diagnosis]) => ({ id, diagnosis, mode: run.mode, receipt: run.receipt || {}, candidates: run.candidates?.[id] || [], candidateReceipt: run.candidate_receipts?.[id] || {} }))))
 const safe = value => String(value || '').replace(/[\\/]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160)
 const displayPath = value => String(value || '').replace(/\\/g, '/') || '尚未建立'
 function currentTargetFor(source) {
@@ -58,12 +65,25 @@ async function bounded(operation, timeout, label) {
 async function get(path, timeout = 15000, label = 'MoviePilot 请求') { return unwrapMoviePilotResponse(await bounded(props.api.get(path, { feedback: 'silent' }), timeout, label)) }
 async function post(path, body, timeout = 20000, label = 'MoviePilot 请求') { return unwrapMoviePilotResponse(await bounded(props.api.post(path, body, { feedback: 'silent' }), timeout, label)) }
 async function postWrite(path, body) { return unwrapMoviePilotResponse(await props.api.post(path, body, { feedback: 'silent' })) }
+function unwrapExperimentResponse(value) {
+  let current = value
+  const seen = new Set()
+  for (let depth = 0; depth < 6 && current && typeof current === 'object'; depth += 1) {
+    if (seen.has(current)) break
+    seen.add(current)
+    if (current.success === false) return { ...(current.data || {}), failure_message: current.message || '真实样本实验未完成' }
+    if (!Object.prototype.hasOwnProperty.call(current, 'data') || current.data === undefined) break
+    current = current.data
+  }
+  return current
+}
 async function status() {
   if (!canUseApi.value) return
   try {
     const snapshot = await get('plugin/MediaGovernor/map_snapshot')
     state.value = { ...state.value, ...(snapshot?.summary || snapshot || {}) }
     findings.value = Array.isArray(snapshot?.findings) ? snapshot.findings : []
+    units.value = Array.isArray(snapshot?.units) ? snapshot.units : []
     if (state.value.ready) notice.value = `已载入上次结论：${provenCount.value} 个真实问题，${pendingCards.value.length} 个等待确认作品，${uncoveredCount.value} 个未完成覆盖。可直接点开任一卡片查看上次保存的证据。`
   } catch (error) { fail(error, '无法读取已保存的媒体地图') }
 }
@@ -402,6 +422,55 @@ async function recognize(card) {
   if (!selected.value.candidate && !selected.value.candidates.length) selected.value.error = '当前证据没有得到可用候选。请先检查智能助手和媒体数据源配置。'
 }
 function selectCandidate(candidate) { selected.value.candidate = { ...candidate, user_confirmed: true }; selected.value.error = ''; selected.value.preview_payload = null; selected.value.admission = null; preview.value = null }
+function toggleExperimentSample() {
+  const unit = selected.value?.unit; if (!unit?.id) return
+  const index = experimentSamples.value.findIndex(item => item.id === unit.id)
+  if (index >= 0) experimentSamples.value.splice(index, 1)
+  else if (experimentSamples.value.length < 5) experimentSamples.value.push({ id: unit.id, label: titleFor(selected.value.card), complete: Boolean(unit.complete), video_count: Number(unit.summary?.video_count || 0) })
+  else notice.value = '一次实验最多选择 5 个真实作品。'
+}
+async function addNormalExperimentSample() {
+  if (!normalSampleId.value || experimentSamples.value.length >= 5) return
+  const summary = normalExperimentChoices.value.find(item => item.id === normalSampleId.value)
+  if (!summary) return
+  try {
+    const result = await post('plugin/MediaGovernor/map_unit', { unit_id: summary.id })
+    experimentSamples.value.push({ id: summary.id, label: summary.label || '正常对照', complete: Boolean(result?.unit?.complete), video_count: Number(summary.video_count || result?.unit?.summary?.video_count || 0) })
+    normalSampleId.value = ''
+  } catch (error) { fail(error, '无法读取这个正常对照的已保存证据') }
+}
+async function runRecognitionExperiment() {
+  if (experimentSamples.value.length < 2) { notice.value = '先各选一个典型整理失败和典型假成功案例。'; return }
+  experimentRunning.value = true; experimentResult.value = null
+  try {
+    const raw = await bounded(props.api.post('plugin/MediaGovernor/experiment_run', { unit_ids: experimentSamples.value.map(item => item.id), modes: ['full_tree', 'compact', 'compact_with_current'], batch_size: 1, timeout_seconds: 90 }, { feedback: 'silent' }), 360000, '真实样本识别实验')
+    experimentResult.value = unwrapExperimentResponse(raw)
+    const cache = new Map()
+    for (const run of experimentResult.value.runs || []) {
+      run.candidates = {}; run.candidate_receipts = {}
+      for (const [id, diagnosis] of Object.entries(run.diagnoses || {})) {
+        if (diagnosis.abstain || !diagnosis.title) { run.candidates[id] = []; run.candidate_receipts[id] = { status: 'skipped', elapsed_ms: 0 }; continue }
+        const hypotheses = Array.isArray(diagnosis.queries) && diagnosis.queries.length ? diagnosis.queries.slice(0, 3) : [diagnosis]
+        const candidateResults = []
+        for (const hypothesis of hypotheses) {
+          const query = [hypothesis.title, hypothesis.year].filter(Boolean).join(' ')
+          if (!query) continue
+          if (!cache.has(query)) {
+            const started = Date.now()
+            try { cache.set(query, { items: listOf(await get(`media/search?title=${encodeURIComponent(query)}&type=media&page=1&count=5`, 20000, '核对实验候选')).map(identityFromRaw).filter(item => identityKey(item)).slice(0, 5), status: 'ok', elapsed_ms: Date.now() - started }) }
+            catch { cache.set(query, { items: [], status: 'failed', elapsed_ms: Date.now() - started }) }
+          }
+          candidateResults.push(cache.get(query))
+        }
+        const unique = new Map(candidateResults.flatMap(item => item.items).map(item => [identityKey(item), item]))
+        run.candidates[id] = [...unique.values()].slice(0, 5)
+        run.candidate_receipts[id] = { status: candidateResults.some(item => item.status === 'failed') ? 'partial' : 'ok', elapsed_ms: candidateResults.reduce((sum, item) => sum + item.elapsed_ms, 0), query_count: candidateResults.length }
+      }
+    }
+    notice.value = experimentResult.value.failure_message || '真实样本的三种输入已经跑完。这里只比较识别结果和成本，没有整理、删除或重建任何文件。'
+  } catch (error) { fail(error, '真实样本实验未完成；没有修改任何媒体。') }
+  finally { experimentRunning.value = false }
+}
 function previewPayload() {
   return manualPreviewRequest(selected.value?.unit, selected.value?.candidate)
 }
@@ -453,10 +522,18 @@ onUnmounted(() => { if (clock) clearInterval(clock); requestBudget.cancel('页�
 
 <template>
   <main class="governor-page">
-    <section class="hero"><div><p class="eyebrow">MediaGovernor 4.5.0</p><h1>找到问题，再安全修好</h1><p>当前文件和硬链接决定问题；历史只负责关联，修复目标按作品类型选择唯一媒体库。</p></div><div class="actions"><button class="secondary" :disabled="running" @click="probeAi">检查智能助手</button><button v-if="state.ready" class="secondary" :disabled="running" @click="buildMap(true)">完整重建地图</button><button class="primary" :disabled="running" @click="buildMap(state.ready ? false : true)">{{ state.ready ? '检查变动' : '开始首次检查' }}</button></div></section>
+    <section class="hero"><div><p class="eyebrow">MediaGovernor 4.6.0</p><h1>找到问题，再安全修好</h1><p>当前文件和硬链接决定问题；历史只负责关联，修复目标按作品类型选择唯一媒体库。</p></div><div class="actions"><button class="secondary" :disabled="running" @click="probeAi">检查智能助手</button><button v-if="state.ready" class="secondary" :disabled="running" @click="buildMap(true)">完整重建地图</button><button class="primary" :disabled="running" @click="buildMap(state.ready ? false : true)">{{ state.ready ? '检查变动' : '开始首次检查' }}</button></div></section>
     <section class="summary"><span><b>{{ provenCount }}</b>真实问题</span><span><b>{{ pendingCards.length }}</b>等待确认作品</span><span><b>{{ uncoveredCards.length }}</b>未完成覆盖</span><span><b>{{ units.length || state.download_units }}</b>作品单元</span></section>
     <section v-if="running || progress.total" class="progress"><div><b>{{ phase }}</b><button v-if="running" class="link" @click="stop">停止</button></div><p>{{ progress.current }}</p><i><em :style="{ width: `${percent}%` }"></em></i><small>{{ progress.done }}/{{ progress.total }} · {{ elapsedLabel }}</small></section>
     <p v-if="notice" class="notice">{{ notice }}</p>
+    <section class="panel experiment-panel"><header><div><h2>真实样本识别实验</h2><p>从下方卡片点进去，把人工确认过的真实整理失败和假成功案例加入这里。模板不含正确答案。</p></div><button class="secondary" :disabled="experimentRunning || experimentSamples.length < 2" @click="runRecognitionExperiment">{{ experimentRunning ? '正在比较三种输入…' : `比较三种输入（${experimentSamples.length} 个真实样本）` }}</button></header>
+      <p v-if="!experimentSamples.length" class="empty">尚未选择样本。先选择 2 个典型案例；通过后再加入混合包、弱线索和正常对照。</p>
+      <div v-else class="sample-list"><span v-for="item in experimentSamples" :key="item.id"><b>{{ item.label }}</b> · {{ item.video_count }} 个视频 · {{ item.complete ? '完整读取' : '读取不完整' }}</span></div>
+      <div v-if="normalExperimentChoices.length && experimentSamples.length < 5" class="sample-list"><select v-model="normalSampleId" aria-label="选择正常对照作品"><option value="">通过典型案例后，可加入一个正常对照</option><option v-for="item in normalExperimentChoices" :key="item.id" :value="item.id">{{ item.label }} · {{ item.video_count || item.summary?.video_count || 0 }} 个视频</option></select><button class="secondary" :disabled="!normalSampleId" @click="addNormalExperimentSample">加入正常对照</button></div>
+      <p v-if="experimentSamples.length" class="warning">本按钮会让当前智能助手对每个样本调用 3 次；不会调用整理接口，也不会修改硬链接。</p>
+      <p v-if="experimentResult?.failure_stage" class="warning">实验停在 {{ experimentResult.failure_stage }}：{{ experimentResult.failure_class }}；已完成的结果仍保留。</p>
+      <div v-if="experimentRows.length" class="experiment-results"><article v-for="(row, index) in experimentRows" :key="`${row.mode}-${row.id}-${index}`"><b>{{ row.mode }}：{{ row.diagnosis.abstain ? '弃权' : (row.diagnosis.title || '无标题') }}</b><span>{{ row.diagnosis.year || '年份未知' }} · {{ row.diagnosis.media_type }} · 置信度 {{ Number(row.diagnosis.confidence || 0).toFixed(2) }}</span><small>{{ row.receipt.model || '模型未知' }} · AI {{ row.receipt.elapsed_ms || 0 }} ms · {{ row.receipt.usage_available ? JSON.stringify(row.receipt.usage) : `${row.receipt.input_chars || 0} 输入字符（供应商未返回 token）` }}</small><small v-if="row.candidateReceipt.status === 'partial'">部分 MoviePilot 候选搜索失败（共 {{ row.candidateReceipt.query_count || 0 }} 个查询，{{ row.candidateReceipt.elapsed_ms || 0 }} ms），AI 结果已保留</small><small v-else-if="row.candidates.length">MoviePilot 前五候选（{{ row.candidateReceipt.query_count || 0 }} 个查询，{{ row.candidateReceipt.elapsed_ms || 0 }} ms）：{{ row.candidates.map(item => `${item.title || item.original_title} ${item.year || ''}`).join('；') }}</small><small v-else>MoviePilot 没有返回可核对候选</small></article></div>
+    </section>
     <section class="panel"><header><div><h2>已确认的真实问题</h2><p>这些项目已由当前硬链接、作品身份和分类/季集规则证明；点开后再生成当次修复预览。</p></div></header>
       <p v-if="!cards.length" class="empty">{{ running ? '正在核对，还没有形成结论。' : state.ready ? '当前没有已经证明的真实问题。' : '首次使用请先开始检查。' }}</p>
       <article v-for="card in cards" :key="`${card.unit_id}-${card.kind}`" class="card"><div><span class="kind">{{ findingLabel(card.kind) }}</span><h3>{{ titleFor(card) }}</h3><p>{{ card.reason }}</p><small>点开可查看当前结果、官方应有结果和安全修复条件。</small></div><button class="primary" :disabled="running" @click="recognize(card)">查看对比与修复</button></article>
@@ -467,11 +544,12 @@ onUnmounted(() => { if (clock) clearInterval(clock); requestBudget.cancel('页�
     <section v-if="uncoveredCards.length" class="panel secondary-panel"><header><div><h2>没有检查完整</h2><p>这些项目不会被当成正常或问题；原因解决后需要重新检查。</p></div></header>
       <article v-for="card in uncoveredCards" :key="`${card.unit_id}-${card.kind}`" class="card"><div><span class="kind">未完成</span><h3>{{ titleFor(card) }}</h3><p>{{ card.reason }}</p></div></article>
     </section>
-    <div v-if="selected" class="backdrop"><section class="modal"><button class="close" @click="selected = null; preview = null">×</button><p class="eyebrow">作品证据与官方预览</p><h2>{{ titleFor(selected.card) }}</h2><p>{{ selected.card.reason }}</p><div class="candidate"><b>文件证据：{{ selected.unit.complete ? '完整读取' : '未完整读取' }}</b><span>{{ selected.unit.summary?.video_count || 0 }} 个视频文件 · {{ selected.unit.boundary_reason }}</span></div><div v-if="selected.candidates.length" class="candidate-list"><button v-for="candidate in selected.candidates" :key="identityKey(candidate)" :class="['candidate-choice', { active: identityKey(candidate) === identityKey(selected.candidate) }]" @click="selectCandidate(candidate)"><b>{{ candidate.title || candidate.original_title }}</b><span>{{ candidate.year || '年份未知' }} · {{ candidate.media_type }} · {{ candidate.media_source }} / {{ candidate.media_id }}</span></button></div><div v-else-if="selected.candidate" class="candidate"><b>{{ selected.candidate.title || selected.candidate.original_title }}</b><span>{{ selected.candidate.year }} · {{ selected.candidate.media_type }} · {{ selected.candidate.media_source }} / {{ selected.candidate.media_id }}</span></div><p v-if="selected.error" class="warning">{{ selected.error }}</p><button class="primary" :disabled="!selected.candidate || Boolean(selected.error)" @click="makePreview">{{ preview ? '重新生成官方逐文件预览' : '生成官方逐文件预览' }}</button><div v-if="preview" class="preview"><h3>整理前后对比</h3><p>每一行都是同一个原文件：中间是现在的硬链接，右侧是 MoviePilot 官方预览的新位置。</p><div class="compare"><div class="compare-head"><b>原文件</b><b>当前硬链接</b><b>修复后</b></div><div v-for="row in previewRows(preview)" :key="`${row.source}-${row.expected}`" class="compare-row"><span>{{ row.source }}</span><span>{{ row.current }}</span><span>{{ row.expected }}<small>{{ row.episode }}</small></span></div></div><p class="warning">{{ selected.admission?.reason }}</p><button class="danger" :disabled="!selected.admission?.allowed" @click="repair">确认清理旧硬链接并重建</button></div></section></div>
+    <div v-if="selected" class="backdrop"><section class="modal"><button class="close" @click="selected = null; preview = null">×</button><p class="eyebrow">作品证据与官方预览</p><h2>{{ titleFor(selected.card) }}</h2><p>{{ selected.card.reason }}</p><div class="candidate"><b>文件证据：{{ selected.unit.complete ? '完整读取' : '未完整读取' }}</b><span>{{ selected.unit.summary?.video_count || 0 }} 个视频文件 · {{ selected.unit.boundary_reason }}</span></div><button class="secondary" @click="toggleExperimentSample">{{ experimentSamples.some(item => item.id === selected.unit.id) ? '移出识别实验' : '加入真实识别实验' }}</button><div v-if="selected.candidates.length" class="candidate-list"><button v-for="candidate in selected.candidates" :key="identityKey(candidate)" :class="['candidate-choice', { active: identityKey(candidate) === identityKey(selected.candidate) }]" @click="selectCandidate(candidate)"><b>{{ candidate.title || candidate.original_title }}</b><span>{{ candidate.year || '年份未知' }} · {{ candidate.media_type }} · {{ candidate.media_source }} / {{ candidate.media_id }}</span></button></div><div v-else-if="selected.candidate" class="candidate"><b>{{ selected.candidate.title || selected.candidate.original_title }}</b><span>{{ selected.candidate.year }} · {{ selected.candidate.media_type }} · {{ selected.candidate.media_source }} / {{ selected.candidate.media_id }}</span></div><p v-if="selected.error" class="warning">{{ selected.error }}</p><button class="primary" :disabled="!selected.candidate || Boolean(selected.error)" @click="makePreview">{{ preview ? '重新生成官方逐文件预览' : '生成官方逐文件预览' }}</button><div v-if="preview" class="preview"><h3>整理前后对比</h3><p>每一行都是同一个原文件：中间是现在的硬链接，右侧是 MoviePilot 官方预览的新位置。</p><div class="compare"><div class="compare-head"><b>原文件</b><b>当前硬链接</b><b>修复后</b></div><div v-for="row in previewRows(preview)" :key="`${row.source}-${row.expected}`" class="compare-row"><span>{{ row.source }}</span><span>{{ row.current }}</span><span>{{ row.expected }}<small>{{ row.episode }}</small></span></div></div><p class="warning">{{ selected.admission?.reason }}</p><button class="danger" :disabled="!selected.admission?.allowed" @click="repair">确认清理旧硬链接并重建</button></div></section></div>
   </main>
 </template>
 
 <style scoped>
 .governor-page{max-width:1180px;margin:auto;padding:34px;color:rgb(var(--v-theme-on-surface,245,245,245))}.hero,header,.card,.actions,.summary{display:flex;gap:18px;align-items:center;justify-content:space-between}.hero{padding:30px;border-radius:20px;background:linear-gradient(125deg,rgba(var(--v-theme-primary,112,77,255),.25),rgba(20,20,35,.35))}.hero h1{font-size:32px;margin:5px 0}.hero p,header p,.card p,small{color:rgba(255,255,255,.7);line-height:1.6}.eyebrow,.kind{color:rgb(var(--v-theme-primary,160,120,255));font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.actions{flex-wrap:wrap}.primary,.secondary,.danger,.link,.candidate-choice{border:0;border-radius:10px;padding:10px 15px;font-weight:700;cursor:pointer}.primary{background:rgb(var(--v-theme-primary,139,92,246));color:#fff}.secondary{background:rgba(255,255,255,.1);color:inherit}.danger{background:#dc2626;color:#fff;margin-top:14px}.primary:disabled,.secondary:disabled,.danger:disabled{opacity:.45;cursor:not-allowed}.link{background:transparent;color:#fbbf24;padding:0}.summary{margin:18px 0;justify-content:flex-start;flex-wrap:wrap}.summary span{min-width:145px;padding:13px;border:1px solid rgba(255,255,255,.12);border-radius:12px;color:rgba(255,255,255,.7)}.summary b{display:block;color:#fff;font-size:22px}.progress,.panel,.notice,.modal{border:1px solid rgba(255,255,255,.14);border-radius:16px;background:rgba(var(--v-theme-surface,23,23,34),.94);padding:20px}.panel{margin-bottom:18px}.secondary-panel{background:rgba(var(--v-theme-surface,23,23,34),.72)}.progress div{display:flex;justify-content:space-between}.progress i{display:block;height:8px;background:rgba(255,255,255,.12);border-radius:99px;overflow:hidden;margin:12px 0}.progress em{display:block;height:100%;background:rgb(var(--v-theme-primary,139,92,246))}.notice{margin-bottom:18px;color:#fef3c7}.panel header{align-items:flex-start}.empty{padding:30px 0;color:rgba(255,255,255,.65)}.card{padding:20px 0;border-top:1px solid rgba(255,255,255,.12)}.card h3{margin:7px 0}.card:first-of-type{border-top:0}.backdrop{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10;display:grid;place-items:center;padding:20px}.modal{position:relative;width:min(860px,100%);max-height:calc(100vh - 40px);overflow:auto}.close{position:absolute;right:15px;top:8px;border:0;background:transparent;color:inherit;font-size:28px}.candidate,.preview{margin-top:18px;padding:15px;border-radius:12px;background:rgba(255,255,255,.06)}.candidate span,.candidate-choice span{display:block;color:rgba(255,255,255,.68);margin-top:5px}.candidate-list{display:grid;gap:8px;margin:18px 0}.candidate-choice{text-align:left;background:rgba(255,255,255,.06);color:inherit;border:1px solid transparent}.candidate-choice.active{border-color:rgb(var(--v-theme-primary,139,92,246));background:rgba(var(--v-theme-primary,139,92,246),.18)}.warning{color:#fbbf24}.preview pre{max-height:330px;overflow:auto;white-space:pre-wrap;font-size:12px}@media(max-width:720px){.governor-page{padding:18px}.hero,header,.card{align-items:stretch;flex-direction:column}.hero h1{font-size:25px}}
 .compare{margin-top:14px;overflow:auto}.compare-head,.compare-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;min-width:720px;padding:10px;border-bottom:1px solid rgba(255,255,255,.1)}.compare-row span{overflow-wrap:anywhere}.compare-row small{display:block;margin-top:5px}
+.sample-list,.experiment-results{display:grid;gap:8px;margin-top:14px}.sample-list span,.experiment-results article{padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.06)}.experiment-results article span,.experiment-results article small{display:block;margin-top:5px}.experiment-panel{border-color:rgba(var(--v-theme-primary,139,92,246),.45)}
 </style>

@@ -786,7 +786,7 @@ async function runBatchesUntilFailure (items = [], options = {}) {
   return { completed, failed: [], error: null }
 }
 
-const {createElementVNode:_createElementVNode,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeStyle:_normalizeStyle,renderList:_renderList,Fragment:_Fragment,unref:_unref,normalizeClass:_normalizeClass} = await importShared('vue');
+const {createElementVNode:_createElementVNode,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeStyle:_normalizeStyle,renderList:_renderList,Fragment:_Fragment,vModelSelect:_vModelSelect,withDirectives:_withDirectives,unref:_unref,normalizeClass:_normalizeClass} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "governor-page" };
@@ -804,49 +804,80 @@ const _hoisted_9 = {
   key: 1,
   class: "notice"
 };
-const _hoisted_10 = { class: "panel" };
-const _hoisted_11 = {
+const _hoisted_10 = { class: "panel experiment-panel" };
+const _hoisted_11 = ["disabled"];
+const _hoisted_12 = {
   key: 0,
   class: "empty"
 };
-const _hoisted_12 = { class: "kind" };
-const _hoisted_13 = ["disabled", "onClick"];
+const _hoisted_13 = {
+  key: 1,
+  class: "sample-list"
+};
 const _hoisted_14 = {
+  key: 2,
+  class: "sample-list"
+};
+const _hoisted_15 = ["value"];
+const _hoisted_16 = ["disabled"];
+const _hoisted_17 = {
+  key: 3,
+  class: "warning"
+};
+const _hoisted_18 = {
+  key: 4,
+  class: "warning"
+};
+const _hoisted_19 = {
+  key: 5,
+  class: "experiment-results"
+};
+const _hoisted_20 = { key: 0 };
+const _hoisted_21 = { key: 1 };
+const _hoisted_22 = { key: 2 };
+const _hoisted_23 = { class: "panel" };
+const _hoisted_24 = {
+  key: 0,
+  class: "empty"
+};
+const _hoisted_25 = { class: "kind" };
+const _hoisted_26 = ["disabled", "onClick"];
+const _hoisted_27 = {
   key: 2,
   class: "panel secondary-panel"
 };
-const _hoisted_15 = ["disabled", "onClick"];
-const _hoisted_16 = {
+const _hoisted_28 = ["disabled", "onClick"];
+const _hoisted_29 = {
   key: 3,
   class: "panel secondary-panel"
 };
-const _hoisted_17 = {
+const _hoisted_30 = {
   key: 4,
   class: "backdrop"
 };
-const _hoisted_18 = { class: "modal" };
-const _hoisted_19 = { class: "candidate" };
-const _hoisted_20 = {
+const _hoisted_31 = { class: "modal" };
+const _hoisted_32 = { class: "candidate" };
+const _hoisted_33 = {
   key: 0,
   class: "candidate-list"
 };
-const _hoisted_21 = ["onClick"];
-const _hoisted_22 = {
+const _hoisted_34 = ["onClick"];
+const _hoisted_35 = {
   key: 1,
   class: "candidate"
 };
-const _hoisted_23 = {
+const _hoisted_36 = {
   key: 2,
   class: "warning"
 };
-const _hoisted_24 = ["disabled"];
-const _hoisted_25 = {
+const _hoisted_37 = ["disabled"];
+const _hoisted_38 = {
   key: 3,
   class: "preview"
 };
-const _hoisted_26 = { class: "compare" };
-const _hoisted_27 = { class: "warning" };
-const _hoisted_28 = ["disabled"];
+const _hoisted_39 = { class: "compare" };
+const _hoisted_40 = { class: "warning" };
+const _hoisted_41 = ["disabled"];
 
 const {computed,onMounted,onUnmounted,ref} = await importShared('vue');
 
@@ -861,6 +892,7 @@ const props = __props;
 const state = ref({ ready: false, updated_at: '', download_units: 0, library_nodes: 0, findings: 0, dirty: 0 });
 const phase = ref('尚未建立地图'), notice = ref(''), running = ref(false), stopped = ref(false), aiAvailable = ref(null);
 const progress = ref({ done: 0, total: 0, current: '', started_at: 0 }), findings = ref([]), units = ref([]), histories = ref([]), preview = ref(null), selected = ref(null);
+const experimentSamples = ref([]), experimentRunning = ref(false), experimentResult = ref(null), normalSampleId = ref('');
 const liveMapReady = ref(false);
 const now = ref(Date.now()), requestBudget = createRequestBudget();
 let clock = null;
@@ -872,6 +904,12 @@ const pendingCards = computed(() => findings.value.filter(item => item.kind === 
 const uncoveredCards = computed(() => findings.value.filter(item => item.kind === 'uncovered'));
 const provenCount = computed(() => cards.value.length);
 const uncoveredCount = computed(() => findings.value.filter(item => item.kind === 'uncovered').length);
+const normalExperimentChoices = computed(() => {
+  const findingIds = new Set(findings.value.map(item => item.unit_id));
+  const selectedIds = new Set(experimentSamples.value.map(item => item.id));
+  return units.value.filter(item => Number(item.video_count || item.summary?.video_count || 0) > 0 && !findingIds.has(item.id) && !selectedIds.has(item.id)).slice(0, 30)
+});
+const experimentRows = computed(() => (experimentResult.value?.runs || []).flatMap(run => Object.entries(run.diagnoses || {}).map(([id, diagnosis]) => ({ id, diagnosis, mode: run.mode, receipt: run.receipt || {}, candidates: run.candidates?.[id] || [], candidateReceipt: run.candidate_receipts?.[id] || {} }))));
 const safe = value => String(value || '').replace(/[\\/]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160);
 const displayPath = value => String(value || '').replace(/\\/g, '/') || '尚未建立';
 function currentTargetFor(source) {
@@ -902,12 +940,25 @@ async function bounded(operation, timeout, label) {
 async function get(path, timeout = 15000, label = 'MoviePilot 请求') { return unwrapMoviePilotResponse(await bounded(props.api.get(path, { feedback: 'silent' }), timeout, label)) }
 async function post(path, body, timeout = 20000, label = 'MoviePilot 请求') { return unwrapMoviePilotResponse(await bounded(props.api.post(path, body, { feedback: 'silent' }), timeout, label)) }
 async function postWrite(path, body) { return unwrapMoviePilotResponse(await props.api.post(path, body, { feedback: 'silent' })) }
+function unwrapExperimentResponse(value) {
+  let current = value;
+  const seen = new Set();
+  for (let depth = 0; depth < 6 && current && typeof current === 'object'; depth += 1) {
+    if (seen.has(current)) break
+    seen.add(current);
+    if (current.success === false) return { ...(current.data || {}), failure_message: current.message || '真实样本实验未完成' }
+    if (!Object.prototype.hasOwnProperty.call(current, 'data') || current.data === undefined) break
+    current = current.data;
+  }
+  return current
+}
 async function status() {
   if (!canUseApi.value) return
   try {
     const snapshot = await get('plugin/MediaGovernor/map_snapshot');
     state.value = { ...state.value, ...(snapshot?.summary || snapshot || {}) };
     findings.value = Array.isArray(snapshot?.findings) ? snapshot.findings : [];
+    units.value = Array.isArray(snapshot?.units) ? snapshot.units : [];
     if (state.value.ready) notice.value = `已载入上次结论：${provenCount.value} 个真实问题，${pendingCards.value.length} 个等待确认作品，${uncoveredCount.value} 个未完成覆盖。可直接点开任一卡片查看上次保存的证据。`;
   } catch (error) { fail(error, '无法读取已保存的媒体地图'); }
 }
@@ -1246,6 +1297,55 @@ async function recognize(card) {
   if (!selected.value.candidate && !selected.value.candidates.length) selected.value.error = '当前证据没有得到可用候选。请先检查智能助手和媒体数据源配置。';
 }
 function selectCandidate(candidate) { selected.value.candidate = { ...candidate, user_confirmed: true }; selected.value.error = ''; selected.value.preview_payload = null; selected.value.admission = null; preview.value = null; }
+function toggleExperimentSample() {
+  const unit = selected.value?.unit; if (!unit?.id) return
+  const index = experimentSamples.value.findIndex(item => item.id === unit.id);
+  if (index >= 0) experimentSamples.value.splice(index, 1);
+  else if (experimentSamples.value.length < 5) experimentSamples.value.push({ id: unit.id, label: titleFor(selected.value.card), complete: Boolean(unit.complete), video_count: Number(unit.summary?.video_count || 0) });
+  else notice.value = '一次实验最多选择 5 个真实作品。';
+}
+async function addNormalExperimentSample() {
+  if (!normalSampleId.value || experimentSamples.value.length >= 5) return
+  const summary = normalExperimentChoices.value.find(item => item.id === normalSampleId.value);
+  if (!summary) return
+  try {
+    const result = await post('plugin/MediaGovernor/map_unit', { unit_id: summary.id });
+    experimentSamples.value.push({ id: summary.id, label: summary.label || '正常对照', complete: Boolean(result?.unit?.complete), video_count: Number(summary.video_count || result?.unit?.summary?.video_count || 0) });
+    normalSampleId.value = '';
+  } catch (error) { fail(error, '无法读取这个正常对照的已保存证据'); }
+}
+async function runRecognitionExperiment() {
+  if (experimentSamples.value.length < 2) { notice.value = '先各选一个典型整理失败和典型假成功案例。'; return }
+  experimentRunning.value = true; experimentResult.value = null;
+  try {
+    const raw = await bounded(props.api.post('plugin/MediaGovernor/experiment_run', { unit_ids: experimentSamples.value.map(item => item.id), modes: ['full_tree', 'compact', 'compact_with_current'], batch_size: 1, timeout_seconds: 90 }, { feedback: 'silent' }), 360000, '真实样本识别实验');
+    experimentResult.value = unwrapExperimentResponse(raw);
+    const cache = new Map();
+    for (const run of experimentResult.value.runs || []) {
+      run.candidates = {}; run.candidate_receipts = {};
+      for (const [id, diagnosis] of Object.entries(run.diagnoses || {})) {
+        if (diagnosis.abstain || !diagnosis.title) { run.candidates[id] = []; run.candidate_receipts[id] = { status: 'skipped', elapsed_ms: 0 }; continue }
+        const hypotheses = Array.isArray(diagnosis.queries) && diagnosis.queries.length ? diagnosis.queries.slice(0, 3) : [diagnosis];
+        const candidateResults = [];
+        for (const hypothesis of hypotheses) {
+          const query = [hypothesis.title, hypothesis.year].filter(Boolean).join(' ');
+          if (!query) continue
+          if (!cache.has(query)) {
+            const started = Date.now();
+            try { cache.set(query, { items: listOf(await get(`media/search?title=${encodeURIComponent(query)}&type=media&page=1&count=5`, 20000, '核对实验候选')).map(identityFromRaw).filter(item => identityKey(item)).slice(0, 5), status: 'ok', elapsed_ms: Date.now() - started }); }
+            catch { cache.set(query, { items: [], status: 'failed', elapsed_ms: Date.now() - started }); }
+          }
+          candidateResults.push(cache.get(query));
+        }
+        const unique = new Map(candidateResults.flatMap(item => item.items).map(item => [identityKey(item), item]));
+        run.candidates[id] = [...unique.values()].slice(0, 5);
+        run.candidate_receipts[id] = { status: candidateResults.some(item => item.status === 'failed') ? 'partial' : 'ok', elapsed_ms: candidateResults.reduce((sum, item) => sum + item.elapsed_ms, 0), query_count: candidateResults.length };
+      }
+    }
+    notice.value = experimentResult.value.failure_message || '真实样本的三种输入已经跑完。这里只比较识别结果和成本，没有整理、删除或重建任何文件。';
+  } catch (error) { fail(error, '真实样本实验未完成；没有修改任何媒体。'); }
+  finally { experimentRunning.value = false; }
+}
 function previewPayload() {
   return manualPreviewRequest(selected.value?.unit, selected.value?.candidate)
 }
@@ -1297,8 +1397,8 @@ onUnmounted(() => { if (clock) clearInterval(clock); requestBudget.cancel('页�
 return (_ctx, _cache) => {
   return (_openBlock(), _createElementBlock("main", _hoisted_1, [
     _createElementVNode("section", _hoisted_2, [
-      _cache[3] || (_cache[3] = _createElementVNode("div", null, [
-        _createElementVNode("p", { class: "eyebrow" }, "MediaGovernor 4.5.0"),
+      _cache[4] || (_cache[4] = _createElementVNode("div", null, [
+        _createElementVNode("p", { class: "eyebrow" }, "MediaGovernor 4.6.0"),
         _createElementVNode("h1", null, "找到问题，再安全修好"),
         _createElementVNode("p", null, "当前文件和硬链接决定问题；历史只负责关联，修复目标按作品类型选择唯一媒体库。")
       ], -1)),
@@ -1326,19 +1426,19 @@ return (_ctx, _cache) => {
     _createElementVNode("section", _hoisted_7, [
       _createElementVNode("span", null, [
         _createElementVNode("b", null, _toDisplayString(provenCount.value), 1),
-        _cache[4] || (_cache[4] = _createTextVNode("真实问题", -1))
+        _cache[5] || (_cache[5] = _createTextVNode("真实问题", -1))
       ]),
       _createElementVNode("span", null, [
         _createElementVNode("b", null, _toDisplayString(pendingCards.value.length), 1),
-        _cache[5] || (_cache[5] = _createTextVNode("等待确认作品", -1))
+        _cache[6] || (_cache[6] = _createTextVNode("等待确认作品", -1))
       ]),
       _createElementVNode("span", null, [
         _createElementVNode("b", null, _toDisplayString(uncoveredCards.value.length), 1),
-        _cache[6] || (_cache[6] = _createTextVNode("未完成覆盖", -1))
+        _cache[7] || (_cache[7] = _createTextVNode("未完成覆盖", -1))
       ]),
       _createElementVNode("span", null, [
         _createElementVNode("b", null, _toDisplayString(units.value.length || state.value.download_units), 1),
-        _cache[7] || (_cache[7] = _createTextVNode("作品单元", -1))
+        _cache[8] || (_cache[8] = _createTextVNode("作品单元", -1))
       ])
     ]),
     (running.value || progress.value.total)
@@ -1366,14 +1466,85 @@ return (_ctx, _cache) => {
       ? (_openBlock(), _createElementBlock("p", _hoisted_9, _toDisplayString(notice.value), 1))
       : _createCommentVNode("", true),
     _createElementVNode("section", _hoisted_10, [
-      _cache[9] || (_cache[9] = _createElementVNode("header", null, [
+      _createElementVNode("header", null, [
+        _cache[9] || (_cache[9] = _createElementVNode("div", null, [
+          _createElementVNode("h2", null, "真实样本识别实验"),
+          _createElementVNode("p", null, "从下方卡片点进去，把人工确认过的真实整理失败和假成功案例加入这里。模板不含正确答案。")
+        ], -1)),
+        _createElementVNode("button", {
+          class: "secondary",
+          disabled: experimentRunning.value || experimentSamples.value.length < 2,
+          onClick: runRecognitionExperiment
+        }, _toDisplayString(experimentRunning.value ? '正在比较三种输入…' : `比较三种输入（${experimentSamples.value.length} 个真实样本）`), 9, _hoisted_11)
+      ]),
+      (!experimentSamples.value.length)
+        ? (_openBlock(), _createElementBlock("p", _hoisted_12, "尚未选择样本。先选择 2 个典型案例；通过后再加入混合包、弱线索和正常对照。"))
+        : (_openBlock(), _createElementBlock("div", _hoisted_13, [
+            (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(experimentSamples.value, (item) => {
+              return (_openBlock(), _createElementBlock("span", {
+                key: item.id
+              }, [
+                _createElementVNode("b", null, _toDisplayString(item.label), 1),
+                _createTextVNode(" · " + _toDisplayString(item.video_count) + " 个视频 · " + _toDisplayString(item.complete ? '完整读取' : '读取不完整'), 1)
+              ]))
+            }), 128))
+          ])),
+      (normalExperimentChoices.value.length && experimentSamples.value.length < 5)
+        ? (_openBlock(), _createElementBlock("div", _hoisted_14, [
+            _withDirectives(_createElementVNode("select", {
+              "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((normalSampleId).value = $event))
+            }, [
+              _cache[10] || (_cache[10] = _createElementVNode("option", { value: "" }, "通过典型案例后，可加入一个正常对照", -1)),
+              (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(normalExperimentChoices.value, (item) => {
+                return (_openBlock(), _createElementBlock("option", {
+                  key: item.id,
+                  value: item.id
+                }, _toDisplayString(item.label) + " · " + _toDisplayString(item.video_count || item.summary?.video_count || 0) + " 个视频", 9, _hoisted_15))
+              }), 128))
+            ], 512), [
+              [_vModelSelect, normalSampleId.value]
+            ]),
+            _createElementVNode("button", {
+              class: "secondary",
+              disabled: !normalSampleId.value,
+              onClick: addNormalExperimentSample
+            }, "加入正常对照", 8, _hoisted_16)
+          ]))
+        : _createCommentVNode("", true),
+      (experimentSamples.value.length)
+        ? (_openBlock(), _createElementBlock("p", _hoisted_17, "本按钮会让当前智能助手对每个样本调用 3 次；不会调用整理接口，也不会修改硬链接。"))
+        : _createCommentVNode("", true),
+      (experimentResult.value?.failure_stage)
+        ? (_openBlock(), _createElementBlock("p", _hoisted_18, "实验停在 " + _toDisplayString(experimentResult.value.failure_stage) + "：" + _toDisplayString(experimentResult.value.failure_class) + "；已完成的结果仍保留。", 1))
+        : _createCommentVNode("", true),
+      (experimentRows.value.length)
+        ? (_openBlock(), _createElementBlock("div", _hoisted_19, [
+            (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(experimentRows.value, (row, index) => {
+              return (_openBlock(), _createElementBlock("article", {
+                key: `${row.mode}-${row.id}-${index}`
+              }, [
+                _createElementVNode("b", null, _toDisplayString(row.mode) + "：" + _toDisplayString(row.diagnosis.abstain ? '弃权' : (row.diagnosis.title || '无标题')), 1),
+                _createElementVNode("span", null, _toDisplayString(row.diagnosis.year || '年份未知') + " · " + _toDisplayString(row.diagnosis.media_type) + " · 置信度 " + _toDisplayString(Number(row.diagnosis.confidence || 0).toFixed(2)), 1),
+                _createElementVNode("small", null, _toDisplayString(row.receipt.model || '模型未知') + " · AI " + _toDisplayString(row.receipt.elapsed_ms || 0) + " ms · " + _toDisplayString(row.receipt.usage_available ? JSON.stringify(row.receipt.usage) : `${row.receipt.input_chars || 0} 输入字符（供应商未返回 token）`), 1),
+                (row.candidateReceipt.status === 'partial')
+                  ? (_openBlock(), _createElementBlock("small", _hoisted_20, "部分 MoviePilot 候选搜索失败（共 " + _toDisplayString(row.candidateReceipt.query_count || 0) + " 个查询，" + _toDisplayString(row.candidateReceipt.elapsed_ms || 0) + " ms），AI 结果已保留", 1))
+                  : (row.candidates.length)
+                    ? (_openBlock(), _createElementBlock("small", _hoisted_21, "MoviePilot 前五候选（" + _toDisplayString(row.candidateReceipt.query_count || 0) + " 个查询，" + _toDisplayString(row.candidateReceipt.elapsed_ms || 0) + " ms）：" + _toDisplayString(row.candidates.map(item => `${item.title || item.original_title} ${item.year || ''}`).join('；')), 1))
+                    : (_openBlock(), _createElementBlock("small", _hoisted_22, "MoviePilot 没有返回可核对候选"))
+              ]))
+            }), 128))
+          ]))
+        : _createCommentVNode("", true)
+    ]),
+    _createElementVNode("section", _hoisted_23, [
+      _cache[12] || (_cache[12] = _createElementVNode("header", null, [
         _createElementVNode("div", null, [
           _createElementVNode("h2", null, "已确认的真实问题"),
           _createElementVNode("p", null, "这些项目已由当前硬链接、作品身份和分类/季集规则证明；点开后再生成当次修复预览。")
         ])
       ], -1)),
       (!cards.value.length)
-        ? (_openBlock(), _createElementBlock("p", _hoisted_11, _toDisplayString(running.value ? '正在核对，还没有形成结论。' : state.value.ready ? '当前没有已经证明的真实问题。' : '首次使用请先开始检查。'), 1))
+        ? (_openBlock(), _createElementBlock("p", _hoisted_24, _toDisplayString(running.value ? '正在核对，还没有形成结论。' : state.value.ready ? '当前没有已经证明的真实问题。' : '首次使用请先开始检查。'), 1))
         : _createCommentVNode("", true),
       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(cards.value, (card) => {
         return (_openBlock(), _createElementBlock("article", {
@@ -1381,22 +1552,22 @@ return (_ctx, _cache) => {
           class: "card"
         }, [
           _createElementVNode("div", null, [
-            _createElementVNode("span", _hoisted_12, _toDisplayString(_unref(findingLabel)(card.kind)), 1),
+            _createElementVNode("span", _hoisted_25, _toDisplayString(_unref(findingLabel)(card.kind)), 1),
             _createElementVNode("h3", null, _toDisplayString(titleFor(card)), 1),
             _createElementVNode("p", null, _toDisplayString(card.reason), 1),
-            _cache[8] || (_cache[8] = _createElementVNode("small", null, "点开可查看当前结果、官方应有结果和安全修复条件。", -1))
+            _cache[11] || (_cache[11] = _createElementVNode("small", null, "点开可查看当前结果、官方应有结果和安全修复条件。", -1))
           ]),
           _createElementVNode("button", {
             class: "primary",
             disabled: running.value,
             onClick: $event => (recognize(card))
-          }, "查看对比与修复", 8, _hoisted_13)
+          }, "查看对比与修复", 8, _hoisted_26)
         ]))
       }), 128))
     ]),
     (pendingCards.value.length)
-      ? (_openBlock(), _createElementBlock("section", _hoisted_14, [
-          _cache[11] || (_cache[11] = _createElementVNode("header", null, [
+      ? (_openBlock(), _createElementBlock("section", _hoisted_27, [
+          _cache[14] || (_cache[14] = _createElementVNode("header", null, [
             _createElementVNode("div", null, [
               _createElementVNode("h2", null, "等待确认作品"),
               _createElementVNode("p", null, "这些不是已判定的问题。可以查看整包候选，选对作品后生成官方预览。")
@@ -1408,7 +1579,7 @@ return (_ctx, _cache) => {
               class: "card"
             }, [
               _createElementVNode("div", null, [
-                _cache[10] || (_cache[10] = _createElementVNode("span", { class: "kind" }, "等待确认", -1)),
+                _cache[13] || (_cache[13] = _createElementVNode("span", { class: "kind" }, "等待确认", -1)),
                 _createElementVNode("h3", null, _toDisplayString(titleFor(card)), 1),
                 _createElementVNode("p", null, _toDisplayString(card.reason), 1)
               ]),
@@ -1416,14 +1587,14 @@ return (_ctx, _cache) => {
                 class: "secondary",
                 disabled: running.value,
                 onClick: $event => (recognize(card))
-              }, "选择作品并预览", 8, _hoisted_15)
+              }, "选择作品并预览", 8, _hoisted_28)
             ]))
           }), 128))
         ]))
       : _createCommentVNode("", true),
     (uncoveredCards.value.length)
-      ? (_openBlock(), _createElementBlock("section", _hoisted_16, [
-          _cache[13] || (_cache[13] = _createElementVNode("header", null, [
+      ? (_openBlock(), _createElementBlock("section", _hoisted_29, [
+          _cache[16] || (_cache[16] = _createElementVNode("header", null, [
             _createElementVNode("div", null, [
               _createElementVNode("h2", null, "没有检查完整"),
               _createElementVNode("p", null, "这些项目不会被当成正常或问题；原因解决后需要重新检查。")
@@ -1435,7 +1606,7 @@ return (_ctx, _cache) => {
               class: "card"
             }, [
               _createElementVNode("div", null, [
-                _cache[12] || (_cache[12] = _createElementVNode("span", { class: "kind" }, "未完成", -1)),
+                _cache[15] || (_cache[15] = _createElementVNode("span", { class: "kind" }, "未完成", -1)),
                 _createElementVNode("h3", null, _toDisplayString(titleFor(card)), 1),
                 _createElementVNode("p", null, _toDisplayString(card.reason), 1)
               ])
@@ -1444,21 +1615,25 @@ return (_ctx, _cache) => {
         ]))
       : _createCommentVNode("", true),
     (selected.value)
-      ? (_openBlock(), _createElementBlock("div", _hoisted_17, [
-          _createElementVNode("section", _hoisted_18, [
+      ? (_openBlock(), _createElementBlock("div", _hoisted_30, [
+          _createElementVNode("section", _hoisted_31, [
             _createElementVNode("button", {
               class: "close",
-              onClick: _cache[2] || (_cache[2] = $event => {selected.value = null; preview.value = null;})
+              onClick: _cache[3] || (_cache[3] = $event => {selected.value = null; preview.value = null;})
             }, "×"),
-            _cache[17] || (_cache[17] = _createElementVNode("p", { class: "eyebrow" }, "作品证据与官方预览", -1)),
+            _cache[20] || (_cache[20] = _createElementVNode("p", { class: "eyebrow" }, "作品证据与官方预览", -1)),
             _createElementVNode("h2", null, _toDisplayString(titleFor(selected.value.card)), 1),
             _createElementVNode("p", null, _toDisplayString(selected.value.card.reason), 1),
-            _createElementVNode("div", _hoisted_19, [
+            _createElementVNode("div", _hoisted_32, [
               _createElementVNode("b", null, "文件证据：" + _toDisplayString(selected.value.unit.complete ? '完整读取' : '未完整读取'), 1),
               _createElementVNode("span", null, _toDisplayString(selected.value.unit.summary?.video_count || 0) + " 个视频文件 · " + _toDisplayString(selected.value.unit.boundary_reason), 1)
             ]),
+            _createElementVNode("button", {
+              class: "secondary",
+              onClick: toggleExperimentSample
+            }, _toDisplayString(experimentSamples.value.some(item => item.id === selected.value.unit.id) ? '移出识别实验' : '加入真实识别实验'), 1),
             (selected.value.candidates.length)
-              ? (_openBlock(), _createElementBlock("div", _hoisted_20, [
+              ? (_openBlock(), _createElementBlock("div", _hoisted_33, [
                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(selected.value.candidates, (candidate) => {
                     return (_openBlock(), _createElementBlock("button", {
                       key: _unref(identityKey)(candidate),
@@ -1467,29 +1642,29 @@ return (_ctx, _cache) => {
                     }, [
                       _createElementVNode("b", null, _toDisplayString(candidate.title || candidate.original_title), 1),
                       _createElementVNode("span", null, _toDisplayString(candidate.year || '年份未知') + " · " + _toDisplayString(candidate.media_type) + " · " + _toDisplayString(candidate.media_source) + " / " + _toDisplayString(candidate.media_id), 1)
-                    ], 10, _hoisted_21))
+                    ], 10, _hoisted_34))
                   }), 128))
                 ]))
               : (selected.value.candidate)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_22, [
+                ? (_openBlock(), _createElementBlock("div", _hoisted_35, [
                     _createElementVNode("b", null, _toDisplayString(selected.value.candidate.title || selected.value.candidate.original_title), 1),
                     _createElementVNode("span", null, _toDisplayString(selected.value.candidate.year) + " · " + _toDisplayString(selected.value.candidate.media_type) + " · " + _toDisplayString(selected.value.candidate.media_source) + " / " + _toDisplayString(selected.value.candidate.media_id), 1)
                   ]))
                 : _createCommentVNode("", true),
             (selected.value.error)
-              ? (_openBlock(), _createElementBlock("p", _hoisted_23, _toDisplayString(selected.value.error), 1))
+              ? (_openBlock(), _createElementBlock("p", _hoisted_36, _toDisplayString(selected.value.error), 1))
               : _createCommentVNode("", true),
             _createElementVNode("button", {
               class: "primary",
               disabled: !selected.value.candidate || Boolean(selected.value.error),
               onClick: makePreview
-            }, _toDisplayString(preview.value ? '重新生成官方逐文件预览' : '生成官方逐文件预览'), 9, _hoisted_24),
+            }, _toDisplayString(preview.value ? '重新生成官方逐文件预览' : '生成官方逐文件预览'), 9, _hoisted_37),
             (preview.value)
-              ? (_openBlock(), _createElementBlock("div", _hoisted_25, [
-                  _cache[15] || (_cache[15] = _createElementVNode("h3", null, "整理前后对比", -1)),
-                  _cache[16] || (_cache[16] = _createElementVNode("p", null, "每一行都是同一个原文件：中间是现在的硬链接，右侧是 MoviePilot 官方预览的新位置。", -1)),
-                  _createElementVNode("div", _hoisted_26, [
-                    _cache[14] || (_cache[14] = _createElementVNode("div", { class: "compare-head" }, [
+              ? (_openBlock(), _createElementBlock("div", _hoisted_38, [
+                  _cache[18] || (_cache[18] = _createElementVNode("h3", null, "整理前后对比", -1)),
+                  _cache[19] || (_cache[19] = _createElementVNode("p", null, "每一行都是同一个原文件：中间是现在的硬链接，右侧是 MoviePilot 官方预览的新位置。", -1)),
+                  _createElementVNode("div", _hoisted_39, [
+                    _cache[17] || (_cache[17] = _createElementVNode("div", { class: "compare-head" }, [
                       _createElementVNode("b", null, "原文件"),
                       _createElementVNode("b", null, "当前硬链接"),
                       _createElementVNode("b", null, "修复后")
@@ -1508,12 +1683,12 @@ return (_ctx, _cache) => {
                       ]))
                     }), 128))
                   ]),
-                  _createElementVNode("p", _hoisted_27, _toDisplayString(selected.value.admission?.reason), 1),
+                  _createElementVNode("p", _hoisted_40, _toDisplayString(selected.value.admission?.reason), 1),
                   _createElementVNode("button", {
                     class: "danger",
                     disabled: !selected.value.admission?.allowed,
                     onClick: repair
-                  }, "确认清理旧硬链接并重建", 8, _hoisted_28)
+                  }, "确认清理旧硬链接并重建", 8, _hoisted_41)
                 ]))
               : _createCommentVNode("", true)
           ])
@@ -1524,6 +1699,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-bbee604f"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e954304f"]]);
 
 export { AppPage as default };
