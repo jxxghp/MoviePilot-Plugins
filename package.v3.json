@@ -715,12 +715,13 @@
     "name": "爱奇艺探索",
     "description": "让探索支持爱奇艺的数据浏览。",
     "labels": "探索",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/iqiyi_A.png",
     "author": "LLL001a",
     "level": 1,
     "system_version": ">=3.0.0",
     "history": {
+      "v2.1.1": "修复Cookie获取失败和默认分类404问题，优化首次加载速度",
       "v2.1.0": "新增媒体识别能力，支持点击海报识别媒体",
       "v2.0.0": "V3 独立大版本：适配 V3 SDK 导入规范，使用 MediaSource 枚举和统一响应格式"
     }
