@@ -19,5 +19,5 @@ export default defineConfig({
   ],
   // remoteEntry.js 是固定文件名；将它置于发布版目录，使宿主加载新版本时
   // 不会复用旧的联邦入口与新后端混搭。
-  build: { target: 'esnext', minify: false, cssCodeSplit: true, assetsDir: 'v5.0.0/assets' },
+  build: { target: 'esnext', minify: false, cssCodeSplit: true, assetsDir: 'v5.0.1/assets' },
 })

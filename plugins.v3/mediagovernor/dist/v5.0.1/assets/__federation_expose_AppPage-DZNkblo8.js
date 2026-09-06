@@ -18,77 +18,78 @@ function unwrapMoviePilotResponse (value) {
   return current
 }
 
-const {createElementVNode:_createElementVNode,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,normalizeStyle:_normalizeStyle,renderList:_renderList,Fragment:_Fragment,withModifiers:_withModifiers} = await importShared('vue');
+const {createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,normalizeStyle:_normalizeStyle,renderList:_renderList,Fragment:_Fragment,withModifiers:_withModifiers} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "governor-shell" };
 const _hoisted_2 = { class: "hero" };
 const _hoisted_3 = { class: "actions" };
 const _hoisted_4 = ["disabled"];
-const _hoisted_5 = { class: "advanced" };
-const _hoisted_6 = ["disabled"];
-const _hoisted_7 = {
+const _hoisted_5 = ["disabled"];
+const _hoisted_6 = { class: "advanced" };
+const _hoisted_7 = ["disabled"];
+const _hoisted_8 = {
   class: "status-card",
   "aria-live": "polite"
 };
-const _hoisted_8 = { class: "status-line" };
-const _hoisted_9 = {
+const _hoisted_9 = { class: "status-line" };
+const _hoisted_10 = {
   key: 0,
   class: "bar"
 };
-const _hoisted_10 = {
+const _hoisted_11 = {
   key: 1,
   class: "warning"
 };
-const _hoisted_11 = {
+const _hoisted_12 = {
   key: 2,
   class: "notice"
 };
-const _hoisted_12 = { class: "summary-grid" };
-const _hoisted_13 = { class: "panel" };
-const _hoisted_14 = ["onClick"];
-const _hoisted_15 = {
+const _hoisted_13 = { class: "summary-grid" };
+const _hoisted_14 = { class: "panel" };
+const _hoisted_15 = ["onClick"];
+const _hoisted_16 = {
   key: 0,
   class: "empty"
 };
-const _hoisted_16 = { class: "panel review-panel" };
-const _hoisted_17 = ["onClick"];
-const _hoisted_18 = {
+const _hoisted_17 = { class: "panel review-panel" };
+const _hoisted_18 = ["onClick"];
+const _hoisted_19 = {
   key: 0,
   class: "empty"
 };
-const _hoisted_19 = { class: "panel error-panel" };
-const _hoisted_20 = ["onClick"];
-const _hoisted_21 = {
+const _hoisted_20 = { class: "panel error-panel" };
+const _hoisted_21 = ["onClick"];
+const _hoisted_22 = {
   key: 0,
   class: "empty"
 };
-const _hoisted_22 = ["aria-label"];
-const _hoisted_23 = { class: "lead small" };
-const _hoisted_24 = { class: "facts" };
-const _hoisted_25 = {
+const _hoisted_23 = ["aria-label"];
+const _hoisted_24 = { class: "lead small" };
+const _hoisted_25 = { class: "facts" };
+const _hoisted_26 = {
   key: 0,
   class: "choice-area"
 };
-const _hoisted_26 = {
+const _hoisted_27 = {
   key: 0,
   class: "warning"
 };
-const _hoisted_27 = ["disabled", "onClick"];
-const _hoisted_28 = {
+const _hoisted_28 = ["disabled", "onClick"];
+const _hoisted_29 = {
   key: 1,
   class: "choice-area"
 };
-const _hoisted_29 = ["disabled"];
-const _hoisted_30 = {
+const _hoisted_30 = ["disabled"];
+const _hoisted_31 = {
   key: 2,
   class: "preview"
 };
-const _hoisted_31 = {
+const _hoisted_32 = {
   key: 1,
   class: "final-confirm"
 };
-const _hoisted_32 = ["disabled"];
+const _hoisted_33 = ["disabled"];
 
 const {computed,onBeforeUnmount,onMounted,ref} = await importShared('vue');
 
@@ -109,8 +110,16 @@ let timer = null;
 
 const job = computed(() => snapshot.value.status?.job || {});
 const running = computed(() => job.value.status === 'running');
+const stopping = computed(() => running.value && Boolean(job.value.cancel_requested));
 const progress = computed(() => job.value.total ? Math.round((job.value.done || 0) * 100 / job.value.total) : 0);
 const hasResults = computed(() => snapshot.value.problems.length + snapshot.value.confirmations.length + snapshot.value.errors.length > 0);
+const statusTitle = computed(() => ({
+  running: stopping.value ? '正在停止' : '正在后台检查',
+  completed: '检查完成',
+  failed: '检查失败',
+  cancelled: '检查已停止',
+  interrupted: '上次检查已中断'
+}[job.value.status] || '等待检查'));
 
 function failure (error, fallback) {
   message.value = error?.message || fallback;
@@ -146,6 +155,8 @@ async function start (mode) {
 }
 
 async function cancel () {
+  if (stopping.value) return
+  message.value = '正在停止当前只读检查，已经完成的结果会保留。';
   try {
     await post('plugin/MediaGovernor/audit/start', { mode: 'cancel' });
     await refresh();
@@ -234,7 +245,7 @@ return (_ctx, _cache) => {
   return (_openBlock(), _createElementBlock("main", _hoisted_1, [
     _createElementVNode("section", _hoisted_2, [
       _cache[6] || (_cache[6] = _createElementVNode("div", null, [
-        _createElementVNode("p", { class: "eyebrow" }, "MediaGovernor 5.0.0"),
+        _createElementVNode("p", { class: "eyebrow" }, "MediaGovernor 5.0.1"),
         _createElementVNode("h1", null, "检查现在，找到真实问题"),
         _createElementVNode("p", { class: "lead" }, "逐作品比较原文件、当前硬链接和 MoviePilot 应有结果。已经完成的结果会立即保存，关掉页面也不会中断。")
       ], -1)),
@@ -243,48 +254,49 @@ return (_ctx, _cache) => {
           ? (_openBlock(), _createElementBlock("button", {
               key: 0,
               class: "secondary",
+              disabled: stopping.value,
               onClick: cancel
-            }, "停止后续检查"))
+            }, _toDisplayString(stopping.value ? '正在停止…' : '停止检查'), 9, _hoisted_4))
           : _createCommentVNode("", true),
         _createElementVNode("button", {
           class: "primary",
           disabled: busy.value || running.value,
           onClick: _cache[0] || (_cache[0] = $event => (start('incremental')))
-        }, "检查现在", 8, _hoisted_4),
-        _createElementVNode("details", _hoisted_5, [
+        }, "检查现在", 8, _hoisted_5),
+        _createElementVNode("details", _hoisted_6, [
           _cache[4] || (_cache[4] = _createElementVNode("summary", null, "高级操作", -1)),
           _createElementVNode("button", {
             class: "secondary",
             disabled: busy.value || running.value,
             onClick: _cache[1] || (_cache[1] = $event => (start('full')))
-          }, "重建全部基线", 8, _hoisted_6),
+          }, "重建全部基线", 8, _hoisted_7),
           _cache[5] || (_cache[5] = _createElementVNode("p", null, "只在首次使用、目录配置改变或诊断时运行。", -1))
         ])
       ])
     ]),
-    _createElementVNode("section", _hoisted_7, [
-      _createElementVNode("div", _hoisted_8, [
+    _createElementVNode("section", _hoisted_8, [
+      _createElementVNode("div", _hoisted_9, [
         _createElementVNode("div", null, [
-          _createElementVNode("b", null, _toDisplayString(running.value ? '正在后台检查' : job.value.status === 'completed' ? '检查完成' : job.value.status === 'failed' ? '检查失败' : '等待检查'), 1),
+          _createElementVNode("b", null, _toDisplayString(statusTitle.value), 1),
           _createElementVNode("span", null, _toDisplayString(job.value.current), 1)
         ]),
         _createElementVNode("strong", null, _toDisplayString(job.value.done || 0) + "/" + _toDisplayString(job.value.total || 0), 1)
       ]),
       (running.value)
-        ? (_openBlock(), _createElementBlock("div", _hoisted_9, [
+        ? (_openBlock(), _createElementBlock("div", _hoisted_10, [
             _createElementVNode("i", {
               style: _normalizeStyle({ width: `${progress.value}%` })
             }, null, 4)
           ]))
         : _createCommentVNode("", true),
       (job.value.error)
-        ? (_openBlock(), _createElementBlock("p", _hoisted_10, _toDisplayString(job.value.error), 1))
+        ? (_openBlock(), _createElementBlock("p", _hoisted_11, _toDisplayString(job.value.error), 1))
         : _createCommentVNode("", true),
       (message.value)
-        ? (_openBlock(), _createElementBlock("p", _hoisted_11, _toDisplayString(message.value), 1))
+        ? (_openBlock(), _createElementBlock("p", _hoisted_12, _toDisplayString(message.value), 1))
         : _createCommentVNode("", true)
     ]),
-    _createElementVNode("section", _hoisted_12, [
+    _createElementVNode("section", _hoisted_13, [
       _createElementVNode("article", null, [
         _createElementVNode("strong", null, _toDisplayString(snapshot.value.problems.length), 1),
         _cache[7] || (_cache[7] = _createElementVNode("span", null, "已经证明的问题", -1))
@@ -302,7 +314,7 @@ return (_ctx, _cache) => {
         _cache[10] || (_cache[10] = _createElementVNode("span", null, "当前作品", -1))
       ])
     ]),
-    _createElementVNode("section", _hoisted_13, [
+    _createElementVNode("section", _hoisted_14, [
       _createElementVNode("header", null, [
         _cache[11] || (_cache[11] = _createElementVNode("div", null, [
           _createElementVNode("p", { class: "eyebrow" }, "发现的问题"),
@@ -321,13 +333,13 @@ return (_ctx, _cache) => {
             _createElementVNode("small", null, _toDisplayString(item.reason), 1)
           ]),
           _cache[12] || (_cache[12] = _createElementVNode("i", null, "查看证据与修复 →", -1))
-        ], 8, _hoisted_14))
+        ], 8, _hoisted_15))
       }), 128)),
       (!snapshot.value.problems.length)
-        ? (_openBlock(), _createElementBlock("p", _hoisted_15, _toDisplayString(running.value ? '已完成的作品还没有形成问题。' : hasResults.value ? '当前没有已经证明的问题。' : '点击“检查现在”开始。'), 1))
+        ? (_openBlock(), _createElementBlock("p", _hoisted_16, _toDisplayString(running.value ? '已完成的作品还没有形成问题。' : hasResults.value ? '当前没有已经证明的问题。' : '点击“检查现在”开始。'), 1))
         : _createCommentVNode("", true)
     ]),
-    _createElementVNode("section", _hoisted_16, [
+    _createElementVNode("section", _hoisted_17, [
       _createElementVNode("header", null, [
         _cache[13] || (_cache[13] = _createElementVNode("div", null, [
           _createElementVNode("p", { class: "eyebrow" }, "需要你确认"),
@@ -346,13 +358,13 @@ return (_ctx, _cache) => {
             _createElementVNode("small", null, _toDisplayString(item.reason), 1)
           ]),
           _cache[14] || (_cache[14] = _createElementVNode("i", null, "选择正确答案 →", -1))
-        ], 8, _hoisted_17))
+        ], 8, _hoisted_18))
       }), 128)),
       (!snapshot.value.confirmations.length)
-        ? (_openBlock(), _createElementBlock("p", _hoisted_18, "没有等待你决定的项目。"))
+        ? (_openBlock(), _createElementBlock("p", _hoisted_19, "没有等待你决定的项目。"))
         : _createCommentVNode("", true)
     ]),
-    _createElementVNode("section", _hoisted_19, [
+    _createElementVNode("section", _hoisted_20, [
       _createElementVNode("header", null, [
         _cache[15] || (_cache[15] = _createElementVNode("div", null, [
           _createElementVNode("p", { class: "eyebrow" }, "本轮没读完"),
@@ -371,10 +383,10 @@ return (_ctx, _cache) => {
             _createElementVNode("small", null, _toDisplayString(item.reason), 1)
           ]),
           _cache[16] || (_cache[16] = _createElementVNode("i", null, "查看失败阶段 →", -1))
-        ], 8, _hoisted_20))
+        ], 8, _hoisted_21))
       }), 128)),
       (!snapshot.value.errors.length)
-        ? (_openBlock(), _createElementBlock("p", _hoisted_21, "没有读取错误。"))
+        ? (_openBlock(), _createElementBlock("p", _hoisted_22, "没有读取错误。"))
         : _createCommentVNode("", true)
     ]),
     (selected.value)
@@ -396,8 +408,8 @@ return (_ctx, _cache) => {
             }, "×"),
             _cache[25] || (_cache[25] = _createElementVNode("p", { class: "eyebrow" }, "作品证据", -1)),
             _createElementVNode("h2", null, _toDisplayString(selected.value.title), 1),
-            _createElementVNode("p", _hoisted_23, _toDisplayString(selected.value.finding?.reason), 1),
-            _createElementVNode("div", _hoisted_24, [
+            _createElementVNode("p", _hoisted_24, _toDisplayString(selected.value.finding?.reason), 1),
+            _createElementVNode("div", _hoisted_25, [
               _createElementVNode("div", null, [
                 _cache[17] || (_cache[17] = _createElementVNode("span", null, "文件读取", -1)),
                 _createElementVNode("b", null, _toDisplayString(selected.value.source?.object?.complete ? '完整' : '未完整'), 1)
@@ -412,10 +424,10 @@ return (_ctx, _cache) => {
               ])
             ]),
             (selected.value.identity_state !== 'confirmed')
-              ? (_openBlock(), _createElementBlock("section", _hoisted_25, [
+              ? (_openBlock(), _createElementBlock("section", _hoisted_26, [
                   _cache[20] || (_cache[20] = _createElementVNode("h3", null, "请选择正确作品", -1)),
                   (!selected.value.candidates.length)
-                    ? (_openBlock(), _createElementBlock("p", _hoisted_26, "MoviePilot 和智能助手都没有给出可用候选。本项会保留，不会被算成正常。"))
+                    ? (_openBlock(), _createElementBlock("p", _hoisted_27, "MoviePilot 和智能助手都没有给出可用候选。本项会保留，不会被算成正常。"))
                     : _createCommentVNode("", true),
                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(selected.value.candidates, (candidate) => {
                     return (_openBlock(), _createElementBlock("button", {
@@ -426,20 +438,20 @@ return (_ctx, _cache) => {
                     }, [
                       _createElementVNode("b", null, _toDisplayString(candidate.title || candidate.original_title || '未命名候选'), 1),
                       _createElementVNode("span", null, _toDisplayString(candidate.year || '年份未知') + " · " + _toDisplayString(candidate.media_type) + " · " + _toDisplayString(candidate.media_source) + "/" + _toDisplayString(candidate.media_id), 1)
-                    ], 8, _hoisted_27))
+                    ], 8, _hoisted_28))
                   }), 128))
                 ]))
-              : (_openBlock(), _createElementBlock("section", _hoisted_28, [
+              : (_openBlock(), _createElementBlock("section", _hoisted_29, [
                   _createElementVNode("h3", null, _toDisplayString(selected.value.identity.title || selected.value.identity.original_title), 1),
                   _createElementVNode("p", null, _toDisplayString(selected.value.identity.year || '年份未知') + " · " + _toDisplayString(selected.value.identity.media_type) + " · " + _toDisplayString(selected.value.identity.media_source) + "/" + _toDisplayString(selected.value.identity.media_id), 1),
                   _createElementVNode("button", {
                     class: "primary",
                     disabled: busy.value,
                     onClick: previewRepair
-                  }, "重新读取并生成修复预览", 8, _hoisted_29)
+                  }, "重新读取并生成修复预览", 8, _hoisted_30)
                 ])),
             (repairPlan.value)
-              ? (_openBlock(), _createElementBlock("section", _hoisted_30, [
+              ? (_openBlock(), _createElementBlock("section", _hoisted_31, [
                   _cache[22] || (_cache[22] = _createElementVNode("h3", null, "整理前后对比", -1)),
                   _cache[23] || (_cache[23] = _createElementVNode("div", { class: "compare-head" }, [
                     _createElementVNode("b", null, "原文件"),
@@ -463,7 +475,7 @@ return (_ctx, _cache) => {
                         class: "danger",
                         onClick: _cache[2] || (_cache[2] = $event => (confirmingRepair.value = true))
                       }, "继续到最终确认"))
-                    : (_openBlock(), _createElementBlock("div", _hoisted_31, [
+                    : (_openBlock(), _createElementBlock("div", _hoisted_32, [
                         _cache[21] || (_cache[21] = _createElementVNode("b", null, "确认执行这一个作品？", -1)),
                         _createElementVNode("button", {
                           class: "secondary",
@@ -473,11 +485,11 @@ return (_ctx, _cache) => {
                           class: "danger",
                           disabled: busy.value,
                           onClick: executeRepair
-                        }, "确认修复", 8, _hoisted_32)
+                        }, "确认修复", 8, _hoisted_33)
                       ]))
                 ]))
               : _createCommentVNode("", true)
-          ], 8, _hoisted_22)
+          ], 8, _hoisted_23)
         ]))
       : _createCommentVNode("", true)
   ]))
@@ -485,6 +497,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5078908d"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-007fa7b7"]]);
 
 export { AppPage as default };

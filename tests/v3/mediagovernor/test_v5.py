@@ -6,6 +6,8 @@ import inspect
 import json
 import sys
 import tempfile
+import threading
+import time
 import types
 from pathlib import Path
 
@@ -93,24 +95,31 @@ def test_versions_api_and_frontend_contract_are_v5():
     package = json.loads((PLUGIN_DIR / "package.json").read_text(encoding="utf-8"))
     source = PLUGIN.read_text(encoding="utf-8")
     page = PAGE.read_text(encoding="utf-8")
-    assert manifest["version"] == package["version"] == "5.0.0"
-    assert next(iter(manifest["history"])) == "v5.0.0"
-    assert 'plugin_version = "5.0.0"' in source
-    assert 'return "vue", "dist/v5.0.0/assets"' in source
+    assert manifest["version"] == package["version"] == "5.0.1"
+    assert next(iter(manifest["history"])) == "v5.0.1"
+    assert 'plugin_version = "5.0.1"' in source
+    assert 'return "vue", "dist/v5.0.1/assets"' in source
     for endpoint in ("/audit/start", "/audit/status", "/findings", "/objects/{object_id}", "/identity/confirm", "/repair/{object_id}"):
         assert endpoint in source
     for forbidden in ("storage/list", "transfer/manual", "bundle_analyze_batch", "experiment_run", "map_commit"):
         assert forbidden not in page
     assert "检查现在" in page and "重建全部基线" in page and "确认修复" in page
+    assert "background:white" not in page and "background: white" not in page
+    assert "--v-theme-surface" in page and "--v-theme-on-surface" in page and "--v-theme-primary" in page
+    assert ".governor-shell h1,.governor-shell h2,.governor-shell h3" in page
+    assert "正在停止…" in page and "检查已停止" in page
     module = load_plugin_with_host_boundary()
     plugin = module.MediaGovernor(); plugin.init_plugin({"enabled": False})
-    assert plugin.get_render_mode() == ("vue", "dist/v5.0.0/assets")
+    assert plugin.get_render_mode() == ("vue", "dist/v5.0.1/assets")
     assert [row["path"] for row in plugin.get_api()] == ["/audit/start", "/audit/status", "/findings", "/objects/{object_id}", "/identity/confirm", "/repair/{object_id}"]
     assert all(row["auth"] == "bear" for row in plugin.get_api())
 
 
 def test_real_moviepilot_v3_runtime_constructs_initializes_and_stops_plugin():
-    from app.application.chain.context import ChainRuntimeContext, configure_chain_runtime_context_provider
+    from app.application.chain.context import (
+        ChainRuntimeContext,
+        configure_chain_runtime_context_provider,
+    )
     from app.application.configuration import ChainRuntimeConfig
     from app.chain.storage import StorageChain
     from app.chain.transfer import TransferChain
@@ -137,7 +146,7 @@ def test_real_moviepilot_v3_runtime_constructs_initializes_and_stops_plugin():
         assert callable(list_transfer_history)
         plugin = mediagovernor.MediaGovernor()
         plugin.init_plugin({"enabled": False})
-        assert plugin.get_state() is False and plugin.get_render_mode() == ("vue", "dist/v5.0.0/assets")
+        assert plugin.get_state() is False and plugin.get_render_mode() == ("vue", "dist/v5.0.1/assets")
         plugin.stop_service()
     finally:
         configure_chain_runtime_context_provider(None)
@@ -313,6 +322,112 @@ def test_ambiguous_identity_queries_are_batched_by_four(tmp_path):
     service._run(job, "full", None)
     assert batches == [4, 4, 1]
     assert len(service.findings()["confirmations"]) == 9
+
+
+def test_first_batch_is_saved_before_second_ai_batch_starts(tmp_path):
+    class Adapter(FakeAdapter):
+        def recognize(self, path): return {}
+        def ai_queries_batch(self, items):
+            batches.append([key for key, _ in items])
+            if len(batches) == 2:
+                assert service.ledger.current_job()["done"] == 4
+                assert len(service.findings()["confirmations"]) == 4
+            return {key: [] for key, _ in items}
+        def search(self, query): return []
+    batches = []
+    service = G.GovernorService(tmp_path, Adapter())
+    objects = [{"id": str(index), "label": str(index), "fingerprint": str(index), "root": {"path": f"/fixture/{index}"}, "entries": [{"path": f"/fixture/{index}.mkv"}], "complete": True} for index in range(9)]
+    service._discover = lambda job_id: G.Inventory(objects, [], [], [])
+    job = service.ledger.begin_job("full")
+    service._run(job, "full", None)
+    assert [len(batch) for batch in batches] == [4, 4, 1]
+    assert service.ledger.current_job()["done"] == 9
+
+
+def test_blocked_ai_can_be_cancelled_and_cancel_is_not_failure(tmp_path):
+    entered = threading.Event()
+    release = threading.Event()
+    class Adapter(FakeAdapter):
+        def recognize(self, path): return {}
+        def ai_queries_batch(self, items):
+            entered.set(); release.wait(5)
+            return {key: [] for key, _ in items}
+        def search(self, query): return []
+    service = G.GovernorService(tmp_path, Adapter())
+    obj = {"id": "one", "label": "one", "fingerprint": "fp", "root": {"path": "/fixture/one"}, "entries": [{"path": "/fixture/one.mkv"}], "complete": True}
+    service._discover = lambda job_id: G.Inventory([obj], [], [], [])
+    service.start("full")
+    assert entered.wait(1)
+    service.start("cancel")
+    deadline = time.monotonic() + 1
+    while service.status()["job"]["status"] == "running" and time.monotonic() < deadline:
+        time.sleep(0.02)
+    release.set()
+    job = service.status()["job"]
+    assert job["status"] == "cancelled" and job["phase"] == "CANCELLED"
+    assert not job["error"]
+    deadline = time.monotonic() + 1
+    while service._thread and service._thread.is_alive() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    service._discover = lambda job_id: G.Inventory([], [], [], [])
+    assert service.start("incremental")["job"]["status"] in {"running", "completed"}
+    deadline = time.monotonic() + 1
+    while service.status()["job"]["status"] == "running" and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert service.status()["job"]["status"] == "completed"
+
+
+def test_incremental_reuses_unchanged_candidate_without_ai(tmp_path):
+    class Adapter(FakeAdapter):
+        def recognize(self, path): raise AssertionError("未变化候选不应重新原生识别")
+        def ai_queries_batch(self, items): raise AssertionError("未变化候选不应再次调用 AI")
+        def search(self, query): raise AssertionError("未变化候选不应再次搜索")
+    service = G.GovernorService(tmp_path, Adapter())
+    obj = {"id": "one", "label": "one", "fingerprint": "fp", "root": {"path": "/fixture/one"}, "entries": [{"path": "/fixture/one.mkv"}], "complete": True}
+    candidate = {"title": "One", "media_type": "movie", "media_source": "themoviedb", "media_id": "1"}
+    service.ledger.save_identity("one", "candidate", "fp", {}, [candidate], "needs_user_confirmation")
+    service._discover = lambda job_id: G.Inventory([obj], [], [], [])
+    job = service.ledger.begin_job("incremental")
+    service._run(job, "incremental", None)
+    assert service.status()["job"]["status"] == "completed"
+    assert service.detail("one")["candidates"] == [candidate]
+
+
+def test_full_refresh_preserves_user_confirmed_identity(tmp_path):
+    class Adapter(FakeAdapter):
+        def recognize(self, path): raise AssertionError("用户确认身份不得被完整重建覆盖")
+        def ai_queries_batch(self, items): raise AssertionError("用户确认身份不应再进入 AI")
+    service = G.GovernorService(tmp_path, Adapter())
+    obj = {"id": "one", "label": "one", "fingerprint": "fp", "root": {"path": "/fixture/one"}, "entries": [{"path": "/fixture/one.mkv"}], "complete": True}
+    identity = {"title": "One", "media_type": "movie", "media_source": "themoviedb", "media_id": "1"}
+    service.ledger.save_identity("one", "confirmed", "fp", identity, [identity], "user_confirmed")
+    service._discover = lambda job_id: G.Inventory([obj], [], [], [])
+    job = service.ledger.begin_job("full")
+    service._run(job, "full", None)
+    assert service.detail("one")["identity"] == identity
+
+
+def test_episode_target_probes_run_concurrently(tmp_path):
+    entered = 0
+    lock = threading.Lock()
+    all_entered = threading.Event()
+    class Adapter(FakeAdapter):
+        def get_item(self, storage, path):
+            nonlocal entered
+            with lock:
+                entered += 1
+                if entered >= 4:
+                    all_entered.set()
+            assert all_entered.wait(1), "四个独立目标探针应并发执行"
+            return {"path": path, "type": "file"}
+    service = G.GovernorService(tmp_path, Adapter())
+    entries = [{"path": f"/fixture/download/Show.S01E0{index}.mkv", "type": "file"} for index in range(1, 5)]
+    obj = {"id": "show", "label": "Show", "fingerprint": "fp", "root": {"path": "/fixture/download/Show"}, "entries": entries, "complete": True}
+    identity = {"title": "Show", "media_type": "tv", "media_source": "themoviedb", "media_id": "1"}
+    preview = {"summary": {"total": 4, "success": 4, "failed": 0}, "items": [{"source": row["path"], "target": f"/fixture/library/tv/Show/Season 1/E{index}.mkv", "target_storage": "local"} for index, row in enumerate(entries, 1)]}
+    job = service.ledger.begin_job("incremental")
+    findings = service._findings(obj, [], "confirmed", identity, preview, inventory(), job)
+    assert findings == [] and entered == 4
 
 
 def test_incomplete_inventory_never_resolves_previous_findings(tmp_path):

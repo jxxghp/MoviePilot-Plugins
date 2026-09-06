@@ -24,9 +24,15 @@ VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".ts", ".m2t
 SIDECAR_EXTENSIONS = {".srt", ".ass", ".ssa", ".sub", ".nfo", ".jpg", ".jpeg", ".png", ".webp"}
 DISC_DIRECTORIES = {"bdmv", "video_ts"}
 AI_TIMEOUT_SECONDS = 45
+MOVIEPILOT_TIMEOUT_SECONDS = 30
+SEARCH_TIMEOUT_SECONDS = 20
 SAMPLE_PATTERN = re.compile(r"(^|[\\/ ._-])(sample|samples|trailer|extras?)([\\/ ._-]|$)", re.IGNORECASE)
 SEASON_PATTERN = re.compile(r"(?:^|[ ._-])S(\d{1,2})(?:E\d{1,4})?", re.IGNORECASE)
 EPISODE_PATTERN = re.compile(r"S(\d{1,2})E(\d{1,4})", re.IGNORECASE)
+
+
+class AuditCancelled(Exception):
+    """用户要求停止只读检查；不得被记录成检查失败。"""
 
 
 def utcnow() -> str:
@@ -624,21 +630,94 @@ class GovernorService:
         row = self.ledger.one("SELECT cancel_requested FROM jobs WHERE id=?", (job_id,))
         return self._cancel.is_set() or bool(row and row["cancel_requested"])
 
+    def _check_cancelled(self, job_id: str) -> None:
+        if self._cancelled(job_id):
+            raise AuditCancelled()
+
+    def _readonly_call(self, job_id: str, label: str, function: Any, *args: Any, timeout: int = MOVIEPILOT_TIMEOUT_SECONDS) -> Any:
+        """让不可中断的宿主只读调用具备可取消等待和统一期限。
+
+        Python 不能安全杀死正在执行的同步线程，因此取消或超时后只丢弃它的
+        返回值。helper 不接触账本，也不执行媒体写入；媒体重建永远不走这里。
+        """
+        self._check_cancelled(job_id)
+        completed = threading.Event()
+        outcome: dict[str, Any] = {}
+
+        def invoke() -> None:
+            try:
+                outcome["value"] = function(*args)
+            except BaseException as error:  # noqa: BLE001 - 原异常要回到所属作品
+                outcome["error"] = error
+            finally:
+                completed.set()
+
+        threading.Thread(target=invoke, name=f"MediaGovernor-read-{label}", daemon=True).start()
+        deadline = time.monotonic() + timeout
+        while not completed.wait(0.1):
+            if self._cancel.is_set():
+                raise AuditCancelled()
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"{label}超过 {timeout} 秒仍未返回")
+        self._check_cancelled(job_id)
+        if "error" in outcome:
+            raise outcome["error"]
+        return outcome.get("value")
+
+    def _readonly_many(self, job_id: str, label: str, calls: list[tuple[Any, tuple[Any, ...]]], *, timeout: int = MOVIEPILOT_TIMEOUT_SECONDS, concurrency: int = 8) -> list[Any]:
+        """并发执行一组彼此独立的只读探针；结果顺序与输入一致。"""
+        results: list[Any] = []
+        for offset in range(0, len(calls), concurrency):
+            self._check_cancelled(job_id)
+            chunk = calls[offset:offset + concurrency]
+            outcomes: list[dict[str, Any]] = [{} for _ in chunk]
+            completed = [threading.Event() for _ in chunk]
+
+            def invoke(index: int, function: Any, args: tuple[Any, ...], batch_outcomes: list[dict[str, Any]] = outcomes, batch_completed: list[threading.Event] = completed) -> None:
+                try:
+                    batch_outcomes[index]["value"] = function(*args)
+                except BaseException as error:  # noqa: BLE001 - 调用方决定单项如何降级
+                    batch_outcomes[index]["error"] = error
+                finally:
+                    batch_completed[index].set()
+
+            for index, (function, args) in enumerate(chunk):
+                threading.Thread(target=invoke, args=(index, function, args), name=f"MediaGovernor-read-{label}-{index}", daemon=True).start()
+            deadline = time.monotonic() + timeout
+            while not all(event.is_set() for event in completed):
+                if self._cancel.is_set():
+                    raise AuditCancelled()
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(0.05)
+            self._check_cancelled(job_id)
+            for event, outcome in zip(completed, outcomes):
+                if not event.is_set():
+                    results.append(TimeoutError(f"{label}超过 {timeout} 秒仍未返回"))
+                elif "error" in outcome:
+                    results.append(outcome["error"])
+                else:
+                    results.append(outcome.get("value"))
+        return results
+
     def mark_dirty(self, _event: Any = None) -> None:
         self.ledger.execute("UPDATE objects SET dirty=1")
 
-    def _walk(self, root: dict[str, Any], errors: list[dict[str, str]], max_nodes: int = 100000) -> list[dict[str, Any]]:
+    def _walk(self, job_id: str, root: dict[str, Any], errors: list[dict[str, str]], max_nodes: int = 100000) -> list[dict[str, Any]]:
         if root.get("type") == "file":
             return [root]
         queue, rows, seen = deque([root]), [], set()
-        while queue and len(rows) < max_nodes and not self._cancel.is_set():
+        while queue and len(rows) < max_nodes:
+            self._check_cancelled(job_id)
             current = queue.popleft()
             key = f"{current.get('storage') or 'local'}:{normal_path(current.get('path'))}"
             if key in seen:
                 continue
             seen.add(key)
             try:
-                children = self.adapter.list_dir(current)
+                children = self._readonly_call(job_id, "目录读取", self.adapter.list_dir, current)
+            except AuditCancelled:
+                raise
             except Exception as error:  # noqa: BLE001 - 单目录失败必须隔离并进入证据
                 errors.append({"path": str(current.get("path") or ""), "error": str(error)[:240]})
                 continue
@@ -646,34 +725,40 @@ class GovernorService:
                 rows.append(child)
                 if child.get("type") == "dir" and item_name(child).casefold() not in DISC_DIRECTORIES:
                     queue.append(child)
-        if queue and not self._cancel.is_set():
+        if queue:
             errors.append({"path": str(root.get("path") or ""), "error": f"目录项超过安全上限 {max_nodes}，本轮没有读完整"})
         return rows
 
     def _discover(self, job_id: str) -> Inventory:
-        self.ledger.update_job(job_id, phase="INVENTORY", current="读取下载区和媒体库当前文件")
+        self.ledger.update_job(job_id, phase="INVENTORY", current="读取下载目录配置")
         errors: list[dict[str, str]] = []
-        download_roots = self.adapter.directories("download")
-        library_roots = self.adapter.directories("library")
+        download_roots = self._readonly_call(job_id, "下载目录配置读取", self.adapter.directories, "download")
+        library_roots = self._readonly_call(job_id, "媒体库目录配置读取", self.adapter.directories, "library")
         if not download_roots:
             raise RuntimeError("MoviePilot 没有可用的下载目录配置；已拒绝空路径或容器根目录")
         if not library_roots:
             raise RuntimeError("MoviePilot 没有可用的媒体库目录配置")
-        histories = self.adapter.histories()
+        histories = self._readonly_call(job_id, "整理历史读取", self.adapter.histories)
         objects: list[dict[str, Any]] = []
-        for root in download_roots:
+        self.ledger.update_job(job_id, total=len(download_roots), done=0, current="准备读取下载目录")
+        for root_index, root in enumerate(download_roots, 1):
+            self._check_cancelled(job_id)
+            self.ledger.update_job(job_id, current=f"读取下载目录 {root_index}/{len(download_roots)}")
             try:
-                tops = self.adapter.list_dir(root)
+                tops = self._readonly_call(job_id, "下载目录读取", self.adapter.list_dir, root)
+            except AuditCancelled:
+                raise
             except Exception as error:  # noqa: BLE001 - 单目录失败必须隔离并进入证据
                 errors.append({"path": str(root.get("path") or ""), "error": str(error)[:240]})
                 obj = {"id": stable_id(root.get("storage") or "local", normal_path(root.get("path")), "read-error"), "label": "下载目录读取失败", "root": root, "entries": [], "complete": False, "group_key": "read-error", "preview_sources": []}
                 obj["fingerprint"] = fingerprint([root])
                 objects.append(obj)
+                self.ledger.update_job(job_id, done=root_index)
                 continue
             for top in tops:
                 if is_sample(top):
                     continue
-                entries = self._walk(top, errors)
+                entries = self._walk(job_id, top, errors)
                 partitions = partition_entries(top, entries, histories)
                 if not partitions and not any(item_name(row).casefold() in DISC_DIRECTORIES for row in entries if row.get("type") == "dir"):
                     continue
@@ -687,6 +772,7 @@ class GovernorService:
                     }
                     obj["fingerprint"] = fingerprint([top, *partition["entries"]])
                     objects.append(obj)
+            self.ledger.update_job(job_id, done=root_index)
         return Inventory(objects, library_roots, histories, errors)
 
     @staticmethod
@@ -699,14 +785,19 @@ class GovernorService:
         sources = {normal_path(row.get("path")) for row in obj.get("entries") or []}
         return [row for row in histories if normal_path(history_source(row)) in sources]
 
-    def _resolve_identity(self, obj: dict[str, Any], histories: list[dict[str, Any]], queries: list[str] | None = None, allow_ai: bool = True, force: bool = False) -> tuple[str, dict[str, Any], list[dict[str, Any]], str]:
+    def _resolve_identity(self, obj: dict[str, Any], histories: list[dict[str, Any]], queries: list[str] | None = None, allow_ai: bool = True, force: bool = False, job_id: str | None = None) -> tuple[str, dict[str, Any], list[dict[str, Any]], str]:
         saved = self.ledger.one("SELECT * FROM identities WHERE object_id=?", (obj["id"],))
         if saved and saved["state"] == "confirmed" and saved["fingerprint"] == obj["fingerprint"] and (not force or saved["provenance"] == "user_confirmed"):
             return "confirmed", json.loads(saved["identity_json"]), json.loads(saved["candidates_json"]), saved["provenance"]
+        if saved and saved["state"] == "candidate" and saved["fingerprint"] == obj["fingerprint"] and not force:
+            return "candidate", {}, json.loads(saved["candidates_json"]), saved["provenance"]
         history_candidates = {identity_key(value): value for row in histories if identity_key(value := history_identity(row))}
         native: dict[str, Any] = {}
         try:
-            native = self.adapter.recognize(str(obj["root"].get("path") or ""))
+            path = str(obj["root"].get("path") or "")
+            native = self._readonly_call(job_id, "作品识别", self.adapter.recognize, path) if job_id else self.adapter.recognize(path)
+        except AuditCancelled:
+            raise
         except Exception:  # noqa: BLE001 - 原生识别失败会降级为待确认
             native = {}
         candidates = list(history_candidates.values())
@@ -717,11 +808,17 @@ class GovernorService:
             return "confirmed", result, candidates, "native_and_history_agree"
         if not identity_key(native) or (history_candidates and identity_key(native) not in history_candidates):
             try:
-                selected_queries = self.adapter.ai_queries(self._evidence(obj)) if queries is None and allow_ai else (queries or [])
+                if queries is None and allow_ai:
+                    selected_queries = self._readonly_call(job_id, "智能识别", self.adapter.ai_queries, self._evidence(obj), timeout=AI_TIMEOUT_SECONDS) if job_id else self.adapter.ai_queries(self._evidence(obj))
+                else:
+                    selected_queries = queries or []
                 for query in selected_queries:
-                    for candidate in self.adapter.search(query):
+                    rows = self._readonly_call(job_id, "候选搜索", self.adapter.search, query, timeout=SEARCH_TIMEOUT_SECONDS) if job_id else self.adapter.search(query)
+                    for candidate in rows:
                         if identity_key(candidate) and all(identity_key(candidate) != identity_key(row) for row in candidates):
                             candidates.append(candidate)
+            except AuditCancelled:
+                raise
             except Exception:  # noqa: BLE001,S110 - AI 是可弃权候选源
                 pass
         return "candidate", {}, candidates[:12], "needs_user_confirmation"
@@ -730,12 +827,12 @@ class GovernorService:
     def _preview_items(preview: dict[str, Any]) -> list[dict[str, Any]]:
         return [row for row in preview.get("items") or [] if isinstance(row, dict)]
 
-    def _official_preview(self, obj: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any]:
+    def _official_preview(self, obj: dict[str, Any], identity: dict[str, Any], job_id: str | None = None) -> dict[str, Any]:
         sources = obj.get("preview_sources") or [obj.get("root") or {}]
         items: list[dict[str, Any]] = []
         messages: list[str] = []
         for source in sources:
-            value = self.adapter.preview(source, identity)
+            value = self._readonly_call(job_id, "官方预览", self.adapter.preview, source, identity) if job_id else self.adapter.preview(source, identity)
             items.extend(self._preview_items(value))
             if value.get("message"):
                 messages.append(str(value["message"]))
@@ -744,7 +841,7 @@ class GovernorService:
         failed = len([row for row in unique if not row.get("success", True)])
         return {"summary": {"total": len(unique), "success": len(unique) - failed, "failed": failed}, "items": unique, "message": "；".join(messages[:3])}
 
-    def _findings(self, obj: dict[str, Any], histories: list[dict[str, Any]], identity_state: str, identity: dict[str, Any], preview: dict[str, Any], inventory: Inventory) -> list[dict[str, Any]]:
+    def _findings(self, obj: dict[str, Any], histories: list[dict[str, Any]], identity_state: str, identity: dict[str, Any], preview: dict[str, Any], inventory: Inventory, job_id: str | None = None) -> list[dict[str, Any]]:
         findings: list[dict[str, Any]] = []
         if not obj.get("complete"):
             return [{"kind": "read_error", "reason": ISSUE_LABELS["read_error"], "evidence": {"stage": "source_inventory"}}]
@@ -765,15 +862,41 @@ class GovernorService:
         manual_changes = 0
         native_missing = 0
         comparisons: list[dict[str, Any]] = []
-        for row in preview_items:
+        contexts: list[dict[str, Any]] = []
+        probe_calls: list[tuple[Any, tuple[Any, ...]]] = []
+        probe_slots: list[tuple[int, str]] = []
+        for index, row in enumerate(preview_items):
             source = normal_path(row.get("source"))
             expected = str(row.get("target") or "")
             current_history = latest.get(source)
             current = str((current_history or {}).get("dest") or model_dict((current_history or {}).get("dest_fileitem")).get("path") or "")
+            current_storage = str((current_history or {}).get("dest_storage") or model_dict((current_history or {}).get("dest_fileitem")).get("storage") or "local")
+            contexts.append({"row": row, "source": source, "expected": expected, "current_history": current_history, "current": current, "current_storage": current_storage})
+            if job_id and expected:
+                probe_calls.append((self.adapter.get_item, (str(row.get("target_storage") or "local"), expected)))
+                probe_slots.append((index, "expected_item"))
+            if job_id and current:
+                probe_calls.append((self.adapter.get_item, (current_storage, current)))
+                probe_slots.append((index, "current_item"))
+        if job_id and probe_calls:
+            probe_results = self._readonly_many(job_id, "硬链接读取", probe_calls)
+            for (index, key), value in zip(probe_slots, probe_results):
+                contexts[index][key] = value
+
+        for context in contexts:
+            row = context["row"]
+            expected = context["expected"]
+            current_history = context["current_history"]
+            current = context["current"]
             try:
-                expected_item = self.adapter.get_item(str(row.get("target_storage") or "local"), expected) if expected else None
-                current_storage = str((current_history or {}).get("dest_storage") or model_dict((current_history or {}).get("dest_fileitem")).get("storage") or "local")
-                current_item = self.adapter.get_item(current_storage, current) if current else None
+                expected_item = context.get("expected_item") if job_id else (self.adapter.get_item(str(row.get("target_storage") or "local"), expected) if expected else None)
+                current_item = context.get("current_item") if job_id else (self.adapter.get_item(context["current_storage"], current) if current else None)
+                if isinstance(expected_item, BaseException):
+                    raise expected_item
+                if isinstance(current_item, BaseException):
+                    raise current_item
+            except AuditCancelled:
+                raise
             except Exception as error:  # noqa: BLE001 - 存储 provider 异常必须形成读取错误
                 findings.append({"kind": "read_error", "reason": f"媒体库当前状态读取失败：{str(error)[:160]}", "evidence": {"stage": "target_probe"}})
                 return findings
@@ -808,7 +931,8 @@ class GovernorService:
 
     def _process(self, job_id: str, obj: dict[str, Any], inventory: Inventory, resolved: tuple[str, dict[str, Any], list[dict[str, Any]], str] | None = None, force_preview: bool = False) -> None:
         histories = self._histories_for(obj, inventory.histories)
-        state, identity, candidates, provenance = resolved or self._resolve_identity(obj, histories)
+        self._check_cancelled(job_id)
+        state, identity, candidates, provenance = resolved or self._resolve_identity(obj, histories, job_id=job_id)
         self.ledger.save_identity(obj["id"], state, obj["fingerprint"], identity, candidates, provenance)
         preview: dict[str, Any] = {}
         if state == "confirmed":
@@ -820,24 +944,29 @@ class GovernorService:
                 preview = cached_payload
             else:
                 try:
-                    preview = self._official_preview(obj, identity)
+                    preview = self._official_preview(obj, identity, job_id)
                     preview["_basis"] = basis
+                except AuditCancelled:
+                    raise
                 except Exception as error:  # noqa: BLE001 - 官方预览失败属于单项结果
                     preview = {"_basis": basis, "summary": {"total": 0, "success": 0, "failed": 1}, "items": [], "message": str(error)[:240]}
         self.ledger.save_observation(obj["id"], "source", bool(obj.get("complete")), obj["fingerprint"], {"object": obj, "histories": histories})
         self.ledger.save_observation(obj["id"], "preview", bool(preview and not (preview.get("summary") or {}).get("failed")), fingerprint(self._preview_items(preview)), preview)
-        findings = self._findings(obj, histories, state, identity, preview, inventory)
+        self._check_cancelled(job_id)
+        findings = self._findings(obj, histories, state, identity, preview, inventory, job_id)
         for finding in findings:
             if finding["kind"] == "identity_confirmation":
                 finding["evidence"]["candidate_count"] = len(candidates)
         self.ledger.replace_findings(obj["id"], findings)
 
+    def _finish_cancelled(self, job_id: str, message: str = "已停止，已完成结果仍然保留") -> None:
+        row = self.ledger.one("SELECT done FROM jobs WHERE id=?", (job_id,)) or {}
+        self.ledger.update_job(job_id, status="cancelled", phase="CANCELLED", done=int(row.get("done") or 0), current=message, finished_at=utcnow())
+
     def _run(self, job_id: str, mode: str, object_ids: list[str] | None) -> None:
         try:
             inventory = self._discover(job_id)
-            if self._cancelled(job_id):
-                self.ledger.update_job(job_id, status="cancelled", finished_at=utcnow(), current="已停止，未用不完整库存覆盖旧结果")
-                return
+            self._check_cancelled(job_id)
             library_fp = fingerprint(inventory.library_roots)
             self.ledger.save_observation("__library__", "configuration", True, library_fp, {"roots": inventory.library_roots})
             current_ids = {obj["id"] for obj in inventory.objects}
@@ -855,47 +984,67 @@ class GovernorService:
             selected = list(inventory.objects)
             if object_ids:
                 selected = [obj for obj in selected if obj["id"] in object_ids]
-            self.ledger.update_job(job_id, phase="IDENTIFYING", total=len(selected), current="核对作品身份并批量生成少量搜索词")
-            resolved: dict[str, tuple[str, dict[str, Any], list[dict[str, Any]], str]] = {}
-            ambiguous: list[dict[str, Any]] = []
-            for obj in selected:
-                if not obj.get("complete"):
-                    resolved[obj["id"]] = ("candidate", {}, [], "source_incomplete")
-                    continue
-                histories = self._histories_for(obj, inventory.histories)
-                probe = self._resolve_identity(obj, histories, allow_ai=False, force=mode == "full")
-                resolved[obj["id"]] = probe
-                if probe[0] != "confirmed":
-                    ambiguous.append(obj)
-            for offset in range(0, len(ambiguous), 4):
-                batch = ambiguous[offset:offset + 4]
-                try:
-                    query_map = self.adapter.ai_queries_batch([(obj["id"], self._evidence(obj)) for obj in batch])
-                except Exception:  # noqa: BLE001 - AI 批次可整体弃权
-                    query_map = {}
+            self.ledger.update_job(job_id, phase="RECONCILING", total=len(selected), done=0, current="准备逐批核对作品")
+            completed = 0
+            for offset in range(0, len(selected), 4):
+                self._check_cancelled(job_id)
+                batch = selected[offset:offset + 4]
+                resolved: dict[str, tuple[str, dict[str, Any], list[dict[str, Any]], str]] = {}
+                needs_queries: list[dict[str, Any]] = []
                 for obj in batch:
-                    state, identity, candidates, provenance = resolved[obj["id"]]
-                    for query in query_map.get(obj["id"], []):
-                        try:
-                            search_rows = self.adapter.search(query)
-                        except Exception:  # noqa: BLE001,S112 - 单个数据源搜索可弃权
-                            continue
-                        for candidate in search_rows:
-                            if identity_key(candidate) and all(identity_key(candidate) != identity_key(row) for row in candidates):
-                                candidates.append(candidate)
-                    resolved[obj["id"]] = (state, identity, candidates[:12], provenance)
-            self.ledger.update_job(job_id, phase="RECONCILING", total=len(selected), current="准备逐作品核对")
-            for index, obj in enumerate(selected, 1):
-                if self._cancelled(job_id):
-                    self.ledger.update_job(job_id, status="cancelled", finished_at=utcnow(), current="已停止，已完成结果仍然保留")
-                    return
-                self.ledger.update_job(job_id, current=obj["label"], done=index - 1)
-                try:
-                    self._process(job_id, obj, inventory, resolved.get(obj["id"]), force_preview=mode == "full")
-                except Exception as error:  # noqa: BLE001 - 一部失败不能终止其余作品
-                    self.ledger.replace_findings(obj["id"], [{"kind": "read_error", "reason": f"核对阶段失败：{str(error)[:180]}", "evidence": {"stage": "reconciliation"}}])
-                self.ledger.update_job(job_id, done=index)
+                    self._check_cancelled(job_id)
+                    self.ledger.update_job(job_id, phase="IDENTIFYING", current=f"识别：{obj['label']}", done=completed)
+                    if not obj.get("complete"):
+                        resolved[obj["id"]] = ("candidate", {}, [], "source_incomplete")
+                        continue
+                    saved = self.ledger.one("SELECT state,fingerprint FROM identities WHERE object_id=?", (obj["id"],))
+                    reused_candidate = bool(mode != "full" and saved and saved["state"] == "candidate" and saved["fingerprint"] == obj["fingerprint"])
+                    histories = self._histories_for(obj, inventory.histories)
+                    probe = self._resolve_identity(obj, histories, allow_ai=False, force=mode == "full", job_id=job_id)
+                    resolved[obj["id"]] = probe
+                    if probe[0] != "confirmed" and not reused_candidate:
+                        needs_queries.append(obj)
+                query_map: dict[str, list[str]] = {}
+                if needs_queries:
+                    self.ledger.update_job(job_id, phase="IDENTIFYING", current=f"智能识别本批 {len(needs_queries)} 部作品", done=completed)
+                    try:
+                        query_map = self._readonly_call(
+                            job_id, "智能识别", self.adapter.ai_queries_batch,
+                            [(obj["id"], self._evidence(obj)) for obj in needs_queries], timeout=AI_TIMEOUT_SECONDS,
+                        )
+                    except AuditCancelled:
+                        raise
+                    except Exception:  # noqa: BLE001 - AI 批次可整体弃权
+                        query_map = {}
+                search_slots: list[str] = []
+                search_calls: list[tuple[Any, tuple[Any, ...]]] = []
+                for obj in needs_queries:
+                    for query in query_map.get(obj["id"], [])[:3]:
+                        search_slots.append(obj["id"])
+                        search_calls.append((self.adapter.search, (query,)))
+                search_results = self._readonly_many(job_id, "候选搜索", search_calls, timeout=SEARCH_TIMEOUT_SECONDS, concurrency=4) if search_calls else []
+                for object_id, search_rows in zip(search_slots, search_results):
+                    if isinstance(search_rows, BaseException):
+                        continue
+                    state, identity, candidates, provenance = resolved[object_id]
+                    for candidate in search_rows or []:
+                        if identity_key(candidate) and all(identity_key(candidate) != identity_key(row) for row in candidates):
+                            candidates.append(candidate)
+                    resolved[object_id] = (state, identity, candidates[:12], provenance)
+                for obj in batch:
+                    self._check_cancelled(job_id)
+                    self.ledger.update_job(job_id, phase="RECONCILING", current=f"核对：{obj['label']}", done=completed)
+                    try:
+                        self._process(job_id, obj, inventory, resolved.get(obj["id"]), force_preview=mode == "full")
+                    except AuditCancelled:
+                        raise
+                    except Exception as error:  # noqa: BLE001 - 一部失败不能终止其余作品
+                        self.ledger.replace_findings(obj["id"], [{"kind": "read_error", "reason": f"核对阶段失败：{str(error)[:180]}", "evidence": {"stage": "reconciliation"}}])
+                    completed += 1
+                    self.ledger.update_job(job_id, done=completed)
             self.ledger.update_job(job_id, status="completed", phase="DONE", done=len(selected), current="检查完成", finished_at=utcnow())
+        except AuditCancelled:
+            self._finish_cancelled(job_id)
         except Exception as error:  # noqa: BLE001 - 后台任务边界必须持久化失败原因
             self.ledger.update_job(job_id, status="failed", phase="FAILED", error=str(error)[:500], current="检查失败", finished_at=utcnow())
 
