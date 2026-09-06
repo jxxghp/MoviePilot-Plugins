@@ -9,6 +9,7 @@ import { createWorkUnits } from '../lib/work-units.js'
 import { chooseGroundedCandidate, identityFromRaw, identityKey, reconcileIdentities } from '../lib/identity.js'
 import { evaluateOfficialPreview, officialPreviewItems, previewComplete } from '../lib/preview-audit.js'
 import { evaluateCurrentState, validatePreviewTarget } from '../lib/state-audit.js'
+import { selectLibraryTarget } from '../lib/target-selection.js'
 
 const props = defineProps({ api: { type: Object, default: () => ({}) } })
 const state = ref({ ready: false, updated_at: '', download_units: 0, library_nodes: 0, findings: 0, dirty: 0 })
@@ -137,8 +138,9 @@ function modelEvidence(unit, summary) {
 async function askAi(candidates) {
   if (!candidates.length || aiAvailable.value === false) return new Map()
   phase.value = `让智能助手复核 ${candidates.length} 个无法靠原生识别确认的单元`
+  const diagnoses = new Map()
+  const failures = []
   try {
-    const diagnoses = new Map()
     const pending = candidates.map(item => ({ id: item.id, evidence: modelEvidence(item, item.summary) }))
     while (pending.length && !stopped.value) {
       const rows = []; let chars = 0
@@ -147,12 +149,19 @@ async function askAi(candidates) {
         if (rows.length && chars + cost > 24000) break
         pending.shift(); rows.push(next); chars += cost
       }
-      const result = await post('plugin/MediaGovernor/bundle_analyze_batch', { items: rows })
-      for (const [id, diagnosis] of Object.entries(result.diagnoses || {})) diagnoses.set(id, diagnosis)
-      for (const id of result.omitted || []) diagnoses.set(id, { abstain: true, confidence: 0, reasons: ['证据超过智能助手单批安全上限'] })
+      try {
+        const result = await post('plugin/MediaGovernor/bundle_analyze_batch', { items: rows })
+        for (const [id, diagnosis] of Object.entries(result.diagnoses || {})) diagnoses.set(id, diagnosis)
+        for (const id of result.omitted || []) diagnoses.set(id, { abstain: true, confidence: 0, reasons: ['证据超过智能助手单批安全上限'] })
+      } catch (error) {
+        const reason = error?.message || '智能助手没有完成这一批'
+        failures.push(reason)
+        for (const row of rows) diagnoses.set(row.id, { abstain: true, confidence: 0, reasons: [reason], transient_error: true })
+      }
     }
+    if (failures.length) notice.value = `智能助手有 ${failures.length} 批未完成；其他批次已继续，失败原因已保留在对应作品。`
     return diagnoses
-  } catch (error) { aiAvailable.value = false; notice.value = `${error?.message || '智能助手不可用'}；本轮只保留规则能证明的问题。`; return new Map() }
+  } catch (error) { aiAvailable.value = false; notice.value = `${error?.message || '智能助手不可用'}；本轮只保留规则能证明的问题。`; return diagnoses }
 }
 async function identifyUnits() {
   const target = identityTargets(units.value)
@@ -202,6 +211,7 @@ async function groundAiDiagnoses(aiDiagnoses) {
       }
       const resolved = reconcileIdentities(unit.nativeIdentity, grounded, hint, unit.native_conflict)
       unit.diagnosis = resolved.identity; unit.candidates = resolved.candidates; unit.identity_reason = resolved.reason; unit.aiDiagnosis = hint
+      if (hint?.transient_error && unit.diagnosis?.abstain) unit.identity_reason = `智能助手本批失败：${hint.reasons?.[0] || '未知原因'}；下次检查会重试`
       progress.value.done += 1; phase.value = `核对作品候选：${index + 1}/${target.length}`; progress.value.current = 'AI 只提出作品线索；正在回到 MoviePilot 数据源取得可执行作品编号。'
     }
   }
@@ -218,8 +228,9 @@ async function generateOfficialPreviews() {
       const unit = target[index]
       try {
         const base = manualPreviewRequest(unit, unit.diagnosis)
-        const targetPath = await post('transfer/manual/target-path', base)
-        if (!targetPath?.target_path || !targetPath?.target_storage) throw new Error('MoviePilot 没有给出唯一媒体库目标')
+        const selection = selectLibraryTarget(unit.diagnosis, unit.libraryRoots || [])
+        if (!selection.selected) throw new Error(selection.reason)
+        const targetPath = selection.selected
         unit.previewPayload = { ...base, ...targetPath, preview: true, reorganize: false }
         unit.officialPreview = await post('transfer/manual', unit.previewPayload)
         if (!previewComplete(unit.officialPreview, base.fileitems.length)) throw new Error('MoviePilot 逐文件预览不完整')
@@ -329,8 +340,9 @@ async function makePreview() {
   try {
     const base = previewPayload()
     if (!base.fileitems.length || !base.media_source || !base.media_id) throw new Error('缺少经 MoviePilot 确认的作品身份或视频文件')
-    const target = await post('transfer/manual/target-path', base)
-    if (!target?.target_path || !target?.target_storage) throw new Error('MoviePilot 没有为这批文件给出唯一媒体库目标')
+    const selection = selectLibraryTarget(selected.value.candidate, selected.value.unit.libraryRoots || [])
+    if (!selection.selected) throw new Error(selection.reason)
+    const target = selection.selected
     const payload = { ...base, ...target, preview: true, reorganize: false }
     preview.value = await post('transfer/manual', payload)
     selected.value.preview_payload = payload
@@ -342,6 +354,13 @@ async function makePreview() {
     const targetState = targetAudit.states.get(selected.value.unit.id) || { present: new Map(), complete: false }
     const updated = targetState.complete ? evaluateOfficialPreview({ unit: selected.value.unit, identity: selected.value.candidate, preview: preview.value, presentPaths: new Set(targetState.present.keys()) }) : null
     selected.value.card = updated ? { ...selected.value.card, ...updated } : { ...selected.value.card, kind: 'normal', reason: '按当前官方预览核对，这个作品暂时没有已证明的整理差异' }
+    const index = findings.value.findIndex(item => item.unit_id === selected.value.card.unit_id)
+    if (updated) {
+      const next = { ...selected.value.card, ...updated, title: titleFor(selected.value.card) }
+      if (index >= 0) findings.value.splice(index, 1, next)
+      else findings.value.push(next)
+      selected.value.card = next
+    } else if (index >= 0) findings.value.splice(index, 1)
   } catch (error) { selected.value.error = error?.message || '官方预览没有生成'; fail(error, '官方预览没有生成；没有删除或重建任何硬链接。') }
 }
 async function repair() {
@@ -364,7 +383,7 @@ onMounted(status)
 
 <template>
   <main class="governor-page">
-    <section class="hero"><div><p class="eyebrow">MediaGovernor 4.3.0</p><h1>找到问题，再安全修好</h1><p>原生识别只提供候选；文件名、年份、类型和数据源详情一致后，才能判定问题或生成修复。</p></div><div class="actions"><button class="secondary" :disabled="running" @click="probeAi">检查智能助手</button><button v-if="state.ready" class="secondary" :disabled="running" @click="buildMap(true)">完整重建地图</button><button class="primary" :disabled="running" @click="buildMap(state.ready ? false : true)">{{ state.ready ? '检查变动' : '开始首次检查' }}</button></div></section>
+    <section class="hero"><div><p class="eyebrow">MediaGovernor 4.4.0</p><h1>找到问题，再安全修好</h1><p>当前文件和硬链接决定问题；历史只负责关联，修复目标按作品类型选择唯一媒体库。</p></div><div class="actions"><button class="secondary" :disabled="running" @click="probeAi">检查智能助手</button><button v-if="state.ready" class="secondary" :disabled="running" @click="buildMap(true)">完整重建地图</button><button class="primary" :disabled="running" @click="buildMap(state.ready ? false : true)">{{ state.ready ? '检查变动' : '开始首次检查' }}</button></div></section>
     <section class="summary"><span><b>{{ provenCount }}</b>真实问题</span><span><b>{{ pendingCards.length }}</b>等待确认作品</span><span><b>{{ uncoveredCards.length }}</b>未完成覆盖</span><span><b>{{ units.length || state.download_units }}</b>作品单元</span></section>
     <section v-if="running || progress.total" class="progress"><div><b>{{ phase }}</b><button v-if="running" class="link" @click="stop">停止</button></div><p>{{ progress.current }}</p><i><em :style="{ width: `${percent}%` }"></em></i><small>{{ progress.done }}/{{ progress.total }} · {{ elapsedLabel }}</small></section>
     <p v-if="notice" class="notice">{{ notice }}</p>

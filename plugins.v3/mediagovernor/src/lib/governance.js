@@ -28,7 +28,15 @@ export function strictEpisodeKeys(value) {
   for (const match of name.matchAll(/\bS(\d{1,2})E(\d{1,3})\b/ig)) found.push(`S${Number(match[1])}E${Number(match[2])}`)
   if (found.length) return unique(found)
   const season = Number(name.match(/(?:^|[\\/ ._-])(?:season|s)[ ._-]?(\d{1,2})(?=[\\/ ._-]|$)/i)?.[1] || 0)
-  return strictEpisodeHints(name).map(episode => `S${season}E${episode}`)
+  return strictEpisodeHints(name).map(episode => season ? `S${season}E${episode}` : `E${episode}`)
+}
+
+export function episodeKeysCompatible(leftValue, rightValue) {
+  const left = strictEpisodeKeys(leftValue); const right = strictEpisodeKeys(rightValue)
+  if (!left.length || !right.length) return true
+  const parts = key => ({ season: Number(key.match(/^S(\d+)E/)?.[1] || 0), episode: Number(key.match(/E(\d+)$/)?.[1] || 0) })
+  const a = left.map(parts); const b = right.map(parts)
+  return a.length === b.length && a.every((item, index) => item.episode === b[index].episode && (!item.season || !b[index].season || item.season === b[index].season))
 }
 
 export function fileFingerprint(item = {}) {
@@ -79,7 +87,12 @@ export function configuredLibraryRoots(configurations = []) {
     const key = `${storage}:${pathKey(path)}`
     if (seen.has(key)) continue
     seen.add(key)
-    roots.push({ type: 'dir', storage, path, name: text(configuration?.name) || path, media_type: text(configuration?.media_type), media_category: text(configuration?.media_category) })
+    roots.push({
+      type: 'dir', storage, path, name: text(configuration?.name) || path,
+      media_type: text(configuration?.media_type), media_category: text(configuration?.media_category),
+      transfer_type: text(configuration?.transfer_type) || 'link', scraping: Boolean(configuration?.scraping),
+      library_type_folder: Boolean(configuration?.library_type_folder), library_category_folder: Boolean(configuration?.library_category_folder),
+    })
   }
   return roots
 }
@@ -190,6 +203,17 @@ export const categoryOfRoot = root => {
   return ''
 }
 
+export function destinationWorkFolder(value) {
+  const parts = String(value || '').replace(/\\/g, '/').split('/').filter(Boolean)
+  const season = parts.findIndex(part => /^(?:season|s)[ ._-]?\d{1,2}$/i.test(part))
+  return cleanTitle(parts[season > 0 ? season - 1 : Math.max(0, parts.length - 2)] || '')
+}
+
+export function titlesCompatible(leftValues = [], rightValues = []) {
+  const left = leftValues.map(cleanTitle).filter(Boolean); const right = rightValues.map(cleanTitle).filter(Boolean)
+  return left.some(a => right.some(b => a === b || (Math.min(a.length, b.length) >= 4 && (a.includes(b) || b.includes(a)))))
+}
+
 export function classifyFinding({ unit, summary, history = [], library = [], diagnosis = null, presentPaths = new Set() }) {
   const finding = (kind, reason, strength = 'strong') => ({ kind, reason, strength, unit_id: unit.id, history_id: latestHistory(history)?.id || null })
   if (!summary.video_count && !(unit?.attachment_only && summary.subtitle_count)) return []
@@ -198,9 +222,9 @@ export function classifyFinding({ unit, summary, history = [], library = [], dia
   const failed = currentHistory.filter(row => row?.status === false)
   const presentSuccessful = successful.filter(row => presentPaths.has(pathKey(destinationPath(row))))
   const targetMissing = successful.length && successful.every(row => !row?.dest_fileitem?.path && !row?.dest)
-  if (failed.length && !successful.length) return [finding('native_failure', '原生整理失败后，当前下载单元仍在且没有成功整理记录')]
+  if (failed.length && !successful.length) return [finding('native_failure', '原生整理失败：当前源文件仍在且没有成功建立硬链接')]
   if (targetMissing) return [finding('unconfirmed', '历史记录没有保存可核验的目标位置，不能判断当前是否仍有问题', 'review')]
-  if (!diagnosis || diagnosis.abstain || diagnosis.confidence < .5) return []
+  if (!diagnosis || diagnosis.abstain || diagnosis.confidence < .5) return failed.length ? [finding('native_failure', `部分整理失败：当前仍有 ${failed.length} 个源文件没有建立成功硬链接`)] : []
   const currentRecords = presentSuccessful
   const record = currentRecords[0] || {}; const recordKind = mediaKind(record.type || record.media_type || record.category)
   const expectedKind = diagnosis.media_type
@@ -215,17 +239,20 @@ export function classifyFinding({ unit, summary, history = [], library = [], dia
     const recordMedia = current.media_info || current.mediainfo || current.media || {}
     const recordSource = normaliseMediaSource(current.media_source || recordMedia.media_source || recordMedia.source)
     const recordId = text(current.media_id || current.tmdb_id || current.douban_id || recordMedia.media_id || recordMedia.tmdb_id || recordMedia.douban_id || recordMedia.id)
-    if (recordSource && recordId && diagnosis.media_source && diagnosis.media_id && `${recordSource}:${recordId}` !== `${normaliseMediaSource(diagnosis.media_source)}:${diagnosis.media_id}`) { results.push(finding('identity_error', `作品识别错误：当前硬链接归到了另一部作品${missingSuffix}`)); break }
+    const currentFolder = destinationWorkFolder(destinationPath(current))
+    const proposed = [diagnosis.title, diagnosis.original_title]
+    const currentFolderMatches = currentFolder && titlesCompatible([currentFolder], proposed)
     const recordYear = text(current.year || recordMedia.year || recordMedia.release_year)
-    if (recordYear && diagnosis.year && recordYear !== text(diagnosis.year)) { results.push(finding('identity_error', `作品年份对不上：当前硬链接归到了同名的另一版${missingSuffix}`)); break }
+    const targetYear = text(destinationPath(current).match(/\b(?:19|20)\d{2}\b/)?.[0])
+    if (diagnosis.year && ((targetYear && targetYear !== text(diagnosis.year)) || (!currentFolderMatches && recordYear && recordYear !== text(diagnosis.year)))) { results.push(finding('identity_error', `作品年份对不上：当前硬链接归到了同名的另一版${missingSuffix}`)); break }
     const titles = [current.title, current.original_title, current.media_name, recordMedia.title, recordMedia.original_title, recordMedia.name].map(cleanTitle).filter(Boolean)
-    const proposed = [diagnosis.title, diagnosis.original_title].map(cleanTitle).filter(Boolean)
-    if (titles.length && proposed.length && !titles.some(left => proposed.some(right => left === right || left.includes(right) || right.includes(left)))) { results.push(finding('identity_error', `作品识别错误：当前硬链接归到了另一部作品${missingSuffix}`)); break }
+    const identityMismatch = recordSource && recordId && diagnosis.media_source && diagnosis.media_id && `${recordSource}:${recordId}` !== `${normaliseMediaSource(diagnosis.media_source)}:${diagnosis.media_id}`
+    if (!currentFolderMatches && ((currentFolder && !titlesCompatible([currentFolder], proposed)) || (titles.length && !titlesCompatible(titles, proposed))) && identityMismatch) { results.push(finding('identity_error', `作品识别错误：当前硬链接归到了另一部作品${missingSuffix}`)); break }
   }
   if (diagnosis.season && record.season && Number(record.season) !== Number(diagnosis.season)) results.push(finding('hierarchy_error', '季目录对不上：当前整理季与整包证据不一致', 'review'))
   for (const row of successful) {
     const sourceEpisodes = strictEpisodeKeys(sourcePath(row)); const targetEpisodes = strictEpisodeKeys(destinationPath(row))
-    if (sourceEpisodes.length && targetEpisodes.length && sourceEpisodes.join(',') !== targetEpisodes.join(',')) { results.push(finding('episode_error', `剧集对应错误：源文件与当前硬链接的集号不一致${missingSuffix}`)); break }
+    if (sourceEpisodes.length && targetEpisodes.length && !episodeKeysCompatible(sourcePath(row), destinationPath(row))) { results.push(finding('episode_error', `剧集对应错误：源文件与当前硬链接的集号不一致${missingSuffix}`)); break }
   }
   if (expectedKind === 'tv' && summary.episodes.length && currentRecords.length && currentRecords.every(row => !/(?:^|[\\/])(?:season|s)[ ._-]?\d{1,2}(?:[\\/]|$)/i.test(destinationPath(row)))) results.push(finding('hierarchy_error', `目录层级错误：剧集被平铺，没有作品和季目录${missingSuffix}`))
   if (failed.length) results.push(finding('native_failure', `部分整理失败：当前仍有 ${failed.length} 个源文件没有建立成功硬链接`))
