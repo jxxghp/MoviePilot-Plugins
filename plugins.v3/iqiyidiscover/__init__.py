@@ -167,7 +167,7 @@ class IqiyiDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/iqiyi_A.png"
     # 插件版本
-    plugin_version = "2.1.0"
+    plugin_version = "2.1.1"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -184,6 +184,7 @@ class IqiyiDiscover(_PluginBase):
     _cookie = ""
     _cookie_refresh_time = 0
     _identity_cache_key = "media_identity"
+    _cookie_task = None
 
     def init_plugin(self, config: dict = None):
         """
@@ -198,9 +199,19 @@ class IqiyiDiscover(_PluginBase):
         if "iqiyipic.com" not in settings.SECURITY_IMAGE_DOMAINS:
             settings.SECURITY_IMAGE_DOMAINS.append("iqiyipic.com")
         BASE_UI = init_base_ui()
-        # 启用插件时自动获取 Cookie
+        # 启用插件时，优先复用持久化的 Cookie，避免首次加载慢
         if self._enabled:
-            self._auto_refresh_cookie()
+            if not self._cookie:
+                self._cookie = self.get_data("iqiyi_cookie") or ""
+            # 无有效 Cookie 时后台预获取，不阻塞插件加载
+            if not self._cookie:
+                try:
+                    import asyncio
+                    self._cookie_task = asyncio.create_task(self._async_auto_refresh_cookie())
+                except RuntimeError:
+                    # 无事件循环时（如同步初始化），退化为线程预获取
+                    import threading
+                    threading.Thread(target=self._auto_refresh_cookie, daemon=True).start()
 
     def get_state(self) -> bool:
         """
@@ -449,6 +460,8 @@ class IqiyiDiscover(_PluginBase):
                 return False
             self._cookie = cookie_str
             self._cookie_refresh_time = time.time()
+            # 持久化 Cookie，避免重启后重新获取
+            self.save_data("iqiyi_cookie", cookie_str)
             logger.info(f"成功获取爱奇艺 Cookie（{len(cookies)} 项）")
             return True
         except Exception as err:
@@ -465,6 +478,17 @@ class IqiyiDiscover(_PluginBase):
                     context.close()
                 except Exception:
                     pass
+
+    async def _async_auto_refresh_cookie(self) -> bool:
+        """
+        异步使用 CloakBrowser 自动获取爱奇艺 Cookie。
+
+        通过 asyncio.to_thread 将同步的浏览器操作放到线程中执行，
+        避免在 asyncio 事件循环中使用 Playwright 同步 API 导致报错。
+
+        :return: 是否成功获取 Cookie
+        """
+        return await asyncio.to_thread(self._auto_refresh_cookie)
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -585,8 +609,7 @@ class IqiyiDiscover(_PluginBase):
         """
         pass
 
-    @cached(cache=TTLCache(maxsize=32, ttl=1800))
-    def __request(self, channel_id: str, page: int, filter_params: str = None) -> List[dict]:
+    async def __request(self, channel_id: str, page: int, filter_params: str = None) -> List[dict]:
         """
         请求爱奇艺筛选数据接口。
 
@@ -600,6 +623,13 @@ class IqiyiDiscover(_PluginBase):
         params["page_id"] = str(page)
         params["filter"] = filter_params or '{"mode":"11"}'
         headers = dict(HEADERS)
+        # 若 Cookie 为空且后台预获取任务存在，等待预获取完成，避免首次请求失败
+        if not self._cookie and self._cookie_task:
+            try:
+                await self._cookie_task
+            except Exception:
+                pass
+            self._cookie_task = None
         # 携带 Cookie 绕过爱奇艺风控，并从 Cookie 中提取设备ID（QC005）
         if self._cookie:
             headers["Cookie"] = self._cookie
@@ -616,7 +646,7 @@ class IqiyiDiscover(_PluginBase):
             # 风控拦截时返回空数据，自动刷新 Cookie 后重试一次
             if data.get("code") == 0 and not data.get("data"):
                 logger.warning("爱奇艺接口返回空数据，可能被风控拦截，尝试自动刷新 Cookie")
-                if self._auto_refresh_cookie():
+                if await self._async_auto_refresh_cookie():
                     headers["Cookie"] = self._cookie
                     device_id = self.__extract_device_id(self._cookie)
                     if device_id:
@@ -754,7 +784,7 @@ class IqiyiDiscover(_PluginBase):
                 filter_params["smart_tag_v2"] = theater
             if not filter_params:
                 filter_params = {"mode": "11"}
-            result = self.__request(
+            result = await self.__request(
                 CHANNEL_PARAMS[mtype]["channel_id"],
                 page,
                 json.dumps(filter_params, ensure_ascii=False),
