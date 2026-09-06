@@ -14,7 +14,7 @@ def test_plugin_metadata() -> None:
     """插件元数据应与市场索引保持一致。"""
     plugin = _make_plugin()
     assert plugin.plugin_name == "邮箱通知"
-    assert plugin.plugin_version == "1.0.0"
+    assert plugin.plugin_version == "1.1.0"
     assert plugin.plugin_config_prefix == "emailmsg_"
 
 
@@ -280,3 +280,43 @@ def test_send_custom_notification_no_recipient(mock_switch) -> None:
 
     assert response.success is False
     assert "未获取到收件人" in response.message
+
+
+def test_build_html_renders_poster_link_and_type() -> None:
+    """HTML 正文应包含海报、链接按钮、类型标签与标题。"""
+    plugin = _make_plugin()
+    html = plugin._build_html(
+        "侏罗纪世界：重生 (2025) 开始下载",
+        "下载任务已添加，正在下载中。",
+        image="https://tmdb.example.com/t/p/w500/poster.jpg",
+        link="https://mp.example.com/#/downloading",
+        msg_type="资源下载",
+    )
+    assert html.startswith("<!DOCTYPE html>")
+    assert "侏罗纪世界：重生" in html
+    assert "正在下载中" in html
+    assert "资源下载" in html
+    assert "https://tmdb.example.com/t/p/w500/poster.jpg" in html
+    assert "查看详情" in html
+    assert "https://mp.example.com/#/downloading" in html
+
+
+def test_build_html_escapes_content() -> None:
+    """HTML 正文应转义标题与文本，避免注入。"""
+    plugin = _make_plugin()
+    html = plugin._build_html(
+        "<script>alert(1)</script>",
+        "文本 <b>加粗</b>",
+        msg_type="测试",
+    )
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;" in html
+    assert "&lt;b&gt;" in html
+
+
+def test_build_html_without_poster_and_link() -> None:
+    """无海报和链接时不渲染海报与按钮区域。"""
+    plugin = _make_plugin()
+    html = plugin._build_html("标题", "正文", msg_type="通知")
+    assert "查看详情" not in html
+    assert "<img" not in html
