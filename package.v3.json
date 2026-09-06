@@ -730,12 +730,13 @@
     "name": "邮箱通知",
     "description": "支持通过 SMTP 发送邮件通知，收件人根据通知发送范围设置从用户管理邮箱中获取。",
     "labels": "消息通知",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/email_A.png",
     "author": "LLL001a",
     "level": 1,
     "system_version": ">=3.0.0",
     "history": {
+      "v1.1.0": "美化邮件 HTML 样式，通知携带资源海报与跳转链接。",
       "v1.0.0": "首次发布。"
     }
   }
