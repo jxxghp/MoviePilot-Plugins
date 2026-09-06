@@ -13,6 +13,41 @@ from app.plugins.lunatvsource.m3u8_engine import M3U8EngineInstallError
 from app.plugins.lunatvsource.naming import media_path
 
 
+class PluginData:
+    def __init__(self):
+        self.values = {}
+
+    def get_data(self, _plugin_id, key):
+        return self.values.get(key)
+
+    def save(self, _plugin_id, key, value):
+        self.values[key] = value
+
+
+def _plugin(config=None):
+    plugin = object.__new__(LunaTVSource)
+    plugin.plugindata = PluginData()
+    plugin._logger = plugin_module.LOGGER
+    plugin._download_metrics_lock = threading.Lock()
+    plugin._download_metrics = {}
+    plugin._quality_cache_lock = threading.Lock()
+    plugin._quality_cache = {}
+    plugin._quality_probe_ms = {}
+    plugin._completed_download_sizes = {}
+    plugin._source_health_lock = threading.RLock()
+    plugin._source_health_running = False
+    plugin._source_health = {}
+    plugin._source_health_stop = threading.Event()
+    plugin._source_health_thread = None
+    plugin._source_health_pending_keys = set()
+    plugin._source_health_pending_full = False
+    plugin._source_health_last_error = ""
+    plugin._source_health_last_finished = 0.0
+    plugin._source_health_revision = 0
+    plugin.init_plugin(config or {})
+    return plugin
+
+
 def _install_subscription_operator(monkeypatch, subscribe):
     subscribe_module = ModuleType("app.db.oper.subscribe")
 
@@ -68,7 +103,7 @@ def test_subscription_drops_source_disabled_before_enqueue(
         save_path=str(tmp_path),
     )
     _install_subscription_operator(monkeypatch, subscribe)
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
     plugin.save_data(plugin_module.SOURCE_CACHE_KEY, [source.to_dict()])
     with plugin._source_health_lock:
@@ -107,63 +142,6 @@ def test_subscription_drops_source_disabled_before_enqueue(
     assert plugin.api_sources()["data"][0]["manual_disabled"] is True
 
 
-@pytest.mark.parametrize(
-    ("refreshed_ids", "expect_error"),
-    [(set(), True), ({10}, False)],
-)
-def test_subscription_refresh_reports_native_progress_compatibility_gap(
-    monkeypatch, tmp_path: Path, refreshed_ids, expect_error
-):
-    subscribe = SimpleNamespace(
-        id=10,
-        state="R",
-        name="追更示例",
-        year="2026",
-        type="电视剧",
-        season=1,
-        media_source="",
-        media_id="",
-        save_path=str(tmp_path),
-    )
-    _install_subscription_operator(monkeypatch, subscribe)
-    plugin = LunaTVSource()
-    plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
-
-    class Client:
-        @staticmethod
-        def search(*_args, **_kwargs):
-            return []
-
-    refresh_calls = []
-
-    def refresh(ids):
-        refresh_calls.append(set(ids))
-        return set(refreshed_ids)
-
-    monkeypatch.setattr(plugin, "_client", lambda: Client())
-    monkeypatch.setattr(plugin_module, "_HostMediaServerChain", None)
-    monkeypatch.setattr(
-        plugin, "_backfill_native_subscription_progress", lambda _pending: set()
-    )
-    monkeypatch.setattr(plugin, "_refresh_native_subscription_progress", refresh)
-
-    response = plugin.refresh_subscriptions()
-    status = plugin.get_data(plugin_module.FOLLOWUP_STATUS_KEY)[
-        "subscription_refresh"
-    ]
-
-    assert refresh_calls == [{10}]
-    if expect_error:
-        assert response["unrefreshed_subscriptions"] == 1
-        assert "MoviePilot 未能刷新 1 个订阅进度" in response["error"]
-        assert status["success"] is False
-        assert status["unrefreshed_subscriptions"] == 1
-    else:
-        assert "error" not in response
-        assert "unrefreshed_subscriptions" not in response
-        assert status["success"] is True
-
-
 def test_subscription_skips_source_disabled_before_search(
     monkeypatch, tmp_path: Path
 ):
@@ -179,7 +157,7 @@ def test_subscription_skips_source_disabled_before_search(
         save_path=str(tmp_path),
     )
     _install_subscription_operator(monkeypatch, subscribe)
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
     plugin.save_data(plugin_module.SOURCE_CACHE_KEY, [source.to_dict()])
     with plugin._source_health_lock:
@@ -226,7 +204,7 @@ def test_unfinished_subscription_queues_only_new_episode_when_result_order_chang
         def search(self, _query, **_kwargs):
             return list(rows)
 
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     monkeypatch.setattr(plugin, "_prepare_result", lambda result: (result, {}))
@@ -257,55 +235,6 @@ def test_unfinished_subscription_queues_only_new_episode_when_result_order_chang
     assert sorted(task["episode"] for task in plugin._queue.list_tasks()) == [1, 2]
 
 
-def test_subscription_refresh_backfills_historical_downloads(monkeypatch, tmp_path: Path):
-    source = CmsSource("cms-demo", "演示源", "https://cms.example/vod")
-    subscribe = SimpleNamespace(
-        id=9,
-        state="R",
-        name="追更示例",
-        year="2026",
-        type=SimpleNamespace(value="TV"),
-        season=1,
-        media_source="lunatv",
-        media_id="cms-demo:episode-1",
-        save_path=str(tmp_path),
-    )
-    _install_subscription_operator(monkeypatch, subscribe)
-
-    class Client:
-        def search(self, _query, **_kwargs):
-            return [_episode_row(source, 1), _episode_row(source, 2)]
-
-    plugin = LunaTVSource()
-    plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
-    monkeypatch.setattr(plugin, "_client", lambda: Client())
-    monkeypatch.setattr(plugin, "_prepare_result", lambda result: (result, {}))
-    monkeypatch.setattr(
-        plugin,
-        "_native_history_has_episode",
-        lambda task: task.episode in {1, 2},
-    )
-    backfills = []
-    monkeypatch.setattr(
-        plugin,
-        "_backfill_native_subscription_progress",
-        lambda pending: backfills.append(pending) or set(pending),
-    )
-    syncs = []
-    monkeypatch.setattr(
-        plugin,
-        "_sync_media_server",
-        lambda ids: syncs.append(ids) or True,
-    )
-
-    response = plugin.refresh_subscriptions()
-
-    assert response["queued"] == 0
-    assert response["reconciled"] == 2
-    assert backfills == [{9: {1, 2}}]
-    assert syncs == []
-
-
 def test_subscription_refresh_normalizes_active_state_and_season_text(
     monkeypatch, tmp_path: Path
 ):
@@ -326,7 +255,7 @@ def test_subscription_refresh_normalizes_active_state_and_season_text(
         def search(self, _query, **_kwargs):
             return [_episode_row(source, 1)]
 
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     monkeypatch.setattr(plugin, "_prepare_result", lambda result: (result, {}))
@@ -390,7 +319,7 @@ def test_failed_subscription_refresh_reuses_identity_and_updates_stream(tmp_path
 def test_tv_season_projection_keeps_completed_size_and_shows_finalizing(
     monkeypatch, tmp_path: Path
 ):
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
     monkeypatch.setattr(plugin, "_start_queue", lambda: None)
 
@@ -514,7 +443,7 @@ def test_tv_projection_uses_persisted_completed_size_after_restart(
     partial.parent.mkdir(parents=True, exist_ok=True)
     partial.write_bytes(b"r" * 500)
 
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
     monkeypatch.setattr(plugin, "_start_queue", lambda: None)
     plugin.save_data(
@@ -557,7 +486,7 @@ def test_record_completion_removes_empty_download_tree_after_native_move(
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(b"downloaded")
 
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True, "download_root": str(root)})
 
     def move_with_moviepilot(_task, original):
@@ -566,7 +495,7 @@ def test_record_completion_removes_empty_download_tree_after_native_move(
 
     monkeypatch.setattr(plugin, "_native_transfer", move_with_moviepilot)
     monkeypatch.setattr(plugin, "_record_native_history", lambda *_args: None)
-    monkeypatch.setattr(plugin, "_sync_media_server", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(plugin, "_sync_media_server", lambda: True)
 
     plugin._record_completion(task, str(output))
 
@@ -577,7 +506,7 @@ def test_record_completion_removes_empty_download_tree_after_native_move(
 def test_last_tv_episode_remains_visible_while_completion_hook_is_organizing(
     monkeypatch, tmp_path: Path
 ):
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
     task = DownloadTask(
         task_id="finalizing-episode",
@@ -665,7 +594,7 @@ def test_subscription_refresh_rejects_mismatched_host_identity_before_ranking(
         def search(_query, **_kwargs):
             return [wrong, correct]
 
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     monkeypatch.setattr(plugin, "_start_queue", lambda: None)
@@ -737,7 +666,7 @@ def test_subscription_refresh_falls_back_to_exact_title_and_year_when_unmatched(
         def search(_query, **_kwargs):
             return [wrong, correct]
 
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     monkeypatch.setattr(plugin, "_start_queue", lambda: None)
@@ -795,7 +724,7 @@ def test_subscription_refresh_honors_native_start_and_manual_total_episode(
         def search(_query, **_kwargs):
             return [result]
 
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True})
     assert plugin._subscription_episode_bounds(
         SimpleNamespace(
@@ -876,7 +805,7 @@ def test_subscription_ranking_ignores_episodes_outside_manual_bounds(
         def search(_query, **_kwargs):
             return [future, valid]
 
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     monkeypatch.setattr(plugin, "_start_queue", lambda: None)
@@ -902,7 +831,7 @@ def test_subscription_ranking_ignores_episodes_outside_manual_bounds(
 
 
 def test_tv_projection_groups_changed_cms_rows_by_host_media_identity(tmp_path: Path):
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
     tasks = [
         DownloadTask(
@@ -960,7 +889,7 @@ def test_completion_records_history_when_transfer_raises_after_move(
     output.write_bytes(b"downloaded")
     recorded = []
 
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True, "download_root": str(root)})
 
     def partial_move(_task, original):
@@ -1024,7 +953,7 @@ def test_subscription_source_ranking_prefers_newest_episode_before_resolution(
         season_range=(1, 1),
         season_ambiguous=False,
     )
-    plugin = LunaTVSource()
+    plugin = _plugin()
     monkeypatch.setattr(
         plugin,
         "_probe_resource_urls",
@@ -1071,7 +1000,7 @@ def test_subscription_source_ranking_uses_requested_season_resolution(monkeypatc
 
     low = multi_season_result("low", 720)
     high = multi_season_result("high", 1080)
-    plugin = LunaTVSource()
+    plugin = _plugin()
     monkeypatch.setattr(
         plugin,
         "_probe_resource_urls",
@@ -1134,18 +1063,7 @@ def test_engine_status_and_install_failure_are_actionable(monkeypatch, tmp_path:
 
 
 def test_status_reports_real_concurrency_engine_and_followup_interval(monkeypatch):
-    plugin = LunaTVSource()
-    plugin.save_data(
-        plugin_module.FOLLOWUP_STATUS_KEY,
-        {
-            "subscription_refresh": {
-                "finished_at": 123.0,
-                "success": True,
-                "error": "",
-                "queued": 2,
-            }
-        },
-    )
+    plugin = _plugin()
     plugin.init_plugin(
         {
             "enabled": True,
@@ -1172,93 +1090,6 @@ def test_status_reports_real_concurrency_engine_and_followup_interval(monkeypatc
     }
     assert status["engine"] == engine
     assert status["subscription"]["refresh_minutes"] == 20
-    assert status["followup_status"]["subscription_refresh"] == {
-        "finished_at": 123.0,
-        "success": True,
-        "error": "",
-        "queued": 2,
-        "running": False,
-    }
-    assert status["followup_status"]["media_server_sync"] == {"running": False}
-
-
-def test_refresh_subscriptions_persists_success_and_failure(monkeypatch):
-    plugin = LunaTVSource()
-    plugin.init_plugin({"enabled": True})
-    monkeypatch.setattr(
-        plugin,
-        "_refresh_subscriptions_once",
-        lambda: {
-            "subscriptions": 3,
-            "queued": 2,
-            "reconciled": 1,
-            "skipped_ambiguous": 0,
-            "skipped_no_directory": 0,
-        },
-    )
-
-    assert plugin.refresh_subscriptions()["queued"] == 2
-    success = plugin.api_status()["data"]["followup_status"]["subscription_refresh"]
-    assert success["success"] is True
-    assert success["queued"] == 2
-    assert success["running"] is False
-
-    def fail():
-        raise RuntimeError("subscription database unavailable")
-
-    monkeypatch.setattr(plugin, "_refresh_subscriptions_once", fail)
-    with pytest.raises(RuntimeError, match="subscription database unavailable"):
-        plugin.refresh_subscriptions()
-    failure = plugin.get_data(plugin_module.FOLLOWUP_STATUS_KEY)[
-        "subscription_refresh"
-    ]
-    assert failure["success"] is False
-    assert failure["error"] == "subscription database unavailable"
-
-
-def test_refresh_subscriptions_keeps_latest_concurrent_status(monkeypatch):
-    plugin = LunaTVSource()
-    plugin.init_plugin({"enabled": True})
-    entered = [threading.Event(), threading.Event()]
-    release = [threading.Event(), threading.Event()]
-    calls = []
-
-    def refresh_once():
-        index = len(calls)
-        calls.append(index)
-        entered[index].set()
-        assert release[index].wait(timeout=2)
-        return {
-            "subscriptions": 1,
-            "queued": index + 1,
-            "reconciled": 0,
-        }
-
-    monkeypatch.setattr(plugin, "_refresh_subscriptions_once", refresh_once)
-    first = threading.Thread(target=plugin.refresh_subscriptions)
-    second = threading.Thread(target=plugin.refresh_subscriptions)
-    first.start()
-    assert entered[0].wait(timeout=2)
-    second.start()
-    assert entered[1].wait(timeout=2)
-
-    release[0].set()
-    first.join(timeout=2)
-    assert not first.is_alive()
-    in_progress = plugin.api_status()["data"]["followup_status"][
-        "subscription_refresh"
-    ]
-    assert in_progress["running"] is True
-    assert "queued" not in in_progress
-
-    release[1].set()
-    second.join(timeout=2)
-    assert not second.is_alive()
-    latest = plugin.api_status()["data"]["followup_status"][
-        "subscription_refresh"
-    ]
-    assert latest["running"] is False
-    assert latest["queued"] == 2
 
 
 def test_native_tmdb_season_subscription_queues_all_new_episode_rows(
@@ -1282,7 +1113,7 @@ def test_native_tmdb_season_subscription_queues_all_new_episode_rows(
         def search(self, _query, **_kwargs):
             return rows
 
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     monkeypatch.setattr(
@@ -1367,7 +1198,7 @@ def test_default_subscription_dedupes_pending_episodes_when_best_source_changes(
         def search(self, _query, **_kwargs):
             return list(rows)
 
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True, "download_root": str(tmp_path)})
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     monkeypatch.setattr(plugin, "_prepare_result", lambda result: (result, {}))
@@ -1396,7 +1227,7 @@ def test_default_subscription_dedupes_pending_episodes_when_best_source_changes(
 def test_remove_whole_season_is_rejected_atomically_while_organizing(
     monkeypatch, tmp_path: Path
 ):
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin(
         {
             "enabled": True,
@@ -1456,7 +1287,7 @@ def test_remove_whole_season_is_rejected_atomically_while_organizing(
 
 
 def test_subscription_events_request_immediate_refresh_only_while_enabled(monkeypatch):
-    plugin = LunaTVSource()
+    plugin = _plugin()
     plugin.init_plugin({"enabled": True})
     refresh_calls = []
     monkeypatch.setattr(

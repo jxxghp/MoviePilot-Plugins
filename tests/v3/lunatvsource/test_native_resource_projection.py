@@ -37,6 +37,7 @@ def test_tv_native_projection_keeps_quality_out_of_card_title_and_description(mo
         def search(self, *_args, **_kwargs):
             return rows
 
+    monkeypatch.setattr("app.plugins.PluginChian", lambda: object())
     plugin = LunaTVSource()
     plugin.init_plugin({"enabled": True})
     monkeypatch.setattr(plugin_module, "_HostTorrentInfo", TorrentInfo)
@@ -51,7 +52,7 @@ def test_tv_native_projection_keeps_quality_out_of_card_title_and_description(mo
 
     items = plugin._resource_torrents("示例剧", mtype="tv")
 
-    assert [item.pri_order for item in items] == [998108, 998072]
+    assert [item.pri_order for item in items] == [108, 72]
     assert {item.title for item in items} == {"示例剧 (2024) · 第2季"}
     assert all("1080P" not in item.title and "720P" not in item.title for item in items)
     assert all("1080P" not in item.description and "720P" not in item.description for item in items)

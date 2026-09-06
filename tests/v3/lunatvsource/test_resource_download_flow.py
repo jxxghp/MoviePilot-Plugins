@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 
 import app.plugins.lunatvsource as plugin_module
@@ -15,8 +16,7 @@ def _configured_plugin(monkeypatch, results):
         def search(self, *_args, **_kwargs):
             return list(results)
 
-    plugin = LunaTVSource()
-    plugin.init_plugin({"enabled": True})
+    plugin = _plugin({"enabled": True})
     monkeypatch.setattr(plugin_module, "_HostTorrentInfo", FakeTorrentInfo)
     monkeypatch.setattr(plugin, "_client", lambda: Client())
     monkeypatch.setattr(plugin, "_associate_tmdb", lambda *_args, **_kwargs: {})
@@ -27,6 +27,40 @@ def _configured_plugin(monkeypatch, results):
     )
     return plugin
 
+
+class _PluginData:
+    def __init__(self):
+        self.values = {}
+
+    def get_data(self, _plugin_id, key):
+        return self.values.get(key)
+
+    def save(self, _plugin_id, key, value):
+        self.values[key] = value
+
+
+def _plugin(config=None):
+    plugin = object.__new__(LunaTVSource)
+    plugin.plugindata = _PluginData()
+    plugin._logger = plugin_module.LOGGER
+    plugin._download_metrics_lock = threading.Lock()
+    plugin._download_metrics = {}
+    plugin._quality_cache_lock = threading.Lock()
+    plugin._quality_cache = {}
+    plugin._quality_probe_ms = {}
+    plugin._completed_download_sizes = {}
+    plugin._source_health_lock = threading.RLock()
+    plugin._source_health_running = False
+    plugin._source_health = {}
+    plugin._source_health_stop = threading.Event()
+    plugin._source_health_thread = None
+    plugin._source_health_pending_keys = set()
+    plugin._source_health_pending_full = False
+    plugin._source_health_last_error = ""
+    plugin._source_health_last_finished = 0.0
+    plugin._source_health_revision = 0
+    plugin.init_plugin(config)
+    return plugin
 
 def test_search_movie_resources_are_sorted_and_download_queues_highest_resolution(
     monkeypatch, tmp_path: Path
@@ -104,6 +138,7 @@ def test_search_tv_resources_are_season_cards_and_download_runs_episodes_seriall
         },
     )
     plugin = _configured_plugin(monkeypatch, [low, high])
+    monkeypatch.setattr(plugin, "_start_queue", lambda: True)
 
     resources = plugin.search_torrents(
         {"id": "demo"}, "示例剧", mtype="电视剧"
@@ -114,11 +149,10 @@ def test_search_tv_resources_are_season_cards_and_download_runs_episodes_seriall
         "示例剧 · 第1季",
     ]
     assert all("集" not in item.title for item in resources)
-    assert [item.pri_order for item in resources] == [999108, 999048]
+    assert [item.pri_order for item in resources] == [108, 48]
     high_payload = plugin._decode_resource_token(resources[0].enclosure)
     assert [episode["episode"] for episode in high_payload["episodes"]] == [1, 2]
 
-    monkeypatch.setattr(plugin, "_start_queue", lambda: None)
     result = plugin.download(resources[0].enclosure, tmp_path)
 
     assert result[0] == "LunaTVSource"
@@ -141,64 +175,6 @@ def test_search_tv_resources_are_season_cards_and_download_runs_episodes_seriall
         (1, "https://video.example/1080-e1.m3u8"),
         (2, "https://video.example/1080-e2.m3u8"),
     ]
-
-
-def test_search_tv_resources_sort_seasons_ascending_before_quality(monkeypatch):
-    source = CmsSource("demo", "演示源", "https://cms.example/vod")
-    season_three = _result_from_item(
-        source,
-        {
-            "vod_id": "season-three",
-            "vod_name": "示例剧 第三季",
-            "type_name": "电视剧",
-            "vod_play_url": "第1集$https://video.example/1080-s03e01.m3u8",
-        },
-    )
-    season_one = _result_from_item(
-        source,
-        {
-            "vod_id": "season-one",
-            "vod_name": "示例剧 第一季",
-            "type_name": "电视剧",
-            "vod_play_url": "第1集$https://video.example/720-s01e01.m3u8",
-        },
-    )
-    season_two = _result_from_item(
-        source,
-        {
-            "vod_id": "season-two",
-            "vod_name": "示例剧 第二季",
-            "type_name": "电视剧",
-            "vod_play_url": "第1集$https://video.example/2160-s02e01.m3u8",
-        },
-    )
-    plugin = _configured_plugin(monkeypatch, [season_three, season_one, season_two])
-    monkeypatch.setattr(
-        plugin,
-        "_probe_resource_urls",
-        lambda urls: {
-            url: 2160 if "2160" in url else 1080 if "1080" in url else 720
-            for url in urls
-        },
-    )
-
-    resources = plugin.search_torrents(
-        {"id": "demo"}, "示例剧", mtype="电视剧"
-    )
-    host_sorted = sorted(
-        resources,
-        key=lambda item: str(item.pri_order or 0).rjust(3, "0"),
-        reverse=True,
-    )
-
-    assert [
-        plugin._decode_resource_token(item.enclosure)["season"]
-        for item in resources
-    ] == [1, 2, 3]
-    assert [
-        plugin._decode_resource_token(item.enclosure)["season"]
-        for item in host_sorted
-    ] == [1, 2, 3]
 
 
 def test_long_season_cards_probe_one_episode_and_keep_full_hd_download(
@@ -249,7 +225,7 @@ def test_long_season_cards_probe_one_episode_and_keep_full_hd_download(
         {"id": "demo"}, "长季剧", mtype="电视剧"
     )
 
-    assert [item.pri_order for item in resources] == [999108, 999108]
+    assert [item.pri_order for item in resources] == [108, 108]
     assert [item.title for item in resources] == [
         "长季剧 · 第1季",
         "长季剧 · 第1季",

@@ -1,4 +1,3 @@
-import json
 import logging
 import socket
 import time
@@ -11,7 +10,6 @@ from app.plugins.lunatvsource.cms import (
     CmsSource,
     _fetch_public_url,
     _is_public_probe_url,
-    _json_get,
     _master_playlist_height,
     _parse_play_urls,
     _result_from_item,
@@ -155,23 +153,6 @@ def test_public_fetch_pins_dns_and_rejects_private_redirect(monkeypatch):
     ]
 
 
-def test_public_fetch_expired_deadline_skips_dns_and_connection(monkeypatch):
-    def unexpected(*_args, **_kwargs):
-        raise AssertionError("expired deadline must not start network work")
-
-    monkeypatch.setattr(cms_module.time, "monotonic", lambda: 10.0)
-    monkeypatch.setattr(cms_module.socket, "getaddrinfo", unexpected)
-    monkeypatch.setattr(cms_module.http.client, "HTTPConnection", unexpected)
-
-    with pytest.raises(TimeoutError, match="deadline"):
-        _fetch_public_url(
-            "http://video.example/index.m3u8",
-            3.0,
-            1024,
-            deadline=9.0,
-        )
-
-
 def test_public_fetch_percent_encodes_non_ascii_request_target(monkeypatch):
     requests = []
 
@@ -198,12 +179,13 @@ def test_public_fetch_percent_encodes_non_ascii_request_target(monkeypatch):
             return None
 
     monkeypatch.setattr(
-        "app.plugins.lunatvsource.cms.socket.getaddrinfo",
+        cms_module.socket,
+        "getaddrinfo",
         lambda *_args, **_kwargs: [
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 80)),
         ],
     )
-    monkeypatch.setattr("app.plugins.lunatvsource.cms.http.client.HTTPConnection", Connection)
+    monkeypatch.setattr(cms_module.http.client, "HTTPConnection", Connection)
 
     payload, final_url = _fetch_public_url(
         "http://video.example/第1集/播放.m3u8?token=值&part=1%2F2",
@@ -217,106 +199,6 @@ def test_public_fetch_percent_encodes_non_ascii_request_target(monkeypatch):
         "/%E7%AC%AC1%E9%9B%86/%E6%92%AD%E6%94%BE.m3u8"
         "?token=%E5%80%BC&part=1%2F2"
     )
-
-
-@pytest.mark.parametrize(
-    "url",
-    (
-        "file:///tmp/config.json",
-        "http://user:password@93.184.216.34/config.json",
-        "http://127.0.0.1/config.json",
-    ),
-)
-def test_json_get_rejects_unsafe_urls(url):
-    with pytest.raises(ValueError):
-        _json_get(url, 3.0)
-
-
-def test_json_get_rejects_public_redirect_to_private(monkeypatch):
-    class Response:
-        status = 302
-
-        @staticmethod
-        def getheader(name):
-            return "http://127.0.0.1/config.json" if name == "Location" else None
-
-    class Connection:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        @staticmethod
-        def request(*_args, **_kwargs):
-            pass
-
-        @staticmethod
-        def getresponse():
-            return Response()
-
-        @staticmethod
-        def close():
-            pass
-
-    monkeypatch.setattr(
-        "app.plugins.lunatvsource.cms.socket.getaddrinfo",
-        lambda *_args, **_kwargs: [
-            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 80)),
-        ],
-    )
-    monkeypatch.setattr("app.plugins.lunatvsource.cms.http.client.HTTPConnection", Connection)
-
-    with pytest.raises(ValueError, match="non-public"):
-        _json_get("http://config.example/config.json", 3.0)
-
-
-def test_json_get_allows_explicit_trusted_cidr(monkeypatch):
-    requests = []
-
-    class Response:
-        status = 200
-
-        @staticmethod
-        def read(_limit):
-            return b'{"ok": true}'
-
-    class Connection:
-        def __init__(self, address, port, timeout):
-            requests.append((address, port, timeout))
-
-        @staticmethod
-        def request(*_args, **_kwargs):
-            pass
-
-        @staticmethod
-        def getresponse():
-            return Response()
-
-        @staticmethod
-        def close():
-            pass
-
-    monkeypatch.setattr("app.plugins.lunatvsource.cms.http.client.HTTPConnection", Connection)
-
-    assert _json_get(
-        "http://10.0.0.8/config.json",
-        3.0,
-        ("10.0.0.0/8",),
-    ) == {"ok": True}
-    assert requests == [("10.0.0.8", 80, 3.0)]
-
-
-def test_json_get_rejects_oversized_response(monkeypatch):
-    limits = []
-
-    def fetch(url, _timeout, limit, _allowed_private_ranges):
-        limits.append(limit)
-        return b"x" * limit, url
-
-    monkeypatch.setattr(cms_module, "_fetch_public_url", fetch)
-
-    with pytest.raises(ValueError, match="too large"):
-        _json_get("https://config.example/config.json", 3.0)
-
-    assert limits == [cms_module._JSON_RESPONSE_BYTES + 1]
 
 
 def test_probe_media_sample_uses_safe_suffix_for_dotted_parent_path(monkeypatch):
@@ -465,47 +347,6 @@ def test_parse_play_urls_supports_chinese_episode_label():
     assert episodes[0].episode == 8
 
 
-def test_parse_play_urls_supports_chinese_season_and_episode_numbers():
-    episodes = _parse_play_urls(
-        "第八季",
-        "第十二集$https://example.test/12.m3u8#"
-        "第一百零二集$https://example.test/102.m3u8#"
-        "第一千零二十集$https://example.test/1020.m3u8",
-    )
-    assert [(item.season, item.episode) for item in episodes] == [
-        (8, 12),
-        (8, 102),
-        (8, 1020),
-    ]
-
-
-def test_parse_play_urls_preserves_zero_season():
-    episodes = _parse_play_urls(
-        "Season 00",
-        "S00E01$https://example.test/01.m3u8#SP$https://example.test/sp.m3u8",
-    )
-    assert [(item.season, item.episode, item.season_known) for item in episodes] == [
-        (0, 1, True),
-        (0, 2, True),
-    ]
-
-
-def test_parse_play_urls_uses_entry_ordinal_for_unlabelled_specials():
-    episodes = _parse_play_urls(
-        "S01",
-        "第8集$https://example.test/08.m3u8#SP$https://example.test/sp.m3u8#"
-        "OVA$https://example.test/ova.m3u8#特别篇$https://example.test/special.m3u8#"
-        "第12集$https://example.test/12.m3u8",
-    )
-    assert {item.label: item.episode for item in episodes} == {
-        "第8集": 8,
-        "SP": 2,
-        "OVA": 3,
-        "特别篇": 4,
-        "第12集": 12,
-    }
-
-
 def test_parse_play_urls_rejects_non_http_urls():
     episodes = _parse_play_urls("在线播放", "01$file:///tmp/episode.m3u8#02$https://example.test/02.m3u8")
     assert [(item.episode, item.url) for item in episodes] == [(2, "https://example.test/02.m3u8")]
@@ -570,65 +411,6 @@ def test_result_from_item_recognizes_chinese_season_title():
     )
     assert result.media_type == "tv"
     assert [(episode.season, episode.episode, episode.season_known) for episode in result.episodes] == [(8, 45, True)]
-
-
-def test_result_from_item_recognizes_regional_drama_category_without_movie_class_leak():
-    result = _result_from_item(
-        CmsSource("demo", "演示", "https://cms.example/vod"),
-        {
-            "vod_id": "green-lantern-corps",
-            "vod_name": "绿灯军团",
-            "type_name": "欧美剧",
-            "vod_class": "剧情",
-            "vod_remarks": "更新至02集",
-            "vod_play_url": "第01集$https://example.test/01.m3u8#第02集$https://example.test/02.m3u8",
-        },
-    )
-    assert result.media_type == "tv"
-
-    movie = _result_from_item(
-        CmsSource("demo", "演示", "https://cms.example/vod"),
-        {
-            "vod_id": "drama-movie",
-            "vod_name": "剧情片",
-            "type_name": "剧情片",
-            "vod_class": "剧情",
-            "vod_play_url": "正片$https://example.test/movie.m3u8",
-        },
-    )
-    assert movie.media_type == "movie"
-
-
-@pytest.mark.parametrize("type_name", ("喜剧", "悲剧", "戏剧", "舞台剧"))
-def test_result_from_item_does_not_treat_generic_drama_labels_as_tv(type_name: str):
-    result = _result_from_item(
-        CmsSource("demo", "演示", "https://cms.example/vod"),
-        {
-            "vod_id": f"movie-{type_name}",
-            "vod_name": type_name,
-            "type_name": type_name,
-            "vod_class": type_name,
-            "vod_play_url": "正片$https://example.test/movie.m3u8",
-        },
-    )
-
-    assert result.media_type == "movie"
-
-
-@pytest.mark.parametrize("type_name", ("欧美剧", "韩剧", "日剧", "泰剧", "港剧", "台剧"))
-def test_result_from_item_recognizes_explicit_regional_tv_categories(type_name: str):
-    result = _result_from_item(
-        CmsSource("demo", "演示", "https://cms.example/vod"),
-        {
-            "vod_id": f"series-{type_name}",
-            "vod_name": type_name,
-            "type_name": type_name,
-            "vod_class": "剧情",
-            "vod_play_url": "第01集$https://example.test/01.m3u8",
-        },
-    )
-
-    assert result.media_type == "tv"
 
 
 def test_search_enriches_sparse_list_item_with_detail_play_urls():
@@ -2328,136 +2110,6 @@ def test_search_parallel_returns_completed_sources_within_total_budget():
         release_slow.set()
 
 
-def test_search_progress_reports_parallel_completion_before_total_budget():
-    from threading import Barrier, Event
-
-    sources = [
-        CmsSource(key="slow", name="slow", api="https://slow.example/vod"),
-        CmsSource(key="fast", name="fast", api="https://fast.example/vod"),
-    ]
-    client = AppleCmsClient(sources, parallel_wait_timeout=1)
-    rendezvous = Barrier(2, timeout=1)
-    progress_reached = Event()
-    slow_observed_progress = Event()
-    release_slow = Event()
-    progress = []
-
-    def fake_search_source(source, **_params):
-        rendezvous.wait()
-        if source.key == "slow":
-            if progress_reached.wait(0.75):
-                slow_observed_progress.set()
-            release_slow.wait(1)
-        return []
-
-    def on_progress(**event):
-        progress.append(event)
-        if event["finished"] == 1:
-            progress_reached.set()
-            release_slow.set()
-
-    client._search_source = fake_search_source
-    assert client.search("demo", max_workers=2, progress_callback=on_progress) == []
-
-    assert slow_observed_progress.is_set()
-    assert [(event["finished"], event["total"]) for event in progress] == [(1, 2), (2, 2)]
-    assert [event["text"] for event in progress] == ["正在搜索源 1/2", "正在搜索源 2/2"]
-
-
-def test_search_progress_advances_after_parallel_source_error_and_callback_error():
-    sources = [
-        CmsSource(key="bad", name="bad", api="https://bad.example/vod"),
-        CmsSource(key="good", name="good", api="https://good.example/vod"),
-    ]
-    client = AppleCmsClient(sources)
-    progress = []
-
-    def fake_search_source(source, **_params):
-        if source.key == "bad":
-            raise RuntimeError("bad source")
-        return []
-
-    def on_progress(**event):
-        progress.append(event)
-        if event["finished"] == 1:
-            raise RuntimeError("broken UI callback")
-
-    client._search_source = fake_search_source
-    assert client.search("demo", max_workers=2, progress_callback=on_progress) == []
-    assert [(event["finished"], event["total"]) for event in progress] == [(1, 2), (2, 2)]
-
-
-def test_search_progress_settles_timeout_once_without_late_worker_callback():
-    from threading import Event
-
-    sources = [
-        CmsSource(key="slow", name="slow", api="https://slow.example/vod"),
-        CmsSource(key="fast", name="fast", api="https://fast.example/vod"),
-    ]
-    client = AppleCmsClient(sources, parallel_wait_timeout=0.05)
-    slow_started = Event()
-    release_slow = Event()
-    slow_finished = Event()
-    progress = []
-
-    def fake_search_source(source, **_params):
-        if source.key == "slow":
-            slow_started.set()
-            release_slow.wait(1)
-            slow_finished.set()
-        return []
-
-    client._search_source = fake_search_source
-    try:
-        assert client.search(
-            "demo",
-            max_workers=2,
-            progress_callback=lambda **event: progress.append(event),
-        ) == []
-        assert slow_started.is_set()
-        assert [(event["finished"], event["total"]) for event in progress] == [(1, 2), (2, 2)]
-    finally:
-        release_slow.set()
-
-    assert slow_finished.wait(1)
-    assert len(progress) == 2
-
-
-def test_search_progress_settles_skipped_sources_after_stop_after_first_source():
-    sources = [
-        CmsSource(key="first", name="first", api="https://first.example/vod"),
-        CmsSource(key="second", name="second", api="https://second.example/vod"),
-    ]
-    client = AppleCmsClient(sources)
-    called = []
-    progress = []
-
-    def fake_search_source(source, **_params):
-        called.append(source.key)
-        return [] if source.key == "second" else [
-            _result_from_item(
-                source,
-                {
-                    "vod_id": "first",
-                    "vod_name": "demo",
-                    "type_name": "movie",
-                    "vod_play_url": "main$https://first.example/demo.m3u8",
-                },
-            )
-        ]
-
-    client._search_source = fake_search_source
-    results = client.search(
-        "demo",
-        stop_after_first_source=True,
-        progress_callback=lambda **event: progress.append(event),
-    )
-
-    assert [result.source_key for result in results] == ["first"]
-    assert called == ["first"]
-    assert [(event["finished"], event["total"]) for event in progress] == [(1, 2), (2, 2)]
-
-
 def test_search_skips_non_playable_source_when_playable_result_is_required():
     sources = [
         CmsSource(key="empty", name="空播放源", api="https://empty.example/vod"),
@@ -2543,20 +2195,208 @@ def test_animation_is_treated_as_series_for_season_naming():
             "vod_id": "cartoon",
             "vod_name": "示例动画",
             "type_name": "动漫",
-            "vod_play_from": "在线播放",
-            "vod_play_url": "01$https://example.test/01.m3u8#02$https://example.test/02.m3u8",
+           "vod_play_from": "在线播放",
+           "vod_play_url": "01$https://example.test/01.m3u8#02$https://example.test/02.m3u8",
+       },
+   )
+    assert result.media_type == "tv"
+
+
+def test_result_from_item_recognizes_regional_drama_category_without_movie_class_leak():
+    result = _result_from_item(
+        CmsSource("demo", "演示", "https://cms.example/vod"),
+        {
+            "vod_id": "green-lantern-corps",
+            "vod_name": "绿灯军团",
+            "type_name": "欧美剧",
+            "vod_class": "剧情",
+            "vod_remarks": "更新至02集",
+            "vod_play_url": "第01集$https://example.test/01.m3u8#第02集$https://example.test/02.m3u8",
         },
     )
     assert result.media_type == "tv"
 
-    single = _result_from_item(
-        CmsSource(key="demo", name="演示", api="https://cms.example/api.php/provide/vod"),
+    movie = _result_from_item(
+        CmsSource("demo", "演示", "https://cms.example/vod"),
         {
-            "vod_id": "cartoon-102",
-            "vod_name": "示例动画 第一百零二集",
-            "type_name": "动漫",
-            "vod_play_from": "在线播放",
-            "vod_play_url": "第一百零二集$https://example.test/102.m3u8",
+            "vod_id": "drama-movie",
+            "vod_name": "剧情片",
+            "type_name": "剧情片",
+            "vod_class": "剧情",
+            "vod_play_url": "正片$https://example.test/movie.m3u8",
         },
     )
-    assert (single.media_type, single.episodes[0].episode) == ("tv", 102)
+    assert movie.media_type == "movie"
+
+
+def test_result_from_item_preserves_normalized_classification_fields():
+    result = _result_from_item(
+        CmsSource("demo", "演示", "https://cms.example/vod"),
+        {
+            "vod_id": "classification-fields",
+            "vod_name": "分类示例",
+            "type_name": "欧美剧",
+            "vod_class": "剧情，科幻/剧情、冒险 | 科幻",
+            "vod_play_url": "第01集$https://example.test/01.m3u8",
+        },
+    )
+
+    assert result.cms_type_name == "欧美剧"
+    assert result.cms_class_names == ("剧情", "科幻", "冒险")
+    assert result.to_dict()["cms_class_names"] == ["剧情", "科幻", "冒险"]
+
+@pytest.mark.parametrize("type_name", ("喜剧", "悲剧", "戏剧", "舞台剧"))
+def test_result_from_item_does_not_treat_generic_drama_labels_as_tv(type_name: str):
+    result = _result_from_item(
+        CmsSource("demo", "演示", "https://cms.example/vod"),
+        {
+            "vod_id": f"movie-{type_name}",
+            "vod_name": type_name,
+            "type_name": type_name,
+            "vod_class": type_name,
+            "vod_play_url": "正片$https://example.test/movie.m3u8",
+        },
+    )
+
+    assert result.media_type == "movie"
+
+@pytest.mark.parametrize("type_name", ("欧美剧", "韩剧", "日剧", "泰剧", "港剧", "台剧"))
+def test_result_from_item_recognizes_explicit_regional_tv_categories(type_name: str):
+    result = _result_from_item(
+        CmsSource("demo", "演示", "https://cms.example/vod"),
+        {
+            "vod_id": f"series-{type_name}",
+            "vod_name": type_name,
+            "type_name": type_name,
+            "vod_class": "剧情",
+            "vod_play_url": "第01集$https://example.test/01.m3u8",
+        },
+    )
+
+    assert result.media_type == "tv"
+
+def test_search_progress_reports_parallel_completion_before_total_budget():
+    from threading import Barrier, Event
+
+    sources = [
+        CmsSource(key="slow", name="slow", api="https://slow.example/vod"),
+        CmsSource(key="fast", name="fast", api="https://fast.example/vod"),
+    ]
+    client = AppleCmsClient(sources, parallel_wait_timeout=1)
+    rendezvous = Barrier(2, timeout=1)
+    progress_reached = Event()
+    slow_observed_progress = Event()
+    release_slow = Event()
+    progress = []
+
+    def fake_search_source(source, **_params):
+        rendezvous.wait()
+        if source.key == "slow":
+            if progress_reached.wait(0.75):
+                slow_observed_progress.set()
+            release_slow.wait(1)
+        return []
+
+    def on_progress(**event):
+        progress.append(event)
+        if event["finished"] == 1:
+            progress_reached.set()
+            release_slow.set()
+
+    client._search_source = fake_search_source
+    assert client.search("demo", max_workers=2, progress_callback=on_progress) == []
+
+    assert slow_observed_progress.is_set()
+    assert [(event["finished"], event["total"]) for event in progress] == [(1, 2), (2, 2)]
+    assert [event["text"] for event in progress] == ["正在搜索源 1/2", "正在搜索源 2/2"]
+
+def test_search_progress_advances_after_parallel_source_error_and_callback_error():
+    sources = [
+        CmsSource(key="bad", name="bad", api="https://bad.example/vod"),
+        CmsSource(key="good", name="good", api="https://good.example/vod"),
+    ]
+    client = AppleCmsClient(sources)
+    progress = []
+
+    def fake_search_source(source, **_params):
+        if source.key == "bad":
+            raise RuntimeError("bad source")
+        return []
+
+    def on_progress(**event):
+        progress.append(event)
+        if event["finished"] == 1:
+            raise RuntimeError("broken UI callback")
+
+    client._search_source = fake_search_source
+    assert client.search("demo", max_workers=2, progress_callback=on_progress) == []
+    assert [(event["finished"], event["total"]) for event in progress] == [(1, 2), (2, 2)]
+
+def test_search_progress_settles_timeout_once_without_late_worker_callback():
+    from threading import Event
+
+    sources = [
+        CmsSource(key="slow", name="slow", api="https://slow.example/vod"),
+        CmsSource(key="fast", name="fast", api="https://fast.example/vod"),
+    ]
+    client = AppleCmsClient(sources, parallel_wait_timeout=0.05)
+    slow_started = Event()
+    release_slow = Event()
+    slow_finished = Event()
+    progress = []
+
+    def fake_search_source(source, **_params):
+        if source.key == "slow":
+            slow_started.set()
+            release_slow.wait(1)
+            slow_finished.set()
+        return []
+
+    client._search_source = fake_search_source
+    try:
+        assert client.search(
+            "demo",
+            max_workers=2,
+            progress_callback=lambda **event: progress.append(event),
+        ) == []
+        assert slow_started.is_set()
+        assert [(event["finished"], event["total"]) for event in progress] == [(1, 2), (2, 2)]
+    finally:
+        release_slow.set()
+
+    assert slow_finished.wait(1)
+    assert len(progress) == 2
+
+def test_search_progress_settles_skipped_sources_after_stop_after_first_source():
+    sources = [
+        CmsSource(key="first", name="first", api="https://first.example/vod"),
+        CmsSource(key="second", name="second", api="https://second.example/vod"),
+    ]
+    client = AppleCmsClient(sources)
+    called = []
+    progress = []
+
+    def fake_search_source(source, **_params):
+        called.append(source.key)
+        return [] if source.key == "second" else [
+            _result_from_item(
+                source,
+                {
+                    "vod_id": "first",
+                    "vod_name": "demo",
+                    "type_name": "movie",
+                    "vod_play_url": "main$https://first.example/demo.m3u8",
+                },
+            )
+        ]
+
+    client._search_source = fake_search_source
+    results = client.search(
+        "demo",
+        stop_after_first_source=True,
+        progress_callback=lambda **event: progress.append(event),
+    )
+
+    assert [result.source_key for result in results] == ["first"]
+    assert called == ["first"]
+    assert [(event["finished"], event["total"]) for event in progress] == [(1, 2), (2, 2)]

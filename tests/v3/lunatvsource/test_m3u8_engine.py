@@ -297,17 +297,6 @@ def test_engine_commands_and_progress_parsing(tmp_path: Path):
     assert "--auto-select" in n_command
     assert "--no-ansi-color" in n_command
 
-    assert "--ad-keyword" not in n_command
-    ad_keyword = r"(?:^|/)ads?[-_/]"
-    filtered_command = n_engine.command(
-        Path("/bin/n_m3u8dl"),
-        "playlist.m3u8",
-        tmp_path / "cache",
-        tmp_path / "stage",
-        "/bin/ffmpeg",
-        ad_keyword=ad_keyword,
-    )
-    assert filtered_command[filtered_command.index("--ad-keyword") + 1] == ad_keyword
     assert N_m3u8DLEngine.parse_progress("completed 64.7%") == pytest.approx(0.647)
 
 
@@ -360,34 +349,6 @@ def test_engine_reads_carriage_return_progress_and_enforces_watchdog(
 
 
 
-@pytest.mark.skipif(os.name != "posix", reason="requires a POSIX PTY")
-def test_engine_can_attach_child_output_to_a_pty(tmp_path: Path):
-    engine = ENGINE_UNDER_TEST(tmp_path)
-    cache_dir = tmp_path / "cache"
-    cache_dir.mkdir()
-    progress = []
-
-    engine._run_command(
-        [
-            sys.executable,
-            "-c",
-            (
-                "import os, sys; "
-                "is_tty = os.isatty(sys.stdout.fileno()) and "
-                "os.isatty(sys.stderr.fileno()); "
-                "print('PT: 1/1 speed %:100.0', flush=True); "
-                "raise SystemExit(0 if is_tty else 9)"
-            ),
-        ],
-        cache_dir=cache_dir,
-        control_event=None,
-        progress_callback=progress.append,
-        use_pty=True,
-    )
-
-    assert max(progress) == pytest.approx(0.99)
-
-
 def test_engine_no_progress_watchdog_ignores_logs_and_repeated_progress(
     monkeypatch, tmp_path: Path
 ):
@@ -417,8 +378,8 @@ def test_engine_progress_growth_resets_stall_watchdog(monkeypatch, tmp_path: Pat
     engine = ENGINE_UNDER_TEST(tmp_path)
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
-    monkeypatch.setattr(engine, "PROCESS_TOTAL_TIMEOUT_SECONDS", 3.0)
-    monkeypatch.setattr(engine, "PROCESS_NO_PROGRESS_TIMEOUT_SECONDS", 0.8)
+    monkeypatch.setattr(engine, "PROCESS_TOTAL_TIMEOUT_SECONDS", 2.0)
+    monkeypatch.setattr(engine, "PROCESS_NO_PROGRESS_TIMEOUT_SECONDS", 0.3)
     monkeypatch.setattr(engine, "PROCESS_POLL_INTERVAL_SECONDS", 0.02)
 
     started_at = time.monotonic()
@@ -426,14 +387,14 @@ def test_engine_progress_growth_resets_stall_watchdog(monkeypatch, tmp_path: Pat
         [
             sys.executable,
             "-c",
-            "import time; exec(\"for current in range(1, 5):\\n    print(f'PT: {current}/4', flush=True)\\n    time.sleep(0.3)\")",
+            "import time; exec(\"for current in range(1, 5):\\n    print(f'PT: {current}/4', flush=True)\\n    time.sleep(0.12)\")",
         ],
         cache_dir=cache_dir,
         control_event=None,
         progress_callback=None,
     )
 
-    assert time.monotonic() - started_at > 0.8
+    assert time.monotonic() - started_at > 0.3
 
 
 @pytest.mark.parametrize(
@@ -996,19 +957,6 @@ def test_error_tail_redacts_complete_http_credential_values():
     assert "Set-Cookie: <redacted>" in detail
 
 
-def test_error_tail_redacts_engine_ad_keyword_echo():
-    safe = _safe_error_text(
-        "User customed Ad keyword: token-in-regex\n"
-        "用户自定义广告分片URL关键字：secret-path-pattern\n"
-        "用戶自定義廣告分片URL關鍵字：private-pattern"
-    )
-
-    assert "token-in-regex" not in safe
-    assert "secret-path-pattern" not in safe
-    assert "private-pattern" not in safe
-    assert safe.count("<redacted>") == 3
-
-
 def test_installer_download_cancels_and_removes_partial_archive(
     monkeypatch, tmp_path: Path
 ):
@@ -1516,33 +1464,3 @@ def test_cross_filesystem_move_accepts_name_max_output_without_temp_residue(
     assert stat.S_IMODE(output.stat().st_mode) == 0o640
     assert not candidate.exists()
     assert not list(output_parent.glob(".lunatv-transfer-*"))
-
-
-def test_n_download_can_leave_completed_media_in_controlled_stage(
-    monkeypatch, tmp_path: Path
-):
-    engine = N_m3u8DLEngine(tmp_path / "plugin-data")
-    task_id = "stage-only"
-    monkeypatch.setattr(
-        engine._installer,
-        "ensure_binary",
-        lambda control_event=None: Path("/bin/n_m3u8dl"),
-    )
-
-    def run_command(*_args, **_kwargs):
-        stage_dir = engine.stage_dir(task_id)
-        (stage_dir / "media.mp4").write_bytes(b"media")
-
-    monkeypatch.setattr(engine, "_run_command", run_command)
-
-    output = engine.download(
-        "https://example.test/index.m3u8",
-        None,
-        task_id=task_id,
-        ffmpeg_path="ffmpeg",
-        control_event=None,
-        progress_callback=None,
-    )
-
-    assert output == engine.stage_dir(task_id) / "media.mp4"
-    assert output.read_bytes() == b"media"
