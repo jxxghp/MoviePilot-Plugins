@@ -1,4 +1,4 @@
-"""MediaGovernor 4.4 合同测试：不访问 NAS、模型以外的网络或真实媒体。"""
+"""MediaGovernor 4.5 合同测试：不访问 NAS、模型以外的网络或真实媒体。"""
 from __future__ import annotations
 
 import asyncio
@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[3]
 PLUGIN = ROOT / "plugins.v3/mediagovernor/__init__.py"
 PAGE = ROOT / "plugins.v3/mediagovernor/src/components/AppPage.vue"
 RULES = ROOT / "plugins.v3/mediagovernor/src/lib/governance.js"
+BUDGET = ROOT / "plugins.v3/mediagovernor/src/lib/request-budget.js"
 GOLDEN = ROOT / "tests/v3/mediagovernor/fixtures/golden/v1/cases.json"
 LIVE_GOLDEN = ROOT / "tests/v3/mediagovernor/fixtures/golden/v1/live-baseline.json"
 
@@ -56,11 +57,11 @@ class Request:
 def test_versions_assets_and_new_api_contract_are_synced():
     module = _load_plugin(); manifest = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))["MediaGovernor"]
     package = json.loads((ROOT / "plugins.v3/mediagovernor/package.json").read_text(encoding="utf-8"))
-    assert manifest["version"] == package["version"] == module.MediaGovernor.plugin_version == "4.4.0"
-    assert list(manifest["history"])[0] == "v4.4.0"
-    assert module.MediaGovernor.get_render_mode() == ("vue", "dist/v4.4.0/assets")
+    assert manifest["version"] == package["version"] == module.MediaGovernor.plugin_version == "4.5.0"
+    assert list(manifest["history"])[0] == "v4.5.0"
+    assert module.MediaGovernor.get_render_mode() == ("vue", "dist/v4.5.0/assets")
     instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
-    assert [row["path"] for row in instance.get_api()] == ["/map_status", "/map_snapshot", "/map_watch", "/map_plan", "/map_commit", "/map_unit", "/map_dirty", "/ai_probe", "/bundle_analyze_batch"]
+    assert [row["path"] for row in instance.get_api()] == ["/map_status", "/map_snapshot", "/map_watch", "/map_identities", "/map_plan", "/map_commit", "/map_unit", "/map_dirty", "/ai_probe", "/bundle_analyze_batch"]
     assert all(row["auth"] == "bear" for row in instance.get_api())
 
 
@@ -93,6 +94,43 @@ def test_incremental_plan_only_echoes_the_callers_changed_or_unchanged_ids():
     asyncio.run(instance.api_map_commit(Request({"baseline": True, "scope_verified": True, "download_units": [{"id": "raw-a", "root": {"path": "/private/A"}, "header_fingerprint": "same"}], "library_nodes": [], "findings": []})))
     plan = asyncio.run(instance.api_map_plan(Request({"units": [{"id": "raw-a", "fingerprint": "same"}, {"id": "raw-b", "fingerprint": "new"}]})))
     assert plan.data["unchanged"] == ["raw-a"]
+
+
+def test_identity_cache_reuses_only_an_exact_unchanged_unit_without_leaking_paths():
+    module = _load_plugin(); instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
+    detail = {"root": {"path": "/private/A"}, "nativeIdentity": {"title": "示例电影", "media_type": "movie", "media_source": "tmdb", "media_id": "10"}}
+    body = {"baseline": True, "scope_verified": True, "download_units": [{"id": "raw-a", "package_id": "pkg-a", "fingerprint": "files-v1", "detail": detail}], "library_nodes": [], "findings": []}
+    assert asyncio.run(instance.api_map_commit(Request(body))).success
+    hit = asyncio.run(instance.api_map_identities(Request({"units": [{"id": "raw-a", "fingerprint": "files-v1"}]})))
+    miss = asyncio.run(instance.api_map_identities(Request({"units": [{"id": "raw-a", "fingerprint": "files-v2"}]})))
+    assert hit.success and hit.data["reused"] == 1 and hit.data["identities"]["raw-a"]["nativeIdentity"]["media_id"] == "10"
+    assert miss.data["reused"] == 0
+    assert "/private" not in json.dumps(hit.data, ensure_ascii=False)
+
+
+def test_v44_map_forces_one_reaudit_but_reuses_its_identity_cache():
+    module = _load_plugin(); instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
+    legacy = "下载/示例剧\n" + "\n".join(f"示例剧.S01E{index:02d}.mkv|file|{index}|2026-09-06" for index in range(1, 31))
+    compact = instance._compact_fingerprint(legacy)
+    detail = {"nativeIdentity": {"title": "示例剧", "media_type": "tv", "media_source": "tmdb", "media_id": "10"}}
+    body = {"baseline": True, "scope_verified": True, "download_units": [{"id": "raw-a", "package_id": "pkg-a", "fingerprint": legacy, "header_fingerprint": legacy, "detail": detail}], "library_nodes": [], "findings": []}
+    assert asyncio.run(instance.api_map_commit(Request(body))).success
+    # 模拟 4.4 地图：没有 4.5 审计合同。旧结论必须重算，但昂贵身份识别仍可复用。
+    instance._runtime_map.pop("audit_contract", None)
+    plan = asyncio.run(instance.api_map_plan(Request({"units": [{"id": "pkg-a", "fingerprint": compact}]})))
+    identity = asyncio.run(instance.api_map_identities(Request({"units": [{"id": "raw-a", "fingerprint": compact}]})))
+    assert plan.data["unchanged"] == []
+    assert identity.data["reused"] == 1
+
+
+def test_dirty_target_marks_only_its_package_for_rescan():
+    module = _load_plugin(); instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
+    units = [{"id": "raw-a", "package_id": "pkg-a", "header_fingerprint": "same"}, {"id": "raw-b", "package_id": "pkg-b", "header_fingerprint": "same"}]
+    assert asyncio.run(instance.api_map_commit(Request({"baseline": True, "scope_verified": True, "download_units": units, "library_nodes": [], "findings": []}))).success
+    opaque_a = instance._runtime_map["download_units"][0]["id"]
+    assert asyncio.run(instance.api_map_dirty(Request({"unit_ids": [opaque_a], "reason": "目标目录变化"}))).success
+    plan = asyncio.run(instance.api_map_plan(Request({"units": [{"id": "pkg-a", "fingerprint": "same"}, {"id": "pkg-b", "fingerprint": "same"}]})))
+    assert plan.data["unchanged"] == ["pkg-b"]
 
 
 def test_batch_analysis_is_bounded_path_free_and_cached():
@@ -129,6 +167,23 @@ def test_ai_abstention_is_returned_but_never_cached():
     assert instance._diagnosis_cache == {}
 
 
+def test_ai_batch_has_a_real_timeout_and_small_server_side_limit():
+    module = _load_plugin(); instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
+    async def slow(_items):
+        await asyncio.sleep(0.05)
+        return {}
+    instance._model = slow
+    instance._request_timeout_seconds = 0.01
+    body = {"items": [{"id": str(index), "evidence": {"title_hints": [f"示例{index}"]}} for index in range(8)]}
+    # api 层接住模型超时；生产模型调用本身另由 _model 的 wait_for 限定为 30 秒。
+    async def timed_model(items):
+        return await asyncio.wait_for(slow(items), timeout=instance._request_timeout_seconds)
+    instance._model = timed_model
+    result = asyncio.run(instance.api_bundle_analyze_batch(Request(body)))
+    assert not result.success and "超时" in result.message
+    assert instance._max_batch_units == 4 and instance._max_batch_chars == 10000
+
+
 def test_events_only_mark_dirty_and_never_read_media_or_call_model():
     module = _load_plugin(); instance = module.MediaGovernor(); instance.init_plugin({"enabled": True})
     instance._on_transfer_result({"event_data": {"transfer_history_id": 7, "fileitem": {"path": "/private/A"}}})
@@ -140,7 +195,8 @@ def test_events_only_mark_dirty_and_never_read_media_or_call_model():
 
 def test_frontend_builds_evidence_packages_and_uses_only_declared_official_preview_fields():
     page, rules = PAGE.read_text(encoding="utf-8"), RULES.read_text(encoding="utf-8")
-    for endpoint in ("storage/directories?directory_type=${kind}", "storage/list", "history/transfer?status=${status}", "plugin/MediaGovernor/map_snapshot", "plugin/MediaGovernor/map_commit", "plugin/MediaGovernor/bundle_analyze_batch", "media/recognize_file", "transfer/manual"):
+    budget = BUDGET.read_text(encoding="utf-8")
+    for endpoint in ("storage/directories?directory_type=${kind}", "storage/list", "history/transfer?status=${status}", "plugin/MediaGovernor/map_snapshot", "plugin/MediaGovernor/map_identities", "plugin/MediaGovernor/map_commit", "plugin/MediaGovernor/bundle_analyze_batch", "media/recognize_file", "transfer/manual"):
         assert endpoint in page
     assert "preview: true" in page and "preview: false" in page and "reorganize: false" in page
     assert "storage/delete" not in page and "fetch(" not in page
@@ -155,7 +211,7 @@ def test_frontend_builds_evidence_packages_and_uses_only_declared_official_previ
     assert "createEvidencePackages(top.map(unit => unit.root), histories.value)" in page
     assert "scanDownloadUnits(toScan, packages.length)" in page
     assert "Math.min(4, toScan.length)" in page
-    assert "MediaGovernor 4.4.0" in page
+    assert "MediaGovernor 4.5.0" in page
     assert "selectLibraryTarget" in page
     assert "transfer/manual/target-path" not in page
     assert "configuredDownloadRoots(downloadConfigurations)" in page
@@ -167,7 +223,11 @@ def test_frontend_builds_evidence_packages_and_uses_only_declared_official_previ
     assert "manualPreviewRequest" in page and "manualRebuildRequests" in page
     assert "media/${encodeURIComponent(identity.media_id)}?media_source=" in page
     assert "const pageSize = 100, entryLimit = 20000" in page
-    assert "result.omitted" in page and "chars + cost > 24000" in page
+    assert "result.omitted" in page and "maxChars: 8000" in page and "chars + cost > options.maxChars" in budget
+    assert "settledResults(samples.map" in page
+    assert "首次失败后已熔断" in page
+    assert "本阶段" in page and "progress.value.total +=" not in page
+    assert "postWrite('transfer/manual'" in page
     assert "整理前后对比" in page
 
 

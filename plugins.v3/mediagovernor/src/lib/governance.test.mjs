@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { classifyFinding, configuredDownloadRoots, createDownloadUnits, diffMap, episodeKeysCompatible, fileFingerprint, historyRowsForUnit, latestHistory, latestHistoryRows, libraryRootForPath, libraryRootSnapshot, normaliseMediaSource, strictEpisodeHints, strictEpisodeKeys, summarizeUnit } from './governance.js'
+import { classifyFinding, configuredDownloadRoots, createDownloadUnits, diffMap, episodeKeysCompatible, fileFingerprint, historyRowsForUnit, latestHistory, latestHistoryRows, libraryRootForPath, libraryRootSnapshot, normaliseMediaSource, packageHeaderFingerprint, rootFingerprint, strictEpisodeHints, strictEpisodeKeys, summarizeUnit } from './governance.js'
 
 test('下载区顶层目录和单文件各是一个真实下载单元，不按相似标题拼包', () => {
   const units = createDownloadUnits({ storage: 'local', path: '/downloads' }, [{ type: 'dir', path: '/downloads/A', name: 'A' }, { type: 'file', path: '/downloads/B.mkv', name: 'B.mkv' }, { type: 'file', name: 'note.txt' }])
@@ -10,6 +10,23 @@ test('下载区顶层目录和单文件各是一个真实下载单元，不按�
 test('文件指纹包含会随实际文件变动的名称、大小和时间', () => {
   assert.notEqual(fileFingerprint({ name: 'A.mkv', size: 1, modify_time: 'a' }), fileFingerprint({ name: 'A.mkv', size: 2, modify_time: 'a' }))
   assert.deepEqual(diffMap({ map_version: 1, download_units: [{ id: 'a', fingerprint: 'old' }] }, { download_units: [{ id: 'a', fingerprint: 'new' }, { id: 'b', fingerprint: 'x' }] }), { changed: ['a', 'b'], unchanged: 0, first: false })
+})
+
+test('目录和作品指纹固定长度且与条目顺序无关', () => {
+  const rows = Array.from({ length: 300 }, (_, index) => ({ name: `Episode ${index}.mkv`, type: 'file', size: index + 1, modify_time: '2026-09-06' }))
+  const fingerprint = rootFingerprint(rows)
+  assert.equal(fingerprint.length, 24)
+  assert.equal(rootFingerprint([...rows].reverse()), fingerprint)
+  assert.notEqual(rootFingerprint([...rows, { name: 'new.mkv', type: 'file', size: 1 }]), fingerprint)
+  assert.equal(summarizeUnit({ root: { path: '/downloads/show' }, entries: rows }).fingerprint.length, 24)
+})
+
+test('完整扫描和轻量扫描生成相同下载包头指纹，单文件变化也可发现', () => {
+  const root = { name: 'Show', path: '/downloads/Show', type: 'dir' }
+  const immediate = [{ name: 'Season 1', path: '/downloads/Show/Season 1', type: 'dir', depth: 1 }, { name: 'poster.jpg', path: '/downloads/Show/poster.jpg', type: 'file', size: 10, depth: 1 }]
+  assert.equal(packageHeaderFingerprint([root], immediate.filter(item => item.depth === 1)), packageHeaderFingerprint([root], immediate.map(({ depth, ...item }) => item)))
+  const single = { name: 'Film.mkv', path: '/downloads/Film.mkv', type: 'file', size: 100 }
+  assert.notEqual(packageHeaderFingerprint([single], []), packageHeaderFingerprint([{ ...single, size: 101 }], []))
 })
 
 test('地图只保存媒体库根摘要，不把海量子项塞进持久化状态', () => {

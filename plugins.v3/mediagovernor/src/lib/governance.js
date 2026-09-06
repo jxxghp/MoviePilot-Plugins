@@ -43,11 +43,28 @@ export function fileFingerprint(item = {}) {
   return [text(item.name), text(item.type), Number(item.size) || 0, text(item.modify_time || item.mtime)].join('|')
 }
 
-export function unitFingerprint(unit = {}) {
-  return [text(unit.root?.path || unit.root), ...(unit.entries || []).map(fileFingerprint).sort()].join('\n')
+/** 固定长度的非加密摘要；用于变化检测，避免长目录清单在 API/持久化层被截断。 */
+export function compactFingerprint(value) {
+  const source = String(value || '')
+  let left = 0x811c9dc5; let right = 0x9e3779b9
+  for (let index = 0; index < source.length; index += 1) {
+    const code = source.charCodeAt(index)
+    left = Math.imul(left ^ code, 0x01000193) >>> 0
+    right = Math.imul(right ^ code, 0x85ebca6b) >>> 0
+  }
+  return `${source.length.toString(16).padStart(8, '0')}${left.toString(16).padStart(8, '0')}${right.toString(16).padStart(8, '0')}`
 }
 
-export function rootFingerprint(items = []) { return [...items].map(fileFingerprint).sort().join('\n') }
+export function unitFingerprint(unit = {}) {
+  return compactFingerprint([text(unit.root?.path || unit.root), ...(unit.entries || []).map(fileFingerprint).sort()].join('\n'))
+}
+
+export function rootFingerprint(items = []) { return compactFingerprint([...items].map(fileFingerprint).sort().join('\n')) }
+
+/** 下载包第一层指纹；单文件下载必须把文件本身算进去。 */
+export function packageHeaderFingerprint(roots = [], children = []) {
+  return rootFingerprint([...(roots || []).filter(item => item?.type !== 'dir'), ...(children || [])])
+}
 
 export function pathKey(value) {
   return String(value || '').replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/$/, '').toLowerCase()

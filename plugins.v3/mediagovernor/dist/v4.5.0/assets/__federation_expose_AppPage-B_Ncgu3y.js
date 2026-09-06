@@ -46,11 +46,28 @@ function fileFingerprint(item = {}) {
   return [text$1(item.name), text$1(item.type), Number(item.size) || 0, text$1(item.modify_time || item.mtime)].join('|')
 }
 
-function unitFingerprint(unit = {}) {
-  return [text$1(unit.root?.path || unit.root), ...(unit.entries || []).map(fileFingerprint).sort()].join('\n')
+/** 固定长度的非加密摘要；用于变化检测，避免长目录清单在 API/持久化层被截断。 */
+function compactFingerprint(value) {
+  const source = String(value || '');
+  let left = 0x811c9dc5; let right = 0x9e3779b9;
+  for (let index = 0; index < source.length; index += 1) {
+    const code = source.charCodeAt(index);
+    left = Math.imul(left ^ code, 0x01000193) >>> 0;
+    right = Math.imul(right ^ code, 0x85ebca6b) >>> 0;
+  }
+  return `${source.length.toString(16).padStart(8, '0')}${left.toString(16).padStart(8, '0')}${right.toString(16).padStart(8, '0')}`
 }
 
-function rootFingerprint(items = []) { return [...items].map(fileFingerprint).sort().join('\n') }
+function unitFingerprint(unit = {}) {
+  return compactFingerprint([text$1(unit.root?.path || unit.root), ...(unit.entries || []).map(fileFingerprint).sort()].join('\n'))
+}
+
+function rootFingerprint(items = []) { return compactFingerprint([...items].map(fileFingerprint).sort().join('\n')) }
+
+/** 下载包第一层指纹；单文件下载必须把文件本身算进去。 */
+function packageHeaderFingerprint(roots = [], children = []) {
+  return rootFingerprint([...(roots || []).filter(item => item?.type !== 'dir'), ...(children || [])])
+}
 
 function pathKey(value) {
   return String(value || '').replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/$/, '').toLowerCase()
@@ -279,6 +296,9 @@ function nativeEvidenceConflict(unit = {}, identity = null) {
   if (years.length > 1) return true
   if (years.length === 1 && String(identity.year || '') !== years[0]) return true
   if ((unit?.summary?.episode_keys || []).length && identity.media_type !== 'tv') return true
+  const evidence = names.map(name => name.toLowerCase().replace(/\b(?:19|20)\d{2}\b/g, ' ').replace(/\bs\d{1,2}(?:e\d{1,3})?\b/gi, ' ').replace(/\b(?:ep|e)\d{1,3}\b/gi, ' ').replace(/\s+/g, ' ').trim()).filter(name => name.length >= 4 && !/^\d+$/.test(name));
+  const candidates = [identity?.title, identity?.original_title].map(cleanTitle).map(name => name.toLowerCase()).filter(name => name.length >= 4);
+  if (evidence.length && candidates.length && !evidence.some(name => candidates.some(candidate => name.includes(candidate) || candidate.includes(name)))) return true
   // 发布名常含压制组、语言、分辨率与别名，标题字面不一致不能单独推翻
   // MoviePilot 已在多个样本上给出的同一数据源身份；年份与媒体类型硬冲突仍须 AI 复核。
   return false
@@ -712,6 +732,60 @@ function categoryLabel (category) {
   return ({ movie: '电影', tv: '电视剧', animation: '动漫', other: '其他' })[category] || '对应类型'
 }
 
+function createRequestBudget () {
+  const waiters = new Set();
+  const run = async (operation, timeout, label) => {
+    let timer, cancellationReject;
+    const cancellation = new Promise((resolve, reject) => { cancellationReject = reject; waiters.add(reject); });
+    try {
+      return await Promise.race([
+        Promise.resolve(operation),
+        new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error(`${label}超过 ${Math.ceil(timeout / 1000)} 秒，已跳过`)), timeout); }),
+        cancellation,
+      ])
+    } finally {
+      clearTimeout(timer);
+      waiters.delete(cancellationReject);
+    }
+  };
+  const cancel = (message = '检查已停止') => {
+    for (const reject of [...waiters]) reject(new Error(message));
+    waiters.clear();
+  };
+  return { run, cancel, pending: () => waiters.size }
+}
+
+async function settledResults (operations = []) {
+  const rows = await Promise.allSettled(operations);
+  return {
+    values: rows.filter(row => row.status === 'fulfilled').map(row => row.value),
+    errors: rows.filter(row => row.status === 'rejected').map(row => row.reason),
+  }
+}
+
+async function runBatchesUntilFailure (items = [], options = {}) {
+  const pending = [...items];
+  const completed = [];
+  while (pending.length && !options.stopped?.()) {
+    const batch = []; let chars = 0;
+    while (pending.length && batch.length < options.maxItems) {
+      const next = pending[0]; const cost = options.cost(next);
+      if (batch.length && chars + cost > options.maxChars) break
+      pending.shift(); batch.push(next); chars += cost;
+    }
+    try {
+      const result = await options.run(batch);
+      completed.push(...batch);
+      options.success?.(batch, result);
+    } catch (error) {
+      const failed = [...batch, ...pending];
+      options.failure?.(failed, error);
+      return { completed, failed, error }
+    }
+  }
+  return { completed, failed: [], error: null }
+}
+
 const {createElementVNode:_createElementVNode,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeStyle:_normalizeStyle,renderList:_renderList,Fragment:_Fragment,unref:_unref,normalizeClass:_normalizeClass} = await importShared('vue');
 
 
@@ -774,7 +848,7 @@ const _hoisted_26 = { class: "compare" };
 const _hoisted_27 = { class: "warning" };
 const _hoisted_28 = ["disabled"];
 
-const {computed,onMounted,ref} = await importShared('vue');
+const {computed,onMounted,onUnmounted,ref} = await importShared('vue');
 
 const pageSize = 100, entryLimit = 20000;
 
@@ -786,11 +860,13 @@ const _sfc_main = {
 const props = __props;
 const state = ref({ ready: false, updated_at: '', download_units: 0, library_nodes: 0, findings: 0, dirty: 0 });
 const phase = ref('尚未建立地图'), notice = ref(''), running = ref(false), stopped = ref(false), aiAvailable = ref(null);
-const progress = ref({ done: 0, total: 0, current: '' }), findings = ref([]), units = ref([]), histories = ref([]), preview = ref(null), selected = ref(null);
+const progress = ref({ done: 0, total: 0, current: '', started_at: 0 }), findings = ref([]), units = ref([]), histories = ref([]), preview = ref(null), selected = ref(null);
 const liveMapReady = ref(false);
+const now = ref(Date.now()), requestBudget = createRequestBudget();
+let clock = null;
 const canUseApi = computed(() => typeof props.api?.get === 'function' && typeof props.api?.post === 'function');
 const percent = computed(() => progress.value.total ? Math.min(100, Math.round(progress.value.done * 100 / progress.value.total)) : 0);
-const elapsedLabel = computed(() => running.value ? '正在读取真实文件状态' : state.value.updated_at ? '已有媒体地图' : '首次建立地图会较久，之后只复核变动项');
+const elapsedLabel = computed(() => running.value && progress.value.started_at ? `本阶段 ${Math.max(0, Math.floor((now.value - progress.value.started_at) / 1000))} 秒` : state.value.updated_at ? '已有媒体地图' : '尚未建立媒体地图');
 const cards = computed(() => findings.value.filter(item => item.kind !== 'unconfirmed' && item.kind !== 'uncovered'));
 const pendingCards = computed(() => findings.value.filter(item => item.kind === 'unconfirmed'));
 const uncoveredCards = computed(() => findings.value.filter(item => item.kind === 'uncovered'));
@@ -807,10 +883,25 @@ function previewRows(value) {
 }
 const keyOf = item => `${item?.storage || 'local'}:${item?.path || item?.name || ''}`;
 function fail(error, fallback) { notice.value = error?.message || fallback; }
-function resetRun(label) { running.value = true; stopped.value = false; liveMapReady.value = false; notice.value = ''; phase.value = label; progress.value = { done: 0, total: 0, current: '' }; findings.value = []; units.value = []; histories.value = []; }
-function stop() { stopped.value = true; notice.value = '已停止；已完成部分会保留到本轮结束前。'; }
-async function get(path) { return unwrapMoviePilotResponse(await props.api.get(path, { feedback: 'silent' })) }
-async function post(path, body) { return unwrapMoviePilotResponse(await props.api.post(path, body, { feedback: 'silent' })) }
+function stage(label, total = 1, current = '') { phase.value = label; progress.value = { done: 0, total: Math.max(1, total), current, started_at: Date.now() }; now.value = Date.now(); }
+function advance(current = '') { progress.value.done = Math.min(progress.value.total, progress.value.done + 1); if (current) progress.value.current = current; }
+function resetRun(label) {
+  running.value = true; stopped.value = false; liveMapReady.value = false; notice.value = ''; findings.value = []; units.value = []; histories.value = [];
+  stage(label, 1, '正在准备检查范围。');
+  if (clock) clearInterval(clock);
+  clock = setInterval(() => { now.value = Date.now(); }, 1000);
+}
+function stop() {
+  stopped.value = true;
+  requestBudget.cancel();
+  notice.value = '已停止等待；未完成的本轮结果不会保存，也没有改变任何媒体。';
+}
+async function bounded(operation, timeout, label) {
+  return requestBudget.run(operation, timeout, label)
+}
+async function get(path, timeout = 15000, label = 'MoviePilot 请求') { return unwrapMoviePilotResponse(await bounded(props.api.get(path, { feedback: 'silent' }), timeout, label)) }
+async function post(path, body, timeout = 20000, label = 'MoviePilot 请求') { return unwrapMoviePilotResponse(await bounded(props.api.post(path, body, { feedback: 'silent' }), timeout, label)) }
+async function postWrite(path, body) { return unwrapMoviePilotResponse(await props.api.post(path, body, { feedback: 'silent' })) }
 async function status() {
   if (!canUseApi.value) return
   try {
@@ -822,8 +913,8 @@ async function status() {
 }
 function listOf(raw) { return Array.isArray(raw) ? raw : raw?.items || raw?.list || raw?.data || [] }
 async function directories(kind) { return listOf(await get(`storage/directories?directory_type=${kind}`)) }
-async function list(item) { const value = await post('storage/list', item); if (!Array.isArray(value)) throw new Error('MoviePilot 没有返回目录列表'); return value }
-async function history(status) { const rows = []; for (let page = 1; !stopped.value; page += 1) { const data = await get(`history/transfer?status=${status}&page=${page}&count=${pageSize}`); const batch = listOf(data); rows.push(...batch); if (batch.length < pageSize) break } return normaliseHistoryRows(rows, status) }
+async function list(item) { const value = await post('storage/list', item, 12000, '读取目录'); if (!Array.isArray(value)) throw new Error('MoviePilot 没有返回目录列表'); return value }
+async function history(status) { const rows = []; for (let page = 1; !stopped.value; page += 1) { const data = await get(`history/transfer?status=${status}&page=${page}&count=${pageSize}`, 15000, '读取整理历史'); const batch = listOf(data); rows.push(...batch); if (batch.length < pageSize) break } return normaliseHistoryRows(rows, status) }
 async function walk(root, recursive = true) {
   const entries = []; const queue = root?.type === 'dir' ? [{ item: root, depth: 0 }] : []; let readFailures = 0;
   if (root?.type !== 'dir') entries.push({ ...root, depth: 0 });
@@ -862,16 +953,22 @@ async function scanTargetParents(allUnits) {
     expectedByUnit.set(unit.id, { expected, parentKeys: [...new Set(parentKeys)] });
   }
   const readable = new Map(); let readFailures = 0;
-  const parents = [...parentItems.entries()]; progress.value.total += parents.length;
-  for (let index = 0; index < parents.length && !stopped.value; index += 1) {
-    const [key, parent] = parents[index];
-    try {
-      const items = (await list(parent)).filter(item => item?.path);
-      readable.set(key, new Map(items.map(item => [pathKey(item.path), item])));
+  const parents = [...parentItems.entries()]; stage('核对当前整理目标', parents.length, '只读取整理历史实际指向的目标目录，不扫描整座媒体库。');
+  if (!parents.length) progress.value.done = progress.value.total;
+  let cursor = 0;
+  const worker = async () => {
+    while (!stopped.value) {
+      const index = cursor; cursor += 1;
+      if (index >= parents.length) return
+      const [key, parent] = parents[index];
+      try {
+        const items = (await list(parent)).filter(item => item?.path);
+        readable.set(key, new Map(items.map(item => [pathKey(item.path), item])));
+      } catch { readable.set(key, null); readFailures += 1; }
+      advance(`已完成 ${progress.value.done + 1}/${parents.length} 个目标目录；读不到的目录会明确列为未覆盖。`);
     }
-    catch { readable.set(key, null); readFailures += 1; }
-    progress.value.done += 1; phase.value = `核对当前整理目标：${index + 1}/${parents.length}`; progress.value.current = '只读取整理历史实际指向的目标目录，不扫描整座媒体库。';
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(8, parents.length) }, worker));
   const states = new Map();
   for (const unit of allUnits) {
     const plan = expectedByUnit.get(unit.id) || { expected: [], parentKeys: [] }; const present = new Map(); let complete = true;
@@ -887,15 +984,15 @@ async function scanTargetParents(allUnits) {
 }
 async function detectTargetChanges() {
   if (!state.value.ready) return 0
-  const watch = listOf(await get('plugin/MediaGovernor/map_watch')); let changed = 0; let cursor = 0;
+  const watch = listOf(await get('plugin/MediaGovernor/map_watch')); const changedUnits = new Set(); let changed = 0; let cursor = 0;
   const worker = async () => {
     while (cursor < watch.length) {
       const index = cursor; cursor += 1; const row = watch[index];
-      try { if (rootFingerprint(await list(row.item)) !== row.fingerprint) changed += 1; } catch { changed += 1; }
+      try { if (rootFingerprint(await list(row.item)) !== row.fingerprint) { changed += 1; if (row.unit_id) changedUnits.add(row.unit_id); } } catch { changed += 1; if (row.unit_id) changedUnits.add(row.unit_id); }
     }
   };
   await Promise.all(Array.from({ length: Math.min(8, watch.length) }, worker));
-  if (changed) await post('plugin/MediaGovernor/map_dirty', { reason: `发现 ${changed} 个媒体库目标目录发生变动` });
+  if (changed) await post('plugin/MediaGovernor/map_dirty', { unit_ids: [...changedUnits], reason: `发现 ${changed} 个媒体库目标目录发生变动` });
   return changed
 }
 function modelEvidence(unit, summary) {
@@ -908,58 +1005,75 @@ function modelEvidence(unit, summary) {
 }
 async function askAi(candidates) {
   if (!candidates.length || aiAvailable.value === false) return new Map()
-  phase.value = `让智能助手复核 ${candidates.length} 个无法靠原生识别确认的单元`;
+  stage('智能助手复核', candidates.length, `共有 ${candidates.length} 个原生身份仍有冲突；小批处理，首次超时即停止后续批次。`);
   const diagnoses = new Map();
   const failures = [];
   try {
     const pending = candidates.map(item => ({ id: item.id, evidence: modelEvidence(item, item.summary) }));
-    while (pending.length && !stopped.value) {
-      const rows = []; let chars = 0;
-      while (pending.length && rows.length < 12) {
-        const next = pending[0]; const cost = JSON.stringify(next.evidence).length;
-        if (rows.length && chars + cost > 24000) break
-        pending.shift(); rows.push(next); chars += cost;
-      }
-      try {
-        const result = await post('plugin/MediaGovernor/bundle_analyze_batch', { items: rows });
+    const outcome = await runBatchesUntilFailure(pending, {
+      maxItems: 4,
+      maxChars: 8000,
+      cost: row => JSON.stringify(row.evidence).length,
+      stopped: () => stopped.value,
+      run: rows => post('plugin/MediaGovernor/bundle_analyze_batch', { items: rows }, 35000, '智能助手复核'),
+      success: (rows, result) => {
         for (const [id, diagnosis] of Object.entries(result.diagnoses || {})) diagnoses.set(id, diagnosis);
         for (const id of result.omitted || []) diagnoses.set(id, { abstain: true, confidence: 0, reasons: ['证据超过智能助手单批安全上限'] });
-      } catch (error) {
+        progress.value.done += rows.length;
+        progress.value.current = `已完成 ${progress.value.done}/${progress.value.total} 个智能复核。`;
+      },
+      failure: (rows, error) => {
         const reason = error?.message || '智能助手没有完成这一批';
         failures.push(reason);
         for (const row of rows) diagnoses.set(row.id, { abstain: true, confidence: 0, reasons: [reason], transient_error: true });
-      }
-    }
-    if (failures.length) notice.value = `智能助手有 ${failures.length} 批未完成；其他批次已继续，失败原因已保留在对应作品。`;
+        progress.value.done = progress.value.total;
+        progress.value.current = '智能助手本轮首次失败后已熔断，不再继续空等。';
+      },
+    });
+    if (outcome.error) notice.value = '智能助手本轮失败，已立即停止后续批次；规则和原生识别仍会继续形成结论。';
     return diagnoses
   } catch (error) { aiAvailable.value = false; notice.value = `${error?.message || '智能助手不可用'}；本轮只保留规则能证明的问题。`; return diagnoses }
 }
 async function identifyUnits() {
   const target = identityTargets(units.value);
   if (!target.length) return
-  progress.value.total += target.length;
+  let cached = {};
+  try {
+    const response = await post('plugin/MediaGovernor/map_identities', { units: target.map(unit => ({ id: unit.id, fingerprint: unit.summary?.fingerprint || '' })) }, 10000, '读取作品身份缓存');
+    cached = response?.identities || {};
+  } catch { cached = {}; }
+  const unresolved = [];
+  for (const unit of target) {
+    const stored = cached[unit.id];
+    if (stored?.nativeIdentity) {
+      unit.nativeIdentity = stored.nativeIdentity;
+      unit.native_identity_errors = [];
+    } else unresolved.push(unit);
+  }
+  stage('核验作品身份', unresolved.length || 1, unresolved.length ? `复用 ${target.length - unresolved.length} 个未变化身份，只核验 ${unresolved.length} 个。` : `已复用全部 ${target.length} 个未变化身份。`);
+  if (!unresolved.length) { progress.value.done = progress.value.total; return }
   let cursor = 0;
   const worker = async () => {
     while (!stopped.value) {
       const index = cursor; cursor += 1;
-      if (index >= target.length) return
-      const unit = target[index]; const videos = unit.entries.filter(item => videoPattern.test(item?.name || '') && item?.path);
+      if (index >= unresolved.length) return
+      const unit = unresolved[index]; const videos = unit.entries.filter(item => videoPattern.test(item?.name || '') && item?.path);
       const sampleIndexes = [...new Set([0, Math.floor((videos.length - 1) / 2), videos.length - 1].filter(value => value >= 0))];
       const samples = sampleIndexes.map(value => videos[value]).filter(Boolean);
       if (!samples.length && unit.attachment_only) samples.push(...unit.entries.filter(item => item?.path && /\.(ass|ssa|srt|sub|vtt)$/i.test(item?.name || '')).slice(0, 3));
-      try {
-        const candidates = await Promise.all(samples.map(async sample => identityFromRaw(await get(`media/recognize_file?path=${encodeURIComponent(sample.path)}`))));
-        const usable = candidates.filter(candidate => !candidate.abstain);
-        const identities = [...new Set(usable.map(identityKey).filter(Boolean))];
-        unit.nativeIdentity = usable.length && identities.length === 1 ? usable[0] : null;
-      } catch { unit.nativeIdentity = null; }
-      progress.value.done += 1; phase.value = `核验作品身份：${index + 1}/${target.length}`; progress.value.current = '每个有整理关系的下载单元都先走 MoviePilot 原生识别；不再等规则先报错。';
+      const settled = await settledResults(samples.map(async sample => identityFromRaw(await get(`media/recognize_file?path=${encodeURIComponent(sample.path)}`, 15000, '原生作品识别'))));
+      const usable = settled.values.filter(candidate => !candidate.abstain);
+      const identities = [...new Set(usable.map(identityKey).filter(Boolean))];
+      unit.nativeIdentity = usable.length && identities.length === 1 ? usable[0] : null;
+      unit.native_identity_errors = settled.errors.map(error => error?.message || '原生识别失败');
+      advance(`已完成 ${progress.value.done + 1}/${unresolved.length}；单个样本失败不会再丢掉其他成功结果。`);
     }
   };
-  await Promise.all(Array.from({ length: Math.min(4, target.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(4, unresolved.length) }, worker));
 }
 async function groundAiDiagnoses(aiDiagnoses) {
-  const target = units.value.filter(unit => aiDiagnoses.has(unit.id)); progress.value.total += target.length;
+  const target = units.value.filter(unit => aiDiagnoses.has(unit.id)); if (!target.length) return
+  stage('核对智能候选', target.length, 'AI 只提供标题线索；可执行身份仍需由 MoviePilot 数据源唯一确认。');
   let cursor = 0;
   const worker = async () => {
     while (!stopped.value) {
@@ -969,12 +1083,12 @@ async function groundAiDiagnoses(aiDiagnoses) {
       if (hint && !hint.abstain && hint.title) {
         try {
           const query = [hint.title, hint.year].filter(Boolean).join(' ');
-          const rows = listOf(await get(`media/search?title=${encodeURIComponent(query)}&type=media&page=1&count=8`));
+          const rows = listOf(await get(`media/search?title=${encodeURIComponent(query)}&type=media&page=1&count=8`, 15000, '搜索作品候选'));
           const detailed = await Promise.all(rows.slice(0, 8).map(async row => {
             const identity = identityFromRaw(row);
             if (!identityKey(identity) || identity.media_type === 'unknown') return row
             try {
-              return await get(`media/${encodeURIComponent(identity.media_id)}?media_source=${encodeURIComponent(identity.media_source)}&type_name=${encodeURIComponent(moviePilotTypeName(identity.media_type))}`)
+              return await get(`media/${encodeURIComponent(identity.media_id)}?media_source=${encodeURIComponent(identity.media_source)}&type_name=${encodeURIComponent(moviePilotTypeName(identity.media_type))}`, 15000, '读取作品详情')
             } catch { return row }
           }));
           grounded = chooseGroundedCandidate(hint, detailed);
@@ -983,7 +1097,7 @@ async function groundAiDiagnoses(aiDiagnoses) {
       const resolved = reconcileIdentities(unit.nativeIdentity, grounded, hint, unit.native_conflict);
       unit.diagnosis = resolved.identity; unit.candidates = resolved.candidates; unit.identity_reason = resolved.reason; unit.aiDiagnosis = hint;
       if (hint?.transient_error && unit.diagnosis?.abstain) unit.identity_reason = `智能助手本批失败：${hint.reasons?.[0] || '未知原因'}；下次检查会重试`;
-      progress.value.done += 1; phase.value = `核对作品候选：${index + 1}/${target.length}`; progress.value.current = 'AI 只提出作品线索；正在回到 MoviePilot 数据源取得可执行作品编号。';
+      advance(`已完成 ${progress.value.done + 1}/${target.length} 个候选落地。`);
     }
   };
   await Promise.all(Array.from({ length: Math.min(4, target.length) }, worker));
@@ -991,7 +1105,8 @@ async function groundAiDiagnoses(aiDiagnoses) {
 async function generateOfficialPreviews() {
   // 首次检查只为“没有任何历史可交叉验证”的作品生成官方预览。
   // 旧失败、错误分类和错作品先由当前历史+实际目标直接判断，点开卡片时再实时生成修复预览。
-  const target = units.value.filter(unit => identityKey(unit.diagnosis) && !unit.history.length); progress.value.total += target.length;
+  const target = units.value.filter(unit => identityKey(unit.diagnosis) && !unit.history.length); if (!target.length) return
+  stage('生成必要的官方预览', target.length, '仅为没有任何历史可交叉验证的作品生成预览。');
   let cursor = 0;
   const worker = async () => {
     while (!stopped.value) {
@@ -1003,15 +1118,17 @@ async function generateOfficialPreviews() {
         if (!selection.selected) throw new Error(selection.reason)
         const targetPath = selection.selected;
         unit.previewPayload = { ...base, ...targetPath, preview: true, reorganize: false };
-        unit.officialPreview = await post('transfer/manual', unit.previewPayload);
+        unit.officialPreview = await post('transfer/manual', unit.previewPayload, 30000, '生成官方逐文件预览');
         if (!previewComplete(unit.officialPreview, base.fileitems.length)) throw new Error('MoviePilot 逐文件预览不完整')
       } catch (error) { unit.preview_error = error?.message || '官方预览生成失败'; unit.officialPreview = null; }
-      progress.value.done += 1; phase.value = `生成官方逐文件预览：${index + 1}/${target.length}`; progress.value.current = '只有完整官方预览才能定义正确目录、季集和文件名。';
+      advance(`已完成 ${progress.value.done + 1}/${target.length}；只有完整预览才会形成可修复结论。`);
     }
   };
   await Promise.all(Array.from({ length: Math.min(3, target.length) }, worker));
 }
 async function scanDownloadUnits(toScan, total) {
+  stage('读取发生变化的下载单元', toScan.length || 1, toScan.length ? `本轮只深度读取 ${toScan.length}/${total} 个下载包。` : `共 ${total} 个下载包，当前没有源文件变化。`);
+  if (!toScan.length) { progress.value.done = progress.value.total; units.value = []; return }
   const results = new Array(toScan.length); let cursor = 0;
   const worker = async () => {
     while (!stopped.value) {
@@ -1020,32 +1137,53 @@ async function scanDownloadUnits(toScan, total) {
       const unit = toScan[index];
       try {
         const trees = await Promise.all((unit.roots || [unit.root]).map(root => walk(root)));
-        Object.assign(unit, appendTreeEvidence(unit, trees)); unit.summary = summarizeUnit(unit);
+        Object.assign(unit, appendTreeEvidence(unit, trees)); unit.summary = summarizeUnit(unit); unit.headerFingerprint = packageHeaderFingerprint(unit.roots || [unit.root], unit.entries.filter(item => Number(item.depth) === 1));
       } catch { unit.entries = []; unit.complete = false; unit.summary = summarizeUnit(unit); }
-      results[index] = unit; progress.value.done += 1; phase.value = `读取下载单元：${progress.value.done}/${total}`; progress.value.current = '最多同时读取 4 个下载单元；读不到的目录会保留为尚未覆盖。';
+      results[index] = unit; advance(`已完成 ${progress.value.done + 1}/${toScan.length}；读不到的目录会保留为尚未覆盖。`);
     }
   };
   await Promise.all(Array.from({ length: Math.min(4, toScan.length) }, worker));
   units.value = results.filter(Boolean);
 }
+async function scanPackageHeaders(packages) {
+  if (!packages.length) return
+  stage('轻量检查源文件变化', packages.length, '只读取每个下载包的第一层目录指纹，不做作品识别。');
+  let cursor = 0;
+  const worker = async () => {
+    while (!stopped.value) {
+      const index = cursor; cursor += 1;
+      if (index >= packages.length) return
+      const pkg = packages[index];
+      try {
+        const rows = await Promise.all((pkg.roots || [pkg.root]).map(root => list(root)));
+        pkg.headerFingerprint = packageHeaderFingerprint(pkg.roots || [pkg.root], rows.flat());
+      } catch { pkg.headerFingerprint = ''; }
+      advance(`已轻量核对 ${progress.value.done + 1}/${packages.length} 个下载包。`);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(8, packages.length) }, worker));
+}
 async function buildMap(full = false) {
   if (!canUseApi.value) { notice.value = 'MoviePilot 页面 API 尚未注入，无法建立地图。'; return }
   resetRun(full ? '建立完整媒体地图' : '复核当前变动');
   try {
-    const [downloadConfigurations, libraryConfigurations, failed, successful] = await Promise.all([directories('download'), directories('library'), history(false), history(true)]);
+    stage('读取检查范围', 4, '同时读取下载目录、媒体库目录及成功/失败整理历史。');
+    const tasks = [directories('download'), directories('library'), history(false), history(true)].map(task => Promise.resolve(task).finally(() => advance()));
+    const [downloadConfigurations, libraryConfigurations, failed, successful] = await Promise.all(tasks);
     histories.value = [...failed, ...successful];
     const scope = configuredDownloadRoots(downloadConfigurations);
     if (!scope.roots.length) throw new Error('没有可用下载目录：拒绝扫描空路径或容器根目录')
-    phase.value = '验证下载目录并读取顶层下载项目'; const discovered = [];
-    for (const root of scope.roots) { if (stopped.value) break; discovered.push(...createDownloadUnits(root, await list(root))); }
+    stage('读取下载区顶层项目', scope.roots.length, '只读取 MoviePilot 已配置的下载目录，不扫描容器根目录。'); const discovered = [];
+    for (const root of scope.roots) { if (stopped.value) break; discovered.push(...createDownloadUnits(root, await list(root))); advance(`已读取 ${progress.value.done + 1}/${scope.roots.length} 个下载根目录。`); }
     const top = [...new Map(discovered.map(unit => [keyOf(unit.root), unit])).values()];
     const packages = createEvidencePackages(top.map(unit => unit.root), histories.value);
     const libraryRoots = configuredLibraryRoots(libraryConfigurations);
     const initial = !state.value.ready || full;
     if (!initial) await detectTargetChanges();
-    const plan = initial ? { unchanged: [] } : await post('plugin/MediaGovernor/map_plan', { units: packages.map(unit => ({ id: unit.id, fingerprint: rootFingerprint(unit.roots) })) });
+    if (!initial) await scanPackageHeaders(packages);
+    const plan = initial ? { unchanged: [] } : await post('plugin/MediaGovernor/map_plan', { units: packages.map(unit => ({ id: unit.id, fingerprint: unit.headerFingerprint || rootFingerprint(unit.roots) })) });
     const toScan = initial ? packages : packages.filter(unit => !new Set(plan.unchanged || []).has(unit.id));
-    progress.value.total = toScan.length; progress.value.current = initial ? `发现 ${top.length} 个顶层项目，归为 ${packages.length} 个下载包；历史只用来关联，不当成问题数。` : `发现 ${packages.length} 个下载包，其中 ${toScan.length} 个发生变动，需要深度复核。`;
+    progress.value.current = initial ? `发现 ${top.length} 个顶层项目，归为 ${packages.length} 个下载包；历史只用来关联，不当成问题数。` : `发现 ${packages.length} 个下载包，其中 ${toScan.length} 个发生变动，需要深度复核。`;
     await scanDownloadUnits(toScan, packages.length);
     units.value = units.value.flatMap(createWorkUnits);
     for (const unit of units.value) { unit.summary = summarizeUnit(unit); unit.libraryRoots = libraryRoots; }
@@ -1078,15 +1216,19 @@ async function buildMap(full = false) {
     if (!stopped.value) {
       const linkedUnits = units.value.filter(unit => unit.history.length).length;
       const unmatchedFailed = failed.filter(item => !linkedHistoryIds.has(String(item?.id || ''))).length;
-      const commit = await post('plugin/MediaGovernor/map_commit', { baseline: initial, partial: !initial, scope_verified: true, download_units: units.value.map(unit => ({ id: unit.id, package_id: unit.package_id, root: unit.root, label: unit.work_label || cleanTitle(unit.root?.name) || '未命名下载单元', fingerprint: unit.summary.fingerprint, header_fingerprint: rootFingerprint(unit.roots), video_count: unit.summary.video_count, subtitle_count: unit.summary.subtitle_count, nfo_count: unit.summary.nfo_count, episodes: unit.summary.episodes, names: unit.summary.names, history: unit.history.map(row => row.id), boundary: unit.boundary, coverage: unit.complete ? 'complete' : 'uncovered', detail: unit })), library_nodes: libraryNodes, findings: findings.value, coverage: { configured_download_roots: scope.roots.length, rejected_download_roots: scope.rejected.length, download_units: packages.length, scanned_units: units.value.length, library_roots: libraryNodes.length, target_parent_dirs: targetAudit.parentCount, target_parent_read_failures: targetAudit.readFailures, failed_history: failed.length, successful_history: successful.length, linked_units: linkedUnits, unlinked_units: units.value.length - linkedUnits, unmatched_failed_history: unmatchedFailed, uncovered_units: uncoveredCount.value }, history_summary: histories.value.map(row => ({ id: row.id, status: row.status, mode: row.mode, media_source: row.media_source, media_id: row.media_id, target: destinationPath(row), download_hash: row.download_hash })) });
+      stage('保存当前媒体地图', 2, '只保存本轮证据和结论，不修改任何媒体文件。');
+      const historyUnit = new Map(units.value.flatMap(unit => unit.history.map(row => [String(row.id), unit.id])));
+      const commit = await post('plugin/MediaGovernor/map_commit', { baseline: initial, partial: !initial, scope_verified: true, download_units: units.value.map(unit => ({ id: unit.id, package_id: unit.package_id, root: unit.root, label: unit.work_label || cleanTitle(unit.root?.name) || '未命名下载单元', fingerprint: unit.summary.fingerprint, header_fingerprint: unit.headerFingerprint || rootFingerprint(unit.roots), video_count: unit.summary.video_count, subtitle_count: unit.summary.subtitle_count, nfo_count: unit.summary.nfo_count, episodes: unit.summary.episodes, names: unit.summary.names, history: unit.history.map(row => row.id), boundary: unit.boundary, coverage: unit.complete ? 'complete' : 'uncovered', detail: unit })), library_nodes: libraryNodes, findings: findings.value, coverage: { configured_download_roots: scope.roots.length, rejected_download_roots: scope.rejected.length, download_units: packages.length, scanned_units: units.value.length, library_roots: libraryNodes.length, target_parent_dirs: targetAudit.parentCount, target_parent_read_failures: targetAudit.readFailures, failed_history: failed.length, successful_history: successful.length, linked_units: linkedUnits, unlinked_units: units.value.length - linkedUnits, unmatched_failed_history: unmatchedFailed, uncovered_units: uncoveredCount.value }, history_summary: histories.value.map(row => ({ id: row.id, status: row.status, mode: row.mode, media_source: row.media_source, media_id: row.media_id, target: destinationPath(row), download_hash: row.download_hash, unit_id: historyUnit.get(String(row.id)) || '' })) }, 20000, '保存媒体地图');
+      advance('媒体地图已保存，正在读取公开摘要。');
       state.value = { ...state.value, ...commit };
       const saved = await get('plugin/MediaGovernor/map_snapshot');
+      advance('公开摘要已核对。');
       findings.value = Array.isArray(saved?.findings) ? saved.findings : findings.value;
       liveMapReady.value = true;
       phase.value = '地图已更新'; notice.value = `已读到失败历史 ${failed.length} 条、成功历史 ${successful.length} 条；本轮复核 ${units.value.length} 个下载单元。核对了 ${targetAudit.parentCount} 个当前整理目标目录（${targetAudit.readFailures} 个暂不可读）。已证明 ${provenCount.value} 个问题，另有 ${findings.value.filter(item => item.kind === 'unconfirmed').length} 个无法确认、${uncoveredCount.value} 个尚未覆盖。`;
     }
   } catch (error) { fail(error, '建立地图失败；没有改变任何媒体。'); phase.value = '建立地图未完成'; }
-  finally { running.value = false; }
+  finally { running.value = false; if (clock) { clearInterval(clock); clock = null; } }
 }
 function dedupe(rows) { const map = new Map(); for (const row of rows) { const key = `${row.unit_id}:${row.kind}:${row.reason}`; if (!map.has(key)) map.set(key, row); } return [...map.values()] }
 function titleFor(card) { const unit = units.value.find(item => item.id === card.unit_id); return card?.title || unit?.work_label || cleanTitle(unit?.root?.name) || '未命名下载单元' }
@@ -1139,10 +1281,10 @@ async function repair() {
   if (!admission?.allowed) { notice.value = admission?.reason || '当前预览不满足安全重建条件。'; return }
   if (!window.confirm(`确认按本次官方预览重建吗？${admission.reason}。原始下载不会被删除。`)) return
   try {
-    if (admission.mode === 'create') await post('transfer/manual', { ...selected.value.preview_payload, preview: false, reorganize: false });
+    if (admission.mode === 'create') await postWrite('transfer/manual', { ...selected.value.preview_payload, preview: false, reorganize: false });
     else {
-      for (const payload of manualRebuildRequests(admission.history_ids, selected.value.candidate, selected.value.preview_payload)) await post('transfer/manual', payload);
-      if (admission.mode === 'mixed' && admission.create_fileitems?.length) await post('transfer/manual', { ...selected.value.preview_payload, fileitems: admission.create_fileitems, preview: false, reorganize: false });
+      for (const payload of manualRebuildRequests(admission.history_ids, selected.value.candidate, selected.value.preview_payload)) await postWrite('transfer/manual', payload);
+      if (admission.mode === 'mixed' && admission.create_fileitems?.length) await postWrite('transfer/manual', { ...selected.value.preview_payload, fileitems: admission.create_fileitems, preview: false, reorganize: false });
     }
     notice.value = 'MoviePilot 已接收逐项重建。现在会重新读取当前状态；只有实际结果等于预览，问题才会关闭。';
     preview.value = null; selected.value = null; await buildMap(true);
@@ -1150,12 +1292,13 @@ async function repair() {
 }
 async function probeAi() { try { const result = await post('plugin/MediaGovernor/ai_probe', {}); aiAvailable.value = Boolean(result.available); notice.value = aiAvailable.value ? '智能助手可用：只会复核规则无法确认的异常单元。' : '智能助手未返回可用状态。'; } catch (error) { aiAvailable.value = false; fail(error, '智能助手不可用，仍可建立地图和检查规则问题。'); } }
 onMounted(status);
+onUnmounted(() => { if (clock) clearInterval(clock); requestBudget.cancel('页面已关闭'); });
 
 return (_ctx, _cache) => {
   return (_openBlock(), _createElementBlock("main", _hoisted_1, [
     _createElementVNode("section", _hoisted_2, [
       _cache[3] || (_cache[3] = _createElementVNode("div", null, [
-        _createElementVNode("p", { class: "eyebrow" }, "MediaGovernor 4.4.0"),
+        _createElementVNode("p", { class: "eyebrow" }, "MediaGovernor 4.5.0"),
         _createElementVNode("h1", null, "找到问题，再安全修好"),
         _createElementVNode("p", null, "当前文件和硬链接决定问题；历史只负责关联，修复目标按作品类型选择唯一媒体库。")
       ], -1)),
@@ -1381,6 +1524,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-78f450ae"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-bbee604f"]]);
 
 export { AppPage as default };

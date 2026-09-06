@@ -52,16 +52,17 @@ class MediaGovernor(_PluginBase):
     plugin_name = "媒体治理"
     plugin_desc = "以当前下载区与媒体库为准，找出真实整理问题并只经官方预览重建。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "4.4.0"
+    plugin_version = "4.5.0"
     plugin_author = "MoviePilotMediaGovernor contributors"
     author_url = ""
     plugin_config_prefix = "mediagovernor_"
     plugin_order = 99
     auth_level = 1
     _map_schema = "4.4"
+    _audit_contract = "4.5-bounded-incremental-v1"
     _diagnosis_cache_schema = "4.4-evidence-v2"
-    _max_units, _max_nodes, _max_batch_units, _max_batch_chars = 2500, 30000, 12, 28000
-    _max_cached_diagnoses, _request_timeout_seconds = 300, 45
+    _max_units, _max_nodes, _max_batch_units, _max_batch_chars = 2500, 30000, 4, 10000
+    _max_cached_diagnoses, _request_timeout_seconds = 300, 30
 
     def init_plugin(self, config: dict[str, Any] | None = None) -> None:
         self._enabled = bool((config or {}).get("enabled"))
@@ -81,7 +82,7 @@ class MediaGovernor(_PluginBase):
 
     @staticmethod
     def get_render_mode() -> tuple[str, str]:
-        return "vue", "dist/v4.4.0/assets"
+        return "vue", "dist/v4.5.0/assets"
 
     def get_sidebar_nav(self) -> list[dict[str, Any]]:
         return []
@@ -99,6 +100,7 @@ class MediaGovernor(_PluginBase):
             {"path": "/map_status", "endpoint": self.api_map_status, "methods": ["GET"], "auth": "bear", "summary": "读取媒体地图脱敏状态", "response_model": MapResponse},
             {"path": "/map_snapshot", "endpoint": self.api_map_snapshot, "methods": ["GET"], "auth": "bear", "summary": "读取可展示的媒体地图结论", "response_model": MapResponse},
             {"path": "/map_watch", "endpoint": self.api_map_watch, "methods": ["GET"], "auth": "bear", "summary": "读取轻量目标目录指纹计划", "response_model": MapResponse},
+            {"path": "/map_identities", "endpoint": self.api_map_identities, "methods": ["POST"], "auth": "bear", "summary": "复用未变化作品的原生身份", "response_model": MapResponse},
             {"path": "/map_plan", "endpoint": self.api_map_plan, "methods": ["POST"], "auth": "bear", "summary": "判断哪些下载单元需要深度复核", "response_model": MapResponse},
             {"path": "/map_commit", "endpoint": self.api_map_commit, "methods": ["POST"], "auth": "bear", "summary": "保存一次当前文件地图", "response_model": MapResponse},
             {"path": "/map_unit", "endpoint": self.api_map_unit, "methods": ["POST"], "auth": "bear", "summary": "按需读取一个作品的私有证据", "response_model": MapResponse},
@@ -120,6 +122,24 @@ class MediaGovernor(_PluginBase):
     @staticmethod
     def _safe_text(value: Any, limit: int = 160) -> str:
         return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
+
+    @staticmethod
+    def _compact_fingerprint(value: Any) -> str:
+        """与前端 compactFingerprint 一致；仅用于兼容 4.4 保存的长指纹。"""
+        source = str(value or "")
+        encoded = source.encode("utf-16-le", errors="surrogatepass")
+        left, right = 0x811C9DC5, 0x9E3779B9
+        for index in range(0, len(encoded), 2):
+            code = encoded[index] | (encoded[index + 1] << 8)
+            left = ((left ^ code) * 0x01000193) & 0xFFFFFFFF
+            right = ((right ^ code) * 0x85EBCA6B) & 0xFFFFFFFF
+        return f"{len(encoded) // 2:08x}{left:08x}{right:08x}"
+
+    @classmethod
+    def _fingerprint_matches(cls, stored: Any, supplied: Any) -> bool:
+        current = cls._safe_text(supplied, 200)
+        previous = str(stored or "")
+        return bool(current) and (previous == current or cls._compact_fingerprint(previous) == current)
 
     @staticmethod
     def _event_value(source: Any, name: str) -> Any:
@@ -231,14 +251,36 @@ class MediaGovernor(_PluginBase):
             return MapResponse(success=False, message="当前地图没有这个作品的可继续证据，请先检查变动")
         return MapResponse(success=True, data={"unit": row["detail"]})
 
+    async def api_map_identities(self, request: Request) -> MapResponse:
+        """按单元和文件指纹复用公共媒体身份，不返回路径或文件证据。"""
+        try:
+            supplied = (await request.json() or {}).get("units") or []
+        except Exception:
+            supplied = []
+        previous = {row.get("id"): row for row in (self._runtime_map or {}).get("download_units") or [] if isinstance(row, dict)}
+        identities: dict[str, dict[str, Any]] = {}
+        allowed = {"title", "original_title", "year", "media_type", "season", "media_source", "media_id", "genres", "genre_ids", "category", "confidence", "abstain"}
+        for item in supplied[:self._max_units]:
+            if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+                continue
+            public_id = item["id"]
+            row = previous.get(self._private_id(public_id))
+            if not row or not self._fingerprint_matches(row.get("fingerprint"), item.get("fingerprint")):
+                continue
+            detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
+            identity = detail.get("nativeIdentity") if isinstance(detail.get("nativeIdentity"), dict) else None
+            if identity:
+                identities[public_id] = {"nativeIdentity": {key: identity.get(key) for key in allowed if key in identity}}
+        return MapResponse(success=True, data={"identities": identities, "reused": len(identities)})
+
     async def api_map_plan(self, request: Request) -> MapResponse:
         """只回传调用方提供的短暂 ID；不泄露私有地图的路径或文件名。"""
         try:
             supplied = (await request.json() or {}).get("units") or []
         except Exception:
             supplied = []
-        if self._dirty:
-            return MapResponse(success=True, data={"ready": bool(self._runtime_map), "unchanged": [], "dirty": len(self._dirty)})
+        dirty_packages = {row.get("package_id") for row in self._dirty.values() if isinstance(row, dict) and row.get("package_id")}
+        dirty_all = (self._runtime_map or {}).get("audit_contract") != self._audit_contract or any(not isinstance(row, dict) or row.get("global") or not row.get("package_id") for row in self._dirty.values())
         previous: dict[str, dict[str, Any]] = {}
         for row in (self._runtime_map or {}).get("download_units") or []:
             previous.setdefault(row.get("package_id") or row.get("id"), row)
@@ -247,9 +289,9 @@ class MediaGovernor(_PluginBase):
             if not isinstance(row, dict) or not isinstance(row.get("id"), str):
                 continue
             stored = previous.get(self._private_id(row["id"]))
-            if stored and stored.get("header_fingerprint") == self._safe_text(row.get("fingerprint"), 200):
+            if stored and not dirty_all and stored.get("package_id") not in dirty_packages and self._fingerprint_matches(stored.get("header_fingerprint"), row.get("fingerprint")):
                 unchanged.append(row["id"])
-        return MapResponse(success=True, data={"ready": bool(self._runtime_map), "unchanged": unchanged})
+        return MapResponse(success=True, data={"ready": bool(self._runtime_map), "unchanged": unchanged, "dirty": len(self._dirty)})
 
     @classmethod
     def _bounded_rows(cls, raw: Any, limit: int, allowed: set[str]) -> list[dict[str, Any]]:
@@ -299,7 +341,11 @@ class MediaGovernor(_PluginBase):
             units, findings, library = list(old_units.values()), old_findings + findings, self._runtime_map.get("library_nodes") or library
         coverage_in = body.get("coverage") if isinstance(body.get("coverage"), dict) else {}
         coverage = {self._safe_text(key, 40): int(value or 0) for key, value in coverage_in.items() if isinstance(value, (int, float, bool))}
-        return {"schema": self._map_schema, "map_version": int((self._runtime_map or {}).get("map_version") or 0) + 1, "updated_at": datetime.now(timezone.utc).isoformat(), "baseline": bool(body.get("baseline")), "scan_kind": "baseline" if body.get("baseline") else "incremental", "download_units": units, "library_nodes": library, "findings": findings, "coverage": coverage, "history_summary": self._bounded_rows(body.get("history_summary"), self._max_units, {"id", "mode", "status", "media_source", "media_id", "unit_id", "target", "download_hash"})}, ""
+        history_summary = self._bounded_rows(body.get("history_summary"), self._max_units, {"id", "mode", "status", "media_source", "media_id", "unit_id", "target", "download_hash"})
+        for row in history_summary:
+            if row.get("unit_id"):
+                row["unit_id"] = self._private_id(row["unit_id"])
+        return {"schema": self._map_schema, "audit_contract": self._audit_contract, "map_version": int((self._runtime_map or {}).get("map_version") or 0) + 1, "updated_at": datetime.now(timezone.utc).isoformat(), "baseline": bool(body.get("baseline")), "scan_kind": "baseline" if body.get("baseline") else "incremental", "download_units": units, "library_nodes": library, "findings": findings, "coverage": coverage, "history_summary": history_summary}, ""
 
     async def api_map_commit(self, request: Request) -> MapResponse:
         if not self._enabled: return MapResponse(success=False, message="媒体治理插件未启用")
@@ -317,8 +363,19 @@ class MediaGovernor(_PluginBase):
         if request.method == "POST":
             try: body = await request.json()
             except Exception: body = {}
-            key = self._private_id((body or {}).get("unit_id") or (body or {}).get("history_id"))
-            self._dirty[key] = {"at": datetime.now(timezone.utc).isoformat(), "reason": self._safe_text((body or {}).get("reason"), 80)}
+            raw_ids = (body or {}).get("unit_ids") or [(body or {}).get("unit_id")]
+            unit_rows = {row.get("id"): row for row in (self._runtime_map or {}).get("download_units") or [] if isinstance(row, dict)}
+            matched = 0
+            for unit_id in raw_ids:
+                row = unit_rows.get(self._safe_text(unit_id, 64))
+                if not row:
+                    continue
+                key = self._private_id(f"dirty:{row.get('package_id')}")
+                self._dirty[key] = {"at": datetime.now(timezone.utc).isoformat(), "reason": self._safe_text((body or {}).get("reason"), 80), "package_id": row.get("package_id")}
+                matched += 1
+            if not matched:
+                key = self._private_id((body or {}).get("history_id") or "global")
+                self._dirty[key] = {"at": datetime.now(timezone.utc).isoformat(), "reason": self._safe_text((body or {}).get("reason"), 80), "global": True}
             try: self.save_data("dirty_items", self._dirty)
             except Exception: pass
         return MapResponse(success=True, data={**self._map_summary(), "items": list(self._dirty.values())[-100:]})
@@ -331,7 +388,20 @@ class MediaGovernor(_PluginBase):
     def _on_transfer_result(self, event: Any) -> None:
         data = self._event_value(event, "event_data") or {}; fileitem = self._event_value(data, "fileitem"); history_id = self._event_value(data, "transfer_history_id")
         key = self._private_id(history_id or self._event_value(fileitem, "path") or self._event_value(fileitem, "name"))
-        self._dirty[key] = {"at": datetime.now(timezone.utc).isoformat(), "reason": "MoviePilot 整理事件"}
+        source = self._safe_text(self._event_value(fileitem, "path"), 1000)
+        normal = source.replace("\\", "/").rstrip("/").lower()
+        matched = None
+        for row in (self._runtime_map or {}).get("download_units") or []:
+            detail = row.get("detail") if isinstance(row, dict) and isinstance(row.get("detail"), dict) else {}
+            roots = detail.get("roots") or ([detail.get("root")] if detail.get("root") else [])
+            for root in roots:
+                root_path = self._safe_text(root.get("path"), 1000).replace("\\", "/").rstrip("/").lower() if isinstance(root, dict) else ""
+                if normal and root_path and (normal == root_path or normal.startswith(f"{root_path}/")):
+                    matched = row.get("package_id")
+                    break
+            if matched:
+                break
+        self._dirty[key] = {"at": datetime.now(timezone.utc).isoformat(), "reason": "MoviePilot 整理事件", **({"package_id": matched} if matched else {"global": True})}
         try: self.save_data("dirty_items", self._dirty)
         except Exception: pass
 
