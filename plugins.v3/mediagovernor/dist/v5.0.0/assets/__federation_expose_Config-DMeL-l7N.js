@@ -32,7 +32,7 @@ return (_ctx, _cache) => {
       _cache[3] || (_cache[3] = _createTextVNode(" 启用媒体治理", -1))
     ]),
     _cache[5] || (_cache[5] = _createElementVNode("p", null, "启用后才可打开治理台；检查只在你点击开始后发生。", -1)),
-    _cache[6] || (_cache[6] = _createElementVNode("aside", null, "插件不会保存路径、不会自行删除、移动或改名文件。真正整理由 MoviePilot 官方预览和确认流程执行。", -1)),
+    _cache[6] || (_cache[6] = _createElementVNode("aside", null, "插件把路径只保存在插件私有账本中。只有你查看逐文件预览并最终确认后，才会让 MoviePilot 清理可归因的错误硬链接并重新整理；不会删除原始下载。", -1)),
     _createElementVNode("footer", null, [
       _createElementVNode("button", {
         onClick: _cache[1] || (_cache[1] = $event => (emit('close')))
@@ -47,6 +47,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-44d38bb6"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-595c16d2"]]);
 
 export { Config as default };
