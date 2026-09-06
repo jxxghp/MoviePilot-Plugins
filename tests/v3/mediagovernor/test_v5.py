@@ -110,7 +110,7 @@ def test_versions_api_and_frontend_contract_are_v5():
 
 
 def test_real_moviepilot_v3_runtime_constructs_initializes_and_stops_plugin():
-    from app.application.chain.context import configure_chain_runtime_context_provider
+    from app.application.chain.context import ChainRuntimeContext, configure_chain_runtime_context_provider
     from app.application.configuration import ChainRuntimeConfig
     from app.chain.storage import StorageChain
     from app.chain.transfer import TransferChain
@@ -119,15 +119,15 @@ def test_real_moviepilot_v3_runtime_constructs_initializes_and_stops_plugin():
     from app.sdk.queries import list_transfer_history
 
     queue = types.SimpleNamespace(bind=lambda _callback: types.SimpleNamespace())
-    context = types.SimpleNamespace(
+    context = ChainRuntimeContext(
         module_manager=types.SimpleNamespace(), plugin_manager=types.SimpleNamespace(), event_manager=types.SimpleNamespace(),
         message_oper=types.SimpleNamespace(), message_helper=types.SimpleNamespace(), file_cache=types.SimpleNamespace(), async_file_cache=types.SimpleNamespace(),
         message_queue=queue, module_dispatcher_factory=lambda **_kwargs: types.SimpleNamespace(), site_repository=None,
         subscription_repository=None, subscription_search_repository=None, subscription_mutation_scope=None, sync_subscription_mutation_scope=None,
         subscription_delete_scope=None, sync_subscription_delete_scope=None, subscription_completion_scope=None, rule_group_mutation_scope=None,
         site_reference_mutation_scope=None, download_history_repository=None, transfer_history_repository=None, transfer_admission_repository=None,
-        transfer_execution_repository=None, media_server_repository=None, download_failure_repository=None, subscription_download_repository=None,
-        user_repository=None, legacy_transfer_command=None, durable_event_writer=None, configuration=ChainRuntimeConfig(media_extensions=()), stop_state=runtime_stop_state,
+        transfer_execution_repository=None, media_server_repository=None, download_failure_repository=None,
+        user_repository=None, configuration=ChainRuntimeConfig(media_extensions=()), stop_state=runtime_stop_state,
     )
     configure_chain_runtime_context_provider(lambda: context)
     try:
