@@ -277,6 +277,11 @@ class DownloadTask:
     root: str
     host_media_source: Optional[str] = None
     host_media_id: Optional[str] = None
+    media_category_id: Optional[str] = None
+    media_category: Optional[str] = None
+    classification_rule_id: Optional[str] = None
+    classification_policy_revision: Optional[str] = None
+    classification_source: Optional[str] = None
     source_name: Optional[str] = None
     source_sensitive: bool = False
     mode: str = "download"
@@ -766,6 +771,11 @@ class _SerialDownloadQueue:
             target.root = task.root
             target.host_media_source = task.host_media_source
             target.host_media_id = task.host_media_id
+            target.media_category_id = getattr(task, "media_category_id", None)
+            target.media_category = getattr(task, "media_category", None)
+            target.classification_rule_id = getattr(task, "classification_rule_id", None)
+            target.classification_policy_revision = getattr(task, "classification_policy_revision", None)
+            target.classification_source = getattr(task, "classification_source", None)
             target.source_name = task.source_name
             target.source_sensitive = task.source_sensitive
             target.mode = task.mode
@@ -2973,6 +2983,11 @@ class DownloadQueue(_SerialDownloadQueue):
                 existing.root = task.root
                 existing.host_media_source = task.host_media_source
                 existing.host_media_id = task.host_media_id
+                existing.media_category_id = getattr(task, "media_category_id", None)
+                existing.media_category = getattr(task, "media_category", None)
+                existing.classification_rule_id = getattr(task, "classification_rule_id", None)
+                existing.classification_policy_revision = getattr(task, "classification_policy_revision", None)
+                existing.classification_source = getattr(task, "classification_source", None)
                 existing.source_name = task.source_name
                 existing.mode = task.mode
                 existing.ffmpeg_path = task.ffmpeg_path

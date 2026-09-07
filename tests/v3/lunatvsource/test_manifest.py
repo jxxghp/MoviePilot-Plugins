@@ -62,17 +62,17 @@ def test_version_consistency_across_manifest_backend_and_frontend():
         ).read_text(encoding="utf-8")
     )
 
-    assert manifest["version"] == "0.4.81"
+    assert manifest["version"] == "0.4.82"
     assert {
         manifest["version"],
         LunaTVSource.plugin_version,
         package["version"],
         lockfile["version"],
         lockfile["packages"][""]["version"],
-    } == {"0.4.81"}
+    } == {"0.4.82"}
 
     history = manifest["history"]
-    assert next(iter(history)) == "0.4.81"
+    assert next(iter(history)) == "0.4.82"
     assert history["0.4.60"] == (
         "接入 MoviePilot V3 统一媒体分类协议：向宿主提供 LunaTV 来源分类事实与规则扩展，"
         "并将分类快照写入下载历史供整理链稳定复用。"

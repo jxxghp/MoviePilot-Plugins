@@ -136,6 +136,11 @@ from .cms import (
     probe_stream_height,
     stream_quality_label,
 )
+
+from .classification import (
+    classification_protocol_available,
+    extract_classification_facts,
+)
 from .downloader import (
     DEFAULT_HLS_AD_FILTER_REGEX,
     DEFAULT_MAX_CONCURRENT_TASKS,
@@ -921,7 +926,7 @@ class LunaTVSource(_PluginBase):
     plugin_name = "LunaTV 资源订阅"
     plugin_desc = "接入 LunaTV/MoonTV 苹果 CMS 资源，复用 MoviePilot 原生搜索、订阅、目录、整理与媒体库链路。"
     plugin_icon = "https://raw.githubusercontent.com/OneBigMoon/moviepilot-v3-lunatv-source/master/icons/lunatvsource.png"
-    plugin_version = "0.4.81"
+    plugin_version = "0.4.82"
     plugin_author = "OneBigMoon"
     author_url = "https://github.com/OneBigMoon"
     plugin_config_prefix = "lunatvsource_"
@@ -2553,6 +2558,121 @@ class LunaTVSource(_PluginBase):
             # constructor accepting year separately.
             return _HostMetaInfo(title=query, year=year_text or None)
 
+    @staticmethod
+    def _classification_path(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            text = value.strip()
+            return text or None
+        if isinstance(value, (list, tuple)):
+            parts = [
+                part for item in value
+                if (part := LunaTVSource._classification_path(item))
+            ]
+            return "/".join(parts) or None
+        if isinstance(value, dict):
+            for key in ("path", "category_path", "name", "label", "value", "id"):
+                if key in value:
+                    part = LunaTVSource._classification_path(value[key])
+                    if part:
+                        return part
+            return None
+        for key in ("path", "category_path", "name", "label", "value", "id"):
+            part = LunaTVSource._classification_path(getattr(value, key, None))
+            if part:
+                return part
+        return None
+
+    @classmethod
+    def _media_classification_snapshot(cls, media: Any) -> Dict[str, Any]:
+        classification = _field(media, "classification", None)
+        effective = _field(classification, "effective", None) if classification else None
+        effective = effective or classification
+        if not effective:
+            return {}
+
+        media_source = _coerce_media_identity_source(
+            _field(media, "media_source", None) or PLUGIN_MEDIA_SOURCE
+        )
+        media_id = str(_field(media, "media_id", "") or "").strip()
+        payload: Dict[str, Any] = {
+            "media_source": media_source,
+            "media_id": media_id,
+        }
+        for target, names in (
+            ("media_category_id", ("category_id", "media_category_id", "id")),
+            ("media_category", ("category", "media_category", "name", "label", "path")),
+            ("classification_rule_id", ("rule_id", "classification_rule_id")),
+            ("classification_policy_revision", ("policy_revision", "classification_policy_revision", "revision")),
+            ("classification_source", ("source", "classification_source")),
+        ):
+            for name in names:
+                value = _field(effective, name, None)
+                if value not in (None, ""):
+                    payload[target] = (
+                        cls._classification_path(value)
+                        if target == "media_category"
+                        else value
+                    )
+                    break
+        return payload
+
+    @classmethod
+    def _classification_for_identity(
+        cls,
+        snapshot: Any,
+        source_key: Any,
+        media_id: Any,
+    ) -> Dict[str, Any]:
+        if not isinstance(snapshot, dict):
+            return {}
+        source = _coerce_media_identity_source(source_key)
+        identity = str(media_id or "").strip()
+        items = snapshot.get("items") or snapshot.get("identities")
+        if isinstance(items, (list, tuple)):
+            for item in items:
+                matched = cls._classification_for_identity(item, source, identity)
+                if matched:
+                    return matched
+        item_source = _coerce_media_identity_source(
+            snapshot.get("media_source") or snapshot.get("source_key")
+        )
+        item_id = str(snapshot.get("media_id") or snapshot.get("media_key") or "").strip()
+        if item_source and source and item_source != source:
+            return {}
+        if item_id and identity and item_id != identity:
+            return {}
+        return dict(snapshot)
+
+    def _apply_task_classification(self, task: Any, classification: Any) -> None:
+        if not isinstance(classification, dict):
+            return
+        for name in (
+            "media_category_id",
+            "media_category",
+            "classification_rule_id",
+            "classification_policy_revision",
+            "classification_source",
+        ):
+            if name in classification:
+                setattr(task, name, classification[name])
+
+    @staticmethod
+    def _download_history_classification_payload(task: Any) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+        for name in (
+            "media_category_id",
+            "media_category",
+            "classification_rule_id",
+            "classification_policy_revision",
+            "classification_source",
+        ):
+            value = getattr(task, name, None)
+            if value not in (None, ""):
+                payload[name] = value
+        return payload
+
     def _media_info(
         self,
         result: CmsResult,
@@ -2564,16 +2684,22 @@ class LunaTVSource(_PluginBase):
         for episode in result.episodes:
             if episode.season_known:
                 seasons.setdefault(episode.season, []).append(episode.episode)
+
         if season_only and not seasons:
             season_start, season_end = result.season_range
             if season_start > 0 and season_start == season_end:
                 seasons[season_start] = []
+
         if _schemas is None or not hasattr(_schemas, "MediaInfo"):
             payload = result.to_dict()
             if season_only:
                 payload["episodes"] = []
-                payload["seasons"] = {season: [] for season in sorted(seasons)}
+            payload["seasons"] = {
+                season: [] if season_only else sorted(set(value))
+                for season, value in seasons.items()
+            }
             return payload
+
         association = association or {}
         title = normalize_media_title(result.title)
         title_year = f"{title} ({result.year})" if result.year else title
@@ -2592,19 +2718,19 @@ class LunaTVSource(_PluginBase):
         }
         if association.get("status") == "matched" and association.get("tmdb_id"):
             fields["tmdb_id"] = association["tmdb_id"]
-        for field in (
-            "poster_path",
-            "backdrop_path",
-            "overview",
-            "vote_average",
-            "release_date",
-        ):
+        for field in ("poster_path", "backdrop_path", "overview", "vote_average", "release_date"):
             if association.get(field) not in (None, ""):
                 fields[field] = association[field]
+
+        classification_facts = extract_classification_facts(result)
+        if classification_protocol_available() and classification_facts:
+            fields["classification_facts"] = classification_facts
+
         try:
             return _schemas.MediaInfo(**fields)
         except TypeError:
             fields.pop("tmdb_id", None)
+            fields.pop("classification_facts", None)
             return _schemas.MediaInfo(**fields)
 
     @staticmethod
@@ -2709,6 +2835,8 @@ class LunaTVSource(_PluginBase):
                     detail=base.detail,
                     season_range=(season, season) if season else (0, 0),
                     season_ambiguous=bool(group["season_ambiguous"]),
+                    cms_type_name=base.cms_type_name,
+                    cms_class_names=base.cms_class_names,
                 )
             )
         return cards
@@ -3419,6 +3547,7 @@ class LunaTVSource(_PluginBase):
                         or PLUGIN_MEDIA_SOURCE
                     ),
                     date=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+                    **self._download_history_classification_payload(task),
                 )
             if not has_same_hash_file and not path_has_active_file:
                 add_files([
@@ -5144,6 +5273,8 @@ class LunaTVSource(_PluginBase):
                                 year=result.year,
                                 media_type=result.media_type,
                                 remark=result.remark,
+                                cms_type_name=result.cms_type_name,
+                                cms_class_names=result.cms_class_names,
                                 episodes=tuple(selected_episodes),
                                 detail=result.detail,
                                 season_range=result.season_range,

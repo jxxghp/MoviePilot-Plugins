@@ -16,6 +16,8 @@ import time
 import urllib.parse
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from .classification import normalize_cms_class_names
+
 
 
 LOGGER = logging.getLogger(__name__)
@@ -810,6 +812,8 @@ class CmsResult:
     detail: str = ""
     season_range: Tuple[int, int] = (1, 1)
     season_ambiguous: bool = False
+    cms_type_name: str = ""
+    cms_class_names: Tuple[str, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -824,6 +828,8 @@ class CmsResult:
             "detail": self.detail,
             "season_range": list(self.season_range),
             "season_ambiguous": self.season_ambiguous,
+        "cms_type_name": self.cms_type_name,
+        "cms_class_names": list(self.cms_class_names),
         }
 
 
@@ -933,6 +939,8 @@ def _result_from_item(source: CmsSource, item: Mapping[str, Any]) -> CmsResult:
         year=year,
         media_type=media_type,
         remark=_text(item.get("vod_remarks")),
+        cms_type_name=_text(item.get("type_name")).strip(),
+        cms_class_names=normalize_cms_class_names(item.get("vod_class")),
         episodes=episodes,
         detail=_source_detail_url(source, item),
         season_range=season_range,

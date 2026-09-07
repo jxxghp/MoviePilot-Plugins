@@ -1,7 +1,7 @@
 {
   "name": "moviepilot-lunatvsource-plugin",
   "private": true,
-  "version": "0.4.81",
+  "version": "0.4.82",
   "type": "module",
   "scripts": {
     "build": "vite build && node --input-type=module -e \"import fs from 'node:fs';const p='dist/assets/remoteEntry.js';fs.writeFileSync(p,fs.readFileSync(p,'utf8').replace(/[ \\t]+$/gm,''))\""
