@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import http.client
 import ipaddress
 import json
@@ -13,30 +14,25 @@ import subprocess
 import tempfile
 import time
 import urllib.parse
-import urllib.request
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
-
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 from .classification import normalize_cms_class_names
+
 
 
 LOGGER = logging.getLogger(__name__)
 
 
+_NUMBER_PATTERN = r"(?:\d{1,4}|[零一二两三四五六七八九十百千万]+)"
 _EPISODE_RE = re.compile(
     r"(?:S(?P<season>\d{1,3})\s*E(?P<episode>\d{1,4}))|"
-    r"(?:第\s*(?P<cn_episode>\d{1,4})\s*[集话])|"
+    rf"(?:第\s*(?P<cn_episode>{_NUMBER_PATTERN})\s*[集话])|"
     r"(?:^|[\s._\-])(?P<bare_episode>\d{1,4})(?:$|[\s._\-])",
     re.IGNORECASE,
 )
 _SEASON_RE = re.compile(
-    r"(?:S\s*(?P<s_season>\d{1,3})\s*(?:季|SEASON)?|"
-    r"第\s*(?P<season>\d{1,3})\s*季)",
-    re.IGNORECASE,
-)
-_CN_SEASON_RE = re.compile(
-    r"(?:第\s*)(?P<season>[一二两三四五六七八九十百千万]+)\s*季",
+    rf"(?:S(?:EASON)?\s*(?P<s_season>\d{{1,3}})\s*(?:季|SEASON)?|"
+    rf"第\s*(?P<season>{_NUMBER_PATTERN})\s*季)",
     re.IGNORECASE,
 )
 _TV_TYPE_NAMES = frozenset(
@@ -88,10 +84,11 @@ _PROBE_REDIRECT_CODES = {301, 302, 303, 307, 308}
 _PROBE_MAX_REDIRECTS = 5
 _PROBE_PLAYLIST_BYTES = 256 * 1024
 _PROBE_MEDIA_BYTES = 4 * 1024 * 1024
+_JSON_RESPONSE_BYTES = 4 * 1024 * 1024
 _TV_EPISODE_ROW_TITLE_RE = re.compile(
     r"^(?P<title>.+?)(?:\s*[-_.·:：]*\s*)"
     r"(?:S\s*(?P<season>\d{1,3})\s*E\s*(?P<episode>\d{1,4})|"
-    r"第\s*(?P<cn_episode>\d{1,4})\s*[集话])\s*$",
+    rf"第\s*(?P<cn_episode>{_NUMBER_PATTERN})\s*[集话])\s*$",
     re.IGNORECASE,
 )
 # Apple CMS pages normally contain 10 or 20 rows. Keep a finite bound even for
@@ -130,21 +127,36 @@ def _chinese_number(value: str) -> int:
         for char in text:
             result = result * 10 + digits[char]
         return result
-    if "十" in text:
-        left, _, right = text.partition("十")
-        tens = digits.get(left, 1) if left else 1
-        ones = digits.get(right, 0) if right else 0
-        return tens * 10 + ones
-    return 0
+    units = {"十": 10, "百": 100, "千": 1000}
+    total = section = number = 0
+    for char in text:
+        if char in digits:
+            number = digits[char]
+        elif char in units:
+            section += (number or 1) * units[char]
+            number = 0
+        elif char == "万":
+            total += (section + number) * 10000
+            section = number = 0
+        else:
+            return 0
+    return total + section + number
 
 
-def _json_get(url: str, timeout: float) -> Any:
-    request = urllib.request.Request(
+def _json_get(
+    url: str,
+    timeout: float,
+    allowed_private_ranges: Iterable[str] = (),
+) -> Any:
+    payload, _ = _fetch_public_url(
         url,
-        headers={"User-Agent": "LunaTVSource/0.1 MoviePilot"},
+        timeout,
+        _JSON_RESPONSE_BYTES + 1,
+        tuple(allowed_private_ranges or ()),
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8", errors="replace"))
+    if len(payload) > _JSON_RESPONSE_BYTES:
+        raise ValueError("CMS JSON response too large")
+    return json.loads(payload.decode("utf-8", errors="replace"))
 
 
 def stream_quality_label(height: int) -> str:
@@ -267,17 +279,24 @@ def _probe_host_header(parsed: urllib.parse.ParseResult, port: int) -> str:
     return hostname if port == default_port else f"{hostname}:{port}"
 
 
-def _fetch_public_url(
+def _request_public_url(
     url: str,
     timeout: float,
-    limit: int,
     allowed_private_ranges: Iterable[str] = (),
-) -> Tuple[bytes, str]:
-    """Fetch a bounded public URL while pinning DNS and validating redirects."""
+    headers: Optional[Mapping[str, str]] = None,
+    deadline: Optional[float] = None,
+) -> Tuple[http.client.HTTPConnection, http.client.HTTPResponse, str]:
+    """Open an approved URL while pinning DNS and validating redirects."""
 
     current_url = str(url or "").strip()
     request_timeout = min(max(float(timeout or 8.0), 1.0), 15.0)
     for _ in range(_PROBE_MAX_REDIRECTS + 1):
+        connection_timeout = request_timeout
+        if deadline is not None:
+            remaining = float(deadline) - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("public URL request deadline exceeded")
+            connection_timeout = min(connection_timeout, remaining)
         parsed, address, port = _resolve_public_probe_target(
             current_url,
             allowed_private_ranges,
@@ -288,10 +307,14 @@ def _fetch_public_url(
                 parsed.hostname or "",
                 address,
                 port,
-                request_timeout,
+                connection_timeout,
             )
         else:
-            connection = http.client.HTTPConnection(address, port, timeout=request_timeout)
+            connection = http.client.HTTPConnection(
+                address,
+                port,
+                timeout=connection_timeout,
+            )
         path = urllib.parse.urlunparse(
             (
                 "",
@@ -308,30 +331,59 @@ def _fetch_public_url(
                 "",
             )
         )
+        request_headers = {
+            "Host": _probe_host_header(parsed, port),
+            "User-Agent": "LunaTVSource/0.1 MoviePilot",
+            "Accept": "application/vnd.apple.mpegurl, application/x-mpegURL, */*",
+            "Connection": "close",
+        }
+        if headers:
+            request_headers.update({str(key): str(value) for key, value in headers.items()})
+            request_headers["Host"] = _probe_host_header(parsed, port)
+            request_headers["Connection"] = "close"
         try:
             connection.request(
                 "GET",
                 path,
-                headers={
-                    "Host": _probe_host_header(parsed, port),
-                    "User-Agent": "LunaTVSource/0.1 MoviePilot",
-                    "Accept": "application/vnd.apple.mpegurl, application/x-mpegURL, */*",
-                    "Connection": "close",
-                },
+                headers=request_headers,
             )
             response = connection.getresponse()
-            if response.status in _PROBE_REDIRECT_CODES:
-                location = response.getheader("Location")
-                if not location:
-                    raise OSError("probe redirect has no target")
-                current_url = urllib.parse.urljoin(current_url, location)
-                continue
-            if response.status < 200 or response.status >= 400:
-                raise OSError(f"probe request returned HTTP {response.status}")
-            return response.read(max(1, int(limit)) + 1)[:limit], current_url
-        finally:
+        except Exception:
             connection.close()
+            raise
+        if response.status in _PROBE_REDIRECT_CODES:
+            location = response.getheader("Location")
+            connection.close()
+            if not location:
+                raise OSError("probe redirect has no target")
+            current_url = urllib.parse.urljoin(current_url, location)
+            continue
+        if response.status < 200 or response.status >= 400:
+            connection.close()
+            raise OSError(f"probe request returned HTTP {response.status}")
+        return connection, response, current_url
     raise OSError("too many probe redirects")
+
+
+def _fetch_public_url(
+    url: str,
+    timeout: float,
+    limit: int,
+    allowed_private_ranges: Iterable[str] = (),
+    deadline: Optional[float] = None,
+) -> Tuple[bytes, str]:
+    """Fetch a bounded public URL while pinning DNS and validating redirects."""
+
+    connection, response, final_url = _request_public_url(
+        url,
+        timeout,
+        allowed_private_ranges,
+        deadline=deadline,
+    )
+    try:
+        return response.read(max(1, int(limit)) + 1)[:limit], final_url
+    finally:
+        connection.close()
 
 
 def _playlist_followup_urls(playlist: str, base_url: str) -> Tuple[List[str], bool]:
@@ -539,18 +591,18 @@ def _split_player_values(value: str) -> List[str]:
 def _extract_season_episode(label: str, default_season: int = 1) -> Tuple[int, int]:
     match = _EPISODE_RE.search(_text(label))
     if not match:
-        return default_season, 1
-    season = int(match.group("season") or default_season)
-    episode = int(match.group("episode") or match.group("cn_episode") or match.group("bare_episode") or 1)
+        return default_season, 0
+    season_value = match.group("season")
+    episode_value = match.group("episode") or match.group("cn_episode") or match.group("bare_episode")
+    season = _chinese_number(season_value) if season_value else default_season
+    episode = _chinese_number(episode_value)
     return season, episode
 
 
 def _extract_season(label: str, default_season: int = 1) -> int:
     match = _SEASON_RE.search(_text(label))
-    if match:
-        return int(match.group("season") or match.group("s_season"))
-    match = _CN_SEASON_RE.search(_text(label))
-    return _chinese_number(match.group("season")) if match else default_season
+    season_value = match.group("season") or match.group("s_season") if match else ""
+    return _chinese_number(season_value) if season_value else default_season
 
 
 def _season_hint(label: str, default_season: int = 1) -> int:
@@ -559,13 +611,7 @@ def _season_hint(label: str, default_season: int = 1) -> int:
 
 
 def _has_explicit_season(label: str) -> bool:
-    value = _text(label)
-    return bool(
-        re.search(r"S\s*\d{1,3}\s*E\s*\d{1,4}", value, re.IGNORECASE)
-        or re.search(r"(?:第\s*)?\d{1,3}\s*季", value, re.IGNORECASE)
-        or _CN_SEASON_RE.search(value)
-        or re.search(r"\bS\s*\d{1,3}\b", value, re.IGNORECASE)
-    )
+    return bool(_SEASON_RE.search(_text(label)))
 
 
 def _parse_play_urls(
@@ -601,7 +647,7 @@ def _parse_play_urls(
 
     if from_values:
         pairs = list(zip(from_values, url_values))
-        has_season_groups = any(_extract_season(name, 0) > 0 for name, _ in pairs)
+        has_season_groups = any(_has_explicit_season(name) for name, _ in pairs)
         preferred = [
             pair
             for pair in pairs
@@ -654,6 +700,7 @@ def _parse_play_urls(
                     label,
                     _season_hint(group_name, default_season),
                 )
+                episode = episode or (ordinal if label else 1)
             season_known = default_season_known or _has_explicit_season(group_name) or _has_explicit_season(label)
             episodes.append(
                 CmsEpisode(
@@ -754,8 +801,6 @@ class CmsEpisode:
 
 @dataclass(frozen=True)
 class CmsResult:
-    """Normalized media row returned by one configured Apple CMS source."""
-
     source_key: str
     source_name: str
     vod_id: str
@@ -771,8 +816,6 @@ class CmsResult:
     cms_class_names: Tuple[str, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Return a JSON-compatible projection without changing source facts."""
-
         return {
             "source_key": self.source_key,
             "source_name": self.source_name,
@@ -785,8 +828,8 @@ class CmsResult:
             "detail": self.detail,
             "season_range": list(self.season_range),
             "season_ambiguous": self.season_ambiguous,
-            "cms_type_name": self.cms_type_name,
-            "cms_class_names": list(self.cms_class_names),
+        "cms_type_name": self.cms_type_name,
+        "cms_class_names": list(self.cms_class_names),
         }
 
 
@@ -821,8 +864,7 @@ def _media_type(item: Mapping[str, Any]) -> str:
         play_url = _text(item.get("vod_play_url"))
         if (
             _SEASON_RE.search(title)
-            or _CN_SEASON_RE.search(title)
-            or re.search(r"第\s*\d{1,4}\s*[集话]", title)
+            or re.search(rf"第\s*{_NUMBER_PATTERN}\s*[集话]", title)
             or "#" in play_url
         ):
             return "tv"
@@ -866,8 +908,6 @@ def _source_detail_url(source: CmsSource, item: Mapping[str, Any]) -> str:
 
 
 def _result_from_item(source: CmsSource, item: Mapping[str, Any]) -> CmsResult:
-    """Normalize one Apple CMS row while preserving stable source facts."""
-
     title = _text(item.get("vod_name") or item.get("vod_en"))
     year = _text(item.get("vod_year"))
     media_type = _media_type(item)
@@ -899,12 +939,12 @@ def _result_from_item(source: CmsSource, item: Mapping[str, Any]) -> CmsResult:
         year=year,
         media_type=media_type,
         remark=_text(item.get("vod_remarks")),
+        cms_type_name=_text(item.get("type_name")).strip(),
+        cms_class_names=normalize_cms_class_names(item.get("vod_class")),
         episodes=episodes,
         detail=_source_detail_url(source, item),
         season_range=season_range,
         season_ambiguous=season_ambiguous,
-        cms_type_name=_text(item.get("type_name")).strip(),
-        cms_class_names=normalize_cms_class_names(item.get("vod_class")),
     )
 
 
@@ -1090,8 +1130,16 @@ def parse_config(payload: Mapping[str, Any], allowlist: Sequence[str] = ()) -> L
     return sources
 
 
-def load_sources_from_url(url: str, timeout: float = 15, allowlist: Sequence[str] = ()) -> List[CmsSource]:
-    return parse_config(_json_get(url, timeout), allowlist=allowlist)
+def load_sources_from_url(
+    url: str,
+    timeout: float = 15,
+    allowlist: Sequence[str] = (),
+    allowed_private_ranges: Iterable[str] = (),
+) -> List[CmsSource]:
+    return parse_config(
+        _json_get(url, timeout, allowed_private_ranges),
+        allowlist=allowlist,
+    )
 
 
 class AppleCmsClient:
@@ -1100,10 +1148,12 @@ class AppleCmsClient:
         sources: Sequence[CmsSource],
         timeout: float = 15,
         parallel_wait_timeout: Optional[float] = None,
+        allowed_private_ranges: Iterable[str] = (),
     ) -> None:
         self.sources = list(sources)
         self.timeout = timeout
         self.parallel_wait_timeout = parallel_wait_timeout
+        self.allowed_private_ranges = tuple(allowed_private_ranges or ())
 
     def _parallel_wait_seconds(self) -> float:
         """Return the total budget for a parallel source search.
@@ -1122,10 +1172,12 @@ class AppleCmsClient:
         return deadline is not None and time.monotonic() >= deadline
 
     def _request(self, source: CmsSource, **params: Any) -> Mapping[str, Any]:
-        query = urllib.parse.urlencode({key: value for key, value in params.items() if value not in (None, "")})
+        query = urllib.parse.urlencode(
+            {key: value for key, value in params.items() if value not in (None, "")}
+        )
         separator = "&" if "?" in source.api else "?"
         url = f"{source.api}{separator}{query}" if query else source.api
-        payload = _json_get(url, self.timeout)
+        payload = _json_get(url, self.timeout, self.allowed_private_ranges)
         if not isinstance(payload, Mapping):
             raise ValueError("CMS 响应不是 JSON 对象")
         return payload
