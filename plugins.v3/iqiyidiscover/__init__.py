@@ -1,5 +1,6 @@
 import asyncio
 import json
+import threading
 import time
 from typing import Any, List, Dict, Tuple, Optional
 
@@ -167,7 +168,7 @@ class IqiyiDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/iqiyi_A.png"
     # 插件版本
-    plugin_version = "2.1.1"
+    plugin_version = "2.1.2"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -205,13 +206,8 @@ class IqiyiDiscover(_PluginBase):
                 self._cookie = self.get_data("iqiyi_cookie") or ""
             # 无有效 Cookie 时后台预获取，不阻塞插件加载
             if not self._cookie:
-                try:
-                    import asyncio
-                    self._cookie_task = asyncio.create_task(self._async_auto_refresh_cookie())
-                except RuntimeError:
-                    # 无事件循环时（如同步初始化），退化为线程预获取
-                    import threading
-                    threading.Thread(target=self._auto_refresh_cookie, daemon=True).start()
+                self._cookie_task = threading.Thread(target=self._auto_refresh_cookie, daemon=True)
+                self._cookie_task.start()
 
     def get_state(self) -> bool:
         """
@@ -460,8 +456,11 @@ class IqiyiDiscover(_PluginBase):
                 return False
             self._cookie = cookie_str
             self._cookie_refresh_time = time.time()
-            # 持久化 Cookie，避免重启后重新获取
-            self.save_data("iqiyi_cookie", cookie_str)
+            # 持久化 Cookie 到插件数据存储，避免覆盖插件配置（enabled 等）
+            try:
+                self.save_data("iqiyi_cookie", cookie_str)
+            except Exception as err:
+                logger.warning(f"保存爱奇艺 Cookie 到数据存储失败: {str(err)}")
             logger.info(f"成功获取爱奇艺 Cookie（{len(cookies)} 项）")
             return True
         except Exception as err:
@@ -623,12 +622,13 @@ class IqiyiDiscover(_PluginBase):
         params["page_id"] = str(page)
         params["filter"] = filter_params or '{"mode":"11"}'
         headers = dict(HEADERS)
-        # 若 Cookie 为空且后台预获取任务存在，等待预获取完成，避免首次请求失败
-        if not self._cookie and self._cookie_task:
-            try:
-                await self._cookie_task
-            except Exception:
-                pass
+        # 若 Cookie 为空，等待后台预获取完成（共享同一个刷新任务，避免重复抓取）
+        if not self._cookie:
+            if self._cookie_task and self._cookie_task.is_alive():
+                await asyncio.to_thread(self._cookie_task.join)
+            else:
+                # 无进行中的刷新任务时，同步获取（用 asyncio.to_thread 避免阻塞事件循环）
+                await asyncio.to_thread(self._auto_refresh_cookie)
             self._cookie_task = None
         # 携带 Cookie 绕过爱奇艺风控，并从 Cookie 中提取设备ID（QC005）
         if self._cookie:
@@ -643,17 +643,11 @@ class IqiyiDiscover(_PluginBase):
             if not res.ok:
                 raise ValueError(f"请求爱奇艺 API失败：{res.text}")
             data = res.json()
-            # 风控拦截时返回空数据，自动刷新 Cookie 后重试一次
+            # 风控拦截时返回空数据，后台预刷新 Cookie（不阻塞当前请求），下次请求复用
             if data.get("code") == 0 and not data.get("data"):
-                logger.warning("爱奇艺接口返回空数据，可能被风控拦截，尝试自动刷新 Cookie")
-                if await self._async_auto_refresh_cookie():
-                    headers["Cookie"] = self._cookie
-                    device_id = self.__extract_device_id(self._cookie)
-                    if device_id:
-                        params["device_id"] = device_id
-                    res = RequestUtils(headers=headers).get_res(VIDEOLIB_DATA_URL, params=params)
-                    if res is not None and res.ok:
-                        data = res.json()
+                logger.warning("爱奇艺接口返回空数据，可能被风控拦截，后台预刷新 Cookie")
+                # 后台预刷新 Cookie，避免阻塞当前请求
+                threading.Thread(target=self._auto_refresh_cookie, daemon=True).start()
             return data.get("data") or []
         except Exception as err:
             logger.error(f"获取爱奇艺数据失败: {str(err)}")

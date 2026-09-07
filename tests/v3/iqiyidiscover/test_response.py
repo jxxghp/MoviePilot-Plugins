@@ -1,3 +1,4 @@
+import asyncio
 from typing import List
 
 from app import schemas
@@ -19,7 +20,7 @@ def test_discover_rejects_invalid_token_with_empty_response() -> None:
     plugin = object.__new__(IqiyiDiscover)
 
     endpoint = plugin.get_api()[0]["endpoint"]
-    response = endpoint(apikey=f"{settings.API_TOKEN}-invalid")
+    response = asyncio.run(endpoint(apikey=f"{settings.API_TOKEN}-invalid"))
 
     assert response.success is True
     assert response.data == []
