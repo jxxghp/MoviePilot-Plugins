@@ -168,7 +168,7 @@ class IqiyiDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/iqiyi_A.png"
     # 插件版本
-    plugin_version = "2.1.2"
+    plugin_version = "2.1.3"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -489,6 +489,27 @@ class IqiyiDiscover(_PluginBase):
         """
         return await asyncio.to_thread(self._auto_refresh_cookie)
 
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        返回插件定时服务列表。
+
+        每 8 小时后台预刷新爱奇艺 Cookie，避免 Cookie 失效后阻塞请求。
+
+        :return: 定时服务列表
+        """
+        if not self.get_state():
+            return []
+        from apscheduler.triggers.cron import CronTrigger
+        return [
+            {
+                "id": "IqiyiDiscover.RefreshCookie",
+                "name": "爱奇艺探索Cookie定时刷新",
+                "trigger": CronTrigger.from_crontab("0 */8 * * *"),
+                "func": self._auto_refresh_cookie,
+                "kwargs": {},
+            }
+        ]
+
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
         """
@@ -590,7 +611,7 @@ class IqiyiDiscover(_PluginBase):
                                     {
                                         "component": "div",
                                         "props": {"class": "text-body-1"},
-                                        "text": "爱奇艺接口有风控，插件会通过浏览器自动获取 Cookie（含 __dfp 设备指纹）以绕过风控。Cookie 有效期约 15 天，失效后插件会自动重新获取。如需手动配置，可访问 iqiyi.com/list/tv/ 后从浏览器开发者工具复制 Cookie 填入上方。",
+                                        "text": "爱奇艺接口有风控，插件会通过浏览器自动获取 Cookie（含 __dfp 设备指纹）以绕过风控。插件每 8 小时自动预刷新 Cookie，失效时也会自动重新获取。如需手动配置，可访问 iqiyi.com/list/tv/ 后从浏览器开发者工具复制 Cookie 填入上方。",
                                     }
                                 ],
                             },
@@ -643,11 +664,22 @@ class IqiyiDiscover(_PluginBase):
             if not res.ok:
                 raise ValueError(f"请求爱奇艺 API失败：{res.text}")
             data = res.json()
-            # 风控拦截时返回空数据，后台预刷新 Cookie（不阻塞当前请求），下次请求复用
+            # 风控拦截时返回空数据：若 Cookie 刚同步获取，重试一次；否则后台预刷新，下次请求复用
             if data.get("code") == 0 and not data.get("data"):
-                logger.warning("爱奇艺接口返回空数据，可能被风控拦截，后台预刷新 Cookie")
-                # 后台预刷新 Cookie，避免阻塞当前请求
-                threading.Thread(target=self._auto_refresh_cookie, daemon=True).start()
+                logger.warning("爱奇艺接口返回空数据，可能被风控拦截")
+                # 同步获取 Cookie 后重试一次，避免首次打开 404
+                if not self._cookie_refresh_time or time.time() - self._cookie_refresh_time < 60:
+                    if await self._async_auto_refresh_cookie():
+                        headers["Cookie"] = self._cookie
+                        device_id = self.__extract_device_id(self._cookie)
+                        if device_id:
+                            params["device_id"] = device_id
+                        res = RequestUtils(headers=headers).get_res(VIDEOLIB_DATA_URL, params=params)
+                        if res is not None and res.ok:
+                            data = res.json()
+                else:
+                    # Cookie 已存在但失效，后台预刷新，下次请求复用
+                    threading.Thread(target=self._auto_refresh_cookie, daemon=True).start()
             return data.get("data") or []
         except Exception as err:
             logger.error(f"获取爱奇艺数据失败: {str(err)}")
