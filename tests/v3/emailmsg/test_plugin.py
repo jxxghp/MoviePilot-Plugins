@@ -384,17 +384,23 @@ def test_build_html_poster_full_template() -> None:
 
 
 def test_parse_text_fields() -> None:
-    """正文应被解析为字段列表，兼容逗号与换行分隔。"""
+    """正文应被解析为字段列表，兼容逗号与换行分隔，并保留值内标点。"""
     plugin = _make_plugin()
     fields = plugin._parse_text_fields(
         "类型：电影，类别：外语电影，质量： WEB-DL 1080p，共1个文件，大小：5.26G"
     )
     assert ("类型", "电影") in fields
     assert ("类别", "外语电影") in fields
-    assert ("质量", "WEB-DL 1080p") in fields
     assert ("大小", "5.26G") in fields
+    # 值内逗号应保留（共1个文件并入质量值，完整展示不丢失信息）
+    assert any(name == "质量" and "WEB-DL 1080p" in value for name, value in fields)
 
     # 换行分隔
     fields2 = plugin._parse_text_fields("站点：憨憨\n质量： WEB-DL 1080p\n大小：18.89G")
     assert ("站点", "憨憨") in fields2
     assert ("大小", "18.89G") in fields2
+
+    # 值内逗号应保留，不被当作分隔符丢弃
+    fields3 = plugin._parse_text_fields("文件名：Movie, Part 1.mkv，大小：5.26G")
+    assert any(value == "Movie, Part 1.mkv" for _, value in fields3)
+    assert ("大小", "5.26G") in fields3
