@@ -483,6 +483,7 @@ class EmailMsg(_PluginBase):
         """解析通知正文为 (字段名, 值) 列表。
 
         支持逗号、换行分隔的「字段名：值」格式，也兼容无字段名的纯文本。
+        字段值内的逗号、分号等标点会被保留，避免正文失真。
         :param text: 通知正文
         :return: (字段名, 值) 元组列表
         """
@@ -490,18 +491,30 @@ class EmailMsg(_PluginBase):
             return []
         import re as _re
         fields = []
-        # 按逗号、换行、分号拆分
-        parts = _re.split(r"[,，;；\n]+", text)
-        for part in parts:
-            part = part.strip()
-            if not part:
-                continue
-            # 匹配「字段名：值」或「字段名:值」
-            m = _re.match(r"^([^：:]{1,20})[：:]\s*(.+)$", part)
-            if m:
-                fields.append((m.group(1).strip(), m.group(2).strip()))
-            else:
-                fields.append(("", part))
+        # 匹配「字段名：」位置（字段名不含冒号、逗号、分号、换行）
+        field_re = _re.compile(r"([^：:，,;；\n]{1,20})[：:]")
+        matches = list(field_re.finditer(text))
+        if not matches:
+            # 无字段名结构，按换行拆分保留纯文本
+            for part in _re.split(r"\n+", text):
+                part = part.strip()
+                if part:
+                    fields.append(("", part))
+            return fields
+        # 处理第一个字段名之前的纯文本
+        if matches[0].start() > 0:
+            prefix = text[:matches[0].start()].strip()
+            if prefix:
+                fields.append(("", prefix))
+        # 处理每个字段：值从冒号后到下一个字段名前，保留值内标点
+        for i, m in enumerate(matches):
+            name = m.group(1).strip()
+            start = m.end()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+            value = text[start:end].strip()
+            # 仅去掉值末尾的分隔符（逗号/分号/换行）
+            value = _re.sub(r"[，,;；\n]+$", "", value).strip()
+            fields.append((name, value))
         return fields
 
     def _build_html(self, title: str, text: str, image: Optional[str] = None,
@@ -695,7 +708,7 @@ class EmailMsg(_PluginBase):
                                 safe_type: str) -> str:
         """海报铺满背景模板：横屏海报铺满背景 + 文本浮层 + 字段胶囊标签。"""
         import html as html_lib
-        # 字段胶囊标签
+        # 字段胶囊标签（fields 已转义，不再重复转义）
         tags_html = ""
         if fields:
             tag_items = []
@@ -706,7 +719,7 @@ class EmailMsg(_PluginBase):
                     'background:rgba(255,255,255,0.15);color:#ffffff;'
                     'border-radius:14px;font-size:12px;backdrop-filter:blur(4px);'
                     'border:1px solid rgba(255,255,255,0.15);">'
-                    f'{html_lib.escape(label)}</span>'
+                    f'{label}</span>'
                 )
             # 两行标签
             half = (len(tag_items) + 1) // 2
@@ -726,15 +739,25 @@ class EmailMsg(_PluginBase):
                 'text-decoration:none;border-radius:26px;font-size:14px;'
                 'font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,0.3);">查看详情</a>'
             )
+        # 海报背景：有 image 时用图片铺满，无 image 时用纯色背景
+        if image:
+            bg_html = (
+                f'<img src="{html_lib.escape(image)}" alt="海报" '
+                'style="width:100%;min-height:520px;object-fit:cover;display:block;'
+                'position:absolute;top:0;left:0;right:0;bottom:0;z-index:0;"/>'
+            )
+        else:
+            bg_html = (
+                '<div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:0;'
+                'background:linear-gradient(135deg,#1e293b,#334155);"></div>'
+            )
         return (
             '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"></head>'
             '<body style="margin:0;padding:0;background-color:#111827;font-family:'
             '\'Helvetica Neue\',Helvetica,Arial,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;">'
             '<div style="max-width:600px;margin:24px auto;border-radius:20px;'
             'overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.5);position:relative;">'
-            f'<img src="{html_lib.escape(image or "")}" alt="海报" '
-            'style="width:100%;min-height:520px;object-fit:cover;display:block;'
-            'position:absolute;top:0;left:0;right:0;bottom:0;z-index:0;"/>'
+            f'{bg_html}'
             '<div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:1;'
             'background:linear-gradient(180deg,rgba(0,0,0,0.4) 0%,rgba(0,0,0,0.15) 40%,'
             'rgba(0,0,0,0.85) 100%);"></div>'
