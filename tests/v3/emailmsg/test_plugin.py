@@ -14,7 +14,7 @@ def test_plugin_metadata() -> None:
     """插件元数据应与市场索引保持一致。"""
     plugin = _make_plugin()
     assert plugin.plugin_name == "邮箱通知"
-    assert plugin.plugin_version == "1.1.0"
+    assert plugin.plugin_version == "1.2.0"
     assert plugin.plugin_config_prefix == "emailmsg_"
 
 
@@ -285,25 +285,30 @@ def test_send_custom_notification_no_recipient(mock_switch) -> None:
 def test_build_html_renders_poster_link_and_type() -> None:
     """HTML 正文应包含海报、链接按钮、类型标签与标题。"""
     plugin = _make_plugin()
+    plugin._template = "dark_card"
     html = plugin._build_html(
         "侏罗纪世界：重生 (2025) 开始下载",
-        "下载任务已添加，正在下载中。",
+        "类型：电影，类别：外语电影，质量： WEB-DL 1080p，共1个文件，大小：5.26G",
         image="https://tmdb.example.com/t/p/w500/poster.jpg",
         link="https://mp.example.com/#/downloading",
         msg_type="资源下载",
     )
     assert html.startswith("<!DOCTYPE html>")
     assert "侏罗纪世界：重生" in html
-    assert "正在下载中" in html
     assert "资源下载" in html
     assert "https://tmdb.example.com/t/p/w500/poster.jpg" in html
     assert "查看详情" in html
     assert "https://mp.example.com/#/downloading" in html
+    # 正文字段应被解析展示
+    assert "类型" in html
+    assert "电影" in html
+    assert "18.89G" in html or "5.26G" in html
 
 
 def test_build_html_escapes_content() -> None:
     """HTML 正文应转义标题与文本，避免注入。"""
     plugin = _make_plugin()
+    plugin._template = "dark_card"
     html = plugin._build_html(
         "<script>alert(1)</script>",
         "文本 <b>加粗</b>",
@@ -317,6 +322,85 @@ def test_build_html_escapes_content() -> None:
 def test_build_html_without_poster_and_link() -> None:
     """无海报和链接时不渲染海报与按钮区域。"""
     plugin = _make_plugin()
+    plugin._template = "dark_card"
     html = plugin._build_html("标题", "正文", msg_type="通知")
     assert "查看详情" not in html
     assert "<img" not in html
+
+
+def test_build_html_dark_card_template() -> None:
+    """深色渐变卡片模板应包含深色背景与字段列表。"""
+    plugin = _make_plugin()
+    html = plugin._build_html(
+        "3体 (2024) S01 E01-E08 已入库",
+        "类型：电视剧，类别：欧美剧，质量： WEB-DL 1080p，共8个文件，大小：18.89G",
+        image="https://tmdb.example.com/t/p/w500/poster.jpg",
+        link="https://mp.example.com/#/history",
+        msg_type="整理入库",
+        template="dark_card",
+    )
+    assert "background-color:#0f172a" in html
+    assert "background-color:#1e293b" in html
+    assert "类型" in html
+    assert "电视剧" in html
+    assert "18.89G" in html
+    assert "查看详情" in html
+
+
+def test_build_html_poster_hero_template() -> None:
+    """海报大字报模板应包含海报顶图与由上至下排列的字段。"""
+    plugin = _make_plugin()
+    html = plugin._build_html(
+        "3体 (2024) S01 E01-E08 已入库",
+        "类型：电视剧，类别：欧美剧，质量： WEB-DL 1080p，共8个文件，大小：18.89G",
+        image="https://tmdb.example.com/t/p/w500/poster.jpg",
+        link="https://mp.example.com/#/history",
+        msg_type="整理入库",
+        template="poster_hero",
+    )
+    assert "object-fit:cover" in html
+    assert "类型：电视剧" in html
+    assert "类别：欧美剧" in html
+    assert "18.89G" in html
+    assert "查看详情" in html
+
+
+def test_build_html_poster_full_template() -> None:
+    """海报铺满背景模板应包含铺满背景的海报与胶囊标签。"""
+    plugin = _make_plugin()
+    html = plugin._build_html(
+        "3体 (2024) S01 E01-E08 已入库",
+        "类型：电视剧，类别：欧美剧，质量： WEB-DL 1080p，共8个文件，大小：18.89G",
+        image="https://tmdb.example.com/t/p/w500/poster.jpg",
+        link="https://mp.example.com/#/history",
+        msg_type="整理入库",
+        template="poster_full",
+    )
+    assert "position:absolute" in html
+    assert "min-height:520px" in html
+    assert "类型：电视剧" in html
+    assert "18.89G" in html
+    assert "查看详情" in html
+
+
+def test_parse_text_fields() -> None:
+    """正文应被解析为字段列表，兼容逗号与换行分隔，并保留值内标点。"""
+    plugin = _make_plugin()
+    fields = plugin._parse_text_fields(
+        "类型：电影，类别：外语电影，质量： WEB-DL 1080p，共1个文件，大小：5.26G"
+    )
+    assert ("类型", "电影") in fields
+    assert ("类别", "外语电影") in fields
+    assert ("大小", "5.26G") in fields
+    # 值内逗号应保留（共1个文件并入质量值，完整展示不丢失信息）
+    assert any(name == "质量" and "WEB-DL 1080p" in value for name, value in fields)
+
+    # 换行分隔
+    fields2 = plugin._parse_text_fields("站点：憨憨\n质量： WEB-DL 1080p\n大小：18.89G")
+    assert ("站点", "憨憨") in fields2
+    assert ("大小", "18.89G") in fields2
+
+    # 值内逗号应保留，不被当作分隔符丢弃
+    fields3 = plugin._parse_text_fields("文件名：Movie, Part 1.mkv，大小：5.26G")
+    assert any(value == "Movie, Part 1.mkv" for _, value in fields3)
+    assert ("大小", "5.26G") in fields3
