@@ -29,7 +29,7 @@ class EmailMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Email_A.png"
     # 插件版本
-    plugin_version = "1.1.0"
+    plugin_version = "1.2.0"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -49,6 +49,14 @@ class EmailMsg(_PluginBase):
     _sender = None
     _password = None
     _msgtypes = []
+    _template = "dark_card"
+
+    # 通知模板选项：按特点命名
+    TEMPLATES = {
+        "dark_card": "深色渐变卡片",
+        "poster_hero": "海报大字报",
+        "poster_full": "海报铺满背景",
+    }
 
     def init_plugin(self, config: dict = None) -> None:
         """根据插件配置初始化运行状态。"""
@@ -60,6 +68,7 @@ class EmailMsg(_PluginBase):
         self._sender = config.get("sender")
         self._password = config.get("password")
         self._msgtypes = config.get("msgtypes") or []
+        self._template = config.get("template") or "dark_card"
 
     def get_state(self) -> bool:
         """获取插件启用状态。"""
@@ -245,6 +254,31 @@ class EmailMsg(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'template',
+                                            'label': '通知模板',
+                                            'items': [
+                                                {'title': v, 'value': k}
+                                                for k, v in self.TEMPLATES.items()
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
                                 },
                                 'content': [
                                     {
@@ -334,7 +368,8 @@ class EmailMsg(_PluginBase):
             "sender": "",
             "password": "",
             "ssl": True,
-            "msgtypes": []
+            "msgtypes": [],
+            "template": "dark_card"
         }
 
     def get_page(self) -> Optional[List[dict]]:
@@ -444,8 +479,34 @@ class EmailMsg(_PluginBase):
         # 去重
         return list(dict.fromkeys(recipients))
 
+    def _parse_text_fields(self, text: str) -> List[tuple]:
+        """解析通知正文为 (字段名, 值) 列表。
+
+        支持逗号、换行分隔的「字段名：值」格式，也兼容无字段名的纯文本。
+        :param text: 通知正文
+        :return: (字段名, 值) 元组列表
+        """
+        if not text:
+            return []
+        import re as _re
+        fields = []
+        # 按逗号、换行、分号拆分
+        parts = _re.split(r"[,，;；\n]+", text)
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            # 匹配「字段名：值」或「字段名:值」
+            m = _re.match(r"^([^：:]{1,20})[：:]\s*(.+)$", part)
+            if m:
+                fields.append((m.group(1).strip(), m.group(2).strip()))
+            else:
+                fields.append(("", part))
+        return fields
+
     def _build_html(self, title: str, text: str, image: Optional[str] = None,
-                    link: Optional[str] = None, msg_type: Optional[str] = None) -> str:
+                    link: Optional[str] = None, msg_type: Optional[str] = None,
+                    template: Optional[str] = None) -> str:
         """生成美化后的 HTML 邮件正文。
 
         :param title: 邮件标题
@@ -453,80 +514,246 @@ class EmailMsg(_PluginBase):
         :param image: 海报图片地址
         :param link: 跳转链接
         :param msg_type: 消息类型名称
+        :param template: 通知模板（dark_card/poster_hero/poster_full）
         :return: HTML 字符串
         """
-        # 转义文本，避免 HTML 注入
         import html as html_lib
+        template = template or self._template or "dark_card"
         safe_title = html_lib.escape(title or "MoviePilot 通知")
-        safe_text = html_lib.escape(text or "")
-        # 将纯文本换行转换为 <br>
-        safe_text = safe_text.replace("\n", "<br>")
         safe_type = html_lib.escape(msg_type or "通知")
+        # 解析正文字段
+        fields = self._parse_text_fields(text)
+        # 转义字段
+        safe_fields = [
+            (html_lib.escape(name), html_lib.escape(value))
+            for name, value in fields
+        ]
 
+        if template == "poster_full":
+            return self._build_html_poster_full(
+                safe_title, safe_fields, image, link, safe_type
+            )
+        if template == "poster_hero":
+            return self._build_html_poster_hero(
+                safe_title, safe_fields, image, link, safe_type
+            )
+        return self._build_html_dark_card(
+            safe_title, safe_fields, image, link, safe_type
+        )
+
+    def _build_html_dark_card(self, safe_title: str, fields: List[tuple],
+                              image: Optional[str], link: Optional[str],
+                              safe_type: str) -> str:
+        """深色渐变卡片模板：横屏海报 + 字段名值靠左列表。"""
+        import html as html_lib
         # 海报区域
         poster_html = ""
         if image:
             poster_html = (
-                '<div style="text-align:center;margin:0 0 20px 0;">'
+                '<div style="text-align:center;margin:0 0 22px 0;">'
                 f'<img src="{html_lib.escape(image)}" alt="海报" '
-                'style="max-width:100%;max-height:320px;border-radius:12px;'
-                'box-shadow:0 4px 16px rgba(0,0,0,0.15);display:block;margin:0 auto;"/>'
+                'style="max-width:100%;max-height:300px;border-radius:14px;'
+                'box-shadow:0 6px 24px rgba(0,0,0,0.5);display:block;margin:0 auto;'
+                'border:1px solid rgba(255,255,255,0.1);"/>'
                 '</div>'
             )
-
-        # 链接按钮区域
+        # 字段列表（靠左）
+        field_rows = ""
+        for name, value in fields:
+            if name:
+                field_rows += (
+                    f'<div style="margin-bottom:8px;">'
+                    f'<span style="color:#94a3b8;">{name}：</span>'
+                    f'<span style="font-weight:600;">{value}</span></div>'
+                )
+            else:
+                field_rows += (
+                    f'<div style="margin-bottom:8px;color:#e2e8f0;">{value}</div>'
+                )
+        fields_html = ""
+        if field_rows:
+            fields_html = (
+                '<div style="background:rgba(255,255,255,0.04);border-radius:12px;'
+                'padding:18px 20px;margin-bottom:22px;border:1px solid rgba(255,255,255,0.06);">'
+                f'<div style="font-size:13px;color:#e2e8f0;line-height:1.9;text-align:left;">'
+                f'{field_rows}</div></div>'
+            )
+        # 按钮
         button_html = ""
         if link:
             button_html = (
-                '<div style="text-align:center;margin:24px 0 0 0;">'
+                '<div style="text-align:center;margin:0;">'
                 f'<a href="{html_lib.escape(link)}" '
-                'style="display:inline-block;padding:12px 28px;background:#3f51b5;color:#ffffff;'
-                'text-decoration:none;border-radius:24px;font-size:14px;font-weight:600;">'
-                '查看详情</a>'
+                'style="display:inline-block;padding:13px 32px;'
+                'background:linear-gradient(90deg,#6366f1,#8b5cf6);color:#ffffff;'
+                'text-decoration:none;border-radius:26px;font-size:14px;font-weight:600;'
+                'box-shadow:0 4px 16px rgba(99,102,241,0.4);">查看详情</a>'
                 '</div>'
             )
-
-        # 顶部色条
-        top_bar = '<div style="height:6px;background:linear-gradient(90deg,#3f51b5,#7c4dff);"></div>'
-        # 内容区
-        content_area = (
-            '<div style="padding:32px 32px 28px 32px;">'
-            # 类型标签
-            f'<div style="margin-bottom:16px;"><span style="display:inline-block;'
-            'padding:4px 12px;background:#eef0fb;color:#3f51b5;border-radius:12px;'
-            f'font-size:12px;font-weight:600;">{safe_type}</span></div>'
-            # 标题
-            f'<h1 style="margin:0 0 16px 0;font-size:20px;color:#1a1a1a;line-height:1.4;">'
-            f'{safe_title}</h1>'
-            # 海报
+        return (
+            '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"></head>'
+            '<body style="margin:0;padding:0;background-color:#0f172a;font-family:'
+            '\'Helvetica Neue\',Helvetica,Arial,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;">'
+            '<div style="max-width:600px;margin:24px auto;background-color:#1e293b;'
+            'border-radius:20px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.4);">'
+            '<div style="height:8px;background:linear-gradient(90deg,#6366f1,#8b5cf6,#ec4899);"></div>'
+            '<div style="padding:36px 36px 30px 36px;">'
+            f'<div style="margin-bottom:18px;"><span style="display:inline-block;'
+            'padding:5px 14px;background:rgba(99,102,241,0.2);color:#a5b4fc;'
+            'border-radius:20px;font-size:12px;font-weight:600;letter-spacing:0.5px;">'
+            f'{safe_type}</span></div>'
+            f'<h1 style="margin:0 0 20px 0;font-size:22px;color:#f1f5f9;'
+            f'line-height:1.4;font-weight:700;">{safe_title}</h1>'
             f'{poster_html}'
-            # 正文
-            f'<div style="font-size:14px;color:#555555;line-height:1.8;">{safe_text}</div>'
-            # 按钮
+            f'{fields_html}'
             f'{button_html}'
             '</div>'
-        )
-        # 底部
-        footer = (
-            '<div style="padding:16px 32px;background-color:#fafafa;border-top:1px solid #eeeeee;'
-            'text-align:center;font-size:12px;color:#999999;">'
-            '此邮件由 MoviePilot 邮箱通知插件自动发送</div>'
+            '<div style="padding:16px 36px;background-color:#0f172a;'
+            'border-top:1px solid rgba(255,255,255,0.06);text-align:center;'
+            'font-size:12px;color:#64748b;">此邮件由 MoviePilot 邮箱通知插件自动发送</div>'
+            '</div></body></html>'
         )
 
+    def _build_html_poster_hero(self, safe_title: str, fields: List[tuple],
+                                image: Optional[str], link: Optional[str],
+                                safe_type: str) -> str:
+        """海报大字报模板：横屏海报全宽顶图 + 标题叠加 + 字段由上至下排列。"""
+        import html as html_lib
+        # 海报顶图
+        poster_html = ""
+        if image:
+            poster_html = (
+                '<div style="position:relative;height:300px;overflow:hidden;">'
+                f'<img src="{html_lib.escape(image)}" alt="海报" '
+                'style="width:100%;height:100%;object-fit:cover;display:block;"/>'
+                '<div style="position:absolute;bottom:0;left:0;right:0;height:130px;'
+                'background:linear-gradient(180deg,transparent,rgba(0,0,0,0.75));"></div>'
+                '<div style="position:absolute;bottom:20px;left:24px;right:24px;">'
+                f'<span style="display:inline-block;padding:3px 10px;'
+                'background:rgba(255,255,255,0.25);color:#ffffff;border-radius:4px;'
+                'font-size:12px;font-weight:600;backdrop-filter:blur(4px);'
+                f'margin-bottom:8px;">{safe_type}</span>'
+                f'<h1 style="margin:0;font-size:24px;color:#ffffff;line-height:1.4;'
+                f'font-weight:800;text-shadow:0 2px 8px rgba(0,0,0,0.5);">{safe_title}</h1>'
+                '</div></div>'
+            )
+        else:
+            poster_html = (
+                '<div style="padding:24px 28px 0 28px;">'
+                f'<span style="display:inline-block;padding:3px 10px;'
+                'background:#f3f4f6;color:#374151;border-radius:4px;'
+                f'font-size:12px;font-weight:600;">{safe_type}</span>'
+                f'<h1 style="margin:12px 0 0 0;font-size:24px;color:#111827;'
+                f'line-height:1.4;font-weight:800;">{safe_title}</h1></div>'
+            )
+        # 字段由上至下排列
+        field_rows = ""
+        for name, value in fields:
+            if name:
+                field_rows += (
+                    f'<div style="margin-bottom:6px;">{name}：{value}</div>'
+                )
+            else:
+                field_rows += f'<div style="margin-bottom:6px;">{value}</div>'
+        fields_html = ""
+        if field_rows:
+            fields_html = (
+                '<div style="font-size:14px;color:#374151;line-height:1.9;'
+                f'margin-bottom:18px;text-align:left;">{field_rows}</div>'
+                '<div style="border-top:1px solid #f3f4f6;margin-bottom:18px;"></div>'
+            )
+        # 按钮
+        button_html = ""
+        if link:
+            button_html = (
+                '<div style="text-align:center;">'
+                f'<a href="{html_lib.escape(link)}" '
+                'style="display:inline-block;padding:12px 36px;background:#111827;'
+                'color:#ffffff;text-decoration:none;border-radius:8px;'
+                'font-size:14px;font-weight:600;letter-spacing:0.5px;">查看详情</a>'
+                '</div>'
+            )
         return (
-            '<!DOCTYPE html>'
-            '<html lang="zh-CN">'
-            '<head><meta charset="utf-8"></head>'
-            '<body style="margin:0;padding:0;background-color:#f4f5f7;font-family:'
+            '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"></head>'
+            '<body style="margin:0;padding:0;background-color:#fafafa;font-family:'
             '\'Helvetica Neue\',Helvetica,Arial,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;">'
             '<div style="max-width:600px;margin:24px auto;background-color:#ffffff;'
-            'border-radius:16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">'
-            f'{top_bar}'
-            f'{content_area}'
-            f'{footer}'
+            'border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.1);">'
+            f'{poster_html}'
+            '<div style="padding:24px 28px 28px 28px;">'
+            f'{fields_html}'
+            f'{button_html}'
             '</div>'
-            '</body>'
-            '</html>'
+            '<div style="padding:14px 28px;background-color:#f9fafb;'
+            'border-top:1px solid #f3f4f6;text-align:center;font-size:12px;'
+            'color:#9ca3af;">此邮件由 MoviePilot 邮箱通知插件自动发送</div>'
+            '</div></body></html>'
+        )
+
+    def _build_html_poster_full(self, safe_title: str, fields: List[tuple],
+                                image: Optional[str], link: Optional[str],
+                                safe_type: str) -> str:
+        """海报铺满背景模板：横屏海报铺满背景 + 文本浮层 + 字段胶囊标签。"""
+        import html as html_lib
+        # 字段胶囊标签
+        tags_html = ""
+        if fields:
+            tag_items = []
+            for name, value in fields:
+                label = f"{name}：{value}" if name else value
+                tag_items.append(
+                    f'<span style="display:inline-block;padding:4px 12px;'
+                    'background:rgba(255,255,255,0.15);color:#ffffff;'
+                    'border-radius:14px;font-size:12px;backdrop-filter:blur(4px);'
+                    'border:1px solid rgba(255,255,255,0.15);">'
+                    f'{html_lib.escape(label)}</span>'
+                )
+            # 两行标签
+            half = (len(tag_items) + 1) // 2
+            row1 = "".join(tag_items[:half])
+            row2 = "".join(tag_items[half:])
+            tags_html = (
+                f'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">{row1}</div>'
+                f'<div style="display:flex;flex-wrap:wrap;gap:8px;">{row2}</div>'
+            )
+        # 按钮
+        button_html = ""
+        if link:
+            button_html = (
+                f'<a href="{html_lib.escape(link)}" '
+                'style="display:inline-block;padding:13px 34px;'
+                'background:rgba(255,255,255,0.95);color:#111827;'
+                'text-decoration:none;border-radius:26px;font-size:14px;'
+                'font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,0.3);">查看详情</a>'
+            )
+        return (
+            '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"></head>'
+            '<body style="margin:0;padding:0;background-color:#111827;font-family:'
+            '\'Helvetica Neue\',Helvetica,Arial,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;">'
+            '<div style="max-width:600px;margin:24px auto;border-radius:20px;'
+            'overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.5);position:relative;">'
+            f'<img src="{html_lib.escape(image or "")}" alt="海报" '
+            'style="width:100%;min-height:520px;object-fit:cover;display:block;'
+            'position:absolute;top:0;left:0;right:0;bottom:0;z-index:0;"/>'
+            '<div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:1;'
+            'background:linear-gradient(180deg,rgba(0,0,0,0.4) 0%,rgba(0,0,0,0.15) 40%,'
+            'rgba(0,0,0,0.85) 100%);"></div>'
+            '<div style="position:relative;z-index:2;min-height:520px;display:flex;'
+            'flex-direction:column;justify-content:space-between;padding:32px 28px 28px 28px;'
+            'box-sizing:border-box;">'
+            f'<div><span style="display:inline-block;padding:5px 14px;'
+            'background:rgba(255,255,255,0.2);color:#ffffff;border-radius:20px;'
+            'font-size:12px;font-weight:600;letter-spacing:0.5px;'
+            'backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,0.25);">'
+            f'{safe_type}</span></div>'
+            '<div>'
+            f'<h1 style="margin:0 0 16px 0;font-size:26px;color:#ffffff;'
+            f'line-height:1.4;font-weight:800;text-shadow:0 2px 12px rgba(0,0,0,0.6);">'
+            f'{safe_title}</h1>'
+            f'<div style="margin-bottom:22px;">{tags_html}</div>'
+            f'{button_html}'
+            '</div>'
+            '</div></div></body></html>'
         )
 
     def _send_mail(self, recipients: List[str], title: str, text: str,
