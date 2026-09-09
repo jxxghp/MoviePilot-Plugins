@@ -16,6 +16,17 @@ from app.plugins.lunatvsource.downloader import (
 )
 
 
+def _persisted_items(value):
+    """Return task records from either legacy storage or the versioned envelope."""
+    items = value.get("items", []) if isinstance(value, dict) else value or []
+    return [
+        item.get("task", item)
+        if isinstance(item, dict) and isinstance(item.get("task"), dict)
+        else item
+        for item in items
+    ]
+
+
 def test_queue_is_serial_and_deduplicates(tmp_path: Path):
     data = {}
     notifications = []
@@ -78,7 +89,7 @@ def test_queue_persistence_keeps_non_terminal_tasks_and_caps_terminal_history(
         ]
     )
 
-    persisted = data[queue.DATA_KEY]
+    persisted = _persisted_items(data[queue.DATA_KEY])
     assert [item["task_id"] for item in persisted] == (
         [f"terminal-{index}" for index in range(1, 501)]
         + pending_ids
@@ -101,7 +112,7 @@ def test_queue_persistence_keeps_non_terminal_tasks_and_caps_terminal_history(
     assert executed == pending_ids
     assert sum(
         item["state"] in {"completed", "failed"}
-        for item in data[queue.DATA_KEY]
+        for item in _persisted_items(data[queue.DATA_KEY])
     ) == 500
 
 
@@ -208,7 +219,9 @@ def test_queue_recovers_after_running_state_persistence_failure(tmp_path: Path):
 
     def save(key, value):
         nonlocal fail_running_save
-        if fail_running_save and any(item["state"] == "running" for item in value):
+        if fail_running_save and any(
+            item["state"] == "running" for item in _persisted_items(value)
+        ):
             fail_running_save = False
             running_save_failed.set()
             raise RuntimeError("temporary persistence failure")
@@ -249,7 +262,7 @@ def test_queue_recovers_after_running_state_persistence_failure(tmp_path: Path):
         assert queue._current_task_id == ""
         assert queue._control_action == ""
         assert queue._idle_event.is_set()
-    assert data[queue.DATA_KEY][0]["state"] == "pending"
+    assert _persisted_items(data[queue.DATA_KEY])[0]["state"] == "pending"
 
     assert queue.wake() is True
     assert completed.wait(timeout=2)
@@ -495,7 +508,7 @@ def test_queue_clears_stale_progress_during_pending_pause_and_resume(tmp_path: P
     assert queue.list_tasks()[0]["state"] == "paused"
     assert queue.list_tasks()[0]["progress"] == 0.0
 
-    data["download_tasks_v1"][0]["progress"] = 0.3846
+    _persisted_items(data[queue.DATA_KEY])[0]["progress"] = 0.3846
     resume_started = threading.Event()
     release_resume = threading.Event()
 
@@ -597,7 +610,7 @@ def test_queue_persists_active_engine_progress(tmp_path: Path):
     )
     queue.enqueue(task)
     # enqueue() normally stores pending; emulate the active worker state.
-    raw = data[queue.DATA_KEY]
+    raw = _persisted_items(data[queue.DATA_KEY])
     raw[0]["state"] = "running"
     data[queue.DATA_KEY] = raw
     queue._update_progress(task.task_id, 0.42)
@@ -640,7 +653,7 @@ def test_segment_proxy_streams_unwrapped_mpegts():
     thread.start()
     try:
         remote = f"http://127.0.0.1:{source.server_address[1]}/segment.jpeg"
-        with _SegmentProxy() as proxy, urllib.request.urlopen(proxy.url_for(remote), timeout=5) as response:
+        with _SegmentProxy(("127.0.0.0/8",)) as proxy, urllib.request.urlopen(proxy.url_for(remote), timeout=5) as response:
             assert response.version == 11
             assert response.headers.get_content_type() == "video/mp2t"
             assert response.headers.get("Content-Length") == str(len(packet) * 3)
@@ -670,7 +683,7 @@ def test_segment_proxy_closes_http11_response_without_upstream_length():
     thread.start()
     try:
         remote = f"http://127.0.0.1:{source.server_address[1]}/segment.ts"
-        with _SegmentProxy() as proxy, urllib.request.urlopen(proxy.url_for(remote), timeout=5) as response:
+        with _SegmentProxy(("127.0.0.0/8",)) as proxy, urllib.request.urlopen(proxy.url_for(remote), timeout=5) as response:
             assert response.version == 11
             assert response.headers.get("Content-Length") is None
             assert response.headers.get("Connection") == "close"
@@ -682,27 +695,20 @@ def test_segment_proxy_closes_http11_response_without_upstream_length():
 
 
 def test_prepare_hls_input_decodes_zstd_and_absolutizes_urls(monkeypatch, tmp_path: Path):
-    class Headers:
-        @staticmethod
-        def get(name):
-            return "zstd" if name == "Content-Encoding" else None
-
-    class Response:
-        headers = Headers()
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return None
-
-        @staticmethod
-        def read():
-            return b"compressed"
-
-    playlist = b'#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\n#EXTINF:10,\nsegment.ts\n'
-    monkeypatch.setattr(downloader_module.urllib.request, "urlopen", lambda *_args, **_kwargs: Response())
-    monkeypatch.setattr(DownloadQueue, "_decompress_zstd", lambda payload: playlist)
+    playlist = b'#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\n#EXTINF:10,\nsegment.ts\n#EXT-X-ENDLIST\n'
+    monkeypatch.setattr(
+        downloader_module,
+        "_fetch_public_url",
+        lambda *_args, **_kwargs: (
+            b"\x28\xb5\x2f\xfdcompressed",
+            "https://media.example/path/index.m3u8",
+        ),
+    )
+    monkeypatch.setattr(
+        DownloadQueue,
+        "_decompress_zstd",
+        lambda _payload, _max_bytes: playlist,
+    )
 
     local = DownloadQueue._prepare_hls_input("https://media.example/path/index.m3u8", tmp_path)
     content = Path(local).read_text(encoding="utf-8")
@@ -711,35 +717,20 @@ def test_prepare_hls_input_decodes_zstd_and_absolutizes_urls(monkeypatch, tmp_pa
 
 
 @pytest.mark.parametrize("uri", ["file:///tmp/playlist.m3u8", "ftp://example.test/x.m3u8"])
-def test_prepare_hls_input_rejects_non_http_top_level_uri(monkeypatch, tmp_path: Path, uri: str):
-    monkeypatch.setattr(
-        downloader_module.urllib.request,
-        "urlopen",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not fetch")),
-    )
-
+def test_prepare_hls_input_rejects_non_http_top_level_uri(tmp_path: Path, uri: str):
     with pytest.raises(RuntimeError, match="http/https"):
         DownloadQueue._prepare_hls_input(uri, tmp_path)
 
 
 @pytest.mark.parametrize("uri", ["file:///tmp/segment.ts", "ftp://example.test/segment.ts"])
 def test_prepare_hls_input_rejects_non_http_nested_uri(monkeypatch, tmp_path: Path, uri: str):
-    class Response:
-        headers = {}
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return None
-
-        def read(self):
-            return f"#EXTM3U\n#EXTINF:1,\n{uri}\n".encode("utf-8")
-
     monkeypatch.setattr(
-        downloader_module.urllib.request,
-        "urlopen",
-        lambda *_args, **_kwargs: Response(),
+        downloader_module,
+        "_fetch_public_url",
+        lambda *_args, **_kwargs: (
+            f"#EXTM3U\n#EXTINF:1,\n{uri}\n#EXT-X-ENDLIST\n".encode(),
+            "https://example.test/index.m3u8",
+        ),
     )
 
     with pytest.raises(RuntimeError, match="http/https"):
@@ -880,7 +871,9 @@ def test_queue_remove_deletes_only_after_durable_state_removal(
     assert queue.enqueue(task) is True
 
     def fail_removal_write(key, value):
-        if not any(item["task_id"] == task.task_id for item in value):
+        if not any(
+            item["task_id"] == task.task_id for item in _persisted_items(value)
+        ):
             if persist_before_error:
                 data[key] = value
             raise RuntimeError("simulated removal persistence failure")
@@ -888,8 +881,11 @@ def test_queue_remove_deletes_only_after_durable_state_removal(
 
     queue._save = fail_removal_write
 
-    with pytest.raises(RuntimeError, match="removal persistence failure"):
-        queue.remove(task.task_id, delete_file=True)
+    if persist_before_error:
+        assert queue.remove(task.task_id, delete_file=True) is True
+    else:
+        with pytest.raises(RuntimeError, match="removal persistence failure"):
+            queue.remove(task.task_id, delete_file=True)
 
     restarted = DownloadQueue(data.get, data.__setitem__, lambda *_: None)
     if persist_before_error:
@@ -1066,7 +1062,14 @@ def test_queue_replays_control_after_target_persistence_failure(
     task_id = f"control-save-{action}-{int(persist_before_error)}"
 
     def targets_control_state(value):
-        current = next((item for item in value if item["task_id"] == task_id), None)
+        current = next(
+            (
+                item
+                for item in _persisted_items(value)
+                if item["task_id"] == task_id
+            ),
+            None,
+        )
         if action == "pause":
             return current is not None and current["state"] == "paused"
         return current is None
@@ -1139,7 +1142,14 @@ def test_queue_stop_retries_interrupted_pause_persistence(tmp_path: Path):
     task_id = "stop-save-failure"
 
     def save(key, value):
-        current = next((item for item in value if item["task_id"] == task_id), None)
+        current = next(
+            (
+                item
+                for item in _persisted_items(value)
+                if item["task_id"] == task_id
+            ),
+            None,
+        )
         if (
             current is not None
             and current["state"] == "paused"

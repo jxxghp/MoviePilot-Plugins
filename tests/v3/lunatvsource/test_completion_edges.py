@@ -29,6 +29,26 @@ def _plugin(config=None):
     plugin._quality_cache = {}
     plugin._quality_probe_ms = {}
     plugin._completed_download_sizes = {}
+    plugin._queue_lock_file = None
+    plugin._queue_lock_path = None
+    plugin._queue_lock_error = ""
+    plugin._media_sync_lock = threading.Lock()
+    plugin._media_sync_running = False
+    plugin._media_sync_requested = False
+    plugin._media_sync_refresh_ids = set()
+    plugin._media_sync_backfill = {}
+    plugin._media_sync_probes = {}
+    plugin._media_sync_generation = 0
+    plugin._media_sync_stop = threading.Event()
+    plugin._media_sync_thread = None
+    plugin._followup_status_lock = threading.Lock()
+    plugin._followup_status = {}
+    plugin._followup_generations = {
+        "subscription_refresh": 0,
+        "media_server_sync": 0,
+    }
+    plugin._subscription_refresh_active = set()
+    plugin._subscription_progress_lock = threading.Lock()
     plugin._source_health_lock = threading.RLock()
     plugin._source_health_running = False
     plugin._source_health = {}
@@ -36,6 +56,8 @@ def _plugin(config=None):
     plugin._source_health_thread = None
     plugin._source_health_pending_keys = set()
     plugin._source_health_pending_full = False
+    plugin._source_health_run_keys = set()
+    plugin._source_health_completed_keys = set()
     plugin._source_health_last_error = ""
     plugin._source_health_last_finished = 0.0
     plugin._source_health_revision = 0

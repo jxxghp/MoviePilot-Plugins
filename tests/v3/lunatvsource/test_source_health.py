@@ -33,6 +33,26 @@ def _plugin(config=None):
     plugin._quality_cache = {}
     plugin._quality_probe_ms = {}
     plugin._completed_download_sizes = {}
+    plugin._queue_lock_file = None
+    plugin._queue_lock_path = None
+    plugin._queue_lock_error = ""
+    plugin._media_sync_lock = threading.Lock()
+    plugin._media_sync_running = False
+    plugin._media_sync_requested = False
+    plugin._media_sync_refresh_ids = set()
+    plugin._media_sync_backfill = {}
+    plugin._media_sync_probes = {}
+    plugin._media_sync_generation = 0
+    plugin._media_sync_stop = threading.Event()
+    plugin._media_sync_thread = None
+    plugin._followup_status_lock = threading.Lock()
+    plugin._followup_status = {}
+    plugin._followup_generations = {
+        "subscription_refresh": 0,
+        "media_server_sync": 0,
+    }
+    plugin._subscription_refresh_active = set()
+    plugin._subscription_progress_lock = threading.Lock()
     plugin._source_health_lock = threading.RLock()
     plugin._source_health_running = False
     plugin._source_health = {}
@@ -40,6 +60,8 @@ def _plugin(config=None):
     plugin._source_health_thread = None
     plugin._source_health_pending_keys = set()
     plugin._source_health_pending_full = False
+    plugin._source_health_run_keys = set()
+    plugin._source_health_completed_keys = set()
     plugin._source_health_last_error = ""
     plugin._source_health_last_finished = 0.0
     plugin._source_health_revision = 0
@@ -83,7 +105,7 @@ def test_search_protocol_health_accepts_a_valid_empty_result(monkeypatch):
         client.verify_search(source)
 
 
-def test_search_forbidden_source_is_auto_disabled_with_clear_reason(monkeypatch):
+def test_search_forbidden_source_records_network_failure_without_disabling(monkeypatch):
     source = make_source("search-forbidden")
     plugin = _plugin()
     plugin.init_plugin({"enabled": True})
@@ -103,21 +125,22 @@ def test_search_forbidden_source_is_auto_disabled_with_clear_reason(monkeypatch)
     payload = plugin.api_sources()["data"][0]
 
     assert result["disabled"] == 1
-    assert payload["auto_disabled"] is True
+    assert payload["auto_disabled"] is False
+    assert payload["enabled"] is True
     assert payload["last_error"] == "CMS 源站在线，但禁止关键词搜索（API 1002）"
-    assert plugin._client().sources == []
+    assert [item.key for item in plugin._client().sources] == [source.key]
 
 
-def test_unchecked_source_is_excluded_until_health_check_passes(monkeypatch):
+def test_unchecked_source_remains_configured_until_health_check_passes(monkeypatch):
     source = make_source("unchecked")
     plugin = _plugin()
     plugin.init_plugin({"enabled": True})
     save_catalog(plugin, source)
 
     payload = plugin.api_sources()["data"][0]
-    assert payload["enabled"] is False
-    assert payload["disabled_reason"] == "unchecked"
-    assert plugin._client().sources == []
+    assert payload["enabled"] is True
+    assert payload["health_label"] == "待检查"
+    assert [item.key for item in plugin._client().sources] == [source.key]
 
     monkeypatch.setattr(
         plugin_module,
@@ -130,7 +153,7 @@ def test_unchecked_source_is_excluded_until_health_check_passes(monkeypatch):
     assert [item.key for item in plugin._client().sources] == [source.key]
 
 
-def test_health_failure_disables_search_and_later_success_recovers(monkeypatch):
+def test_health_failure_records_network_status_and_later_success_recovers(monkeypatch):
     healthy = make_source("healthy")
     failing = make_source("failing")
     sources = [healthy, failing]
@@ -159,10 +182,10 @@ def test_health_failure_disables_search_and_later_success_recovers(monkeypatch):
     }
     by_key = {item["key"]: item for item in plugin.api_sources()["data"]}
     assert by_key["healthy"]["enabled"] is True
-    assert by_key["failing"]["enabled"] is False
-    assert by_key["failing"]["auto_disabled"] is True
+    assert by_key["failing"]["enabled"] is True
+    assert by_key["failing"]["auto_disabled"] is False
     assert by_key["failing"]["failures"] == 1
-    assert [source.key for source in plugin._client().sources] == ["healthy"]
+    assert {source.key for source in plugin._client().sources} == {"healthy", "failing"}
 
     monkeypatch.setattr(AppleCmsClient, "verify_search", lambda *_args, **_kwargs: None)
     plugin.refresh_source_health()
@@ -289,7 +312,8 @@ def test_manual_disable_is_persistent_and_skipped_by_health_checks(monkeypatch):
         item for item in restarted.api_sources()["data"] if item["key"] == "first"
     )
     assert first_payload["manual_disabled"] is True
-    assert first_payload["health_label"] == "手动禁用"
+    assert first_payload["health_label"] == "配置禁用"
+    assert first_payload["disabled_reason"] == "configured"
 
 
 def test_manual_state_change_invalidates_resource_search_cache():
@@ -339,7 +363,7 @@ def test_manual_enable_persists_and_requests_an_immediate_check(monkeypatch):
     assert persisted[source.key]["manual_disabled"] is False
 
 
-def test_manual_reenable_waits_for_fresh_health_check(monkeypatch):
+def test_manual_reenable_restores_configured_source_before_health_check(monkeypatch):
     source = make_source("manual-stale")
     plugin = _plugin()
     plugin.init_plugin({"enabled": True})
@@ -370,10 +394,11 @@ def test_manual_reenable_waits_for_fresh_health_check(monkeypatch):
 
     assert response["success"] is True
     assert starts == [source.key]
-    assert plugin._client().sources == []
+    assert [item.key for item in plugin._client().sources] == [source.key]
     source_payload = response["data"]["source"]
     assert source_payload["health_status"] == "unchecked"
     assert source_payload["last_checked"] == 0
+    assert source_payload["enabled"] is True
 
 
 def test_inflight_health_result_cannot_override_manual_reenable(monkeypatch):
@@ -419,7 +444,7 @@ def test_inflight_health_result_cannot_override_manual_reenable(monkeypatch):
 
     assert not worker.is_alive()
     assert result["checked"] == 0
-    assert plugin._client().sources == []
+    assert [item.key for item in plugin._client().sources] == [source.key]
     payload = plugin.api_sources()["data"][0]
     assert payload["health_status"] == "unchecked"
 
@@ -627,7 +652,7 @@ def test_inflight_health_result_is_dropped_after_endpoint_change(monkeypatch):
     assert plugin._source_health[old_source.key]["api"] == new_source.api
 
 
-def test_auto_disabled_state_survives_restart_until_success(monkeypatch):
+def test_failed_health_state_survives_restart_until_success(monkeypatch):
     store: Dict[str, object] = {}
     source = make_source("restart-failure")
 
@@ -662,7 +687,7 @@ def test_auto_disabled_state_survives_restart_until_success(monkeypatch):
     restarted = _plugin()
     install_store(restarted)
     restarted.init_plugin({"enabled": True})
-    assert restarted._client().sources == []
+    assert [item.key for item in restarted._client().sources] == [source.key]
 
     monkeypatch.setattr(AppleCmsClient, "verify_search", lambda *_args, **_kwargs: None)
     restarted.refresh_source_health()

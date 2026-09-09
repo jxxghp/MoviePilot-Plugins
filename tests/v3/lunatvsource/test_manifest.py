@@ -201,12 +201,14 @@ def test_config_exposes_download_directory_and_nfo_switch():
         project_root / "plugins.v3" / "lunatvsource" / "src" / "components" / "Config.vue"
     ).read_text(encoding="utf-8")
 
-    assert "download_root: '/downloads/未整理'" in config_page
+    assert "download_root: ''" in config_page
     assert 'v-model="config.download_root"' in config_page
     assert "download_root: String(config.download_root || '').trim()" in config_page
     assert "generate_nfo: false" in config_page
     assert 'v-model="config.generate_nfo"' in config_page
     assert "生成 NFO 元数据" in config_page
+    assert "下载目录（可留空）" in config_page
+    assert "留空自动选择" in config_page
 
 
 def test_source_health_ui_uses_cached_reads_and_persists_interval():
@@ -226,8 +228,8 @@ def test_source_health_ui_uses_cached_reads_and_persists_interval():
     assert "await loadHealthStatus()" in app_page
     assert "await load({ silent: true })" in app_page
     assert "打开页面仅读取缓存" in app_page
-    assert "搜索仅使用健康且已启用的来源" in app_page
-    assert "source.manual_disabled ? '重新启用' : '永久停用'" in app_page
+    assert "网络不通的来源仍会尝试调用" in app_page
+    assert "<option value=\"enabled\">配置启用</option>" in app_page
     assert '@click="recheckSource(source)"' in app_page
     assert "source_check_minutes: 60" in config_page
     assert 'v-model="config.source_check_minutes"' in config_page

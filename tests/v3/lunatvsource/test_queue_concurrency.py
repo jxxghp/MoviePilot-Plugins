@@ -8,6 +8,17 @@ import app.plugins.lunatvsource.downloader as downloader_module
 from app.plugins.lunatvsource.downloader import DownloadQueue, DownloadTask
 
 
+def _persisted_items(value):
+    """Return task records from either legacy storage or the versioned envelope."""
+    items = value.get("items", []) if isinstance(value, dict) else value or []
+    return [
+        item.get("task", item)
+        if isinstance(item, dict) and isinstance(item.get("task"), dict)
+        else item
+        for item in items
+    ]
+
+
 def make_task(task_id: str, root: Path) -> DownloadTask:
     return DownloadTask(
         task_id=task_id,
@@ -431,7 +442,17 @@ def test_queue_replays_unpersisted_terminal_without_rerunning_task(
     first_id = f"terminal-{terminal}"
 
     def save(key, value):
-        first = next((item for item in value if item["task_id"] == first_id), None)
+        if key != DownloadQueue.DATA_KEY:
+            data[key] = value
+            return
+        first = next(
+            (
+                item
+                for item in _persisted_items(value)
+                if item["task_id"] == first_id
+            ),
+            None,
+        )
         terminal_write = (
             first is None
             if terminal == "remove"

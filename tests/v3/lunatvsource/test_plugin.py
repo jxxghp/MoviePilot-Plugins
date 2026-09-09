@@ -41,6 +41,26 @@ def _plugin(config=None):
     plugin._quality_cache = {}
     plugin._quality_probe_ms = {}
     plugin._completed_download_sizes = {}
+    plugin._queue_lock_file = None
+    plugin._queue_lock_path = None
+    plugin._queue_lock_error = ""
+    plugin._media_sync_lock = threading.Lock()
+    plugin._media_sync_running = False
+    plugin._media_sync_requested = False
+    plugin._media_sync_refresh_ids = set()
+    plugin._media_sync_backfill = {}
+    plugin._media_sync_probes = {}
+    plugin._media_sync_generation = 0
+    plugin._media_sync_stop = threading.Event()
+    plugin._media_sync_thread = None
+    plugin._followup_status_lock = threading.Lock()
+    plugin._followup_status = {}
+    plugin._followup_generations = {
+        "subscription_refresh": 0,
+        "media_server_sync": 0,
+    }
+    plugin._subscription_refresh_active = set()
+    plugin._subscription_progress_lock = threading.Lock()
     plugin._source_health_lock = threading.RLock()
     plugin._source_health_running = False
     plugin._source_health = {}
@@ -48,6 +68,8 @@ def _plugin(config=None):
     plugin._source_health_thread = None
     plugin._source_health_pending_keys = set()
     plugin._source_health_pending_full = False
+    plugin._source_health_run_keys = set()
+    plugin._source_health_completed_keys = set()
     plugin._source_health_last_error = ""
     plugin._source_health_last_finished = 0.0
     plugin._source_health_revision = 0
@@ -173,7 +195,7 @@ def test_sources_use_cached_snapshot_before_bundled_fallback(monkeypatch):
         "name": "缓存源",
         "api": "https://cached.example/vod",
         "url": "https://cached.example/vod",
-        "enabled": False,
+        "enabled": True,
         "manual_disabled": False,
         "health_status": "unchecked",
     }.items() <= response["data"][0].items()
@@ -224,7 +246,7 @@ def test_sources_page_uses_cached_snapshot_without_remote_request(monkeypatch):
         "name": "缓存源",
         "api": "https://cached.example/vod",
         "url": "https://cached.example/vod",
-        "enabled": False,
+        "enabled": True,
         "manual_disabled": False,
         "health_status": "unchecked",
     }.items() <= response["data"][0].items()
@@ -472,7 +494,6 @@ def test_global_media_search_returns_lunatv_cards_without_explore_tab(monkeypatc
     results = plugin.search_medias(meta=meta)
     assert len(results) == 1
     assert results[0].title == "示例电影"
-    monkeypatch.setattr(plugin_module, "build_media_source_declaration", lambda: None)
     assert plugin.get_media_source() == []
 
 
@@ -849,8 +870,14 @@ def test_resource_torrents_label_and_prefer_verified_resolution(monkeypatch):
 
     items = plugin.search_torrents(site={"id": 1}, keyword="示例电影", page=0, mtype="movie")
 
-    assert [item.site_name for item in items] == ["高清源 · 128ms", "标清源 · 320ms"]
-    assert [item.pri_order for item in items] == [108, 48]
+    assert [item.site_name for item in items] == [
+        "高清源 · 1080P · 128ms",
+        "标清源 · 480P · 320ms",
+    ]
+    assert [item.pri_order for item in items] == [
+        plugin_module._resource_sort_priority(1080),
+        plugin_module._resource_sort_priority(480),
+    ]
     assert items[0].title.endswith("· 1080P")
     assert items[0].description == "LunaTV · 1080P · m3u8"
     assert "1080P" not in items[0].labels
@@ -1150,7 +1177,10 @@ def test_resource_torrents_keep_complete_season_quality_variants_as_more_sources
     items = plugin._resource_torrents("示例剧")
     payloads = [plugin._decode_resource_token(item.enclosure) for item in items]
 
-    assert [item.pri_order for item in items] == [108, 48]
+    assert [item.pri_order for item in items] == [
+        plugin_module._tv_resource_sort_priority(1, 1080),
+        plugin_module._tv_resource_sort_priority(1, 480),
+    ]
     assert [payload["resolution"] for payload in payloads] == ["1080P", "480P"]
     assert [len(payload["episodes"]) for payload in payloads] == [2, 2]
     assert all("1080-" in item["url"] for item in payloads[0]["episodes"])
@@ -1161,7 +1191,7 @@ def test_resource_torrents_keep_complete_season_quality_variants_as_more_sources
     )
 
 
-def test_resource_torrents_tv_sources_share_matched_identity_card_and_rank_resolution(
+def test_resource_torrents_scope_matched_identity_to_matching_rows_and_rank_resolution(
     monkeypatch,
 ):
     class TorrentInfo:
@@ -1240,16 +1270,24 @@ def test_resource_torrents_tv_sources_share_matched_identity_card_and_rank_resol
 
     items = plugin._resource_torrents("侠探杰克", mtype="tv")
 
-    assert [item.pri_order for item in items] == [108, 96, 72]
+    assert [item.pri_order for item in items] == [
+        plugin_module._tv_resource_sort_priority(4, 1080),
+        plugin_module._tv_resource_sort_priority(4, 960),
+        plugin_module._tv_resource_sort_priority(4, 720),
+    ]
     assert [
         item.title.rsplit(" · ", 1)[0]
         for item in items
-    ] == ["侠探杰克 (2022)"] * 3
+    ] == ["侠探杰克 (2022)", "侠探杰克 (2026)", "侠探杰克 (2022)"]
     assert [
         plugin._decode_resource_token(item.enclosure)["resolution"]
         for item in items
     ] == ["1080P", "960P", "720P"]
-    assert [item.media_id for item in items] == ["343611"] * 3
+    assert [item.media_id for item in items] == [
+        "343611",
+        "shared:middle-s04",
+        "343611",
+    ]
 
 
 def test_resource_torrents_choose_highest_url_for_conflicting_episode(monkeypatch):
@@ -1312,7 +1350,7 @@ def test_resource_torrents_choose_highest_url_for_conflicting_episode(monkeypatc
     assert item.site_name == "演示源 · 1080P · 86ms"
     assert item.title == "示例剧 · 第1季"
     assert payload["resolution_height"] == 1080
-    assert item.pri_order == 108
+    assert item.pri_order == plugin_module._tv_resource_sort_priority(1, 1080)
     assert payload["resolution"] not in item.description
     assert payload["resolution"] in item.labels
     assert "86ms" in item.labels
@@ -1376,7 +1414,7 @@ def test_resource_torrents_marks_sample_unknown_when_probe_fails(monkeypatch):
 
     assert payload["resolution"] == "未知"
     assert payload["resolution_height"] == 0
-    assert item.pri_order == 0
+    assert item.pri_order == plugin_module._tv_resource_sort_priority(1, 0)
     assert "未知" in item.site_name
     assert "全2集实测" not in item.description
     assert "已测" not in item.description
@@ -1443,7 +1481,7 @@ def test_resource_torrents_probes_one_episode_in_large_seasons(monkeypatch):
 
         assert [urls for urls in probe_calls if urls] == [expected_urls]
         assert len(expected_urls) == 1
-        assert item.pri_order == 108
+        assert item.pri_order == plugin_module._tv_resource_sort_priority(1, 1080)
         assert f"全{count}集实测" not in item.description
         assert "已测" not in item.description
         assert payload["resolution_scope"] == "sample"
@@ -1541,7 +1579,7 @@ def test_resource_torrents_probes_all_conflicts_and_large_seasons(monkeypatch):
     assert payload["episodes"][0]["url"] == high_url
     assert payload["resolution"] == "1080P"
     assert payload["resolution_height"] == 1080
-    assert item.pri_order == 108
+    assert item.pri_order == plugin_module._tv_resource_sort_priority(1, 1080)
     assert "1080P" in item.site_name
     assert "全52集实测" not in item.description
     assert "已测" not in item.description
@@ -1773,9 +1811,10 @@ def test_download_clients_bridge_augments_only_downloaders_and_restores(monkeypa
     ]
 
     replacement = _plugin({"enabled": True})
-    assert download_module.get_configured_system_config is wrapper
+    replacement_wrapper = download_module.get_configured_system_config
+    assert replacement_wrapper is not wrapper
     plugin.stop_service()
-    assert download_module.get_configured_system_config is wrapper
+    assert download_module.get_configured_system_config is replacement_wrapper
 
     plugin_module._DOWNLOAD_CLIENTS_BRIDGE.update(
         {"owner": None, "module": None, "original": None, "wrapper": None}
@@ -3790,6 +3829,18 @@ def test_sync_media_server_runs_async_and_deduplicates_active_sync(monkeypatch):
         def sync(self, *, server=None):
             sync_calls.append(server)
 
+    class MediaServerHelper:
+        """Provide the minimal host media-server contract for this test."""
+
+        def get_services(self, *, name_filters=None):
+            """Return one refreshable Emby service for the host-chain stub."""
+            assert name_filters == ["Emby"]
+            return {
+                "Emby": SimpleNamespace(
+                    instance=SimpleNamespace(refresh_root_library=lambda: True)
+                )
+            }
+
     class DeferredThread:
         def __init__(self, target, **_kwargs):
             self.target = target
@@ -3799,6 +3850,7 @@ def test_sync_media_server_runs_async_and_deduplicates_active_sync(monkeypatch):
             return None
 
     monkeypatch.setattr(plugin_module, "_HostMediaServerChain", MediaServerChain)
+    monkeypatch.setattr(plugin_module, "_HostMediaServerHelper", MediaServerHelper)
     monkeypatch.setattr(plugin_module.threading, "Thread", DeferredThread)
 
     plugin = _plugin()
@@ -3927,8 +3979,6 @@ def test_quality_cache_prunes_expired_entries_and_enforces_capacity(monkeypatch)
 
 def test_quality_probe_caches_latency_with_height(monkeypatch):
     probe_calls = []
-    monotonic_values = iter((100.0, 100.123, 101.0))
-    monkeypatch.setattr(plugin_module.time, "monotonic", lambda: next(monotonic_values))
 
     def probe(url, **_kwargs):
         probe_calls.append(url)
@@ -3936,6 +3986,8 @@ def test_quality_probe_caches_latency_with_height(monkeypatch):
 
     monkeypatch.setattr(plugin_module, "probe_stream_height", probe)
     plugin = _plugin({"enabled": True})
+    monotonic_values = iter((100.0, 100.123, 101.0))
+    monkeypatch.setattr(plugin_module.time, "monotonic", lambda: next(monotonic_values))
     url = "https://video.example/cached-latency.m3u8"
 
     assert plugin._probe_quality(url) == 1080
