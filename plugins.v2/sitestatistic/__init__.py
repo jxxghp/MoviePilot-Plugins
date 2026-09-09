@@ -1,5 +1,6 @@
 import gc
 import hashlib
+import math
 import warnings
 from datetime import datetime, timedelta
 from threading import Lock
@@ -35,7 +36,7 @@ class SiteStatistic(_PluginBase):
     # 插件图标
     plugin_icon = "statistic.png"
     # 插件版本
-    plugin_version = "1.9.5"
+    plugin_version = "1.9.6"
     # 插件作者
     plugin_author = "lightolly,jxxghp"
     # 作者主页
@@ -53,9 +54,14 @@ class SiteStatistic(_PluginBase):
     _dashboard_type: str = "today"
     _notify_type = ""
     _scheduler = None
+    _PB_STEP = 1024 ** 5 / 1000
+    _PRECISION_NOTE = (
+        "≈ 表示两期读数疑似经过 PB 舍入，显示步长约 1.02T；"
+        "两期差值的误差可达一个步长，读数未变不代表没有流量，无法据此还原真实单日增量。"
+    )
 
     def init_plugin(self, config: dict = None):
-
+        """加载配置，并在请求立即运行时调度一次站点数据刷新。"""
         # 停止现有任务
         self.stop_service()
 
@@ -77,10 +83,12 @@ class SiteStatistic(_PluginBase):
             self.update_config(config=config)
 
     def get_state(self) -> bool:
+        """返回插件启用状态。"""
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """本插件不额外注册远程命令。"""
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
@@ -102,6 +110,7 @@ class SiteStatistic(_PluginBase):
         }]
 
     def get_service(self) -> List[Dict[str, Any]]:
+        """复用宿主刷新事件，不注册周期服务。"""
         pass
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -222,6 +231,8 @@ class SiteStatistic(_PluginBase):
         # 转换为字典
         today_data_dict = {data.name: data for data in today_data}
         yesterday_data_dict = {data.name: data for data in yesterday_data}
+        approximate_fields = self.__get_approximate_fields(today_data, yesterday_data)
+        total_approximate = set()
         # 消息内容
         messages = {}
         # 总上传
@@ -232,6 +243,7 @@ class SiteStatistic(_PluginBase):
         today_date = datetime.now().strftime("%Y-%m-%d")
 
         for rand, site in enumerate(today_data_dict.keys()):
+            approximate = approximate_fields.get(site, set())
             upload = int(today_data_dict[site].upload or 0)
             download = int(today_data_dict[site].download or 0)
             updated_date = today_data_dict[site].updated_day
@@ -261,22 +273,25 @@ class SiteStatistic(_PluginBase):
             else:
                 updated_date = ""
 
-            if upload > 0 or download > 0:
+            if upload > 0 or download > 0 or approximate:
                 incUploads += upload
                 incDownloads += download
+                total_approximate.update(approximate)
                 messages[upload + (rand / 1000)] = (
                         f"【{site}】{updated_date}\n"
-                        + f"上传量：{self.__format_filesize(upload)}\n"
-                        + f"下载量：{self.__format_filesize(download)}\n"
+                        + f"上传量：{self.__format_traffic(upload, 'upload' in approximate, self._notify_type == 'inc')}\n"
+                        + f"下载量：{self.__format_traffic(download, 'download' in approximate, self._notify_type == 'inc')}\n"
                         + "————————————"
                 )
 
-        if incDownloads or incUploads:
+        if messages:
             sorted_messages = [messages[key] for key in sorted(messages.keys(), reverse=True)]
             sorted_messages.insert(0, f"【汇总】\n"
-                                      f"总上传：{self.__format_filesize(incUploads)}\n"
-                                      f"总下载：{self.__format_filesize(incDownloads)}\n"
+                                      f"总上传：{self.__format_traffic(incUploads, 'upload' in total_approximate, self._notify_type == 'inc')}\n"
+                                      f"总下载：{self.__format_traffic(incDownloads, 'download' in total_approximate, self._notify_type == 'inc')}\n"
                                       f"————————————")
+            if total_approximate:
+                sorted_messages.append(self._PRECISION_NOTE)
             notification_text = "\n".join(sorted_messages)
             notification_fingerprint = self.__get_notification_fingerprint(notification_text)
 
@@ -302,6 +317,41 @@ class SiteStatistic(_PluginBase):
                 logger.info(f"站点数据统计通知发送完成（{today_date}），"
                             f"总上传 {self.__format_filesize(incUploads)}，"
                             f"总下载 {self.__format_filesize(incDownloads)}")
+
+    @staticmethod
+    def __get_approximate_fields(current_data: List[SiteUserData], previous_data: List[SiteUserData]) -> Dict[str, set]:
+        """用两期有效读数识别疑似 PB 三位小数量化，仅影响精度提示。
+
+        原始单位未入库，不能证明数据源精度，故不平滑、不推算日均、不改写字节数。
+        阈值对应 NexusPHP 从 1000 TiB 起显示 PB；容差仅覆盖字节取整和浮点误差，
+        不能使用相对步长容差，否则会把偏离格点数 MB 的精确 API 数据也标为近似。
+        """
+        previous_by_name = {data.name: data for data in previous_data}
+        result = {}
+        for current in current_data:
+            previous = previous_by_name.get(current.name)
+            if (not previous or current.updated_day == previous.updated_day
+                    or getattr(current, 'err_msg', None) or getattr(previous, 'err_msg', None)):
+                continue
+            fields = set()
+            for field in ('upload', 'download'):
+                values = [float(getattr(data, field, 0) or 0) for data in (previous, current)]
+                if values[1] < values[0]:
+                    continue
+                if all(math.isfinite(value) and value >= 1000 * 1024 ** 4
+                       and abs(value - round(value / SiteStatistic._PB_STEP) * SiteStatistic._PB_STEP)
+                       <= max(1, 2 * math.ulp(value)) for value in values):
+                    fields.add(field)
+            if fields:
+                result[current.name] = fields
+        return result
+
+    @staticmethod
+    def __format_traffic(size: Any, approximate: bool = False, increment: bool = False) -> str:
+        """标注低精度流量；零差值不能被解释成精确的零增量。"""
+        if approximate and increment and not size:
+            return "≈ 读数未变（实际增量未知）"
+        return ('≈ ' if approximate else '') + SiteStatistic.__format_filesize(size)
 
     @staticmethod
     def __get_notification_fingerprint(notification_text: str) -> str:
@@ -399,6 +449,9 @@ class SiteStatistic(_PluginBase):
         """
         获取统计元素，统一使用插件侧的大容量字节格式化逻辑。
         """
+        approximate_fields = SiteStatistic.__get_approximate_fields(stattistic_data, yesterday_sites_data)
+        upload_approximate = any('upload' in fields for fields in approximate_fields.values())
+        download_approximate = any('download' in fields for fields in approximate_fields.values())
 
         def __gb(value: int) -> float:
             """
@@ -527,7 +580,7 @@ class SiteStatistic(_PluginBase):
                                                             'props': {
                                                                 'class': 'text-h6'
                                                             },
-                                                            'text': SiteStatistic.__format_filesize(total_upload)
+                                                            'text': SiteStatistic.__format_traffic(total_upload, upload_approximate)
                                                         }
                                                     ]
                                                 }
@@ -596,7 +649,7 @@ class SiteStatistic(_PluginBase):
                                                             'props': {
                                                                 'class': 'text-h6'
                                                             },
-                                                            'text': SiteStatistic.__format_filesize(total_download)
+                                                            'text': SiteStatistic.__format_traffic(total_download, download_approximate)
                                                         }
                                                     ]
                                                 }
@@ -766,7 +819,8 @@ class SiteStatistic(_PluginBase):
             # 今日上传
             uploads = {k: v for k, v in inc_data.items() if v.get("upload") if v.get("upload") > 0}
             # 今日上传站点
-            upload_sites = [site for site in uploads.keys()]
+            upload_sites = [('≈ ' if 'upload' in approximate_fields.get(site, set()) else '') + site
+                            for site in uploads.keys()]
             # 今日上传数据
             upload_datas = [__gb(data.get("upload")) for data in uploads.values()]
             # 今日上传总量
@@ -774,7 +828,8 @@ class SiteStatistic(_PluginBase):
             # 今日下载
             downloads = {k: v for k, v in inc_data.items() if v.get("download") if v.get("download") > 0}
             # 今日下载站点
-            download_sites = [site for site in downloads.keys()]
+            download_sites = [('≈ ' if 'download' in approximate_fields.get(site, set()) else '') + site
+                              for site in downloads.keys()]
             # 今日下载数据
             download_datas = [__gb(data.get("download")) for data in downloads.values()]
             # 今日下载总量
@@ -799,7 +854,7 @@ class SiteStatistic(_PluginBase):
                                     },
                                     'labels': upload_sites,
                                     'title': {
-                                        'text': f'上传增量（{today}）共 {today_upload} GB'
+                                        'text': f'上传增量（{today}）共 {"≈ " if upload_approximate else ""}{today_upload} GB'
                                     },
                                     'legend': {
                                         'show': True
@@ -836,7 +891,7 @@ class SiteStatistic(_PluginBase):
                                     },
                                     'labels': download_sites,
                                     'title': {
-                                        'text': f'下载增量（{today}）共 {today_download} GB'
+                                        'text': f'下载增量（{today}）共 {"≈ " if download_approximate else ""}{today_download} GB'
                                     },
                                     'legend': {
                                         'show': True
@@ -859,7 +914,31 @@ class SiteStatistic(_PluginBase):
         else:
             today_elements = []
         # 合并返回
-        return total_elements + today_elements
+        precision_elements = []
+        if approximate_fields:
+            previous_by_name = {data.name: data for data in yesterday_sites_data}
+            details = []
+            for data in stattistic_data:
+                for field, label in (('upload', '上传'), ('download', '下载')):
+                    if field not in approximate_fields.get(data.name, set()):
+                        continue
+                    previous = previous_by_name[data.name]
+                    difference = int(getattr(data, field)) - int(getattr(previous, field))
+                    details.append({
+                        'component': 'div',
+                        'text': f'{data.name} {label}（{previous.updated_day} → {data.updated_day}）：'
+                                + SiteStatistic.__format_traffic(difference, True, True),
+                    })
+            precision_elements = [{
+                'component': 'VCol',
+                'props': {'cols': 12},
+                'content': [{
+                    'component': 'VAlert',
+                    'props': {'type': 'info', 'variant': 'tonal', 'class': 'text-break'},
+                    'content': [{'component': 'div', 'text': SiteStatistic._PRECISION_NOTE}] + details,
+                }],
+            }]
+        return precision_elements + total_elements + today_elements
 
     def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
         """
@@ -903,6 +982,7 @@ class SiteStatistic(_PluginBase):
         """
 
         def format_bonus(bonus):
+            """将魔力值格式化为一位小数，空值或非法值显示为零。"""
             try:
                 return f'{float(bonus):,.1f}'
             except ValueError:
@@ -957,16 +1037,18 @@ class SiteStatistic(_PluginBase):
         }
 
         # 构建数据行，避免在列表推导式中创建复杂嵌套
+        approximate_fields = self.__get_approximate_fields(stattistic_data, yesterday_sites_data)
         table_rows = []
         for data in stattistic_data:
+            approximate = approximate_fields.get(data.name, set())
             # 预先计算所有需要的值
             row_data = [
                 {'text': data.name, 'class': 'whitespace-nowrap break-keep text-high-emphasis'},
                 {'text': data.updated_day, 'class': ''},
                 {'text': data.username, 'class': ''},
                 {'text': data.user_level, 'class': ''},
-                {'text': self.__format_filesize(data.upload), 'class': 'text-success'},
-                {'text': self.__format_filesize(data.download), 'class': 'text-error'},
+                {'text': self.__format_traffic(data.upload, 'upload' in approximate), 'class': 'text-success'},
+                {'text': self.__format_traffic(data.download, 'download' in approximate), 'class': 'text-error'},
                 {'text': data.ratio, 'class': ''},
                 {'text': format_bonus(data.bonus or 0), 'class': ''},
                 {'text': data.seeding, 'class': ''},
@@ -1017,6 +1099,7 @@ class SiteStatistic(_PluginBase):
         return page
 
     def stop_service(self):
+        """本插件没有需要停止的常驻服务。"""
         pass
 
     @staticmethod
