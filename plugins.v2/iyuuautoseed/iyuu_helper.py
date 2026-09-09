@@ -8,7 +8,7 @@ from app.utils.http import RequestUtils
 
 class IyuuHelper(object):
     """
-    适配新版本IYUU开发版
+    适配新版本 IYUU 开发版，并将上游异常响应转换为可处理的错误信息。
     """
     _version = "8.2.0"
     _api_base = "https://2025.iyuu.cn"
@@ -17,16 +17,18 @@ class IyuuHelper(object):
     _sid_sha1 = None
 
     def __init__(self, token: str):
+        """初始化 IYUU 请求客户端并保存访问令牌。"""
         self._token = token
         if self._token:
             self.init_config()
 
     def init_config(self):
+        """保留 IYUU 配置初始化钩子，当前无需额外配置。"""
         pass
 
     def __request_iyuu(self, url: str, method: str = "get", params: dict = None) -> Tuple[Optional[dict], str]:
         """
-        向IYUUApi发送请求
+        向 IYUU API 发送请求，并把无效 JSON 降级为可读的错误信息。
         """
         if method == "post":
             ret = RequestUtils(
@@ -39,7 +41,14 @@ class IyuuHelper(object):
                 headers={'token': self._token}
             ).get_res(f'{self._api_base + url}', params=params)
         if ret:
-            result = ret.json()
+            try:
+                result = ret.json()
+            except ValueError as err:
+                text_preview = (ret.text or "")[:200].replace("\n", "\\n")
+                return None, (
+                    f"请求IYUU失败，响应解析失败：{type(err).__name__} "
+                    f"状态码：{ret.status_code}，响应前缀：{text_preview}"
+                )
             if result.get('code') == 0:
                 return result.get('data'), ""
             else:
@@ -50,6 +59,7 @@ class IyuuHelper(object):
             return None, f"请求IYUU失败，未获取到返回信息"
 
     def get_torrent_url(self, sid: str) -> Tuple[Optional[str], Optional[str]]:
+        """根据站点 ID 返回站点基础地址和种子下载页地址。"""
         if not sid:
             return None, None
         if not self._sites:
@@ -118,4 +128,5 @@ class IyuuHelper(object):
 
     @staticmethod
     def get_sha1(json_str: str) -> str:
+        """计算 IYUU 请求参数 JSON 字符串的 SHA-1 摘要。"""
         return hashlib.sha1(json_str.encode('utf-8')).hexdigest()
