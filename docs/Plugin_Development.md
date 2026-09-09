@@ -225,7 +225,7 @@ class MyPlugin(_PluginBase):
 | `get_actions()` | 注册工作流动作 |
 | `get_agent_tools()` | 注册 Agent 工具 |
 | `get_auth_providers()` | 注册外部认证入口 |
-| `get_module()` | 覆盖宿主模块能力；侵入性较强，谨慎使用 |
+| `get_module()` | 按模块合同提供扩展能力；支持歌词等候选聚合，也有覆盖型接口 |
 
 不要在模块导入期或类定义期启动任务、访问网络、连接数据库。后台资源应在
 `init_plugin()` 中按配置建立，并在 `stop_service()` 中可重复、安全地释放。
@@ -242,7 +242,7 @@ V3 已为插件整理稳定 SDK。新插件应优先从 `app.sdk` 导入，不�
 | 事件 | `app.sdk.events` |
 | 日志 | `app.sdk.logging` |
 | 缓存 | `app.sdk.cache` |
-| 媒体上下文、名称解析和媒体身份 | `app.sdk.media` |
+| 媒体上下文、名称解析、媒体身份与音乐歌词候选 `MusicLyrics` | `app.sdk.media` |
 | 媒体分类来源、字段声明、受控事实、缺失事实补充和统一分类调用 | `app.sdk.classification` |
 | HTTP、URL、站点和安全网络工具 | `app.sdk.network` |
 | 浏览器自动化（Playwright 上下文管理与页面操作） | `app.sdk.browser` |
@@ -734,6 +734,8 @@ def get_service(self) -> list[dict]:
 - [Agent 工具](./faq/16-register-agent-tools.md)
 - [统一缓存](./faq/15-use-system-cache.md)
 - [媒体数据源](./faq/19-register-media-source.md)
+- [音乐歌词匹配与下载](./faq/21-register-lyrics-provider.md)：注册 `music_lyrics_candidates`，
+  返回 `list[MusicLyrics]`；插件负责匹配和下载文本，宿主负责聚合、择优和旁挂保存。
 
 ## 10. V3 业务合同
 

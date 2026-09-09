@@ -24,3 +24,4 @@
 - [18. 如何限定插件可安装的 MoviePilot 主系统版本？](./faq/18-limit-moviepilot-version.md)
 - [19. 如何通过插件注册媒体数据源？](./faq/19-register-media-source.md)
 - [20. 如何让媒体来源接入自动分类？](./faq/20-media-classification.md)
+- [21. 如何通过插件匹配和下载音乐歌词？](./faq/21-register-lyrics-provider.md)

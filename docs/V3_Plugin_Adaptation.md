@@ -379,6 +379,12 @@ V2 插件常见的数据库写法包括直接导入宿主 Model、调用 Model �
 歌词属于刮削流程；需要完整刮削时调用 `ScrapingChain`，不要在插件中复制歌词、
 封面和标签写入逻辑。
 
+提供新歌词源时，通过 `get_module()` 注册同步 `music_lyrics_candidates(music)`，
+从 `app.sdk.media` 导入 `MetaMusic`、`MusicInfo` 和 `MusicLyrics`。插件匹配并下载
+歌词文本后返回 `list[MusicLyrics]`，宿主继续聚合其他来源并按刮削策略保存旁挂文件。
+未命中返回 `[]`，不要把歌词 URL 直接作为结果，也不需要额外注册 HTTP 路由或
+媒体来源。完整合同、匹配责任与示例见[音乐歌词扩展专题](./faq/21-register-lyrics-provider.md)。
+
 ## 7. 普通 REST 响应合同
 
 本节只列迁移结论。后端输出模型、Python HTTP 调用、Vue 远程组件、统一 Toast、
