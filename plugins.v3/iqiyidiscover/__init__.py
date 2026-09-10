@@ -168,7 +168,7 @@ class IqiyiDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/iqiyi_A.png"
     # 插件版本
-    plugin_version = "2.1.3"
+    plugin_version = "2.1.4"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -186,6 +186,8 @@ class IqiyiDiscover(_PluginBase):
     _cookie_refresh_time = 0
     _identity_cache_key = "media_identity"
     _cookie_task = None
+    _cookie_lock = threading.Lock()
+    _refresh_cron = ""
 
     def init_plugin(self, config: dict = None):
         """
@@ -196,7 +198,9 @@ class IqiyiDiscover(_PluginBase):
         global BASE_UI
         if config:
             self._enabled = config.get("enabled")
-            self._cookie = config.get("cookie") or ""
+            # 解析用户提供的 Cookie，兼容标准格式、表格格式和 JSON 格式
+            self._cookie = self._parse_cookie(config.get("cookie") or "")
+            self._refresh_cron = config.get("refresh_cron") or ""
         if "iqiyipic.com" not in settings.SECURITY_IMAGE_DOMAINS:
             settings.SECURITY_IMAGE_DOMAINS.append("iqiyipic.com")
         BASE_UI = init_base_ui()
@@ -425,13 +429,20 @@ class IqiyiDiscover(_PluginBase):
         使用 CloakBrowser 自动获取爱奇艺 Cookie。
 
         通过浏览器访问爱奇艺片库页面，自动完成验证并获取有效 Cookie（含 __dfp 设备指纹），
-        用于绕过爱奇艺风控。Cookie 有效期约 15 天，失效后需重新获取。
+        用于绕过爱奇艺风控。使用并发锁确保同一时间只有一个获取任务，避免多个浏览器实例并发。
 
         :return: 是否成功获取 Cookie
         """
         if launch_context is None:
             logger.warning("CloakBrowser 不可用，无法自动获取 Cookie，请手动配置")
             return False
+        # 并发锁：同一时间只允许一个 Cookie 获取任务，避免多个浏览器实例并发
+        if not self._cookie_lock.acquire(blocking=False):
+            # 已有获取任务在运行，等待其完成后复用结果
+            logger.info("已有 Cookie 获取任务在运行，等待其完成")
+            with self._cookie_lock:
+                pass
+            return bool(self._cookie)
         context = None
         page = None
         try:
@@ -477,6 +488,11 @@ class IqiyiDiscover(_PluginBase):
                     context.close()
                 except Exception:
                     pass
+            # 释放并发锁
+            try:
+                self._cookie_lock.release()
+            except RuntimeError:
+                pass
 
     async def _async_auto_refresh_cookie(self) -> bool:
         """
@@ -493,18 +509,26 @@ class IqiyiDiscover(_PluginBase):
         """
         返回插件定时服务列表。
 
-        每 8 小时后台预刷新爱奇艺 Cookie，避免 Cookie 失效后阻塞请求。
+        根据用户配置的定时刷新周期（refresh_cron）后台预刷新爱奇艺 Cookie，
+        避免 Cookie 失效后阻塞请求。未配置时不注册定时服务。
 
         :return: 定时服务列表
         """
         if not self.get_state():
             return []
+        if not self._refresh_cron:
+            return []
         from apscheduler.triggers.cron import CronTrigger
+        try:
+            trigger = CronTrigger.from_crontab(self._refresh_cron)
+        except Exception as err:
+            logger.warning(f"爱奇艺探索定时刷新周期配置无效：{self._refresh_cron} - {err}")
+            return []
         return [
             {
                 "id": "IqiyiDiscover.RefreshCookie",
                 "name": "爱奇艺探索Cookie定时刷新",
-                "trigger": CronTrigger.from_crontab("0 */8 * * *"),
+                "trigger": trigger,
                 "func": self._auto_refresh_cookie,
                 "kwargs": {},
             }
@@ -563,13 +587,99 @@ class IqiyiDiscover(_PluginBase):
                         ],
                     },
                     {
-                        "component": "VTextField",
-                        "props": {
-                            "model": "cookie",
-                            "label": "爱奇艺 Cookie",
-                            "placeholder": "从爱奇艺浏览器复制 Cookie（含 __dfp）",
-                            "hint": "用于绕过爱奇艺风控，访问 iqiyi.com/list/tv/ 后从浏览器开发者工具复制",
-                        },
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "cookie",
+                                            "label": "爱奇艺 Cookie",
+                                            "placeholder": "从爱奇艺浏览器复制 Cookie（含 __dfp）",
+                                            "hint": "用于绕过爱奇艺风控，访问 iqiyi.com/list/tv/ 后从浏览器开发者工具复制，支持表格格式",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "props": {"class": "mt-2"},
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "refresh_cron",
+                                            "label": "定时刷新 Cookie 周期（Cron 表达式）",
+                                            "placeholder": "例如 0 */2 * * *（每 2 小时）",
+                                            "hint": "留空则不启用定时刷新；建议每 2 小时刷新一次",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "props": {"class": "mt-1"},
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "div",
+                                        "props": {"class": "d-flex align-center flex-wrap"},
+                                        "content": [
+                                            {
+                                                "component": "div",
+                                                "props": {"class": "mr-3 text-body-2"},
+                                                "text": "快捷周期：",
+                                            },
+                                            {
+                                                "component": "VChip",
+                                                "props": {
+                                                    "class": "mr-2",
+                                                    "onClick": "refresh_cron = '0 */1 * * *'",
+                                                },
+                                                "text": "每 1 小时",
+                                            },
+                                            {
+                                                "component": "VChip",
+                                                "props": {
+                                                    "class": "mr-2",
+                                                    "onClick": "refresh_cron = '0 */2 * * *'",
+                                                },
+                                                "text": "每 2 小时",
+                                            },
+                                            {
+                                                "component": "VChip",
+                                                "props": {
+                                                    "class": "mr-2",
+                                                    "onClick": "refresh_cron = '0 */3 * * *'",
+                                                },
+                                                "text": "每 3 小时",
+                                            },
+                                            {
+                                                "component": "VChip",
+                                                "props": {
+                                                    "onClick": "refresh_cron = ''",
+                                                },
+                                                "text": "关闭",
+                                            },
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
                     },
                     {
                         "component": "VCard",
@@ -611,7 +721,7 @@ class IqiyiDiscover(_PluginBase):
                                     {
                                         "component": "div",
                                         "props": {"class": "text-body-1"},
-                                        "text": "爱奇艺接口有风控，插件会通过浏览器自动获取 Cookie（含 __dfp 设备指纹）以绕过风控。插件每 8 小时自动预刷新 Cookie，失效时也会自动重新获取。如需手动配置，可访问 iqiyi.com/list/tv/ 后从浏览器开发者工具复制 Cookie 填入上方。",
+                                        "text": "爱奇艺接口有风控，插件会通过浏览器自动获取 Cookie（含 __dfp 设备指纹）以绕过风控。爱奇艺 Cookie 有效时间极短（约 2-3 小时），失效后需重新获取（约 20-30 秒），会导致探索页首次加载变慢。启用「定时刷新 Cookie 周期」（建议每 2 小时）可在后台提前刷新 Cookie，有效改善探索页加载时间。如需手动配置，可访问 iqiyi.com/list/tv/ 后从浏览器开发者工具复制 Cookie 填入上方。",
                                     }
                                 ],
                             },
@@ -619,7 +729,7 @@ class IqiyiDiscover(_PluginBase):
                     },
                 ],
             }
-        ], {"enabled": False, "cookie": ""}
+        ], {"enabled": False, "cookie": "", "refresh_cron": ""}
 
     def get_page(self) -> List[dict]:
         """
@@ -684,6 +794,50 @@ class IqiyiDiscover(_PluginBase):
         except Exception as err:
             logger.error(f"获取爱奇艺数据失败: {str(err)}")
             raise
+
+    @staticmethod
+    def _parse_cookie(raw: str) -> str:
+        """
+        解析用户提供的 Cookie，转换为标准请求头格式。
+
+        支持以下格式：
+        1. 标准格式：``name=value; name=value``
+        2. 浏览器开发者工具表格格式：Tab 分隔，第 1 列为 name，第 2 列为 value
+        3. JSON 格式：``[{"name": "...", "value": "..."}]``
+
+        :param raw: 用户提供的原始 Cookie 字符串
+        :return: 标准 Cookie 字符串（``name=value; name=value``）
+        """
+        if not raw:
+            return ""
+        text = raw.strip()
+        # JSON 数组格式
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                items = json.loads(text)
+                pairs = [
+                    f"{item.get('name')}={item.get('value')}"
+                    for item in items
+                    if isinstance(item, dict) and item.get("name") and item.get("value") is not None
+                ]
+                if pairs:
+                    return "; ".join(pairs)
+            except (ValueError, TypeError):
+                pass
+        # 表格格式：包含 Tab 分隔的多列
+        if "\t" in text:
+            pairs = []
+            for line in text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                cols = line.split("\t")
+                if len(cols) >= 2 and cols[0].strip() and cols[1].strip():
+                    pairs.append(f"{cols[0].strip()}={cols[1].strip()}")
+            if pairs:
+                return "; ".join(pairs)
+        # 标准格式：直接返回（去掉多余换行）
+        return " ".join(text.split())
 
     @staticmethod
     def __extract_device_id(cookie: str) -> Optional[str]:
