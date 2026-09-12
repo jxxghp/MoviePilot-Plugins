@@ -1365,5 +1365,22 @@
       "v1.0.1": "优化海报清晰度，优先使用高清海报字段",
       "v1.0.0": "发布"
     }
+  },
+  "HDBlueSignin": {
+    "v3": false,
+    "name": "蓝影论坛签到",
+    "description": "使用专用密钥自动签到蓝影论坛，支持随机错峰、结果通知与签到记录。",
+    "labels": "蓝影,论坛,签到",
+    "version": "1.0.2",
+    "icon": "https://raw.githubusercontent.com/wzxcom/MoviePilot-Plugins/main/icons/hdblue-logo-004699311fe1.png",
+    "author": "wzxcom",
+    "level": 1,
+    "release": false,
+    "system_version": ">=2.12.0,<3",
+    "history": {
+      "v1.0.2": "修复连接测试丢失待重试任务与停用后残留线程；补充真实 V3 宿主、分身隔离及调度生命周期回归。",
+      "v1.0.1": "替换蓝影论坛 PNG Logo；调整配置表单栅格、字段间距及提示布局，修复标签与提示文字重叠。",
+      "v1.0.0": "首次发布：专用签到密钥、北京时间定时与随机错峰、有限重试、连接测试及密钥保护。"
+    }
   }
 }
