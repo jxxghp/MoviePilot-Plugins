@@ -21,10 +21,12 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'action'])
-const loading = ref(false)
+const loading = ref(true)
 const taskLoading = ref(false)
 const saving = ref(false)
 const error = ref('')
+// 首次状态请求完成前，不把默认的停用状态展示给用户。
+const statusLoaded = ref(false)
 const status = ref({
   enabled: false,
   show_sidebar_nav: true,
@@ -115,6 +117,7 @@ async function loadStatus({ preserveSelection = true, loadDetail = true } = {}) 
   try {
     const data = unwrapResponse(await props.api.get(`${pluginBase.value}/status`))
     status.value = data || status.value
+    statusLoaded.value = true
     settingsDraft.value = {
       enabled: Boolean(status.value.enabled),
       show_sidebar_nav: status.value.show_sidebar_nav !== false,
@@ -432,7 +435,7 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
     </header>
 
     <VAlert v-if="error" type="error" variant="tonal" closable @click:close="error = ''">{{ error }}</VAlert>
-    <VAlert v-if="!status.enabled" type="warning" variant="tonal">
+    <VAlert v-if="statusLoaded && !status.enabled" type="warning" variant="tonal">
       插件当前未启用，任务配置与历史仍可查看，启用后才会注册刷新和检查服务。
     </VAlert>
 
