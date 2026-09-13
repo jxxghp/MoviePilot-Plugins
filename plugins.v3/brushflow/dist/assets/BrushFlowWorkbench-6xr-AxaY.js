@@ -1171,10 +1171,12 @@ const _sfc_main = {
 const props = __props;
 
 const emit = __emit;
-const loading = ref(false);
+const loading = ref(true);
 const taskLoading = ref(false);
 const saving = ref(false);
 const error = ref('');
+// 首次状态请求完成前，不把默认的停用状态展示给用户。
+const statusLoaded = ref(false);
 const status = ref({
   enabled: false,
   show_sidebar_nav: true,
@@ -1265,6 +1267,7 @@ async function loadStatus({ preserveSelection = true, loadDetail = true } = {}) 
   try {
     const data = unwrapResponse(await props.api.get(`${pluginBase.value}/status`));
     status.value = data || status.value;
+    statusLoaded.value = true;
     settingsDraft.value = {
       enabled: Boolean(status.value.enabled),
       show_sidebar_nav: status.value.show_sidebar_nav !== false,
@@ -1698,7 +1701,7 @@ return (_ctx, _cache) => {
           _: 1
         }))
       : _createCommentVNode("", true),
-    (!status.value.enabled)
+    (statusLoaded.value && !status.value.enabled)
       ? (_openBlock(), _createBlock(_component_VAlert, {
           key: 1,
           type: "warning",
@@ -2610,6 +2613,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const BrushFlowWorkbench = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-19d98e0f"]]);
+const BrushFlowWorkbench = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e894b68a"]]);
 
 export { BrushFlowWorkbench as B };
