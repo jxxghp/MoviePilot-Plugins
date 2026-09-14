@@ -1,6 +1,5 @@
 import datetime
 import random
-import re
 from typing import Tuple
 
 from lxml import etree
@@ -10,6 +9,7 @@ from app.core.config import settings
 from app.log import logger
 from app.plugins.autosignin.sites import _ISiteSigninHandler
 from app.utils.http import RequestUtils
+from app.utils.site import SiteUtils
 from app.utils.string import StringUtils
 
 
@@ -69,7 +69,8 @@ class U2(_ISiteSigninHandler):
             logger.error(f"{site} 签到失败，请检查站点连通性")
             return False, '签到失败，请检查站点连通性'
 
-        if "login.php" in html_text:
+        # 已登录页面的脚本权限数据可能包含 maxlogin.php，不能用 login.php 子串判断登录状态。
+        if not SiteUtils.is_logged_in(html_text):
             logger.error(f"{site} 签到失败，Cookie已失效")
             return False, '签到失败，Cookie已失效'
         
@@ -83,32 +84,46 @@ class U2(_ISiteSigninHandler):
         # 没有签到则解析html
         html = etree.HTML(html_text)
 
-        if not html:
+        if html is None:
             return False, '签到失败'
 
         # 获取签到参数
-        req = html.xpath("//form//td/input[@name='req']/@value")[0]
-        hash_str = html.xpath("//form//td/input[@name='hash']/@value")[0]
-        form = html.xpath("//form//td/input[@name='form']/@value")[0]
+        req = html.xpath("//form//input[@name='req']/@value")
+        hash_str = html.xpath("//form//input[@name='hash']/@value")
+        form = html.xpath("//form//input[@name='form']/@value")
+        csrf_token = html.xpath("//form//input[@name='_csrf']/@value")
         submit_name = html.xpath("//form//td/input[@type='submit']/@name")
         submit_value = html.xpath("//form//td/input[@type='submit']/@value")
-        if not re or not hash_str or not form or not submit_name or not submit_value:
-            logger.error("{site} 签到失败，未获取到相关签到参数")
+        if (
+            not req
+            or not hash_str
+            or not form
+            or not csrf_token
+            or not submit_name
+            or not submit_value
+        ):
+            logger.error(f"{site} 签到失败，未获取到相关签到参数")
             return False, '签到失败'
 
         # 随机一个答案
         answer_num = random.randint(0, 3)
         data = {
-            'req': req,
-            'hash': hash_str,
-            'form': form,
+            'req': req[0],
+            'hash': hash_str[0],
+            'form': form[0],
+            '_csrf': csrf_token[0],
             'message': '一切随缘~',
             submit_name[answer_num]: submit_value[answer_num]
         }
         # 签到
         sign_res = RequestUtils(cookies=site_cookie,
                                 ua=ua,
-                                proxies=settings.PROXY if proxy else None
+                                proxies=settings.PROXY if proxy else None,
+                                headers={
+                                    "User-Agent": ua,
+                                    "Referer": "https://u2.dmhy.org/showup.php",
+                                    "Origin": "https://u2.dmhy.org",
+                                }
                                 ).post_res(url="https://u2.dmhy.org/showup.php?action=show",
                                            data=data)
         if not sign_res or sign_res.status_code != 200:
