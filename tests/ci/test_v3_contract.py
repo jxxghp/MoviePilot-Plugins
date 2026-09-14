@@ -7,6 +7,9 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+from packaging.specifiers import InvalidSpecifier, Specifier, SpecifierSet
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_PATH = REPO_ROOT / "package.v3.json"
@@ -73,6 +76,28 @@ def _legacy_metadata(
     return package_v1.get(plugin_id)
 
 
+def _supports_v3_baseline(value: object) -> bool:
+    """保留 3.0.0 下界合同，同时允许插件声明更严格的宿主版本上界。"""
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        specifiers = SpecifierSet(value)
+    except InvalidSpecifier:
+        return False
+    return Specifier(">=3.0.0") in set(specifiers) and specifiers.contains("3.0.0")
+
+
+@pytest.mark.parametrize("value, expected", [
+    (">=3.0.0", True), (">=3.0.0,<4", True), (">=3,<4.0.0", True),
+    (">=2.0.0,<4", False), ("<4", False), (">=4", False),
+    (">=3.0.0,<3", False), (">=3.0.0,!=3.0.0", False),
+    ("not-a-version", False), ("", False), (None, False),
+])
+def test_v3_system_range_keeps_baseline_and_allows_upper_bound(value, expected):
+    """上界可更保守，但不能放行旧宿主、矛盾范围或删除现有基线支持。"""
+    assert _supports_v3_baseline(value) is expected
+
+
 def test_v3_index_has_matching_dedicated_plugins() -> None:
     """V3 条目必须具有独立目录；迁移插件还需在旧索引阻断 V3。"""
     package = _load_json(PACKAGE_PATH)
@@ -81,7 +106,7 @@ def test_v3_index_has_matching_dedicated_plugins() -> None:
     assert package
     for plugin_id, metadata in package.items():
         assert (V3_ROOT / plugin_id.lower() / "__init__.py").is_file()
-        assert metadata.get("system_version") == ">=3.0.0"
+        assert _supports_v3_baseline(metadata.get("system_version")), plugin_id
         old_metadata = _legacy_metadata(plugin_id, package_v2, package_v1)
         if old_metadata is not None:
             assert old_metadata.get("v3") is False
