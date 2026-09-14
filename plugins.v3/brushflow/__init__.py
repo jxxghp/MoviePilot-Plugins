@@ -218,7 +218,7 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流"
     plugin_desc = "自动托管多个站点刷流任务，并独立调度、统计与诊断。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "6.1.1"
+    plugin_version = "6.1.2"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -1169,12 +1169,17 @@ class BrushFlow(_PluginBase):
         user_data = site_user_data_by_domain.get(domain)
         if not user_data:
             return status
+        if getattr(user_data, "err_msg", None):
+            return status
         ratio = BrushTaskConfig._parse_number(getattr(user_data, "ratio", None))
         if ratio is None:
             return status
         upload = BrushTaskConfig._parse_number(getattr(user_data, "upload", None)) or 0
         download = BrushTaskConfig._parse_number(getattr(user_data, "download", None)) or 0
         unlimited = float(ratio) == 0 and float(upload) > 0 and float(download) <= 0
+        # 站点响应不完整时解析器会保留三个字段的零值，不能把它当成真实低分享率。
+        if float(ratio) == 0 and float(upload) <= 0 and float(download) <= 0:
+            return status
         updated_day = getattr(user_data, "updated_day", None)
         updated_time = getattr(user_data, "updated_time", None)
         status.update(
