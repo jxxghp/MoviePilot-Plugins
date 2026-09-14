@@ -155,14 +155,14 @@
     "name": "Bangumi代理",
     "description": "为 MoviePilot 内置 Bangumi 动漫数据与图片请求配置自定义代理 Base URL。",
     "labels": "工具",
-    "version": "1.0.1",
+    "version": "2.0.0",
     "icon": "Bangumi_A.png",
     "author": "kiritoxjf",
     "level": 1,
     "system_version": ">=3.0.0",
     "release": true,
     "history": {
-      "v1.0.1": "图片代理支持仅替换主机、查询参数、路径拼接三种风格。",
+      "v2.0.0": "V3 版本，图片代理支持仅替换主机、查询参数、路径拼接三种风格。",
       "v1.0.0": "新增 Bangumi 数据与图片代理 Base URL 配置，兼容 MoonPlus 代理拼接规则。"
     }
   },

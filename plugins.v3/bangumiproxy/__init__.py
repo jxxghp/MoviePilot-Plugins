@@ -73,7 +73,7 @@ class BangumiProxy(_PluginBase):
         "为 MoviePilot 内置 Bangumi 动漫数据与图片请求配置自定义代理 Base URL。"
     )
     plugin_icon = "Bangumi_A.png"
-    plugin_version = "1.0.1"
+    plugin_version = "2.0.0"
     plugin_author = "kiritoxjf"
     author_url = "https://github.com/jxxghp/MoviePilot-Plugins"
     plugin_config_prefix = "bangumiproxy_"
