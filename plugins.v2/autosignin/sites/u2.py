@@ -1,6 +1,8 @@
 import datetime
 import random
+import re
 from typing import Tuple
+from urllib.parse import urljoin, urlparse
 
 from lxml import etree
 from ruamel.yaml import CommentedMap
@@ -27,8 +29,20 @@ class U2(_ISiteSigninHandler):
                    '<a href="showup.php">已簽到</a>',
                    '<a href="showup.php">已簽到</a>']
 
-    # 签到成功
-    _success_text = "window.location.href = 'showup.php';</script>"
+    # 签到成功时，U2 可能返回相对路径或绝对 URL 的跳转脚本。
+    _success_redirect_regex = re.compile(
+        r"window\s*\.\s*location\s*\.\s*href\s*=\s*['\"]([^'\"]+)['\"]"
+    )
+
+    @classmethod
+    def _is_success_response(cls, response_text: str) -> bool:
+        """判断 U2 签到响应是否跳转回签到页，兼容相对和绝对 URL。"""
+        match = cls._success_redirect_regex.search(response_text)
+        if not match:
+            return False
+
+        target = urlparse(urljoin("https://u2.dmhy.org/showup.php", match.group(1)))
+        return target.netloc.casefold() == cls.site_url and target.path == "/showup.php"
 
     @classmethod
     def match(cls, url: str) -> bool:
@@ -57,7 +71,7 @@ class U2(_ISiteSigninHandler):
         if now.hour < 9:
             logger.error(f"{site} 签到失败，9点前不签到")
             return False, '签到失败，9点前不签到'
-        
+
         # 获取页面html
         html_text = self.get_page_source(url="https://u2.dmhy.org/showup.php",
                                          cookie=site_cookie,
@@ -73,7 +87,7 @@ class U2(_ISiteSigninHandler):
         if not SiteUtils.is_logged_in(html_text):
             logger.error(f"{site} 签到失败，Cookie已失效")
             return False, '签到失败，Cookie已失效'
-        
+
         # 判断是否已签到
         sign_status = self.sign_in_result(html_res=html_text,
                                           regexs=self._sign_regex)
@@ -130,9 +144,8 @@ class U2(_ISiteSigninHandler):
             logger.error(f"{site} 签到失败，签到接口请求失败")
             return False, '签到失败，签到接口请求失败'
 
-        # 判断是否签到成功
-        # sign_res.text = "<script type="text/javascript">window.location.href = 'showup.php';</script>"
-        if self._success_text in sign_res.text:
+        # U2 可能返回相对或绝对跳转地址，统一按最终签到页判断成功。
+        if self._is_success_response(sign_res.text):
             logger.info(f"{site} 签到成功")
             return True, '签到成功'
         else:

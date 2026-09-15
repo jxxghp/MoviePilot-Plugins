@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from app.plugins.autosignin.sites.u2 import U2
 from ruamel.yaml import CommentedMap
 
@@ -45,11 +46,12 @@ def _logged_in_page() -> str:
     """
 
 
-def test_signin_accepts_maxlogin_permission_data_and_submits_csrf():
-    """已登录页面包含 maxlogin.php 时仍应提交带 CSRF 的签到请求。"""
+@pytest.mark.parametrize("redirect_url", ["showup.php", "https://u2.dmhy.org/showup.php"])
+def test_signin_accepts_success_redirect_variants(redirect_url):
+    """已登录页面包含 maxlogin.php 时应识别 U2 的相对或绝对成功跳转。"""
     response = SimpleNamespace(
         status_code=200,
-        text="<script>window.location.href = 'showup.php';</script>",
+        text=f"<script>window.location.href = '{redirect_url}';</script>",
     )
     with (
         patch.object(U2, "get_page_source", return_value=_logged_in_page()),
