@@ -402,39 +402,23 @@ class DownloadSiteTag(_PluginBase):
                     if torrent_tags:
                         # 站点标签处理
                         if history.torrent_site:
-                            # 如果配置了站点前缀
-                            if self._site_prefix:
-                                # 清理无前缀的站点标签
-                                if history.torrent_site in torrent_tags:
-                                    tags_to_remove.append(history.torrent_site)
-                                # 清理带旧前缀的站点标签（除了当前前缀）
-                                for tag in torrent_tags:
-                                    if tag.endswith(history.torrent_site) and tag != f"{self._site_prefix}{history.torrent_site}":
-                                        tags_to_remove.append(tag)
-                            # 如果没有配置站点前缀
-                            else:
-                                # 清理所有带前缀的站点标签
-                                for tag in torrent_tags:
-                                    if tag.endswith(history.torrent_site) and tag != history.torrent_site:
-                                        tags_to_remove.append(tag)
+                            # 当前生效的站点标签形式（留空前缀时为裸站点名）
+                            current_site_tag = f"{self._site_prefix or ''}{history.torrent_site}"
+                            # 只清理「裸站点名」这一种明确的旧形式（仅在配置了前缀时才是旧形式）。
+                            # 不再按 endswith 兜底清理其它前缀的标签：站点名往往只是别的标签的后缀，
+                            # 那样会把第三方插件写的标签一并删掉（例如站点名「春天」时，
+                            # 刷流写的「刷流-春天」会被误判成旧站点标签删除，导致刷流种子脱离刷流管理）。
+                            if history.torrent_site in torrent_tags and history.torrent_site != current_site_tag:
+                                tags_to_remove.append(history.torrent_site)
 
                         # 剧名标签处理
                         if history.title:
-                            # 如果配置了剧名前缀
-                            if self._media_prefix:
-                                # 清理无前缀的剧名标签
-                                if history.title in torrent_tags:
-                                    tags_to_remove.append(history.title)
-                                # 清理带旧前缀的剧名标签（除了当前前缀）
-                                for tag in torrent_tags:
-                                    if tag.endswith(history.title) and tag != f"{self._media_prefix}{history.title}":
-                                        tags_to_remove.append(tag)
-                            # 如果没有配置剧名前缀
-                            else:
-                                # 清理所有带前缀的剧名标签
-                                for tag in torrent_tags:
-                                    if tag.endswith(history.title) and tag != history.title:
-                                        tags_to_remove.append(tag)
+                            # 当前生效的剧名标签形式（留空前缀时为裸剧名）
+                            current_media_tag = f"{self._media_prefix or ''}{history.title}"
+                            # 与站点标签同理：只清理「裸剧名」这一种明确的旧形式，
+                            # 避免用 endswith 把第三方插件写的、恰好以该剧名结尾的标签误删。
+                            if history.title in torrent_tags and history.title != current_media_tag:
+                                tags_to_remove.append(history.title)
 
                     # 去除种子已经存在的标签
                     if _tags and torrent_tags:
