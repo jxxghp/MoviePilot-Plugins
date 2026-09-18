@@ -149,7 +149,8 @@ class ImdbApiCredit(BaseModel):
                 avatar=self.name.primary_image.url if self.name.primary_image else None,
                 url=f"https://www.imdb.com/name/{self.name.id}/",
                 character=self.characters[0] if self.characters else None,
-                images=MediaImageSet(large=self.name.primary_image.url) if self.name.primary_image else None
+                images=MediaImageSet(large=self.name.primary_image.url) if self.name.primary_image else None,
+                job=self.category.capitalize() if self.category else None
             )
         return MediaCredit()
 

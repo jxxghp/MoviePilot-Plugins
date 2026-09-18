@@ -9,7 +9,6 @@ from apscheduler.triggers.cron import CronTrigger
 from fastapi import Query
 
 from app import schemas
-from app.chain import ChainBase
 from app.sdk.config import settings
 from app.sdk.media import MediaInfo, MetaBase
 from app.sdk.events import eventmanager, Event
@@ -31,7 +30,7 @@ class ImdbSource(_PluginBase):
     # 插件图标
     plugin_icon = "IMDb_IOS-OSX_App.png"
     # 插件版本
-    plugin_version = "2.1.4"
+    plugin_version = "2.1.5"
     # 插件作者
     plugin_author = "wumode"
     # 作者主页
@@ -946,12 +945,7 @@ class ImdbSource(_PluginBase):
         """
         退出插件
         """
-        if (getattr(ChainBase.recognize_media, "_patched_by", object()) == id(self) and
-                self._original_method):
-            ChainBase.recognize_media = self._original_method
-        if (getattr(ChainBase.async_recognize_media, "_patched_by", object()) == id(self) and
-                self._original_async_method):
-            ChainBase.async_recognize_media = self._original_async_method
+        pass
 
     def get_module(self) -> Dict[str, Any]:
         """
