@@ -1,25 +1,25 @@
 {
   "ShortCutModified": {
-      "name": "修改版快捷指令",
-      "description": "IOS快捷指令，快速选片添加订阅。",
-      "labels": "站点,仪表板",
-      "version": "2.6.8",
-      "icon": "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/shortcut.png",
-      "author": "Sinterdial, honue",
-      "level": 1,
-      "v3": false,
-      "release": true,
-      "history": {
-          "v2.6.8": "优化指引信息，更新快捷指令链接",
-          "v2.6.7": "修复bug，增加搜索源信息，优化显示，更新快捷指令链接",
-          "v2.6.6": "优化代码逻辑和交互显示信息，支持电影订阅",
-          "v2.6.5": "优化代码逻辑和交互显示信息",
-          "v2.6.4": "解决返回信息报错问题",
-          "v2.6.3": "判断订阅是否存在时考虑季数，修复bug",
-          "v2.6.2": "修复bug",
-          "v2.6.1": "修复bug",
-          "v2.6": "在原版基础上增加选择要订阅哪几季的功能"
-      }
+    "name": "修改版快捷指令",
+    "description": "IOS快捷指令，快速选片添加订阅。",
+    "labels": "站点,仪表板",
+    "version": "2.6.8",
+    "icon": "https://raw.githubusercontent.com/Sinterdial/MoviePilot-Plugins/main/icons/shortcut.png",
+    "author": "Sinterdial, honue",
+    "level": 1,
+    "v3": false,
+    "release": true,
+    "history": {
+      "v2.6.8": "优化指引信息，更新快捷指令链接",
+      "v2.6.7": "修复bug，增加搜索源信息，优化显示，更新快捷指令链接",
+      "v2.6.6": "优化代码逻辑和交互显示信息，支持电影订阅",
+      "v2.6.5": "优化代码逻辑和交互显示信息",
+      "v2.6.4": "解决返回信息报错问题",
+      "v2.6.3": "判断订阅是否存在时考虑季数，修复bug",
+      "v2.6.2": "修复bug",
+      "v2.6.1": "修复bug",
+      "v2.6": "在原版基础上增加选择要订阅哪几季的功能"
+    }
   },
   "AutoSports": {
     "name": "Sportscult 比赛自动下载及简单刮削",
@@ -1250,7 +1250,8 @@
       "v1.1.1": "修复设置弹窗组件加载错误（补 Config 联邦组件）；插件页改为居中「查看屏蔽记录」按钮，点击弹出记录窗口，记录显示精简",
       "v1.1.0": "新增插件页「H&R 屏蔽记录」固定面板（Vue联邦），保留最近100条屏蔽记录",
       "v1.0.0": "初始版本：资源选择+资源下载双事件拦截，支持站点H&R标记种子与全站H&R站点屏蔽（联动H&R助手）"
-    }
+    },
+    "v3": false
   },
   "AnimeUpscale": {
     "v3": false,
