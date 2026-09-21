@@ -29,8 +29,15 @@ def _configure_test_plugin_runtime() -> None:
         PluginRuntimeEnvironment,
         build_plugin_runtime,
     )
-    from app.runtime.extensions.plugin.storage import get_plugin_storage
+    from app.runtime.extensions.plugin.storage import (
+        get_plugin_instance_directory,
+        get_plugin_storage,
+    )
     from app.runtime.extensions.plugin.system import get_plugin_system
+    from app.startup.initializers.plugins import (
+        _clear_plugin_default_target,
+        _set_plugin_default_target,
+    )
 
     def build_test_plugin_runtime(host):
         """构造使用隔离配置的插件运行时，避免隐式依赖生产组合根。"""
@@ -39,6 +46,7 @@ def _configure_test_plugin_runtime() -> None:
             PluginRuntimeEnvironment(
                 plugins_root=settings.ROOT_PATH / "app" / "plugins",
                 storage=get_plugin_storage,
+                instance_directory=get_plugin_instance_directory,
                 system=get_plugin_system,
                 database=get_plugin_database,
                 catalog_factory=lambda _mapper: None,
@@ -48,6 +56,8 @@ def _configure_test_plugin_runtime() -> None:
                 remote_entry=host.get_plugin_remote_entry,
                 development=lambda: False,
                 logger=plugin_manager_module.logger,
+                set_default_target=_set_plugin_default_target,
+                clear_default_target=_clear_plugin_default_target,
             ),
             tool_build_max_attempts=PluginManager.AGENT_TOOLS_BUILD_MAX_ATTEMPTS,
         )

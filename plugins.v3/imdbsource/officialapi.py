@@ -345,6 +345,173 @@ IMDB_GRAPHQL_QUERY: Final[str] = dedent("""
     }
 """)
 
+ADVANCED_TITLE_SEARCH_QUERY = """query AdvancedTitleSearch($first: Int!, $after: String, $titleTypeConstraint: TitleTypeSearchConstraint, $interestConstraint: InterestSearchConstraint, $genreConstraint: GenreSearchConstraint, $certificateConstraint: CertificateSearchConstraint, $characterConstraint: CharacterSearchConstraint, $userRatingsConstraint: UserRatingsSearchConstraint, $titleTextConstraint: TitleTextSearchConstraint, $creditedCompanyConstraint: CreditedCompanySearchConstraint, $explicitContentConstraint: ExplicitContentSearchConstraint, $sortBy: AdvancedTitleSearchSortBy!, $sortOrder: SortOrder!, $releaseDateConstraint: ReleaseDateSearchConstraint, $colorationConstraint: ColorationSearchConstraint, $runtimeConstraint: RuntimeSearchConstraint, $watchOptionsConstraint: WatchOptionsSearchConstraint, $awardConstraint: AwardSearchConstraint, $rankedTitleListConstraint: RankedTitleListSearchConstraint, $titleCreditsConstraint: TitleCreditsConstraint, $inTheatersConstraint: InTheatersSearchConstraint, $soundMixConstraint: SoundMixSearchConstraint, $keywordConstraint: KeywordSearchConstraint, $originCountryConstraint: OriginCountrySearchConstraint, $languageConstraint: LanguageSearchConstraint, $episodicConstraint: EpisodicSearchConstraint, $alternateVersionMatchingConstraint: AlternateVersionMatchingSearchConstraint, $crazyCreditMatchingConstraint: CrazyCreditMatchingSearchConstraint, $goofMatchingConstraint: GoofMatchingSearchConstraint, $filmingLocationConstraint: FilmingLocationSearchConstraint, $plotMatchingConstraint: PlotMatchingSearchConstraint, $quoteMatchingConstraint: TitleQuoteMatchingSearchConstraint, $soundtrackMatchingConstraint: SoundtrackMatchingSearchConstraint, $triviaMatchingConstraint: TitleTriviaMatchingSearchConstraint, $withTitleDataConstraint: WithTitleDataSearchConstraint, $myRatingConstraint: MyRatingSearchConstraint, $myWatchedConstraint: MyWatchedSearchConstraint, $listConstraint: ListSearchConstraint) {
+  advancedTitleSearch(
+    first: $first
+    after: $after
+    constraints: {titleTypeConstraint: $titleTypeConstraint, genreConstraint: $genreConstraint, certificateConstraint: $certificateConstraint, characterConstraint: $characterConstraint, userRatingsConstraint: $userRatingsConstraint, titleTextConstraint: $titleTextConstraint, creditedCompanyConstraint: $creditedCompanyConstraint, explicitContentConstraint: $explicitContentConstraint, releaseDateConstraint: $releaseDateConstraint, colorationConstraint: $colorationConstraint, runtimeConstraint: $runtimeConstraint, watchOptionsConstraint: $watchOptionsConstraint, awardConstraint: $awardConstraint, rankedTitleListConstraint: $rankedTitleListConstraint, titleCreditsConstraint: $titleCreditsConstraint, inTheatersConstraint: $inTheatersConstraint, soundMixConstraint: $soundMixConstraint, keywordConstraint: $keywordConstraint, originCountryConstraint: $originCountryConstraint, languageConstraint: $languageConstraint, episodicConstraint: $episodicConstraint, alternateVersionMatchingConstraint: $alternateVersionMatchingConstraint, crazyCreditMatchingConstraint: $crazyCreditMatchingConstraint, goofMatchingConstraint: $goofMatchingConstraint, filmingLocationConstraint: $filmingLocationConstraint, plotMatchingConstraint: $plotMatchingConstraint, quoteMatchingConstraint: $quoteMatchingConstraint, soundtrackMatchingConstraint: $soundtrackMatchingConstraint, triviaMatchingConstraint: $triviaMatchingConstraint, withTitleDataConstraint: $withTitleDataConstraint, myRatingConstraint: $myRatingConstraint, myWatchedConstraint: $myWatchedConstraint, listConstraint: $listConstraint, interestConstraint: $interestConstraint}
+    sort: {sortBy: $sortBy, sortOrder: $sortOrder}
+  ) {
+    total
+    pageInfo {
+      hasPreviousPage
+      hasNextPage
+      startCursor
+      endCursor
+    }
+    ...TitleSearchFacetFields
+    edges {
+      node {
+        title {
+          ...TitleListItemMetadata
+          ...TitleListItemMetascore
+        }
+      }
+    }
+  }
+}
+
+fragment TitleListItemMetadata on Title {
+  ...TitleListItemMetadataEssentials
+  latestTrailer {
+    id
+  }
+  plot {
+    plotText {
+      plainText
+    }
+  }
+  releaseDate {
+    day
+    month
+    year
+  }
+  productionStatus(useEntitlement: false) {
+    currentProductionStage {
+      id
+      text
+    }
+  }
+}
+
+fragment TitleListItemMetadataEssentials on Title {
+  ...BaseTitleCard
+  series {
+    displayableEpisodeNumber {
+      displayableSeason {
+        text
+      }
+      episodeNumber {
+        text
+      }
+    }
+    series {
+      id
+      originalTitleText {
+        text
+      }
+      releaseYear {
+        endYear
+        year
+      }
+      titleText {
+        text
+      }
+    }
+  }
+}
+
+fragment BaseTitleCard on Title {
+  id
+  titleText {
+    text
+  }
+  titleType {
+    id
+    text
+    canHaveEpisodes
+    displayableProperty {
+      value {
+        plainText
+      }
+    }
+  }
+  originalTitleText {
+    text
+  }
+  primaryImage {
+    id
+    width
+    height
+    url
+    caption {
+      plainText
+    }
+  }
+  releaseYear {
+    year
+    endYear
+  }
+  ratingsSummary {
+    aggregateRating
+    voteCount
+  }
+  runtime {
+    seconds
+  }
+  originalRuntime {
+    seconds
+  }
+  certificate {
+    rating
+  }
+  canRate {
+    isRatable
+  }
+  titleGenres {
+    genres(limit: 3) {
+      genre {
+        text
+      }
+    }
+  }
+}
+
+fragment TitleListItemMetascore on Title {
+  metacritic {
+    metascore {
+      score
+    }
+  }
+}
+
+fragment TitleSearchFacetFields on AdvancedTitleSearchConnection {
+  genres: facet(facetField: GENRES, limit: 30) {
+    filterId
+    text
+    total
+  }
+  keywords: facet(facetField: KEYWORDS, limit: 100) {
+    filterId
+    text
+    total
+  }
+  titleTypes: facet(facetField: TITLE_TYPE, limit: 25) {
+    filterId
+    text
+    total
+  }
+  jobCategories: facet(facetField: NAME_JOB_CATEGORIES) {
+    filterId
+    text
+    total
+  }
+  creditCategories: facet(facetField: NAME_CREDIT_CATEGORIES) {
+    filterId
+    text
+    total
+  }
+}"""
 
 class PersistedQueryNotFound(ImmediateException):
     def __init__(self, message: str, code: int = None):
@@ -388,10 +555,11 @@ class OfficialApiClient:
     async def _async_request(self, operation_name: str, variables: Dict[str, Any], sha256: str) -> Optional[Dict]:
         params = {
             "operationName": operation_name,
-            "variables": json.dumps(variables, separators=(",", ":"), ensure_ascii=False),
-            "extensions": f'{{"persistedQuery":{{"sha256Hash":"{sha256}","version":1}}}}'
+            "variables": variables,
+            "extensions": {"persistedQuery":{"sha256Hash":sha256, "version":1}},
+            "query": ADVANCED_TITLE_SEARCH_QUERY
         }
-        data = await self._async_req.get_json(f"{self.BASE_URL}", params=params, raise_exception=True)
+        data = await self._async_req.post_json(f"{self.BASE_URL}", json=params, raise_exception=True)
         if not data:
             return None
         if "errors" in data:

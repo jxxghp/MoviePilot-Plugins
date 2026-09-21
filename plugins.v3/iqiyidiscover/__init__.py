@@ -242,7 +242,7 @@ class IqiyiDiscover(_PluginBase):
         return [
             {
                 "name": "爱奇艺",
-                "media_source": MediaSource.Iqiyi,
+                "media_source": MediaSource("iqiyi"),
                 "media_types": [MediaType.MOVIE, MediaType.TV],
             }
         ]
@@ -358,7 +358,7 @@ class IqiyiDiscover(_PluginBase):
         )
         if not mediainfo:
             return None
-        mediainfo.media_source = MediaSource.Iqiyi
+        mediainfo.media_source = MediaSource("iqiyi")
         mediainfo.media_id = str(media_id)
         return mediainfo
 
@@ -420,7 +420,7 @@ class IqiyiDiscover(_PluginBase):
         )
         if not mediainfo:
             return None
-        mediainfo.media_source = MediaSource.Iqiyi
+        mediainfo.media_source = MediaSource("iqiyi")
         mediainfo.media_id = str(media_id)
         return mediainfo
 
@@ -923,7 +923,7 @@ class IqiyiDiscover(_PluginBase):
                 title=movie_info.get("display_name") or movie_info.get("title"),
                 year=self.__get_year(movie_info),
                 title_year=self.__get_title_year(movie_info),
-                media_source=MediaSource.Iqiyi,
+                media_source=MediaSource("iqiyi"),
                 media_id=str(movie_info.get("album_id") or movie_info.get("entity_id")),
                 poster_path=self.__get_poster(movie_info),
             )
@@ -937,7 +937,7 @@ class IqiyiDiscover(_PluginBase):
                 title=series_info.get("display_name") or series_info.get("title"),
                 year=self.__get_year(series_info),
                 title_year=self.__get_title_year(series_info),
-                media_source=MediaSource.Iqiyi,
+                media_source=MediaSource("iqiyi"),
                 media_id=str(series_info.get("album_id") or series_info.get("entity_id")),
                 poster_path=self.__get_poster(series_info),
             )
@@ -1087,7 +1087,7 @@ class IqiyiDiscover(_PluginBase):
         event_data: DiscoverSourceEventData = event.event_data
         iqiyi_source = schemas.DiscoverMediaSource(
             name="爱奇艺",
-            media_source=MediaSource.Iqiyi,
+            media_source=MediaSource("iqiyi"),
             mediaid_prefix="iqiyi",
             api_path=f"plugin/IqiyiDiscover/iqiyi_discover?apikey={settings.API_TOKEN}",
             filter_params={

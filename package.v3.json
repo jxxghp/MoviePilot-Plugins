@@ -155,13 +155,14 @@
     "name": "站点刷流",
     "description": "自动托管多个站点刷流任务，并独立调度、统计与诊断。",
     "labels": "刷流,仪表板",
-    "version": "6.1.1",
+    "version": "6.1.2",
     "icon": "brush-flow.png",
     "author": "jxxghp,InfinityPacer,Seed680",
     "level": 2,
     "release": true,
     "system_version": ">=3.0.0",
     "history": {
+      "v6.1.2": "修复站点分享率数据缺失时误触发刷流，等待数据更新后再继续判断。",
       "v6.1.1": "修复站点刷流工作台首次加载时短暂显示插件未启用提示的问题。",
       "v6.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
       "v6.0.1": "新增种子下载标签配置，默认使用可读的「刷流-站点名」标签，新增种子仅打单一标签，不再叠加随机代码标签",
@@ -383,13 +384,14 @@
     "name": "IMDb源",
     "description": "让探索，推荐和媒体识别支持IMDb数据源。",
     "labels": "探索",
-    "version": "2.1.4",
+    "version": "2.1.5",
     "icon": "IMDb_IOS-OSX_App.png",
     "author": "wumode",
     "level": 1,
     "release": true,
     "system_version": ">=3.0.0",
     "history": {
+      "v2.1.5": "GraphQL 请求改用 POST 提交完整查询体以提升稳定性；演职员信息补充职位字段映射；清理冗余的识别链 patch 逻辑。",
       "v2.1.4": "中文转换改用 MoviePilot 文本 SDK，兼容 Python 3.14t。",
       "v2.1.3": "异步 HTTP 客户端迁移至 HTTPX2，适配 MoviePilot V3 网络 SDK。",
       "v2.1.2": "完善媒体识别接口实现，优化官方 API 客户端与演职员凭证转换",
@@ -772,6 +774,22 @@
     "system_version": ">=3.0.0",
     "history": {
       "v1.0.0": "首次发布：WPUSH V3 消息通知插件，成功判定以接口 JSON code===0 为准。"
+    }
+  },
+  "HDBlueSignin": {
+    "name": "蓝影论坛签到",
+    "description": "使用专用密钥自动签到蓝影论坛，支持随机错峰、结果通知与签到记录。",
+    "labels": "蓝影,论坛,签到",
+    "version": "2.0.2",
+    "icon": "https://raw.githubusercontent.com/wzxcom/MoviePilot-Plugins/main/icons/hdblue-logo-004699311fe1.png",
+    "author": "wzxcom",
+    "level": 1,
+    "release": false,
+    "system_version": ">=3.0.0,<4",
+    "history": {
+      "v2.0.2": "修复连接测试丢失待重试任务与停用后残留线程；补充真实 V3 宿主、分身隔离及调度生命周期回归。",
+      "v2.0.1": "替换蓝影论坛 PNG Logo；调整配置表单栅格、字段间距及提示布局，修复标签与提示文字重叠。",
+      "v2.0.0": "V3 独立版本：稳定 SDK 接入、专用签到密钥、北京时间定时与随机错峰、有限重试和连接测试。"
     }
   }
 }
