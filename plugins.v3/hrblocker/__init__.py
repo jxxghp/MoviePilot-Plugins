@@ -494,20 +494,24 @@ class HRBlocker(_PluginBase):
                 else:
                     kept.append(it)
             removed = len(items) - len(kept)
-            if removed:
-                event["items"] = kept
-                if etype == "append":
+            if etype == "append":
+                # append 阶段 total_items 为累计值，仅在有剔除时扣减
+                if removed:
+                    event["items"] = kept
                     removed_cum += removed
                     if isinstance(event.get("total_items"), int):
                         event["total_items"] = max(0, event["total_items"] - removed_cum)
-                else:
-                    # replace/done：items 为最终全量，直接以过滤后数量为准
-                    if isinstance(event.get("total_items"), int):
-                        event["total_items"] = len(kept)
-                    text = event.get("text")
-                    if isinstance(text, str):
-                        event["text"] = re.sub(r"共\s*\d+\s*个资源", f"共 {len(kept)} 个资源", text)
-                logger.info(f"【{self.plugin_name}】搜索结果已过滤 {removed} 个H&R种子（{etype}）")
+                    logger.info(f"【{self.plugin_name}】搜索结果已过滤 {removed} 个H&R种子（{etype}）")
+            else:
+                # replace/done：items 为最终全量，无条件以过滤后数量为准（含文本改写）
+                event["items"] = kept
+                if isinstance(event.get("total_items"), int):
+                    event["total_items"] = len(kept)
+                text = event.get("text")
+                if isinstance(text, str):
+                    event["text"] = re.sub(r"共\s*\d+\s*个资源", f"共 {len(kept)} 个资源", text)
+                if removed:
+                    logger.info(f"【{self.plugin_name}】搜索结果已过滤 {removed} 个H&R种子（{etype}）")
         contexts = event.get("contexts")
         if isinstance(contexts, list) and contexts:
             event["contexts"] = self.hr_filter_contexts(contexts)
