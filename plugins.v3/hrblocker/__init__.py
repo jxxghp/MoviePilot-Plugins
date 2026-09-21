@@ -183,6 +183,7 @@ class HRBlocker(_PluginBase):
                 "path": "/status",
                 "endpoint": self.api_status,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "H&R Blocker状态",
                 "description": "查看当前生效配置及联动解析出的全站H&R站点清单",
             },
@@ -190,6 +191,7 @@ class HRBlocker(_PluginBase):
                 "path": "/records",
                 "endpoint": self.api_records,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "屏蔽记录",
                 "description": "查看最近屏蔽的H&R种子记录（最多100条）",
             },
@@ -197,6 +199,7 @@ class HRBlocker(_PluginBase):
                 "path": "/records/clear",
                 "endpoint": self.api_clear_records,
                 "methods": ["POST"],
+                "auth": "bear",
                 "summary": "清空屏蔽记录",
                 "description": "清空全部屏蔽记录",
             }
