@@ -168,7 +168,7 @@ class IqiyiDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/iqiyi_A.png"
     # 插件版本
-    plugin_version = "2.1.4"
+    plugin_version = "2.1.5"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -977,6 +977,10 @@ class IqiyiDiscover(_PluginBase):
         # 根据 channel_id 过滤，确保只返回当前频道的准确数据
         target_channel_id = CHANNEL_PARAMS[mtype]["channel_id"]
         result = [item for item in result if str(item.get("channel_id")) == target_channel_id]
+        # 剔除"单集"条目：爱奇艺接口会在剧集列表里混入正在更新的单集，
+        # 其 display_name 与剧集同名但 album_id 不同，会导致同一部剧重复显示，
+        # 且单集只有横版剧照（image_cover 为 /v_ 开头），会被当作海报。
+        result = [item for item in result if not self.__is_episode_item(item)]
         if mtype == "movie":
             results = [__movie_to_media(movie) for movie in result]
         else:
@@ -984,6 +988,35 @@ class IqiyiDiscover(_PluginBase):
         # 保存媒体身份缓存，供媒体识别使用
         await self._save_media_identities(result)
         return Response(success=True, data=results[:count])
+
+    @staticmethod
+    def __is_episode_item(media_info: dict) -> bool:
+        """
+        判断是否为"单集"条目。
+
+        爱奇艺剧集列表接口会混入正在更新的单集条目，其特征为：
+        1. title 带"第N集"（display_name 已被剥离集数，与剧集同名）；
+        2. 无高清海报字段，image_cover 为 /v_ 开头的横版剧照；
+        3. album_id 与 entity_id 不一致（单集条目两者不同，剧集条目相同）。
+
+        满足任一特征即视为单集条目，避免同一部剧重复显示。
+
+        :param media_info: 爱奇艺媒体数据
+        :return: 是否为单集条目
+        """
+        import re
+
+        title = media_info.get("title") or ""
+        if re.search(r"第\s*\d+\s*集", title):
+            return True
+        cover = media_info.get("image_cover") or ""
+        if not (media_info.get("image_url_2x") or media_info.get("image_url_normal")) and "/v_" in cover:
+            return True
+        album_id = media_info.get("album_id")
+        entity_id = media_info.get("entity_id")
+        if album_id and entity_id and str(album_id) != str(entity_id):
+            return True
+        return False
 
     @staticmethod
     def __get_year(media_info: dict) -> Optional[str]:
