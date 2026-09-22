@@ -28,7 +28,7 @@ class LibraryScraper(_PluginBase):
     # 插件图标
     plugin_icon = "scraper.png"
     # 插件版本
-    plugin_version = "3.1.0"
+    plugin_version = "3.1.1"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -467,6 +467,7 @@ class LibraryScraper(_PluginBase):
             media_source=media_source,
             media_id=media_id,
         )
+        media_source, media_id = self.__normalize_media_identity(media_source, media_id)
         # 优先读取本地 NFO 文件；NFO 无合法身份时保留文件路径中的统一身份。
         nfo_candidates = []
         if target_type == self._target_file:
@@ -595,11 +596,34 @@ class LibraryScraper(_PluginBase):
                         media_source=source,
                         media_id=reader.get_element_value(xpath),
                     )
+                    media_source, media_id = LibraryScraper.__normalize_media_identity(
+                        media_source,
+                        media_id,
+                    )
                     if media_source:
                         return media_source, media_id
         except Exception as err:
             logger.warn(f"从 NFO 文件中获取媒体身份失败：{str(err)}")
         return None, None
+
+    @staticmethod
+    def __normalize_media_identity(
+            media_source: Optional[MediaSource],
+            media_id: Optional[str],
+    ) -> Tuple[Optional[MediaSource], Optional[str]]:
+        """过滤 NFO 中的空值、占位文本和非法 TMDB 媒体 ID。"""
+        if not media_source or not media_id:
+            return None, None
+        normalized_id = str(media_id).strip()
+        if normalized_id.casefold() in {"none", "null", "nil", "undefined", "nan"}:
+            return None, None
+        if media_source == MediaSource.TMDB:
+            try:
+                if int(normalized_id) <= 0:
+                    return None, None
+            except ValueError:
+                return None, None
+        return media_source, normalized_id
 
     def stop_service(self):
         """

@@ -73,6 +73,18 @@ def test_nfo_identity_rejects_only_zero_id(tmp_path: Path) -> None:
     assert identity == (None, None)
 
 
+def test_nfo_identity_skips_invalid_tmdb_placeholder(tmp_path: Path) -> None:
+    """历史集级 NFO 的 None 占位值不得进入 V3 识别链。"""
+    nfo_path = tmp_path / "episode.nfo"
+    nfo_path.write_text(
+        "<episodedetails><uniqueid type='tmdb'>None</uniqueid>"
+        "<tmdbid>not-a-number</tmdbid></episodedetails>",
+        encoding="utf-8",
+    )
+
+    assert LibraryScraper._LibraryScraper__get_media_identity_from_nfo(nfo_path) == (None, None)
+
+
 def test_scrape_path_uses_pair_and_scraping_chain(tmp_path: Path, monkeypatch) -> None:
     """显式媒体身份必须直达识别链，元数据写入必须交给 ScrapingChain。"""
     media_file = tmp_path / "Movie.mkv"
