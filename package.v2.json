@@ -1167,6 +1167,7 @@
     "icon": "fullscreenposterwall.png",
     "author": "ltdstudio",
     "level": 1,
+"v3": false,
     "system_version": ">=2.12.0",
     "release": true,
     "history": {
