@@ -67,7 +67,7 @@ jobs:
         run: ../MoviePilot/.venv/bin/python tests/run.py
 
   plugin-dependency-install-gate:
-    name: V3 dependency install (${{ matrix.name }})
+    name: V3 dependency install (${{ matrix.name }}, cp314)
     strategy:
       fail-fast: false
       matrix:
@@ -102,6 +102,7 @@ jobs:
           set -euo pipefail
           if git diff --quiet "${{ github.event.pull_request.base.sha }}" HEAD -- \
             'plugins.v3/*/pyproject.toml' \
+            'package.v3.json' \
             'scripts/check_v3_dependency_install.py' \
             'tests/ci/test_v3_dependency_install_gate.py' \
             '.github/workflows/plugin-gate.yml'; then
@@ -122,4 +123,70 @@ jobs:
         if: steps.dependency-scope.outputs.run == 'true'
         env:
           PYTHONUTF8: '1'
-        run: uv run --no-project --python 3.14 python scripts/check_v3_dependency_install.py --python 3.14 --platform "${{ matrix.platform }}"
+        run: uv run --no-project --python 3.14 python scripts/check_v3_dependency_install.py --abi cp314 --platform "${{ matrix.platform }}"
+
+  # free-threaded（v3t）镜像只发布 linux amd64/arm64，且最终镜像不含编译工具链。
+  # 在同基底的 slim 容器中安装，保证缺少 cp314t wheel 的依赖会像生产镜像一样失败，
+  # 而不是被 runner 自带的 gcc/cargo 从源码构建放过。
+  plugin-dependency-install-gate-v3t:
+    name: V3 dependency install (${{ matrix.name }}, cp314t)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-latest
+            platform: linux-x64
+            abi: cp314t
+          - name: Linux arm64
+            os: ubuntu-24.04-arm
+            platform: linux-arm64
+            abi: cp314t
+    runs-on: ${{ matrix.os }}
+    container: python:3.14-slim-trixie
+    timeout-minutes: 45
+    steps:
+      - name: Install checkout prerequisites
+        # 只安装 checkout 与变更判定需要的 git，不得安装编译工具链
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
+      - name: Checkout plugin repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Determine whether dependency gate is required
+        id: dependency-scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git diff --quiet "${{ github.event.pull_request.base.sha }}" HEAD -- \
+            'plugins.v3/*/pyproject.toml' \
+            'package.v3.json' \
+            'scripts/check_v3_dependency_install.py' \
+            'tests/ci/test_v3_dependency_install_gate.py' \
+            '.github/workflows/plugin-gate.yml'; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up uv
+        if: steps.dependency-scope.outputs.run == 'true'
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+          cache-suffix: ${{ matrix.abi }}
+          cache-dependency-glob: |
+            plugins.v3/*/pyproject.toml
+            package.v3.json
+
+      - name: Install V3 plugin dependencies
+        if: steps.dependency-scope.outputs.run == 'true'
+        env:
+          PYTHONUTF8: '1'
+        # 脚本运行在容器自带的标准 3.14，目标 venv 由脚本按 --abi 创建 free-threaded 解释器
+        run: uv run --no-project --python 3.14 python scripts/check_v3_dependency_install.py --abi "${{ matrix.abi }}" --platform "${{ matrix.platform }}" --require-no-toolchain

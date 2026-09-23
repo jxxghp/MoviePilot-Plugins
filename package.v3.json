@@ -67,6 +67,7 @@
     "level": 1,
     "release": true,
     "system_version": ">=3.0.0",
+    "v3t": false,
     "history": {
       "v3.1.0": "迁移至现代依赖清单，适配 Python 3.14，并补充初始化、事件、任务持久化和停止生命周期测试。",
       "v3.0.0": "V3 独立版本：迁移至 plugins.v3，使用稳定 SDK 导入并修复插件内部模块加载。",
@@ -106,7 +107,8 @@
       "0.1.34": "打通统一智能入口、原生 Agent Tool、会话状态/清理、115 扫码登录、待处理任务恢复与 115 独立直转执行层。",
       "0.1.9": "首版接入夸克/115 转存、影巢搜索/解锁、盘搜/直链路由、候选分页详情、账号配额、签到兜底和健康检查。"
     },
-    "system_version": ">=3.0.0"
+    "system_version": ">=3.0.0",
+    "v3t": false
   },
   "AutoClean": {
     "name": "定时清理媒体库",
@@ -708,6 +710,7 @@
     "level": 1,
     "release": true,
     "system_version": ">=3.0.0",
+    "v3t": false,
     "history": {
       "v2.1.2": "升级至支持 Python 3.14 的 PyTorch 2.13 与 CUDA 12.6；V3t 暂受上游原生依赖制品限制。",
       "v2.1.1": "依赖清单迁移至 pyproject.toml，升级 PyTorch 2.5.1 以兼容 V3 的 NumPy 2 运行环境，并使用具名 CUDA 12.1 索引声明来源。",
