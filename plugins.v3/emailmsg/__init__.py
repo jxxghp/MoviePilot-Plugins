@@ -29,7 +29,7 @@ class EmailMsg(_PluginBase):
     # 插件图标
     plugin_icon = "Email_A.png"
     # 插件版本
-    plugin_version = "1.3.0"
+    plugin_version = "1.3.1"
     # 插件作者
     plugin_author = "LLL001a"
     # 作者主页
@@ -537,6 +537,14 @@ class EmailMsg(_PluginBase):
         template = template or self._template or "dark_card"
         safe_title = html_lib.escape(title or "MoviePilot 通知")
         safe_type = html_lib.escape(msg_type or "通知")
+
+        # 非媒体类通知（无海报）自动降级为通用文本模板：
+        # 正文按行保留原始格式，不强制解析「字段名：值」，避免错误分段。
+        if not image:
+            return self._build_html_text_card(
+                safe_title, text, link, safe_type
+            )
+
         # 解析正文字段
         fields = self._parse_text_fields(text)
         # 转义字段
@@ -544,12 +552,6 @@ class EmailMsg(_PluginBase):
             (html_lib.escape(name), html_lib.escape(value))
             for name, value in fields
         ]
-
-        # 非媒体类通知（无海报）自动降级为通用文本模板
-        if not image:
-            return self._build_html_text_card(
-                safe_title, safe_fields, link, safe_type
-            )
 
         if template == "poster_full":
             return self._build_html_poster_full(
@@ -563,28 +565,32 @@ class EmailMsg(_PluginBase):
             safe_title, safe_fields, image, link, safe_type
         )
 
-    def _build_html_text_card(self, safe_title: str, fields: List[tuple],
+    def _build_html_text_card(self, safe_title: str, text: str,
                               link: Optional[str], safe_type: str) -> str:
-        """通用文本模板：非媒体类通知（无海报）使用的简洁文本卡片。"""
+        """通用文本模板：非媒体类通知（无海报）使用的简洁文本卡片。
+
+        正文按行保留原始格式展示，不强制解析「字段名：值」，
+        避免动作描述、路径、Markdown 等文本被错误分段。
+        """
         import html as html_lib
-        # 字段列表（靠左）
-        field_rows = ""
-        for name, value in fields:
-            if name:
-                field_rows += (
-                    f'<div style="margin-bottom:8px;">'
-                    f'<span style="color:#6b7280;">{name}：</span>'
-                    f'<span style="color:#111827;font-weight:600;">{value}</span></div>'
-                )
-            else:
-                field_rows += (
-                    f'<div style="margin-bottom:8px;color:#374151;">{value}</div>'
-                )
+        # 按行拆分正文，保留每行原始内容（含冒号、emoji、Markdown 等）
+        line_rows = ""
+        for raw_line in (text or "").split("\n"):
+            line = raw_line.rstrip("\r")
+            if not line.strip():
+                # 空行渲染为间距
+                line_rows += '<div style="height:8px;"></div>'
+                continue
+            safe_line = html_lib.escape(line)
+            line_rows += (
+                f'<div style="margin-bottom:6px;color:#374151;'
+                f'word-break:break-word;">{safe_line}</div>'
+            )
         fields_html = ""
-        if field_rows:
+        if line_rows:
             fields_html = (
                 '<div style="font-size:14px;color:#374151;line-height:1.9;'
-                f'text-align:left;margin-bottom:20px;">{field_rows}</div>'
+                f'text-align:left;margin-bottom:20px;">{line_rows}</div>'
             )
         # 按钮
         button_html = ""
