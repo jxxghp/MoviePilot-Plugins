@@ -1,17 +1,17 @@
 """
-目录新增监控刮削 (MediaDirWatcher)
+目录新增监控刮削插件 (MediaDirWatcher)
+监控飞牛 NAS 中指定目录，发现新增电影/电视剧后：
+  1. 解析文件名/目录名；
+  2. 根据 TMDB / 豆瓣 识别元数据；
+  3. 通过 MoviePilot 发送通知（含海报、年份、评分、简介）；
+  4. 可选：将元数据刮削写入 NFO（与「媒体库刮削」相同的方式）。
 
-轮询监控指定媒体目录，发现新增电影/剧集/动画片后：
-  1. 解析文件名/目录名，识别媒体条目（剧集目录/电影目录/单文件）；
-  2. 使用 MoviePilot 原生识别链获取元数据（跟随系统 / 豆瓣 / TMDB 可选）；
-  3. 通过 MoviePilot 消息通道发送通知（海报、年份、评分、简介）；
-  4. 可选：调用 ScrapingChain 将元数据刮削写入 NFO 与图片。
+监控通过后台定时任务（轮询）实现，目录路径使用容器内能访问到的路径
+（MoviePilot 容器已挂载宿主 /media -> /media，故填写 /media/... 即可）。
 
-设计要点：
-- 首次扫描只建立基线（记录存量条目，不识别不通知），避免存量媒体刷屏；
-- 目录树 mtime 指纹预检：目录无变化时跳过全量扫描，几乎零磁盘 I/O；
-- 每处理一条即落盘进度，插件重启不重复通知；
-- 条目类型标注优先取路径中的目录分类（如 动画片/纪录片），更贴合库结构。
+v1.0.4: 识别链对齐 MP 原生 —— 改用官方 recognize_by_path / recognize_by_meta
+（请求级数据源，不再切换全局 RECOGNIZE_SOURCE），元数据解析、季目录识别、
+识别降级(TMDB/豆瓣/IMDb)与补图全部复用 MP 原生管线。
 """
 import os
 import re
@@ -23,15 +23,13 @@ from typing import Any, Dict, List, Optional
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from app import schemas
 from app.chain.scraping import ScrapingChain
 from app.plugins import _PluginBase
-from app.runtime.settings import get_runtime_setting, update_runtime_setting
 from app.sdk.config import settings
 from app.sdk.logging import logger
-from app.sdk.media import MetaInfoPath
 from app.sdk.utilities import SystemUtils
 from app.schemas import FileItem, MediaType, MessageType
+from app.schemas.types import MediaSource
 
 # 文件修改后至少稳定该秒数才视为“已完成”，避免对正在写入/下载的文件误报
 STABLE_SECONDS = 180
@@ -43,24 +41,16 @@ CATEGORY_DIRS = {
     "短剧", "剧集", "国产剧", "欧美剧", "日剧", "韩剧", "日番", "国漫",
 }
 
-# processed 去重记录的最大条数，超出后按时间淘汰最旧记录，控制数据体积
-PROCESSED_LIMIT = 50000
-
-# 插件页面历史记录最大条数
-HISTORY_LIMIT = 50
-
 
 class MediaDirWatcher(_PluginBase):
-    """监控目录新增媒体并通知/刮削的插件主类。"""
-
     # 插件名称
     plugin_name = "目录新增监控刮削"
     # 插件描述
-    plugin_desc = "轮询监控指定目录，发现新增电影/剧集/动画片后发送 MP 通知并可选刮削 NFO；支持目录分类标注、首扫建基线防刷屏、指纹预检省磁盘。"
-    # 插件图标（仓库 icons/ 目录下）
-    plugin_icon = "mediadirwatcher.png"
-    # 插件版本（需与 package.v3.json 的 version 及 history 最新版本一致）
-    plugin_version = "1.0.2"
+    plugin_desc = "监控飞牛NAS指定目录，发现新增电影/电视剧后通过MP通知并刮削元数据(TMDB/豆瓣)。"
+    # 插件图标
+    plugin_icon = "movie.png"
+    # 插件版本
+    plugin_version = "1.0.4"
     # 插件作者
     plugin_author = "LCQ"
     # 作者主页
@@ -87,7 +77,6 @@ class MediaDirWatcher(_PluginBase):
     _event = Event()
 
     def init_plugin(self, config: dict = None):
-        """读取配置并（重）启动后台扫描任务。"""
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
@@ -141,16 +130,13 @@ class MediaDirWatcher(_PluginBase):
                 self._scheduler.start()
 
     def get_state(self) -> bool:
-        """插件启用状态。"""
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
-        """远程命令，无。"""
         return None
 
     def get_api(self) -> List[Dict[str, Any]]:
-        """插件自定义 API。"""
         return [{
             "path": "/scan_now",
             "endpoint": self.scan_now,
@@ -161,11 +147,9 @@ class MediaDirWatcher(_PluginBase):
         }]
 
     def get_service(self) -> List[Dict[str, Any]]:
-        """注册系统服务，无（扫描任务由插件自身调度器管理）。"""
         return []
 
     def get_form(self) -> tuple:
-        """插件配置表单（VForm 组件描述）。"""
         return [
             {
                 'component': 'VForm',
@@ -291,7 +275,7 @@ class MediaDirWatcher(_PluginBase):
                                         'model': 'monitor_paths',
                                         'label': '监控目录(每行一个，容器内能访问到的路径)',
                                         'rows': 5,
-                                        'placeholder': '/media/磁盘/电影\n/media/磁盘/电视剧',
+                                        'placeholder': '/media/volx/Movies\n/media/volx/TV',
                                     },
                                 }],
                             },
@@ -308,9 +292,8 @@ class MediaDirWatcher(_PluginBase):
                                     'props': {
                                         'type': 'info',
                                         'variant': 'tonal',
-                                        'text': '路径需为 MoviePilot 容器内能访问到的路径（即已挂载进容器的目录）。'
-                                                '首次扫描只建立基线、不会对存量媒体发送通知；之后每轮扫描只处理新增条目。'
-                                                '剧集按“剧集文件夹/季文件夹/剧集文件”结构可正确识别为单部剧（不会每集重复通知）。',
+                                        'text': '路径需为 MoviePilot 容器内能访问到的路径。容器已挂载宿主 /media -> /media，'
+                                                '故一般填写 /media/磁盘/目录 即可。 TV 剧按“剧集文件夹/季文件夹/剧集文件”结构可正确识别为单部剧（不会每集重复通知）。',
                                     },
                                 }],
                             },
@@ -331,10 +314,9 @@ class MediaDirWatcher(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
-        """插件页面：展示最近发现的历史记录表格。"""
         history = self.get_data("history") or []
         # MP v3 渲染器不支持 VTable 的 headers/items 属性(那是v2 VDataTable风格)，
-        # 需手动构建 thead/tbody 结构
+        # 需手动构建 thead/tbody 结构（与 nexusinvitee 等v3原生插件一致）
         headers = ["标题", "类型", "年份", "是否已识别", "路径", "发现时间"]
         ths = [{'component': 'th', 'text': h} for h in headers]
         rows = []
@@ -489,9 +471,9 @@ class MediaDirWatcher(_PluginBase):
                 self.save_data("dirprints_v2", dirprints)
 
         # 控制 processed 体积（大库场景，保留最近的记录）
-        if len(processed) > PROCESSED_LIMIT:
+        if len(processed) > 50000:
             processed = dict(
-                sorted(processed.items(), key=lambda kv: kv[1])[-PROCESSED_LIMIT:]
+                sorted(processed.items(), key=lambda kv: kv[1])[-50000:]
             )
         self.save_data("processed", processed)
 
@@ -531,15 +513,16 @@ class MediaDirWatcher(_PluginBase):
         根据媒体文件推断它所属的“媒体条目”路径，用于去重与识别：
         - 若父目录是季目录(Season/S01/第1季)，则条目为剧集目录(再上一层)
         - 否则条目为文件所在目录(电影目录)
-        - 若条目就在监控根目录或其直接子级(扁平结构)，则条目为该文件本身
+        - 若目录就是监控根目录(扁平结构)，则条目为该文件本身
         """
-        parent_name = file_path.parent.name.lower()
-        if re.search(r'(season|s\d+|第\d+季|season\s*\d+)', parent_name):
+        parent_name = file_path.parent.name.strip().lower()
+        # 仅完整匹配季目录名(Season 01 / S01 / 第1季)，避免 DTS5.1、S2047 等编码被误判为季
+        if re.fullmatch(r'(season[\s._-]?\d{1,2}|s\d{1,2}|第\d+季)', parent_name):
             item = file_path.parent.parent
         else:
             item = file_path.parent
         if item == base_path or item == file_path.parent and item.parent == base_path:
-            # 扁平结构（文件直接在监控根或其直接子目录下）
+            # 扁平结构（文件直接在监控根下）
             item = file_path
         return item
 
@@ -552,36 +535,23 @@ class MediaDirWatcher(_PluginBase):
         return ""
 
     def __handle_new(self, item_path: Path, sample_file: Path):
-        """处理一个新增条目：识别 -> (可选)刮削 -> 记录 -> 通知。"""
-        meta = MetaInfoPath(item_path)
-        if not meta or not getattr(meta, "name", None):
-            logger.info(f"目录新增监控：无法解析媒体名 {item_path}")
-            return
-
-        mtype = None
-        if self._media_type == "电影":
-            mtype = MediaType.MOVIE
-        elif self._media_type == "电视剧":
-            mtype = MediaType.TV
-
-        mediainfo = self.__recognize(meta, mtype)
+        # v1.0.4: 识别走 MP 原生管线(recognize_by_path / recognize_by_meta)，
+        # 与官方目录整理链完全一致，季目录/文件名解析不再依赖插件自写正则。
+        # 注意：MetaInfoPath 解析的是完整文件路径，"剧集/Season 01/xx.mkv" 的
+        # 季信息由 MP 原生解析器自行处理。
+        meta, mediainfo = self.__recognize(sample_file)
 
         if not mediainfo:
+            name = getattr(meta, "name", None) or item_path.name
             logger.warning(f"目录新增监控：未识别到媒体信息 {item_path}")
-            self.__record(item_path, meta.name if meta else str(item_path), None,
+            self.__record(item_path, name, None,
                           recognized=False, category=self.__category_label(item_path))
             if self._notify:
-                self.__notify_raw(item_path, meta.name if meta else str(item_path),
+                self.__notify_raw(item_path, name,
                                   category=self.__category_label(item_path))
             return
 
-        # 获取图片（海报等）
-        try:
-            self.chain.obtain_images(mediainfo)
-        except Exception as e:
-            logger.warning(f"目录新增监控：获取图片失败 {e}")
-
-        # 写入 NFO 刮削
+        # 写入 NFO 刮削（与「媒体库刮削」相同的 ScrapingChain）
         if self._write_nfo:
             self.__scrape(item_path, mediainfo)
 
@@ -598,29 +568,54 @@ class MediaDirWatcher(_PluginBase):
         if self._notify:
             self.__notify(mediainfo, item_path, category=self.__category_label(item_path))
 
-    def __recognize(self, meta, mtype):
-        """识别媒体，按配置临时切换识别数据源(TMDB/豆瓣)，结束后恢复原设置。"""
-        source = self._scrape_source
-        prev = None
-        restore = False
-        if source in ("douban", "themoviedb"):
-            try:
-                prev = get_runtime_setting("RECOGNIZE_SOURCE")
-                if prev != source:
-                    update_runtime_setting("RECOGNIZE_SOURCE", source)
-                    restore = True
-            except Exception as e:
-                logger.warning(f"目录新增监控：切换识别源失败 {e}")
+    def __media_source(self) -> Optional[MediaSource]:
+        """把插件配置的识别数据源映射为 MP 原生请求级 MediaSource。"""
+        if self._scrape_source == "douban":
+            return MediaSource.Douban
+        if self._scrape_source == "themoviedb":
+            return MediaSource.TMDB
+        return None
+
+    def __recognize(self, path: Path):
+        """
+        MP 原生识别管线，返回 (meta, mediainfo)：
+        - 未指定媒体类型：recognize_by_path —— MetaInfoPath 解析完整路径，
+          按系统识别顺序(TMDB/豆瓣/IMDb...)识别，失败自动走插件辅助识别兜底，
+          并在识别成功后自动补充图片，等价于官方整理链单文件识别。
+        - 指定媒体类型：recognize_by_meta + mtype 约束，其余同上。
+        数据源为请求级参数(media_source)，不再切换全局 RECOGNIZE_SOURCE。
+        """
+        source = self.__media_source()
         try:
+            if self._media_type == "电影":
+                mtype = MediaType.MOVIE
+            elif self._media_type == "电视剧":
+                mtype = MediaType.TV
+            else:
+                mtype = None
+
             if mtype:
-                meta.type = mtype
-            return self.chain.recognize_media(meta=meta)
-        finally:
-            if restore and prev is not None:
-                try:
-                    update_runtime_setting("RECOGNIZE_SOURCE", prev)
-                except Exception:
-                    pass
+                from app.sdk.media import MetaInfoPath
+                file_meta = MetaInfoPath(path)
+                mediainfo = self.chain.recognize_by_meta(
+                    metainfo=file_meta,
+                    mtype=mtype,
+                    media_source=source,
+                    obtain_images=True,
+                )
+                return file_meta, mediainfo
+
+            context = self.chain.recognize_by_path(
+                str(path),
+                media_source=source,
+                obtain_images=True,
+            )
+            if context:
+                return context.meta_info, context.media_info
+            return None, None
+        except Exception as e:
+            logger.error(f"目录新增监控：原生识别异常 {path}: {e}")
+            return None, None
 
     def __scrape(self, item_path: Path, mediainfo):
         """将元数据刮削写入媒体目录（NFO + 图片），与媒体库刮削一致。"""
@@ -650,7 +645,6 @@ class MediaDirWatcher(_PluginBase):
     # ====================== 通知与记录 ======================
     @staticmethod
     def __poster_url(mediainfo) -> Optional[str]:
-        """从媒体信息中取海报地址，拼接 TMDB 图片 URL。"""
         pp = getattr(mediainfo, "poster_path", None)
         if not pp:
             return None
@@ -676,7 +670,7 @@ class MediaDirWatcher(_PluginBase):
         return "媒体"
 
     def __notify(self, mediainfo, item_path: Path, category: str = ""):
-        """已识别条目的通知：目录分类优先（如 动画片），否则用识别结果。"""
+        # 目录分类优先（如 动画片），否则用识别结果的电影/电视剧
         mtype_label = category or self.__type_label(mediainfo)
 
         lines = [f"类型：{mtype_label}"]
@@ -703,7 +697,6 @@ class MediaDirWatcher(_PluginBase):
         )
 
     def __notify_raw(self, item_path: Path, name: str, category: str = ""):
-        """未识别条目的兜底通知。"""
         text = f"路径：{item_path}\n（未能自动识别，可在MP中手动刮削）"
         if category:
             text = f"类型：{category}\n{text}"
@@ -716,7 +709,6 @@ class MediaDirWatcher(_PluginBase):
 
     def __record(self, item_path: Path, title: str, mediainfo, recognized: bool,
                  category: str = ""):
-        """记录发现历史（供插件页面展示），目录分类优先于识别结果。"""
         history = self.get_data("history") or []
         mt = ""
         year = ""
@@ -734,13 +726,12 @@ class MediaDirWatcher(_PluginBase):
             "recognized": recognized,
             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         })
-        if len(history) > HISTORY_LIMIT:
-            history = history[:HISTORY_LIMIT]
+        if len(history) > 50:
+            history = history[:50]
         self.save_data("history", history)
 
     # ====================== 手动触发 ======================
     def scan_now(self, request: dict, apikey: str = None) -> dict:
-        """API 入口：立即执行一次扫描。"""
         try:
             self.__scan_all()
             return {"code": 0, "message": "扫描完成"}
@@ -749,7 +740,7 @@ class MediaDirWatcher(_PluginBase):
             return {"code": 1, "message": str(e)}
 
     def stop_service(self):
-        """退出插件，停止后台调度任务。"""
+        """退出插件。"""
         try:
             if self._scheduler:
                 self._scheduler.remove_all_jobs()
