@@ -14,7 +14,7 @@ def test_plugin_metadata() -> None:
     """插件元数据应与市场索引保持一致。"""
     plugin = _make_plugin()
     assert plugin.plugin_name == "邮箱通知"
-    assert plugin.plugin_version == "1.3.0"
+    assert plugin.plugin_version == "1.3.1"
     assert plugin.plugin_config_prefix == "emailmsg_"
 
 
@@ -349,6 +349,36 @@ def test_build_html_non_media_falls_back_to_text_card() -> None:
     assert "站点签到成功" in html
     assert "憨憨" in html
     assert "查看详情" in html
+
+
+def test_build_html_non_media_preserves_lines() -> None:
+    """非媒体类通知正文应按行保留原始格式，不被错误分段。"""
+    plugin = _make_plugin()
+    text = (
+        "⏰ 延迟删除完成\n\n"
+        "🗂️ 源文件：/downloads/电影/外语电影/诺曼底72小时 (2026)/诺曼底72小时 (2026) - 1080p.mkv\n"
+        "📝 已清理转移记录\n"
+        "🌱 已联动删除种子"
+    )
+    html = plugin._build_html("🧹 媒体文件清理", text, image=None, msg_type="站点")
+    # 含冒号的动作描述行应完整保留，不拆成「字段名：值」
+    assert "🗂️ 源文件：/downloads/电影/外语电影/诺曼底72小时 (2026)/诺曼底72小时 (2026) - 1080p.mkv" in html
+    # 无冒号的行应作为独立行保留，不被并入上一行
+    assert "📝 已清理转移记录" in html
+    assert "🌱 已联动删除种子" in html
+
+
+def test_build_html_non_media_preserves_markdown() -> None:
+    """非媒体类通知的 Markdown 与链接文本应完整保留。"""
+    plugin = _make_plugin()
+    text = (
+        "v3.0.7\n\n### ✨ 新功能\n\n"
+        "- add GitHub Token device authorization by @jxxghp\n\n"
+        "**完整更新记录**: https://github.com/jxxghp/MoviePilot/compare/v3.0.6...v3.0.7"
+    )
+    html = plugin._build_html("【MoviePilot后端更新通知】", text, image=None, msg_type="站点")
+    assert "### ✨ 新功能" in html
+    assert "**完整更新记录**: https://github.com/jxxghp/MoviePilot/compare/v3.0.6...v3.0.7" in html
 
 
 def test_build_html_media_uses_configured_template() -> None:
