@@ -1,10 +1,11 @@
 import datetime
 import re
 import threading
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any, Optional, Set
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from app.core.config import settings
 from app.core.context import Context
@@ -22,11 +23,11 @@ class EpisodeTag(_PluginBase):
     # 插件名称
     plugin_name = "集数标签"
     # 插件描述
-    plugin_desc = "下载剧集时自动给任务打上每集独立标签（E01/E02/...），可读种子文件列表补全无历史种子，qB/Tr 通用"
+    plugin_desc = "下载剧集时自动给任务打上每集独立标签（E01/E02/...），支持定时对存量种子补全（可按标签包含/排除），qB/Tr 通用"
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "devin"
     # 作者主页
@@ -46,9 +47,12 @@ class EpisodeTag(_PluginBase):
     _scheduler = None
     _enabled = False
     _onlyonce = False
+    _cron = None
     _only_tv = True
     _skip_existing = True
     _tag_prefix = ""
+    _include_tags: Set[str] = set()
+    _exclude_tags: Set[str] = set()
     _downloaders = None
 
     # 文件兜底解析时识别的视频扩展名
@@ -60,25 +64,38 @@ class EpisodeTag(_PluginBase):
         if config:
             self._enabled = config.get("enabled")
             self._onlyonce = config.get("onlyonce")
+            self._cron = (config.get("cron") or "").strip()
             self._only_tv = config.get("only_tv", True)
             self._skip_existing = config.get("skip_existing", True)
             self._tag_prefix = (config.get("tag_prefix") or "").strip()
+            self._include_tags = self._parse_tag_filter(config.get("include_tags"))
+            self._exclude_tags = self._parse_tag_filter(config.get("exclude_tags"))
             self._downloaders = config.get("downloaders")
 
         # 停止现有任务
         self.stop_service()
 
-        if self._enabled and self._onlyonce:
+        if self._enabled and (self._onlyonce or self._cron):
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            # 执行一次, 关闭 onlyonce
-            self._onlyonce = False
-            config.update({"onlyonce": self._onlyonce})
-            self.update_config(config)
-            self._scheduler.add_job(
-                func=self._complement_history,
-                trigger='date',
-                run_date=datetime.datetime.now(tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
-            )
+            if self._onlyonce:
+                # 执行一次, 关闭 onlyonce
+                self._onlyonce = False
+                config.update({"onlyonce": self._onlyonce})
+                self.update_config(config)
+                self._scheduler.add_job(
+                    func=self._complement_history,
+                    trigger='date',
+                    run_date=datetime.datetime.now(tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=3)
+                )
+            if self._cron:
+                try:
+                    self._scheduler.add_job(
+                        func=self._complement_history,
+                        trigger=CronTrigger.from_crontab(self._cron),
+                        name="集数标签定时补全"
+                    )
+                except Exception as e:
+                    logger.error(f"{self.LOG_TAG}定时周期配置错误，请检查: {e}")
             if self._scheduler.get_jobs():
                 self._scheduler.print_jobs()
                 self._scheduler.start()
@@ -280,6 +297,31 @@ class EpisodeTag(_PluginBase):
             return False
         return bool(re.search(r"E\d{1,3}-E\d{1,3}$", tag))
 
+    # ============ 存量扫描标签过滤 ============
+
+    @staticmethod
+    def _parse_tag_filter(s: Any) -> Set[str]:
+        """
+        解析包含/排除标签配置：逗号（中英文/顿号）分隔，去重。
+        不按空格分词，以支持含空格的标签名整名匹配
+        """
+        if not s:
+            return set()
+        return {t.strip() for t in re.split(r"[,，、]+", str(s)) if t.strip()}
+
+    def _match_tags(self, labels: List[str]) -> bool:
+        """
+        存量种子按标签过滤：命中任一排除标签 → 跳过；配置了包含标签且未命中任一 → 跳过；包含为空 → 全部处理
+        """
+        if not self._include_tags and not self._exclude_tags:
+            return True
+        label_set = set(labels or [])
+        if self._exclude_tags and (label_set & self._exclude_tags):
+            return False
+        if self._include_tags and not (label_set & self._include_tags):
+            return False
+        return True
+
     # ============ qB / Tr 种子字段兼容 ============
 
     @staticmethod
@@ -387,7 +429,9 @@ class EpisodeTag(_PluginBase):
         if not services:
             logger.warning(f"{self.LOG_TAG}没有可用的下载器，跳过补全")
             return
-        logger.info(f"{self.LOG_TAG}开始补全集数标签 ...")
+        logger.info(f"{self.LOG_TAG}开始补全集数标签 ..."
+                    f"{(' 包含标签[' + ','.join(sorted(self._include_tags)) + ']') if self._include_tags else ''}"
+                    f"{(' 排除标签[' + ','.join(sorted(self._exclude_tags)) + ']') if self._exclude_tags else ''}")
         downloadhis = DownloadHistoryOper()
         for service in services.values():
             if self._event.is_set():
@@ -411,6 +455,9 @@ class EpisodeTag(_PluginBase):
                     if not _hash:
                         continue
                     labels = self._get_labels(torrent, dl_type)
+                    # 包含/排除标签过滤（仅影响存量扫描，不影响下载加入事件）
+                    if not self._match_tags(labels):
+                        continue
                     has_ep = any(self._is_episode_tag(t) for t in labels)
                     has_range = any(self._is_range_tag(t) for t in labels)
                     # 已是每集标签且无旧范围标签 → 跳过（避免重复处理）
@@ -501,6 +548,53 @@ class EpisodeTag(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
+                                'props': {'cols': 12, 'md': 4},
+                                'content': [
+                                    {
+                                        'component': 'VCronField',
+                                        'props': {
+                                            'model': 'cron',
+                                            'label': '定时补全周期',
+                                            'placeholder': '0 3 * * *'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 4},
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'include_tags',
+                                            'label': '包含标签(可选)',
+                                            'placeholder': '逗号分隔，如：电视剧,动漫；留空则处理全部'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 4},
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'exclude_tags',
+                                            'label': '排除标签(可选)',
+                                            'placeholder': '逗号分隔，如：电影,手动管理'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
                                 'props': {'cols': 12},
                                 'content': [
                                     {
@@ -529,7 +623,9 @@ class EpisodeTag(_PluginBase):
                                             'variant': 'tonal',
                                             'text': '每集拆成独立标签（E01、E02、E03…），不再使用 E01-E12 范围；'
                                                     '已有的范围标签会在补全时自动拆开。无下载记录的种子会读取种子文件列表解析集数。'
-                                                    '电影默认跳过。'
+                                                    '电影默认跳过。配置定时周期后按周期扫描存量种子补标签：'
+                                                    '命中任一排除标签的种子跳过；配置了包含标签时仅处理命中任一包含标签的种子（留空则处理全部）。'
+                                                    '标签过滤仅影响存量扫描（定时/立即补全），不影响新下载任务的即时打标签。'
                                         }
                                     }
                                 ]
@@ -541,9 +637,12 @@ class EpisodeTag(_PluginBase):
         ], {
             "enabled": False,
             "onlyonce": False,
+            "cron": "",
             "only_tv": True,
             "skip_existing": True,
             "tag_prefix": "",
+            "include_tags": "",
+            "exclude_tags": "",
             "downloaders": None
         }
 
