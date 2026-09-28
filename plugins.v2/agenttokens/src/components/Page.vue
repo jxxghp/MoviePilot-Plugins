@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import AppPage from './AppPage.vue'
+import AgentTokensSettingsMenu from './AgentTokensSettingsMenu.vue'
 
 defineProps({
   api: {
@@ -19,6 +20,12 @@ const pageRef = ref(null)
       <div class="text-h6 ms-3">Agent Tokens 管理</div>
       <VSpacer />
       <VBtn icon="mdi-refresh" variant="text" :loading="pageRef?.loading" @click="pageRef?.loadStatus()" />
+      <AgentTokensSettingsMenu
+        :settings="pageRef?.config"
+        :saving="pageRef?.saving"
+        :disabled="pageRef?.loading"
+        :save-settings="pageRef?.saveSettings"
+      />
       <VBtn icon="mdi-content-save" variant="text" color="primary" :loading="pageRef?.saving" @click="pageRef?.saveConfig()" />
       <VBtn icon="mdi-close" variant="text" @click="emit('close')" />
     </VToolbar>

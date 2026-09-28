@@ -9,6 +9,8 @@ export const taskDefaults = {
   check_interval: 5,
   cron: null,
   active_time_range: null,
+  site_ratio_control: false,
+  site_ratio_target: null,
   disksize: null,
   maxupspeed: null,
   maxdlspeed: null,
@@ -65,6 +67,7 @@ export function normalizeTask(task) {
     'maxupspeed',
     'maxdlspeed',
     'maxdlcount',
+    'site_ratio_target',
     'seed_time',
     'hr_seed_time',
     'seed_ratio',
@@ -111,6 +114,10 @@ export function normalizeSettings(settings = {}) {
     const value = Number(result[key] || 0)
     result[key] = value > 0 ? value : null
   })
+  result.global_proxy_delete = Boolean(result.global_proxy_delete)
+  result.global_delete_size_range = result.global_proxy_delete
+    ? String(result.global_delete_size_range || '').trim() || null
+    : null
   return result
 }
 
@@ -152,6 +159,8 @@ export function taskStateMeta(state) {
     check: { text: '正在检查', color: 'info', icon: 'mdi-progress-check' },
     paused: { text: '已暂停', color: 'secondary', icon: 'mdi-pause-circle-outline' },
     waiting: { text: '等待时段', color: 'warning', icon: 'mdi-clock-outline' },
+    waiting_ratio: { text: '待刷流', color: 'warning', icon: 'mdi-target' },
+    ratio_unavailable: { text: '等待数据', color: 'info', icon: 'mdi-database-clock-outline' },
     disabled: { text: '插件停用', color: 'secondary', icon: 'mdi-stop-circle-outline' },
     error: { text: '运行异常', color: 'error', icon: 'mdi-alert-circle-outline' },
   }

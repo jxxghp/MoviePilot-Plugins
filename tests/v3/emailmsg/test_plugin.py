@@ -1,0 +1,476 @@
+"""邮箱通知插件测试。"""
+
+from unittest.mock import MagicMock, patch
+
+from app.plugins.emailmsg import EmailMsg
+
+
+def _make_plugin() -> EmailMsg:
+    """构造不触发宿主 Chain 依赖的插件实例。"""
+    return object.__new__(EmailMsg)
+
+
+def test_plugin_metadata() -> None:
+    """插件元数据应与市场索引保持一致。"""
+    plugin = _make_plugin()
+    assert plugin.plugin_name == "邮箱通知"
+    assert plugin.plugin_version == "1.3.1"
+    assert plugin.plugin_config_prefix == "emailmsg_"
+
+
+def test_get_state_requires_enabled_and_smtp() -> None:
+    """启用状态需要同时开启插件并配置 SMTP 服务器、发件人与密码。"""
+    plugin = _make_plugin()
+    plugin._enabled = True
+    plugin._smtp_server = "smtp.qq.com"
+    plugin._sender = "sender@qq.com"
+    plugin._password = "auth-code"
+    assert plugin.get_state() is True
+
+    plugin._sender = None
+    assert plugin.get_state() is False
+
+    plugin._sender = "sender@qq.com"
+    plugin._password = None
+    assert plugin.get_state() is False
+
+    plugin._password = "auth-code"
+    plugin._enabled = False
+    assert plugin.get_state() is False
+
+
+def test_get_form_returns_config_schema() -> None:
+    """配置表单应包含启用开关、SMTP 配置、消息类型选择和手动发送功能。"""
+    plugin = _make_plugin()
+    form, defaults = plugin.get_form()
+    assert isinstance(form, list) and form
+    assert defaults["enabled"] is False
+    assert defaults["smtp_port"] == "465"
+    assert defaults["ssl"] is True
+    assert defaults["msgtypes"] == []
+
+    # 手动发送功能应包含标题、内容输入框和发送按钮
+    import json
+    form_str = json.dumps(form, ensure_ascii=False)
+    assert "custom_title" in form_str
+    assert "custom_text" in form_str
+    assert "发送通知" in form_str
+    assert "MoviePilotAPI" in form_str
+
+
+@patch("app.plugins.emailmsg.ServiceConfigHelper")
+def test_get_recipients_admin(mock_switch) -> None:
+    """admin 范围应返回管理员邮箱。"""
+    mock_switch.get_notification_switch.return_value = "admin"
+    plugin = _make_plugin()
+    plugin._enabled = True
+
+    mock_user = MagicMock()
+    mock_user.email = "admin@example.com"
+    with patch("app.db.oper.user.UserOper") as mock_user_oper:
+        mock_user_oper.return_value.get_by_name.return_value = mock_user
+        recipients = plugin._get_recipients(None, None)
+
+    assert recipients == ["admin@example.com"]
+
+
+@patch("app.plugins.emailmsg.ServiceConfigHelper")
+def test_get_recipients_skips_empty_email(mock_switch) -> None:
+    """邮箱为空时应跳过该用户。"""
+    mock_switch.get_notification_switch.return_value = "admin"
+    plugin = _make_plugin()
+
+    mock_user = MagicMock()
+    mock_user.email = None
+    with patch("app.db.oper.user.UserOper") as mock_user_oper:
+        mock_user_oper.return_value.get_by_name.return_value = mock_user
+        recipients = plugin._get_recipients(None, None)
+
+    assert recipients == []
+
+
+@patch("app.plugins.emailmsg.ServiceConfigHelper")
+def test_get_recipients_all_dedup(mock_switch) -> None:
+    """all 范围应收集所有用户邮箱并去重。"""
+    mock_switch.get_notification_switch.return_value = "all"
+    plugin = _make_plugin()
+
+    user_a = MagicMock()
+    user_a.email = "a@example.com"
+    user_b = MagicMock()
+    user_b.email = "b@example.com"
+    user_c = MagicMock()
+    user_c.email = "a@example.com"
+    with patch("app.db.oper.user.UserOper") as mock_user_oper:
+        mock_user_oper.return_value.list.return_value = [user_a, user_b, user_c]
+        recipients = plugin._get_recipients(None, None)
+
+    assert recipients == ["a@example.com", "b@example.com"]
+
+
+@patch("app.plugins.emailmsg.smtplib")
+def test_send_mail_success(mock_smtplib) -> None:
+    """SMTP 发送成功时返回 True 并关闭连接，收件人通过 envelope 密送。"""
+    plugin = _make_plugin()
+    plugin._smtp_server = "smtp.qq.com"
+    plugin._smtp_port = "465"
+    plugin._ssl = True
+    plugin._sender = "sender@qq.com"
+    plugin._password = "auth-code"
+
+    server = MagicMock()
+    server.sendmail.return_value = {}
+    mock_smtplib.SMTP_SSL.return_value = server
+
+    result = plugin._send_mail(["a@example.com", "b@example.com"], "标题", "正文")
+
+    assert result is True
+    mock_smtplib.SMTP_SSL.assert_called_once()
+    server.login.assert_called_once_with("sender@qq.com", "auth-code")
+    server.sendmail.assert_called_once()
+    server.quit.assert_called_once()
+
+    # SMTP envelope 应包含所有收件人
+    envelope_recipients = server.sendmail.call_args[0][1]
+    assert envelope_recipients == ["a@example.com", "b@example.com"]
+
+    # 邮件内容不应包含 Bcc 头或收件人地址，避免收件人之间互相看到邮箱地址
+    msg = server.sendmail.call_args[0][2]
+    assert "Bcc:" not in msg
+    assert "a@example.com" not in msg
+    assert "b@example.com" not in msg
+
+
+@patch("app.plugins.emailmsg.smtplib")
+def test_send_mail_partial_reject(mock_smtplib) -> None:
+    """部分收件人被 SMTP 拒收时返回 False。"""
+    plugin = _make_plugin()
+    plugin._smtp_server = "smtp.qq.com"
+    plugin._smtp_port = "465"
+    plugin._ssl = True
+    plugin._sender = "sender@qq.com"
+    plugin._password = "auth-code"
+
+    server = MagicMock()
+    server.sendmail.return_value = {"b@example.com": (550, b"rejected")}
+    mock_smtplib.SMTP_SSL.return_value = server
+
+    result = plugin._send_mail(["a@example.com", "b@example.com"], "标题", "正文")
+
+    assert result is False
+
+
+@patch("app.plugins.emailmsg.smtplib")
+def test_send_mail_no_recipients(mock_smtplib) -> None:
+    """无收件人时跳过发送并返回 False。"""
+    plugin = _make_plugin()
+    result = plugin._send_mail([], "标题", "正文")
+    assert result is False
+    mock_smtplib.SMTP_SSL.assert_not_called()
+
+
+@patch("app.plugins.emailmsg.smtplib")
+def test_send_mail_no_starttls_when_ssl_disabled(mock_smtplib) -> None:
+    """未启用 SSL 时使用普通 SMTP 连接，不强制 STARTTLS。"""
+    plugin = _make_plugin()
+    plugin._smtp_server = "smtp.qq.com"
+    plugin._smtp_port = "25"
+    plugin._ssl = False
+    plugin._sender = "sender@qq.com"
+    plugin._password = "auth-code"
+
+    server = MagicMock()
+    server.sendmail.return_value = {}
+    mock_smtplib.SMTP.return_value = server
+
+    result = plugin._send_mail(["a@example.com"], "标题", "正文")
+
+    assert result is True
+    # 未启用 SSL 时不应调用 starttls，也不应使用 SMTP_SSL
+    server.starttls.assert_not_called()
+    mock_smtplib.SMTP.assert_called_once()
+    mock_smtplib.SMTP_SSL.assert_not_called()
+    # 连接应被关闭
+    server.quit.assert_called_once()
+
+
+def test_get_api_declares_send_endpoint() -> None:
+    """插件 API 应声明手动发送通知端点。"""
+    plugin = _make_plugin()
+    apis = plugin.get_api()
+    assert len(apis) == 1
+    assert apis[0]["path"] == "/send"
+    assert apis[0]["methods"] == ["POST"]
+    assert apis[0]["auth"] == "bear"
+    assert apis[0]["endpoint"] == plugin.send_custom_notification
+
+
+def test_get_page_returns_intro() -> None:
+    """详情页应包含插件介绍卡片。"""
+    plugin = _make_plugin()
+    page = plugin.get_page()
+    assert len(page) == 1
+    assert page[0]["component"] == "VCard"
+
+
+def test_send_custom_notification_requires_enabled() -> None:
+    """插件未启用时手动发送应返回失败。"""
+    plugin = _make_plugin()
+    plugin._enabled = False
+    response = plugin.send_custom_notification({"title": "t", "text": "c"})
+    assert response.success is False
+    assert "未启用" in response.message
+
+
+def test_send_custom_notification_rejects_empty() -> None:
+    """标题和内容都为空时手动发送应返回失败。"""
+    plugin = _make_plugin()
+    plugin._enabled = True
+    plugin._smtp_server = "smtp.qq.com"
+    plugin._sender = "sender@qq.com"
+    plugin._password = "auth-code"
+    response = plugin.send_custom_notification({"title": "", "text": ""})
+    assert response.success is False
+    assert "不能同时为空" in response.message
+
+
+@patch("app.plugins.emailmsg.ServiceConfigHelper")
+def test_send_custom_notification_success(mock_switch) -> None:
+    """手动发送成功时返回成功响应，并发送给所有用户。"""
+    mock_switch.get_notification_switch.return_value = "admin"
+    plugin = _make_plugin()
+    plugin._enabled = True
+    plugin._smtp_server = "smtp.qq.com"
+    plugin._smtp_port = "465"
+    plugin._ssl = True
+    plugin._sender = "sender@qq.com"
+    plugin._password = "auth-code"
+
+    user_a = MagicMock()
+    user_a.email = "admin@example.com"
+    user_b = MagicMock()
+    user_b.email = "user@example.com"
+    with patch("app.db.oper.user.UserOper") as mock_user_oper:
+        mock_user_oper.return_value.list.return_value = [user_a, user_b]
+        with patch("app.plugins.emailmsg.smtplib") as mock_smtplib:
+            server = MagicMock()
+            server.sendmail.return_value = {}
+            mock_smtplib.SMTP_SSL.return_value = server
+            response = plugin.send_custom_notification({"title": "标题", "text": "内容"})
+
+    assert response.success is True
+    assert "发送成功" in response.message
+    assert "admin@example.com" in response.message
+    assert "user@example.com" in response.message
+
+
+@patch("app.plugins.emailmsg.ServiceConfigHelper")
+def test_send_custom_notification_no_recipient(mock_switch) -> None:
+    """无收件人时手动发送应返回失败。"""
+    mock_switch.get_notification_switch.return_value = "admin"
+    plugin = _make_plugin()
+    plugin._enabled = True
+    plugin._smtp_server = "smtp.qq.com"
+    plugin._sender = "sender@qq.com"
+    plugin._password = "auth-code"
+
+    with patch("app.db.oper.user.UserOper") as mock_user_oper:
+        mock_user_oper.return_value.list.return_value = []
+        response = plugin.send_custom_notification({"title": "标题", "text": "内容"})
+
+    assert response.success is False
+    assert "未获取到收件人" in response.message
+
+
+def test_build_html_renders_poster_link_and_type() -> None:
+    """HTML 正文应包含海报、链接按钮、类型标签与标题。"""
+    plugin = _make_plugin()
+    plugin._template = "dark_card"
+    html = plugin._build_html(
+        "侏罗纪世界：重生 (2025) 开始下载",
+        "类型：电影，类别：外语电影，质量： WEB-DL 1080p，共1个文件，大小：5.26G",
+        image="https://tmdb.example.com/t/p/w500/poster.jpg",
+        link="https://mp.example.com/#/downloading",
+        msg_type="资源下载",
+    )
+    assert html.startswith("<!DOCTYPE html>")
+    assert "侏罗纪世界：重生" in html
+    assert "资源下载" in html
+    assert "https://tmdb.example.com/t/p/w500/poster.jpg" in html
+    assert "查看详情" in html
+    assert "https://mp.example.com/#/downloading" in html
+    # 正文字段应被解析展示
+    assert "类型" in html
+    assert "电影" in html
+    assert "18.89G" in html or "5.26G" in html
+
+
+def test_build_html_escapes_content() -> None:
+    """HTML 正文应转义标题与文本，避免注入。"""
+    plugin = _make_plugin()
+    plugin._template = "dark_card"
+    html = plugin._build_html(
+        "<script>alert(1)</script>",
+        "文本 <b>加粗</b>",
+        msg_type="测试",
+    )
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;" in html
+    assert "&lt;b&gt;" in html
+
+
+def test_build_html_without_poster_and_link() -> None:
+    """无海报和链接时不渲染海报与按钮区域。"""
+    plugin = _make_plugin()
+    plugin._template = "dark_card"
+    html = plugin._build_html("标题", "正文", msg_type="通知")
+    assert "查看详情" not in html
+    assert "<img" not in html
+
+
+def test_build_html_non_media_falls_back_to_text_card() -> None:
+    """非媒体类通知（无海报）应自动降级为通用文本模板。"""
+    plugin = _make_plugin()
+    # 即使配置了媒体模板，无海报时也应降级
+    plugin._template = "poster_full"
+    html = plugin._build_html(
+        "站点签到成功",
+        "站点：憨憨\n状态：签到成功",
+        image=None,
+        link="https://mp.example.com/#/site",
+        msg_type="站点",
+    )
+    # 通用文本模板特征：浅色背景
+    assert "background-color:#f4f5f7" in html
+    # 不应包含媒体模板特征
+    assert "min-height:520px" not in html
+    assert "object-fit:cover" not in html
+    # 标题、字段与按钮应正常展示
+    assert "站点签到成功" in html
+    assert "憨憨" in html
+    assert "查看详情" in html
+
+
+def test_build_html_non_media_preserves_lines() -> None:
+    """非媒体类通知正文应按行保留原始格式，不被错误分段。"""
+    plugin = _make_plugin()
+    text = (
+        "⏰ 延迟删除完成\n\n"
+        "🗂️ 源文件：/downloads/电影/外语电影/诺曼底72小时 (2026)/诺曼底72小时 (2026) - 1080p.mkv\n"
+        "📝 已清理转移记录\n"
+        "🌱 已联动删除种子"
+    )
+    html = plugin._build_html("🧹 媒体文件清理", text, image=None, msg_type="站点")
+    # 含冒号的动作描述行应完整保留，不拆成「字段名：值」
+    assert "🗂️ 源文件：/downloads/电影/外语电影/诺曼底72小时 (2026)/诺曼底72小时 (2026) - 1080p.mkv" in html
+    # 无冒号的行应作为独立行保留，不被并入上一行
+    assert "📝 已清理转移记录" in html
+    assert "🌱 已联动删除种子" in html
+
+
+def test_build_html_non_media_preserves_markdown() -> None:
+    """非媒体类通知的 Markdown 与链接文本应完整保留。"""
+    plugin = _make_plugin()
+    text = (
+        "v3.0.7\n\n### ✨ 新功能\n\n"
+        "- add GitHub Token device authorization by @jxxghp\n\n"
+        "**完整更新记录**: https://github.com/jxxghp/MoviePilot/compare/v3.0.6...v3.0.7"
+    )
+    html = plugin._build_html("【MoviePilot后端更新通知】", text, image=None, msg_type="站点")
+    assert "### ✨ 新功能" in html
+    assert "**完整更新记录**: https://github.com/jxxghp/MoviePilot/compare/v3.0.6...v3.0.7" in html
+
+
+def test_build_html_media_uses_configured_template() -> None:
+    """媒体类通知（有海报）应使用配置的媒体模板。"""
+    plugin = _make_plugin()
+    plugin._template = "poster_full"
+    html = plugin._build_html(
+        "3体 (2024) 已入库",
+        "类型：电视剧，大小：18.89G",
+        image="https://tmdb.example.com/t/p/w500/poster.jpg",
+        link="https://mp.example.com/#/history",
+        msg_type="整理入库",
+    )
+    # 媒体模板特征
+    assert "min-height:520px" in html
+    assert "https://tmdb.example.com/t/p/w500/poster.jpg" in html
+    assert "3体" in html
+
+
+def test_build_html_dark_card_template() -> None:
+    """深色渐变卡片模板应包含深色背景与字段列表。"""
+    plugin = _make_plugin()
+    html = plugin._build_html(
+        "3体 (2024) S01 E01-E08 已入库",
+        "类型：电视剧，类别：欧美剧，质量： WEB-DL 1080p，共8个文件，大小：18.89G",
+        image="https://tmdb.example.com/t/p/w500/poster.jpg",
+        link="https://mp.example.com/#/history",
+        msg_type="整理入库",
+        template="dark_card",
+    )
+    assert "background-color:#0f172a" in html
+    assert "background-color:#1e293b" in html
+    assert "类型" in html
+    assert "电视剧" in html
+    assert "18.89G" in html
+    assert "查看详情" in html
+
+
+def test_build_html_poster_hero_template() -> None:
+    """海报大字报模板应包含海报顶图与由上至下排列的字段。"""
+    plugin = _make_plugin()
+    html = plugin._build_html(
+        "3体 (2024) S01 E01-E08 已入库",
+        "类型：电视剧，类别：欧美剧，质量： WEB-DL 1080p，共8个文件，大小：18.89G",
+        image="https://tmdb.example.com/t/p/w500/poster.jpg",
+        link="https://mp.example.com/#/history",
+        msg_type="整理入库",
+        template="poster_hero",
+    )
+    assert "object-fit:cover" in html
+    assert "类型：电视剧" in html
+    assert "类别：欧美剧" in html
+    assert "18.89G" in html
+    assert "查看详情" in html
+
+
+def test_build_html_poster_full_template() -> None:
+    """海报铺满背景模板应包含铺满背景的海报与胶囊标签。"""
+    plugin = _make_plugin()
+    html = plugin._build_html(
+        "3体 (2024) S01 E01-E08 已入库",
+        "类型：电视剧，类别：欧美剧，质量： WEB-DL 1080p，共8个文件，大小：18.89G",
+        image="https://tmdb.example.com/t/p/w500/poster.jpg",
+        link="https://mp.example.com/#/history",
+        msg_type="整理入库",
+        template="poster_full",
+    )
+    assert "position:absolute" in html
+    assert "min-height:520px" in html
+    assert "类型：电视剧" in html
+    assert "18.89G" in html
+    assert "查看详情" in html
+
+
+def test_parse_text_fields() -> None:
+    """正文应被解析为字段列表，兼容逗号与换行分隔，并保留值内标点。"""
+    plugin = _make_plugin()
+    fields = plugin._parse_text_fields(
+        "类型：电影，类别：外语电影，质量： WEB-DL 1080p，共1个文件，大小：5.26G"
+    )
+    assert ("类型", "电影") in fields
+    assert ("类别", "外语电影") in fields
+    assert ("大小", "5.26G") in fields
+    # 值内逗号应保留（共1个文件并入质量值，完整展示不丢失信息）
+    assert any(name == "质量" and "WEB-DL 1080p" in value for name, value in fields)
+
+    # 换行分隔
+    fields2 = plugin._parse_text_fields("站点：憨憨\n质量： WEB-DL 1080p\n大小：18.89G")
+    assert ("站点", "憨憨") in fields2
+    assert ("大小", "18.89G") in fields2
+
+    # 值内逗号应保留，不被当作分隔符丢弃
+    fields3 = plugin._parse_text_fields("文件名：Movie, Part 1.mkv，大小：5.26G")
+    assert any(value == "Movie, Part 1.mkv" for _, value in fields3)
+    assert ("大小", "5.26G") in fields3

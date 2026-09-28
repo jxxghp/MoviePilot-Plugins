@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import AgentTokensSettingsMenu from './AgentTokensSettingsMenu.vue'
 import ProviderConfigTable from './ProviderConfigTable.vue'
 import ProviderEditorDialog from './ProviderEditorDialog.vue'
 import ProviderUsageTable from './ProviderUsageTable.vue'
@@ -8,6 +9,7 @@ import {
   buildProviderRows,
   buildProviderSummary,
   createProvider,
+  duplicateProvider,
   formatTokens,
   getNextProviderPriority,
   normalizeProvider,
@@ -37,6 +39,10 @@ const props = defineProps({
   saving: {
     type: Boolean,
     default: false,
+  },
+  saveSettings: {
+    type: Function,
+    default: null,
   },
   hideTitle: {
     type: Boolean,
@@ -73,6 +79,13 @@ function addProvider() {
 function editProvider(index) {
   editedProvider.value = { ...providers.value[index] }
   editorIndex.value = index
+  showEditor.value = true
+}
+
+// 复制供应商配置并以新增模式打开编辑弹窗。
+function copyProvider(index) {
+  editedProvider.value = duplicateProvider(providers.value[index])
+  editorIndex.value = -1
   showEditor.value = true
 }
 
@@ -115,17 +128,16 @@ function resetAllUsage() {
       </h2>
       <VSpacer />
       <VBtn icon="mdi-refresh" variant="text" :loading="loading" @click="emit('refresh')" />
+      <AgentTokensSettingsMenu
+        :settings="configValue"
+        :saving="saving"
+        :disabled="loading"
+        :save-settings="saveSettings"
+      />
       <VBtn icon="mdi-content-save" variant="text" color="primary" :loading="saving" @click="emit('save')" />
     </div>
 
     <VAlert v-if="error" type="error" variant="tonal" class="mb-4">{{ error }}</VAlert>
-
-    <VSheet border rounded class="agenttokens-control-panel">
-      <div class="agenttokens-control-panel__switches">
-        <VSwitch v-model="configValue.enabled" color="primary" hide-details inset label="启用插件" />
-        <VSwitch v-model="configValue.show_sidebar_nav" color="primary" hide-details inset label="侧边栏入口" />
-      </div>
-    </VSheet>
 
     <div class="agenttokens-overview-grid">
       <UsageOverviewCard class="agenttokens-overview-card" :summary="displaySummary" />
@@ -185,6 +197,7 @@ function resetAllUsage() {
             :providers="providers"
             :provider-rows="displayProviderRows"
             show-credentials
+            @duplicate="copyProvider"
             @edit="editProvider"
             @remove="removeProvider"
           />
@@ -214,18 +227,6 @@ function resetAllUsage() {
   align-items: center;
   flex-wrap: nowrap;
   gap: 8px;
-}
-
-.agenttokens-control-panel {
-  display: flex;
-  align-items: center;
-  padding: 12px 16px;
-}
-
-.agenttokens-control-panel__switches {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 20px;
 }
 
 .agenttokens-overview-grid {

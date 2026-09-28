@@ -183,3 +183,62 @@ def test_scrape_dir_falls_back_to_child_files(tmp_path, monkeypatch):
     fileitem = fake_media_chain.scraped_items[0]
     assert fileitem.type == "file"
     assert fileitem.path == media_file.as_posix()
+
+
+def test_get_tmdbid_from_nfo_skips_invalid_placeholder(tmp_path):
+    """历史集级 NFO 的 None 占位值应被忽略，避免再次刮削传入非法 ID。"""
+    nfo_path = tmp_path / "episode.nfo"
+    nfo_path.write_text(
+        "<episodedetails><uniqueid type='tmdb'>None</uniqueid>"
+        "<tmdbid>123</tmdbid></episodedetails>",
+        encoding="utf-8",
+    )
+
+    assert LibraryScraper._LibraryScraper__get_tmdbid_from_nfo(nfo_path) == 123
+
+
+def test_get_tmdbid_from_nfo_returns_none_for_invalid_values(tmp_path):
+    """只有无效 TMDB ID 的 NFO 应回退到标题识别。"""
+    nfo_path = tmp_path / "episode.nfo"
+    nfo_path.write_text(
+        "<episodedetails><uniqueid type='tmdb'>None</uniqueid>"
+        "<tmdbid>not-a-number</tmdbid></episodedetails>",
+        encoding="utf-8",
+    )
+
+    assert LibraryScraper._LibraryScraper__get_tmdbid_from_nfo(nfo_path) is None
+
+
+def test_scrape_path_keeps_filename_tmdbid_when_nfo_id_is_invalid(tmp_path):
+    """NFO 无效时应保留文件名中有效的 TMDB ID 兜底。"""
+    media_file = tmp_path / "Episode.mkv"
+    media_file.write_text("", encoding="utf-8")
+    media_file.with_suffix(".nfo").write_text(
+        "<episodedetails><uniqueid type='tmdb'>None</uniqueid></episodedetails>",
+        encoding="utf-8",
+    )
+
+    class FakeChain:
+        """记录识别链参数并返回未识别结果。"""
+
+        def __init__(self):
+            """初始化识别参数记录。"""
+            self.calls = []
+
+        def recognize_media(self, **kwargs):
+            """保存识别参数并模拟未识别结果。"""
+            self.calls.append(kwargs)
+            return None
+
+    plugin = LibraryScraper()
+    fake_chain = FakeChain()
+    plugin.chain = fake_chain
+
+    plugin._LibraryScraper__scrape_path(
+        path=media_file,
+        mtype=MediaType.TV,
+        target_type="file",
+        tmdbid=129,
+    )
+
+    assert fake_chain.calls == [{"tmdbid": 129, "mtype": MediaType.TV}]

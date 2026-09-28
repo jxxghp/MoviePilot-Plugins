@@ -1,0 +1,1164 @@
+import asyncio
+import json
+import threading
+import time
+from typing import Any, List, Dict, Tuple, Optional
+
+from cachetools import cached, TTLCache
+
+from app import schemas
+from app.sdk.config import settings
+from app.sdk.events import eventmanager, Event
+from app.sdk.logging import logger
+from app.plugins import _PluginBase
+from app.schemas import DiscoverSourceEventData, Response
+from app.schemas.types import ChainEventType, MediaSource, MediaType
+from app.sdk.media import MetaInfo
+from app.sdk.network import RequestUtils
+
+try:
+    from cloakbrowser import launch_context
+except ImportError:
+    launch_context = None
+
+
+# 爱奇艺频道映射：key 为频道标识，value 为频道名称与 channel_id
+CHANNEL_PARAMS = {
+    "tv": {"channel_id": "2", "name": "电视剧"},
+    "movie": {"channel_id": "1", "name": "电影"},
+    "anime": {"channel_id": "4", "name": "动漫"},
+    "variety": {"channel_id": "6", "name": "综艺"},
+}
+
+# 筛选分组名称到 filter_params 参数名的映射
+# 爱奇艺多个筛选分组共用相同的 query_param，需要映射为独立的参数名
+GROUP_MODEL_MAP = {
+    "排序": "mode",
+    "类型": "type",
+    "地区": "area",
+    "时间": "year",
+    "资费": "pay",
+    "付费": "pay",
+    "殿堂": "hall",
+    "推荐": "recommend",
+    "连载": "serial",
+    "版本": "version",
+    "风格": "style",
+    "明星": "star",
+    "奖项": "award",
+    "剧场": "theater",
+}
+
+# 请求头
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Referer": "https://www.iqiyi.com/",
+}
+
+# 爱奇艺筛选数据接口
+VIDEOLIB_DATA_URL = "https://mesh.if.iqiyi.com/portal/lw/videolib/data"
+# 爱奇艺筛选标签接口
+VIDEOLIB_TAG_URL = "https://mesh.if.iqiyi.com/portal/lw/videolib/tag"
+
+# 请求基础参数
+BASE_PARAMS = {
+    "uid": "",
+    "passport_id": "",
+    "ret_num": "60",
+    "pcv": "17.084.26143",
+    "version": "17.084.26143",
+    "device_id": "4b0c3e7cb568d5e6ccc4bf823293e709",
+    "session": "",
+    "token": "",
+    "os": "10.0",
+    "conduit_id": "",
+    "vip": "0",
+    "auth": "",
+    "recent_selected_tag": "",
+}
+
+# 筛选标签缓存
+BASE_UI: Optional[List] = None
+
+
+def init_base_ui() -> List[dict]:
+    """
+    初始化爱奇艺筛选 UI。
+
+    通过 videolib/tag 接口获取各频道的筛选标签，生成 Vuetify 筛选组件。
+    每个筛选分组的 model 使用 GROUP_MODEL_MAP 映射为独立的参数名。
+    """
+    ui = []
+    for key, value in CHANNEL_PARAMS.items():
+        params = {
+            "channel_id": value["channel_id"],
+            "tagAdd": "",
+            "selected_tag_name": "免费",
+            "version": "17.084.26143",
+            "device": "4b0c3e7cb568d5e6ccc4bf823293e709",
+            "uid": "",
+        }
+        try:
+            res = RequestUtils(headers=HEADERS).get_res(VIDEOLIB_TAG_URL, params=params)
+            if res is None or not res.ok:
+                logger.warning(f"获取爱奇艺筛选标签失败: {key}")
+                continue
+            tag_groups = res.json()
+        except Exception as err:
+            logger.warning(f"获取爱奇艺筛选标签异常: {key} {err}")
+            continue
+        if not isinstance(tag_groups, list):
+            continue
+        for group in tag_groups:
+            if not group.get("display"):
+                continue
+            group_name = group.get("group")
+            tags = group.get("tags", [])
+            if not tags:
+                continue
+            # 映射分组名称为独立的参数名
+            model = GROUP_MODEL_MAP.get(group_name, group_name)
+            chip_data = [
+                {
+                    "component": "VChip",
+                    "props": {
+                        "filter": True,
+                        "tile": True,
+                        "value": tag.get("query_value", ""),
+                    },
+                    "text": tag.get("text", ""),
+                }
+                for tag in tags
+            ]
+            ui.append(
+                {
+                    "component": "div",
+                    "props": {
+                        "class": "flex justify-start items-center",
+                        "show": "{{mtype == '" + key + "'}}",
+                    },
+                    "content": [
+                        {
+                            "component": "div",
+                            "props": {"class": "mr-5"},
+                            "content": [
+                                {"component": "VLabel", "text": group_name}
+                            ],
+                        },
+                        {
+                            "component": "VChipGroup",
+                            "props": {"model": model},
+                            "content": chip_data,
+                        },
+                    ],
+                }
+            )
+    return ui
+
+
+class IqiyiDiscover(_PluginBase):
+    """
+    爱奇艺探索插件，让探索支持爱奇艺的数据浏览。
+    """
+
+    # 插件名称
+    plugin_name = "爱奇艺探索"
+    # 插件描述
+    plugin_desc = "让探索支持爱奇艺的数据浏览。"
+    # 插件图标
+    plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/iqiyi_A.png"
+    # 插件版本
+    plugin_version = "2.1.5"
+    # 插件作者
+    plugin_author = "LLL001a"
+    # 作者主页
+    author_url = "https://github.com/LLL001a"
+    # 插件配置项ID前缀
+    plugin_config_prefix = "iqiyidiscover_"
+    # 加载顺序
+    plugin_order = 99
+    # 可使用的用户级别
+    auth_level = 1
+
+    # 私有属性
+    _enabled = False
+    _cookie = ""
+    _cookie_refresh_time = 0
+    _identity_cache_key = "media_identity"
+    _cookie_task = None
+    _cookie_lock = threading.Lock()
+    _refresh_cron = ""
+
+    def init_plugin(self, config: dict = None):
+        """
+        根据配置初始化插件启用状态。
+
+        :param config: 插件配置字典
+        """
+        global BASE_UI
+        if config:
+            self._enabled = config.get("enabled")
+            # 解析用户提供的 Cookie，兼容标准格式、表格格式和 JSON 格式
+            self._cookie = self._parse_cookie(config.get("cookie") or "")
+            self._refresh_cron = config.get("refresh_cron") or ""
+        if "iqiyipic.com" not in settings.SECURITY_IMAGE_DOMAINS:
+            settings.SECURITY_IMAGE_DOMAINS.append("iqiyipic.com")
+        BASE_UI = init_base_ui()
+        # 启用插件时，优先复用持久化的 Cookie，避免首次加载慢
+        if self._enabled:
+            if not self._cookie:
+                self._cookie = self.get_data("iqiyi_cookie") or ""
+            # 无有效 Cookie 时后台预获取，不阻塞插件加载
+            if not self._cookie:
+                self._cookie_task = threading.Thread(target=self._auto_refresh_cookie, daemon=True)
+                self._cookie_task.start()
+
+    def get_state(self) -> bool:
+        """
+        返回插件是否已启用。
+
+        :return: 插件启用状态
+        """
+        return self._enabled
+
+    def get_module(self) -> Dict[str, Any]:
+        """
+        返回爱奇艺媒体识别模块。
+
+        :return: 模块方法映射
+        """
+        return {
+            "recognize_media": self.recognize_media,
+            "async_recognize_media": self.async_recognize_media,
+        }
+
+    @staticmethod
+    def get_media_source() -> List[Dict[str, Any]]:
+        """
+        返回爱奇艺媒体数据源声明。
+
+        :return: 媒体数据源声明列表
+        """
+        return [
+            {
+                "name": "爱奇艺",
+                "media_source": MediaSource("iqiyi"),
+                "media_types": [MediaType.MOVIE, MediaType.TV],
+            }
+        ]
+
+    async def _save_media_identities(self, items: List[Dict[str, Any]]) -> None:
+        """
+        保存媒体身份缓存。
+
+        :param items: 媒体数据列表
+        """
+        identities = await self.async_get_data(self._identity_cache_key) or {}
+        for item in items:
+            media_id = str(item.get("album_id") or item.get("entity_id") or "")
+            title = item.get("display_name") or item.get("title")
+            if not media_id or not title:
+                continue
+            identities[media_id] = {
+                "title": title,
+                "year": self.__get_year(item),
+            }
+        await self.async_save_data(self._identity_cache_key, dict(list(identities.items())[-2000:]))
+
+    def _get_media_identity(self, media_id: str) -> Dict[str, Any]:
+        """
+        获取媒体身份缓存。
+
+        :param media_id: 爱奇艺媒体ID
+        :return: 媒体身份字典
+        """
+        identities = self.get_data(self._identity_cache_key) or {}
+        return identities.get(str(media_id)) or {}
+
+    def _remember_media_identity(
+        self, media_id: str, title: str, year: Optional[str]
+    ) -> None:
+        """
+        记住媒体身份。
+
+        :param media_id: 爱奇艺媒体ID
+        :param title: 标题
+        :param year: 年份
+        """
+        identities = self.get_data(self._identity_cache_key) or {}
+        identities[str(media_id)] = {
+            "title": title,
+            "year": year,
+        }
+        self.save_data(self._identity_cache_key, dict(list(identities.items())[-2000:]))
+
+    @staticmethod
+    def _normalize_media_type(mtype: Any) -> Optional[MediaType]:
+        """
+        规范化媒体类型。
+
+        :param mtype: 媒体类型
+        :return: MediaType 枚举或 None
+        """
+        if isinstance(mtype, MediaType):
+            return mtype
+        try:
+            return MediaType(mtype) if mtype else None
+        except (TypeError, ValueError):
+            return None
+
+    def recognize_media(
+        self,
+        meta: Any = None,
+        mtype: Any = None,
+        media_source: Optional[MediaSource] = None,
+        media_id: Optional[str] = None,
+        episode_group: Optional[str] = None,
+        cache: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        通过爱奇艺媒体ID识别媒体信息。
+
+        :param meta: 已知媒体元数据
+        :param mtype: 媒体类型
+        :param media_source: 媒体来源
+        :param media_id: 爱奇艺媒体ID
+        :param episode_group: 剧集组
+        :param cache: 是否使用 MoviePilot 识别缓存
+        :return: 识别成功返回媒体信息，否则返回 None
+        """
+        if (
+            str(media_source or "").lower()
+            not in {
+                "iqiyi",
+                "iqiyidiscover",
+            }
+            or not media_id
+        ):
+            return None
+        media_type = self._normalize_media_type(mtype or getattr(meta, "type", None))
+        source_media = self._get_media_identity(str(media_id))
+        title = source_media.get("title") or getattr(meta, "title", None)
+        year = source_media.get("year") or getattr(meta, "year", None)
+        if not title:
+            return None
+        self._remember_media_identity(str(media_id), title, str(year) if year else None)
+        recognize_meta = MetaInfo(title=title)
+        recognize_meta.year = str(year) if year else None
+        recognize_meta.type = media_type
+        mediainfo = self.chain.run_module(
+            "recognize_media",
+            meta=recognize_meta,
+            mtype=media_type,
+            media_source=MediaSource.TMDB,
+            media_id=None,
+            episode_group=episode_group,
+            cache=cache,
+        )
+        if not mediainfo:
+            return None
+        mediainfo.media_source = MediaSource("iqiyi")
+        mediainfo.media_id = str(media_id)
+        return mediainfo
+
+    async def async_recognize_media(
+        self,
+        meta: Any = None,
+        mtype: Any = None,
+        media_source: Optional[MediaSource] = None,
+        media_id: Optional[str] = None,
+        episode_group: Optional[str] = None,
+        cache: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        异步通过爱奇艺媒体ID识别媒体信息。
+
+        :param meta: 已知媒体元数据
+        :param mtype: 媒体类型
+        :param media_source: 媒体来源
+        :param media_id: 爱奇艺媒体ID
+        :param episode_group: 剧集组
+        :param cache: 是否使用 MoviePilot 识别缓存
+        :return: 识别成功返回媒体信息，否则返回 None
+        """
+        if (
+            str(media_source or "").lower()
+            not in {
+                "iqiyi",
+                "iqiyidiscover",
+            }
+            or not media_id
+        ):
+            return None
+        media_type = self._normalize_media_type(mtype or getattr(meta, "type", None))
+        source_media = self._get_media_identity(str(media_id))
+        title = source_media.get("title") or getattr(meta, "title", None)
+        year = source_media.get("year") or getattr(meta, "year", None)
+        if not title:
+            return None
+        identities = await self.async_get_data(self._identity_cache_key) or {}
+        identities[str(media_id)] = {
+            "title": title,
+            "year": str(year) if year else None,
+        }
+        await self.async_save_data(
+            self._identity_cache_key, dict(list(identities.items())[-2000:])
+        )
+        recognize_meta = MetaInfo(title=title)
+        recognize_meta.year = str(year) if year else None
+        recognize_meta.type = media_type
+        mediainfo = await self.chain.async_run_module(
+            "async_recognize_media",
+            meta=recognize_meta,
+            mtype=media_type,
+            media_source=MediaSource.TMDB,
+            media_id=None,
+            episode_group=episode_group,
+            cache=cache,
+        )
+        if not mediainfo:
+            return None
+        mediainfo.media_source = MediaSource("iqiyi")
+        mediainfo.media_id = str(media_id)
+        return mediainfo
+
+    def _auto_refresh_cookie(self) -> bool:
+        """
+        使用 CloakBrowser 自动获取爱奇艺 Cookie。
+
+        通过浏览器访问爱奇艺片库页面，自动完成验证并获取有效 Cookie（含 __dfp 设备指纹），
+        用于绕过爱奇艺风控。使用并发锁确保同一时间只有一个获取任务，避免多个浏览器实例并发。
+
+        :return: 是否成功获取 Cookie
+        """
+        if launch_context is None:
+            logger.warning("CloakBrowser 不可用，无法自动获取 Cookie，请手动配置")
+            return False
+        # 并发锁：同一时间只允许一个 Cookie 获取任务，避免多个浏览器实例并发
+        if not self._cookie_lock.acquire(blocking=False):
+            # 已有获取任务在运行，等待其完成后复用结果
+            logger.info("已有 Cookie 获取任务在运行，等待其完成")
+            with self._cookie_lock:
+                pass
+            return bool(self._cookie)
+        context = None
+        page = None
+        try:
+            logger.info("正在通过 CloakBrowser 自动获取爱奇艺 Cookie...")
+            context = launch_context(headless=True)
+            page = context.new_page()
+            # 访问爱奇艺片库页面，触发验证并生成 Cookie（含 __dfp）
+            page.goto("https://www.iqiyi.com/list/tv/", timeout=120000)
+            page.wait_for_load_state("networkidle", timeout=60000)
+            # 等待 __dfp 生成
+            time.sleep(3)
+            cookies = context.cookies()
+            if not cookies:
+                logger.warning("未获取到爱奇艺 Cookie")
+                return False
+            # 拼接 Cookie 字符串
+            cookie_str = "; ".join(
+                f"{c.get('name')}={c.get('value')}" for c in cookies if c.get("name") and c.get("value")
+            )
+            if not cookie_str:
+                logger.warning("爱奇艺 Cookie 为空")
+                return False
+            self._cookie = cookie_str
+            self._cookie_refresh_time = time.time()
+            # 持久化 Cookie 到插件数据存储，避免覆盖插件配置（enabled 等）
+            try:
+                self.save_data("iqiyi_cookie", cookie_str)
+            except Exception as err:
+                logger.warning(f"保存爱奇艺 Cookie 到数据存储失败: {str(err)}")
+            logger.info(f"成功获取爱奇艺 Cookie（{len(cookies)} 项）")
+            return True
+        except Exception as err:
+            logger.error(f"自动获取爱奇艺 Cookie 失败: {str(err)}")
+            return False
+        finally:
+            if page:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+            if context:
+                try:
+                    context.close()
+                except Exception:
+                    pass
+            # 释放并发锁
+            try:
+                self._cookie_lock.release()
+            except RuntimeError:
+                pass
+
+    async def _async_auto_refresh_cookie(self) -> bool:
+        """
+        异步使用 CloakBrowser 自动获取爱奇艺 Cookie。
+
+        通过 asyncio.to_thread 将同步的浏览器操作放到线程中执行，
+        避免在 asyncio 事件循环中使用 Playwright 同步 API 导致报错。
+
+        :return: 是否成功获取 Cookie
+        """
+        return await asyncio.to_thread(self._auto_refresh_cookie)
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        返回插件定时服务列表。
+
+        根据用户配置的定时刷新周期（refresh_cron）后台预刷新爱奇艺 Cookie，
+        避免 Cookie 失效后阻塞请求。未配置时不注册定时服务。
+
+        :return: 定时服务列表
+        """
+        if not self.get_state():
+            return []
+        if not self._refresh_cron:
+            return []
+        from apscheduler.triggers.cron import CronTrigger
+        try:
+            trigger = CronTrigger.from_crontab(self._refresh_cron)
+        except Exception as err:
+            logger.warning(f"爱奇艺探索定时刷新周期配置无效：{self._refresh_cron} - {err}")
+            return []
+        return [
+            {
+                "id": "IqiyiDiscover.RefreshCookie",
+                "name": "爱奇艺探索Cookie定时刷新",
+                "trigger": trigger,
+                "func": self._auto_refresh_cookie,
+                "kwargs": {},
+            }
+        ]
+
+    @staticmethod
+    def get_command() -> List[Dict[str, Any]]:
+        """
+        返回插件命令列表。
+
+        :return: 命令列表
+        """
+        pass
+
+    def get_api(self) -> List[Dict[str, Any]]:
+        """
+        返回插件 API 端点列表。
+
+        :return: API 端点列表
+        """
+        return [
+            {
+                "path": "/iqiyi_discover",
+                "endpoint": self.iqiyi_discover,
+                "methods": ["GET"],
+                "summary": "爱奇艺探索数据源",
+                "description": "获取爱奇艺探索数据",
+                "response_model": schemas.Response[List[schemas.MediaInfo]],
+            }
+        ]
+
+    def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        """
+        拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构。
+        """
+        return [
+            {
+                "component": "VForm",
+                "content": [
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "enabled",
+                                            "label": "启用插件",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "cookie",
+                                            "label": "爱奇艺 Cookie",
+                                            "placeholder": "从爱奇艺浏览器复制 Cookie（含 __dfp）",
+                                            "hint": "用于绕过爱奇艺风控，访问 iqiyi.com/list/tv/ 后从浏览器开发者工具复制，支持表格格式",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "props": {"class": "mt-2"},
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "refresh_cron",
+                                            "label": "定时刷新 Cookie 周期（Cron 表达式）",
+                                            "placeholder": "例如 0 */2 * * *（每 2 小时）",
+                                            "hint": "留空则不启用定时刷新；建议每 2 小时刷新一次",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "props": {"class": "mt-1"},
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "div",
+                                        "props": {"class": "d-flex align-center flex-wrap"},
+                                        "content": [
+                                            {
+                                                "component": "div",
+                                                "props": {"class": "mr-3 text-body-2"},
+                                                "text": "快捷周期：",
+                                            },
+                                            {
+                                                "component": "VChip",
+                                                "props": {
+                                                    "class": "mr-2",
+                                                    "onClick": "refresh_cron = '0 */1 * * *'",
+                                                },
+                                                "text": "每 1 小时",
+                                            },
+                                            {
+                                                "component": "VChip",
+                                                "props": {
+                                                    "class": "mr-2",
+                                                    "onClick": "refresh_cron = '0 */2 * * *'",
+                                                },
+                                                "text": "每 2 小时",
+                                            },
+                                            {
+                                                "component": "VChip",
+                                                "props": {
+                                                    "class": "mr-2",
+                                                    "onClick": "refresh_cron = '0 */3 * * *'",
+                                                },
+                                                "text": "每 3 小时",
+                                            },
+                                            {
+                                                "component": "VChip",
+                                                "props": {
+                                                    "onClick": "refresh_cron = ''",
+                                                },
+                                                "text": "关闭",
+                                            },
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCard",
+                        "props": {
+                            "variant": "flat",
+                            "class": "mt-3",
+                            "color": "surface",
+                        },
+                        "content": [
+                            {
+                                "component": "VCardItem",
+                                "props": {"class": "px-6 pb-0"},
+                                "content": [
+                                    {
+                                        "component": "VCardTitle",
+                                        "props": {"class": "d-flex align-center text-h6"},
+                                        "content": [
+                                            {
+                                                "component": "VIcon",
+                                                "props": {
+                                                    "style": "color: #16b1ff;",
+                                                    "class": "mr-2",
+                                                },
+                                                "text": "mdi-information",
+                                            },
+                                            {
+                                                "component": "span",
+                                                "text": "使用说明",
+                                            },
+                                        ],
+                                    }
+                                ],
+                            },
+                            {"component": "VDivider"},
+                            {
+                                "component": "VCardText",
+                                "props": {"class": "px-6"},
+                                "content": [
+                                    {
+                                        "component": "div",
+                                        "props": {"class": "text-body-1"},
+                                        "text": "爱奇艺接口有风控，插件会通过浏览器自动获取 Cookie（含 __dfp 设备指纹）以绕过风控。爱奇艺 Cookie 有效时间极短（约 2-3 小时），失效后需重新获取（约 20-30 秒），会导致探索页首次加载变慢。启用「定时刷新 Cookie 周期」（建议每 2 小时）可在后台提前刷新 Cookie，有效改善探索页加载时间。如需手动配置，可访问 iqiyi.com/list/tv/ 后从浏览器开发者工具复制 Cookie 填入上方。",
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            }
+        ], {"enabled": False, "cookie": "", "refresh_cron": ""}
+
+    def get_page(self) -> List[dict]:
+        """
+        返回插件静态页面列表。
+
+        :return: 静态页面列表
+        """
+        pass
+
+    async def __request(self, channel_id: str, page: int, filter_params: str = None) -> List[dict]:
+        """
+        请求爱奇艺筛选数据接口。
+
+        :param channel_id: 频道ID
+        :param page: 页码
+        :param filter_params: 筛选参数JSON字符串
+        :return: 媒体数据列表
+        """
+        params = dict(BASE_PARAMS)
+        params["channel_id"] = channel_id
+        params["page_id"] = str(page)
+        params["filter"] = filter_params or '{"mode":"11"}'
+        headers = dict(HEADERS)
+        # 若 Cookie 为空，等待后台预获取完成（共享同一个刷新任务，避免重复抓取）
+        if not self._cookie:
+            if self._cookie_task and self._cookie_task.is_alive():
+                await asyncio.to_thread(self._cookie_task.join)
+            else:
+                # 无进行中的刷新任务时，同步获取（用 asyncio.to_thread 避免阻塞事件循环）
+                await asyncio.to_thread(self._auto_refresh_cookie)
+            self._cookie_task = None
+        # 携带 Cookie 绕过爱奇艺风控，并从 Cookie 中提取设备ID（QC005）
+        if self._cookie:
+            headers["Cookie"] = self._cookie
+            device_id = self.__extract_device_id(self._cookie)
+            if device_id:
+                params["device_id"] = device_id
+        try:
+            res = RequestUtils(headers=headers).get_res(VIDEOLIB_DATA_URL, params=params)
+            if res is None:
+                raise ConnectionError("无法连接爱奇艺，请检查网络连接！")
+            if not res.ok:
+                raise ValueError(f"请求爱奇艺 API失败：{res.text}")
+            data = res.json()
+            # 风控拦截时返回空数据：若 Cookie 刚同步获取，重试一次；否则后台预刷新，下次请求复用
+            if data.get("code") == 0 and not data.get("data"):
+                logger.warning("爱奇艺接口返回空数据，可能被风控拦截")
+                # 同步获取 Cookie 后重试一次，避免首次打开 404
+                if not self._cookie_refresh_time or time.time() - self._cookie_refresh_time < 60:
+                    if await self._async_auto_refresh_cookie():
+                        headers["Cookie"] = self._cookie
+                        device_id = self.__extract_device_id(self._cookie)
+                        if device_id:
+                            params["device_id"] = device_id
+                        res = RequestUtils(headers=headers).get_res(VIDEOLIB_DATA_URL, params=params)
+                        if res is not None and res.ok:
+                            data = res.json()
+                else:
+                    # Cookie 已存在但失效，后台预刷新，下次请求复用
+                    threading.Thread(target=self._auto_refresh_cookie, daemon=True).start()
+            return data.get("data") or []
+        except Exception as err:
+            logger.error(f"获取爱奇艺数据失败: {str(err)}")
+            raise
+
+    @staticmethod
+    def _parse_cookie(raw: str) -> str:
+        """
+        解析用户提供的 Cookie，转换为标准请求头格式。
+
+        支持以下格式：
+        1. 标准格式：``name=value; name=value``
+        2. 浏览器开发者工具表格格式：Tab 分隔，第 1 列为 name，第 2 列为 value
+        3. JSON 格式：``[{"name": "...", "value": "..."}]``
+
+        :param raw: 用户提供的原始 Cookie 字符串
+        :return: 标准 Cookie 字符串（``name=value; name=value``）
+        """
+        if not raw:
+            return ""
+        text = raw.strip()
+        # JSON 数组格式
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                items = json.loads(text)
+                pairs = [
+                    f"{item.get('name')}={item.get('value')}"
+                    for item in items
+                    if isinstance(item, dict) and item.get("name") and item.get("value") is not None
+                ]
+                if pairs:
+                    return "; ".join(pairs)
+            except (ValueError, TypeError):
+                pass
+        # 表格格式：包含 Tab 分隔的多列
+        if "\t" in text:
+            pairs = []
+            for line in text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                cols = line.split("\t")
+                if len(cols) >= 2 and cols[0].strip() and cols[1].strip():
+                    pairs.append(f"{cols[0].strip()}={cols[1].strip()}")
+            if pairs:
+                return "; ".join(pairs)
+        # 标准格式：直接返回（去掉多余换行）
+        return " ".join(text.split())
+
+    @staticmethod
+    def __extract_device_id(cookie: str) -> Optional[str]:
+        """
+        从 Cookie 中提取设备ID（QC005）。
+
+        :param cookie: Cookie 字符串
+        :return: 设备ID，未找到时返回 None
+        """
+        if not cookie:
+            return None
+        for part in cookie.split(";"):
+            part = part.strip()
+            if part.startswith("QC005="):
+                return part.split("=", 1)[1].strip()
+        return None
+
+    async def iqiyi_discover(
+        self,
+        apikey: str = None,
+        mtype: str = "tv",
+        mode: str = None,
+        type: str = None,
+        area: str = None,
+        year: str = None,
+        pay: str = None,
+        hall: str = None,
+        recommend: str = None,
+        award: str = None,
+        theater: str = None,
+        page: int = 1,
+        count: int = 60,
+    ) -> Response[List[schemas.MediaInfo]]:
+        """
+        获取爱奇艺探索数据。
+
+        :param apikey: API密钥
+        :param mtype: 频道类型，tv/movie/anime/variety
+        :param mode: 排序方式，11最热/4最新/8高分
+        :param type: 类型筛选
+        :param area: 地区筛选
+        :param year: 年份筛选
+        :param pay: 资费筛选，0免费
+        :param hall: 殿堂筛选
+        :param recommend: 推荐筛选
+        :param award: 奖项筛选
+        :param theater: 剧场筛选
+        :param page: 页码
+        :param count: 每页数量
+        """
+        # 无效令牌不访问爱奇艺，按探索组件合同返回空的统一响应
+        if apikey != settings.API_TOKEN:
+            return Response(success=True, data=[])
+        if mtype not in CHANNEL_PARAMS:
+            logger.warning(f"未知的爱奇艺频道类型: {mtype}")
+            return Response(success=True, data=[])
+
+        # 探索页面会将 None 参数以字符串 "None"、"null" 或空字符串传递，需清理为 None
+        def __clean(value):
+            """
+            将字符串 "None"、"null" 或空字符串转换为 None。
+            """
+            if value is None or value == "None" or value == "null" or value == "":
+                return None
+            return value
+
+        mode = __clean(mode)
+        type = __clean(type)
+        area = __clean(area)
+        year = __clean(year)
+        pay = __clean(pay)
+        hall = __clean(hall)
+        recommend = __clean(recommend)
+        award = __clean(award)
+        theater = __clean(theater)
+
+        def __movie_to_media(movie_info: dict) -> schemas.MediaInfo:
+            """
+            电影数据转换为MediaInfo。
+            """
+            return schemas.MediaInfo(
+                type="电影",
+                title=movie_info.get("display_name") or movie_info.get("title"),
+                year=self.__get_year(movie_info),
+                title_year=self.__get_title_year(movie_info),
+                media_source=MediaSource("iqiyi"),
+                media_id=str(movie_info.get("album_id") or movie_info.get("entity_id")),
+                poster_path=self.__get_poster(movie_info),
+            )
+
+        def __series_to_media(series_info: dict) -> schemas.MediaInfo:
+            """
+            电视剧数据转换为MediaInfo。
+            """
+            return schemas.MediaInfo(
+                type="电视剧",
+                title=series_info.get("display_name") or series_info.get("title"),
+                year=self.__get_year(series_info),
+                title_year=self.__get_title_year(series_info),
+                media_source=MediaSource("iqiyi"),
+                media_id=str(series_info.get("album_id") or series_info.get("entity_id")),
+                poster_path=self.__get_poster(series_info),
+            )
+
+        try:
+            filter_params = {}
+            if mode:
+                filter_params["mode"] = mode
+            if type:
+                filter_params["three_category_id_v2"] = type
+            if area:
+                filter_params["three_category_id_v2"] = area
+            if year:
+                filter_params["market_release_date_level"] = year
+            if pay:
+                filter_params["is_purchase"] = pay
+            if hall:
+                filter_params["smart_tag_v2"] = hall
+            if recommend:
+                filter_params["smart_tag_v2"] = recommend
+            if award:
+                filter_params["structure_id"] = award
+            if theater:
+                filter_params["smart_tag_v2"] = theater
+            if not filter_params:
+                filter_params = {"mode": "11"}
+            result = await self.__request(
+                CHANNEL_PARAMS[mtype]["channel_id"],
+                page,
+                json.dumps(filter_params, ensure_ascii=False),
+            )
+        except Exception as err:
+            logger.error(str(err))
+            return Response(success=True, data=[])
+        if not result:
+            return Response(success=True, data=[])
+        # 根据 channel_id 过滤，确保只返回当前频道的准确数据
+        target_channel_id = CHANNEL_PARAMS[mtype]["channel_id"]
+        result = [item for item in result if str(item.get("channel_id")) == target_channel_id]
+        # 剔除"单集"条目：爱奇艺接口会在剧集列表里混入正在更新的单集，
+        # 其 display_name 与剧集同名但 album_id 不同，会导致同一部剧重复显示，
+        # 且单集只有横版剧照（image_cover 为 /v_ 开头），会被当作海报。
+        result = [item for item in result if not self.__is_episode_item(item)]
+        if mtype == "movie":
+            results = [__movie_to_media(movie) for movie in result]
+        else:
+            results = [__series_to_media(series) for series in result]
+        # 保存媒体身份缓存，供媒体识别使用
+        await self._save_media_identities(result)
+        return Response(success=True, data=results[:count])
+
+    @staticmethod
+    def __is_episode_item(media_info: dict) -> bool:
+        """
+        判断是否为"单集"条目。
+
+        爱奇艺剧集列表接口会混入正在更新的单集条目，其特征为：
+        1. title 带"第N集"（display_name 已被剥离集数，与剧集同名）；
+        2. 无高清海报字段，image_cover 为 /v_ 开头的横版剧照；
+        3. album_id 与 entity_id 不一致（单集条目两者不同，剧集条目相同）。
+
+        满足任一特征即视为单集条目，避免同一部剧重复显示。
+
+        :param media_info: 爱奇艺媒体数据
+        :return: 是否为单集条目
+        """
+        import re
+
+        title = media_info.get("title") or ""
+        if re.search(r"第\s*\d+\s*集", title):
+            return True
+        cover = media_info.get("image_cover") or ""
+        if not (media_info.get("image_url_2x") or media_info.get("image_url_normal")) and "/v_" in cover:
+            return True
+        album_id = media_info.get("album_id")
+        entity_id = media_info.get("entity_id")
+        if album_id and entity_id and str(album_id) != str(entity_id):
+            return True
+        return False
+
+    @staticmethod
+    def __get_year(media_info: dict) -> Optional[str]:
+        """
+        从媒体数据中提取年份。
+
+        :param media_info: 爱奇艺媒体数据
+        :return: 年份字符串
+        """
+        date = media_info.get("date") or {}
+        if isinstance(date, dict) and date.get("year"):
+            return str(date.get("year"))
+        if media_info.get("showDate"):
+            return str(media_info.get("showDate")).split("-")[0]
+        return None
+
+    @staticmethod
+    def __get_title_year(media_info: dict) -> Optional[str]:
+        """
+        生成标题（年份）格式。
+
+        :param media_info: 爱奇艺媒体数据
+        :return: 标题（年份）
+        """
+        title = media_info.get("display_name") or media_info.get("title")
+        year = IqiyiDiscover.__get_year(media_info)
+        if title and year:
+            return f"{title} ({year})"
+        return title
+
+    @staticmethod
+    def __get_poster(media_info: dict) -> Optional[str]:
+        """
+        获取高清海报地址。
+
+        优先使用接口返回的高清字段 image_url_2x（318x424），
+        其次从 image_cover 基础地址构造 300x450 高清竖版海报（JPEG），
+        最后回退到 image_cover（120x160）。
+
+        :param media_info: 爱奇艺媒体数据
+        :return: 海报地址
+        """
+        # 优先使用接口直接返回的高清海报
+        poster = media_info.get("image_url_2x") or media_info.get("image_url_normal")
+        if poster:
+            return poster
+        # 从 image_cover 基础地址构造高清竖版海报
+        cover = media_info.get("image_cover")
+        if cover:
+            import re
+            # 去掉尺寸后缀和格式后缀，例如 a_xxx_m_601_m7.avif -> a_xxx_m_601_m7
+            base = re.sub(r"_\d+_\d+\.\w+$", "", cover)
+            base = re.sub(r"\.\w+$", "", base)
+            if base:
+                return f"{base}_300_450.jpg"
+        return cover
+
+    @staticmethod
+    def iqiyi_filter_ui() -> List[dict]:
+        """
+        爱奇艺过滤参数UI配置。
+        """
+        mtype_ui = [
+            {
+                "component": "VChip",
+                "props": {"filter": True, "tile": True, "value": key},
+                "text": value["name"],
+            }
+            for key, value in CHANNEL_PARAMS.items()
+        ]
+        ui = [
+            {
+                "component": "div",
+                "props": {"class": "flex justify-start items-center"},
+                "content": [
+                    {
+                        "component": "div",
+                        "props": {"class": "mr-5"},
+                        "content": [{"component": "VLabel", "text": "种类"}],
+                    },
+                    {
+                        "component": "VChipGroup",
+                        "props": {"model": "mtype"},
+                        "content": mtype_ui,
+                    },
+                ],
+            },
+        ]
+        if BASE_UI:
+            for i in BASE_UI:
+                ui.append(i)
+        return ui
+
+    @eventmanager.register(ChainEventType.DiscoverSource)
+    def discover_source(self, event: Event):
+        """
+        监听探索事件，注册爱奇艺探索数据源。
+        """
+        if not self._enabled:
+            return
+        event_data: DiscoverSourceEventData = event.event_data
+        iqiyi_source = schemas.DiscoverMediaSource(
+            name="爱奇艺",
+            media_source=MediaSource("iqiyi"),
+            mediaid_prefix="iqiyi",
+            api_path=f"plugin/IqiyiDiscover/iqiyi_discover?apikey={settings.API_TOKEN}",
+            filter_params={
+                "mtype": "tv",
+                "mode": None,
+                "type": None,
+                "area": None,
+                "year": None,
+                "pay": None,
+                "hall": None,
+                "recommend": None,
+                "award": None,
+                "theater": None,
+                "page": 1,
+                "count": 60,
+            },
+            filter_ui=self.iqiyi_filter_ui(),
+            depends={
+                "mode": ["mtype"],
+                "type": ["mtype"],
+                "area": ["mtype"],
+                "year": ["mtype"],
+                "pay": ["mtype"],
+                "hall": ["mtype"],
+                "recommend": ["mtype"],
+                "award": ["mtype"],
+                "theater": ["mtype"],
+                "page": ["mtype"],
+                "count": ["mtype"],
+            },
+        )
+        if not event_data.extra_sources:
+            event_data.extra_sources = [iqiyi_source]
+        else:
+            event_data.extra_sources.append(iqiyi_source)
+
+    def stop_service(self):
+        """
+        退出插件。
+        """
+        pass

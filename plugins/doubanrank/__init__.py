@@ -22,6 +22,26 @@ from app.utils.dom import DomUtils
 from app.utils.http import RequestUtils
 
 
+def _parse_douban_score(description: str) -> float | None:
+    """从 RSS 描述中解析有效的豆瓣评分。"""
+    match = re.search(r"评分\s*[：:]\s*(\d+(?:\.\d+)?)\s*分?", description or "")
+    if not match:
+        return None
+    score = float(match.group(1))
+    return score if 0 < score <= 10 else None
+
+
+def _select_score(score_source: str, douban_score: float | None, tmdb_score: float | None) -> Tuple[float | None, str]:
+    """根据配置选择评分，并返回评分来源。"""
+    if score_source == "douban":
+        return douban_score, "豆瓣"
+    try:
+        score = float(tmdb_score) if tmdb_score is not None else None
+    except (TypeError, ValueError):
+        score = None
+    return score if score and 0 < score <= 10 else None, "TMDB"
+
+
 class DoubanRank(_PluginBase):
     # 插件名称
     plugin_name = "豆瓣榜单订阅"
@@ -30,7 +50,7 @@ class DoubanRank(_PluginBase):
     # 插件图标
     plugin_icon = "movie.jpg"
     # 插件版本
-    plugin_version = "1.9.1"
+    plugin_version = "1.10.0"
     # 插件作者
     plugin_author = "jxxghp"
     # 作者主页
@@ -65,6 +85,7 @@ class DoubanRank(_PluginBase):
     _rss_addrs = []
     _ranks = []
     _vote = 0
+    _score_source = "tmdb"
     _clear = False
     _clearflag = False
     _proxy = False
@@ -81,6 +102,7 @@ class DoubanRank(_PluginBase):
             self._proxy = config.get("proxy")
             self._onlyonce = config.get("onlyonce")
             self._vote = float(config.get("vote")) if config.get("vote") else 0
+            self._score_source = config.get("score_source") if config.get("score_source") in ("tmdb", "douban") else "tmdb"
             self._rsshub = config.get("rsshub") or "https://rsshub.app"
             rss_addrs = config.get("rss_addrs")
             if rss_addrs:
@@ -192,7 +214,7 @@ class DoubanRank(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -208,7 +230,7 @@ class DoubanRank(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -224,7 +246,27 @@ class DoubanRank(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'score_source',
+                                            'label': '评分来源',
+                                            'items': [
+                                                {'title': 'TMDB评分', 'value': 'tmdb'},
+                                                {'title': '豆瓣评分', 'value': 'douban'},
+                                            ]
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
                                 },
                                 'content': [
                                     {
@@ -370,6 +412,7 @@ class DoubanRank(_PluginBase):
             "proxy": False,
             "onlyonce": False,
             "vote": "",
+            "score_source": "tmdb",
             "rsshub": "https://rsshub.app",
             "ranks": [],
             "rss_addrs": "",
@@ -534,6 +577,7 @@ class DoubanRank(_PluginBase):
             "cron": self._cron,
             "onlyonce": self._onlyonce,
             "vote": self._vote,
+            "score_source": self._score_source,
             "rsshub": self._rsshub,
             "ranks": self._ranks,
             "rss_addrs": '\n'.join(map(str, self._rss_addrs)),
@@ -618,8 +662,16 @@ class DoubanRank(_PluginBase):
                             logger.warn(f'未识别到媒体信息，标题：{title}，豆瓣ID：{douban_id}')
                             continue
                     # 判断评分是否符合要求
-                    if self._vote and mediainfo.vote_average < self._vote:
-                        logger.info(f'{mediainfo.title_year} 评分不符合要求')
+                    score, score_name = _select_score(
+                        self._score_source,
+                        rss_info.get('douban_score'),
+                        mediainfo.vote_average,
+                    )
+                    if self._vote and score is None:
+                        logger.info(f'{mediainfo.title_year} 无有效{score_name}评分，跳过订阅')
+                        continue
+                    if self._vote and score < self._vote:
+                        logger.info(f'{mediainfo.title_year} {score_name}评分 {score} 不符合要求')
                         continue
                     # 查询缺失的媒体信息
                     exist_flag, _ = self.downloadchain.get_no_exists_info(meta=meta, mediainfo=mediainfo)
@@ -686,6 +738,7 @@ class DoubanRank(_PluginBase):
                     link = DomUtils.tag_value(item, "link", default="")
                     # 年份
                     description = DomUtils.tag_value(item, "description", default="")
+                    rss_info['douban_score'] = _parse_douban_score(description)
 
                     if not title and not link:
                         logger.warn(f"条目标题和链接均为空，无法处理")

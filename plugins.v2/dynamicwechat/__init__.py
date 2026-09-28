@@ -31,7 +31,7 @@ class DynamicWeChat(_PluginBase):
     # 插件图标
     plugin_icon = "Wecom_A.png"
     # 插件版本
-    plugin_version = "2.1.7"
+    plugin_version = "2.1.8"
     # 插件作者
     plugin_author = "RamenRa"
     # 作者主页
@@ -90,7 +90,8 @@ class DynamicWeChat(_PluginBase):
     # 匹配ip地址的正则
     _ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
     # 获取ip地址的网址列表
-    _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip", "https://ip.3322.net", "https://r.inews.qq.com/api/ip2city", "https://uapis.cn/api/v1/network/myip"]
+    _ip_urls = ["https://myip.ipip.net", "https://ddns.oray.com/checkip", "https://ip.3322.net",
+                "https://r.inews.qq.com/api/ip2city", "https://uapis.cn/api/v1/network/myip"]
     # 当前ip地址（可能为分号分隔的多个IP）
     _current_ip_address = '0.0.0.0'
     # 企业微信登录
@@ -237,6 +238,9 @@ class DynamicWeChat(_PluginBase):
 
         # 启用插件时启动后台循环和一次性任务
         if (self._enabled or self._onlyonce) and self._input_id_list:
+            if self._enabled and not getattr(self, '_homepage_logged', False):
+                logger.info("全功能详细说明: https://github.com/RamenRa/MoviePilot-Plugins")
+                self._homepage_logged = True
             self._start_background_loops()
             self._handle_once_tasks()
 
@@ -251,11 +255,13 @@ class DynamicWeChat(_PluginBase):
             if self.wan2:
                 if not self._forced_update or not self._local_scan:
                     logger.info("多网络出口检查需要时间较长，预计25秒内完成")
+
                     # 顺序执行，避免 check 读取到旧的 wan2_url 或 IP 文件
                     async def run_wan2_once():
                         await self.write_wan2_ip()
                         if not self._stopping:
                             await self.check()
+
                     self._start_bg_task(run_wan2_once())
             else:
                 if not self._forced_update or not self._local_scan:
@@ -369,12 +375,14 @@ class DynamicWeChat(_PluginBase):
             loop = asyncio.get_running_loop()
             task = loop.create_task(coro)
             self._bg_tasks.append(task)
+
             def cleanup(t):
                 try:
                     if t in self._bg_tasks:
                         self._bg_tasks.remove(t)
                 except ValueError:
                     pass
+
             task.add_done_callback(cleanup)
         except RuntimeError:
             # 无循环，在新线程中运行，并主动监控 _stopping 以取消协程
@@ -770,7 +778,8 @@ class DynamicWeChat(_PluginBase):
                     async with session.get(qr_code_url) as resp:
                         qr_code_data = await resp.read()
                 self._qr_code_image = io.BytesIO(qr_code_data)
-                refuse_time = (datetime.now() + timedelta(seconds=self.QR_CODE_EXPIRE_SECONDS + self.QR_CODE_REFUSE_OFFSET)).strftime("%Y-%m-%d %H:%M:%S")
+                refuse_time = (datetime.now() + timedelta(
+                    seconds=self.QR_CODE_EXPIRE_SECONDS + self.QR_CODE_REFUSE_OFFSET)).strftime("%Y-%m-%d %H:%M:%S")
                 return qr_code_url, refuse_time
             else:
                 logger.warning("未找到二维码")
@@ -1012,7 +1021,8 @@ class DynamicWeChat(_PluginBase):
                                 return
 
                         # 发送成功，开始等待扫码
-                        logger.info("远程推送任务: 二维码发送成功,等待用户 80 秒内扫码登录。V2'微信通知'的用户,此消息并不准确")
+                        logger.info(
+                            "远程推送任务: 二维码发送成功,等待用户 80 秒内扫码登录。V2'微信通知'的用户,此消息并不准确")
                         for attempt in range(self.QR_CODE_MAX_ATTEMPTS):
                             # 短轮询检查停止信号
                             for _ in range(self.QR_CODE_CHECK_INTERVAL):
@@ -1048,9 +1058,10 @@ class DynamicWeChat(_PluginBase):
         """
         if self._saved_cookie and self._cookie_valid:
             return self._saved_cookie
+
+        if not self._use_cookiecloud:
+            return None
         try:
-            if not self._use_cookiecloud:
-                return None
             cookies, msg = await asyncio.to_thread(self._cookiecloud.download)
             if not cookies:
                 logger.error(f"CookieCloud获取cookie失败,失败原因：{msg}")
@@ -1060,20 +1071,51 @@ class DynamicWeChat(_PluginBase):
                 if domain == ".work.weixin.qq.com":
                     cookie_header = cookie
                     break
-            if cookie_header == '':
+            if not cookie_header:
                 cookie_header = self._cookie_header
             cookie = self.parse_cookie_header(cookie_header)
+            if not cookie:
+                logger.error("企业微信Cookie解析失败：解析结果为空")
+                return None
             return cookie
         except Exception as e:
             logger.error(f"从CookieCloud获取cookie错误,错误原因:{e}")
             return None
 
     def parse_cookie_header(self, cookie_header):
-        """解析cookie头，返回格式化的cookie列表"""
+        """
+        解析 Cookie 头，返回格式化的 Cookie 列表。
+
+        支持：
+        - 空 Cookie 字符串
+        - 尾部多余分号
+        - 连续分号
+        - 不包含 '=' 的无效字段
+        - Cookie 值中包含 '='
+        """
         cookies = []
         self._is_special_upload = False
-        for cookie in cookie_header.split(';'):
-            name, value = cookie.strip().split('=', 1)
+
+        if not cookie_header:
+            return cookies
+
+        for item in cookie_header.split(';'):
+            item = item.strip()
+            if not item:
+                # 跳过空字段
+                continue
+            if '=' not in item:
+                # logger.debug(f"忽略无效Cookie字段: {item}")
+                continue
+
+            name, value = item.split('=', 1)
+            name = name.strip()
+            value = value.strip()
+
+            if not name:
+                # logger.debug(f"忽略空Cookie名称字段: {item}")
+                continue
+
             if name == '_upload_type' and value == 'A':
                 self._is_special_upload = True
                 continue
@@ -1219,7 +1261,8 @@ class DynamicWeChat(_PluginBase):
                             except Exception:
                                 continue
                 else:
-                    logger.error("未收到短信验证码，请以问号结尾发送到企业微信应用。如：510010? 使用全局AI助手需使用/wxcode 510010的格式发送验证码")
+                    logger.error(
+                        "未收到短信验证码，请以问号结尾发送到企业微信应用。如：510010? 使用全局AI助手需使用/wxcode 510010的格式发送验证码")
                     return False
         except asyncio.TimeoutError:
             pass
@@ -1242,7 +1285,8 @@ class DynamicWeChat(_PluginBase):
             self._my_send.reset_limit()
         bash_url = "https://work.weixin.qq.com/wework_admin/frame#apps/modApiApp/"
         buttons = [
-            ("//div[contains(@class, 'js_show_ipConfig_dialog')]//a[contains(@class, '_mod_card_operationLink') and text()='配置']", "配置")
+            ("//div[contains(@class, 'js_show_ipConfig_dialog')]//a[contains(@class, '_mod_card_operationLink') and text()='配置']",
+             "配置")
         ]
         # 获取当前IP地址，多WAN时加锁读取
         if self.wan2:
@@ -1395,14 +1439,16 @@ class DynamicWeChat(_PluginBase):
                                 'component': 'VCol',
                                 'props': {'cols': 12, 'md': 4},
                                 'content': [
-                                    {'component': 'VSwitch', 'props': {'model': 'use_cookiecloud', 'label': '使用CookieCloud'}}
+                                    {'component': 'VSwitch',
+                                     'props': {'model': 'use_cookiecloud', 'label': '使用CookieCloud'}}
                                 ]
                             },
                             {
                                 'component': 'VCol',
                                 'props': {'cols': 12, 'md': 4},
                                 'content': [
-                                    {'component': 'VSwitch', 'props': {'model': 'local_scan', 'label': '本地扫码修改IP'}}
+                                    {'component': 'VSwitch',
+                                     'props': {'model': 'local_scan', 'label': '本地扫码修改IP'}}
                                 ]
                             },
                             *(
@@ -1410,7 +1456,8 @@ class DynamicWeChat(_PluginBase):
                                     'component': 'VCol',
                                     'props': {'cols': 12, 'md': 4},
                                     'content': [
-                                        {'component': 'VSwitch', 'props': {'model': 'await_ip', 'label': 'IP变动后通知'}}
+                                        {'component': 'VSwitch',
+                                         'props': {'model': 'await_ip', 'label': 'IP变动后通知'}}
                                     ]
                                 }]
                                 if self._my_send and self._my_send.other_channel else []
@@ -1424,14 +1471,17 @@ class DynamicWeChat(_PluginBase):
                                 'component': 'VCol',
                                 'props': {'cols': 12, 'md': 6},
                                 'content': [
-                                    {'component': 'VTextField', 'props': {'model': 'cron', 'label': '[必填]检测周期', 'placeholder': '0 * * * *'}}
+                                    {'component': 'VTextField',
+                                     'props': {'model': 'cron', 'label': '[必填]检测周期', 'placeholder': '0 * * * *'}}
                                 ]
                             },
                             {
                                 'component': 'VCol',
                                 'props': {'cols': 12, 'md': 6},
                                 'content': [
-                                    {'component': 'VTextarea', 'props': {'model': 'notification_token', 'label': '[可选] 通知方式', 'rows': 1, 'placeholder': '支持微信、Server酱、PushPlus、AnPush等Token或API'}}
+                                    {'component': 'VTextarea',
+                                     'props': {'model': 'notification_token', 'label': '[可选] 通知方式', 'rows': 1,
+                                               'placeholder': '支持微信、Server酱、PushPlus、AnPush等Token或API'}}
                                 ]
                             }
                         ]
@@ -1443,7 +1493,9 @@ class DynamicWeChat(_PluginBase):
                                 'component': 'VCol',
                                 'props': {'cols': 12},
                                 'content': [
-                                    {'component': 'VTextarea', 'props': {'model': 'input_id_list', 'label': '[必填]应用ID', 'rows': 1, 'placeholder': '输入应用ID,多个ID用英文逗号分隔。在企业微信应用页面URL末尾获取'}}
+                                    {'component': 'VTextarea',
+                                     'props': {'model': 'input_id_list', 'label': '[必填]应用ID', 'rows': 1,
+                                               'placeholder': '输入应用ID,多个ID用英文逗号分隔。在企业微信应用页面URL末尾获取'}}
                                 ]
                             }
                         ]
@@ -1455,7 +1507,8 @@ class DynamicWeChat(_PluginBase):
                                 'component': 'VCol',
                                 'props': {'cols': 12},
                                 'content': [
-                                    {'component': 'VAlert', 'props': {'type': 'info', 'variant': 'tonal', 'text': '建议启用内建或自定义CookieCloud。支持微信和Server酱等第三方通知。具体请查看作者主页'}}
+                                    {'component': 'VAlert', 'props': {'type': 'info', 'variant': 'tonal',
+                                                                      'text': '建议启用内建或自定义CookieCloud。支持微信和Server酱等第三方通知。具体请查看作者主页'}}
                                 ]
                             }
                         ]
@@ -1467,7 +1520,8 @@ class DynamicWeChat(_PluginBase):
                                 'component': 'VCol',
                                 'props': {'cols': 12},
                                 'content': [
-                                    {'component': 'VAlert', 'props': {'type': 'info', 'text': 'Cookie失效时通知用户，用户使用/push_qr让插件推送二维码。使用第三方通知时填写对应Token/API'}}
+                                    {'component': 'VAlert', 'props': {'type': 'info',
+                                                                      'text': 'Cookie失效时通知用户，用户使用/push_qr让插件推送二维码。使用第三方通知时填写对应Token/API'}}
                                 ]
                             }
                         ]
@@ -1717,6 +1771,7 @@ class DynamicWeChat(_PluginBase):
                         tasks_by_loop.setdefault(None, []).append(task)
 
         pending_tasks = []
+
         async def cancel_and_wait(tasks):
             for task in tasks:
                 task.cancel()
@@ -1739,6 +1794,7 @@ class DynamicWeChat(_PluginBase):
                                 self._bg_tasks.remove(t)
                         except ValueError:
                             pass
+
                     task.cancel()
                     task.add_done_callback(cleanup)
                 pending_tasks.extend([task for task in tasks if not task.done()])

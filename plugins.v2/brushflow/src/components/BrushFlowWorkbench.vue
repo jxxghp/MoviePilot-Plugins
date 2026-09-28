@@ -17,11 +17,10 @@ const props = defineProps({
   pluginId: { type: String, default: 'BrushFlow' },
   initialTab: { type: String, default: 'overview' },
   showClose: { type: Boolean, default: false },
-  showSwitch: { type: Boolean, default: false },
   compact: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'switch', 'action'])
+const emit = defineEmits(['close', 'action'])
 const loading = ref(false)
 const taskLoading = ref(false)
 const saving = ref(false)
@@ -50,6 +49,8 @@ const settingsDraft = ref({
   global_maxdlcount: null,
   global_maxupspeed: null,
   global_maxdlspeed: null,
+  global_proxy_delete: false,
+  global_delete_size_range: null,
 })
 const hostToast = inject('moviepilot:toast', null)
 let refreshTimer
@@ -121,6 +122,8 @@ async function loadStatus({ preserveSelection = true, loadDetail = true } = {}) 
       global_maxdlcount: status.value.global_maxdlcount ?? null,
       global_maxupspeed: status.value.global_maxupspeed ?? null,
       global_maxdlspeed: status.value.global_maxdlspeed ?? null,
+      global_proxy_delete: Boolean(status.value.global_proxy_delete),
+      global_delete_size_range: status.value.global_delete_size_range ?? null,
     }
     const selectedStillExists = tasks.value.some(item => item.id === selectedTaskId.value)
     if (!preserveSelection || !selectedStillExists) selectedTaskId.value = tasks.value[0]?.id || ''
@@ -312,6 +315,13 @@ function torrentStateText(item) {
   return progress >= 100 ? '做种' : `下载 ${progress}%`
 }
 
+// 将站点分享率状态格式化为当前值、无限或暂无数据。
+function formatSiteRatio(siteRatio) {
+  if (!siteRatio?.available) return '-'
+  if (siteRatio.unlimited) return '∞'
+  return Number(siteRatio.current || 0).toFixed(2)
+}
+
 watch(
   () => props.initialTab,
   value => {
@@ -345,7 +355,7 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
       </div>
       <div class="brushflow-page__actions">
         <VChip v-if="status.summary.task_count" size="small" variant="tonal">
-          {{ status.summary.enabled_count || 0 }} / {{ status.summary.task_count }} 运行
+          {{ status.summary.running_count ?? status.summary.enabled_count ?? 0 }} / {{ status.summary.task_count }} 运行
         </VChip>
         <VMenu v-model="settingsMenu" :close-on-content-click="false" location="bottom end">
           <template #activator="{ props: menuProps }">
@@ -360,6 +370,22 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                 color="primary"
                 hide-details
                 inset
+              />
+              <VDivider />
+              <VSwitch
+                v-model="settingsDraft.global_proxy_delete"
+                label="全局动态删种"
+                color="primary"
+                hide-details
+                inset
+              />
+              <VTextField
+                v-if="settingsDraft.global_proxy_delete"
+                v-model="settingsDraft.global_delete_size_range"
+                label="全局动态删种阈值（GB）"
+                placeholder="50-100"
+                clearable
+                hide-details
               />
               <VDivider />
               <VTextField
@@ -401,7 +427,6 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
             </VCardActions>
           </VCard>
         </VMenu>
-        <VBtn v-if="showSwitch" icon="mdi-cog-outline" variant="text" aria-label="切换配置" @click="emit('switch')" />
         <VBtn v-if="showClose" icon="mdi-close" variant="text" aria-label="关闭" @click="emit('close')" />
       </div>
     </header>
@@ -469,7 +494,9 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
               </span>
             </button>
           </div>
-          <VBtn block variant="tonal" prepend-icon="mdi-plus" @click="openCreateTask">新建任务</VBtn>
+          <VBtn class="brushflow-create-task" block variant="tonal" prepend-icon="mdi-plus" @click="openCreateTask">
+            新建任务
+          </VBtn>
         </VSheet>
 
         <main v-if="selectedTask" class="brushflow-workspace">
@@ -548,9 +575,14 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                   <VProgressLinear v-if="taskConfig.disksize" :model-value="seedingPercent" height="4" color="primary" />
                 </VSheet>
                 <VSheet class="brushflow-stat app-surface-static">
-                  <span>最近刷新</span>
-                  <strong>{{ latestBrushRun ? `${latestBrushRun.added_count || 0} / ${latestBrushRun.source_count || 0}` : '-' }}</strong>
-                  <small>新增 / 候选</small>
+                  <span>{{ taskConfig.site_ratio_control ? '站点分享率' : '最近刷新' }}</span>
+                  <strong>
+                    {{ taskConfig.site_ratio_control ? formatSiteRatio(selectedTask.site_ratio) : latestBrushRun ? `${latestBrushRun.added_count || 0} / ${latestBrushRun.source_count || 0}` : '-' }}
+                  </strong>
+                  <small v-if="taskConfig.site_ratio_control">
+                    {{ selectedTask.site_ratio?.available ? `目标 ${Number(taskConfig.site_ratio_target || 0).toFixed(2)}` : '暂无站点统计数据' }}
+                  </small>
+                  <small v-else>新增 / 候选</small>
                 </VSheet>
               </div>
 
@@ -567,6 +599,7 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                     <div><dt>刷新周期</dt><dd>{{ taskConfig.cron || `每 ${selectedTask.brush_interval} 分钟` }}</dd></div>
                     <div><dt>检查周期</dt><dd>每 {{ selectedTask.check_interval }} 分钟</dd></div>
                     <div><dt>开启时段</dt><dd>{{ taskConfig.active_time_range || '全天' }}</dd></div>
+                    <div v-if="taskConfig.site_ratio_control"><dt>站点分享率</dt><dd>{{ formatSiteRatio(selectedTask.site_ratio) }} / {{ Number(taskConfig.site_ratio_target || 0).toFixed(2) }}</dd></div>
                     <div><dt>选种来源</dt><dd>{{ taskConfig.rss_support ? 'RSS' : '站点列表页' }}</dd></div>
                     <div><dt>促销要求</dt><dd>{{ taskConfig.freeleech === '2xfree' ? '2X 免费' : taskConfig.freeleech === 'free' ? '免费' : '全部' }}</dd></div>
                     <div><dt>删种策略</dt><dd>{{ taskConfig.proxy_delete ? `动态 ${taskConfig.delete_size_range || '-' } GB` : '满足任一条件' }}</dd></div>
@@ -766,6 +799,7 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                     <div><dt>包含规则</dt><dd>{{ taskConfig.include || '无' }}</dd></div>
                     <div><dt>排除规则</dt><dd>{{ taskConfig.exclude || '无' }}</dd></div>
                     <div><dt>保种上限</dt><dd>{{ taskConfig.disksize ? `${taskConfig.disksize} GB` : '不限' }}</dd></div>
+                    <div><dt>目标分享率</dt><dd>{{ taskConfig.site_ratio_control ? Number(taskConfig.site_ratio_target || 0).toFixed(2) : '关闭' }}</dd></div>
                     <div><dt>归档天数</dt><dd>{{ taskConfig.auto_archive_days || '不自动归档' }}</dd></div>
                   </dl>
                 </VSheet>
@@ -803,6 +837,7 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
       :task="editorTask"
       :sites="status.options.sites"
       :downloaders="status.options.downloaders"
+      :global-dynamic-delete="Boolean(status.global_proxy_delete)"
       :saving="saving"
       @save="saveTask"
     />
@@ -913,6 +948,8 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
 .settings-menu__body {
   display: grid;
   gap: 8px;
+  max-block-size: min(70vh, 34rem);
+  overflow-y: auto;
 }
 
 .brushflow-settings-menu {
@@ -969,6 +1006,10 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.brushflow-create-task {
+  flex: 0 0 auto;
 }
 
 .brushflow-task-item {
@@ -1243,7 +1284,12 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
   display: flex;
   flex-direction: column;
   gap: 13px;
+  max-block-size: min(30rem, 52dvh);
   margin-block-start: 18px;
+  padding-inline-end: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .brushflow-reason > div {
@@ -1272,7 +1318,12 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
   display: flex;
   flex-direction: column;
   gap: 12px;
+  max-block-size: min(30rem, 52dvh);
   margin-block-start: 16px;
+  padding-inline-end: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .brushflow-events article {
@@ -1292,6 +1343,49 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
 .brushflow-config-actions :deep(.v-btn) {
   align-self: flex-start;
   margin-block-start: 8px;
+}
+
+@media (min-width: 960px) {
+  /* 详情弹窗由宿主提供固定高度，内部只让右侧工作区承担页面滚动。 */
+  .brushflow-page--compact {
+    block-size: calc(100dvh - 48px);
+    min-block-size: 0;
+    overflow: hidden;
+  }
+
+  .brushflow-page--compact .brushflow-layout {
+    flex: 1 1 auto;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: stretch;
+    min-block-size: 0;
+    overflow: hidden;
+  }
+
+  .brushflow-page--compact .brushflow-task-rail {
+    position: static;
+    block-size: 100%;
+    min-block-size: 0;
+    max-block-size: none;
+    overflow: hidden;
+  }
+
+  .brushflow-page--compact .brushflow-task-list {
+    flex: 1 1 auto;
+    min-block-size: 0;
+    padding-inline-end: 2px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .brushflow-page--compact .brushflow-workspace {
+    block-size: 100%;
+    min-block-size: 0;
+    padding-inline-end: 4px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
 }
 
 @media (max-width: 1199px) {

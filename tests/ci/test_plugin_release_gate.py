@@ -10,8 +10,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKER = REPO_ROOT / ".github/scripts/check_plugin_versions.py"
+CSS_CHECKER = REPO_ROOT / ".github/scripts/check_federation_css.py"
 PRE_PUSH = REPO_ROOT / ".githooks/pre-push"
 PR_WORKFLOW = REPO_ROOT / ".github/workflows/plugin-gate.yml"
+RELEASE_WORKFLOW = REPO_ROOT / ".github/workflows/release.yml"
 TEST_RUNNER = REPO_ROOT / "tests/run.py"
 
 
@@ -39,6 +41,7 @@ def _write_fixture(repo: Path, package_version: str, source_version: str) -> Non
     checker_target = repo / ".github/scripts/check_plugin_versions.py"
     checker_target.parent.mkdir(parents=True)
     shutil.copy2(CHECKER, checker_target)
+    shutil.copy2(CSS_CHECKER, repo / ".github/scripts/check_federation_css.py")
 
 
 def _run_checker(repo: Path, *package_files: Path | str) -> subprocess.CompletedProcess[str]:
@@ -127,6 +130,60 @@ def test_checker_accepts_annotated_class_level_plugin_version(tmp_path: Path) ->
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_checker_validates_all_v3_entries_in_v3_directory(tmp_path: Path) -> None:
+    """V3 独立实现即使不走 Release 资产也必须校验索引与源码版本。"""
+    repo = tmp_path / "repo"
+    plugin_dir = repo / "plugins.v3/example"
+    plugin_dir.mkdir(parents=True)
+    (repo / "package.v3.json").write_text(
+        json.dumps({"Example": {"version": "3.0.1", "release": False}}),
+        encoding="utf-8",
+    )
+    (plugin_dir / "__init__.py").write_text(
+        "class Example:\n    plugin_version = '3.0.0'\n",
+        encoding="utf-8",
+    )
+
+    result = _run_checker(repo, "package.v3.json")
+
+    assert result.returncode == 1
+    assert "plugins.v3/example" in result.stdout
+    assert "版本不一致" in result.stdout
+
+
+def test_checker_rejects_v3_patch_bump_and_unsorted_history(tmp_path: Path) -> None:
+    """V3 副本停留旧代主版本或历史倒序时必须被发布门禁拒绝（V3 大版本内补丁发布允许）。"""
+    repo = tmp_path / "repo"
+    plugin_dir = repo / "plugins.v3/example"
+    plugin_dir.mkdir(parents=True)
+    (repo / "package.json").write_text("{}\n", encoding="utf-8")
+    (repo / "package.v2.json").write_text(
+        json.dumps({"Example": {"version": "2.6.1", "v3": False}}),
+        encoding="utf-8",
+    )
+    (repo / "package.v3.json").write_text(
+        json.dumps(
+            {
+                "Example": {
+                    "version": "2.6.2",
+                    "history": {"v2.6.2": "错误补丁版本", "v2.7.0": "错误排序"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (plugin_dir / "__init__.py").write_text(
+        "class Example:\n    plugin_version = '2.6.2'\n",
+        encoding="utf-8",
+    )
+
+    result = _run_checker(repo, "package.v3.json")
+
+    assert result.returncode == 1
+    assert "history 未按语义版本降序排列" in result.stdout
+    assert "V3 版本应与旧代 2.6.1 保持大版本跃迁" in result.stdout
+
+
 def test_pre_push_propagates_version_gate_failure(tmp_path: Path) -> None:
     """pre-push 必须传播 checker 非零状态，确保 git push 在上传前被拒绝。"""
     _write_fixture(tmp_path, package_version="2.0.0", source_version="1.0.0")
@@ -176,13 +233,16 @@ def test_pr_workflow_runs_gate_for_every_main_pull_request() -> None:
     assert "- main" in workflow
     assert "paths:" not in workflow
     assert "name: Plugin release gate" in workflow
-    assert "python .github/scripts/check_plugin_versions.py package.json package.v2.json" in workflow
+    assert (
+        "python .github/scripts/check_plugin_versions.py "
+        "package.json package.v2.json package.v3.json"
+    ) in workflow
 
 
 def test_current_repository_passes_version_gate() -> None:
     """启用 Ruleset 前真实 main 基线必须通过，否则所有 PR 都无法合并。"""
     result = subprocess.run(
-        ["python3", str(CHECKER), "package.json", "package.v2.json"],
+        ["python3", str(CHECKER), "package.json", "package.v2.json", "package.v3.json"],
         cwd=REPO_ROOT,
         text=True,
         capture_output=True,
@@ -193,7 +253,30 @@ def test_current_repository_passes_version_gate() -> None:
 
 
 def test_full_test_runner_includes_ci_gate_tests() -> None:
-    """push 前全量入口必须执行 CI 工具测试，防止门禁实现脱离常规回归。"""
+    """V3 全量入口必须执行 CI、专用实现和仍兼容 V3 的 V2 实现。"""
     runner = TEST_RUNNER.read_text(encoding="utf-8")
 
-    assert 'for generation in ("ci", "v2", "v1"):' in runner
+    assert 'for generation in ("ci", "v3", "v2"):' in runner
+    assert "compatible_v2_test_targets" in runner
+
+
+def test_pr_workflow_uses_uv_backend_environment() -> None:
+    """PR 门禁复用主程序锁定的 uv 测试环境。"""
+    workflow = PR_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "uv sync --locked" in workflow
+    assert "../MoviePilot/.venv/bin/python tests/run.py" in workflow
+
+
+def test_release_workflow_packages_missing_target_tag_from_v2_first() -> None:
+    """缺少目标版本时必须打包，且同版本重复条目优先采用 V2 目录。"""
+    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+    assert 'git diff --quiet "$tag" -- "$plugin_dir"' in workflow
+    assert 'git tag --list "${plugin_id}_v*"' not in workflow
+    assert workflow.index('process_package "package.v2.json"') < workflow.index(
+        'process_package "package.json"'
+    )
+    assert workflow.index('process_package "package.json"') < workflow.index(
+        'process_package "package.v3.json"'
+    )

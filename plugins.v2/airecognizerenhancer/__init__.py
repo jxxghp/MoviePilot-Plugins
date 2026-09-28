@@ -53,7 +53,7 @@ class AIRecognizerEnhancer(_PluginBase):
     plugin_name = "AI识别增强"
     plugin_desc = "直接复用 MoviePilot 当前 LLM 配置，在原生识别失败后做本地结构化识别兜底，并交回原生链路继续二次识别。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/airecognizerenhancer.png"
-    plugin_version = "0.1.13"
+    plugin_version = "0.1.14"
     plugin_author = "liuyuexi1987"
     plugin_level = 1
     author_url = "https://github.com/liuyuexi1987"
@@ -758,6 +758,7 @@ class AIRecognizerEnhancer(_PluginBase):
 6. 剧集如果能确定季集就填写，否则保持 0。
 7. media_type 只能是 movie、tv、unknown。
 8. confidence 范围为 0 到 1。
+9. 只输出 JSON，不要使用 markdown 代码块（```json ... ```）包裹。
 """,
                 ),
                 (
@@ -797,6 +798,7 @@ MoviePilot 当前基础解析提示：
 4. 如果需要强制绑 TMDB，可使用 {{[tmdbid=xxx;type=tv/movies;s=1;e=14]}} 这种替换词
 5. comment 不带 #，rule 里不要再包 markdown 或代码块
 6. 如果没有把握，请返回空 suggestions
+7. 只输出 JSON，不要使用 markdown 代码块（```json ... ```）包裹。
 """,
                 ),
                 (
@@ -856,24 +858,66 @@ AI 识别增强结果：
         llm = LLMHelper.get_llm(streaming=False)
         return self._run_async_compatible(llm)
 
+    @staticmethod
+    def _extract_json_text(content: Any) -> str:
+        """从模型响应中提取 JSON 文本，兼容部分模型/网关用 markdown 代码块包裹 JSON 的情况。"""
+        try:
+            text = LLMHelper.extract_text_content(content, fallback_to_string=True)
+        except Exception:
+            text = str(content or "")
+        text = text.strip()
+        # 去掉 ```json ... ``` 之类的围栏后再解析
+        fenced = re.search(r"```(?:json)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
+        if fenced:
+            text = fenced.group(1).strip()
+        return text
+
+    @staticmethod
+    def _parse_json_model(model_cls: Any, content: Any) -> Any:
+        """把模型输出解析成 Pydantic 模型：先剥围栏整体解析，失败则提取首个完整 JSON 片段兜底。"""
+        text = AIRecognizerEnhancer._extract_json_text(content)
+        if not text:
+            raise ValueError("模型未返回任何内容")
+        try:
+            return model_cls.model_validate_json(text)
+        except Exception:
+            pass
+        # 模型可能在 JSON 前后附带解释文本，尝试提取首个完整 JSON 对象/数组
+        for opener, closer in (("{", "}"), ("[", "]")):
+            start = text.find(opener)
+            end = text.rfind(closer) if start >= 0 else -1
+            if end <= start:
+                continue
+            try:
+                return model_cls.model_validate_json(text[start:end + 1])
+            except Exception:
+                continue
+        raise ValueError(f"模型输出无法解析为 JSON: {text[:200]}")
+
     def _invoke_llm(self, title: str, path: str) -> AIRecognitionGuess:
         raw_text = path or title
         meta_hint = self._build_meta_hint(raw_text)
         llm = self._get_llm()
         prompt = self._build_prompt()
-        chain = (
-            prompt
-            | llm.with_structured_output(AIRecognitionGuess).with_retry(stop_after_attempt=self._max_retries)
-        )
-        result: AIRecognitionGuess = chain.invoke(
-            {
-                "title": title,
-                "path": path,
-                "meta_hint": meta_hint,
-            },
-            config={"configurable": {"timeout": self._request_timeout}},
-        )
-        return self._normalize_guess(result)
+        # 不使用 with_structured_output：部分模型/网关不兼容原生 JSON 模式，
+        # 会返回 ```json 包裹的内容导致解析直接失败，改为普通调用后手工解析
+        chain = prompt | llm
+        last_error: Optional[BaseException] = None
+        for _ in range(max(1, self._max_retries)):
+            try:
+                response = chain.invoke(
+                    {
+                        "title": title,
+                        "path": path,
+                        "meta_hint": meta_hint,
+                    },
+                    config={"configurable": {"timeout": self._request_timeout}},
+                )
+                guess = self._parse_json_model(AIRecognitionGuess, response.content)
+                return self._normalize_guess(guess)
+            except Exception as exc:
+                last_error = exc
+        raise last_error or ValueError("LLM 调用失败")
 
     @staticmethod
     def _normalize_media_type(value: Any) -> str:
@@ -1343,24 +1387,26 @@ AI 识别增强结果：
     ) -> IdentifierSuggestionBundle:
         llm = self._get_llm()
         prompt = self._build_identifier_prompt()
-        chain = (
-            prompt
-            | llm.with_structured_output(IdentifierSuggestionBundle).with_retry(
-                stop_after_attempt=self._max_retries
-            )
-        )
-        bundle: IdentifierSuggestionBundle = chain.invoke(
-            {
-                "title": title,
-                "path": path,
-                "meta_hint": self._build_meta_hint(path or title),
-                "guess": result.get("guess") or {},
-                "verified_summary": self._compact_verified_summary(result.get("verified_media_info")),
-                "target": target,
-            },
-            config={"configurable": {"timeout": self._request_timeout}},
-        )
-        return bundle
+        # 与 _invoke_llm 一致，不走 with_structured_output，手工剥围栏后解析 JSON
+        chain = prompt | llm
+        last_error: Optional[BaseException] = None
+        for _ in range(max(1, self._max_retries)):
+            try:
+                response = chain.invoke(
+                    {
+                        "title": title,
+                        "path": path,
+                        "meta_hint": self._build_meta_hint(path or title),
+                        "guess": result.get("guess") or {},
+                        "verified_summary": self._compact_verified_summary(result.get("verified_media_info")),
+                        "target": target,
+                    },
+                    config={"configurable": {"timeout": self._request_timeout}},
+                )
+                return self._parse_json_model(IdentifierSuggestionBundle, response.content)
+            except Exception as exc:
+                last_error = exc
+        raise last_error or ValueError("LLM 调用失败")
 
     def _suggest_identifiers(self, body: Dict[str, Any]) -> Dict[str, Any]:
         body, source_sample, sample_message = self._build_body_from_sample(body)

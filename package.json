@@ -31,6 +31,7 @@
     "author": "TimoYoung",
     "level": 1,
     "v2": true,
+    "v3": false,
     "history": {
       "v1.0": "first stable version",
       "v1.1": "优化字幕翻译逻辑，优化日志输出",
@@ -142,11 +143,12 @@
     "name": "豆瓣榜单订阅",
     "description": "监控豆瓣热门榜单，自动添加订阅。",
     "labels": "订阅",
-    "version": "1.9.1",
+    "version": "1.10.0",
     "icon": "movie.jpg",
     "author": "jxxghp",
     "level": 2,
     "history": {
+      "v1.10.0": "支持切换使用豆瓣评分或TMDB评分筛选订阅",
       "v1.9.1": "优化媒体类型的判断处理",
       "v1.9": "增强API安全性",
       "v1.8": "订阅历史记录支持手动删除，需要主程序升级至v1.8.4+版本"
@@ -209,11 +211,12 @@
     "name": "播放限速",
     "description": "外网播放媒体库视频时，自动对下载器进行限速。",
     "labels": "网络",
-    "version": "1.3",
+    "version": "1.4",
     "icon": "Librespeed_A.png",
     "author": "Shurelol",
     "level": 1,
     "history": {
+      "v1.4": "兼容 Jellyfin 10.8-10.11 多版本会话结构，过滤停止后的残留会话并修复缺少比特率时不触发限速",
       "v1.3": "修复bug；增加预留带宽设置",
       "v1.2.1": "修复多下载器时限速比例计算错误问题",
       "v1.2": "增加不限速路径配置，以应对网盘直链播放的情况"
@@ -580,6 +583,7 @@
     "v2": true
   },
   "EpisodeGroupMeta": {
+    "v3": false,
     "name": "TMDB剧集组刮削",
     "description": "从TMDB剧集组刮削季集的实际顺序。",
     "labels": "刮削",
@@ -631,6 +635,7 @@
     }
   },
   "DownloadSiteTag": {
+    "v3": false,
     "name": "下载任务分类与标签",
     "description": "自动给下载任务分类与打站点标签、剧集名称标签",
     "labels": "下载管理",
@@ -707,6 +712,7 @@
     }
   },
   "NeoDBSync": {
+    "v3": false,
     "name": "NeoDB 想看",
     "description": "同步 NeoDB 想看条目，自动添加订阅。",
     "labels": "订阅",
@@ -845,21 +851,29 @@
     "name": "gotify消息推送",
     "description": "支持使用gotify发送消息通知。",
     "labels": "消息通知",
-    "version": "1.1",
+    "version": "1.2",
     "icon": "https://raw.githubusercontent.com/gotify/logo/refs/heads/master/gotify-logo.png",
     "author": "lethargicScribe",
     "level": 1,
-    "v2": true
+    "v2": true,
+    "release": true,
+    "history": {
+      "v1.2": "停止时封闭新消息并等待后台发送线程退出，超时保留线程以支持宿主重试"
+    }
   },
   "AppriseMsg": {
     "name": "Apprise 消息推送",
     "description": "Apprise - 适用于几乎所有平台的推送通知！",
     "labels": "消息通知",
-    "version": "1.0",
+    "version": "1.1",
     "icon": "Ntfy_A.png",
     "author": "lethargicScribe",
     "level": 1,
-    "v2": true
+    "v2": true,
+    "release": true,
+    "history": {
+      "v1.1": "停止时封闭新消息并等待后台发送线程退出，超时保留线程以支持宿主重试"
+    }
   },
   "TmdbWallpaper": {
     "name": "登录壁纸本地化",
@@ -1022,6 +1036,7 @@
     }
   },
   "BangumiColl": {
+    "v3": false,
     "name": "Bangumi收藏订阅",
     "description": "Bangumi用户收藏添加到订阅",
     "labels": "订阅",
@@ -1047,12 +1062,14 @@
     "name": "IYUU消息推送",
     "description": "支持使用IYUU发送消息通知。",
     "labels": "消息通知,IYUU",
-    "version": "1.3",
+    "version": "1.4",
     "icon": "Iyuu_A.png",
     "author": "jxxghp",
     "level": 1,
     "v2": true,
+    "release": true,
     "history": {
+      "v1.4": "停止时封闭新消息并等待后台发送线程退出，超时保留线程以支持宿主重试",
       "v1.3": "消息限流发送，以缓解IYUU服务器压力"
     }
   },
@@ -1092,12 +1109,13 @@
     "name": "AI识别增强",
     "description": "直接复用 MoviePilot 当前 LLM 配置，在原生识别失败后做本地结构化识别兜底，并交回原生链路继续二次识别。",
     "labels": "AI,识别,LLM,本地兜底,MoviePilot,TMDB",
-    "version": "0.1.13",
+    "version": "0.1.14",
     "icon": "airecognizerenhancer.png",
     "author": "liuyuexi1987",
     "level": 1,
     "v2": true,
     "history": {
+      "0.1.14": "修复部分模型/网关返回 markdown 代码块包裹的 JSON 时结构化输出解析失败的问题，改为普通调用后剥围栏手工解析并保留重试。",
       "0.1.13": "同步运行态能力，兼容 MoviePilot 最新 LLM 路径与异步 get_llm 接口，并修复失败样本持久化、清空和自动移除后的配置保存一致性。",
       "0.1.10": "完善失败样本批量工作流，支持复查、批量建议、批量写入、低 token 摘要，并在模型异常时提供精确规则兜底。",
       "0.1.4": "建立失败样本治理闭环，支持失败样本查看、摘要洞察、清理去重、保留上限，以及生成并写入 CustomIdentifiers。",
@@ -1108,12 +1126,14 @@
     "name": "Agent影视助手",
     "description": "龙虾agent稳定控制 MP：飞书入口、盘搜/影巢搜索、115/夸克转存、智能评分推荐。",
     "labels": "Agent,影巢,HDHive,115,夸克,Quark,智能体,转存,解锁",
-    "version": "0.3.1",
+    "version": "0.3.2",
     "icon": "agentresourceofficer.png",
     "author": "liuyuexi1987",
     "level": 1,
     "v2": true,
+    "release": true,
     "history": {
+      "0.3.2": "修复 p115client 依赖版本号错误（0.0.8.5.1.1 不存在），固定为 PyPI 实际存在的 0.0.9.6.5.1，解决依赖安装失败问题。",
       "0.3.1": "回退并固定 p115client 到 0.0.8.5.1.1，避免与 MoviePilot 当前环境和 115 插件依赖版本冲突。",
       "0.3.0": "精简 Agent/MCP 暴露工具集，仅保留核心业务能力工具，移除自建计划、会话和自描述脚手架噪声；保留飞书与 HTTP 端点。",
       "0.2.99": "重做 Vue 配置页与 115 扫码体验，修复扫码登录、配置保存、依赖误判、影巢网页登录 Cookie、自动刷新和 Playwright 兜底等问题。",

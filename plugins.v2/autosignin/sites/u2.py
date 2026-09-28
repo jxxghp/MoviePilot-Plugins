@@ -2,6 +2,7 @@ import datetime
 import random
 import re
 from typing import Tuple
+from urllib.parse import urljoin, urlparse
 
 from lxml import etree
 from ruamel.yaml import CommentedMap
@@ -10,6 +11,7 @@ from app.core.config import settings
 from app.log import logger
 from app.plugins.autosignin.sites import _ISiteSigninHandler
 from app.utils.http import RequestUtils
+from app.utils.site import SiteUtils
 from app.utils.string import StringUtils
 
 
@@ -27,8 +29,20 @@ class U2(_ISiteSigninHandler):
                    '<a href="showup.php">已簽到</a>',
                    '<a href="showup.php">已簽到</a>']
 
-    # 签到成功
-    _success_text = "window.location.href = 'showup.php';</script>"
+    # 签到成功时，U2 可能返回相对路径或绝对 URL 的跳转脚本。
+    _success_redirect_regex = re.compile(
+        r"window\s*\.\s*location\s*\.\s*href\s*=\s*['\"]([^'\"]+)['\"]"
+    )
+
+    @classmethod
+    def _is_success_response(cls, response_text: str) -> bool:
+        """判断 U2 签到响应是否跳转回签到页，兼容相对和绝对 URL。"""
+        match = cls._success_redirect_regex.search(response_text)
+        if not match:
+            return False
+
+        target = urlparse(urljoin("https://u2.dmhy.org/showup.php", match.group(1)))
+        return target.netloc.casefold() == cls.site_url and target.path == "/showup.php"
 
     @classmethod
     def match(cls, url: str) -> bool:
@@ -57,7 +71,7 @@ class U2(_ISiteSigninHandler):
         if now.hour < 9:
             logger.error(f"{site} 签到失败，9点前不签到")
             return False, '签到失败，9点前不签到'
-        
+
         # 获取页面html
         html_text = self.get_page_source(url="https://u2.dmhy.org/showup.php",
                                          cookie=site_cookie,
@@ -69,10 +83,11 @@ class U2(_ISiteSigninHandler):
             logger.error(f"{site} 签到失败，请检查站点连通性")
             return False, '签到失败，请检查站点连通性'
 
-        if "login.php" in html_text:
+        # 已登录页面的脚本权限数据可能包含 maxlogin.php，不能用 login.php 子串判断登录状态。
+        if not SiteUtils.is_logged_in(html_text):
             logger.error(f"{site} 签到失败，Cookie已失效")
             return False, '签到失败，Cookie已失效'
-        
+
         # 判断是否已签到
         sign_status = self.sign_in_result(html_res=html_text,
                                           regexs=self._sign_regex)
@@ -83,41 +98,54 @@ class U2(_ISiteSigninHandler):
         # 没有签到则解析html
         html = etree.HTML(html_text)
 
-        if not html:
+        if html is None:
             return False, '签到失败'
 
         # 获取签到参数
-        req = html.xpath("//form//td/input[@name='req']/@value")[0]
-        hash_str = html.xpath("//form//td/input[@name='hash']/@value")[0]
-        form = html.xpath("//form//td/input[@name='form']/@value")[0]
+        req = html.xpath("//form//input[@name='req']/@value")
+        hash_str = html.xpath("//form//input[@name='hash']/@value")
+        form = html.xpath("//form//input[@name='form']/@value")
+        csrf_token = html.xpath("//form//input[@name='_csrf']/@value")
         submit_name = html.xpath("//form//td/input[@type='submit']/@name")
         submit_value = html.xpath("//form//td/input[@type='submit']/@value")
-        if not re or not hash_str or not form or not submit_name or not submit_value:
-            logger.error("{site} 签到失败，未获取到相关签到参数")
+        if (
+            not req
+            or not hash_str
+            or not form
+            or not csrf_token
+            or not submit_name
+            or not submit_value
+        ):
+            logger.error(f"{site} 签到失败，未获取到相关签到参数")
             return False, '签到失败'
 
         # 随机一个答案
         answer_num = random.randint(0, 3)
         data = {
-            'req': req,
-            'hash': hash_str,
-            'form': form,
+            'req': req[0],
+            'hash': hash_str[0],
+            'form': form[0],
+            '_csrf': csrf_token[0],
             'message': '一切随缘~',
             submit_name[answer_num]: submit_value[answer_num]
         }
         # 签到
         sign_res = RequestUtils(cookies=site_cookie,
                                 ua=ua,
-                                proxies=settings.PROXY if proxy else None
+                                proxies=settings.PROXY if proxy else None,
+                                headers={
+                                    "User-Agent": ua,
+                                    "Referer": "https://u2.dmhy.org/showup.php",
+                                    "Origin": "https://u2.dmhy.org",
+                                }
                                 ).post_res(url="https://u2.dmhy.org/showup.php?action=show",
                                            data=data)
         if not sign_res or sign_res.status_code != 200:
             logger.error(f"{site} 签到失败，签到接口请求失败")
             return False, '签到失败，签到接口请求失败'
 
-        # 判断是否签到成功
-        # sign_res.text = "<script type="text/javascript">window.location.href = 'showup.php';</script>"
-        if self._success_text in sign_res.text:
+        # U2 可能返回相对或绝对跳转地址，统一按最终签到页判断成功。
+        if self._is_success_response(sign_res.text):
             logger.info(f"{site} 签到成功")
             return True, '签到成功'
         else:

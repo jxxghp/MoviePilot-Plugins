@@ -23,6 +23,10 @@ class ProxyGroupBase(BaseModel):
     url: Optional[str] = Field(default="https://www.gstatic.com/generate_204", description="Health check test address.")
     interval: Optional[int] = Field(default=300, description="Health check interval in seconds.")
     lazy: Optional[bool] = Field(default=True, description="If not selected, no health checks are performed.")
+    default_selected: Optional[str] = Field(default=None, alias="default-selected",
+                                            description="The node selected by default.")
+    empty_fallback: Optional[str] = Field(default="COMPATIBLE", alias="empty-fallback",
+                                      description="The fallback proxy when the group is empty.")
     timeout: Optional[int] = Field(default=5000, description="Health check timeout in milliseconds.")
     max_failed_times: Optional[int] = Field(default=5, alias="max-failed-times",
                                             description="Maximum number of failures before a forced health check.")

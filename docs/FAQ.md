@@ -1,6 +1,8 @@
 # MoviePilot 插件常见问题
 
-常见问题已从主 README 拆分为独立文档，按主题查阅即可。
+这里是功能专题索引，不代替完整开发流程。第一次开发插件请先阅读
+[MoviePilot 插件开发指南（V3）](./Plugin_Development.md)，遇到具体扩展场景时再按
+下面的主题查阅。
 
 - [1. 如何扩展消息推送渠道？](./faq/01-extend-notification-channel.md)
 - [2. 如何在插件中实现远程命令响应？](./faq/02-remote-command-handler.md)
@@ -20,3 +22,6 @@
 - [16. 如何在插件中注册智能体工具？](./faq/16-register-agent-tools.md)
 - [17. 如何将插件页面注册到主界面左侧导航栏？](./faq/17-register-plugin-sidebar-nav.md)
 - [18. 如何限定插件可安装的 MoviePilot 主系统版本？](./faq/18-limit-moviepilot-version.md)
+- [19. 如何通过插件注册媒体数据源？](./faq/19-register-media-source.md)
+- [20. 如何让媒体来源接入自动分类？](./faq/20-media-classification.md)
+- [21. 如何通过插件匹配和下载音乐歌词？](./faq/21-register-lyrics-provider.md)

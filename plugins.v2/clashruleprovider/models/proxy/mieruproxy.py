@@ -14,6 +14,7 @@ class MieruProxy(ProxyBase):
     multiplexing: Optional[Literal[
         'MULTIPLEXING_OFF', 'MULTIPLEXING_LOW', 'MULTIPLEXING_MIDDLE', 'MULTIPLEXING_HIGH']] = 'MULTIPLEXING_LOW'
     handshake_mode: Optional[Literal['HANDSHAKE_STANDARD', 'HANDSHAKE_NO_WAIT']] = 'HANDSHAKE_STANDARD'
+    traffic_pattern: str | None = Field(default=None, alias="traffic-pattern")
 
     @model_validator(mode='after')
     def validate_port_config(self):

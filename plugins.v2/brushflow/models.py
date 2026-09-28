@@ -2,7 +2,7 @@ import re
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def _normalize_optional_positive_number(value):
@@ -32,6 +32,8 @@ class BrushTaskPayload(BaseModel):
     check_interval: int = Field(5, ge=1, le=1440)
     cron: Optional[str] = None
     active_time_range: Optional[str] = None
+    site_ratio_control: bool = False
+    site_ratio_target: Optional[float] = Field(None, gt=0)
     disksize: Optional[float] = Field(None, gt=0)
     maxupspeed: Optional[float] = Field(None, gt=0)
     maxdlspeed: Optional[float] = Field(None, gt=0)
@@ -70,6 +72,7 @@ class BrushTaskPayload(BaseModel):
         "maxupspeed",
         "maxdlspeed",
         "maxdlcount",
+        "site_ratio_target",
         "seed_time",
         "hr_seed_time",
         "seed_ratio",
@@ -147,6 +150,13 @@ class BrushTaskPayload(BaseModel):
             re.compile(value)
         return value
 
+    @model_validator(mode="after")
+    def validate_site_ratio_control(self):
+        """启用站点分享率控制时要求同时配置有效目标值。"""
+        if self.site_ratio_control and self.site_ratio_target is None:
+            raise ValueError("启用站点分享率控制时必须设置目标分享率")
+        return self
+
 
 class BrushTaskStatePayload(BaseModel):
     """
@@ -167,6 +177,21 @@ class BrushFlowSettingsPayload(BaseModel):
     global_maxdlcount: Optional[int] = Field(None, gt=0)
     global_maxupspeed: Optional[float] = Field(None, gt=0)
     global_maxdlspeed: Optional[float] = Field(None, gt=0)
+    global_proxy_delete: bool = False
+    global_delete_size_range: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def clear_global_delete_size_range_when_disabled(cls, data):
+        """关闭全局动态删种时忽略隐藏阈值，确保无效草稿不会阻止保存。"""
+        if not isinstance(data, dict):
+            return data
+        enabled = data.get("global_proxy_delete", False)
+        if enabled not in (False, None, 0, "", "0", "false", "False"):
+            return data
+        normalized = dict(data)
+        normalized["global_delete_size_range"] = None
+        return normalized
 
     @field_validator(
         "global_disksize",
@@ -179,3 +204,31 @@ class BrushFlowSettingsPayload(BaseModel):
     def normalize_optional_positive_number(cls, value):
         """兼容全局限额中用于表示不限的空值和 0。"""
         return _normalize_optional_positive_number(value)
+
+    @field_validator("global_delete_size_range", mode="before")
+    @classmethod
+    def normalize_global_delete_size_range(cls, value):
+        """清理全局动态删种阈值中的空白值。"""
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
+
+    @field_validator("global_delete_size_range")
+    @classmethod
+    def validate_global_delete_size_range(cls, value: Optional[str]) -> Optional[str]:
+        """校验全局动态删种的单值或区间阈值。"""
+        if value and not re.fullmatch(r"\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)?", value):
+            raise ValueError("请输入数字或数字范围，例如 100 或 50-100")
+        if value:
+            limits = [float(item) for item in value.split("-")]
+            if any(item <= 0 for item in limits) or (len(limits) > 1 and limits[0] >= limits[1]):
+                raise ValueError("动态删种区间下限必须小于上限")
+        return value
+
+    @model_validator(mode="after")
+    def validate_global_dynamic_delete(self):
+        """启用全局动态删种时要求配置有效体积阈值。"""
+        if self.global_proxy_delete and not self.global_delete_size_range:
+            raise ValueError("启用全局动态删种时必须设置动态删种阈值")
+        return self
