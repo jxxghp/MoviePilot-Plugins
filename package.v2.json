@@ -1407,5 +1407,40 @@
       "v1.1.0": "新增 ask 模式确认流程（识别后汇报待确认，用户确认后才上传）；新增跳过标签功能（刷流/保种/seedbox 标签的种子不自动上传）；修正源文件路径字段获取方式",
       "v1.0.0": "初始版本：支持 TransferComplete 事件监听、服务器端识别、版本对比（分辨率+文件大小）、分片并发上传、ask/silent 两种模式、上传历史记录"
     }
+  },
+  "AutoSubtitle": {
+    "name": "自动字幕下载",
+    "description": "文件整理完成后自动搜索并下载缺失的字幕",
+    "labels": "字幕",
+    "version": "1.1",
+    "v3": false,
+    "icon": "subtitle.png",
+    "author": "yubanmeiqin9048",
+    "level": 2,
+    "history": {
+      "v1.1": "添加自动调轴功能和内封字幕检测",
+      "v1.0": "初版"
+    }
+  },
+  "SubtitleAssistant": {
+    "name": "字幕助手",
+    "description": "覆盖搜索、匹配、下载、归属、落盘、维护与审计的字幕全生命周期管理。",
+    "labels": "字幕",
+    "version": "1.4.1",
+    "v3": false,
+    "icon": "https://raw.githubusercontent.com/yubanmeiqin9048/MoviePilot-Plugins/main/icons/SubtitleAssistant.png",
+    "author": "yubanmeiqin9048",
+    "level": 1,
+    "system_version": ">=2.15.1",
+    "history": {
+      "v1.4.1": "字幕搜索加入分页",
+      "v1.4": "精简功能，聚焦核心实现",
+      "v1.3": "重构批量重配页面",
+      "v1.2.1": "前端仅发布构建产物减少文件下载",
+      "v1.2": "插件重构",
+      "v1.1": "重构手动搜索和设置页",
+      "v1.0.1": "修复 Vue 联邦构建产物未进入发布仓库",
+      "v1.0": "初版"
+    }
   }
 }
