@@ -889,12 +889,13 @@
     "name": "字幕助手",
     "description": "覆盖搜索、匹配、下载、归属、落盘、维护与审计的字幕全生命周期管理。",
     "labels": "字幕",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "icon": "https://raw.githubusercontent.com/yubanmeiqin9048/MoviePilot-Plugins/main/icons/SubtitleAssistant.png",
     "author": "yubanmeiqin9048",
     "level": 1,
     "system_version": ">=3.0.0",
     "history": {
+      "v2.0.1": "补齐 Vue 联邦组件构建文件，修复组件加载错误",
       "v2.0.0": "适配 MoviePilot V3 插件依赖清单与运行合同"
     }
   }
