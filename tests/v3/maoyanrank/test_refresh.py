@@ -16,7 +16,7 @@ def plugin(monkeypatch):
     """绕过宿主初始化并隔离日志、浏览器和 HTTP 客户端。"""
     instance = object.__new__(MaoyanRank)
     monkeypatch.setattr(maoyanrank, "logger", Mock())
-    monkeypatch.setattr(instance, "get_cookies", Mock(return_value={}))
+    monkeypatch.setattr(instance, "_MaoyanRank__with_browser", Mock(return_value=None))
     monkeypatch.setattr(maoyanrank, "RequestUtils", Mock())
 
     def metadata(title):
@@ -49,9 +49,9 @@ def test_unknown_release_year_continues_recognition_without_warning(plugin, rele
     maoyanrank.logger.error.assert_not_called()
 
 
-def test_cookie_failure_does_not_block_any_rank(plugin):
+def test_browser_failure_does_not_block_any_rank(plugin):
     """浏览器取 Cookie 失败时仍逐个请求电影、网络电影及剧集榜单。"""
-    plugin.get_cookies.side_effect = RuntimeError("browser unavailable")
+    plugin._MaoyanRank__with_browser.side_effect = RuntimeError("browser unavailable")
     request = maoyanrank.RequestUtils.return_value.get_res
     request.side_effect = [
         response({"movieList": {"list": [{"movieInfo": {"movieName": "院线电影"}}]}}),
@@ -185,7 +185,11 @@ def test_refresh_keeps_later_ranks_and_saves_history(plugin, monkeypatch):
 
 def test_cookies_limits_and_tv_deduplication_are_preserved(plugin):
     """正常 Cookie、各平台数量限制及跨榜标题去重不受异常隔离改动影响。"""
-    plugin.get_cookies.return_value = {"session": "test-cookie"}
+    page = SimpleNamespace(
+        context=SimpleNamespace(cookies=Mock(return_value=[{"name": "session", "value": "test-cookie"}])),
+        evaluate=Mock(return_value="official-browser-ua"),
+    )
+    plugin._MaoyanRank__with_browser.side_effect = lambda callback: callback(page)
     request = maoyanrank.RequestUtils.return_value.get_res
     request.side_effect = [
         response({"dataList": {"list": [{"seriesInfo": {"name": name}} for name in ["同名剧集", "超出排名"]]}}),
@@ -212,3 +216,103 @@ def test_cookies_limits_and_tv_deduplication_are_preserved(plugin):
 def test_release_year_uses_only_known_date_formats(release_info, year):
     """仅解析明确日期和已上映天数，避免把完整日期误当成天数。"""
     assert MaoyanRank._MaoyanRank__release_year(release_info, datetime.datetime(2026, 1, 5)) == year
+
+
+def test_current_heat_endpoints_use_one_browser_session(plugin):
+    """当前热度接口在官网会话内请求，不把已失效的裸 HTTP 结果当成榜单。"""
+    urls = [
+        "https://piaofang.maoyan.com/i/api/encrypt/dashboard/webHeatData?showDate=20260930&seriesType=0",
+        "https://piaofang.maoyan.com/i/api/encrypt/dashboard/webHeatData?showDate=20260930&seriesType=2&platformType=3",
+    ]
+    payloads = [
+        {"dataList": {"list": [{"seriesInfo": {"name": name}}]}}
+        for name in ("电视剧", "综艺")
+    ]
+    page = SimpleNamespace(
+        context=SimpleNamespace(cookies=Mock(return_value=[])),
+        evaluate=Mock(side_effect=["official-browser-ua", *payloads]),
+    )
+    plugin._MaoyanRank__with_browser.side_effect = lambda callback: callback(page)
+
+    movies, shows = plugin._MaoyanRank__get_url_info("", [[url, 10] for url in urls], "")
+
+    assert movies == []
+    assert [item["title"] for item in shows] == ["电视剧", "综艺"]
+    plugin._MaoyanRank__with_browser.assert_called_once()
+    maoyanrank.RequestUtils.assert_not_called()
+    assert [call.args[1] for call in page.evaluate.call_args_list[1:]] == urls
+
+
+def test_browser_request_failure_does_not_block_later_heat_rank(plugin):
+    """官网会话内的某个请求失败时仍请求下一平台，并保留成功条目。"""
+    urls = [
+        "https://piaofang.maoyan.com/i/api/encrypt/dashboard/webHeatData?seriesType=2",
+        "https://piaofang.maoyan.com/i/api/encrypt/dashboard/webHeatData?seriesType=2&platformType=3",
+    ]
+    page = SimpleNamespace(
+        context=SimpleNamespace(cookies=Mock(return_value=[])),
+        evaluate=Mock(side_effect=[
+            "official-browser-ua", RuntimeError("HTTP 403 Forbidden"),
+            {"dataList": {"list": [{"seriesInfo": {"name": "后续综艺"}}]}},
+        ]),
+    )
+    plugin._MaoyanRank__with_browser.side_effect = lambda callback: callback(page)
+
+    _, shows = plugin._MaoyanRank__get_url_info("", [[url, 10] for url in urls], "")
+
+    assert [item["title"] for item in shows] == ["后续综艺"]
+    assert urls[0] in str(maoyanrank.logger.error.call_args)
+    assert page.evaluate.call_count == 3
+
+
+def test_browser_cleanup_failure_does_not_repeat_processed_ranks(plugin):
+    """关闭浏览器失败不应触发已处理榜单的重复请求或丢掉已有结果。"""
+    page = SimpleNamespace(
+        context=SimpleNamespace(cookies=Mock(return_value=[])),
+        evaluate=Mock(return_value="official-browser-ua"),
+    )
+
+    def use_browser(callback):
+        """在完成榜单读取后模拟关闭异常。"""
+        callback(page)
+        raise RuntimeError("context close failed")
+
+    plugin._MaoyanRank__with_browser.side_effect = use_browser
+    request = maoyanrank.RequestUtils.return_value.get_res
+    request.return_value = response({"movieList": {"list": [{"movieInfo": {"movieName": "已读取电影"}}]}})
+
+    movies, _ = plugin._MaoyanRank__get_url_info("movie", [], "")
+
+    assert [item["title"] for item in movies] == ["已读取电影"]
+    request.assert_called_once()
+    assert request.call_args.kwargs["headers"]["User-Agent"] == "official-browser-ua"
+
+
+def test_refresh_builds_current_heat_urls_and_preserves_filters(plugin, monkeypatch):
+    """三类榜单和五个平台均使用实际日期，全网不发送空的平台参数。"""
+    from urllib.parse import parse_qs, urlparse
+
+    plugin._type = ["web-heat", "web-tv", "zongyi"]
+    plugin._all_enabled = plugin._tx_enabled = plugin._iqy_enabled = plugin._mg_enabled = plugin._yk_enabled = True
+    plugin._all_num, plugin._tx_num, plugin._iqy_num, plugin._mg_num, plugin._yk_num = 1, 2, 3, 5, 7
+    monkeypatch.setattr(plugin, "get_data", Mock(return_value=[]))
+    monkeypatch.setattr(plugin, "save_data", Mock())
+    fetch = Mock(return_value=([], []))
+    monkeypatch.setattr(plugin, "_MaoyanRank__get_url_info", fetch)
+
+    plugin._MaoyanRank__refresh_maoyan()
+
+    movie_url, tv_urls, web_movie_url, _ = fetch.call_args.args
+    assert movie_url == web_movie_url == ""
+    assert len(tv_urls) == 15
+    expected_date = datetime.datetime.now(maoyanrank.pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d")
+    queries = []
+    for url, limit in tv_urls:
+        parsed = urlparse(url)
+        assert parsed.path == "/i/api/encrypt/dashboard/webHeatData"
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        assert query["showDate"] == [expected_date]
+        assert query.get("platformType") != [""]
+        queries.append((query["seriesType"][0], query.get("platformType", [None])[0], limit))
+    assert queries == [(series, platform, limit) for series in ("0", "1", "2")
+                       for platform, limit in ((None, 1), ("3", 2), ("2", 3), ("7", 5), ("1", 7))]

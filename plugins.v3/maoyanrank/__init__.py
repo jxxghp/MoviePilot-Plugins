@@ -44,7 +44,7 @@ class MaoyanRank(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg"
     # 插件版本
-    plugin_version = "4.1.1"
+    plugin_version = "4.1.2"
     # 插件作者
     plugin_author = "逗猫"
     # 作者主页
@@ -956,71 +956,72 @@ class MaoyanRank(_PluginBase):
         # 0: 电视剧  1: 网络剧 2: 综艺 不传递-1代表电视剧+网络剧
         # 参数 platformType: 代表平台 0 全网 3 腾讯视频 2 爱奇艺 1 优酷 7 芒果
         # 电视剧
-        tv_url = f'{maoyan_url}/dashboard/webHeatData'
+        tv_url = f'{maoyan_url}/i/api/encrypt/dashboard/webHeatData'
+        show_date = datetime.datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y%m%d')
         if 'web-heat' in self._type:
             # 全网
             if self._all_enabled:
-                url = f'{tv_url}?seriesType=0&platformType=&showDate=2'
+                url = f'{tv_url}?seriesType=0&showDate={show_date}'
                 tv_urls.append([url, self._all_num])
             # tx
             if self._tx_enabled:
-                url = f'{tv_url}?seriesType=0&platformType=3&showDate=2'
+                url = f'{tv_url}?seriesType=0&platformType=3&showDate={show_date}'
                 tv_urls.append([url, self._tx_num])
             # iqy
             if self._iqy_enabled:
-                url = f'{tv_url}?seriesType=0&platformType=2&showDate=2'
+                url = f'{tv_url}?seriesType=0&platformType=2&showDate={show_date}'
                 tv_urls.append([url, self._iqy_num])
             # mg
             if self._mg_enabled:
-                url = f'{tv_url}?seriesType=0&platformType=7&showDate=2'
+                url = f'{tv_url}?seriesType=0&platformType=7&showDate={show_date}'
                 tv_urls.append([url, self._mg_num])
             # yk
             if self._yk_enabled:
-                url = f'{tv_url}?seriesType=0&platformType=1&showDate=2'
+                url = f'{tv_url}?seriesType=0&platformType=1&showDate={show_date}'
                 tv_urls.append([url, self._yk_num])
         # 网剧
         if 'web-tv' in self._type:
             # 全网
             if self._all_enabled:
-                url = f'{tv_url}?seriesType=1&platformType=&showDate=2'
+                url = f'{tv_url}?seriesType=1&showDate={show_date}'
                 tv_urls.append([url, self._all_num])
             # tx
             if self._tx_enabled:
-                url = f'{tv_url}?seriesType=1&platformType=3&showDate=2'
+                url = f'{tv_url}?seriesType=1&platformType=3&showDate={show_date}'
                 tv_urls.append([url, self._tx_num])
             # iqy
             if self._iqy_enabled:
-                url = f'{tv_url}?seriesType=1&platformType=2&showDate=2'
+                url = f'{tv_url}?seriesType=1&platformType=2&showDate={show_date}'
                 tv_urls.append([url, self._iqy_num])
             # mg
             if self._mg_enabled:
-                url = f'{tv_url}?seriesType=1&platformType=7&showDate=2'
+                url = f'{tv_url}?seriesType=1&platformType=7&showDate={show_date}'
                 tv_urls.append([url, self._mg_num])
             # yk
             if self._yk_enabled:
-                url = f'{tv_url}?seriesType=1&platformType=1&showDate=2'
+                url = f'{tv_url}?seriesType=1&platformType=1&showDate={show_date}'
                 tv_urls.append([url, self._yk_num])
         # 综艺
         if 'zongyi' in self._type:
             # 全网
             if self._all_enabled:
-                url = f'{tv_url}?seriesType=2&platformType=&showDate=2'
+                url = f'{tv_url}?seriesType=2&showDate={show_date}'
                 tv_urls.append([url, self._all_num])
             # tx
             if self._tx_enabled:
-                url = f'{tv_url}?seriesType=2&platformType=3&showDate=2'
+                url = f'{tv_url}?seriesType=2&platformType=3&showDate={show_date}'
                 tv_urls.append([url, self._tx_num])
             # iqy
             if self._iqy_enabled:
-                url = f'{tv_url}?seriesType=2&platformType=2&showDate=2'
+                url = f'{tv_url}?seriesType=2&platformType=2&showDate={show_date}'
                 tv_urls.append([url, self._iqy_num])
             # mg
             if self._mg_enabled:
-                url = f'{tv_url}?seriesType=2&platformType=7&showDate=2'
+                url = f'{tv_url}?seriesType=2&platformType=7&showDate={show_date}'
                 tv_urls.append([url, self._mg_num])
             # yk
             if self._yk_enabled:
-                url = f'{tv_url}?seriesType=2&platformType=1&showDate=2'
+                url = f'{tv_url}?seriesType=2&platformType=1&showDate={show_date}'
                 tv_urls.append([url, self._yk_num])
         tv_list = []
         movie_list = []
@@ -1206,16 +1207,9 @@ class MaoyanRank(_PluginBase):
         return None
 
     def __get_url_info(self, movie_url, tv_urls, web_movie_url, num=10):
-        """独立获取各来源榜单；浏览器失败时无 Cookie 请求，坏条目只影响自身。"""
+        """复用一个官网浏览器会话获取榜单，页面校验失败仅影响对应来源。"""
         movies_list = []
         tv_list = []
-        headers = {'User-Agent': self.get_random_user_agent()}
-        try:
-            cookies = self.get_cookies() or {}
-        except Exception as err:
-            logger.warning(f"获取猫眼 Cookie 失败，将继续无 Cookie 请求各榜单：{err}")
-            cookies = {}
-
         sources = []
         if movie_url:
             sources.append((movie_url, num, '电影票房榜单', 'movieList', 'movieInfo', 'movieName', movies_list))
@@ -1223,27 +1217,74 @@ class MaoyanRank(_PluginBase):
             sources.append((web_movie_url, num, '网络电影榜单', 'data', None, 'name', movies_list))
         for tv_url, tv_num in tv_urls:
             sources.append((tv_url, tv_num, '剧集热度榜单', 'dataList', 'seriesInfo', 'name', tv_list))
+        if not sources:
+            return movies_list, tv_list
 
-        for url, limit, name, data_key, info_key, title_key, target in sources:
-            source = f"{name}（{url}）"
-            try:
-                response = RequestUtils().get_res(url, cookies=cookies, headers=headers)
-                if response is None:
-                    raise ValueError("未收到有效响应")
-                response.raise_for_status()
-                payload = response.json()
-                container = payload.get(data_key) if isinstance(payload, dict) else None
-                data = container.get('list') if isinstance(container, dict) else None
-                if not isinstance(data, list):
-                    raise ValueError(f"响应缺少有效的 {data_key}.list 榜单列表")
-                items = self.__parse_rank_items(data, limit, info_key, title_key, source)
-                target.extend(items)
-                logger.info(f"猫眼{source}获取到 {len(items)} 条有效记录")
-            except Exception as err:
-                logger.error(f"猫眼{source}获取失败，继续处理其他榜单：{err}")
+        processed = set()
+
+        def collect(page=None):
+            """按来源隔离请求；浏览器收尾异常时避免重复请求已经处理的榜单。"""
+            headers = {'User-Agent': self.get_random_user_agent()}
+            cookies = {}
+            if page is not None:
+                headers['User-Agent'] = page.evaluate('navigator.userAgent')
+                cookies = {cookie['name']: cookie['value'] for cookie in page.context.cookies()}
+            for index, (url, limit, name, data_key, info_key, title_key, target) in enumerate(sources):
+                if index in processed:
+                    continue
+                processed.add(index)
+                source = f"{name}（{url}）"
+                try:
+                    if page is not None and '/i/api/encrypt/dashboard/' in url:
+                        payload = self.__request_browser_json(page, url)
+                    else:
+                        response = RequestUtils().get_res(url, cookies=cookies, headers=headers)
+                        if response is None:
+                            raise ValueError("未收到有效响应")
+                        response.raise_for_status()
+                        payload = response.json()
+                    container = payload.get(data_key) if isinstance(payload, dict) else None
+                    data = container.get('list') if isinstance(container, dict) else None
+                    if not isinstance(data, list):
+                        raise ValueError(f"响应缺少有效的 {data_key}.list 榜单列表")
+                    items = self.__parse_rank_items(data, limit, info_key, title_key, source)
+                    target.extend(items)
+                    logger.info(f"猫眼{source}获取到 {len(items)} 条有效记录")
+                except Exception as err:
+                    logger.error(f"猫眼{source}获取失败，继续处理其他榜单：{err}")
+
+        try:
+            self.__with_browser(collect)
+        except Exception as err:
+            logger.warning(f"猫眼浏览器会话异常：{err}")
+        if len(processed) < len(sources):
+            logger.warning("猫眼浏览器不可用，将继续无 Cookie 请求未处理榜单，热度接口可能拒绝访问")
+            collect()
 
         # 同一剧集可能出现在多个平台，保留原有按标题去重的行为。
         return movies_list, list({item['title']: item for item in tv_list}.values())
+
+    @staticmethod
+    def __request_browser_json(page, url):
+        """在官网页面内请求当前接口，由网站自身脚本维护会话与请求校验信息。"""
+        return page.evaluate("""async url => {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 15000);
+            try {
+                const headers = {Accept: 'application/json, text/plain, */*'};
+                for (const [name, key] of [['csrf', 'uid'], ['deviceId', 'uuid'], ['channelId', 'channelId']]) {
+                    const value = document.querySelector(`meta[name="${name}"]`)?.content;
+                    if (value) headers[key] = value;
+                }
+                const response = await fetch(url, {
+                    headers, credentials: 'same-origin', signal: controller.signal,
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+                return await response.json();
+            } finally {
+                clearTimeout(timer);
+            }
+        }""", url)
 
     @staticmethod
     def __parse_rank_items(data, limit, info_key, title_key, source) -> List[dict]:
@@ -1279,25 +1320,18 @@ class MaoyanRank(_PluginBase):
         return random.choice(user_agents)
 
     @staticmethod
-    def get_cookies():
-        """通过宿主浏览器获取猫眼 Cookie，由调用方处理失败降级。"""
-        def page_handler(page) -> dict:
-            """
-            从 MoviePilot 浏览器上下文中读取猫眼下发的 Cookie。
-            """
-            cookies = page.context.cookies()
-            logger.debug(f"maoyan cookie: {cookies}")
-            return {c['name']: c['value'] for c in cookies}
-
-        # 复用主程序的浏览器适配层，避免直接调用 Playwright 时浏览器可执行文件路径失配。
+    def __with_browser(callback):
+        """先加载官网校验脚本，再在同一上下文内获取各榜单并可靠释放浏览器。"""
         context = launch_browser_context(headless=True)
         page = None
         try:
             page = context.new_page()
-            page.goto('https://piaofang.maoyan.com')
-            page.wait_for_load_state('networkidle', timeout=60000)
-            return page_handler(page) or {}
+            page.goto('https://piaofang.maoyan.com/dashboard/web-heat',
+                      wait_until='load', timeout=30000)
+            return callback(page)
         finally:
-            if page:
-                page.close()
-            context.close()
+            try:
+                if page is not None:
+                    page.close()
+            finally:
+                context.close()
