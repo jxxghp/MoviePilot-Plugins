@@ -720,6 +720,37 @@ def get_service(self) -> list[dict]:
 服务 ID 必须稳定且唯一。插件停用时，还要清理自行创建、不由宿主服务调度器管理的
 线程、异步任务、文件句柄或网络客户端。
 
+“立即运行一次”或“事件发生后延迟几秒执行”这类一次性任务，使用
+`app.sdk.scheduler.add_plugin_once_job()` 交给宿主调度器，不要为此自建
+`BackgroundScheduler`。自建调度器会常驻调度线程和工作线程，重复创建而不关闭还会让线程持续累积。
+
+```python
+from app.sdk import scheduler as scheduler_sdk
+
+
+def init_plugin(self, config: dict | None = None) -> None:
+    """保存配置时勾选“立即运行一次”，则延迟 3 秒执行一次刷新。"""
+    config = config or {}
+    if config.get("onlyonce"):
+        scheduler_sdk.add_plugin_once_job(
+            self.__class__.__name__,
+            "refresh_once",
+            self.refresh,
+            "我的插件立即运行一次",
+            delay_seconds=3,
+        )
+        config["onlyonce"] = False
+        self.update_config(config)
+```
+
+- 追加一次性任务不会重建 `get_service()` 声明的周期服务，也不会重置它们的计时。
+- 同一插件内同一任务 ID 重复追加时只保留最后一次，可以直接用来合并短时间内的重复触发。
+- `func` 传插件实例的绑定方法。插件重载换成新实例后，宿主会丢弃旧实例登记的待执行任务，插件卸载时任务一并清除。
+- 插件停止后不应再执行的任务，在 `stop_service()` 里用 `remove_plugin_once_job(插件ID, 任务ID)` 取消。
+- 调度器未运行时返回 `False`，调用方按需兜底。需要兼容尚未提供该接口的主程序时，用
+  `getattr(scheduler_sdk, "add_plugin_once_job", None)` 判断，或按
+  [限定主系统版本](./faq/18-limit-moviepilot-version.md) 声明 `system_version`。
+
 ### 9.4 通知、工作流和 Agent
 
 - 使用基类 `post_message()` 或 `app.sdk.services.NotificationHelper` 发送通知。
