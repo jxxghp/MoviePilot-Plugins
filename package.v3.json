@@ -871,5 +871,31 @@
       "v1.0.2": "修复 dashboard 格式/API 解包/timer 响应，新增 lan-wall 与 public-data 无认证接口",
       "v1.0.0": "初始版本，支持照片/浮动/怀旧冲印/光舞等屏幕保护动效"
     }
+  },
+  "AutoSubtitle": {
+    "name": "自动字幕下载",
+    "description": "文件整理完成后自动搜索并下载缺失的字幕",
+    "labels": "字幕",
+    "version": "2.0.0",
+    "icon": "subtitle.png",
+    "author": "yubanmeiqin9048",
+    "level": 2,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v2.0.0": "适配 MoviePilot V3，安装时不再强制构建可选调轴依赖"
+    }
+  },
+  "SubtitleAssistant": {
+    "name": "字幕助手",
+    "description": "覆盖搜索、匹配、下载、归属、落盘、维护与审计的字幕全生命周期管理。",
+    "labels": "字幕",
+    "version": "2.0.0",
+    "icon": "https://raw.githubusercontent.com/yubanmeiqin9048/MoviePilot-Plugins/main/icons/SubtitleAssistant.png",
+    "author": "yubanmeiqin9048",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v2.0.0": "适配 MoviePilot V3 插件依赖清单与运行合同"
+    }
   }
 }
