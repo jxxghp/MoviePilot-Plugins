@@ -37,7 +37,7 @@ class AutoSignIn(_PluginBase):
     # 插件图标
     plugin_icon = "signin.png"
     # 插件版本
-    plugin_version = "2.9.6"
+    plugin_version = "2.9.7"
     # 插件作者
     plugin_author = "thsrite"
     # 作者主页
@@ -48,6 +48,9 @@ class AutoSignIn(_PluginBase):
     plugin_order = 0
     # 可使用的用户级别
     auth_level = 2
+
+    # 持久化全选标记，执行时展开，自动包含后续新增站点。
+    _ALL_SITES = "all"
 
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
@@ -69,6 +72,7 @@ class AutoSignIn(_PluginBase):
     _auto_cf: int = 0
 
     def init_plugin(self, config: dict = None):
+        """加载配置并保留动态全选标记，注册需要立即执行的任务。"""
 
         # 停止现有任务
         self.stop_service()
@@ -89,8 +93,10 @@ class AutoSignIn(_PluginBase):
             # 过滤掉已删除的站点
             all_sites = [site.id for site in SiteOper().list_order_by_pri()] + [site.get("id") for site in
                                                                                 self.__custom_sites()]
-            self._sign_sites = [site_id for site_id in all_sites if site_id in self._sign_sites]
-            self._login_sites = [site_id for site_id in all_sites if site_id in self._login_sites]
+            self._sign_sites = ([self._ALL_SITES] if self._ALL_SITES in self._sign_sites else
+                                [site_id for site_id in all_sites if site_id in self._sign_sites])
+            self._login_sites = ([self._ALL_SITES] if self._ALL_SITES in self._login_sites else
+                                [site_id for site_id in all_sites if site_id in self._login_sites])
             # 保存配置
             self.__update_config()
 
@@ -120,9 +126,11 @@ class AutoSignIn(_PluginBase):
                     self._scheduler.start()
 
     def get_state(self) -> bool:
+        """返回插件启用状态。"""
         return self._enabled
 
     def __update_config(self):
+        """保存原始站点选择，避免全选退化为固定站点列表。"""
         # 保存配置
         self.update_config(
             {
@@ -261,7 +269,8 @@ class AutoSignIn(_PluginBase):
         # 站点的可选项（内置站点 + 自定义站点）
         customSites = self.__custom_sites()
 
-        site_options = ([{"title": site.name, "value": site.id}
+        site_options = ([{"title": "全部", "value": self._ALL_SITES}]
+                        + [{"title": site.name, "value": site.id}
                          for site in SiteOper().list_order_by_pri()]
                         + [{"title": site.get("name"), "value": site.get("id")}
                            for site in customSites])
@@ -423,7 +432,9 @@ class AutoSignIn(_PluginBase):
                                             'multiple': True,
                                             'model': 'sign_sites',
                                             'label': '签到站点',
-                                            'items': site_options
+                                            'items': site_options,
+                                            'hint': '选择全部后自动包含后续新增站点',
+                                            'persistent-hint': True
                                         }
                                     }
                                 ]
@@ -443,7 +454,9 @@ class AutoSignIn(_PluginBase):
                                             'multiple': True,
                                             'model': 'login_sites',
                                             'label': '登录站点',
-                                            'items': site_options
+                                            'items': site_options,
+                                            'hint': '选择全部后自动包含后续新增站点',
+                                            'persistent-hint': True
                                         }
                                     }
                                 ]
@@ -532,7 +545,16 @@ class AutoSignIn(_PluginBase):
             "retry_keyword": "错误|失败"
         }
 
+    def _resolve_site_ids(self, selected: list) -> list:
+        """为详情页展开全选标记，包含内置站点和已启用的自定义站点。"""
+        if self._ALL_SITES in selected:
+            return [site.id for site in SiteOper().list_order_by_pri()] + [
+                site.get("id") for site in self.__custom_sites()
+            ]
+        return selected
+
     def __custom_sites(self) -> List[Any]:
+        """读取已启用的自定义站点插件配置。"""
         custom_sites = []
         custom_sites_config = self.get_config("CustomSites")
         if custom_sites_config and custom_sites_config.get("enabled"):
@@ -677,12 +699,12 @@ class AutoSignIn(_PluginBase):
             login_site_data[site_name].append(record)
 
         # 补齐已配置但暂无历史记录的站点，详情页能直接看出未记录项。
-        for site_id in self._sign_sites:
+        for site_id in self._resolve_site_ids(self._sign_sites):
             site_name = self._get_site_display_name(site_id=site_id, sites_info=sites_info)
             if not site_name:
                 continue
             signin_site_data.setdefault(site_name, [])
-        for site_id in self._login_sites:
+        for site_id in self._resolve_site_ids(self._login_sites):
             site_name = self._get_site_display_name(site_id=site_id, sites_info=sites_info)
             if not site_name:
                 continue
@@ -1439,10 +1461,13 @@ class AutoSignIn(_PluginBase):
         # 查询所有站点
         all_sites = [site for site in SitesHelper().get_indexers() if not site.get("public")] + self.__custom_sites()
         # 过滤掉没有选中的站点
-        if do_sites:
+        if do_sites and self._ALL_SITES not in do_sites:
             do_sites = [site for site in all_sites if site.get("id") in do_sites]
         else:
             do_sites = all_sites
+
+        # 记录本轮真实站点ID，历史、重试与通知不能使用全选标记。
+        selected_site_ids = [site.get("id") for site in do_sites]
 
         # 今日没数据
         if not today_history or self._clean:
@@ -1558,13 +1583,13 @@ class AutoSignIn(_PluginBase):
 
             if not self._retry_keyword:
                 # 没设置重试关键词则重试已选站点
-                retry_sites = self._sign_sites if type_str == "签到" else self._login_sites
+                retry_sites = selected_site_ids
             logger.debug(f"下次{type_str}重试站点 {retry_sites}")
 
             # 存入历史
             self.save_data(key=type_str + "-" + today,
                            value={
-                               "do": self._sign_sites if type_str == "签到" else self._login_sites,
+                               "do": selected_site_ids,
                                "retry": retry_sites
                            })
 
@@ -1584,7 +1609,7 @@ class AutoSignIn(_PluginBase):
                 signin_message = "\n".join([f'【{s[0]}】{s[1]}' for s in signin_message if s])
                 self.post_message(title=f"【站点自动{type_str}】",
                                   mtype=NotificationType.SiteMessage,
-                                  text=f"全部{type_str}数量: {len(self._sign_sites if type_str == '签到' else self._login_sites)} \n"
+                                  text=f"全部{type_str}数量: {len(selected_site_ids)} \n"
                                        f"本次{type_str}数量: {len(do_sites)} \n"
                                        f"下次{type_str}数量: {len(retry_sites) if self._retry_keyword else 0} \n"
                                        f"{signin_message}"
@@ -1601,6 +1626,7 @@ class AutoSignIn(_PluginBase):
         self.__update_config()
 
     def __build_class(self, url) -> Any:
+        """按站点地址匹配专用签到处理器。"""
         for site_schema in self._site_schema:
             try:
                 if site_schema.match(url):
@@ -1855,6 +1881,9 @@ class AutoSignIn(_PluginBase):
             self.__update_config()
 
     def __remove_site_id(self, do_sites, site_id):
+        """移除已删除站点；全选模式保留以便自动纳入后续新增站点。"""
+        if self._ALL_SITES in do_sites:
+            return [self._ALL_SITES]
         if do_sites:
             if isinstance(do_sites, str):
                 do_sites = [do_sites]
