@@ -18,6 +18,15 @@ V3_PLUGINS = ROOT / "plugins.v3"
 
 
 class PackageTests(unittest.TestCase):
+    def test_subtitleassistant_target_package_is_included(self) -> None:
+        """字幕助手运行态依赖的 target 包必须随 V3 插件一起发布。"""
+
+        target = V3_PLUGINS / "subtitleassistant" / "target"
+        self.assertTrue((target / "__init__.py").is_file())
+        for module in ("history.py", "mapping.py", "projection.py"):
+            with self.subTest(module=module):
+                self.assertTrue((target / module).is_file())
+
     def test_v3_market_and_dependency_manifests(self) -> None:
         """市场应选 V3 副本，依赖清单可被 V3 解析。"""
 
