@@ -10,9 +10,8 @@ from app.plugins.agenttokens import AgentTokens  # noqa: E402
 
 
 def _plugin() -> AgentTokens:
-    """构造插件实例，隔离与被测逻辑无关的宿主 Chain 组合根。"""
-    with patch("app.plugins.PluginChian"):
-        return AgentTokens()
+    """构造插件实例；宿主 Chain 运行上下文由根 conftest 统一装配替身。"""
+    return AgentTokens()
 
 
 def _provider(provider_id: str, priority: int, **overrides) -> dict:

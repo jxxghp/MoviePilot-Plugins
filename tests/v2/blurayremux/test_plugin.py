@@ -1,6 +1,5 @@
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
 
 from app.plugins import blurayremux
 from app.core.config import settings
@@ -71,8 +70,7 @@ def _meta(path: str):
 
 
 def _plugin(enabled: bool = True) -> BlurayRemux:
-    with patch("app.plugins.PluginChian"):
-        plugin = BlurayRemux()
+    plugin = BlurayRemux()
     plugin.init_plugin({"enabled": enabled, "timeout": 60})
     return plugin
 

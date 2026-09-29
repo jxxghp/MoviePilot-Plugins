@@ -69,7 +69,8 @@ def test_production_import_uses_real_host_base_and_sqlite(host_plugin, host_runt
 
     assert HDBlueSignin.__module__ == "app.plugins.hdbluesignin"
     assert isinstance(host_plugin, _PluginBase)
-    assert Path(inspect.getfile(_PluginBase)).resolve() == host_runtime / "app/plugins/__init__.py"
+    # 插件契约基类已迁入 SDK，app.plugins 包根只保留兼容导出
+    assert Path(inspect.getfile(_PluginBase)).resolve() == host_runtime / "app/sdk/plugin/base.py"
     assert isinstance(host_plugin.plugindata, PluginDataOper)
     assert isinstance(host_plugin.systemconfig, SystemConfigOper)
     assert peek_sync_engine().url.get_backend_name() == "sqlite"

@@ -8,9 +8,8 @@ from app.plugins.sitestatistic import SiteStatistic
 
 
 def _plugin() -> SiteStatistic:
-    """构造站点数据统计插件，并隔离宿主 Chain 初始化。"""
-    with patch("app.plugins.PluginChian"):
-        plugin = SiteStatistic()
+    """构造站点数据统计插件；宿主 Chain 运行上下文由根 conftest 统一装配替身。"""
+    plugin = SiteStatistic()
     plugin._notify_type = "inc"
     return plugin
 
