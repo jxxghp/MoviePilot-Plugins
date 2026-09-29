@@ -22,11 +22,10 @@ def _plugin(config: dict = None) -> ChatGPT:
     """创建启用状态的插件实例，隔离缓存与统计的持久化副作用。
 
     链式事件分发依赖 PluginManager 路由到运行态插件实例，这里同步注册测试实例，
-    保证 send_event 能真实调度到本插件处理器；与当前用例无关的宿主 Chain 组合根不在
-    插件仓测试中初始化。
+    保证 send_event 能真实调度到本插件处理器；宿主 Chain 运行上下文由根 conftest
+    统一装配替身。
     """
-    with patch("app.plugins.PluginChian"):
-        plugin = ChatGPT()
+    plugin = ChatGPT()
     with patch.object(plugin, "get_data", return_value=None), patch.object(plugin, "save_data"):
         plugin.init_plugin({"enabled": True, **(config or {})})
     plugin_manager = PluginManager()
