@@ -1,9 +1,9 @@
 from types import SimpleNamespace
 
-import maoyanrank
+from app.plugins import maoyanrank
 from app.core.metainfo import MetaInfo
 
-from maoyanrank import MaoyanRank
+from app.plugins.maoyanrank import MaoyanRank
 
 
 def test_resolve_tv_subscribe_season_prefers_title_marker(monkeypatch):

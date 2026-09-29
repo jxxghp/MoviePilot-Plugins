@@ -479,7 +479,7 @@
   "MaoyanRank": {
     "name": "猫眼榜单订阅",
     "description": "监控猫眼数据，自动添加订阅。",
-    "version": "4.1.0",
+    "version": "4.1.1",
     "icon": "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg",
     "color": "#fefefe",
     "author": "逗猫",
@@ -487,6 +487,7 @@
     "release": true,
     "system_version": ">=3.0.0",
     "history": {
+      "v4.1.1": "修复上映信息为空时的年份解析警告，隔离 Cookie 获取、单源请求和榜单坏条目异常，避免影响后续榜单与订阅",
       "v4.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
       "v4.0.0": "V3 独立大版本：统一媒体身份，拒绝零值或未知来源，并在合法回填后迁移插件历史中的旧媒体 ID 字段。",
       "v3.2": "修复剧集订阅季号识别，标题含季号时优先使用标题季号，否则按TMDB最新季订阅",
