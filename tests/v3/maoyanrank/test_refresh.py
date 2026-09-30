@@ -1,5 +1,6 @@
 """猫眼榜单的异常隔离、上映年份与后续订阅回归。"""
 
+
 import datetime
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -55,7 +56,7 @@ def test_browser_failure_does_not_block_any_rank(plugin):
     request = maoyanrank.RequestUtils.return_value.get_res
     request.side_effect = [
         response({"movieList": {"list": [{"movieInfo": {"movieName": "院线电影"}}]}}),
-        response({"data": {"list": [{"name": "网络电影"}]}}),
+        response({"dataList": {"list": [{"seriesInfo": {"name": "网络电影"}}]}}),
         response({"dataList": {"list": [{"seriesInfo": {"name": "电视剧"}}]}}),
     ]
 
@@ -72,7 +73,7 @@ def test_invalid_item_preserves_other_items_in_same_rank(plugin, kind):
     """榜单内部坏条目不丢弃前后有效记录，也不订阅排名限制之外的记录。"""
     data_key, info_key, title_key = {
         "movie": ("movieList", "movieInfo", "movieName"),
-        "web-movie": ("data", None, "name"),
+        "web-movie": ("dataList", "seriesInfo", "name"),
         "tv": ("dataList", "seriesInfo", "name"),
     }[kind]
 
@@ -154,7 +155,7 @@ def test_refresh_keeps_later_ranks_and_saves_history(plugin, monkeypatch):
     request = maoyanrank.RequestUtils.return_value.get_res
     request.side_effect = [
         RuntimeError("首榜失败"),
-        response({"data": {"list": [{"name": "网络电影"}]}}),
+        response({"dataList": {"list": [{"seriesInfo": {"name": "网络电影"}}]}}),
         response({"dataList": {"list": [{"seriesInfo": {"name": "电视剧"}}]}}),
         response({"dataList": {"list": [{"seriesInfo": {"name": "网剧"}}]}}),
         response({"dataList": {"list": [{"seriesInfo": {"name": "综艺"}}]}}),
@@ -316,3 +317,83 @@ def test_refresh_builds_current_heat_urls_and_preserves_filters(plugin, monkeypa
         queries.append((query["seriesType"][0], query.get("platformType", [None])[0], limit))
     assert queries == [(series, platform, limit) for series in ("0", "1", "2")
                        for platform, limit in ((None, 1), ("3", 2), ("2", 3), ("7", 5), ("1", 7))]
+
+
+@pytest.mark.parametrize("latest,retries", [
+    ("2026-09-29", 1), ("20260929", 1), ("2026-09-30", 0), (None, 0),
+])
+def test_network_movie_retries_latest_available_date(plugin, latest, retries):
+    """网络电影在同一浏览器会话中回退到可用日期，最多重试一次。"""
+    from urllib.parse import parse_qs, urlsplit
+
+    url = "https://piaofang.maoyan.com/i/api/encrypt/dashboard/webHeatNetData?showDate=20260930&platformType=3&dateType=0&rankType=0"
+    page = SimpleNamespace(
+        context=SimpleNamespace(cookies=Mock(return_value=[])),
+        evaluate=Mock(side_effect=[
+            "official-browser-ua",
+            {"status": False, "calendarNet": {"selectMaxDate": latest}},
+            {"dataList": {"list": [
+                {"seriesInfo": {"name": "网络电影", "platformDesc": "腾讯视频"}},
+                {"seriesInfo": {"name": "超出排名"}},
+            ]}},
+        ]),
+    )
+    plugin._MaoyanRank__with_browser.side_effect = lambda callback: callback(page)
+
+    movies, shows = plugin._MaoyanRank__get_url_info("", [], url, 1)
+
+    assert shows == []
+    assert [item["title"] for item in movies] == (["网络电影"] if retries else [])
+    assert page.evaluate.call_count == 2 + retries
+    maoyanrank.RequestUtils.assert_not_called()
+    if retries:
+        query = parse_qs(urlsplit(page.evaluate.call_args.args[1]).query)
+        assert query == {"showDate": ["20260929"], "platformType": ["3"], "dateType": ["0"], "rankType": ["0"]}
+
+
+def test_network_movie_retry_failure_preserves_other_ranks(plugin):
+    """网络电影回退请求失败后，保留票房榜并继续获取剧集。"""
+    net_url = "https://piaofang.maoyan.com/i/api/encrypt/dashboard/webHeatNetData?showDate=20260930&platformType=3&dateType=0&rankType=0"
+    tv_url = "https://piaofang.maoyan.com/i/api/encrypt/dashboard/webHeatData?showDate=20260930"
+    page = SimpleNamespace(
+        context=SimpleNamespace(cookies=Mock(return_value=[])),
+        evaluate=Mock(side_effect=[
+            "official-browser-ua",
+            {"status": False, "calendarNet": {"selectMaxDate": "2026-09-29"}},
+            RuntimeError("HTTP 403"),
+            {"dataList": {"list": [{"seriesInfo": {"name": "后续剧集"}}]}},
+        ]),
+    )
+    plugin._MaoyanRank__with_browser.side_effect = lambda callback: callback(page)
+    maoyanrank.RequestUtils.return_value.get_res.return_value = response(
+        {"movieList": {"list": [{"movieInfo": {"movieName": "院线电影"}}]}}
+    )
+
+    movies, shows = plugin._MaoyanRank__get_url_info("movie", [[tv_url, 1]], net_url, 1)
+
+    assert [item["title"] for item in movies] == ["院线电影"]
+    assert [item["title"] for item in shows] == ["后续剧集"]
+    assert page.evaluate.call_count == 4
+
+
+def test_refresh_builds_current_network_movie_url(plugin, monkeypatch):
+    """网络电影从刷新入口生成北京时间日期及官网当前参数。"""
+    from urllib.parse import parse_qs, urlsplit
+
+    plugin._type = ["web-movie"]
+    monkeypatch.setattr(plugin, "get_data", Mock(return_value=[]))
+    monkeypatch.setattr(plugin, "save_data", Mock())
+    fetch = Mock(return_value=([], []))
+    monkeypatch.setattr(plugin, "_MaoyanRank__get_url_info", fetch)
+
+    plugin._MaoyanRank__refresh_maoyan()
+
+    movie_url, tv_urls, net_url, _ = fetch.call_args.args
+    assert movie_url == ""
+    assert tv_urls == []
+    parts = urlsplit(net_url)
+    assert parts.path == "/i/api/encrypt/dashboard/webHeatNetData"
+    expected = datetime.datetime.now(maoyanrank.pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d")
+    assert parse_qs(parts.query) == {
+        "showDate": [expected], "platformType": ["3"], "dateType": ["0"], "rankType": ["0"],
+    }
