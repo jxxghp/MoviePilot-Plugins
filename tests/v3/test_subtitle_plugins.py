@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import tomllib
@@ -18,6 +19,35 @@ V3_PLUGINS = ROOT / "plugins.v3"
 
 
 class PackageTests(unittest.TestCase):
+    def test_subtitleassistant_frontend_is_published(self) -> None:
+        """Vue 联邦入口及其资源必须随插件提交到仓库。"""
+
+        assets = V3_PLUGINS / "subtitleassistant" / "frontend" / "dist" / "assets"
+        tracked = set(
+            subprocess.check_output(
+                ["git", "ls-files", "--", "plugins.v3/subtitleassistant/frontend/dist/assets"],
+                cwd=ROOT,
+                text=True,
+            ).splitlines()
+        )
+        entry = assets / "remoteEntry.js"
+        self.assertIn(entry.relative_to(ROOT).as_posix(), tracked)
+        entry_source = entry.read_text(encoding="utf-8")
+        self.assertIn("./AppPage", entry_source)
+        self.assertIn("./Config", entry_source)
+        for asset in assets.iterdir():
+            with self.subTest(asset=asset.name):
+                self.assertIn(asset.relative_to(ROOT).as_posix(), tracked)
+
+    def test_subtitleassistant_target_package_is_included(self) -> None:
+        """字幕助手运行态依赖的 target 包必须随 V3 插件一起发布。"""
+
+        target = V3_PLUGINS / "subtitleassistant" / "target"
+        self.assertTrue((target / "__init__.py").is_file())
+        for module in ("history.py", "mapping.py", "projection.py"):
+            with self.subTest(module=module):
+                self.assertTrue((target / module).is_file())
+
     def test_v3_market_and_dependency_manifests(self) -> None:
         """市场应选 V3 副本，依赖清单可被 V3 解析。"""
 
@@ -26,7 +56,7 @@ class PackageTests(unittest.TestCase):
         for plugin_id in ("AutoSubtitle", "SubtitleAssistant"):
             with self.subTest(plugin=plugin_id):
                 entry = catalog[plugin_id]
-                self.assertEqual(entry["version"], "2.0.0")
+                self.assertEqual(entry["version"], "2.0.1" if plugin_id == "SubtitleAssistant" else "2.0.0")
                 self.assertEqual(entry["system_version"], ">=3.0.0")
                 self.assertFalse(legacy[plugin_id]["v3"])
                 manifest = tomllib.loads(
