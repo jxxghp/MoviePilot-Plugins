@@ -128,7 +128,7 @@ MoviePilot 当前的插件版本选择逻辑可以概括为：
 - 同一个插件若在 `package.v2.json` 中已有专用实现，就不要再依赖 `package.json` 中的兼容声明做“隐式覆盖”。
 - 只有维护历史 V2 插件时，才继续使用 `plugins.v2/` 和 `package.v2.json`。
 - 旧插件确实跨版本共用一套实现时，才使用 `package.json + "v2": true` 的方式。
-- 依赖 V3 新合同的实现必须放入 `plugins.v3/` 并在 `package.v3.json` 声明 `system_version: ">=3.0.0"`。
+- 依赖 V3 新合同的实现必须放入 `plugins.v3/` 并在 `package.v3.json` 声明 `system_version: ">=3.0.0"`；依赖某个 3.x 版本才提供的宿主能力时，把下界提高到该版本，例如 `">=3.0.11"`。
 - 依赖宿主新增能力的插件需要同步声明 `system_version`，否则旧版 MoviePilot 仍可能看到更新入口但安装后无法加载。
 
 涉及媒体识别、搜索、订阅、下载、整理、刮削、媒体库事件、插件自有媒体数据、

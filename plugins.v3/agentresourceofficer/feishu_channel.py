@@ -1,4 +1,3 @@
-import asyncio
 import copy
 import fcntl
 import importlib
@@ -26,11 +25,15 @@ for _site_path in (
         sys.path.append(_site_path)
 
 try:
-    import lark_oapi as lark
-except Exception:
-    lark = None
+    # 宿主 v3.0.11 起经 SDK 提供飞书事件长连接，插件不再依赖 lark-oapi；更早的宿主没有该接口。
+    from app.sdk.feishu import FeishuLongConnection
+except ImportError:
+    FeishuLongConnection = None
 
-_LARK_IMPORT_LOCK = threading.Lock()
+# 飞书长连接要求的最低宿主版本，用于依赖缺失时的提示。
+_FEISHU_MIN_HOST_VERSION = "v3.0.11"
+# 插件只处理「接收消息」事件，其余事件由长连接直接应答。
+_FEISHU_MESSAGE_EVENT = "im.message.receive_v1"
 
 def _optional_import(module_name: str, attr_name: str) -> Any:
     try:
@@ -84,35 +87,33 @@ except Exception:
 _EVENT_CACHE_FILE = Path("/config/plugins/AgentResourceOfficer/.feishu_event_cache.json")
 
 
-def ensure_lark_sdk() -> tuple[bool, str]:
-    """确认飞书 SDK 可用，依赖缺失时交由宿主插件安装流程恢复。"""
-    global lark
-
-    if lark is not None:
+def ensure_feishu_transport() -> tuple[bool, str]:
+    """确认宿主提供飞书事件长连接。"""
+    if FeishuLongConnection is not None:
         return True, ""
-
-    with _LARK_IMPORT_LOCK:
-        if lark is not None:
-            return True, ""
-
-        try:
-            import lark_oapi as runtime_lark
-
-            lark = runtime_lark
-            return True, ""
-        except Exception as exc:
-            return False, f"缺少依赖 lark-oapi：{exc}，请重新安装插件以恢复依赖"
+    return False, f"当前 MoviePilot 未提供飞书长连接接口，请升级到 {_FEISHU_MIN_HOST_VERSION} 或更高版本"
 
 
 class _FeishuLongConnectionRuntime:
+    """
+    管理宿主飞书长连接的线程生命周期。
+
+    长连接可从任意线程停止，因此插件停用、热重载或凭证变更时会关闭旧连接再按需重连，
+    不再遗留后台线程。
+    """
+
+    # 停止后等待旧连接线程退出的上限秒数；stop() 会中断阻塞的 recv，正常远小于该值。
+    _STOP_JOIN_TIMEOUT_SECONDS = 5
+
     def __init__(self) -> None:
         self._thread: Optional[threading.Thread] = None
+        self._client: Any = None
         self._lock = threading.Lock()
         self._fingerprint = ""
         self._channel: Optional["FeishuChannel"] = None
 
     def start(self, channel: "FeishuChannel") -> None:
-        ok, message = ensure_lark_sdk()
+        ok, message = ensure_feishu_transport()
         if not ok:
             logger.error(f"[AgentResourceOfficer][Feishu] {message}")
             return
@@ -124,48 +125,56 @@ class _FeishuLongConnectionRuntime:
         with self._lock:
             self._channel = channel
             if self._thread and self._thread.is_alive():
-                if fingerprint != self._fingerprint:
-                    logger.warning("[AgentResourceOfficer][Feishu] 长连接已在运行，飞书凭证变更需重启 MoviePilot 后生效")
-                return
+                if fingerprint == self._fingerprint:
+                    return
+                logger.info("[AgentResourceOfficer][Feishu] 飞书凭证已变更，正在重建长连接")
+                self._stop_client_locked()
             self._fingerprint = fingerprint
+            self._client = FeishuLongConnection(
+                channel.app_id,
+                channel.app_secret,
+                on_event=self._on_event,
+                name="AgentResourceOfficer",
+            )
             self._thread = threading.Thread(
                 target=self._run,
+                args=(self._client,),
                 name="agent-resource-officer-feishu",
                 daemon=True,
             )
             self._thread.start()
 
-    def _run(self) -> None:
-        channel = self._channel
-        if channel is None or lark is None:
-            return
-
-        def _on_message(data) -> None:
-            current = self._channel
-            if current is not None:
-                current.handle_long_connection_event(data)
-
+    @staticmethod
+    def _run(client: Any) -> None:
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            import lark_oapi.ws.client as lark_ws_client
-
-            lark_ws_client.loop = loop
-            event_handler = (
-                lark.EventDispatcherHandler.builder("", "")
-                .register_p2_im_message_receive_v1(_on_message)
-                .build()
-            )
-            ws_client = lark.ws.Client(
-                channel.app_id,
-                channel.app_secret,
-                log_level=lark.LogLevel.DEBUG if channel.debug else lark.LogLevel.INFO,
-                event_handler=event_handler,
-            )
             logger.info("[AgentResourceOfficer][Feishu] 正在启动飞书长连接")
-            ws_client.start()
+            client.run()
         except Exception as exc:
             logger.error(f"[AgentResourceOfficer][Feishu] 长连接退出：{exc}\n{traceback.format_exc()}")
+
+    def _on_event(self, payload: bytes) -> None:
+        """长连接线程内的事件回调：只把接收消息事件交给当前渠道。"""
+        current = self._channel
+        if current is None:
+            return
+        body = json.loads(payload.decode("utf-8"))
+        if not isinstance(body, dict):
+            return
+        header = body.get("header") or {}
+        if str(header.get("event_type") or "") != _FEISHU_MESSAGE_EVENT:
+            return
+        current.handle_long_connection_event(body)
+
+    def _stop_client_locked(self) -> None:
+        """停止当前连接并有限等待线程退出；调用方须持有 _lock。"""
+        client, thread = self._client, self._thread
+        self._client = None
+        self._thread = None
+        self._fingerprint = ""
+        if client is not None:
+            client.stop()
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=self._STOP_JOIN_TIMEOUT_SECONDS)
 
     def is_running(self) -> bool:
         with self._lock:
@@ -174,6 +183,7 @@ class _FeishuLongConnectionRuntime:
     def stop(self) -> None:
         with self._lock:
             self._channel = None
+            self._stop_client_locked()
 
 
 class FeishuChannel:
@@ -418,14 +428,14 @@ class FeishuChannel:
         return "|".join([self.app_id, self.app_secret, self.verification_token])
 
     def health(self) -> Dict[str, Any]:
-        sdk_available, sdk_message = ensure_lark_sdk()
+        sdk_available, sdk_message = ensure_feishu_transport()
         legacy_bridge_running = self.is_legacy_bridge_running()
         app_id_configured = bool(self.app_id)
         app_secret_configured = bool(self.app_secret)
         verification_token_configured = bool(self.verification_token)
         missing_requirements = []
         if not sdk_available:
-            missing_requirements.append("lark-oapi")
+            missing_requirements.append(f"MoviePilot>={_FEISHU_MIN_HOST_VERSION}")
         if not app_id_configured:
             missing_requirements.append("feishu_app_id")
         if not app_secret_configured:
@@ -475,26 +485,30 @@ class FeishuChannel:
             "migration_hint": migration_hint,
         }
 
-    def handle_long_connection_event(self, data: Any) -> None:
+    def handle_long_connection_event(self, data: Dict[str, Any]) -> None:
+        """
+        处理飞书 2.0 版「接收消息」事件。
+
+        :param data: 长连接收到的事件 JSON，含 header（event_id 等）与 event（sender、message）
+        """
         if not self.enabled:
             return
-        event = getattr(data, "event", None)
-        header = getattr(data, "header", None)
-        message = getattr(event, "message", None)
-        sender = getattr(event, "sender", None)
-        sender_id = getattr(sender, "sender_id", None)
+        header = data.get("header") or {}
+        event = data.get("event") or {}
+        message = event.get("message") or {}
+        sender_id = (event.get("sender") or {}).get("sender_id") or {}
 
-        event_id = str(getattr(header, "event_id", "") or "").strip()
+        event_id = str(header.get("event_id") or "").strip()
         if event_id and self._is_duplicate_event(event_id):
             return
-        if not message or str(getattr(message, "message_type", "")).strip() != "text":
+        if not message or str(message.get("message_type") or "").strip() != "text":
             return
 
-        raw_text = self._extract_text(getattr(message, "content", None))
+        raw_text = self._extract_text(message.get("content"))
         if not raw_text:
             return
-        sender_open_id = str(getattr(sender_id, "open_id", "") or "").strip()
-        chat_id = str(getattr(message, "chat_id", "") or "").strip()
+        sender_open_id = str(sender_id.get("open_id") or "").strip()
+        chat_id = str(message.get("chat_id") or "").strip()
         if self.debug:
             logger.info(
                 f"[AgentResourceOfficer][Feishu] event_id={event_id} "

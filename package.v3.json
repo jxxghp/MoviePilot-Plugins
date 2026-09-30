@@ -104,12 +104,13 @@
     "name": "Agent影视助手",
     "description": "龙虾agent稳定控制 MP：飞书入口、盘搜/影巢搜索、115/夸克转存、智能评分推荐。",
     "labels": "Agent,影巢,HDHive,115,夸克,Quark,智能体,转存,解锁",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "icon": "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png",
     "author": "liuyuexi1987",
     "level": 1,
     "release": true,
     "history": {
+      "v1.1.2": "飞书入口改用 MoviePilot 内置的飞书长连接，不再依赖 lark-oapi，内存占用减少约 170MB；插件停用或飞书凭证变更时会关闭旧连接并自动重连。需要 MoviePilot v3.0.11 及以上版本。",
       "v1.1.1": "依赖安装统一交由宿主管理，移除飞书 SDK 缺失时直接调用 pip 的自修复路径，并迁移至现代依赖清单。",
       "v1.1.0": "适配 V3 SDK 导入规范：插件内部导入全面迁移至 app.sdk 体系，去除对旧版兼容层的依赖。",
       "1.0.1": "修复 p115client 依赖版本号错误（0.0.8.5.1.1 不存在），固定为 PyPI 实际存在的 0.0.9.6.5.1，解决依赖安装失败问题。",
@@ -125,7 +126,7 @@
       "0.1.34": "打通统一智能入口、原生 Agent Tool、会话状态/清理、115 扫码登录、待处理任务恢复与 115 独立直转执行层。",
       "0.1.9": "首版接入夸克/115 转存、影巢搜索/解锁、盘搜/直链路由、候选分页详情、账号配额、签到兜底和健康检查。"
     },
-    "system_version": ">=3.0.0",
+    "system_version": ">=3.0.11",
     "v3t": false
   },
   "AutoClean": {
