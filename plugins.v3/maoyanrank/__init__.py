@@ -4,6 +4,7 @@ import random
 import re
 from threading import Event
 from typing import Tuple, List, Dict, Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -44,7 +45,7 @@ class MaoyanRank(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg"
     # 插件版本
-    plugin_version = "4.1.2"
+    plugin_version = "4.1.3"
     # 插件作者
     plugin_author = "逗猫"
     # 作者主页
@@ -945,19 +946,18 @@ class MaoyanRank(_PluginBase):
         web_movie_url = ''
         tv_urls = []
         # 获取当前日期时间格式化为字符串
-        format_date = current_time.strftime("%Y-%m-%d")
+        show_date = datetime.datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y%m%d')
         maoyan_url = 'https://piaofang.maoyan.com'
         if 'movie' in self._type:
             movie_url = f'{maoyan_url}/dashboard-ajax/movie'
         if 'web-movie' in self._type:
 
-            web_movie_url = (f'{maoyan_url}/dashboard/webMaoYanHotData?seriesType=0&platform=20&'
-                             f'date={format_date}&networkHot=3')
+            web_movie_url = (f'{maoyan_url}/i/api/encrypt/dashboard/webHeatNetData?'
+                             f'showDate={show_date}&platformType=3&dateType=0&rankType=0')
         # 0: 电视剧  1: 网络剧 2: 综艺 不传递-1代表电视剧+网络剧
         # 参数 platformType: 代表平台 0 全网 3 腾讯视频 2 爱奇艺 1 优酷 7 芒果
         # 电视剧
         tv_url = f'{maoyan_url}/i/api/encrypt/dashboard/webHeatData'
-        show_date = datetime.datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y%m%d')
         if 'web-heat' in self._type:
             # 全网
             if self._all_enabled:
@@ -1214,7 +1214,7 @@ class MaoyanRank(_PluginBase):
         if movie_url:
             sources.append((movie_url, num, '电影票房榜单', 'movieList', 'movieInfo', 'movieName', movies_list))
         if web_movie_url:
-            sources.append((web_movie_url, num, '网络电影榜单', 'data', None, 'name', movies_list))
+            sources.append((web_movie_url, num, '网络电影榜单', 'dataList', 'seriesInfo', 'name', movies_list))
         for tv_url, tv_num in tv_urls:
             sources.append((tv_url, tv_num, '剧集热度榜单', 'dataList', 'seriesInfo', 'name', tv_list))
         if not sources:
@@ -1237,6 +1237,20 @@ class MaoyanRank(_PluginBase):
                 try:
                     if page is not None and '/i/api/encrypt/dashboard/' in url:
                         payload = self.__request_browser_json(page, url)
+                        if url == web_movie_url and isinstance(payload, dict) and payload.get('status') is False:
+                            calendar = payload.get('calendarNet')
+                            latest = calendar.get('selectMaxDate') if isinstance(calendar, dict) else None
+                            if isinstance(latest, str):
+                                latest = latest.replace('-', '')
+                                if re.fullmatch(r'\d{8}', latest):
+                                    datetime.datetime.strptime(latest, '%Y%m%d')
+                                    parts = urlsplit(url)
+                                    query = dict(parse_qsl(parts.query))
+                                    if latest != query.get('showDate'):
+                                        query['showDate'] = latest
+                                        retry_url = urlunsplit(parts._replace(query=urlencode(query)))
+                                        logger.info(f"猫眼网络电影榜单暂未提供当日数据，重试最新可用日期 {latest}")
+                                        payload = self.__request_browser_json(page, retry_url)
                     else:
                         response = RequestUtils().get_res(url, cookies=cookies, headers=headers)
                         if response is None:

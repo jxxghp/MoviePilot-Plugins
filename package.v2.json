@@ -1067,7 +1067,7 @@
     "v3": false,
     "name": "猫眼榜单订阅",
     "description": "监控猫眼数据，自动添加订阅。",
-    "version": "3.4",
+    "version": "3.5",
     "icon": "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg",
     "color": "#fefefe",
     "author": "逗猫",
@@ -1075,6 +1075,7 @@
     "release": true,
     "system_version": ">=2.12.0",
     "history": {
+      "v3.5": "修复网络电影榜单旧接口 403，使用官网浏览器会话及当前数据结构，并在当日无数据时重试最新可用日期",
       "v3.4": "修复猫眼热度榜旧接口 403，使用官网当前接口及浏览器会话请求，按北京时间传递榜单日期并保留平台筛选与异常隔离",
       "v3.3": "修复上映信息为空时的年份解析警告，隔离 Cookie 获取、单源请求和榜单坏条目异常，避免影响后续榜单与订阅",
       "v3.2": "修复剧集订阅季号识别，标题含季号时优先使用标题季号，否则按TMDB最新季订阅",
